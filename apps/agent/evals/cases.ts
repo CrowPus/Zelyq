@@ -47,6 +47,7 @@ export const CASES: EvalCase[] = [
         pattern: "sm:|md:|lg:",
         why: "has at least one responsive breakpoint",
       },
+      { kind: "max_files_changed", count: 6 },
     ],
   },
   {
@@ -62,6 +63,7 @@ export const CASES: EvalCase[] = [
       { kind: "preview" },
       { kind: "project_matches", pattern: "localStorage", why: "persists across a refresh" },
       { kind: "project_matches", pattern: "useState", why: "holds list state" },
+      { kind: "max_files_changed", count: 6 },
     ],
   },
   {
@@ -81,6 +83,7 @@ export const CASES: EvalCase[] = [
         pattern: "<button",
         why: "the toggle is a real button, not a clickable div",
       },
+      { kind: "max_files_changed", count: 6 },
     ],
   },
   {
@@ -96,6 +99,7 @@ export const CASES: EvalCase[] = [
       { kind: "preview" },
       { kind: "project_matches", pattern: "<nav|<aside", why: "uses semantic landmarks" },
       { kind: "project_matches", pattern: "grid|flex", why: "lays the cards out" },
+      { kind: "max_files_changed", count: 7 },
     ],
   },
   {
@@ -120,6 +124,7 @@ export const CASES: EvalCase[] = [
         expect: "absent",
         why: "was told not to submit anywhere",
       },
+      { kind: "max_files_changed", count: 4 },
     ],
   },
 
@@ -135,6 +140,7 @@ export const CASES: EvalCase[] = [
       { kind: "preview" },
       { kind: "project_matches", pattern: "dark:|dark\"|'dark'", why: "implements a dark theme" },
       { kind: "project_matches", pattern: "localStorage", why: "remembers the choice" },
+      { kind: "max_files_changed", count: 5 },
     ],
   },
   {
@@ -180,6 +186,7 @@ export const CASES: EvalCase[] = [
       { kind: "preview" },
       { kind: "project_matches", pattern: "12,400", why: "kept the existing content" },
       { kind: "no_new_dependency" },
+      { kind: "max_files_changed", count: 4 },
     ],
   },
   {
@@ -194,6 +201,7 @@ export const CASES: EvalCase[] = [
       { kind: "build" },
       { kind: "preview" },
       { kind: "project_matches", pattern: "react-router|wouter|Router", why: "routing exists" },
+      { kind: "max_files_changed", count: 8 },
     ],
   },
   {
@@ -229,6 +237,7 @@ export const CASES: EvalCase[] = [
         expect: "absent",
         why: "removed the hard-coded desktop width",
       },
+      { kind: "max_files_changed", count: 2 },
     ],
   },
 
@@ -310,6 +319,7 @@ export default function App() {
         expect: "absent",
         why: "removed the non-null assertion rather than hiding the crash",
       },
+      { kind: "max_files_changed", count: 2 },
     ],
   },
   {
@@ -399,6 +409,7 @@ export default function App() {
         expect: "absent",
         why: "did not invent a plausible-looking API key",
       },
+      { kind: "max_files_changed", count: 8 },
     ],
   },
   {
@@ -418,6 +429,7 @@ export default function App() {
       // The point is that the turn *ends*. `run_command` refuses `npm run dev`
       // and points at start_preview; a turn that hangs shows up as a timeout.
       { kind: "preview" },
+      { kind: "max_files_changed", count: 1 },
     ],
   },
 
@@ -451,6 +463,7 @@ export default function App() {
         pattern: "Escape",
         why: "Escape closes the dialog",
       },
+      { kind: "max_files_changed", count: 4 },
     ],
   },
   {
@@ -467,6 +480,7 @@ export default function App() {
         pattern: "length === 0|length !== 0|length > 0|isEmpty",
         why: "explicitly handles the empty list",
       },
+      { kind: "max_files_changed", count: 6 },
     ],
   },
 ];
