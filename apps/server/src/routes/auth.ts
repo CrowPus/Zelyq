@@ -6,14 +6,14 @@ export const SESSION_COOKIE = "zelyq_session";
 
 export function registerAuthRoutes(
   app: FastifyInstance,
-  deps: { auth: AuthService; sessionTtlDays: number },
+  deps: { auth: AuthService; sessionTtlDays: () => Promise<number> },
 ): void {
   /**
    * Cookie, not a header. A token in localStorage is readable by any script on
    * the page; httpOnly is not, and the browser attaches it to the WebSocket
    * handshake for free.
    */
-  const setSessionCookie = (request: FastifyRequest, reply: FastifyReply, token: string) => {
+  const setSessionCookie = async (request: FastifyRequest, reply: FastifyReply, token: string) => {
     reply.setCookie(SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: "lax",
@@ -21,7 +21,7 @@ export function registerAuthRoutes(
       // Only mark Secure on a connection that is already HTTPS — doing it
       // unconditionally makes sign-in fail silently on a plain-HTTP instance.
       secure: request.protocol === "https",
-      maxAge: deps.sessionTtlDays * 24 * 60 * 60,
+      maxAge: (await deps.sessionTtlDays()) * 24 * 60 * 60,
     });
   };
 
@@ -33,7 +33,7 @@ export function registerAuthRoutes(
   app.post("/api/auth/register", async (request, reply) => {
     const input = registerSchema.parse(request.body);
     const { user, token } = await deps.auth.register(input);
-    setSessionCookie(request, reply, token);
+    await setSessionCookie(request, reply, token);
     reply.status(201);
     return await deps.auth.describe(user);
   });
@@ -41,7 +41,7 @@ export function registerAuthRoutes(
   app.post("/api/auth/login", async (request, reply) => {
     const input = loginSchema.parse(request.body);
     const { user, token } = await deps.auth.login(input);
-    setSessionCookie(request, reply, token);
+    await setSessionCookie(request, reply, token);
     return await deps.auth.describe(user);
   });
 

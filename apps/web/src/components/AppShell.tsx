@@ -106,13 +106,7 @@ function Rail() {
       >
         <CircleHelp size={16} strokeWidth={1.75} />
       </a>
-      <span
-        aria-hidden
-        className="grid size-8 place-items-center rounded-md text-fg-muted opacity-40"
-        title="Settings (not yet available)"
-      >
-        <Settings size={16} strokeWidth={1.75} />
-      </span>
+      <SettingsLink />
     </nav>
   );
 }
@@ -143,6 +137,28 @@ function TeamLinks() {
         );
       })}
     </>
+  );
+}
+
+/** Instance settings are administrator-only, so the entry point is too. */
+function SettingsLink() {
+  const { user } = useSession();
+  const { pathname } = useLocation();
+  if (user?.instanceRole !== "admin") return null;
+
+  const active = pathname === "/settings";
+  return (
+    <Link
+      to="/settings"
+      aria-label="Settings"
+      title="Settings"
+      aria-current={active ? "page" : undefined}
+      className={`grid size-8 place-items-center rounded-md transition-colors ${
+        active ? "bg-surface-active text-fg" : "text-fg-muted hover:bg-surface-hover hover:text-fg"
+      }`}
+    >
+      <Settings size={16} strokeWidth={1.75} />
+    </Link>
   );
 }
 

@@ -1,0 +1,277 @@
+import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core";
+import { ZelyqError } from "@zelyq/core";
+import type { Store } from "@zelyq/db";
+import type { SecretBox } from "./secrets.js";
+import { maskSecret } from "./secrets.js";
+
+/**
+ * One definition per setting, and the only list of them.
+ *
+ * Precedence is fixed: environment beats database beats default. An operator
+ * who sets a variable expects it to hold; a setting that could be changed from
+ * the UI behind their back is a support ticket waiting to happen. Fields the
+ * environment supplies are returned as `managedByEnv` so the UI shows them
+ * read-only, naming the variable, rather than pretending they are editable.
+ */
+interface Definition {
+  key: string;
+  label: string;
+  description: string;
+  kind: SettingField["kind"];
+  group: string;
+  envVar: string;
+  fallback: string;
+  secret?: boolean;
+  restartRequired?: boolean;
+  options?: Array<{ value: string; label: string }>;
+  placeholder?: string;
+}
+
+const GROUPS: Array<{ name: string; description: string }> = [
+  {
+    name: "Model",
+    description:
+      "Which model builds your projects, and the key it uses. Only the selected provider's key is needed.",
+  },
+  {
+    name: "Access",
+    description: "Who may sign in, and for how long.",
+  },
+  {
+    name: "Preview",
+    description:
+      "How running projects are reached. Change these when Zelyq is not on the machine you browse from.",
+  },
+];
+
+const DEFINITIONS: Definition[] = [
+  {
+    key: "provider",
+    label: "Provider",
+    description: "The vendor the agent talks to.",
+    kind: "select",
+    group: "Model",
+    envVar: "ZELYQ_PROVIDER",
+    fallback: "anthropic",
+    options: [
+      { value: "anthropic", label: "Claude (Anthropic)" },
+      { value: "google", label: "Gemini (Google)" },
+    ],
+  },
+  {
+    key: "anthropicApiKey",
+    label: "Claude API key",
+    description: "From console.anthropic.com. Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Model",
+    envVar: "ANTHROPIC_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "sk-ant-…",
+  },
+  {
+    key: "geminiApiKey",
+    label: "Gemini API key",
+    description: "From aistudio.google.com. Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Model",
+    envVar: "GEMINI_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "AIza…",
+  },
+  {
+    key: "model",
+    label: "Model",
+    description: "Leave empty to use the provider's default.",
+    kind: "text",
+    group: "Model",
+    envVar: "ZELYQ_MODEL",
+    fallback: "",
+    placeholder: "provider default",
+  },
+  {
+    key: "effort",
+    label: "Reasoning effort",
+    description: "How hard the model thinks before answering. Higher costs more and is slower.",
+    kind: "select",
+    group: "Model",
+    envVar: "ZELYQ_EFFORT",
+    fallback: "high",
+    options: ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value, label: value })),
+  },
+  {
+    key: "allowRegistration",
+    label: "Open registration",
+    description:
+      "Whether anyone who reaches this instance may create an account. Turn it off once your accounts exist.",
+    kind: "boolean",
+    group: "Access",
+    envVar: "ZELYQ_ALLOW_REGISTRATION",
+    fallback: "true",
+  },
+  {
+    key: "sessionTtlDays",
+    label: "Session length (days)",
+    description: "How long a sign-in lasts before it has to be repeated.",
+    kind: "number",
+    group: "Access",
+    envVar: "ZELYQ_SESSION_TTL_DAYS",
+    fallback: "30",
+  },
+  {
+    key: "previewHost",
+    label: "Preview host",
+    description:
+      "The address project previews are advertised on. Set this to the host you browse to when Zelyq runs on a server.",
+    kind: "text",
+    group: "Preview",
+    envVar: "ZELYQ_PREVIEW_HOST",
+    fallback: "127.0.0.1",
+    restartRequired: true,
+  },
+];
+
+const BY_KEY = new Map(DEFINITIONS.map((definition) => [definition.key, definition]));
+
+export class SettingsService {
+  /** Set when a restart-required setting changed since this process started. */
+  private restartPending = false;
+
+  constructor(
+    private readonly store: Store,
+    private readonly secrets: SecretBox,
+    private readonly env: NodeJS.ProcessEnv = process.env,
+  ) {}
+
+  /** The effective value, following environment → database → default. */
+  async value(key: string): Promise<string> {
+    const definition = BY_KEY.get(key);
+    if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
+
+    const fromEnv = this.env[definition.envVar];
+    if (fromEnv) return fromEnv;
+
+    const stored = await this.store.settings.get(key);
+    if (stored === null) return definition.fallback;
+
+    if (definition.secret) return this.secrets.decrypt(stored) ?? definition.fallback;
+    return stored;
+  }
+
+  async booleanValue(key: string): Promise<boolean> {
+    return (await this.value(key)) !== "false";
+  }
+
+  async numberValue(key: string): Promise<number> {
+    const parsed = Number.parseInt(await this.value(key), 10);
+    return Number.isNaN(parsed) ? Number(BY_KEY.get(key)?.fallback ?? 0) : parsed;
+  }
+
+  /** The API key for whichever provider is selected. */
+  async apiKeyFor(provider: string): Promise<string> {
+    return await this.value(provider === "google" ? "geminiApiKey" : "anthropicApiKey");
+  }
+
+  /** Everything the settings screen renders. Secrets are described, not sent. */
+  async describe(): Promise<SettingsResponse> {
+    const stored = await this.store.settings.all();
+
+    const fields = await Promise.all(
+      DEFINITIONS.map(async (definition): Promise<SettingField> => {
+        const fromEnv = this.env[definition.envVar];
+        const hasStored = stored[definition.key] !== undefined && stored[definition.key] !== "";
+        const source = fromEnv ? "env" : hasStored ? "database" : "default";
+
+        const base = {
+          key: definition.key,
+          label: definition.label,
+          description: definition.description,
+          kind: definition.kind,
+          group: definition.group,
+          source,
+          envVar: definition.envVar,
+          managedByEnv: Boolean(fromEnv),
+          restartRequired: Boolean(definition.restartRequired),
+          ...(definition.options ? { options: definition.options } : {}),
+          ...(definition.placeholder ? { placeholder: definition.placeholder } : {}),
+        } as const;
+
+        if (definition.secret) {
+          const effective = await this.value(definition.key);
+          return {
+            ...base,
+            // A secret's value never leaves the server, in any form that could
+            // be used. Only whether one exists, and its last four characters.
+            value: null,
+            configured: effective.length > 0,
+            ...(effective ? { hint: maskSecret(effective) } : {}),
+          };
+        }
+
+        const effective = await this.value(definition.key);
+        return {
+          ...base,
+          value:
+            definition.kind === "boolean"
+              ? effective !== "false"
+              : definition.kind === "number"
+                ? Number(effective)
+                : effective,
+        };
+      }),
+    );
+
+    return {
+      groups: GROUPS.map(
+        (group): SettingsGroup => ({
+          ...group,
+          fields: fields.filter((field) => field.group === group.name),
+        }),
+      ),
+      restartPending: this.restartPending,
+    };
+  }
+
+  /**
+   * Applies a batch of changes. An empty value clears the stored setting and
+   * lets the environment or default take over again.
+   */
+  async update(changes: Record<string, string | number | boolean | null>): Promise<void> {
+    for (const [key, raw] of Object.entries(changes)) {
+      const definition = BY_KEY.get(key);
+      if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
+
+      if (this.env[definition.envVar]) {
+        throw new ZelyqError(
+          "conflict",
+          `${definition.label} is set by ${definition.envVar} in the environment. Remove it there to manage this setting here.`,
+        );
+      }
+
+      const value = raw === null ? "" : String(raw).trim();
+
+      if (value === "") {
+        await this.store.settings.remove(key);
+      } else if (definition.secret) {
+        await this.store.settings.set(key, this.secrets.encrypt(value));
+      } else {
+        this.validate(definition, value);
+        await this.store.settings.set(key, value);
+      }
+
+      if (definition.restartRequired) this.restartPending = true;
+    }
+  }
+
+  private validate(definition: Definition, value: string): void {
+    if (definition.options && !definition.options.some((option) => option.value === value)) {
+      throw ZelyqError.badRequest(
+        `${definition.label} must be one of: ${definition.options.map((o) => o.value).join(", ")}`,
+      );
+    }
+    if (definition.kind === "number" && !/^\d+$/.test(value)) {
+      throw ZelyqError.badRequest(`${definition.label} must be a whole number.`);
+    }
+  }
+}

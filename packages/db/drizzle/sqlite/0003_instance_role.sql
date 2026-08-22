@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `instance_role` text DEFAULT 'member' NOT NULL;

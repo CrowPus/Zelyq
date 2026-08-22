@@ -3,6 +3,34 @@
 Everything is environment variables. Copy `.env.example` to `.env` for local development; in
 production set them however your platform prefers. Unset values fall back to the defaults below.
 
+## Two ways to configure
+
+Everything below can be set as an environment variable **or**, for most of it, in **Settings** inside
+the app — so an instance can be run by someone who never opens a terminal.
+
+Precedence is fixed and one-directional:
+
+```
+environment  >  settings screen  >  built-in default
+```
+
+An operator who sets a variable expects it to hold, so a value in the environment cannot be
+overridden from the UI. Those fields appear in Settings as read-only, labelled with the variable
+that supplies them, and trying to write one returns an error rather than storing a value that would
+have no effect. To manage something from the UI, remove it from the environment.
+
+Settings are instance-wide and only an **instance administrator** can see or change them — that is
+the first account created, separate from team roles. API keys entered there are encrypted with
+AES-256-GCM before storage and are never sent back to the browser; the screen shows only whether one
+is set and its last four characters.
+
+Most settings apply immediately. Those that do not are marked `restart` in the UI.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ZELYQ_SECRET_KEY` | generated | 32 bytes, base64 or 64 hex characters, used to encrypt stored API keys. Generated at `data/secret.key` with owner-only permissions when unset. |
+| `ZELYQ_SECRET_KEY_FILE` | `<data dir>/secret.key` | Where the generated key is kept. |
+
 Each process loads the repository's `.env` at startup, found by walking up from wherever it was
 launched — so it works whether you run `pnpm dev` from the root or a single app from its own
 directory. **A real environment variable always wins over the file**, which is what deployments

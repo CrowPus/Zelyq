@@ -13,6 +13,7 @@ import type { WebSocket } from "ws";
 import type { AccessControl } from "../services/access.js";
 import type { AgentClient } from "../services/agent-client.js";
 import type { ProjectService } from "../services/projects.js";
+import type { SettingsService } from "../services/settings.js";
 
 interface Room {
   projectId: string;
@@ -44,6 +45,7 @@ export class ChatGateway {
     private readonly projects: ProjectService,
     private readonly agent: AgentClient,
     private readonly access: AccessControl,
+    private readonly settings: SettingsService,
     private readonly log: { info(msg: string): void; error(obj: unknown, msg?: string): void },
   ) {}
 

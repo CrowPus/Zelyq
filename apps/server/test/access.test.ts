@@ -25,6 +25,8 @@ const config: ServerConfig = {
   sessionTtlDays: 30,
   templatesDir: path.join(repoRoot, "templates"),
   webDir: null,
+  secretKey: undefined,
+  secretKeyFile: path.join(tmp, "secret.key"),
   runtime: {
     kind: "local",
     workspaceDir: path.join(tmp, "workspace"),

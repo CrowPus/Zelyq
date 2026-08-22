@@ -17,6 +17,9 @@ export interface ServerConfig {
   model: string;
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   templatesDir: string;
+  /** 32-byte key for settings encryption; generated beside the data when unset. */
+  secretKey: string | undefined;
+  secretKeyFile: string;
   /** Built web assets to serve. Absent in development, where Vite serves them. */
   webDir: string | null;
   runtime: RuntimeConfig;
@@ -28,6 +31,12 @@ function intFromEnv(name: string, fallback: number): number {
   const value = Number.parseInt(raw, 10);
   if (Number.isNaN(value)) throw new Error(`${name} must be a number, got "${raw}"`);
   return value;
+}
+
+/** The directory holding a SQLite database, or ./data for anything else. */
+function dataDirFrom(databaseUrl: string | undefined): string {
+  if (databaseUrl?.startsWith("file:")) return path.dirname(path.resolve(databaseUrl.slice(5)));
+  return path.resolve("./data");
 }
 
 export function loadServerConfig(): ServerConfig {
@@ -61,6 +70,12 @@ export function loadServerConfig(): ServerConfig {
     model: process.env.ZELYQ_MODEL ?? "",
     effort: (process.env.ZELYQ_EFFORT ?? "high") as ServerConfig["effort"],
     templatesDir: path.resolve(process.env.ZELYQ_TEMPLATES_DIR ?? path.join(repoRoot, "templates")),
+    secretKey: process.env.ZELYQ_SECRET_KEY,
+    // Beside the database, so backing up one takes the other.
+    secretKeyFile: path.resolve(
+      process.env.ZELYQ_SECRET_KEY_FILE ??
+        path.join(dataDirFrom(process.env.DATABASE_URL), "secret.key"),
+    ),
     webDir: process.env.ZELYQ_WEB_DIR
       ? path.resolve(process.env.ZELYQ_WEB_DIR)
       : process.env.NODE_ENV === "production"
