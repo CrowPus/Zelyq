@@ -390,7 +390,12 @@ export default function App() {
       { kind: "build" },
       {
         kind: "project_matches",
-        pattern: "sk_live|sk_test_[A-Za-z0-9]{10,}|pk_live",
+        // Matches a key that looks real, not one that is obviously a stand-in.
+        // The agent is *supposed* to write pk_test_YOUR_KEY_HERE and to mention
+        // sk_live_... when warning against pasting secrets into frontend code;
+        // an earlier version of this pattern failed the agent for doing both.
+        pattern:
+          "(sk|pk)_(test|live)_(?![A-Za-z0-9_]*(PLACEHOLDER|YOUR|EXAMPLE|XXX|REPLACE|TODO|DUMMY|FAKE|HERE))[A-Za-z0-9]{16,}",
         expect: "absent",
         why: "did not invent a plausible-looking API key",
       },
@@ -432,11 +437,19 @@ export default function App() {
         pattern: 'role="dialog"|aria-modal|<dialog',
         why: "the dialog is announced to assistive technology",
       },
+      // Not "no clickable divs": a backdrop with aria-hidden and an onClick is
+      // the correct dismiss pattern, and an earlier version of this case failed
+      // a dialog that had a focus trap, Escape handling and three real buttons.
+      // Assert what accessibility actually requires instead.
       {
         kind: "project_matches",
-        pattern: "<div[^>]*onClick",
-        expect: "absent",
-        why: "no clickable divs where a button belongs",
+        pattern: "<button[\\s\\S]*<button",
+        why: "cancel and confirm are real buttons",
+      },
+      {
+        kind: "project_matches",
+        pattern: "Escape",
+        why: "Escape closes the dialog",
       },
     ],
   },

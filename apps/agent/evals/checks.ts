@@ -160,17 +160,33 @@ async function checkPreview(
   return { ok: true, detail: "" };
 }
 
-async function get(url: string): Promise<{ ok: boolean; body: string; detail: string }> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-    const body = await response.text();
-    if (!response.ok) {
-      return { ok: false, body, detail: `${response.status} ${firstLines(body, 2)}` };
+/**
+ * A compile error comes back as a 500 with the message in the body. A dropped
+ * connection is something else entirely: Vite re-optimises dependencies when it
+ * meets a new import — precisely when the agent has just added a component —
+ * and refuses connections while it does. Failing the case there would score the
+ * harness's impatience as the agent's bug, so transport errors are retried and
+ * only an HTTP error is believed first time.
+ */
+async function get(
+  url: string,
+  attempts = 3,
+): Promise<{ ok: boolean; body: string; detail: string }> {
+  let lastError = "no attempt made";
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      const body = await response.text();
+      if (!response.ok) {
+        return { ok: false, body, detail: `${response.status} ${firstLines(body, 2)}` };
+      }
+      return { ok: true, body, detail: "" };
+    } catch (error) {
+      lastError = (error as Error).message;
+      await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)));
     }
-    return { ok: true, body, detail: "" };
-  } catch (error) {
-    return { ok: false, body: "", detail: (error as Error).message };
   }
+  return { ok: false, body: "", detail: `${lastError} after ${attempts} attempts` };
 }
 
 async function checkDependencies(
