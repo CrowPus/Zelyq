@@ -1,15 +1,15 @@
 import { AnthropicProvider, classifyAnthropicError } from "./anthropic.js";
-import { GoogleProvider, classifyGoogleError, describeGoogleError } from "./google.js";
+import { classifyGoogleError, describeGoogleError, GoogleProvider } from "./google.js";
 import type { ModelProvider, ProviderErrorCode, ProviderId } from "./types.js";
 
-export * from "./types.js";
 export { AnthropicProvider } from "./anthropic.js";
 export {
-  GoogleProvider,
-  toThinkingLevel,
-  toFunctionDeclarations,
   describeGoogleError,
+  GoogleProvider,
+  toFunctionDeclarations,
+  toThinkingLevel,
 } from "./google.js";
+export * from "./types.js";
 
 export interface ProviderInfo {
   id: ProviderId;

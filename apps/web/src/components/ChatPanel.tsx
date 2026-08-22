@@ -1,6 +1,6 @@
 import type { Message, ToolCall } from "@zelyq/core";
 import { ArrowUp, ChevronRight, CircleAlert, Square } from "lucide-react";
-import { type FormEvent, Suspense, lazy, useEffect, useRef, useState } from "react";
+import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
 import { IconButton, Kbd, StatusDot } from "./ui";
 

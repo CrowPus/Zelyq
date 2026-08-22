@@ -3,6 +3,10 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2023"],
+    // TypeScript 7 does not pull in @types/node implicitly here, so Node's
+    // globals and `node:` specifiers have to be requested. The web app has its
+    // own tsconfig and adds "vite/client" alongside this.
+    "types": ["node"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,

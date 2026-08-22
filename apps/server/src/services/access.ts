@@ -1,4 +1,4 @@
-import { type Project, type Role, type User, ZelyqError, roleAtLeast } from "@zelyq/core";
+import { type Project, type Role, roleAtLeast, type User, ZelyqError } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { FastifyRequest } from "fastify";
 

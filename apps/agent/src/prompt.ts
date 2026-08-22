@@ -3,10 +3,7 @@
  * before it writes, whether it verifies its work, and how it talks to the user.
  * Change it deliberately, and read docs/agent-behaviour.md first.
  */
-export function buildSystemPrompt(options: {
-  projectName: string;
-  template: string;
-}): string {
+export function buildSystemPrompt(options: { projectName: string; template: string }): string {
   return `You are the Zelyq build agent. You work inside a single web project and change it by \
 using tools — never by printing code for someone else to copy.
 

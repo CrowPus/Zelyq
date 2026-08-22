@@ -1,10 +1,10 @@
 import path from "node:path";
 import type { RuntimeConfig } from "@zelyq/runtime";
 import {
-  type ProviderId,
   apiKeyFromEnv,
   defaultModelFor,
   isProviderId,
+  type ProviderId,
 } from "./providers/index.js";
 
 export interface AgentConfig {

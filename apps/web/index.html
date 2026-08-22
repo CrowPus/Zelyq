@@ -10,7 +10,7 @@
     <title>Zelyq</title>
     <script>
       // Apply the saved theme before first paint to avoid a flash of the wrong one.
-      (function () {
+      (() => {
         try {
           var t = localStorage.getItem("zelyq.theme");
           if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);

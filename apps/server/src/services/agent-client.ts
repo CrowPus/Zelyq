@@ -1,9 +1,9 @@
 import {
   type AgentEvent,
   type AgentSessionState,
+  agentEventSchema,
   type Message,
   ZelyqError,
-  agentEventSchema,
 } from "@zelyq/core";
 
 /**

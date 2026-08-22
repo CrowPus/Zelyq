@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type ToolResult, defineTool, truncate } from "./types.js";
+import { defineTool, type ToolResult, truncate } from "./types.js";
 
 /**
  * Commands that would hang a turn forever. The agent has no terminal to

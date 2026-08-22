@@ -1,9 +1,9 @@
 import {
-  ZelyqError,
   changePasswordSchema,
   loginSchema,
   registerSchema,
   updateProfileSchema,
+  ZelyqError,
 } from "@zelyq/core";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AuthService } from "../services/auth.js";

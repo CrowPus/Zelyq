@@ -1,6 +1,6 @@
 import { createClient } from "@libsql/client";
-import { drizzle as drizzleLibsql } from "drizzle-orm/libsql";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle as drizzleLibsql } from "drizzle-orm/libsql";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as pgSchema from "./schema/pg.js";

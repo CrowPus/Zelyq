@@ -12,7 +12,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -21,8 +23,7 @@
   "dependencies": {
     "@zelyq/core": "workspace:*",
     "@zelyq/runtime": "workspace:*",
-    "zod": "^4.4.3",
-    "zod-to-json-schema": "^3.24.1"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

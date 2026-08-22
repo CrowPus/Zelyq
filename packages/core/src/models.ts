@@ -54,7 +54,8 @@ export type MessageRole = z.infer<typeof messageRoleSchema>;
 export const toolCallSchema = z.object({
   id: z.string(),
   name: z.string(),
-  input: z.record(z.unknown()),
+  // zod 4 requires both key and value types; the one-argument form is gone.
+  input: z.record(z.string(), z.unknown()),
   /** Populated once the tool has run. */
   result: z.string().optional(),
   isError: z.boolean().optional(),
