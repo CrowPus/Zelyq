@@ -1,22 +1,22 @@
 import cors from "@fastify/cors";
 import {
   type AgentEvent,
-  ZelyqError,
   createAgentSessionSchema,
   encodeSse,
   isZelyqError,
   promptSchema,
   toError,
+  ZelyqError,
 } from "@zelyq/core";
-import { type RuntimeDriver, createRuntimeDriver } from "@zelyq/runtime";
+import { createRuntimeDriver, type RuntimeDriver } from "@zelyq/runtime";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { AgentConfig } from "./config.js";
 import {
-  PROVIDERS,
-  type ProviderFactory,
   apiKeyFromEnv,
   defaultModelFor,
+  PROVIDERS,
+  type ProviderFactory,
 } from "./providers/index.js";
 import { AgentSession } from "./session.js";
 

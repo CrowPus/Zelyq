@@ -1,4 +1,4 @@
-import { type DatabaseHandle, createDatabase } from "./client.js";
+import { createDatabase, type DatabaseHandle } from "./client.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { messageRepository } from "./repositories/messages.js";
 import { projectRepository } from "./repositories/projects.js";
@@ -10,15 +10,15 @@ import { userRepository } from "./repositories/users.js";
 
 export * from "./client.js";
 export { runMigrations } from "./migrate.js";
-export * from "./schema/index.js";
+export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
+export type { MessageRepository } from "./repositories/messages.js";
 export type { ProjectRepository } from "./repositories/projects.js";
 export type { SessionRepository } from "./repositories/sessions.js";
-export type { MessageRepository } from "./repositories/messages.js";
-export type { SnapshotRepository } from "./repositories/snapshots.js";
-export type { UserRepository } from "./repositories/users.js";
-export type { TeamRepository } from "./repositories/teams.js";
-export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
 export type { SettingsRepository } from "./repositories/settings.js";
+export type { SnapshotRepository } from "./repositories/snapshots.js";
+export type { TeamRepository } from "./repositories/teams.js";
+export type { UserRepository } from "./repositories/users.js";
+export * from "./schema/index.js";
 
 export interface Store extends DatabaseHandle {
   users: ReturnType<typeof userRepository>;

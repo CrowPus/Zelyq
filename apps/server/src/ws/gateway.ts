@@ -1,12 +1,12 @@
 import {
   type AgentEvent,
+  clientMessageSchema,
   type Message,
+  newId,
   type Role,
+  roleAtLeast,
   type ToolCall,
   type User,
-  clientMessageSchema,
-  newId,
-  roleAtLeast,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { WebSocket } from "ws";
@@ -160,11 +160,21 @@ export class ChatGateway {
     const history = await this.store.messages.listForSession(room.sessionId);
     try {
       const session = await this.store.sessions.findById(room.sessionId);
+
+      // Provider, model, and key come from settings, so a key entered in the
+      // app reaches the agent. Without this the agent can only work when its
+      // own environment happens to hold a key, which makes the settings screen
+      // look like it does nothing.
+      const provider = await this.settings.value("provider");
+      const model = await this.settings.value("model");
+      const apiKey = await this.settings.apiKeyFor(provider);
+
       await this.agent.ensureSession({
         sessionId: room.sessionId,
         projectId: room.projectId,
-        provider: session?.provider,
-        ...(session?.model ? { model: session.model } : {}),
+        provider: session?.provider ?? provider,
+        ...(model ? { model } : {}),
+        ...(apiKey ? { apiKey } : {}),
         // Everything except the message we just stored — that is the prompt.
         history: history.slice(0, -1),
       });

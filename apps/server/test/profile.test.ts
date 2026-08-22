@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { runMigrations } from "@zelyq/db";
-import { type ZelyqServer, buildServer } from "../src/app.js";
+import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 
 const tmp = path.join(os.tmpdir(), `zelyq-profile-${Date.now()}`);

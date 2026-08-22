@@ -3,11 +3,11 @@ import { test } from "node:test";
 import { toolDefinitions } from "@zelyq/tools";
 import { toFunctionDeclarations, toThinkingLevel } from "../src/providers/google.js";
 import {
-  PROVIDERS,
   apiKeyFromEnv,
   createProvider,
   defaultModelFor,
   isProviderId,
+  PROVIDERS,
 } from "../src/providers/index.js";
 
 test("every registered provider is fully described", () => {

@@ -1,4 +1,4 @@
-import { ZelyqError, updateSettingsSchema } from "@zelyq/core";
+import { updateSettingsSchema, ZelyqError } from "@zelyq/core";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { SettingsService } from "../services/settings.js";

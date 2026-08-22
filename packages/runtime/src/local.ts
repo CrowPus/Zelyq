@@ -6,10 +6,10 @@ import path from "node:path";
 import {
   type FileContent,
   type FileEntry,
+  newId,
   type Preview,
   type Snapshot,
   ZelyqError,
-  newId,
 } from "@zelyq/core";
 import { assertRealPathInside, isIgnored, resolveInside, toPosix } from "./paths.js";
 import { allocatePort, releasePort, waitForPort } from "./ports.js";

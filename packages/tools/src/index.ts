@@ -1,4 +1,4 @@
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from "zod";
 import {
   deleteFileTool,
   editFileTool,
@@ -13,15 +13,15 @@ import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
 
 export * from "./types.js";
 export {
-  readFileTool,
-  writeFileTool,
+  deleteFileTool,
   editFileTool,
   listFilesTool,
-  deleteFileTool,
-  searchFilesTool,
-  runCommandTool,
-  startPreviewTool,
   previewLogsTool,
+  readFileTool,
+  runCommandTool,
+  searchFilesTool,
+  startPreviewTool,
+  writeFileTool,
 };
 
 /**
@@ -46,16 +46,24 @@ export interface ToolDefinition {
   input_schema: Record<string, unknown>;
 }
 
-/** Render the suite in the shape the Messages API expects. */
+/**
+ * Render the suite in the shape a model API expects.
+ *
+ * zod 4 converts to JSON Schema itself, so no separate library is involved.
+ * `$schema` is dropped: Anthropic ignores it and Gemini rejects it, and a tool
+ * whose schema is refused simply never gets called.
+ */
 export function toolDefinitions(tools: ZelyqTool[] = ALL_TOOLS): ToolDefinition[] {
-  return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    input_schema: zodToJsonSchema(tool.schema, {
-      target: "jsonSchema7",
-      $refStrategy: "none",
-    }) as Record<string, unknown>,
-  }));
+  return tools.map((tool) => {
+    const { $schema, ...schema } = z.toJSONSchema(tool.schema, {
+      io: "input",
+    }) as Record<string, unknown>;
+    return {
+      name: tool.name,
+      description: tool.description,
+      input_schema: schema,
+    };
+  });
 }
 
 export function findTool(name: string, tools: ZelyqTool[] = ALL_TOOLS): ZelyqTool | undefined {

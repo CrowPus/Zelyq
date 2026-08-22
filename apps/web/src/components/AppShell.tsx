@@ -239,7 +239,7 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
       </Link>
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5">
         {crumbs.map((crumb, index) => (
-          <span key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-1.5">
+          <span key={crumb.to ?? crumb.label} className="flex min-w-0 items-center gap-1.5">
             {index > 0 && (
               <ChevronRight size={13} className="shrink-0 text-fg-muted" strokeWidth={1.75} />
             )}

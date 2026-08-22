@@ -2,17 +2,17 @@ import { LocalRuntimeDriver } from "./local.js";
 import { RemoteRuntimeDriver } from "./remote.js";
 import type { RuntimeConfig, RuntimeDriver } from "./types.js";
 
-export * from "./types.js";
-export { LocalRuntimeDriver, defaultWorkspaceDir } from "./local.js";
-export { RemoteRuntimeDriver } from "./remote.js";
+export { defaultWorkspaceDir, LocalRuntimeDriver } from "./local.js";
 export {
-  resolveInside,
   assertRealPathInside,
-  toPosix,
-  isIgnored,
   DEFAULT_IGNORED,
+  isIgnored,
+  resolveInside,
+  toPosix,
 } from "./paths.js";
 export { allocatePort, releasePort, waitForPort } from "./ports.js";
+export { RemoteRuntimeDriver } from "./remote.js";
+export * from "./types.js";
 
 /**
  * The one place that decides where code runs. Callers take a `RuntimeDriver`

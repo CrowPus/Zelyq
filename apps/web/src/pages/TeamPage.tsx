@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ROLES, ROLE_DESCRIPTIONS, type Role, roleAtLeast } from "@zelyq/core";
+import { ROLE_DESCRIPTIONS, ROLES, type Role, roleAtLeast } from "@zelyq/core";
 import { CircleAlert, UserPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useParams } from "react-router-dom";

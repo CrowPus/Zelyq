@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { createStore, runMigrations } from "@zelyq/db";
-import { type ZelyqServer, buildServer } from "../src/app.js";
+import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
-import { SecretBox, maskSecret, resolveSecretKey } from "../src/services/secrets.js";
+import { maskSecret, resolveSecretKey, SecretBox } from "../src/services/secrets.js";
 
 const tmp = path.join(os.tmpdir(), `zelyq-settings-${Date.now()}`);
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
