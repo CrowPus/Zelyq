@@ -1,0 +1,13 @@
+name: Security issue (do not use)
+description: Security problems must not be reported in public issues.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Please close this and report privately instead.**
+
+        A public issue tells everyone about the vulnerability before there is a fix, including
+        people running Zelyq who cannot patch yet.
+
+        Use [private vulnerability reporting](https://github.com/CrowPus/Zelyq/security/advisories/new)
+        — the report is visible only to you and the maintainers. See [SECURITY.md](https://github.com/CrowPus/Zelyq/blob/main/SECURITY.md).

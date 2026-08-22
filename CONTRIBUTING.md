@@ -71,6 +71,8 @@ Please run all three before pushing. CI runs the same commands, so a local pass 
 
 ## Commit and PR conventions
 
+- `main` is protected. Every change arrives through a pull request, and CI must be green before it
+  can merge. Pull before you branch — the remote moves.
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
   `feat(runtime): add docker driver`, `fix(server): release preview port on delete`.
 - PR titles use the same format — the changelog is generated from them.
@@ -89,6 +91,22 @@ in the PR description.
 Non-obvious or hard-to-reverse decisions get an ADR in [`docs/adr/`](./docs/adr). Copy the format of
 an existing one. An ADR is a paragraph of context, the decision, and the consequences — not an
 essay.
+
+## Releases
+
+Versions are tagged, not published to a registry: the applications are deployed from source and the
+packages are not on npm.
+
+To cut one, add a section to [CHANGELOG.md](./CHANGELOG.md) under a version heading, then:
+
+```bash
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+```
+
+The release workflow re-runs lint, build, typecheck, and tests against the tagged commit, then
+publishes a GitHub release using that changelog section as the notes. A tag whose commit does not
+pass is not released.
 
 ## Reporting security issues
 
