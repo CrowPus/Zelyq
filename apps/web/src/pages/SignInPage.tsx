@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { Button, Input, Spinner } from "../components/ui";
+import { Button, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 
@@ -31,6 +31,7 @@ export function SignInPage() {
     try {
       if (registering) await api.register({ email, name, password });
       else await api.login({ email, password });
+      // The router decides where to land — see AfterSignIn in App.tsx.
       refresh();
     } catch (caught) {
       setError((caught as Error).message);
@@ -102,9 +103,8 @@ export function SignInPage() {
             <label htmlFor="signin-password" className="text-xs font-medium text-fg-secondary">
               Password
             </label>
-            <Input
+            <PasswordInput
               id="signin-password"
-              type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete={registering ? "new-password" : "current-password"}
