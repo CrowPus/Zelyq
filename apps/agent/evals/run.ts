@@ -187,12 +187,12 @@ function report(suite: SuiteResult, elapsedMs: number): void {
 async function compare(suite: SuiteResult, previousPath: string): Promise<void> {
   const previous = JSON.parse(await fs.readFile(previousPath, "utf8")) as SuiteResult;
   const before = new Map(previous.cases.map((result) => [result.id, result]));
+  const paired = suite.cases.filter((result) => before.has(result.id));
 
   const fixed: string[] = [];
   const regressed: string[] = [];
-  for (const result of suite.cases) {
-    const was = before.get(result.id);
-    if (!was) continue;
+  for (const result of paired) {
+    const was = before.get(result.id) as CaseResult;
     if (result.works && !was.works) fixed.push(result.id);
     if (!result.works && was.works) regressed.push(result.id);
   }
@@ -200,11 +200,50 @@ async function compare(suite: SuiteResult, previousPath: string): Promise<void> 
   const worksNow = suite.cases.filter((r) => r.works).length;
   const worksBefore = previous.cases.filter((r) => r.works).length;
 
+  // Cost and effort are measured during the turn, before any check runs, so
+  // these stay comparable even across a change to the checks themselves —
+  // which is exactly when you most want a number you can still trust.
+  const sum = (rows: CaseResult[], pick: (r: CaseResult) => number): number =>
+    rows.reduce((total, row) => total + pick(row), 0);
+  const wasPaired = paired.map((r) => before.get(r.id) as CaseResult);
+
+  const roundsBefore = sum(wasPaired, (r) => r.rounds);
+  const roundsAfter = sum(paired, (r) => r.rounds);
+  const tokensBefore = sum(wasPaired, (r) => r.tokensIn);
+  const tokensAfter = sum(paired, (r) => r.tokensIn);
+  const timeBefore = sum(wasPaired, (r) => r.durationMs);
+  const timeAfter = sum(paired, (r) => r.durationMs);
+
+  const movers = paired
+    .map((result) => ({
+      id: result.id,
+      from: (before.get(result.id) as CaseResult).rounds,
+      to: result.rounds,
+    }))
+    .sort((a, b) => Math.abs(b.to - b.from) - Math.abs(a.to - a.from))
+    .slice(0, 5);
+
   console.log(`
  vs ${path.basename(previousPath)} (prompt ${previous.promptHash} → ${suite.promptHash})
+   ${paired.length} case${paired.length === 1 ? "" : "s"} in both runs
+
    works    ${worksBefore}/${previous.cases.length} → ${worksNow}/${suite.cases.length}
    fixed    ${fixed.length ? fixed.join(", ") : "none"}
-   broke    ${regressed.length ? regressed.join(", ") : "none"}`);
+   broke    ${regressed.length ? regressed.join(", ") : "none"}
+
+   rounds   ${roundsBefore} → ${roundsAfter}  (${delta(roundsBefore, roundsAfter)})
+   tokens   ${fmt(tokensBefore)} → ${fmt(tokensAfter)} in  (${delta(tokensBefore, tokensAfter)})
+   wall     ${Math.round(timeBefore / 1000)}s → ${Math.round(timeAfter / 1000)}s  (${delta(timeBefore, timeAfter)})
+
+   biggest movers (rounds)
+${movers.map((m) => `     ${m.id.padEnd(22)} ${String(m.from).padStart(3)} → ${String(m.to).padStart(3)}`).join("\n")}`);
+}
+
+/** Signed percentage change, phrased so a fall reads as an improvement. */
+function delta(before: number, after: number): string {
+  if (before === 0) return "n/a";
+  const change = Math.round(((after - before) / before) * 100);
+  return change === 0 ? "no change" : `${change > 0 ? "+" : ""}${change}%`;
 }
 
 async function pool<T, R>(items: T[], size: number, worker: (item: T) => Promise<R>): Promise<R[]> {
