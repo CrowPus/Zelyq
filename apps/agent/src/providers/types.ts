@@ -1,0 +1,90 @@
+import type { ToolDefinition } from "@zelyq/tools";
+
+/**
+ * The seam between Zelyq and a model vendor.
+ *
+ * Providers differ in more than parameter names: message shapes, how reasoning
+ * is represented, how tool calls are identified, and what must be echoed back
+ * verbatim to keep a turn coherent. Rather than flatten all of that into a
+ * lossy neutral format, each provider keeps its own **native** history and this
+ * interface only carries what the agent actually needs:
+ *
+ *   - append a user message,
+ *   - stream one model round-trip,
+ *   - append the results of the tools that round-trip asked for.
+ *
+ * That keeps provider-specific requirements — Anthropic's content blocks,
+ * Gemini's thought signatures — inside the provider where they belong.
+ */
+export interface Conversation {
+  addUserMessage(text: string): void;
+
+  /**
+   * One model round-trip. Yields deltas as they arrive and returns what the
+   * model decided when the round-trip completes. Implementations must append
+   * the assistant turn to their own history before returning.
+   */
+  stream(signal: AbortSignal): AsyncGenerator<ProviderEvent, TurnResult, undefined>;
+
+  addToolResults(results: ToolResult[]): void;
+}
+
+export type ProviderEvent = { type: "text"; text: string } | { type: "thinking"; text: string };
+
+export interface TurnResult {
+  toolCalls: ProviderToolCall[];
+  /** Provider-native reason, normalised where it is meaningful to the UI. */
+  stopReason: "end_turn" | "tool_use" | "max_tokens" | "refusal" | "other";
+  /** Present when the provider explains a refusal. */
+  refusalReason?: string;
+  usage: { inputTokens: number; outputTokens: number };
+}
+
+export interface ProviderToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolResult {
+  id: string;
+  name: string;
+  output: string;
+  isError: boolean;
+}
+
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ConversationOptions {
+  systemPrompt: string;
+  tools: ToolDefinition[];
+  effort: Effort;
+  /** Prior turns as plain text, used to rebuild context after a restart. */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+}
+
+export interface ModelProvider {
+  readonly id: ProviderId;
+  readonly model: string;
+  createConversation(options: ConversationOptions): Conversation;
+}
+
+export type ProviderId = "anthropic" | "google";
+
+export interface ProviderConfig {
+  provider: ProviderId;
+  model: string;
+  apiKey: string;
+}
+
+/**
+ * Normalises a provider SDK error into a stable code the UI can branch on.
+ * Providers implement the vendor-specific part; this is the shared vocabulary.
+ */
+export type ProviderErrorCode =
+  | "unauthorized"
+  | "rate_limited"
+  | "bad_request"
+  | "connection"
+  | "model_error"
+  | "internal";

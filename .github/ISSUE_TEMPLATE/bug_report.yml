@@ -1,0 +1,60 @@
+name: Bug report
+description: Something behaves differently than documented.
+labels: [bug, needs-triage]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a project with ...
+        2. Prompt the agent with ...
+        3. See error
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [web, server, agent, runtime, db, tools, docs, packaging, unsure]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime-mode
+    attributes:
+      label: Runtime mode
+      options: [local, remote, docker]
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Zelyq version or commit
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Node version
+      placeholder: "macOS 15.2, Node 22.11.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste server or agent output. Remove API keys first.
+      render: shell

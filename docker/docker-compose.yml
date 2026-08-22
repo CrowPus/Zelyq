@@ -1,0 +1,64 @@
+name: zelyq
+
+services:
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["node", "apps/agent/dist/index.js"]
+    environment:
+      # Set the key for whichever provider you selected; the other stays empty.
+      ZELYQ_PROVIDER: ${ZELYQ_PROVIDER:-anthropic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      ZELYQ_MODEL: ${ZELYQ_MODEL:-}
+      ZELYQ_EFFORT: ${ZELYQ_EFFORT:-high}
+      ZELYQ_RUNTIME: local
+      ZELYQ_WORKSPACE_DIR: /data/workspace
+      ZELYQ_CORS_ORIGIN: ${ZELYQ_CORS_ORIGIN:-http://localhost:8787}
+    volumes:
+      - zelyq-data:/data
+    expose:
+      - "8788"
+      - "4300-4399"
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      - agent
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-file:/data/zelyq.db}
+      ZELYQ_AGENT_URL: http://agent:8788
+      ZELYQ_PROVIDER: ${ZELYQ_PROVIDER:-anthropic}
+      ZELYQ_MODEL: ${ZELYQ_MODEL:-}
+      ZELYQ_RUNTIME: local
+      ZELYQ_WORKSPACE_DIR: /data/workspace
+      ZELYQ_CORS_ORIGIN: ${ZELYQ_CORS_ORIGIN:-http://localhost:8787}
+    ports:
+      - "${ZELYQ_PORT:-8787}:8787"
+    volumes:
+      - zelyq-data:/data
+    restart: unless-stopped
+
+  # Uncomment to run against PostgreSQL instead of SQLite, and set
+  # DATABASE_URL=postgres://zelyq:zelyq@postgres:5432/zelyq
+  #
+  # postgres:
+  #   image: postgres:17-alpine
+  #   environment:
+  #     POSTGRES_USER: zelyq
+  #     POSTGRES_PASSWORD: zelyq
+  #     POSTGRES_DB: zelyq
+  #   volumes:
+  #     - zelyq-postgres:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U zelyq"]
+  #     interval: 10s
+
+volumes:
+  zelyq-data:
+  # zelyq-postgres:

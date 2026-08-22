@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "provider" text DEFAULT 'anthropic' NOT NULL;
