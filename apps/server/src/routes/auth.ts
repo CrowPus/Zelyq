@@ -1,4 +1,10 @@
-import { loginSchema, registerSchema } from "@zelyq/core";
+import {
+  ZelyqError,
+  changePasswordSchema,
+  loginSchema,
+  registerSchema,
+  updateProfileSchema,
+} from "@zelyq/core";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AuthService } from "../services/auth.js";
 
@@ -49,6 +55,28 @@ export function registerAuthRoutes(
     await deps.auth.logout(request.cookies[SESSION_COOKIE]);
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
     reply.status(204);
+  });
+
+  app.patch("/api/auth/profile", async (request) => {
+    const user = request.zelyqUser;
+    if (!user) throw new ZelyqError("unauthorized", "Sign in to continue.");
+
+    const input = updateProfileSchema.parse(request.body);
+    const updated = await deps.auth.updateProfile(user, input);
+    return await deps.auth.describe(updated);
+  });
+
+  app.post("/api/auth/password", async (request, reply) => {
+    const user = request.zelyqUser;
+    if (!user) throw new ZelyqError("unauthorized", "Sign in to continue.");
+
+    const input = changePasswordSchema.parse(request.body);
+    const { token } = await deps.auth.changePassword(user, input);
+
+    // Every session was revoked, including this one; hand back a fresh cookie
+    // so the person changing the password stays signed in here.
+    await setSessionCookie(request, reply, token);
+    return { changed: true };
   });
 
   app.get("/api/auth/me", async (request, reply) => {

@@ -51,6 +51,24 @@ export function userRepository(db: ZelyqDb) {
       return rows[0] ? toUser(rows[0]) : null;
     },
 
+    async updateProfile(id: string, patch: { name?: string; email?: string }): Promise<void> {
+      await db
+        .update(users)
+        .set({
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          ...(patch.email !== undefined ? { email: patch.email.toLowerCase() } : {}),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(users.id, id));
+    },
+
+    async updatePassword(id: string, passwordHash: string): Promise<void> {
+      await db
+        .update(users)
+        .set({ passwordHash, updatedAt: new Date().toISOString() })
+        .where(eq(users.id, id));
+    },
+
     /** Drives first-run setup: the first account to register owns the instance. */
     async count(): Promise<number> {
       const rows = await db.select({ value: sql<number>`count(*)` }).from(users);

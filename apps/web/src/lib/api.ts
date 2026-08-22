@@ -1,5 +1,6 @@
 import type {
   AddMemberInput,
+  ChangePasswordInput,
   CreateProjectInput,
   FileContent,
   FileEntry,
@@ -11,6 +12,7 @@ import type {
   Snapshot,
   TeamMember,
   TeamMembership,
+  UpdateProfileInput,
   UpdateSettingsInput,
 } from "@zelyq/core";
 
@@ -68,6 +70,15 @@ export const api = {
     request<SessionResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
 
   logout: () => request<void>("/auth/logout", { method: "POST" }),
+
+  updateProfile: (input: UpdateProfileInput) =>
+    request<SessionResponse>("/auth/profile", { method: "PATCH", body: JSON.stringify(input) }),
+
+  changePassword: (input: ChangePasswordInput) =>
+    request<{ changed: boolean }>("/auth/password", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   getSettings: () => request<SettingsResponse>("/settings"),
 

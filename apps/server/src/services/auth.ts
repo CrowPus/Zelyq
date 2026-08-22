@@ -140,6 +140,69 @@ export class AuthService {
     return { user, token: await this.createSession(user.id) };
   }
 
+  /**
+   * Changing the password ends every other session.
+   *
+   * The usual reason someone changes a password is that they think it is known
+   * to someone else; leaving that person's session alive would defeat the act.
+   * The caller's own session is replaced with a fresh one so they are not
+   * signed out of the device they are standing at.
+   */
+  async changePassword(
+    user: User,
+    input: { currentPassword: string; newPassword: string },
+  ): Promise<{ token: string }> {
+    const record = await this.store.users.findByEmail(user.email);
+    if (!record || !(await verifyPassword(input.currentPassword, record.passwordHash))) {
+      throw new ZelyqError("unauthorized", "That is not your current password.");
+    }
+
+    if (input.currentPassword === input.newPassword) {
+      throw ZelyqError.badRequest("The new password must be different from the current one.");
+    }
+
+    await this.store.users.updatePassword(user.id, await hashPassword(input.newPassword));
+    await this.store.authSessions.removeForUser(user.id);
+    return { token: await this.createSession(user.id) };
+  }
+
+  /**
+   * Changing the email requires the password. A session left open on a shared
+   * machine would otherwise be enough to move the account to an address the
+   * owner does not control.
+   */
+  async updateProfile(
+    user: User,
+    input: { name?: string; email?: string; currentPassword?: string },
+  ): Promise<User> {
+    const patch: { name?: string; email?: string } = {};
+
+    if (input.name !== undefined && input.name.trim() !== user.name) {
+      patch.name = input.name.trim();
+    }
+
+    const email = input.email?.trim().toLowerCase();
+    if (email && email !== user.email) {
+      if (!input.currentPassword) {
+        throw new ZelyqError("unauthorized", "Enter your password to change your email address.");
+      }
+
+      const record = await this.store.users.findByEmail(user.email);
+      if (!record || !(await verifyPassword(input.currentPassword, record.passwordHash))) {
+        throw new ZelyqError("unauthorized", "That is not your current password.");
+      }
+
+      if (await this.store.users.findByEmail(email)) {
+        throw new ZelyqError("conflict", "Another account already uses that email address.");
+      }
+
+      patch.email = email;
+    }
+
+    if (Object.keys(patch).length > 0) await this.store.users.updateProfile(user.id, patch);
+    return (await this.store.users.findById(user.id)) ?? user;
+  }
+
   async logout(token: string | undefined): Promise<void> {
     if (!token) return;
     const session = await this.store.authSessions.findByTokenHash(hashToken(token));

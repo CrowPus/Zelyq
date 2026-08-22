@@ -69,6 +69,24 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+export const updateProfileSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    email: z.string().email().max(320).optional(),
+    /** Required to change the email — see the route for why. */
+    currentPassword: z.string().max(200).optional(),
+  })
+  .refine((input) => input.name !== undefined || input.email !== undefined, {
+    message: "Nothing to change",
+  });
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(200),
+  newPassword: passwordSchema,
+});
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 // ---------------------------------------------------------------------------
 // Team
 // ---------------------------------------------------------------------------

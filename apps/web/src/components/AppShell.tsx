@@ -7,6 +7,7 @@ import {
   Moon,
   Settings,
   Sun,
+  UserRound,
   Users,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -198,10 +199,18 @@ function AccountMenu() {
               <p className="truncate text-xs font-medium text-fg">{user.name}</p>
               <p className="truncate font-mono text-2xs text-fg-muted">{user.email}</p>
             </div>
+            <Link
+              to="/account"
+              onClick={() => setOpen(false)}
+              className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
+            >
+              <UserRound size={13} strokeWidth={1.75} />
+              Account settings
+            </Link>
             <Button
               variant="ghost"
               size="sm"
-              className="mt-1 w-full justify-start"
+              className="w-full justify-start"
               icon={<LogOut size={13} strokeWidth={1.75} />}
               onClick={() => {
                 setOpen(false);
