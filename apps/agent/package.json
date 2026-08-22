@@ -22,7 +22,7 @@
     "@zelyq/tools": "workspace:*",
     "fastify": "^5.2.0",
     "pino": "^9.5.0",
-    "zod": "^3.24.1"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
