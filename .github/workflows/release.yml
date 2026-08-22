@@ -1,0 +1,79 @@
+name: Release
+
+# Tag a commit and this publishes the release notes for it:
+#
+#   git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
+#
+# Nothing is published to a registry — the applications are deployed from
+# source, and the packages are not on npm. This exists so a version means
+# something specific: a commit, a changelog entry, and a build that passed.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The existing tag to build a release for
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify the tagged commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  release:
+    name: Publish the release
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Take the notes from the changelog
+        id: notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # The section for this version, from its heading to the next one.
+          awk -v v="$version" '
+            $0 ~ "^## \\[?" v "\\]?" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No changelog entry for $version; falling back to the commit log." >&2
+            git log --pretty="- %s" "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD)..HEAD" > release-notes.md
+          fi
+          cat release-notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            --verify-tag

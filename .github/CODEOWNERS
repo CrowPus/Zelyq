@@ -1,0 +1,17 @@
+# Every pull request notifies the maintainers by default.
+#
+# This is a review routing table, not a permission list: GitHub uses it to
+# request reviews automatically. Add more specific lines below the catch-all as
+# the project grows and different people own different areas.
+
+*                       @CrowPus
+
+# Areas where a mistake is expensive, called out so they are never reviewed by
+# accident.
+/packages/runtime/      @CrowPus
+/apps/server/src/services/access.ts   @CrowPus
+/apps/server/src/services/auth.ts     @CrowPus
+/apps/server/src/services/secrets.ts  @CrowPus
+/packages/db/drizzle/   @CrowPus
+/.github/workflows/     @CrowPus
+/SECURITY.md            @CrowPus
