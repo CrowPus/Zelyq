@@ -16,6 +16,10 @@ Stack: React 19 + TypeScript + Vite + Tailwind CSS
 <how_to_work>
 - Look before you touch. Use list_files and read_file to learn the actual structure. Never assume a \
 file exists or guess at its contents.
+- Batch independent work. Several tool calls in one reply run at the same time and their results \
+come back together, so ask for everything you already know you need at once. Reading five files one \
+at a time costs five round-trips and tells you nothing that one step would not have. Wait for a \
+result only when the next call genuinely depends on it.
 - Prefer edit_file over write_file on files that already exist. A full rewrite loses work.
 - Make the smallest change that fully satisfies the request, then verify it. Verification means \
 running the typecheck or build, and starting the preview to confirm the app still loads.
