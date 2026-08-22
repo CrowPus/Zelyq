@@ -14,12 +14,15 @@ import { SESSION_COOKIE, registerAuthRoutes } from "./routes/auth.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectRoutes } from "./routes/projects.js";
+import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerTeamRoutes } from "./routes/teams.js";
 import { AccessControl } from "./services/access.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AuthService } from "./services/auth.js";
 import { ProjectService } from "./services/projects.js";
+import { SecretBox, resolveSecretKey } from "./services/secrets.js";
+import { SettingsService } from "./services/settings.js";
 import { ChatGateway } from "./ws/gateway.js";
 
 declare module "fastify" {
@@ -56,9 +59,22 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const runtime = createRuntimeDriver(config.runtime);
   const agent = new AgentClient(config.agentUrl);
   const projects = new ProjectService(store, runtime, config);
+  const secrets = new SecretBox(
+    resolveSecretKey({
+      envKey: config.secretKey,
+      keyFilePath: config.secretKeyFile,
+      onGenerate: (file) =>
+        app.log.warn(
+          `Generated an encryption key at ${file}. Back it up, or set ZELYQ_SECRET_KEY instead — without it, stored API keys cannot be read.`,
+        ),
+    }),
+  );
+  const settings = new SettingsService(store, secrets);
+  // Access-related settings are read at call time, so changing them in the UI
+  // takes effect without a restart.
   const auth = new AuthService(store, {
-    allowRegistration: config.allowRegistration,
-    sessionTtlDays: config.sessionTtlDays,
+    allowRegistration: () => settings.booleanValue("allowRegistration"),
+    sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
   });
   const access = new AccessControl(store);
 
@@ -142,14 +158,15 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     };
   });
 
-  registerAuthRoutes(app, { auth, sessionTtlDays: config.sessionTtlDays });
+  registerAuthRoutes(app, { auth, sessionTtlDays: () => settings.numberValue("sessionTtlDays") });
+  registerSettingsRoutes(app, { settings, access });
   registerTeamRoutes(app, { store, access });
   registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });
   registerFileRoutes(app, { projects, runtime, access });
   registerPreviewRoutes(app, { projects, runtime, access });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
 
-  const gateway = new ChatGateway(store, projects, agent, access, {
+  const gateway = new ChatGateway(store, projects, agent, access, settings, {
     info: (message) => app.log.info(message),
     error: (object, message) => app.log.error(object, message),
   });

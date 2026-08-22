@@ -3,6 +3,7 @@ import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { messageRepository } from "./repositories/messages.js";
 import { projectRepository } from "./repositories/projects.js";
 import { sessionRepository } from "./repositories/sessions.js";
+import { settingsRepository } from "./repositories/settings.js";
 import { snapshotRepository } from "./repositories/snapshots.js";
 import { teamRepository } from "./repositories/teams.js";
 import { userRepository } from "./repositories/users.js";
@@ -17,6 +18,7 @@ export type { SnapshotRepository } from "./repositories/snapshots.js";
 export type { UserRepository } from "./repositories/users.js";
 export type { TeamRepository } from "./repositories/teams.js";
 export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
+export type { SettingsRepository } from "./repositories/settings.js";
 
 export interface Store extends DatabaseHandle {
   users: ReturnType<typeof userRepository>;
@@ -26,6 +28,7 @@ export interface Store extends DatabaseHandle {
   sessions: ReturnType<typeof sessionRepository>;
   messages: ReturnType<typeof messageRepository>;
   snapshots: ReturnType<typeof snapshotRepository>;
+  settings: ReturnType<typeof settingsRepository>;
 }
 
 /**
@@ -44,5 +47,6 @@ export function createStore(url: string): Store {
     sessions: sessionRepository(handle.db),
     messages: messageRepository(handle.db),
     snapshots: snapshotRepository(handle.db),
+    settings: settingsRepository(handle.db),
   };
 }

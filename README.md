@@ -142,6 +142,16 @@ implementation — nothing in the server, the UI, or the tools changes.
 
 One variable (`ZELYQ_RUNTIME`) moves between them. No code changes.
 
+## Configuration
+
+Everything is an environment variable, and most of it can also be set in **Settings** inside the app,
+so an instance can be run by someone who never opens a terminal — including entering the model API
+key. The environment always wins; fields it supplies appear locked in the UI, labelled with the
+variable that supplies them, so the two can never disagree silently.
+
+Keys entered through Settings are encrypted with AES-256-GCM before storage and never sent back to
+the browser. Only an instance administrator — the first account created — can see or change them.
+
 ## Access control
 
 Everyone signs in, and every route checks who they are. Projects belong to a team; your role in that

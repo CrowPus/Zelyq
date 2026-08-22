@@ -4,6 +4,7 @@ import { Spinner } from "./components/ui";
 import { useSession } from "./hooks/useSession";
 import { ProjectEditorPage } from "./pages/ProjectEditorPage";
 import { ProjectListPage } from "./pages/ProjectListPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { TeamPage } from "./pages/TeamPage";
 
@@ -41,6 +42,7 @@ function Gate() {
       <Route path="/" element={<ProjectListPage />} />
       <Route path="/projects/:id" element={<ProjectEditorPage />} />
       <Route path="/teams/:id" element={<TeamPage />} />
+      <Route path="/settings" element={<SettingsPage />} />
     </Routes>
   );
 }

@@ -1,4 +1,4 @@
-import type { User } from "@zelyq/core";
+import type { InstanceRole, User } from "@zelyq/core";
 import { eq, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { users } from "../schema/sqlite.js";
@@ -6,7 +6,13 @@ import { users } from "../schema/sqlite.js";
 type Row = typeof users.$inferSelect;
 
 function toUser(row: Row): User {
-  return { id: row.id, email: row.email, name: row.name, createdAt: row.createdAt };
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    instanceRole: row.instanceRole as InstanceRole,
+    createdAt: row.createdAt,
+  };
 }
 
 export function userRepository(db: ZelyqDb) {
@@ -16,9 +22,16 @@ export function userRepository(db: ZelyqDb) {
       email: string;
       name: string;
       passwordHash: string;
+      instanceRole?: InstanceRole;
     }): Promise<User> {
       const now = new Date().toISOString();
-      const row = { ...input, email: input.email.toLowerCase(), createdAt: now, updatedAt: now };
+      const row = {
+        ...input,
+        email: input.email.toLowerCase(),
+        instanceRole: input.instanceRole ?? "member",
+        createdAt: now,
+        updatedAt: now,
+      };
       await db.insert(users).values(row);
       return toUser(row as Row);
     },

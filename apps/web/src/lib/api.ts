@@ -7,9 +7,11 @@ import type {
   Project,
   Role,
   SessionResponse,
+  SettingsResponse,
   Snapshot,
   TeamMember,
   TeamMembership,
+  UpdateSettingsInput,
 } from "@zelyq/core";
 
 /**
@@ -66,6 +68,11 @@ export const api = {
     request<SessionResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
 
   logout: () => request<void>("/auth/logout", { method: "POST" }),
+
+  getSettings: () => request<SettingsResponse>("/settings"),
+
+  updateSettings: (changes: UpdateSettingsInput) =>
+    request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),
 
   listTeams: () => request<{ teams: TeamMembership[] }>("/teams"),
 

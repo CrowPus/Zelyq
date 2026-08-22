@@ -60,6 +60,10 @@ Enforced today:
   confirm the project exists.
 - **The WebSocket is authenticated at the handshake** and carries the same role. A viewer may watch a
   conversation stream; only an editor may start one.
+- **API keys stored through the settings screen are encrypted at rest** with AES-256-GCM under a
+  32-byte key from `ZELYQ_SECRET_KEY`, or one generated at `data/secret.key` with owner-only
+  permissions. They are never returned to the browser — the screen shows only whether a key is set
+  and its last four characters. Only an instance administrator can read or change settings.
 - Path traversal defence — every file operation resolves inside the project root and rejects
   escapes and symlinks that leave it.
 - Command timeouts and captured output limits.
@@ -73,6 +77,10 @@ Not provided by the core (supply it in your deployment):
 
 ## Handling credentials
 
-Keep API keys in environment variables or your platform's secret store — never in the database, the
-repository, or a project's workspace. Zelyq redacts values matching known key formats from log
+API keys belong in `ZELYQ_SECRET_KEY`-protected settings or in your platform's secret store — never
+in the repository or a project's workspace.
+
+On a server, prefer setting `ZELYQ_SECRET_KEY` from a secret manager. The generated fallback keeps a
+laptop install working with no setup, but it puts the key on the same disk as the ciphertext it
+protects, which defends against a stolen database file and not against a stolen machine. Zelyq redacts values matching known key formats from log
 output, but that is defence in depth, not a guarantee: treat agent transcripts as sensitive.

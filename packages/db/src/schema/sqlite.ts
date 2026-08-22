@@ -19,6 +19,11 @@ export const users = sqliteTable(
     email: text("email").notNull(),
     name: text("name").notNull(),
     passwordHash: text("password_hash").notNull(),
+    /**
+     * Instance-wide, distinct from team roles: "admin" may change server
+     * settings. The first account to register gets it.
+     */
+    instanceRole: text("instance_role").notNull().default("member"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

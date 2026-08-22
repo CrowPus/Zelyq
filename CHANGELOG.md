@@ -19,6 +19,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `ModelProvider` interface with Claude and Google Gemini implementations, selected with
   `ZELYQ_PROVIDER`; each provider carries its own default model and API key variables.
 - `GET /providers` on the agent, reporting every provider and whether a usable key is present.
+- A settings screen for instance administrators covering the model provider, API keys, registration,
+  session length, and preview host, so an instance can be configured without editing `.env`.
+  Environment variables take precedence and are shown locked; stored API keys are encrypted with
+  AES-256-GCM and never returned to the browser.
+- An instance-level administrator role, distinct from team roles, held by the first account. A
+  backfill migration promotes the earliest account on instances that predate it.
 - Accounts, sessions, and teams: registration and sign-in, an httpOnly session cookie backed by a
   hashed token, scrypt password hashing, and role-based access control (`viewer`, `editor`, `admin`,
   `owner`) enforced on every REST route and on the WebSocket handshake.

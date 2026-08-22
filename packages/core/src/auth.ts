@@ -34,10 +34,15 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
 // User
 // ---------------------------------------------------------------------------
 
+/** Instance-wide privilege, separate from any team role. */
+export const instanceRoleSchema = z.enum(["member", "admin"]);
+export type InstanceRole = z.infer<typeof instanceRoleSchema>;
+
 export const userSchema = z.object({
   id: z.string(),
   email: z.string().email(),
   name: z.string(),
+  instanceRole: instanceRoleSchema,
   createdAt: z.string().datetime(),
 });
 export type User = z.infer<typeof userSchema>;

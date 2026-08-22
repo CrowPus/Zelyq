@@ -27,6 +27,12 @@ export type ZelyqDb = LibSQLDatabase<typeof sqliteSchema>;
 export interface DatabaseHandle {
   db: ZelyqDb;
   dialect: Dialect;
+  /**
+   * Runs a statement as written. For maintenance and for tests that need to
+   * exercise migration SQL directly — never for request handling, which goes
+   * through the repositories so the dialects stay interchangeable.
+   */
+  exec(statement: string): Promise<void>;
   /** Where the data lives, with credentials stripped — safe to log. */
   describe(): string;
   close(): Promise<void>;
@@ -50,6 +56,11 @@ export function createDatabase(url: string): DatabaseHandle {
     return {
       db: db as unknown as ZelyqDb,
       dialect,
+      // postgres.js: `unsafe` is its raw path. The statement is written by
+      // this codebase, never assembled from request input.
+      exec: async (statement: string) => {
+        await sql.unsafe(statement);
+      },
       describe: () => redact(url),
       close: async () => {
         await sql.end({ timeout: 5 });
@@ -62,6 +73,9 @@ export function createDatabase(url: string): DatabaseHandle {
   return {
     db,
     dialect,
+    exec: async (statement: string) => {
+      await client.execute(statement);
+    },
     describe: () => redact(url),
     close: async () => {
       client.close();

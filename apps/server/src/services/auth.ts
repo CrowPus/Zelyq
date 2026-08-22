@@ -60,9 +60,13 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/**
+ * Read at call time, not captured at construction: these are editable in the
+ * settings screen and must take effect without a restart.
+ */
 export interface AuthConfig {
-  allowRegistration: boolean;
-  sessionTtlDays: number;
+  allowRegistration: () => Promise<boolean>;
+  sessionTtlDays: () => Promise<number>;
 }
 
 export class AuthService {
@@ -78,7 +82,7 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<{ user: User; token: string }> {
     const firstRun = await this.isFirstRun();
-    if (!firstRun && !this.config.allowRegistration) {
+    if (!firstRun && !(await this.config.allowRegistration())) {
       throw new ZelyqError(
         "forbidden",
         "Registration is closed on this instance. Ask an administrator to add you to a team.",
@@ -95,6 +99,8 @@ export class AuthService {
       email,
       name: input.name.trim(),
       passwordHash: await hashPassword(input.password),
+      // Whoever sets the instance up administers it.
+      instanceRole: firstRun ? "admin" : "member",
     });
 
     // Everyone lands in a team of their own; sharing is adding members to it.
@@ -162,9 +168,8 @@ export class AuthService {
 
   private async createSession(userId: string): Promise<string> {
     const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(
-      Date.now() + this.config.sessionTtlDays * 24 * 60 * 60 * 1000,
-    ).toISOString();
+    const ttlDays = await this.config.sessionTtlDays();
+    const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
 
     await this.store.authSessions.create({
       id: randomUUID(),
