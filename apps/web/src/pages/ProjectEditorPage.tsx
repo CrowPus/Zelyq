@@ -1,20 +1,32 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Camera, Code2, MessageSquare, Monitor } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { AppShell } from "../components/AppShell";
 import { ChatPanel } from "../components/ChatPanel";
 import { CodeViewer } from "../components/CodeViewer";
 import { FileExplorer } from "../components/FileExplorer";
 import { PreviewPanel } from "../components/PreviewPanel";
-import { Button, Spinner } from "../components/ui";
+import { Badge, Button, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 
-type Tab = "preview" | "code";
+/** One value drives both layouts: the right-hand pane on desktop, the only
+ * pane on a phone. */
+type Pane = "chat" | "preview" | "code";
+
+const STATUS_TONE = {
+  ready: "success",
+  building: "warning",
+  creating: "warning",
+  error: "danger",
+  archived: "neutral",
+} as const;
 
 export function ProjectEditorPage() {
   const { id = "" } = useParams();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>("preview");
+  const [pane, setPane] = useState<Pane>("preview");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
@@ -35,8 +47,8 @@ export function ProjectEditorPage() {
   });
 
   // When the agent reports file changes, refresh the tree, the open file, and
-  // the preview iframe — a dev server with HMR usually beats us to it, but a
-  // config or dependency change needs the reload.
+  // the preview frame. HMR usually beats us to it, but config and dependency
+  // changes need the reload.
   const onFilesChanged = useCallback(
     (paths: string[]) => {
       queryClient.invalidateQueries({ queryKey: ["files", id] });
@@ -51,7 +63,7 @@ export function ProjectEditorPage() {
   const chat = useChatSocket(id, onFilesChanged);
 
   useEffect(() => {
-    document.title = project.data ? `${project.data.project.name} · Zelyq` : "Zelyq";
+    document.title = project.data ? `${project.data.project.name} — Zelyq` : "Zelyq";
   }, [project.data]);
 
   async function startPreview() {
@@ -76,70 +88,108 @@ export function ProjectEditorPage() {
 
   if (project.isLoading) {
     return (
-      <div className="grid h-screen place-items-center">
-        <Spinner label="Opening project…" />
-      </div>
+      <AppShell crumbs={[{ label: "Projects", to: "/" }, { label: "…" }]}>
+        <div className="grid h-full place-items-center">
+          <Spinner />
+        </div>
+      </AppShell>
     );
   }
 
   if (project.isError) {
     return (
-      <div className="grid h-screen place-items-center gap-3 text-center">
-        <p className="text-sm text-slate-400">{(project.error as Error).message}</p>
-        <Link to="/" className="text-sm text-sky-400 hover:underline">
-          Back to projects
-        </Link>
-      </div>
+      <AppShell crumbs={[{ label: "Projects", to: "/" }, { label: "Not found" }]}>
+        <div className="grid h-full place-items-center gap-2 text-center">
+          <p className="text-sm text-fg-secondary">{(project.error as Error).message}</p>
+          <Link to="/" className="text-xs text-info hover:underline">
+            Back to projects
+          </Link>
+        </div>
+      </AppShell>
     );
   }
 
+  const current = project.data!.project;
+  // Desktop always shows the chat on the left, so "chat" falls back to preview.
+  const rightPane: "preview" | "code" = pane === "code" ? "code" : "preview";
+
   return (
-    // h-dvh, not h-screen: on mobile browsers the toolbar makes 100vh taller
-    // than what is actually visible. overflow-hidden is the backstop that keeps
-    // a mis-sized child from scrolling the whole document.
-    <div className="grid h-dvh grid-rows-[auto_1fr] overflow-hidden">
-      <header className="flex items-center gap-3 border-b border-slate-800 px-4 py-2.5">
-        <Link to="/" className="text-sm text-slate-500 transition-colors hover:text-slate-200">
-          ← Projects
-        </Link>
-        <h1 className="text-sm font-medium text-slate-200">{project.data?.project.name}</h1>
-        <div className="ml-auto flex items-center gap-1 rounded-md bg-slate-900 p-0.5">
-          {(["preview", "code"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setTab(value)}
-              className={`rounded px-3 py-1 text-xs font-medium capitalize transition-colors ${
-                tab === value
-                  ? "bg-slate-800 text-slate-100"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
+    <AppShell
+      crumbs={[
+        { label: "Projects", to: "/" },
+        {
+          label: current.name,
+          badge: <Badge tone={STATUS_TONE[current.status] ?? "neutral"}>{current.status}</Badge>,
+        },
+      ]}
+      actions={
+        <>
+          {/* The bottom bar handles pane switching on phones. */}
+          <div className="mr-1 hidden items-center gap-0.5 rounded-md border border-border-default bg-surface-subtle p-0.5 md:flex">
+            <TabButton
+              active={rightPane === "preview"}
+              onClick={() => setPane("preview")}
+              icon={<Monitor size={13} strokeWidth={1.75} />}
             >
-              {value}
-            </button>
-          ))}
-        </div>
-        <Button variant="ghost" onClick={() => api.createSnapshot(id, "Manual save")}>
-          Snapshot
-        </Button>
-      </header>
+              Preview
+            </TabButton>
+            <TabButton
+              active={rightPane === "code"}
+              onClick={() => setPane("code")}
+              icon={<Code2 size={13} strokeWidth={1.75} />}
+            >
+              Code
+            </TabButton>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Camera size={13} strokeWidth={1.75} />}
+            onClick={() => api.createSnapshot(id, "Manual save")}
+            className="max-md:px-1.5"
+          >
+            <span className="max-md:hidden">Snapshot</span>
+          </Button>
+        </>
+      }
+    >
+      <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] md:grid-rows-[minmax(0,1fr)]">
+        <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] md:grid-cols-[minmax(300px,24rem)_minmax(0,1fr)]">
+          {/*
+            Panes are hidden, not unmounted. The chat holds a live WebSocket and
+            a scroll position; tearing it down whenever the user glances at the
+            preview would drop both.
 
-      <div className="grid min-h-0 grid-cols-[minmax(320px,26rem)_minmax(0,1fr)]">
-        <ChatPanel chat={chat} model={health.data?.agent.model} />
+            Every visibility class is written out in full rather than composed
+            from a template string — Tailwind extracts class names statically,
+            so an interpolated `md:${x}` produces no CSS at all.
+          */}
+          <div className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 md:grid`}>
+            <ChatPanel chat={chat} model={health.data?.agent.model} />
+          </div>
 
-        {tab === "preview" ? (
-          <PreviewPanel
-            preview={preview.data?.preview ?? null}
-            logs={logs}
-            starting={starting}
-            onStart={startPreview}
-            onStop={stopPreview}
-            onRefreshLogs={refreshLogs}
-            reloadToken={reloadToken}
-          />
-        ) : (
-          <div className="grid min-h-0 grid-cols-[16rem_minmax(0,1fr)]">
-            <div className="min-h-0 overflow-hidden border-r border-slate-800">
+          <div
+            className={`${pane === "preview" ? "grid" : "hidden"} min-h-0 ${
+              rightPane === "preview" ? "md:grid" : "md:hidden"
+            }`}
+          >
+            <PreviewPanel
+              preview={preview.data?.preview ?? null}
+              logs={logs}
+              starting={starting}
+              onStart={startPreview}
+              onStop={stopPreview}
+              onRefreshLogs={refreshLogs}
+              reloadToken={reloadToken}
+            />
+          </div>
+
+          <div
+            className={`${pane === "code" ? "grid" : "hidden"} min-h-0 grid-cols-[9rem_minmax(0,1fr)] sm:grid-cols-[15rem_minmax(0,1fr)] ${
+              rightPane === "code" ? "md:grid" : "md:hidden"
+            }`}
+          >
+            <div className="min-h-0 overflow-hidden border-r border-border-default bg-surface">
               <FileExplorer
                 entries={files.data?.entries ?? []}
                 selected={selectedPath}
@@ -149,8 +199,69 @@ export function ProjectEditorPage() {
             </div>
             <CodeViewer path={selectedPath} file={file.data ?? null} loading={file.isLoading} />
           </div>
-        )}
+        </div>
+
+        <PaneBar pane={pane} onChange={setPane} />
       </div>
-    </div>
+    </AppShell>
+  );
+}
+
+/** Phone-only pane switcher, at the bottom where a thumb reaches. */
+function PaneBar({ pane, onChange }: { pane: Pane; onChange(next: Pane): void }) {
+  const items: Array<{ id: Pane; label: string; icon: React.ReactNode }> = [
+    { id: "chat", label: "Agent", icon: <MessageSquare size={15} strokeWidth={1.75} /> },
+    { id: "preview", label: "Preview", icon: <Monitor size={15} strokeWidth={1.75} /> },
+    { id: "code", label: "Code", icon: <Code2 size={15} strokeWidth={1.75} /> },
+  ];
+
+  return (
+    <nav
+      aria-label="Panes"
+      className="grid grid-cols-3 border-t border-border-default bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+    >
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onChange(item.id)}
+          aria-current={pane === item.id ? "page" : undefined}
+          className={`flex flex-col items-center gap-0.5 py-1.5 text-2xs font-medium transition-colors ${
+            pane === item.id ? "text-fg" : "text-fg-muted hover:text-fg-secondary"
+          }`}
+        >
+          {item.icon}
+          {item.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick(): void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex h-[22px] items-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors ${
+        active
+          ? "bg-surface text-fg shadow-[0_1px_2px_rgb(0_0_0/0.06)]"
+          : "text-fg-muted hover:text-fg"
+      }`}
+    >
+      {icon}
+      {children}
+    </button>
   );
 }

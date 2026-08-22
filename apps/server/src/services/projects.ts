@@ -2,6 +2,7 @@ import {
   type CreateProjectInput,
   type Project,
   type Session,
+  type User,
   ZelyqError,
   newId,
   slugify,
@@ -24,10 +25,11 @@ export class ProjectService {
     private readonly config: ServerConfig,
   ) {}
 
-  async create(input: CreateProjectInput): Promise<Project> {
+  async create(input: CreateProjectInput & { teamId: string }): Promise<Project> {
     const id = newId("project");
     const project = await this.store.projects.create({
       id,
+      teamId: input.teamId,
       name: input.name,
       slug: slugify(input.name),
       description: input.description ?? null,
@@ -53,8 +55,10 @@ export class ProjectService {
     return (await this.store.projects.findById(id)) ?? project;
   }
 
-  async list(): Promise<Project[]> {
-    return await this.store.projects.list();
+  /** Only projects in teams the user belongs to. */
+  async listForUser(user: User): Promise<Project[]> {
+    const teams = await this.store.teams.listForUser(user.id);
+    return await this.store.projects.listForTeams(teams.map((team) => team.id));
   }
 
   async get(id: string): Promise<Project> {

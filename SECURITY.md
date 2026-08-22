@@ -3,8 +3,8 @@
 ## Reporting a vulnerability
 
 **Please do not open a public issue.** Report privately through GitHub's
-[Report a vulnerability](https://github.com/zelyq/zelyq/security/advisories/new) form, or email
-`security@zelyq.dev`.
+[Report a vulnerability](https://github.com/CrowPus/Zelyq/security/advisories/new) form, which opens a
+draft advisory visible only to you and the maintainers.
 
 Include what you can: affected version or commit, reproduction steps, and impact. You will get an
 acknowledgement within 3 working days and an assessment within 10. We will keep you updated through
@@ -29,6 +29,15 @@ Local mode is appropriate for a single trusted developer working on their own ma
 a sandbox. Do not expose a local-mode instance to other people, and do not point it at prompts or
 projects you do not trust.
 
+### Accounts
+
+The first account created owns the instance and adopts any projects that predate it. After that,
+`ZELYQ_ALLOW_REGISTRATION=false` closes signup so people can only join by being added to a team.
+
+Access control does not sandbox anything: an `editor` can make the agent run commands, and in local
+mode those run as the server's user. Grant `editor` to people you would trust with a shell on that
+machine. `viewer` is the role for everyone else.
+
 ### Remote mode (`ZELYQ_RUNTIME=remote`) — required for shared deployments
 
 Execution moves to a runtime host you deploy, which should isolate each project (container or VM),
@@ -41,6 +50,16 @@ Anything multi-tenant, internet-reachable, or handling other people's data must 
 
 Enforced today:
 
+- **Authentication on every route.** Sessions are random 256-bit tokens delivered in an httpOnly,
+  SameSite=Lax cookie; only a SHA-256 of the token is stored, so a database dump yields no usable
+  sessions. Passwords are hashed with scrypt (N=2^15). Sign-in reports the same error for an unknown
+  email as for a wrong password, and spends the same time on both.
+- **Authorization on every route**, from one place. A project belongs to a team, and your role in
+  that team decides what you may do: `viewer` reads, `editor` writes, `admin` manages members and
+  deletes projects, `owner` controls the team. Non-members get `404`, not `403` — a `403` would
+  confirm the project exists.
+- **The WebSocket is authenticated at the handshake** and carries the same role. A viewer may watch a
+  conversation stream; only an editor may start one.
 - Path traversal defence — every file operation resolves inside the project root and rejects
   escapes and symlinks that leave it.
 - Command timeouts and captured output limits.
@@ -48,7 +67,6 @@ Enforced today:
 
 Not provided by the core (supply it in your deployment):
 
-- Authentication and multi-tenancy — the default build has a single implicit local user.
 - Network egress filtering for generated code.
 - Rate limiting and quota enforcement.
 - Secret scanning of generated files.

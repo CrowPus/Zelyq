@@ -159,8 +159,27 @@ browser ──ws {type:"prompt"}──▶ ChatGateway
         agent: stream → tools → stream → … → turn.end
 ```
 
+## Access control
+
+Authentication and authorization are separate steps in separate places.
+
+*Authentication* happens once per request, in a single `onRequest` hook that turns a session cookie
+into a user. It answers only "who is this"; it never decides anything.
+
+*Authorization* lives entirely in `AccessControl` (`apps/server/src/services/access.ts`). Routes call
+`requireProject(user, id, "editor")`, which loads the project and checks the caller's role in its
+team in one step — so a route cannot load a project without also checking access to it, which is the
+usual way an endpoint ends up unguarded.
+
+There is no per-project permission table. A project belongs to a team, a role in that team is the
+whole answer, and roles are ranked so every check reads "at least this role". Two places to look is
+how a resource ends up reachable through the one nobody remembered to check.
+
+The browser has its own gate, but it is cosmetic: it decides which screen to render. Every decision
+that matters is made again on the server.
+
 ## What is deliberately not here yet
 
-Authentication, multi-tenancy, quotas, and git integration are all absent. Each of them is easier to
+Quotas, audit logs, SSO, and git integration are all absent. Each of them is easier to
 add against settled interfaces than to retrofit into a system that guessed at them early. See
 [roadmap.md](./roadmap.md).

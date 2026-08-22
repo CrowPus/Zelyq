@@ -11,6 +11,9 @@ export interface ServerConfig {
   databaseUrl: string;
   agentUrl: string;
   provider: "anthropic" | "google";
+  /** After the first account exists, whether strangers may still sign up. */
+  allowRegistration: boolean;
+  sessionTtlDays: number;
   model: string;
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   templatesDir: string;
@@ -53,6 +56,8 @@ export function loadServerConfig(): ServerConfig {
     // The agent owns provider defaults; the server only records what a session
     // was created with. An empty model means "let the agent decide".
     provider: (process.env.ZELYQ_PROVIDER ?? "anthropic") as ServerConfig["provider"],
+    allowRegistration: (process.env.ZELYQ_ALLOW_REGISTRATION ?? "true") !== "false",
+    sessionTtlDays: intFromEnv("ZELYQ_SESSION_TTL_DAYS", 30),
     model: process.env.ZELYQ_MODEL ?? "",
     effort: (process.env.ZELYQ_EFFORT ?? "high") as ServerConfig["effort"],
     templatesDir: path.resolve(process.env.ZELYQ_TEMPLATES_DIR ?? path.join(repoRoot, "templates")),

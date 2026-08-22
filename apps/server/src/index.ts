@@ -1,4 +1,4 @@
-import { loadEnvFile } from "@zelyq/core";
+import { loadEnvFile } from "@zelyq/core/node";
 import { runMigrations } from "@zelyq/db";
 import { buildServer } from "./app.js";
 import { loadServerConfig } from "./config.js";

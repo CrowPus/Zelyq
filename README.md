@@ -1,16 +1,37 @@
 <div align="center">
 
+<img src="assets/brand/zelyq-logo.png" alt="Zelyq" width="84" />
+
 # Zelyq
 
-**Open-source AI app builder.** Describe an app in plain language, watch an agent build it in a
-real workspace, and edit the result live — on your laptop or on your own cloud.
+**Describe an app. Watch an agent build it. Edit the result live.**
 
-[![CI](https://github.com/zelyq/zelyq/actions/workflows/ci.yml/badge.svg)](https://github.com/zelyq/zelyq/actions/workflows/ci.yml)
+Zelyq is an open-source AI app builder. You give it a prompt; an agent plans, writes files, runs
+commands, starts a dev server, and reports back — while you watch the tool calls, the file tree, and
+the running result.
+
+[![CI](https://github.com/CrowPus/Zelyq/actions/workflows/ci.yml/badge.svg)](https://github.com/CrowPus/Zelyq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520.12-brightgreen.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.base.json)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](./CONTRIBUTING.md)
 
-[Quickstart](#quickstart) · [Architecture](#architecture) · [Configuration](./docs/configuration.md) ·
-[Self-hosting](./docs/self-hosting.md) · [Contributing](./CONTRIBUTING.md)
+[Quickstart](#quickstart) · [How it works](#how-it-works) · [Architecture](./docs/architecture.md) ·
+[Configuration](./docs/configuration.md) · [Self-hosting](./docs/self-hosting.md) ·
+[Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
+
+<br />
+
+<!-- The hero follows the reader's GitHub theme. -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/editor-dark.png" />
+  <img src="assets/screenshots/editor-light.png" alt="The Zelyq editor: an agent transcript on the left, the running app on the right" width="900" />
+</picture>
+
+<sub>One prompt, unedited: the agent read the project, wrote <code>src/App.tsx</code>, and the result
+is rendering live on the right.</sub>
+
+<!-- TODO: replace the still above with a short screen recording of a build, end to end. -->
 
 </div>
 
@@ -18,70 +39,68 @@ real workspace, and edit the result live — on your laptop or on your own cloud
 
 ## What it is
 
-Zelyq is the engine behind a "prompt to running app" experience, extracted into a project you can
-run yourself. You give it a prompt; an agent plans, writes files, runs commands, starts a dev
-server, and reports back — while you watch the diff, the file tree, and the live preview.
+Most "prompt to app" tools are a product with an engine hidden inside. Zelyq is the engine, and it is
+built so that nothing about it is magic and nothing is locked in:
 
-The design goal is that **nothing is magic and nothing is locked in**:
-
-- **Same code, laptop or cloud.** Every filesystem and shell operation goes through one
-  `RuntimeDriver` interface. `local` runs projects as child processes on your machine; `remote`
-  talks to a runtime host you deploy. The rest of the system does not know the difference.
-- **Bring your own model key.** Zelyq talks to Claude or Gemini with a key you supply. No proxy, no
-  account required, no telemetry. Switching vendor is one environment variable.
+- **Same code on a laptop or in the cloud.** Every filesystem and shell operation goes through one
+  `RuntimeDriver` interface. `local` runs projects as child processes on your machine; `remote` talks
+  to a runtime host you deploy. Switching is one environment variable — the rest of the system cannot
+  tell the difference.
+- **Bring your own model key.** Claude or Gemini, chosen with one variable. No proxy, no account, no
+  telemetry.
 - **Boring, inspectable storage.** SQLite by default (one file), PostgreSQL when you scale. Project
-  files are plain files on disk — you can `cd` into them.
+  files are plain files on disk — you can `cd` into them and take them with you.
 
 ## Status
 
-**Early.** The end-to-end path works — create a project, prompt the agent, see it write files, run
-a preview — and the interfaces around it are deliberately settled first. Expect breaking changes
-before `1.0`. See [ROADMAP](./docs/roadmap.md).
+**Early, and honest about it.** The end-to-end path works — create a project, prompt the agent, watch
+it read and edit files, run a live preview — and the interfaces around it were deliberately settled
+first. Expect breaking changes before `1.0`. See the [roadmap](./docs/roadmap.md) for what is next and
+what is explicitly out of scope.
 
 ## Quickstart
 
 ```bash
-# Requires Node >= 20.11 and pnpm >= 9
-git clone https://github.com/zelyq/zelyq.git
-cd zelyq
+# Requires Node >= 20.12 and pnpm >= 9
+git clone https://github.com/CrowPus/Zelyq.git
+cd Zelyq
 pnpm install
 
 cp .env.example .env
-# Put a key in .env — Claude:  ANTHROPIC_API_KEY=sk-ant-...
-#                     Gemini:  ZELYQ_PROVIDER=google and GEMINI_API_KEY=...
+# Claude:  ANTHROPIC_API_KEY=sk-ant-...
+# Gemini:  ZELYQ_PROVIDER=google and GEMINI_API_KEY=...
 
-pnpm db:migrate     # creates ./data/zelyq.db
-pnpm dev            # server :8787, agent :8788, web :5173
+pnpm dev            # web :5173 · server :8787 · agent :8788
 ```
 
-Open <http://localhost:5173>, create a project, and type what you want built.
+Open <http://localhost:5173>, create a project, and type what you want built. The first preview runs
+`npm install`, so give it a minute.
 
 Prefer containers? `docker compose -f docker/docker-compose.yml up` — see
-[docs/self-hosting.md](./docs/self-hosting.md).
+[self-hosting](./docs/self-hosting.md).
 
-## Architecture
+## How it works
 
-Three processes and four libraries. The agent never touches your disk directly; it goes through the
+Three processes over four libraries. The agent never touches your disk directly; it goes through the
 runtime driver, which is the seam that makes local and cloud identical.
 
 ```
         ┌───────────────┐
-        │  apps/web     │  React + Vite SPA — chat, file tree, editor, live preview
+        │  apps/web     │  React + Vite — chat, file tree, editor, live preview
         └───────┬───────┘
                 │  REST + WebSocket
         ┌───────▼───────┐
-        │  apps/server  │  Fastify. Projects, files, previews, snapshots, sessions.
+        │  apps/server  │  Fastify. Projects, files, previews, snapshots.
         │               │  Owns the database. Relays agent events to the browser.
         └───────┬───────┘
                 │  HTTP + SSE
         ┌───────▼───────┐
-        │  apps/agent   │  Fastify. Runs the model loop, executes tools, streams events.
+        │  apps/agent   │  Runs the model loop, executes tools, streams events.
         └───────┬───────┘
                 │  RuntimeDriver  (the only path to disk or shell)
      ┌──────────┴───────────┐
-     │                      │
 ┌────▼─────┐        ┌───────▼────────┐
-│  local   │        │     remote     │   docker / VM / k8s runtime host
+│  local   │        │     remote     │  container / VM / k8s runtime host
 │ child_   │        │  HTTP contract │
 │ process  │        │                │
 └──────────┘        └────────────────┘
@@ -89,43 +108,72 @@ runtime driver, which is the seam that makes local and cloud identical.
 
 | Package | Responsibility |
 | --- | --- |
-| [`@zelyq/core`](./packages/core) | Domain types and the wire protocol (Zod schemas shared by every process) |
-| [`@zelyq/runtime`](./packages/runtime) | `RuntimeDriver` interface + `local` and `remote` implementations |
+| [`@zelyq/core`](./packages/core) | Domain types and the wire protocol — Zod schemas shared by every process |
+| [`@zelyq/runtime`](./packages/runtime) | `RuntimeDriver` plus the `local` and `remote` implementations |
 | [`@zelyq/db`](./packages/db) | Drizzle schema and migrations, SQLite and PostgreSQL |
-| [`@zelyq/tools`](./packages/tools) | The agent's tool suite, defined once over `RuntimeDriver` |
+| [`@zelyq/tools`](./packages/tools) | The agent's tools, written once against `RuntimeDriver` |
 
-Model vendors sit behind a `ModelProvider` interface inside `apps/agent`. Claude and Gemini ship
-today; adding another is a registry entry plus one implementation, with no change to the server, the
-UI, or the tools.
+Model vendors sit behind a `ModelProvider` interface. Each keeps its own native conversation history,
+because Anthropic requires thinking blocks echoed back unchanged and Gemini requires thought
+signatures preserved across tool calls — flattening both into one format loses what the next request
+needs.
 
 Full detail: [docs/architecture.md](./docs/architecture.md).
 
-## How it runs locally vs. in the cloud
+## Models
+
+| Provider | `ZELYQ_PROVIDER` | Default model | Key |
+| --- | --- | --- | --- |
+| Claude | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
+| Gemini | `google` | `gemini-3.7-flash` | `GEMINI_API_KEY` |
+
+Only the selected provider's key is needed. Adding another provider is a registry entry plus one
+implementation — nothing in the server, the UI, or the tools changes.
+
+## Local vs. cloud
 
 |  | Local | Cloud |
 | --- | --- | --- |
 | Database | SQLite file (`./data/zelyq.db`) | PostgreSQL (`DATABASE_URL=postgres://…`) |
 | Project files | `./workspace/<project-id>` | Volume or runtime host storage |
-| Shell + dev servers | `child_process` on your machine | Runtime host (`ZELYQ_RUNTIME=remote`) |
-| Auth | Off — single local user | Pluggable provider |
-| Model key | Your `.env` | Per-user, stored encrypted |
-| Provider | `anthropic` or `google` | Same, or chosen per session |
+| Shell and dev servers | `child_process` on your machine | Runtime host (`ZELYQ_RUNTIME=remote`) |
+| Accounts | Built in — first account owns the instance | Same, with signup closed |
+| Model key | Your `.env` | Per user |
 
-One environment variable (`ZELYQ_RUNTIME`) moves you between them. No code changes.
+One variable (`ZELYQ_RUNTIME`) moves between them. No code changes.
+
+## Access control
+
+Everyone signs in, and every route checks who they are. Projects belong to a team; your role in that
+team decides what you can do:
+
+| Role | Can |
+| --- | --- |
+| `viewer` | Read projects, files, and conversations |
+| `editor` | Everything above, plus prompt the agent, edit files, and run previews |
+| `admin` | Everything above, plus manage members and delete projects |
+| `owner` | Full control, including the team itself |
+
+The first account created owns the instance; set `ZELYQ_ALLOW_REGISTRATION=false` afterwards so
+people join by invitation rather than by signing themselves up.
+
+Roles are not a sandbox. An `editor` can make the agent run shell commands, which in local mode run
+as the server's user — give `editor` to people you would trust with a shell on that machine.
 
 ## Security
 
-Local mode runs generated code **on your machine with your permissions**. It is meant for projects
-you trust and for development. For anything multi-tenant or public, run the remote runtime with
-container isolation — see [SECURITY.md](./SECURITY.md) and
-[docs/self-hosting.md](./docs/self-hosting.md).
+Local mode runs generated code **on your machine with your permissions**. It is meant for projects you
+trust, on your own machine. It is not a sandbox.
+
+For anything multi-tenant or internet-reachable, run the remote runtime with container isolation. The
+threat model, and what Zelyq does and does not protect against, is written out in
+[SECURITY.md](./SECURITY.md). Read it before you deploy.
 
 ## Contributing
 
-Issues, discussions, and pull requests are welcome. Start with
-[CONTRIBUTING.md](./CONTRIBUTING.md) — it covers the dev loop, project layout, and what a good PR
-looks like here. Everyone participating is expected to follow the
-[Code of Conduct](./CODE_OF_CONDUCT.md).
+Issues, discussions, and pull requests are welcome. [CONTRIBUTING.md](./CONTRIBUTING.md) covers the dev
+loop, the repository layout, and where a given change usually belongs. Everyone participating follows
+the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ## License
 

@@ -1,5 +1,5 @@
 import type { Project, ProjectStatus } from "@zelyq/core";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { projects } from "../schema/sqlite.js";
 
@@ -8,6 +8,7 @@ type Row = typeof projects.$inferSelect;
 function toProject(row: Row): Project {
   return {
     id: row.id,
+    teamId: row.teamId,
     name: row.name,
     slug: row.slug,
     description: row.description,
@@ -28,14 +29,33 @@ export function projectRepository(db: ZelyqDb) {
       return toProject(row as Row);
     },
 
-    async list(limit = 100, offset = 0): Promise<Project[]> {
+    /** Projects across every team the caller belongs to. */
+    async listForTeams(teamIds: string[], limit = 200): Promise<Project[]> {
+      if (teamIds.length === 0) return [];
       const rows = await db
         .select()
         .from(projects)
+        .where(inArray(projects.teamId, teamIds))
         .orderBy(desc(projects.updatedAt))
-        .limit(limit)
-        .offset(offset);
+        .limit(limit);
       return rows.map(toProject);
+    },
+
+    /** Every project, regardless of team. For migrations and maintenance only. */
+    async listAll(limit = 500): Promise<Project[]> {
+      const rows = await db.select().from(projects).orderBy(desc(projects.updatedAt)).limit(limit);
+      return rows.map(toProject);
+    },
+
+    async reassignTeam(fromTeamId: string | null, toTeamId: string): Promise<number> {
+      const rows = await db
+        .select()
+        .from(projects)
+        .where(fromTeamId === null ? eq(projects.teamId, "") : eq(projects.teamId, fromTeamId));
+      for (const row of rows) {
+        await db.update(projects).set({ teamId: toTeamId }).where(eq(projects.id, row.id));
+      }
+      return rows.length;
     },
 
     async findById(id: string): Promise<Project | null> {

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question or idea
-    url: https://github.com/zelyq/zelyq/discussions
+    url: https://github.com/CrowPus/Zelyq/discussions
     about: Ask questions and propose ideas in Discussions.
   - name: Security vulnerability
-    url: https://github.com/zelyq/zelyq/security/advisories/new
+    url: https://github.com/CrowPus/Zelyq/security/advisories/new
     about: Report vulnerabilities privately — never in a public issue.

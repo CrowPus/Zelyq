@@ -1,10 +1,19 @@
-import { randomUUID } from "node:crypto";
+/**
+ * Web Crypto rather than `node:crypto`: this module is imported by the browser
+ * as well as the server, and a `node:` specifier cannot be bundled.
+ * `globalThis.crypto` is standard in Node 19+ and every current browser.
+ */
+function randomUUID(): string {
+  return globalThis.crypto.randomUUID();
+}
 
 /**
  * Identifiers are prefixed so a value is self-describing in logs, URLs, and
  * error messages: `prj_1f0a…` is unmistakably a project.
  */
 export const ID_PREFIXES = {
+  user: "usr",
+  team: "tem",
   project: "prj",
   session: "ses",
   message: "msg",

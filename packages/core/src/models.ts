@@ -15,6 +15,7 @@ export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 
 export const projectSchema = z.object({
   id: z.string(),
+  teamId: z.string(),
   name: z.string().min(1).max(120),
   slug: z.string(),
   description: z.string().max(2000).nullable(),
@@ -27,6 +28,8 @@ export const projectSchema = z.object({
 export type Project = z.infer<typeof projectSchema>;
 
 export const createProjectSchema = z.object({
+  /** Omitted means the caller's default team. */
+  teamId: z.string().optional(),
   name: z.string().min(1).max(120),
   description: z.string().max(2000).optional(),
   template: z.string().default("vite-react"),

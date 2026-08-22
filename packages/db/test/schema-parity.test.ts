@@ -10,7 +10,17 @@ import * as sqlite from "../src/schema/sqlite.js";
  * and forget the other, and the build fails here rather than in production on
  * whichever dialect you do not run locally.
  */
-const TABLES = ["projects", "sessions", "messages", "snapshots", "settings"] as const;
+const TABLES = [
+  "users",
+  "teams",
+  "teamMembers",
+  "authSessions",
+  "projects",
+  "sessions",
+  "messages",
+  "snapshots",
+  "settings",
+] as const;
 
 for (const name of TABLES) {
   test(`${name}: both dialects declare the same columns`, () => {

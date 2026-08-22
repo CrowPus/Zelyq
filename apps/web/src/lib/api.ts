@@ -1,10 +1,15 @@
 import type {
+  AddMemberInput,
   CreateProjectInput,
   FileContent,
   FileEntry,
   Preview,
   Project,
+  Role,
+  SessionResponse,
   Snapshot,
+  TeamMember,
+  TeamMembership,
 } from "@zelyq/core";
 
 /**
@@ -25,6 +30,9 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
+    // The session lives in an httpOnly cookie, so it has to be sent explicitly
+    // for anything other than a same-origin default.
+    credentials: "same-origin",
     headers: {
       ...(init?.body ? { "content-type": "application/json" } : {}),
       ...init?.headers,
@@ -47,6 +55,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  authStatus: () => request<{ firstRun: boolean }>("/auth/status"),
+
+  me: () => request<SessionResponse>("/auth/me"),
+
+  register: (input: { email: string; name: string; password: string }) =>
+    request<SessionResponse>("/auth/register", { method: "POST", body: JSON.stringify(input) }),
+
+  login: (input: { email: string; password: string }) =>
+    request<SessionResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
+
+  logout: () => request<void>("/auth/logout", { method: "POST" }),
+
+  listTeams: () => request<{ teams: TeamMembership[] }>("/teams"),
+
+  createTeam: (name: string) =>
+    request<{ team: TeamMembership }>("/teams", { method: "POST", body: JSON.stringify({ name }) }),
+
+  listMembers: (teamId: string) => request<{ members: TeamMember[] }>(`/teams/${teamId}/members`),
+
+  addMember: (teamId: string, input: AddMemberInput) =>
+    request<{ members: TeamMember[] }>(`/teams/${teamId}/members`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  updateMemberRole: (teamId: string, userId: string, role: Role) =>
+    request<{ members: TeamMember[] }>(`/teams/${teamId}/members/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
+
+  removeMember: (teamId: string, userId: string) =>
+    request<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
+
   health: () =>
     request<{
       status: string;

@@ -36,11 +36,19 @@ ZELYQ_RUNTIME_TOKEN=<a long random string>
 
 See [runtime-protocol.md](./runtime-protocol.md) for the contract and the isolation requirements.
 
-### 2. Authentication — not included
+### 2. Accounts — close signup once yours exist
 
-The core has no auth: every visitor sees every project. Put it behind something that does — an
-identity-aware proxy (Cloudflare Access, Google IAP, `oauth2-proxy`), a VPN, or your own reverse
-proxy with SSO. Do not expose an unauthenticated instance to the internet.
+Zelyq authenticates every request. The first account you create owns the instance; after that, set
+
+```env
+ZELYQ_ALLOW_REGISTRATION=false
+```
+
+so strangers cannot sign themselves up, and add people through the team screen instead. They register
+before you can add them, so create their accounts while signup is open, or turn it on briefly.
+
+Because sessions ride in a cookie, put the instance behind TLS — the cookie is only marked `Secure`
+on an HTTPS connection.
 
 ### 3. TLS and WebSockets
 

@@ -1,21 +1,33 @@
 import fs from "node:fs";
 import path from "node:path";
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
-import { ZelyqError, isZelyqError, toError } from "@zelyq/core";
+import { type User, ZelyqError, isZelyqError, toError } from "@zelyq/core";
 import { type Store, createStore } from "@zelyq/db";
 import { type RuntimeDriver, createRuntimeDriver } from "@zelyq/runtime";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { ServerConfig } from "./config.js";
+import { SESSION_COOKIE, registerAuthRoutes } from "./routes/auth.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
+import { registerTeamRoutes } from "./routes/teams.js";
+import { AccessControl } from "./services/access.js";
 import { AgentClient } from "./services/agent-client.js";
+import { AuthService } from "./services/auth.js";
 import { ProjectService } from "./services/projects.js";
 import { ChatGateway } from "./ws/gateway.js";
+
+declare module "fastify" {
+  interface FastifyRequest {
+    /** Set by the authentication hook; absent when the caller is anonymous. */
+    zelyqUser?: User;
+  }
+}
 
 export interface ZelyqServer {
   app: FastifyInstance;
@@ -44,12 +56,28 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const runtime = createRuntimeDriver(config.runtime);
   const agent = new AgentClient(config.agentUrl);
   const projects = new ProjectService(store, runtime, config);
+  const auth = new AuthService(store, {
+    allowRegistration: config.allowRegistration,
+    sessionTtlDays: config.sessionTtlDays,
+  });
+  const access = new AccessControl(store);
 
   await app.register(cors, {
     origin: config.corsOrigin.includes("*") ? true : config.corsOrigin,
     credentials: true,
   });
+  await app.register(cookie);
   await app.register(websocket);
+
+  /**
+   * Resolve the session on every request, including WebSocket upgrades. This
+   * only *identifies* the caller; each route decides what that identity may do.
+   */
+  app.addHook("onRequest", async (request) => {
+    const token = request.cookies?.[SESSION_COOKIE];
+    const user = await auth.resolve(token);
+    if (user) request.zelyqUser = user;
+  });
 
   // One error shape for every route: `{ error: { code, message } }`. The UI
   // branches on `code`, never on the message text.
@@ -83,12 +111,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
         .send({ error: { code: "not_found", message: `No route for ${request.url}` } });
       return;
     }
-    // Anything else is a client-side route: hand back the SPA shell.
-    if (config.webDir) {
+    // The SPA shell answers *navigations*, not every miss. Returning it for a
+    // missing asset would turn a broken `<img src>` or a stale bundle
+    // reference into a silent 200 that no log or monitor ever flags.
+    if (config.webDir && isNavigation(request.url, request.headers.accept)) {
       reply.type("text/html").send(fs.createReadStream(path.join(config.webDir, "index.html")));
       return;
     }
-    reply.status(404).send({ error: { code: "not_found", message: "Not found" } });
+    reply.status(404).send({ error: { code: "not_found", message: `Not found: ${request.url}` } });
   });
 
   app.get("/api/health", async () => {
@@ -104,6 +134,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       service: "zelyq-server",
       version: process.env.npm_package_version ?? "0.1.0",
       database: { dialect: store.dialect, url: store.describe() },
+      auth: { firstRun: await auth.isFirstRun(), registrationOpen: config.allowRegistration },
       provider: config.provider,
       runtime: runtimeHealth,
       agent: agentHealth,
@@ -111,12 +142,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     };
   });
 
-  registerProjectRoutes(app, { projects, templatesDir: config.templatesDir });
-  registerFileRoutes(app, { projects, runtime });
-  registerPreviewRoutes(app, { projects, runtime });
-  registerSnapshotRoutes(app, { projects, runtime, store });
+  registerAuthRoutes(app, { auth, sessionTtlDays: config.sessionTtlDays });
+  registerTeamRoutes(app, { store, access });
+  registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });
+  registerFileRoutes(app, { projects, runtime, access });
+  registerPreviewRoutes(app, { projects, runtime, access });
+  registerSnapshotRoutes(app, { projects, runtime, store, access });
 
-  const gateway = new ChatGateway(store, projects, agent, {
+  const gateway = new ChatGateway(store, projects, agent, access, {
     info: (message) => app.log.info(message),
     error: (object, message) => app.log.error(object, message),
   });
@@ -125,7 +158,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     "/ws/projects/:id",
     { websocket: true },
     (socket, request) => {
-      void gateway.handleConnection(socket, request.params.id).catch((error) => {
+      const user = request.zelyqUser;
+      if (!user) {
+        // 4401 is the convention for "authenticate and reconnect".
+        socket.close(4401, "Not signed in");
+        return;
+      }
+      void gateway.handleConnection(socket, request.params.id, user).catch((error) => {
         app.log.error(error, "websocket setup failed");
         socket.close(1011, (error as Error).message);
       });
@@ -153,6 +192,17 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       await store.close();
     },
   };
+}
+
+/**
+ * A navigation is a request for a page: the browser asks for HTML and the path
+ * carries no file extension. `/projects/abc` qualifies; `/logo.png` does not.
+ */
+function isNavigation(url: string, accept: string | undefined): boolean {
+  const pathname = url.split("?")[0] ?? "";
+  const lastSegment = pathname.split("/").pop() ?? "";
+  if (lastSegment.includes(".")) return false;
+  return (accept ?? "").includes("text/html");
 }
 
 /** Request-by-request logging is only useful when you asked for the detail. */

@@ -11,8 +11,8 @@
 ## Install and run
 
 ```bash
-git clone https://github.com/zelyq/zelyq.git
-cd zelyq
+git clone https://github.com/CrowPus/Zelyq.git
+cd Zelyq
 pnpm install
 
 cp .env.example .env

@@ -15,6 +15,13 @@
       "when": 1787396370079,
       "tag": "0001_session_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787416495108,
+      "tag": "0002_accounts_and_teams",
+      "breakpoints": true
     }
   ]
 }

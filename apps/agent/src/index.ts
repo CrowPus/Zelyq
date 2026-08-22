@@ -1,4 +1,4 @@
-import { loadEnvFile } from "@zelyq/core";
+import { loadEnvFile } from "@zelyq/core/node";
 import { loadAgentConfig } from "./config.js";
 import { PROVIDERS } from "./providers/index.js";
 import { buildAgentServer } from "./server.js";

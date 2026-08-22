@@ -47,6 +47,7 @@ packages/
   tools/     Agent tools, written once against RuntimeDriver
 templates/   Starter project templates the agent scaffolds from
 docs/        Architecture, configuration, self-hosting, ADRs
+assets/      Source brand assets (the served copies live in apps/web/public)
 ```
 
 ### Where a change usually belongs

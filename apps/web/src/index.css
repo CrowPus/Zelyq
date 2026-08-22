@@ -1,15 +1,190 @@
 @import "tailwindcss";
 
-/*
- * One place for the palette. Components reference these tokens rather than raw
- * colours so a theme change is a change here, not a find-and-replace.
- */
-@theme {
-  --color-surface: #0b0f17;
-  --color-surface-raised: #111827;
-  --color-surface-inset: #0d131e;
-  --color-border-subtle: #1f2937;
-  --color-accent: #38bdf8;
+/* ---------------------------------------------------------------------------
+ * Design tokens
+ *
+ * The palette is deliberately near-monochrome. Colour is a signal here, not
+ * decoration: a hue appears only for status, focus, and destructive actions.
+ * Primary buttons invert the neutral scale (near-black on light, near-white on
+ * dark) rather than using a brand colour, which keeps the interface calm when
+ * several are on screen at once.
+ *
+ * Every token is a CSS variable so the theme can switch at runtime. Tailwind's
+ * @theme block maps them to utilities (bg-canvas, text-secondary, …).
+ * ------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces, from furthest back to closest to the user. */
+  --canvas: #fbfbfa;
+  --surface: #ffffff;
+  --surface-subtle: #f6f6f5;
+  --surface-hover: #f0f0ef;
+  --surface-active: #e9e9e7;
+  --overlay: #ffffff;
+
+  /* Hairlines. `border` is the default; `border-strong` is for emphasis. */
+  --border: #e4e4e1;
+  --border-strong: #d3d3cf;
+
+  /* Text, in descending prominence. */
+  --text: #1a1a19;
+  --text-secondary: #55554f;
+  --text-muted: #8f8f88;
+  --text-inverted: #fbfbfa;
+
+  /* Primary action: the neutral scale, inverted. */
+  --primary: #1a1a19;
+  --primary-hover: #333331;
+  --primary-text: #fbfbfa;
+
+  /* Semantic. Muted on purpose — these sit next to text, not on billboards. */
+  --success: #10893e;
+  --success-subtle: #e8f5ec;
+  --warning: #a16207;
+  --warning-subtle: #fdf6e3;
+  --danger: #c2372c;
+  --danger-subtle: #fdeceb;
+  --info: #2563a8;
+  --info-subtle: #e8f1fa;
+
+  --focus: #2563a8;
+  --shadow-overlay: 0 8px 24px -6px rgb(0 0 0 / 0.12), 0 2px 6px -2px rgb(0 0 0 / 0.08);
+}
+
+/* Explicit dark selection wins in both directions, so the toggle always works. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #0e0e0e;
+  --surface: #161616;
+  --surface-subtle: #1b1b1b;
+  --surface-hover: #222222;
+  --surface-active: #2a2a2a;
+  --overlay: #1b1b1b;
+
+  --border: #262626;
+  --border-strong: #363636;
+
+  --text: #ededec;
+  --text-secondary: #a1a1a0;
+  --text-muted: #6e6e6c;
+  --text-inverted: #0e0e0e;
+
+  --primary: #ededec;
+  --primary-hover: #ffffff;
+  --primary-text: #0e0e0e;
+
+  --success: #3fb950;
+  --success-subtle: #10281a;
+  --warning: #d29922;
+  --warning-subtle: #2a2011;
+  --danger: #f0625a;
+  --danger-subtle: #2d1615;
+  --info: #58a6ff;
+  --info-subtle: #11203a;
+
+  --focus: #58a6ff;
+  --shadow-overlay: 0 8px 24px -6px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+}
+
+/* No explicit choice: follow the operating system. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --canvas: #0e0e0e;
+    --surface: #161616;
+    --surface-subtle: #1b1b1b;
+    --surface-hover: #222222;
+    --surface-active: #2a2a2a;
+    --overlay: #1b1b1b;
+
+    --border: #262626;
+    --border-strong: #363636;
+
+    --text: #ededec;
+    --text-secondary: #a1a1a0;
+    --text-muted: #6e6e6c;
+    --text-inverted: #0e0e0e;
+
+    --primary: #ededec;
+    --primary-hover: #ffffff;
+    --primary-text: #0e0e0e;
+
+    --success: #3fb950;
+    --success-subtle: #10281a;
+    --warning: #d29922;
+    --warning-subtle: #2a2011;
+    --danger: #f0625a;
+    --danger-subtle: #2d1615;
+    --info: #58a6ff;
+    --info-subtle: #11203a;
+
+    --focus: #58a6ff;
+    --shadow-overlay: 0 8px 24px -6px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-overlay: var(--overlay);
+
+  --color-border-default: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-fg: var(--text);
+  --color-fg-secondary: var(--text-secondary);
+  --color-fg-muted: var(--text-muted);
+  --color-fg-inverted: var(--text-inverted);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-text);
+
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-focus: var(--focus);
+
+  /* A tight type scale. Interfaces read as dense and deliberate when the
+   * steps are small; 13px is the body size, not 16px. */
+  --text-2xs: 0.6875rem; /* 11px — caps labels, metadata */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem; /* 12px — secondary UI text */
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.8125rem; /* 13px — body, controls */
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem; /* 14px — prose */
+  --text-base--line-height: 1.4375rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.75rem;
+  --text-2xl--line-height: 2.125rem;
+
+  /* Small radii read as engineered; large ones read as decorative. */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 7px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", "Menlo", "Consolas", "Liberation Mono",
+    monospace;
+
+  --shadow-overlay: var(--shadow-overlay);
 }
 
 html,
@@ -20,24 +195,72 @@ body,
 
 body {
   margin: 0;
-  background-color: var(--color-surface);
-  color: #e2e8f0;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Scrollbars that do not fight the dark surfaces. */
+/* Headings carry the density: tight tracking, no oversized line height. */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.011em;
+}
+
+/* One focus treatment everywhere, and only for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+::selection {
+  background-color: color-mix(in oklab, var(--focus) 25%, transparent);
+}
+
+/*
+ * The brand mark ships in two variants. The navy end of the gradient falls to
+ * roughly 1.1:1 against the dark surfaces, which is invisible, so dark themes
+ * get a reversed variant with the shadows lifted. Swapped here rather than in
+ * JavaScript so it is correct on the first paint.
+ */
+.brand-mark--dark {
+  display: none;
+}
+:root[data-theme="dark"] .brand-mark--light {
+  display: none;
+}
+:root[data-theme="dark"] .brand-mark--dark {
+  display: block;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-mark--light {
+    display: none;
+  }
+  :root:not([data-theme="light"]) .brand-mark--dark {
+    display: block;
+  }
+}
+
+/* Scrollbars sized to a dense interface rather than the OS default. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #334155 transparent;
+  scrollbar-color: var(--border-strong) transparent;
 }
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
 }
 *::-webkit-scrollbar-thumb {
-  background-color: #334155;
-  border-radius: 9999px;
+  background-color: var(--border-strong);
+  border-radius: 999px;
   border: 3px solid transparent;
   background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
 }

@@ -11,14 +11,18 @@ so two people do not build the same thing.
 - [x] Agent session loop with streaming, tools, and cancellation
 - [x] Project create → prompt → edit → preview, end to end
 - [x] Provider interface with Claude and Gemini implementations
+- [x] Accounts, sessions, teams, and role-based access control
 - [ ] Reference runtime host (container per project) implementing the remote protocol
 - [ ] Editable code view — write files back from the browser, not just read them
+- [ ] Reconcile preview state across a server restart — dev servers are tracked in memory, so a
+      restart leaves running processes orphaned and their ports held
 
 ## Next — making it usable by more than one person
 
-- [ ] Pluggable authentication with a session-based default
-- [ ] Per-user projects and access control
 - [ ] Per-user API keys, encrypted at rest
+- [ ] Invitation links, so someone can be added before they register
+- [ ] SSO (OIDC) as an alternative to passwords
+- [ ] An audit log of who changed what
 - [ ] Git integration: init, commit per turn, push to a remote
 - [ ] Snapshot browsing and diffing in the UI, restore from any point
 - [ ] File upload and image attachments in prompts

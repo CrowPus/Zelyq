@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * The canonical schema. `pg.ts` mirrors it column for column, and a test
@@ -11,10 +11,88 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
  * laptop's SQLite file and a production PostgreSQL cluster.
  */
 
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    /** Stored lowercased; uniqueness must not depend on capitalisation. */
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    passwordHash: text("password_hash").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    emailIdx: uniqueIndex("users_email_idx").on(table.email),
+  }),
+);
+
+export const teams = sqliteTable(
+  "teams",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("teams_slug_idx").on(table.slug),
+  }),
+);
+
+export const teamMembers = sqliteTable(
+  "team_members",
+  {
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("editor"),
+    joinedAt: text("joined_at").notNull(),
+  },
+  (table) => ({
+    membershipIdx: uniqueIndex("team_members_team_user_idx").on(table.teamId, table.userId),
+    userIdx: index("team_members_user_id_idx").on(table.userId),
+  }),
+);
+
+/**
+ * Only the SHA-256 of the session token is stored. A leaked database therefore
+ * yields no usable sessions.
+ */
+export const authSessions = sqliteTable(
+  "auth_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull(),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+  (table) => ({
+    tokenIdx: uniqueIndex("auth_sessions_token_hash_idx").on(table.tokenHash),
+    userIdx: index("auth_sessions_user_id_idx").on(table.userId),
+  }),
+);
+
 export const projects = sqliteTable(
   "projects",
   {
     id: text("id").primaryKey(),
+    /**
+     * Empty string means "not yet adopted". Existing databases predate teams,
+     * and a NOT NULL column with no default cannot be added to a table that
+     * already has rows; the first account to register claims these.
+     */
+    teamId: text("team_id")
+      .notNull()
+      .default("")
+      .references(() => teams.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
@@ -26,6 +104,7 @@ export const projects = sqliteTable(
   },
   (table) => ({
     slugIdx: index("projects_slug_idx").on(table.slug),
+    teamIdx: index("projects_team_id_idx").on(table.teamId),
     updatedIdx: index("projects_updated_at_idx").on(table.updatedAt),
   }),
 );
@@ -96,4 +175,14 @@ export const settings = sqliteTable("settings", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const schema = { projects, sessions, messages, snapshots, settings };
+export const schema = {
+  users,
+  teams,
+  teamMembers,
+  authSessions,
+  projects,
+  sessions,
+  messages,
+  snapshots,
+  settings,
+};

@@ -58,6 +58,17 @@ conversations started on one model stay labelled with it.
 | `LOG_LEVEL` | `info` | `trace`…`silent`. Pretty-printed unless `NODE_ENV=production`. |
 | `NODE_ENV` | `development` | `production` enables JSON logs and static file serving. |
 
+## Accounts
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ZELYQ_ALLOW_REGISTRATION` | `true` | Whether people may sign themselves up. The first account is always allowed regardless, and becomes the owner. Set `false` on anything internet-reachable and add people through the team screen. |
+| `ZELYQ_SESSION_TTL_DAYS` | `30` | How long a sign-in lasts. Sessions are extended on use and can be ended by signing out. |
+
+The session cookie is marked `Secure` automatically when the request arrives over HTTPS, and not when
+it does not — so sign-in still works on a plain-HTTP instance without silently sending the cookie in
+the clear where TLS is available.
+
 ## Storage
 
 | Variable | Default | Notes |

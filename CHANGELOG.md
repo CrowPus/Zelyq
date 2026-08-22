@@ -19,6 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `ModelProvider` interface with Claude and Google Gemini implementations, selected with
   `ZELYQ_PROVIDER`; each provider carries its own default model and API key variables.
 - `GET /providers` on the agent, reporting every provider and whether a usable key is present.
+- Accounts, sessions, and teams: registration and sign-in, an httpOnly session cookie backed by a
+  hashed token, scrypt password hashing, and role-based access control (`viewer`, `editor`, `admin`,
+  `owner`) enforced on every REST route and on the WebSocket handshake.
+- Brand mark and favicons, with trimmed and sized derivatives generated from the source logo.
 - `ZELYQ_PREVIEW_HOST`, so previews are reachable when Zelyq runs on a VM or remote host.
 - Automatic `.env` loading in every process, located by walking up from the working directory. Real
   environment variables take precedence over the file.
@@ -27,4 +31,4 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Project scaffolding from templates, live preview with dev-server management, and snapshots.
 - React single-page app with project list, chat, file explorer, editor, and preview panel.
 
-[Unreleased]: https://github.com/zelyq/zelyq/compare/main...HEAD
+[Unreleased]: https://github.com/CrowPus/Zelyq/compare/main...HEAD

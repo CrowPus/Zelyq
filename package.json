@@ -4,6 +4,14 @@
   "private": true,
   "description": "Open-source AI app builder \u2014 describe an app, watch an agent build it, edit it live.",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/CrowPus/Zelyq#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CrowPus/Zelyq.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CrowPus/Zelyq/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=20.12.0",

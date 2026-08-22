@@ -1,12 +1,16 @@
 import {
   type AgentEvent,
   type Message,
+  type Role,
   type ToolCall,
+  type User,
   clientMessageSchema,
   newId,
+  roleAtLeast,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { WebSocket } from "ws";
+import type { AccessControl } from "../services/access.js";
 import type { AgentClient } from "../services/agent-client.js";
 import type { ProjectService } from "../services/projects.js";
 
@@ -16,6 +20,12 @@ interface Room {
   sockets: Set<WebSocket>;
   /** Cancels the in-flight turn when the user aborts. */
   turn: AbortController | null;
+}
+
+/** What one connection is allowed to do, decided once at handshake time. */
+interface Connection {
+  user: User;
+  role: Role;
 }
 
 /**
@@ -33,11 +43,18 @@ export class ChatGateway {
     private readonly store: Store,
     private readonly projects: ProjectService,
     private readonly agent: AgentClient,
+    private readonly access: AccessControl,
     private readonly log: { info(msg: string): void; error(obj: unknown, msg?: string): void },
   ) {}
 
-  async handleConnection(socket: WebSocket, projectId: string): Promise<void> {
-    const project = await this.projects.get(projectId);
+  /**
+   * The browser sends its session cookie with the upgrade request, so the
+   * socket is authenticated exactly like an HTTP call. A viewer may watch a
+   * conversation; only an editor may start one.
+   */
+  async handleConnection(socket: WebSocket, projectId: string, user: User): Promise<void> {
+    const { project, role } = await this.access.requireProject(user, projectId, "viewer");
+    const connection: Connection = { user, role };
     const session = await this.projects.ensureSession(project.id);
     const room = this.roomFor(project.id, session.id);
     room.sockets.add(socket);
@@ -46,7 +63,7 @@ export class ChatGateway {
     send(socket, { type: "connected", sessionId: session.id, projectId: project.id, history });
 
     socket.on("message", (raw: Buffer) => {
-      void this.handleMessage(socket, room, raw).catch((error) => {
+      void this.handleMessage(socket, room, raw, connection).catch((error) => {
         this.log.error(error, "websocket message failed");
         send(socket, {
           type: "error",
@@ -64,7 +81,12 @@ export class ChatGateway {
     });
   }
 
-  private async handleMessage(socket: WebSocket, room: Room, raw: Buffer): Promise<void> {
+  private async handleMessage(
+    socket: WebSocket,
+    room: Room,
+    raw: Buffer,
+    connection: Connection,
+  ): Promise<void> {
     const parsed = clientMessageSchema.safeParse(JSON.parse(raw.toString("utf8")));
     if (!parsed.success) {
       send(socket, {
@@ -81,6 +103,19 @@ export class ChatGateway {
 
     if (message.type === "ping") {
       send(socket, { type: "pong" });
+      return;
+    }
+
+    // Prompting and aborting both change what the agent is doing, so both are
+    // writes. A viewer's socket receives events but cannot drive anything.
+    if (!roleAtLeast(connection.role, "editor")) {
+      send(socket, {
+        type: "error",
+        sessionId: room.sessionId,
+        code: "forbidden",
+        message: "Your role on this team is read-only.",
+        fatal: false,
+      });
       return;
     }
 
