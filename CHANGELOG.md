@@ -7,6 +7,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- An eval harness (`pnpm eval`) that runs the agent against a suite of realistic prompts in throwaway
+  projects and scores the result on machine-checkable facts: does the typecheck pass, does the build
+  pass, does the dev server serve an app whose every module compiles, and did the agent change more
+  than it needed to. Two runs can be compared with `--compare`, so a change to the system prompt or a
+  tool description can be defended with a number. See
+  [apps/agent/evals](apps/agent/evals/README.md).
+
+### Changed
+
+- The README and `SECURITY.md` now state plainly that no reference runtime host ships yet, so
+  `ZELYQ_RUNTIME=remote` currently means implementing the protocol yourself, and that local mode is
+  not a sandbox. The `remote` driver was always documented; the host it talks to was not, and the
+  distinction matters before deploying.
+- The roadmap is reordered around measurable agent quality first, then per-turn review and revert,
+  then the deployment story.
+
 ## [0.1.0] - 2026-08-22
 
 First tagged release. Everything below is new.

@@ -1,0 +1,232 @@
+import type { RuntimeDriver } from "@zelyq/runtime";
+import { type Check, type CheckResult, CRITICAL_KINDS } from "./types.js";
+import type { ProjectFingerprint } from "./workspace.js";
+
+export interface CheckContext {
+  runtime: RuntimeDriver;
+  projectId: string;
+  before: ProjectFingerprint;
+  after: ProjectFingerprint;
+  changed: string[];
+}
+
+export function describe(check: Check): string {
+  switch (check.kind) {
+    case "typecheck":
+      return "typecheck passes";
+    case "build":
+      return "build passes";
+    case "preview":
+      return "dev server serves the app";
+    case "file_exists":
+      return `${check.path} exists`;
+    case "file_absent":
+      return `${check.path} does not exist`;
+    case "file_matches":
+      return `${check.path}: ${check.why}`;
+    case "project_matches":
+      return check.why;
+    case "unchanged":
+      return `${check.path} untouched`;
+    case "no_new_dependency":
+      return "no dependencies added";
+    case "no_writes":
+      return "wrote no files";
+    case "max_files_changed":
+      return `changed at most ${check.count} file${check.count === 1 ? "" : "s"}`;
+  }
+}
+
+export async function runCheck(check: Check, context: CheckContext): Promise<CheckResult> {
+  const base = { label: describe(check), critical: CRITICAL_KINDS.has(check.kind) };
+  const { ok, detail } = await evaluate(check, context);
+  return { ...base, ok, detail };
+}
+
+async function evaluate(
+  check: Check,
+  context: CheckContext,
+): Promise<{ ok: boolean; detail: string }> {
+  const { runtime, projectId, before, after, changed } = context;
+
+  switch (check.kind) {
+    case "typecheck":
+      return await script(runtime, projectId, "npm run typecheck", 4 * 60_000);
+
+    case "build":
+      return await script(runtime, projectId, "npm run build", 6 * 60_000);
+
+    case "preview":
+      return await checkPreview(runtime, projectId, after);
+
+    case "file_exists":
+      return {
+        ok: after.files.has(check.path),
+        detail: after.files.has(check.path) ? "" : "not found",
+      };
+
+    case "file_absent":
+      return {
+        ok: !after.files.has(check.path),
+        detail: after.files.has(check.path) ? "still present" : "",
+      };
+
+    case "file_matches": {
+      if (!after.files.has(check.path)) return { ok: false, detail: `${check.path} not found` };
+      const file = await runtime.readFile(projectId, check.path);
+      return match(file.content, check.pattern, check.expect ?? "present");
+    }
+
+    case "project_matches": {
+      const contents = await readAllText(runtime, projectId, after);
+      return match(contents, check.pattern, check.expect ?? "present");
+    }
+
+    case "unchanged": {
+      const same = before.files.get(check.path) === after.files.get(check.path);
+      return { ok: same, detail: same ? "" : "was modified" };
+    }
+
+    case "no_new_dependency":
+      return await checkDependencies(runtime, projectId, before);
+
+    case "no_writes":
+      return {
+        ok: changed.length === 0,
+        detail: changed.length === 0 ? "" : `wrote ${changed.join(", ")}`,
+      };
+
+    case "max_files_changed":
+      return {
+        ok: changed.length <= check.count,
+        detail:
+          changed.length <= check.count ? "" : `changed ${changed.length}: ${changed.join(", ")}`,
+      };
+  }
+}
+
+async function script(
+  runtime: RuntimeDriver,
+  projectId: string,
+  command: string,
+  timeoutMs: number,
+): Promise<{ ok: boolean; detail: string }> {
+  const result = await runtime.exec(projectId, { command, timeoutMs });
+  if (result.exitCode === 0) return { ok: true, detail: "" };
+  const output = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
+  return {
+    ok: false,
+    detail: result.timedOut ? "timed out" : firstLines(output, 4),
+  };
+}
+
+/**
+ * "It builds" and "it runs" are different claims, and only the second one is
+ * what the user sees. Two requests: the page itself, then the entry module
+ * through Vite's transform — a bad import or a syntax error that somehow
+ * survived the build shows up there as a 500.
+ */
+async function checkPreview(
+  runtime: RuntimeDriver,
+  projectId: string,
+  after: ProjectFingerprint,
+): Promise<{ ok: boolean; detail: string }> {
+  const preview = await runtime.startPreview(projectId);
+
+  if (preview.status !== "running" || !preview.url) {
+    const logs = await runtime.previewLogs(projectId, 20).catch(() => "");
+    return {
+      ok: false,
+      detail: `preview ${preview.status}: ${preview.lastError ?? firstLines(logs, 3)}`,
+    };
+  }
+
+  const page = await get(preview.url);
+  if (!page.ok) return { ok: false, detail: `GET / → ${page.detail}` };
+  if (!/<div[^>]+id=["']root["']/.test(page.body)) {
+    return { ok: false, detail: "served page has no #root mount point" };
+  }
+
+  // Vite compiles on demand, so a module is only proved good by asking for it.
+  // Requesting every source module — not just the entry — is what catches the
+  // syntax error three imports deep, which is where they usually are. Fetching
+  // only `main.tsx` reports a green preview for an app that cannot render.
+  for (const file of after.files.keys()) {
+    if (!/^src\/.+\.(tsx?|jsx?)$/.test(file)) continue;
+    const module = await get(new URL(`/${file}`, preview.url).toString());
+    if (!module.ok) return { ok: false, detail: `${file} failed to transform: ${module.detail}` };
+  }
+
+  return { ok: true, detail: "" };
+}
+
+async function get(url: string): Promise<{ ok: boolean; body: string; detail: string }> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    const body = await response.text();
+    if (!response.ok) {
+      return { ok: false, body, detail: `${response.status} ${firstLines(body, 2)}` };
+    }
+    return { ok: true, body, detail: "" };
+  } catch (error) {
+    return { ok: false, body: "", detail: (error as Error).message };
+  }
+}
+
+async function checkDependencies(
+  runtime: RuntimeDriver,
+  projectId: string,
+  before: ProjectFingerprint,
+): Promise<{ ok: boolean; detail: string }> {
+  if (before.files.get("package.json") === undefined) return { ok: true, detail: "" };
+  const file = await runtime.readFile(projectId, "package.json");
+  const parsed = JSON.parse(file.content) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  const names = [
+    ...Object.keys(parsed.dependencies ?? {}),
+    ...Object.keys(parsed.devDependencies ?? {}),
+  ];
+  const expected = new Set([
+    "react",
+    "react-dom",
+    "@tailwindcss/vite",
+    "@types/react",
+    "@types/react-dom",
+    "@vitejs/plugin-react",
+    "tailwindcss",
+    "typescript",
+    "vite",
+  ]);
+  const added = names.filter((name) => !expected.has(name));
+  return { ok: added.length === 0, detail: added.length ? `added ${added.join(", ")}` : "" };
+}
+
+async function readAllText(
+  runtime: RuntimeDriver,
+  projectId: string,
+  after: ProjectFingerprint,
+): Promise<string> {
+  const parts: string[] = [];
+  for (const file of after.files.keys()) {
+    if (!/\.(tsx?|jsx?|css|html)$/.test(file)) continue;
+    const content = await runtime.readFile(projectId, file).catch(() => null);
+    if (content?.encoding === "utf8") parts.push(content.content);
+  }
+  return parts.join("\n");
+}
+
+function match(
+  content: string,
+  pattern: string,
+  expect: "present" | "absent",
+): { ok: boolean; detail: string } {
+  const found = new RegExp(pattern).test(content);
+  if (expect === "present") return { ok: found, detail: found ? "" : `no match for /${pattern}/` };
+  return { ok: !found, detail: found ? `matched /${pattern}/` : "" };
+}
+
+function firstLines(text: string, count: number): string {
+  return text.split("\n").filter(Boolean).slice(0, count).join(" · ").slice(0, 300);
+}
