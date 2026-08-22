@@ -140,7 +140,7 @@ export async function fingerprint(
 
   for (const entry of entries) {
     if (entry.type !== "file") continue;
-    if (entry.path.startsWith("dist/")) continue;
+    if (isBuildArtefact(entry.path)) continue;
     try {
       const file = await runtime.readFile(projectId, entry.path);
       files.set(entry.path, createHash("sha256").update(file.content).digest("hex"));
@@ -150,6 +150,21 @@ export async function fingerprint(
   }
 
   return { files };
+}
+
+/**
+ * Output, not authorship. `tsc -b` drops a `.tsbuildinfo` and a `dist/`, so an
+ * agent that verifies its own work — which the system prompt asks it to do —
+ * would otherwise be scored as having touched files it never wrote, and fail
+ * the restraint checks for doing the right thing.
+ */
+function isBuildArtefact(file: string): boolean {
+  return (
+    file.startsWith("dist/") ||
+    file.startsWith(".vite/") ||
+    file.endsWith(".tsbuildinfo") ||
+    file.endsWith(".log")
+  );
 }
 
 export function diff(before: ProjectFingerprint, after: ProjectFingerprint): string[] {
