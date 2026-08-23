@@ -3,7 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
-import { LocalRuntimeDriver } from "../src/local.js";
+import { announcedPort, LocalRuntimeDriver } from "../src/local.js";
+import { waitForPort } from "../src/ports.js";
 
 const workspaceDir = path.join(os.tmpdir(), `zelyq-local-driver-${Date.now()}`);
 const driver = new LocalRuntimeDriver({
@@ -367,4 +368,117 @@ test("restoring does not leave snapshot bookkeeping in the project", async () =>
   assert.equal((await driver.readFile("prj_clean_restore", "app.txt")).content, "original");
 
   await driver.dispose();
+});
+
+test("a project that pins its own dev-server port is still previewed on ours", async () => {
+  // The shape that broke in real use. A repository somebody else wrote sets
+  // `port: 8080, strictPort: true` in its vite config and ignores PORT in the
+  // environment, because vite has never read PORT. Every project previewed here
+  // before came from Zelyq's own template, whose config reads process.env.PORT
+  // because we wrote it that way — so the preview waited ninety seconds for a
+  // port nothing was listening on, twice, and then said it had timed out.
+  //
+  // This stands in a fake `vite` binary that behaves the same way: pinned unless
+  // it is told otherwise on the command line.
+  const config = {
+    kind: "local" as const,
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4840, 4845] as [number, number],
+    previewHost: "127.0.0.1",
+  };
+  const pinned = new LocalRuntimeDriver(config);
+
+  await pinned.ensureProject("prj_pinned");
+  await pinned.scaffold("prj_pinned", [
+    {
+      path: "package.json",
+      content: '{"name":"pinned","scripts":{"dev":"vite"},"devDependencies":{"vite":"5.0.0"}}',
+    },
+    {
+      path: "node_modules/.bin/vite",
+      content:
+        "#!/bin/sh\n" +
+        "# Pinned to 48099 unless told otherwise, exactly like a strictPort config.\n" +
+        "port=48099\n" +
+        'while [ $# -gt 0 ]; do case "$1" in --port) port="$2"; shift 2 ;; *) shift ;; esac; done\n' +
+        "exec node -e \"require('node:http').createServer((_,r)=>r.end('ok'))" +
+        ".listen($port,'127.0.0.1',()=>console.log('  ➜  Local:   http://localhost:$port/'))\"\n",
+    },
+  ]);
+  await pinned.exec("prj_pinned", { command: "chmod +x node_modules/.bin/vite" });
+
+  try {
+    const started = await pinned.startPreview("prj_pinned");
+    assert.equal(started.status, "running", `preview did not start: ${started.lastError}`);
+    assert.ok(
+      started.port !== null && started.port >= 4840 && started.port <= 4845,
+      `preview should be on a port Zelyq allocated, got ${started.port}`,
+    );
+    assert.notEqual(started.port, 48099, "the project's own port won");
+  } finally {
+    await pinned.stopPreview("prj_pinned").catch(() => undefined);
+    await pinned.dispose();
+  }
+});
+
+test("a dev server that goes to its own port fails fast, says where, and is not left running", async () => {
+  // The tool list in detectDevCommand is not exhaustive and never will be. This
+  // is what makes that safe: a dev server we cannot instruct announces its port
+  // in its own output, and that sentence is the answer the user needs. Before
+  // this, the log said `http://localhost:48397/` while the UI said "did not start
+  // listening in time" — and the orphan stayed alive holding the port.
+  const config = {
+    kind: "local" as const,
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4846, 4849] as [number, number],
+    previewHost: "127.0.0.1",
+  };
+  const stubborn = new LocalRuntimeDriver(config);
+
+  await stubborn.ensureProject("prj_stubborn");
+  await stubborn.scaffold("prj_stubborn", [
+    { path: "package.json", content: '{"name":"stubborn","scripts":{"dev":"node pinned.mjs"}}' },
+    {
+      path: "pinned.mjs",
+      content:
+        "import http from 'node:http';\n" +
+        // Ignores PORT entirely, the way a tool with its own config does.
+        "http.createServer((_, res) => res.end('ok')).listen(48397, '127.0.0.1', () => {\n" +
+        "  console.log('  ➜  Local:   http://localhost:48397/');\n" +
+        "});\n",
+    },
+  ]);
+
+  try {
+    const failed = await stubborn.startPreview("prj_stubborn");
+
+    assert.equal(failed.status, "crashed");
+    assert.match(
+      failed.lastError ?? "",
+      /48397/,
+      `the message should name the port it actually went to, got: ${failed.lastError}`,
+    );
+
+    // And nothing is left behind. A survivor here holds the port and keeps a
+    // live pid in the record file, which reads back as "still starting" —
+    // which is how a spinner becomes permanent.
+    let alive = true;
+    for (let i = 0; i < 30 && alive; i += 1) {
+      alive = await waitForPort(48397, 100);
+    }
+    assert.equal(alive, false, "the dev server was left running after a failed preview");
+  } finally {
+    await stubborn.stopPreview("prj_stubborn").catch(() => undefined);
+    await stubborn.dispose();
+  }
+});
+
+test("the port a dev server announces is read out of its own output", () => {
+  assert.equal(announcedPort("  ➜  Local:   http://localhost:8080/"), 8080);
+  assert.equal(announcedPort("  ➜  Network: http://10.128.0.3:5173/"), 5173);
+  assert.equal(announcedPort("ready - started server on http://127.0.0.1:3000"), 3000);
+  assert.equal(announcedPort("no url here at all"), null);
+  assert.equal(announcedPort("https://example.com/no-port"), null);
 });

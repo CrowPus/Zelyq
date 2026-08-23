@@ -373,7 +373,8 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     }
 
     const port = options.port ?? (await allocatePort(this.portRange));
-    const command = options.command ?? (await this.detectDevCommand(root));
+    const command =
+      options.command ?? (await this.detectDevCommand(root, port, this.previewBindHost));
 
     const child = spawn(
       process.platform === "win32" ? "cmd.exe" : "/bin/bash",
@@ -415,19 +416,41 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     const logFile = this.previewLogFile(projectId);
     await fs.writeFile(logFile, "").catch(() => undefined);
 
+    // A dev server announces where it is listening, and that line is the only
+    // trustworthy statement of where it actually went — the config that decided
+    // it may be anywhere in the project. Watching for it turns ninety seconds of
+    // silence into an answer within a few.
+    let elsewhere: number | null = null;
+    let noticed: () => void = () => undefined;
+    const wentElsewhere = new Promise<void>((resolve) => {
+      noticed = resolve;
+    });
+
     const record = (chunk: Buffer) => {
-      preview.logs.push(chunk.toString("utf8"));
+      const text = chunk.toString("utf8");
+      preview.logs.push(text);
       if (preview.logs.length > PREVIEW_LOG_LINES) {
         preview.logs.splice(0, preview.logs.length - PREVIEW_LOG_LINES);
       }
       // Teed to disk so the process that did not spawn this can still read it.
       void fs.appendFile(logFile, chunk).catch(() => undefined);
+
+      if (elsewhere === null) {
+        const announced = announcedPort(text);
+        if (announced !== null && announced !== port) {
+          elsewhere = announced;
+          noticed();
+        }
+      }
     };
     child.stdout?.on("data", record);
     child.stderr?.on("data", record);
 
     child.on("exit", (code) => {
-      if (preview.status !== "stopped") {
+      // Never overwrite an explanation we already have. The first failure is
+      // the one that explains the others, and "exited with code null" on top of
+      // it just buries the useful sentence.
+      if (preview.status !== "stopped" && preview.status !== "crashed") {
         preview.status = "crashed";
         preview.lastError = `Dev server exited with code ${code}`;
       }
@@ -435,11 +458,29 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       void this.clearPreviewRecord(projectId);
     });
 
-    const ready = await waitForPort(port, PREVIEW_READY_TIMEOUT_MS);
+    const ready = await Promise.race([
+      waitForPort(port, PREVIEW_READY_TIMEOUT_MS),
+      // A short grace after a stray URL: something else in the output may
+      // simply have mentioned a port, and our own server may still be a second
+      // away. Three seconds, not ninety.
+      wentElsewhere.then(() => waitForPort(port, 3_000)),
+    ]);
+
     if (ready && preview.status === "starting") preview.status = "running";
     if (!ready && preview.status === "starting") {
       preview.status = "crashed";
-      preview.lastError = "Dev server did not start listening in time";
+      preview.lastError =
+        elsewhere === null
+          ? "Dev server did not start listening in time"
+          : `The dev server started on port ${elsewhere}, not the ${port} Zelyq assigned it. ` +
+            "That usually means the project's own config sets a fixed port.";
+
+      // Whatever it is doing, it is not serving this preview. Left alive it
+      // holds a port and keeps a live pid in the record file — which reads back
+      // as a preview that is still starting, so the spinner never stops.
+      killTree(child);
+      releasePort(port);
+      await this.clearPreviewRecord(projectId);
     }
 
     return this.toPreview(projectId, preview);
@@ -670,15 +711,55 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     return path.join(this.workspaceDir, ".snapshots", projectId);
   }
 
-  private async detectDevCommand(root: string): Promise<string> {
+  /**
+   * The command that starts the dev server, with the port passed the way the
+   * tool in front of us actually accepts it.
+   *
+   * `PORT` in the environment is not enough and never was. Vite does not read
+   * it. A real repository sets its port in `vite.config.ts` — often with
+   * `strictPort` — and ignores anything we put in the environment. That went
+   * unnoticed for months because every project previewed here came from Zelyq's
+   * own template, whose config reads `process.env.PORT` because we wrote it that
+   * way. The first repository somebody else wrote pinned itself to 8080 and the
+   * preview waited ninety seconds for a port nothing was listening on.
+   *
+   * A command-line flag beats a config file, which is what a command line is
+   * for.
+   */
+  private async detectDevCommand(root: string, port: number, host: string): Promise<string> {
+    let manifest: {
+      scripts?: Record<string, string>;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    } | null = null;
     try {
-      const manifest = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
-      if (manifest?.scripts?.dev) return "npm run dev";
-      if (manifest?.scripts?.start) return "npm start";
+      manifest = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
     } catch {
       // No package.json — fall through to a static server.
     }
-    return "npx --yes serve -l $PORT .";
+
+    const script = manifest?.scripts?.dev ? "dev" : manifest?.scripts?.start ? "start" : null;
+    if (!script) return `npx --yes serve -l ${port} .`;
+
+    const body = manifest?.scripts?.[script] ?? "";
+    const deps = { ...manifest?.dependencies, ...manifest?.devDependencies };
+    const runner = script === "dev" ? "npm run dev" : "npm start";
+
+    // --strictPort is deliberate. The port was allocated free, so a refusal
+    // means something is genuinely wrong and should be said out loud rather
+    // than drifted around onto a port nobody is watching.
+    if (/\bvite\b/.test(body) || "vite" in deps) {
+      return `${runner} -- --port ${port} --host ${host} --strictPort`;
+    }
+    if (/\bnext\b/.test(body) || "next" in deps) {
+      return `${runner} -- --port ${port} --hostname ${host}`;
+    }
+
+    // react-scripts and anything unrecognised: PORT and HOST in the
+    // environment, as before. This list is not exhaustive and is not pretending
+    // to be — if a tool lands somewhere else, startPreview reads the port out of
+    // its own output and says so, which is what makes an incomplete list safe.
+    return runner;
   }
 
   private previewStateFile(projectId: string): string {
@@ -726,6 +807,25 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     }
 
     const listening = await waitForPort(record.port, 500);
+
+    // A live process on a dead port is not a preview that is still starting,
+    // once it has had long enough to start. Reporting it as "starting" forever
+    // is how a spinner becomes permanent: a dev server that went to its own
+    // hardcoded port stayed alive, so this kept answering "starting" and the
+    // user watched it turn until they gave up.
+    const age = Date.now() - new Date(record.startedAt).getTime();
+    if (!listening && Number.isFinite(age) && age > PREVIEW_READY_TIMEOUT_MS) {
+      return {
+        projectId,
+        status: "crashed",
+        url: null,
+        port: record.port,
+        pid: record.pid,
+        startedAt: record.startedAt,
+        lastError: `The dev server is running but nothing is listening on port ${record.port}.`,
+      };
+    }
+
     return {
       projectId,
       status: listening ? "running" : "starting",
@@ -748,6 +848,21 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       lastError: preview.lastError,
     };
   }
+}
+
+/**
+ * The port a dev server says it is listening on, read from its own output.
+ *
+ * Vite, Next, react-scripts and serve all print a URL as they come up. That line
+ * is the only reliable statement of where the server actually is, and it was
+ * sitting in the log file the whole time a user was being told "did not start
+ * listening in time".
+ */
+export function announcedPort(text: string): number | null {
+  const match = text.match(/https?:\/\/[^\s/]+:(\d{2,5})\b/);
+  if (!match?.[1]) return null;
+  const port = Number(match[1]);
+  return Number.isInteger(port) && port > 0 && port < 65_536 ? port : null;
 }
 
 function stoppedPreview(projectId: string): Preview {
