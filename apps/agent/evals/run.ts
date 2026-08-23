@@ -6,7 +6,7 @@ import { loadEnvFile } from "@zelyq/core/node";
 import { createRuntimeDriver } from "@zelyq/runtime";
 import { loadAgentConfig } from "../src/config.js";
 import { buildSystemPrompt } from "../src/prompt.js";
-import { PROVIDERS } from "../src/providers/index.js";
+import { PROVIDERS, speaksOpenAIDialect } from "../src/providers/index.js";
 import { selectCases } from "./cases.js";
 import { runCase } from "./harness.js";
 import type { CaseResult, SuiteResult } from "./types.js";
@@ -46,11 +46,30 @@ This spends real money on real model calls. Start with --limit.
 
 const config = loadAgentConfig();
 
-if (!config.apiKey) {
-  const info = PROVIDERS[config.provider];
+const info = PROVIDERS[config.provider];
+
+// A model on your own network usually has no key, and refusing to start
+// without one would make the local score — the number this suite most needs to
+// publish honestly — impossible to measure.
+if (!config.apiKey && !info.apiKeyOptional) {
   console.error(
     `No API key. Set ${info.apiKeyEnv.join(" or ")} in .env — see ${info.docsUrl}.\n` +
       "Evals call the real model; there is nothing to measure without one.",
+  );
+  process.exit(1);
+}
+
+if (speaksOpenAIDialect(config.provider) && !config.baseUrl) {
+  console.error(
+    `${info.label} needs an endpoint. Set ZELYQ_MODEL_BASE_URL in .env — ` +
+      "for example http://localhost:11434/v1 for Ollama.",
+  );
+  process.exit(1);
+}
+
+if (config.provider === "custom" && !config.model) {
+  console.error(
+    "A custom endpoint has no default model. Set ZELYQ_MODEL to the name your server reports.",
   );
   process.exit(1);
 }
@@ -70,7 +89,8 @@ const runtime = createRuntimeDriver({ ...config.runtime, workspaceDir: EVAL_WORK
 const log = (message: string): void => console.log(`  ${message}`);
 
 console.log(
-  `\n${cases.length} case${cases.length === 1 ? "" : "s"} · ${config.provider}/${config.model} · effort ${config.effort}\n`,
+  `\n${cases.length} case${cases.length === 1 ? "" : "s"} · ${config.provider}/${config.model} · effort ${config.effort}` +
+    `${config.baseUrl ? ` · ${config.baseUrl}` : ""}\n`,
 );
 
 const baseRoot = await prepareBaseProject(runtime, values.template, log);
@@ -84,7 +104,8 @@ const results = await pool(cases, Number.parseInt(values.concurrency, 10), async
     provider: config.provider,
     model: config.model,
     effort: config.effort,
-    apiKey: config.apiKey as string,
+    apiKey: config.apiKey ?? "",
+    ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
     maxIterations: config.maxTurnIterations,
     timeoutMs: Number.parseInt(values.timeout, 10) * 1000,
     keep: values.keep,
@@ -101,6 +122,8 @@ const suite: SuiteResult = {
   provider: config.provider,
   model: config.model,
   effort: config.effort,
+  // "custom scored 41%" means nothing without saying which server answered.
+  ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
   promptHash: createHash("sha256")
     .update(buildSystemPrompt({ projectName: "x", template: values.template }))
     .digest("hex")
