@@ -43,6 +43,7 @@ export class ProjectService {
       await this.runtime.ensureProject(id);
       if (input.gitUrl) {
         await this.cloneInto(id, input.gitUrl);
+        await this.assertZelyqCanWorkHere(id);
       } else {
         const files = await loadTemplate(this.config.templatesDir, input.template, {
           projectName: project.name,
@@ -53,6 +54,15 @@ export class ProjectService {
       }
       await this.store.projects.setStatus(id, "ready");
     } catch (error) {
+      if (input.gitUrl) {
+        // A repository that was refused, or failed to clone, leaves nothing
+        // behind: no half-project in the list, and no files on a disk that
+        // would otherwise collect every repository we declined. The caller
+        // gets the reason in the response.
+        await this.runtime.removeProject(id).catch(() => undefined);
+        await this.store.projects.remove(id).catch(() => undefined);
+        throw error;
+      }
       await this.store.projects.setStatus(id, "error", (error as Error).message);
       throw error;
     }
@@ -80,6 +90,49 @@ export class ProjectService {
     const updated = await this.store.projects.update(id, patch);
     if (!updated) throw ZelyqError.notFound("Project", id);
     return updated;
+  }
+
+  /**
+   * Refuses a repository Zelyq cannot honestly work in.
+   *
+   * The agent is told, as fact, that it is in a React project. That was harmless
+   * while every project came from one template and is a lie the moment a real
+   * repository arrives. Teaching the agent five stacks is a different company;
+   * saying so in ten seconds costs a person nothing and misleading them for an
+   * hour costs their trust.
+   *
+   * "Is there a package.json with react in it" is the obvious test and it refuses
+   * this project's own repository — the root manifest has no react, because the
+   * web app is a workspace. Monorepos are normal in exactly the codebases this
+   * feature is for, so every manifest in the tree is considered, not just the
+   * one at the top.
+   */
+  private async assertZelyqCanWorkHere(id: string): Promise<void> {
+    const entries = await this.runtime.listFiles(id, { depth: 3 });
+    const paths = entries.filter((entry) => entry.type === "file").map((entry) => entry.path);
+
+    const manifests = paths.filter((file) => file.endsWith("package.json")).slice(0, 30);
+    for (const manifest of manifests) {
+      const file = await this.runtime.readFile(id, manifest).catch(() => null);
+      if (!file || file.encoding !== "utf8") continue;
+      try {
+        const parsed = JSON.parse(file.content) as {
+          dependencies?: Record<string, string>;
+          devDependencies?: Record<string, string>;
+        };
+        const deps = { ...parsed.dependencies, ...parsed.devDependencies };
+        if ("react" in deps) return;
+      } catch {
+        // A manifest we cannot parse tells us nothing; keep looking.
+      }
+    }
+
+    // Name what was found rather than what was missing. "Unsupported" tells
+    // somebody nothing; "this looks like a Python project" tells them why.
+    const looksLike = describeStack(paths, manifests.length > 0);
+    throw ZelyqError.badRequest(
+      `${looksLike} Zelyq only works on React projects at the moment — support for others is planned.`,
+    );
   }
 
   /**
@@ -170,4 +223,28 @@ export class ProjectService {
       tokensOut: 0,
     });
   }
+}
+
+/** A one-line guess at what somebody actually handed us, from the files present. */
+function describeStack(paths: string[], hasManifest: boolean): string {
+  const markers: Array<[string, string]> = [
+    ["requirements.txt", "This looks like a Python project."],
+    ["pyproject.toml", "This looks like a Python project."],
+    ["go.mod", "This looks like a Go project."],
+    ["Cargo.toml", "This looks like a Rust project."],
+    ["Gemfile", "This looks like a Ruby project."],
+    ["pom.xml", "This looks like a Java project."],
+    ["build.gradle", "This looks like a Java project."],
+    ["composer.json", "This looks like a PHP project."],
+    ["Package.swift", "This looks like a Swift project."],
+    ["pubspec.yaml", "This looks like a Dart or Flutter project."],
+  ];
+
+  const root = new Set(paths.map((file) => file.split("/").pop()));
+  for (const [marker, description] of markers) {
+    if (root.has(marker)) return description;
+  }
+  return hasManifest
+    ? "This looks like a JavaScript project, but nothing in it uses React."
+    : "This repository has no package.json, so it is not a React project.";
 }

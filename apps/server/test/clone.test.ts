@@ -56,6 +56,7 @@ let server: ZelyqServer;
 let cookie: string;
 let gitServer: http.Server;
 let originUrl: string;
+let pythonUrl: string;
 
 before(async () => {
   await fs.mkdir(origin, { recursive: true });
@@ -64,6 +65,17 @@ before(async () => {
   await fs.writeFile(path.join(origin, "README.md"), "# a project that already existed\n");
   await fs.mkdir(path.join(origin, "src"), { recursive: true });
   await fs.writeFile(path.join(origin, "src", "index.js"), "console.log('hello from the repo');\n");
+  // React lives in a workspace and not at the root, which is how real monorepos
+  // are shaped — and the shape a naive check declines.
+  await fs.writeFile(
+    path.join(origin, "package.json"),
+    JSON.stringify({ name: "root", private: true, workspaces: ["apps/*"] }),
+  );
+  await fs.mkdir(path.join(origin, "apps", "web"), { recursive: true });
+  await fs.writeFile(
+    path.join(origin, "apps", "web", "package.json"),
+    JSON.stringify({ name: "web", dependencies: { react: "^19.0.0" } }),
+  );
   // Something git ignores, to prove the agent is not shown it.
   await fs.writeFile(path.join(origin, ".gitignore"), "secrets.env\n");
   await fs.writeFile(path.join(origin, "secrets.env"), "TOKEN=should-never-be-listed\n");
@@ -78,8 +90,23 @@ before(async () => {
   git("update-server-info");
   await fs.rename(path.join(origin, ".git"), path.join(tmp, "origin.git"));
 
+  // A second repository that Zelyq should decline: no React anywhere.
+  const other = path.join(tmp, "python");
+  await fs.mkdir(other, { recursive: true });
+  await fs.writeFile(path.join(other, "requirements.txt"), "flask==3.0.0\n");
+  await fs.writeFile(path.join(other, "app.py"), "print('hello')\n");
+  const pygit = (...args: string[]) => execFileSync("git", args, { cwd: other, stdio: "pipe" });
+  pygit("init", "--quiet", "--initial-branch=main");
+  pygit("config", "user.email", "test@example.com");
+  pygit("config", "user.name", "Test");
+  pygit("add", "-A");
+  pygit("commit", "--quiet", "-m", "initial");
+  pygit("update-server-info");
+  await fs.rename(path.join(other, ".git"), path.join(tmp, "python.git"));
+
   gitServer = http.createServer(async (request, response) => {
-    const file = path.join(tmp, "origin.git", (request.url ?? "/").split("?")[0] as string);
+    // Serves every repository under tmp, so a test can point at whichever it needs.
+    const file = path.join(tmp, (request.url ?? "/").split("?")[0] as string);
     const body = await fs.readFile(file).catch(() => null);
     if (!body) {
       response.writeHead(404).end();
@@ -88,7 +115,9 @@ before(async () => {
     response.writeHead(200, { "content-type": "application/octet-stream" }).end(body);
   });
   await new Promise<void>((resolve) => gitServer.listen(0, "127.0.0.1", resolve));
-  originUrl = `http://127.0.0.1:${(gitServer.address() as { port: number }).port}`;
+  const base = `http://127.0.0.1:${(gitServer.address() as { port: number }).port}`;
+  originUrl = `${base}/origin.git`;
+  pythonUrl = `${base}/python.git`;
 
   await runMigrations(config.databaseUrl);
   server = await buildServer(config);
@@ -164,4 +193,31 @@ test("ssh and local-path URLs are refused", async () => {
     });
     assert.equal(created.statusCode, 400, `${gitUrl} should have been refused`);
   }
+});
+
+test("a repository that is not React is declined, and says what it looks like", async () => {
+  // A repository with requirements.txt and no React anywhere.
+  const created = await server.app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: { cookie },
+    payload: { name: "not-react", gitUrl: pythonUrl },
+  });
+
+  assert.equal(created.statusCode, 400, created.body);
+  const message = created.json().error.message;
+  assert.match(message, /React projects at the moment/i, message);
+  assert.match(message, /Python project/i, message);
+
+  // Nothing half-built is left in the list.
+  const listed = await server.app.inject({
+    method: "GET",
+    url: "/api/projects",
+    headers: { cookie },
+  });
+  const names = listed.json().projects.map((project: { name: string }) => project.name);
+  assert.ok(
+    !names.includes("not-react"),
+    `a refused repository was left behind: ${names.join(", ")}`,
+  );
 });
