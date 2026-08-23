@@ -10,6 +10,7 @@ import { createRuntimeDriver, type RuntimeDriver } from "@zelyq/runtime";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { ServerConfig } from "./config.js";
+import { registerAccountRoutes } from "./routes/accounts.js";
 import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
@@ -18,6 +19,7 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerTeamRoutes } from "./routes/teams.js";
 import { AccessControl } from "./services/access.js";
+import { AccountService } from "./services/accounts.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AuthService } from "./services/auth.js";
 import { ProjectService } from "./services/projects.js";
@@ -36,6 +38,8 @@ export interface ZelyqServer {
   app: FastifyInstance;
   store: Store;
   runtime: RuntimeDriver;
+  /** Read at startup to warn when an exposed instance also accepts signups. */
+  registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -77,6 +81,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
   });
   const access = new AccessControl(store);
+  const accounts = new AccountService(store, projects);
 
   await app.register(cors, {
     origin: config.corsOrigin.includes("*") ? true : config.corsOrigin,
@@ -159,6 +164,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
 
   registerAuthRoutes(app, { auth, sessionTtlDays: () => settings.numberValue("sessionTtlDays") });
+  registerAccountRoutes(app, { accounts, auth, access });
   registerSettingsRoutes(app, { settings, access });
   registerTeamRoutes(app, { store, access });
   registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });
@@ -203,6 +209,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     app,
     store,
     runtime,
+    /** Read at startup to warn when an exposed instance also accepts signups. */
+    async registrationOpen(): Promise<boolean> {
+      return await settings.booleanValue("allowRegistration").catch(() => false);
+    },
     async close() {
       await app.close();
       await runtime.dispose();

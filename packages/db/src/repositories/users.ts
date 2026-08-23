@@ -74,6 +74,25 @@ export function userRepository(db: ZelyqDb) {
       const rows = await db.select({ value: sql<number>`count(*)` }).from(users);
       return Number(rows[0]?.value ?? 0);
     },
+
+    /** Guards the last-admin case: an instance must never be left unadministrable. */
+    async countAdmins(): Promise<number> {
+      const rows = await db
+        .select({ value: sql<number>`count(*)` })
+        .from(users)
+        .where(eq(users.instanceRole, "admin"));
+      return Number(rows[0]?.value ?? 0);
+    },
+
+    async list(limit = 200): Promise<User[]> {
+      const rows = await db.select().from(users).orderBy(users.createdAt).limit(limit);
+      return rows.map(toUser);
+    },
+
+    /** Memberships and auth sessions go with it: both cascade on this row. */
+    async remove(id: string): Promise<void> {
+      await db.delete(users).where(eq(users.id, id));
+    },
   };
 }
 

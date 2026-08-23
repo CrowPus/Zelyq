@@ -52,9 +52,92 @@ export function ProfilePage() {
               ))}
             </div>
           </section>
+
+          <DeleteAccountSection />
         </div>
       </div>
     </AppShell>
+  );
+}
+
+/**
+ * Deleting your own account. Irreversible, and it takes any project only you
+ * could reach with it — so it asks for the password and makes you type the
+ * word, rather than putting a one-click button next to "change your name".
+ */
+function DeleteAccountSection() {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteAccount(password);
+      // Nothing left to return to: reload onto the sign-in screen.
+      window.location.assign("/");
+    } catch (cause) {
+      setError((cause as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-8">
+      <h2 className="text-sm font-medium text-danger">Delete account</h2>
+      <div className="mt-3 rounded-lg border border-danger/25 bg-surface p-3">
+        <p className="text-xs text-fg-secondary">
+          This cannot be undone. Any team where you are the only member is deleted too, along with
+          its projects and their files on disk. You will be refused if you are the last owner of a
+          team that still has members, or the last administrator of this instance.
+        </p>
+
+        {open ? (
+          <form onSubmit={submit} className="mt-3 flex flex-col gap-2">
+            <label htmlFor="delete-password" className="text-xs font-medium text-fg-secondary">
+              Your password
+            </label>
+            <PasswordInput
+              id="delete-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+            <label htmlFor="delete-confirm" className="text-xs font-medium text-fg-secondary">
+              Type <span className="font-mono text-fg">delete</span> to confirm
+            </label>
+            <Input
+              id="delete-confirm"
+              value={confirm}
+              onChange={(event) => setConfirm(event.target.value)}
+              autoComplete="off"
+            />
+            {error && <Feedback state={{ error }} />}
+            <div className="mt-1 flex items-center gap-2">
+              <Button
+                type="submit"
+                variant="danger"
+                disabled={busy || confirm !== "delete" || !password}
+              >
+                {busy ? "Deleting…" : "Delete my account"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <Button variant="danger" className="mt-3" onClick={() => setOpen(true)}>
+            Delete account…
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }
 

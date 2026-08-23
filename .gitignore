@@ -42,3 +42,7 @@ docs/co-founders/
 
 # Eval harness output
 apps/agent/evals/results/
+
+# Playwright
+test-results/
+playwright-report/

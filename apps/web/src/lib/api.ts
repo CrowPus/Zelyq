@@ -119,6 +119,9 @@ export const api = {
       "/templates",
     ),
 
+  deleteAccount: (password: string) =>
+    request<void>("/auth/me", { method: "DELETE", body: JSON.stringify({ password }) }),
+
   listProjects: () => request<{ projects: Project[] }>("/projects"),
 
   getProject: (id: string) => request<{ project: Project }>(`/projects/${id}`),
