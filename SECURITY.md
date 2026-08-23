@@ -19,6 +19,37 @@ Zelyq is pre-1.0: only the latest release on `main` receives security fixes.
 Zelyq runs code that a language model writes. That is the product, and it means the runtime boundary
 is the security boundary.
 
+### Your project's contents are sent to the model vendor
+
+This is the first thing to know, because it is the one property **self-hosting does not change.**
+
+To answer a prompt, the agent reads your project and sends what it reads to the model vendor
+configured by `ZELYQ_PROVIDER` — today, Anthropic or Google. Over the course of a turn that includes:
+
+- the **contents of every file the agent opens**, and the paths of the files it lists,
+- the **output of every shell command it runs**, including build and test output,
+- your prompts, the project name, and the preview logs it reads when something breaks.
+
+Running Zelyq on your own hardware moves *execution* onto your machine. It does not keep your source
+code on it. A `local` runtime, a private database and an air-gapped workspace still end with file
+contents leaving over HTTPS to a third party, because that is how the agent thinks.
+
+What follows from that:
+
+- **Treat every project you open in Zelyq as disclosed to your model vendor.** If a repository
+  contains material you may not send to a third party — regulated data, another company's code under
+  NDA, secrets in tracked files — the agent must not be pointed at it.
+- **Your agreement with the vendor is what governs the data**, not this project. Retention, training
+  use, and jurisdiction are theirs to state; read their terms for the account whose key you supply.
+- **A `.gitignore`d file is hidden from `list_files`, not from the model.** The agent can still read
+  such a file if it is asked to, and its contents then travel with the turn.
+- Zelyq adds no proxy of its own and sends nothing to its maintainers. The traffic goes from your
+  instance directly to the vendor you configured.
+
+Support for pointing Zelyq at a model **on your own network** — so that this section can say
+something different — is in progress; see the [roadmap](./docs/roadmap.md). It is not in the build
+you are reading about, and nothing above is softened by it.
+
 ### Local mode (`ZELYQ_RUNTIME=local`) — the default
 
 Generated code and agent shell commands run as **child processes of the server, with your user's
