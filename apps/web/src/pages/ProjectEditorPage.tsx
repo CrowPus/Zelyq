@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { roleAtLeast } from "@zelyq/core";
 import { Camera, Code2, MessageSquare, Monitor } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -35,6 +36,9 @@ export function ProjectEditorPage() {
   const project = useQuery({ queryKey: ["project", id], queryFn: () => api.getProject(id) });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: 60_000 });
   const files = useQuery({ queryKey: ["files", id], queryFn: () => api.listFiles(id) });
+  // Saving a file takes editor. The server enforces it; this decides whether to
+  // offer the control at all.
+  const teams = useQuery({ queryKey: ["teams"], queryFn: api.listTeams, staleTime: 60_000 });
   const preview = useQuery({
     queryKey: ["preview", id],
     queryFn: () => api.getPreview(id),
@@ -45,6 +49,9 @@ export function ProjectEditorPage() {
     queryFn: () => api.readFile(id, selectedPath!),
     enabled: Boolean(selectedPath),
   });
+
+  const role = teams.data?.teams.find((team) => team.id === project.data?.project.teamId)?.role;
+  const canEdit = role !== undefined && roleAtLeast(role, "editor");
 
   // When the agent reports file changes, refresh the tree, the open file, and
   // the preview frame. HMR usually beats us to it, but config and dependency
@@ -197,7 +204,18 @@ export function ProjectEditorPage() {
                 onSelect={setSelectedPath}
               />
             </div>
-            <CodeViewer path={selectedPath} file={file.data ?? null} loading={file.isLoading} />
+            <CodeViewer
+              projectId={id}
+              path={selectedPath}
+              file={file.data ?? null}
+              loading={file.isLoading}
+              canEdit={canEdit}
+              onSaved={(saved) => {
+                queryClient.invalidateQueries({ queryKey: ["file", id, saved] });
+                queryClient.invalidateQueries({ queryKey: ["files", id] });
+                setReloadToken((token) => token + 1);
+              }}
+            />
           </div>
         </div>
 
