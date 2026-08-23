@@ -166,7 +166,11 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
       const response = await fetch(`${this.baseUrl}${path}`, {
         method,
         headers: {
-          "content-type": "application/json",
+          // Only when there is something to describe. Sending a JSON
+          // content-type with no body is not valid, and a strict host rejects
+          // it — which is how every bodyless route in this protocol failed
+          // against the first host anybody built.
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
           ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
