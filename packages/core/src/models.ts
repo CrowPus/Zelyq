@@ -52,6 +52,15 @@ export const createProjectSchema = z.object({
       message: "Only http:// and https:// repository URLs are supported",
     })
     .optional(),
+  /**
+   * A token for a private repository, used for this clone and never stored.
+   *
+   * Nothing at rest is nothing to leak at rest, nothing to rotate, and nothing
+   * for another user of a shared instance to borrow. The cost is pasting it
+   * again to refresh a clone — and refreshing does not exist yet, which is the
+   * right time to design credential storage rather than now.
+   */
+  gitToken: z.string().min(1).max(500).optional(),
   /** Optional first instruction — the project is created, then this is sent to the agent. */
   prompt: z.string().max(20_000).optional(),
 });

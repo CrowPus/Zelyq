@@ -54,3 +54,22 @@ test("leaving the address empty still starts a new app", async ({ page }) => {
   await page.getByRole("button", { name: "Code" }).click();
   await expect(page.getByText("App.tsx", { exact: false }).first()).toBeVisible();
 });
+
+test("the token field appears only when a repository address is given", async ({ page }) => {
+  await signUp(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "New project" }).first().click();
+
+  // Nothing to authenticate against until there is an address.
+  await expect(page.getByLabel("Repository access token")).toHaveCount(0);
+
+  await page.getByLabel("Repository URL").fill("https://example.com/owner/repo.git");
+  const token = page.getByLabel("Repository access token");
+  await expect(token).toBeVisible();
+  await expect(token).toHaveAttribute("type", "password");
+
+  // The promise made next to the field, because it is the reason somebody
+  // is willing to paste a credential at all.
+  await expect(page.getByText(/read-only token is enough/i)).toBeVisible();
+  await expect(page.getByText(/used once and never stored/i)).toBeVisible();
+});

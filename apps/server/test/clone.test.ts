@@ -24,6 +24,7 @@ import type { ServerConfig } from "../src/config.js";
 const tmp = path.join(os.tmpdir(), `zelyq-clone-${Date.now()}`);
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 const PASSWORD = "correct-horse-battery";
+const TOKEN = "a-token-that-should-never-be-written-down";
 const origin = path.join(tmp, "origin");
 
 const config: ServerConfig = {
@@ -57,6 +58,7 @@ let cookie: string;
 let gitServer: http.Server;
 let originUrl: string;
 let pythonUrl: string;
+let privateUrl: string;
 
 before(async () => {
   await fs.mkdir(origin, { recursive: true });
@@ -105,8 +107,22 @@ before(async () => {
   await fs.rename(path.join(other, ".git"), path.join(tmp, "python.git"));
 
   gitServer = http.createServer(async (request, response) => {
-    // Serves every repository under tmp, so a test can point at whichever it needs.
-    const file = path.join(tmp, (request.url ?? "/").split("?")[0] as string);
+    const url = (request.url ?? "/").split("?")[0] as string;
+
+    // /private.git is exactly what a real private repository is: the same files,
+    // behind a credential.
+    if (url.startsWith("/private.git")) {
+      const expected = `Basic ${Buffer.from(`x-access-token:${TOKEN}`).toString("base64")}`;
+      if (request.headers.authorization !== expected) {
+        response
+          .writeHead(401, { "www-authenticate": 'Basic realm="git"' })
+          .end("Authentication failed");
+        return;
+      }
+    }
+
+    // The private repository is served from the same files as the public one.
+    const file = path.join(tmp, url.replace(/^\/private\.git/, "/origin.git"));
     const body = await fs.readFile(file).catch(() => null);
     if (!body) {
       response.writeHead(404).end();
@@ -117,6 +133,7 @@ before(async () => {
   await new Promise<void>((resolve) => gitServer.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(gitServer.address() as { port: number }).port}`;
   originUrl = `${base}/origin.git`;
+  privateUrl = `${base}/private.git`;
   pythonUrl = `${base}/python.git`;
 
   await runMigrations(config.databaseUrl);
@@ -180,7 +197,8 @@ test("a repository that does not exist fails with something a person can act on"
     payload: { name: "missing", gitUrl: `${originUrl}/nope` },
   });
   assert.equal(created.statusCode, 400, created.body);
-  assert.match(created.json().error.message, /could not clone/i);
+  // The message now names the likely cause rather than repeating git.
+  assert.match(created.json().error.message, /was not found|could not clone/i);
 });
 
 test("ssh and local-path URLs are refused", async () => {
@@ -220,4 +238,48 @@ test("a repository that is not React is declined, and says what it looks like", 
     !names.includes("not-react"),
     `a refused repository was left behind: ${names.join(", ")}`,
   );
+});
+
+test("a private repository is refused without a token, and says what to do", async () => {
+  const created = await server.app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: { cookie },
+    payload: { name: "private-no-token", gitUrl: privateUrl },
+  });
+
+  assert.equal(created.statusCode, 400, created.body);
+  const message = created.json().error.message;
+  assert.match(message, /token/i, message);
+  assert.match(message, /read/i, `it should say read access is enough: ${message}`);
+});
+
+test("a private repository opens with a token, and the token is not left behind", async () => {
+  const created = await server.app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: { cookie },
+    payload: { name: "private-with-token", gitUrl: privateUrl, gitToken: TOKEN },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const projectId = created.json().project.id;
+
+  const readme = await server.app.inject({
+    method: "GET",
+    url: `/api/projects/${projectId}/files/README.md`,
+    headers: { cookie },
+  });
+  assert.equal(readme.statusCode, 200, readme.body);
+
+  // The whole risk of this feature: a credential written into the clone is
+  // readable by the agent and usable to push.
+  const root = path.join(config.runtime.workspaceDir, projectId);
+  // grep exits non-zero when it finds nothing, which is the outcome we want.
+  let found = "";
+  try {
+    found = execFileSync("grep", ["-rl", TOKEN, root], { stdio: "pipe" }).toString().trim();
+  } catch {
+    found = "";
+  }
+  assert.equal(found, "", `the token was written into the project:\n${found}`);
 });

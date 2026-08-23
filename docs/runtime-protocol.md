@@ -7,6 +7,10 @@ runtime — a container per project, a microVM, a Kubernetes pod, or a box under
 All requests carry `Authorization: Bearer $ZELYQ_RUNTIME_TOKEN` when a token is configured. Bodies
 and responses are JSON.
 
+**This link must be TLS anywhere but loopback.** Repository credentials for a private clone travel
+over it, in the `env` of an `exec` call. A plaintext link between the server and its runtime host
+puts somebody's git token on the wire.
+
 Several routes take no body at all. A host **must** accept a request that declares
 `content-type: application/json` and sends nothing — strict JSON parsing rejects that pairing, and
 it broke every bodyless route the first time a driver met a real host.

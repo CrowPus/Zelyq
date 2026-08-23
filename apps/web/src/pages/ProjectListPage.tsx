@@ -4,7 +4,16 @@ import { Box, CircleAlert, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, EmptyState, IconButton, Input, Spinner, StatusDot } from "../components/ui";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  IconButton,
+  Input,
+  PasswordInput,
+  Spinner,
+  StatusDot,
+} from "../components/ui";
 import { api } from "../lib/api";
 
 const STATUS_TONE = {
@@ -20,6 +29,7 @@ export function ProjectListPage() {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [gitUrl, setGitUrl] = useState("");
+  const [gitToken, setGitToken] = useState("");
   const [composing, setComposing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -32,8 +42,10 @@ export function ProjectListPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
 
   const createProject = useMutation({
-    mutationFn: (input: { name: string; gitUrl?: string }) =>
+    mutationFn: (input: { name: string; gitUrl?: string; gitToken?: string }) =>
       api.createProject({ ...input, template: "vite-react" }),
+    // Whatever happens, the token does not linger in the page.
+    onSettled: () => setGitToken(""),
     onSuccess: ({ project }) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate(`/projects/${project.id}`);
@@ -56,8 +68,17 @@ export function ProjectListPage() {
     event.preventDefault();
     const trimmed = name.trim();
     const repository = gitUrl.trim();
+    const token = gitToken.trim();
     if (!trimmed) return;
-    createProject.mutate(repository ? { name: trimmed, gitUrl: repository } : { name: trimmed });
+    if (!repository) {
+      createProject.mutate({ name: trimmed });
+      return;
+    }
+    createProject.mutate({
+      name: trimmed,
+      gitUrl: repository,
+      ...(token ? { gitToken: token } : {}),
+    });
   }
 
   const list = projects.data?.projects ?? [];
@@ -134,9 +155,23 @@ export function ProjectListPage() {
                 aria-label="Repository URL"
                 className="max-w-xl"
               />
+              {gitUrl.trim() && (
+                <PasswordInput
+                  value={gitToken}
+                  onChange={(event) => setGitToken(event.target.value)}
+                  onKeyDown={(event) => event.key === "Escape" && setComposing(false)}
+                  placeholder="Access token — only if the repository is private"
+                  aria-label="Repository access token"
+                  autoComplete="off"
+                  className="max-w-xl"
+                />
+              )}
+
               <p className="text-2xs text-fg-muted">
                 {gitUrl.trim()
-                  ? "Zelyq will clone this repository and work on it. The clone can take a minute."
+                  ? "Zelyq clones the repository and works on a copy — it never pushes, so a " +
+                    "read-only token is enough. The token is used once and never stored. Cloning " +
+                    "can take a minute."
                   : "Leave the address empty and Zelyq starts a new React app instead."}
               </p>
             </form>
