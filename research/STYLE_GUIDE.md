@@ -1,460 +1,242 @@
-# Zelyq Engineering Research Book
+# The Engineering Research Book
 
-# Research Style Guide
+## Editorial Style Guide
 
 Version: 1.0
 
-Status: Active
-
-Applies To:
-
-- Every researcher
-- Every contributor
-- Every reviewer
-- Every AI agent
-- Every chapter
-- Every proposal
+Status: Draft for approval
 
 ---
 
-# Purpose
+## Purpose
 
-The purpose of this document is to define the writing and research standards used throughout **The Engineering Research Book**.
+This guide defines the editorial standards for The Engineering Research Book. It exists so that work produced by different contributors reads as one coherent publication.
 
-The goal is not simply to ensure consistent writing.
+This guide governs writing and presentation. It does not define how research is conducted, how evidence is assessed, how contributions are accepted, or how the book is organized. Those responsibilities belong to the methodology, evidence standard, contribution guide, and book architecture.
 
-The goal is to ensure consistent thinking.
+## Editorial Objective
 
-Every chapter should feel as though it was written by a single research team, regardless of how many people contributed to it.
+The book should help a technically informed reader understand:
 
-The research should remain clear, objective, evidence-driven, and intellectually honest.
+- what question was investigated;
+- what evidence was considered;
+- what the evidence supports;
+- what remains uncertain; and
+- why the finding matters to the broader research.
 
----
+Clarity is not simplification at the expense of accuracy. Technical detail should be included when it changes how the reader understands the question or conclusion.
 
-# Our Philosophy
+## Voice
 
-This book is not documentation.
+Write in a voice that is:
 
-This book is not marketing.
+- precise;
+- neutral;
+- evidence-led;
+- direct;
+- intellectually honest; and
+- respectful of uncertainty and disagreement.
 
-This book is not opinion.
+The book may express conclusions. Neutrality does not require avoiding judgment; it requires making the basis and limits of judgment visible.
 
-This book is research.
+Use “we” only when referring to the authors' research decisions, such as “we included studies published during the review period.” Do not use “we” to manufacture agreement with the reader or the wider engineering community.
 
-Research has one responsibility.
+Address the reader directly only in procedural pages where doing so improves clarity.
 
-To discover the truth.
+## Prose
 
-Not to defend existing beliefs.
+Prefer connected paragraphs over a sequence of sentence fragments. A paragraph should develop one idea and show how its sentences relate.
 
----
+Use lists when the items are genuinely parallel, independently useful, or easier to compare as a list. Do not convert ordinary prose into a list merely for emphasis.
 
-# The Research Mindset
+Prefer concrete subjects and active verbs:
 
-Every researcher must remember:
+- Prefer: “The study measured task completion time.”
+- Avoid: “Task completion time was measured by the study.”
 
-You are not writing to prove yourself correct.
+Use passive voice when the actor is unknown, irrelevant, or intentionally withheld, or when the object of an action is the focus.
 
-You are writing to discover whether your assumptions are correct.
+Remove words that do not change meaning. Avoid ceremonial introductions, repeated conclusions, and transitions that only announce the next section.
 
-If evidence disproves your belief,
+## Precision
 
-the belief changes.
+Use the narrowest wording the evidence permits.
 
-The evidence does not.
+- Prefer: “In the two teams studied, review latency increased after the policy change.”
+- Avoid: “Code-review policies reduce engineering productivity.”
 
----
+Identify the relevant population, setting, task, period, and measurement when they affect interpretation.
 
-# Our Responsibility
+Do not use “developers,” “engineers,” “teams,” “AI,” or “software projects” as universal categories when the evidence concerns a narrower group.
 
-Every page should help answer one question.
+Distinguish:
 
-> How do we build the world's most trusted AI Software Engineer?
+- possibility from demonstrated capability;
+- association from causation;
+- absence of evidence from evidence of absence;
+- statistical significance from practical importance;
+- reported behavior from observed behavior;
+- adoption from effectiveness; and
+- user confidence from justified trust.
 
-If a section does not contribute toward answering this question,
+## Claims and Uncertainty
 
-it probably does not belong in this book.
+Match language to confidence in the evidence.
 
----
+- **High confidence:** “The evidence strongly supports…”
+- **Moderate confidence:** “The available evidence supports…”
+- **Low confidence:** “Limited evidence suggests…”
+- **Insufficient evidence:** “The available evidence is insufficient to determine…”
 
-# Core Writing Principles
+These formulations are examples, not mandatory templates. The confidence rating and the prose must communicate the same level of certainty.
 
-## Principle One
+Avoid absolute terms such as “always,” “never,” “proves,” “guarantees,” and “all” unless the claim is genuinely universal or the word appears in a clearly identified rule.
 
-Start with questions.
+Predictions must identify their assumptions and uncertainty. Aspirations must be labeled as goals rather than presented as expected outcomes.
 
-Never start with solutions.
+## Evidence and Interpretation
 
-Wrong
+Keep source results separate from the book's interpretation.
 
-"We should build feature X."
+Use explicit transitions when needed:
 
-Correct
+- “The study reports…” identifies a source result.
+- “Taken together, these findings suggest…” identifies synthesis.
+- “One possible explanation is…” identifies interpretation.
+- “This raises the design question…” identifies an implication.
 
-"What problem would feature X solve?"
+Do not describe an interpretation as a fact merely because several authors repeat it. Follow the claim and confidence requirements in the [Evidence Standard](00-front-matter/07-evidence-standard.md).
 
----
+## Relationship to Zelyq
 
-## Principle Two
+Research chapters should not promote Zelyq or assume that Zelyq's current direction is correct.
 
-Describe reality before proposing improvements.
+Use Zelyq when explaining the origin of the research, the relevance of a question, or a traceable design implication. Do not use it as evidence for general claims unless Zelyq itself is the object of a documented study.
 
-Understand first.
+Avoid converting findings directly into features. A finding may produce one or more design implications, competing options, or a conclusion that no product response is justified.
 
-Improve second.
+## Terminology
 
----
+Use one term consistently for one concept. Define specialized, ambiguous, or project-specific terms at first use and add durable terms to the glossary.
 
-## Principle Three
+Do not capitalize ordinary fields or roles:
 
-Research before implementation.
+- software engineering
+- artificial intelligence
+- software engineer
+- research chapter
 
-No feature should enter Zelyq until the underlying problem has been researched.
+Capitalize proper names and official titles. Use “The Engineering Research Book” for the publication's full title and “the book” thereafter. Use “Zelyq” only for the project or system.
 
----
+The phrase “AI software engineer” describes the research subject, not an established professional category. Qualify it when necessary to avoid implying human equivalence.
 
-## Principle Four
+## Words and Constructions to Avoid
 
-Always separate evidence from interpretation.
+Avoid promotional language, including:
 
-Evidence answers:
+- revolutionary;
+- disruptive;
+- groundbreaking, unless reporting a directly attributed assessment;
+- game-changing;
+- state-of-the-art, unless defined by a specific comparison;
+- intelligent, when a narrower capability can be named;
+- seamless;
+- obvious or obviously; and
+- simply, when it dismisses genuine difficulty.
 
-"What happened?"
+Avoid rhetorical claims such as “everyone knows,” “it is clear that,” and “there is no doubt.” State the evidence or reasoning instead.
 
-Interpretation answers:
+Avoid false contrasts. Software engineering and programming, human judgment and automation, or qualitative and quantitative evidence may differ without being opposites.
 
-"What might it mean?"
+## Headings and Structure
 
-Never confuse the two.
+Each file has one level-one heading containing the book title. The page or chapter title uses level two. Major sections use level two, subsections use level three, and further nesting should be rare.
 
----
+Headings should describe content rather than merely label sequence. Prefer “Risk of bias” to “Stage Five” unless the sequence itself is important.
 
-## Principle Five
+Use sentence case for headings. Do not end headings with punctuation unless they are questions.
 
-Distinguish clearly between fact and hypothesis.
+Do not repeat the same explanation in multiple front-matter pages. Link to the document that owns the rule.
 
-Facts are supported.
+## Lists, Tables, and Figures
 
-Hypotheses require validation.
+Introduce every list, table, and figure in the surrounding text. A visual element must have a purpose that prose alone would serve less clearly.
 
-Do not present one as the other.
+List items should use parallel grammar. Use a period when an item is a complete sentence; otherwise omit terminal punctuation unless needed for clarity.
 
----
+Tables require descriptive column headings. Explain important definitions, exclusions, and units near the table.
 
-## Principle Six
+Figures require a descriptive caption, source or authorship statement, and alternative text. Clearly identify whether a figure reproduces source data, transforms it, or presents the book's interpretation.
 
-Every important claim should be traceable.
+## Numbers, Dates, and Units
 
-Whenever possible,
+Use numerals for measured quantities, percentages, versions, dates, and values compared directly. Spell out a number when it begins a sentence unless rewriting the sentence is clearer.
 
-a reader should be able to verify the origin of a statement.
+Use ISO 8601 dates (`YYYY-MM-DD`) in research records and unambiguous written dates in prose. State the observation date for information likely to change.
 
----
+Use a leading zero for values below one (`0.4`, not `.4`). Define units and preserve meaningful precision; do not report more precision than the method supports.
 
-## Principle Seven
+## Abbreviations
 
-Every chapter must remain understandable five years from now.
+Write the full term at first use followed by the abbreviation in parentheses. Do not introduce an abbreviation that appears only once or twice.
 
-Avoid references to temporary trends.
+Common technical abbreviations may remain unexplained only when the intended audience can reasonably be expected to know them and ambiguity is unlikely.
 
-Avoid hype.
+## Citations and Links
 
-Avoid predictions presented as certainty.
+Place citations as close as possible to the claims they support. A citation at the end of a long paragraph should not leave the reader uncertain about which sentences it covers.
 
-Write for long-term relevance.
+Use descriptive link text. Avoid bare URLs in prose and vague labels such as “here.” Prefer stable, original sources and persistent identifiers when available.
 
----
+Citation format, source verification, quotation, and attribution requirements are defined in the [Evidence Standard](00-front-matter/07-evidence-standard.md).
 
-# Language Standards
+## Quotations
 
-Write clearly.
+Use a quotation only when the source's exact wording matters. Otherwise paraphrase accurately and cite the source.
 
-Write precisely.
+Do not use quotations as decoration or as a substitute for analysis. Preserve the source's meaning and identify omissions or alterations according to the applicable citation convention.
 
-Avoid unnecessary complexity.
+## Accessibility and Inclusion
 
-Prefer simple language over impressive language.
+Use language that respects the people and communities being studied. Describe participants using the terms they use for themselves when known and relevant.
 
-Use technical terminology only when it improves accuracy.
+Avoid stereotypes and unsupported assumptions about ability, seniority, geography, culture, gender, education, or employment context.
 
-Avoid marketing language.
+Do not use “junior” and “senior” as complete explanations of capability. Define the experience, responsibility, or behavior actually being compared.
 
-Do not exaggerate.
+Write so that readers can understand the argument without relying on color, visual position, private project history, or inaccessible media.
 
-Avoid emotional persuasion.
+## Editorial Conventions
 
-Allow the evidence to persuade the reader.
+Use American English unless quoting a source or preserving an official name.
 
----
+Use the serial comma in lists of three or more items.
 
-# Writing Tone
+Use one space after punctuation. Use em dashes sparingly and without surrounding spaces. Use typographic quotation marks only when the publishing system applies them consistently; plain Markdown quotation marks are acceptable in source files.
 
-The tone should be:
+Use fenced code blocks with a language identifier when one exists. Keep examples minimal, runnable when claimed to be runnable, and clearly separate illustrative code from evaluated artifacts.
 
-Professional
+## Metadata
 
-Curious
+Standards, plans, and research chapters should identify their version and status. Research chapters should also identify the date of their last substantive review.
 
-Objective
+Do not mark a page Active, Reviewed, or Published until it has passed the process defined by the contribution guide. Draft status is not a statement of poor quality; it indicates that review remains open.
 
-Respectful
+## Final Editorial Review
 
-Evidence-driven
+Before review, confirm that the page:
 
-Honest
+- has one clear purpose;
+- follows the heading hierarchy;
+- uses connected, readable prose;
+- defines important terms;
+- distinguishes evidence, interpretation, and implication;
+- matches the confidence of its claims;
+- removes promotional and absolute language;
+- cites material external claims;
+- represents important limitations and disagreement;
+- avoids duplicating rules owned by another document;
+- uses accessible lists, tables, figures, links, and examples; and
+- can be understood without private conversation history.
 
-Never arrogant.
-
-Never dismissive.
-
-Never sensational.
-
----
-
-# Words We Avoid
-
-Avoid words such as:
-
-Revolutionary
-
-Disruptive
-
-Game-changing
-
-Unmatched
-
-Perfect
-
-World's best
-
-Obviously
-
-Clearly
-
-Everyone knows
-
-Nobody wants
-
-Always
-
-Never
-
-Unless supported by evidence.
-
-Research should remain neutral.
-
----
-
-# Research Before Conclusions
-
-Researchers should resist the temptation to conclude early.
-
-Instead,
-
-follow this order.
-
-Observe
-
-↓
-
-Collect evidence
-
-↓
-
-Compare evidence
-
-↓
-
-Challenge assumptions
-
-↓
-
-Consider alternatives
-
-↓
-
-Draw conclusions
-
-Never reverse this order.
-
----
-
-# Multiple Perspectives
-
-Every chapter should attempt to answer:
-
-What supports this idea?
-
-What challenges this idea?
-
-What evidence is missing?
-
-What assumptions are being made?
-
-What alternative explanations exist?
-
-Strong research survives disagreement.
-
-Weak research avoids it.
-
----
-
-# Intellectual Honesty
-
-Researchers are expected to admit uncertainty.
-
-Acceptable statements include:
-
-"We currently do not know."
-
-"The available evidence is limited."
-
-"This remains a hypothesis."
-
-"This conclusion requires further validation."
-
-These statements strengthen research.
-
-They do not weaken it.
-
----
-
-# Every Chapter Must Answer
-
-What question is being investigated?
-
-Why does it matter?
-
-What does existing evidence suggest?
-
-What evidence disagrees?
-
-What conclusions are supported?
-
-How should this influence Zelyq?
-
-What questions remain unanswered?
-
----
-
-# Research Categories
-
-Every statement should belong to one category.
-
-## Fact
-
-Supported by strong evidence.
-
----
-
-## Observation
-
-Repeatedly observed.
-
-Additional validation may be useful.
-
----
-
-## Hypothesis
-
-A proposed explanation requiring research.
-
----
-
-## Interpretation
-
-Reasoned analysis based on available evidence.
-
----
-
-## Opinion
-
-Personal belief.
-
-Opinions should remain rare.
-
----
-
-# Research Is Iterative
-
-No chapter is considered permanently complete.
-
-As new evidence appears,
-
-research should evolve.
-
-Changing a conclusion in response to better evidence is considered progress.
-
-Not failure.
-
----
-
-# Disagreement
-
-Disagreement is encouraged.
-
-Respectful criticism improves research.
-
-Researchers should challenge ideas,
-
-not individuals.
-
-Every significant conclusion should survive rigorous debate before acceptance.
-
----
-
-# The Standard of Evidence
-
-One anecdote is not evidence.
-
-One blog post is not consensus.
-
-One benchmark is not reality.
-
-Evidence becomes stronger when supported by multiple independent sources.
-
-Researchers should seek convergence,
-
-not convenience.
-
----
-
-# Responsibility To Future Contributors
-
-Write for someone joining the project years from now.
-
-Assume they know nothing about today's discussion.
-
-Every chapter should be understandable without requiring knowledge of private conversations.
-
-The book should be self-contained.
-
----
-
-# The Final Question
-
-Before submitting any contribution,
-
-ask yourself one question.
-
-> Does this improve our understanding of software engineering?
-
-If the answer is no,
-
-reconsider whether it belongs in this book.
-
----
-
-# Closing Statement
-
-The Engineering Research Book exists because building exceptional software requires exceptional understanding.
-
-Understanding cannot be rushed.
-
-It must be earned through careful observation, honest discussion, rigorous analysis, and continuous learning.
-
-Every researcher who contributes to this project accepts the responsibility of protecting the quality, credibility, and long-term value of this body of knowledge.
-
-The goal is not merely to build Zelyq.
-
-The goal is to advance the understanding of AI-assisted software engineering itself.
+A page is ready for publication when its reasoning is inspectable, its language is proportionate to its evidence, and its presentation does not distract from either.

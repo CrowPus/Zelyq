@@ -12,13 +12,13 @@ Version 0.1
 
 ### Created By
 
-The Zelyq Community
+Dee Empire and the Zelyq contributors
 
 ---
 
 ### Maintained By
 
-The Zelyq Research Council
+The Zelyq open-source community
 
 ---
 
@@ -32,7 +32,7 @@ The Zelyq Research Council
 
 ---
 
-© Zelyq Community
+© 2026 Dee Empire
 
 Open Research.
 Open Discussion.
