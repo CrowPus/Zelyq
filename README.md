@@ -33,6 +33,16 @@ is rendering live on the right.</sub>
 
 <!-- TODO: replace the still above with a short screen recording of a build, end to end. -->
 
+<br />
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/existing-project-dark.png" />
+  <img src="assets/screenshots/existing-project-light.png" alt="A shop's existing website open in Zelyq: the agent has read the real codebase and answered a question about it, with the site running live on the right" width="900" />
+</picture>
+
+<sub>Or open code you already have. A real multilingual shop site, not built here — the agent read the
+existing codebase and explained how its language switching works, without changing a line.</sub>
+
 </div>
 
 ---
