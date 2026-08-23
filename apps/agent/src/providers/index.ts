@@ -1,5 +1,6 @@
 import { AnthropicProvider, classifyAnthropicError } from "./anthropic.js";
 import { classifyGoogleError, describeGoogleError, GoogleProvider } from "./google.js";
+import { classifyOpenAICompatibleError, OpenAICompatibleProvider } from "./openai-compatible.js";
 import type { ModelProvider, ProviderErrorCode, ProviderId } from "./types.js";
 
 export { AnthropicProvider } from "./anthropic.js";
@@ -9,6 +10,12 @@ export {
   toFunctionDeclarations,
   toThinkingLevel,
 } from "./google.js";
+export {
+  chatCompletionsUrl,
+  OpenAICompatibleError,
+  OpenAICompatibleProvider,
+  requireEncryptedOrLocal,
+} from "./openai-compatible.js";
 export * from "./types.js";
 
 export interface ProviderInfo {
@@ -19,6 +26,16 @@ export interface ProviderInfo {
   /** Environment variables checked for a key, in order. */
   apiKeyEnv: string[];
   docsUrl: string;
+  /**
+   * Where requests go, for providers that speak the OpenAI dialect. Absent
+   * means the vendor SDK already knows; `null` means the operator must supply
+   * one, which is what makes an entry the self-hosted door.
+   */
+  baseUrl?: string | null;
+  /** Environment variable that overrides `baseUrl`. */
+  baseUrlEnv?: string;
+  /** A key is optional for endpoints on your own network, which usually have none. */
+  apiKeyOptional?: boolean;
 }
 
 /**
@@ -41,7 +58,50 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     apiKeyEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     docsUrl: "https://aistudio.google.com/apikey",
   },
+  openai: {
+    id: "openai",
+    label: "OpenAI",
+    defaultModel: "gpt-5.1",
+    apiKeyEnv: ["OPENAI_API_KEY"],
+    docsUrl: "https://platform.openai.com/api-keys",
+    baseUrl: "https://api.openai.com/v1",
+    baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+  },
+  custom: {
+    id: "custom",
+    label: "Self-hosted or custom endpoint",
+    // No default: the model a given server holds is that server's business,
+    // and guessing one produces a 404 that reads like a Zelyq bug.
+    defaultModel: "",
+    apiKeyEnv: ["ZELYQ_MODEL_API_KEY", "OPENAI_API_KEY"],
+    docsUrl: "https://github.com/CrowPus/Zelyq/blob/main/docs/configuration.md",
+    baseUrl: null,
+    baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    apiKeyOptional: true,
+  },
 };
+
+/** Providers that speak the OpenAI chat-completions dialect. */
+const OPENAI_DIALECT: ReadonlySet<ProviderId> = new Set<ProviderId>(["openai", "custom"]);
+
+export function speaksOpenAIDialect(provider: ProviderId): boolean {
+  return OPENAI_DIALECT.has(provider);
+}
+
+/**
+ * The address for a provider: an explicit value, then its environment
+ * variable, then the registry default. `custom` has no default on purpose.
+ */
+export function baseUrlFor(
+  provider: ProviderId,
+  explicit?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (explicit) return explicit;
+  const info = PROVIDERS[provider];
+  const fromEnv = info.baseUrlEnv ? env[info.baseUrlEnv] : undefined;
+  return fromEnv || info.baseUrl || undefined;
+}
 
 export function isProviderId(value: string): value is ProviderId {
   return value in PROVIDERS;
@@ -67,12 +127,39 @@ export function createProvider(config: {
   provider: ProviderId;
   model: string;
   apiKey: string;
+  baseUrl?: string;
 }): ModelProvider {
   switch (config.provider) {
     case "anthropic":
       return new AnthropicProvider(config.model, config.apiKey);
     case "google":
       return new GoogleProvider(config.model, config.apiKey);
+    case "openai":
+    case "custom": {
+      const baseUrl = baseUrlFor(config.provider, config.baseUrl);
+      if (!baseUrl) {
+        throw new Error(
+          `${PROVIDERS[config.provider].label} needs an endpoint address. ` +
+            "Set ZELYQ_MODEL_BASE_URL — for example http://localhost:11434/v1 for Ollama, " +
+            "or https://models.internal/v1 for a server of your own.",
+        );
+      }
+      if (config.provider === "custom" && !config.model) {
+        throw new Error(
+          "A custom endpoint has no default model. Set ZELYQ_MODEL to the name your server " +
+            "serves, exactly as it reports it.",
+        );
+      }
+      return new OpenAICompatibleProvider({
+        id: config.provider,
+        model: config.model,
+        apiKey: config.apiKey,
+        baseUrl,
+        // Only where the dialect's reasoning field is known to be understood.
+        // An unknown server that rejects it would fail every turn.
+        supportsReasoningEffort: config.provider === "openai",
+      });
+    }
     default: {
       const exhaustive: never = config.provider;
       throw new Error(`Unknown provider: ${String(exhaustive)}`);
@@ -81,6 +168,7 @@ export function createProvider(config: {
 }
 
 export function classifyProviderError(provider: ProviderId, error: unknown): ProviderErrorCode {
+  if (speaksOpenAIDialect(provider)) return classifyOpenAICompatibleError(error);
   return provider === "google" ? classifyGoogleError(error) : classifyAnthropicError(error);
 }
 

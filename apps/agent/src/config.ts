@@ -2,9 +2,13 @@ import path from "node:path";
 import type { RuntimeConfig } from "@zelyq/runtime";
 import {
   apiKeyFromEnv,
+  baseUrlFor,
   defaultModelFor,
   isProviderId,
+  PROVIDERS,
   type ProviderId,
+  requireEncryptedOrLocal,
+  speaksOpenAIDialect,
 } from "./providers/index.js";
 
 export interface AgentConfig {
@@ -18,6 +22,8 @@ export interface AgentConfig {
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   /** Fallback key for the default provider. A session may supply its own. */
   apiKey: string | undefined;
+  /** Endpoint for providers speaking the OpenAI dialect; required for `custom`. */
+  baseUrl: string | undefined;
   maxTurnIterations: number;
   runtime: RuntimeConfig;
 }
@@ -40,8 +46,17 @@ export function loadAgentConfig(): AgentConfig {
 
   const provider = process.env.ZELYQ_PROVIDER ?? "anthropic";
   if (!isProviderId(provider)) {
-    throw new Error(`ZELYQ_PROVIDER must be "anthropic" or "google", got "${provider}"`);
+    throw new Error(
+      `ZELYQ_PROVIDER must be one of ${Object.keys(PROVIDERS)
+        .map((id) => `"${id}"`)
+        .join(", ")}, got "${provider}"`,
+    );
   }
+
+  const baseUrl = baseUrlFor(provider);
+  // Fail at startup rather than on somebody's first prompt. An endpoint that
+  // would send source code in clear text is refused here, once, loudly.
+  if (baseUrl && speaksOpenAIDialect(provider)) requireEncryptedOrLocal(baseUrl);
 
   return {
     host: process.env.ZELYQ_AGENT_HOST ?? "127.0.0.1",
@@ -58,6 +73,7 @@ export function loadAgentConfig(): AgentConfig {
     model: process.env.ZELYQ_MODEL || defaultModelFor(provider),
     effort,
     apiKey: apiKeyFromEnv(provider),
+    baseUrl,
     maxTurnIterations: intFromEnv("ZELYQ_MAX_TURN_ITERATIONS", 50),
     runtime: {
       kind: runtimeKind,

@@ -293,7 +293,10 @@ test("a value outside the allowed set is rejected", async () => {
     method: "PUT",
     url: "/api/settings",
     headers: { cookie: adminCookie },
-    payload: { provider: "openai" },
+    // A vendor no registry entry claims. "openai" stood in for this until it
+    // became a real provider — a stale example turns a good test into a
+    // passing one that checks nothing.
+    payload: { provider: "acme-models" },
   });
   assert.equal(response.statusCode, 400);
   assert.match(response.json().error.message, /must be one of/);

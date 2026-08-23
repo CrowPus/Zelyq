@@ -40,26 +40,61 @@ expect. Values are read once at startup: after editing `.env`, restart.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `ZELYQ_PROVIDER` | `anthropic` | `anthropic` or `google`. |
+| `ZELYQ_PROVIDER` | `anthropic` | `anthropic`, `google`, `openai`, or `custom`. |
 | `ANTHROPIC_API_KEY` | — | Required when the provider is `anthropic`. |
 | `GEMINI_API_KEY` | — | Required when the provider is `google`. `GOOGLE_API_KEY` is accepted as a fallback. |
-| `ZELYQ_MODEL` | provider default | Overrides the model. Leave unset to get the provider's default. |
+| `OPENAI_API_KEY` | — | Required when the provider is `openai`. |
+| `ZELYQ_MODEL_BASE_URL` | provider default | The endpoint for `openai` and `custom`. Required for `custom`. |
+| `ZELYQ_MODEL_API_KEY` | — | Key for a `custom` endpoint. Optional — most self-hosted servers have none. |
+| `ZELYQ_MODEL` | provider default | Overrides the model. Required for `custom`, which has no default. |
 | `ZELYQ_EFFORT` | `high` | `low`, `medium`, `high`, `xhigh`, or `max`. Controls reasoning depth and token spend. |
 
 ### Providers
 
-| Provider | Default model | Key from |
-| --- | --- | --- |
-| `anthropic` | `claude-opus-5` | <https://console.anthropic.com/settings/keys> |
-| `google` | `gemini-3.7-flash` | <https://aistudio.google.com/apikey> |
+| Provider | Default model | Endpoint | Key from |
+| --- | --- | --- | --- |
+| `anthropic` | `claude-opus-5` | vendor | <https://console.anthropic.com/settings/keys> |
+| `google` | `gemini-3.7-flash` | vendor | <https://aistudio.google.com/apikey> |
+| `openai` | `gpt-5.1` | `https://api.openai.com/v1` | <https://platform.openai.com/api-keys> |
+| `custom` | none — set `ZELYQ_MODEL` | you supply it | usually none |
 
 Only the selected provider's key is needed. `GET /api/health` reports the active provider and
 model, and the agent's `GET /providers` lists every provider with a `configured` flag saying whether
 a usable key is present.
 
-Reasoning is on for both providers, with summaries streamed to the UI: Claude uses adaptive thinking
-at the configured effort, Gemini uses thinking levels. Gemini has no level above `high`, so `xhigh`
-and `max` both map onto it.
+Reasoning is on for Claude and Gemini, with summaries streamed to the UI: Claude uses adaptive
+thinking at the configured effort, Gemini uses thinking levels. Gemini has no level above `high`, so
+`xhigh` and `max` both map onto it. The OpenAI dialect has three levels, so `xhigh` and `max` map
+onto `high` there too; a `custom` endpoint is not sent a reasoning setting at all, because a server
+that rejects unknown fields would fail every turn.
+
+### Keeping your code on your own network
+
+`custom` is the reason this section exists. It is not a vendor — it is any endpoint speaking the
+OpenAI chat-completions dialect at an address you choose, which means the model can be one you run
+yourself and **your project's contents never leave your network.**
+
+```bash
+ZELYQ_PROVIDER=custom
+ZELYQ_MODEL_BASE_URL=http://localhost:11434/v1   # Ollama
+ZELYQ_MODEL=qwen3-coder:30b                      # exactly as your server reports it
+# no key needed
+```
+
+The address can be written as the root, as `/v1`, or as the full `/v1/chat/completions` path —
+whatever your server's own documentation shows you. All three work.
+
+**Plaintext `http://` is refused unless the address is on this machine.** Everything the agent reads
+— file contents, command output — crosses that connection, so an unencrypted hop to another host
+would defeat the point of running the model yourself. Use `https` for anything not on `localhost`.
+
+Two runtimes are tested against: **Ollama** and **vLLM**. "OpenAI-compatible" is a family of
+dialects rather than a standard, and others may work without being verified here — if one does not,
+the failure is reported with the server's own error text rather than a generic one.
+
+A smaller local model is usually **materially worse at agentic tool use** than a frontier hosted
+model. That is a real trade, not a detail: see the eval numbers before deciding, and treat this as
+the option you take when the code genuinely may not leave.
 
 ### Switching provider
 

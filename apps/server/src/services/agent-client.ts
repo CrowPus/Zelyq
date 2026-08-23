@@ -31,6 +31,7 @@ export class AgentClient {
     model?: string;
     effort?: string;
     apiKey?: string;
+    baseUrl?: string;
     history?: Message[];
   }): Promise<AgentSessionState> {
     const response = await fetch(`${this.baseUrl}/sessions`, {
@@ -67,6 +68,7 @@ export class AgentClient {
     model?: string;
     effort?: string;
     apiKey?: string;
+    baseUrl?: string;
     history?: Message[];
   }): Promise<AgentSessionState> {
     const existing = await fetch(`${this.baseUrl}/sessions/${input.sessionId}/state`, {

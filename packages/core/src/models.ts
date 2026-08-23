@@ -114,8 +114,14 @@ export type Message = z.infer<typeof messageSchema>;
 // Session
 // ---------------------------------------------------------------------------
 
-/** Model vendors Zelyq can drive. The agent's registry is the source of truth. */
-export const providerIdSchema = z.enum(["anthropic", "google"]);
+/**
+ * Model vendors Zelyq can drive. The agent's registry is the source of truth.
+ *
+ * `custom` is not a vendor: it is any endpoint speaking the OpenAI dialect at a
+ * base URL the operator supplies — Ollama, vLLM, LM Studio, an in-house
+ * gateway. It is the option that lets a team keep its code on its own network.
+ */
+export const providerIdSchema = z.enum(["anthropic", "google", "openai", "custom"]);
 export type ProviderId = z.infer<typeof providerIdSchema>;
 
 export const effortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);

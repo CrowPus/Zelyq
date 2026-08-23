@@ -118,6 +118,8 @@ export const createAgentSessionSchema = z.object({
   effort: effortSchema.optional(),
   /** Per-session key. Falls back to the agent process environment when absent. */
   apiKey: z.string().optional(),
+  /** Endpoint for a provider speaking the OpenAI dialect; required for `custom`. */
+  baseUrl: z.string().optional(),
   /** Prior turns, so a restarted agent can resume a conversation. */
   history: z.array(messageSchema).optional(),
 });

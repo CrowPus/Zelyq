@@ -21,6 +21,8 @@ export interface SessionOptions {
   model: string;
   effort: Effort;
   apiKey: string;
+  /** Endpoint for a provider speaking the OpenAI dialect. */
+  baseUrl?: string;
   runtime: RuntimeDriver;
   maxIterations: number;
   history?: Message[];
@@ -63,6 +65,7 @@ export class AgentSession {
       provider: options.provider,
       model: options.model,
       apiKey: options.apiKey,
+      ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
     });
 
     this.conversation = provider.createConversation({

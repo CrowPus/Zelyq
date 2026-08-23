@@ -69,12 +69,18 @@ export interface ModelProvider {
   createConversation(options: ConversationOptions): Conversation;
 }
 
-export type ProviderId = "anthropic" | "google";
+export type ProviderId = "anthropic" | "google" | "openai" | "custom";
 
 export interface ProviderConfig {
   provider: ProviderId;
   model: string;
   apiKey: string;
+  /**
+   * Where to send the request. Only meaningful for providers that speak the
+   * OpenAI dialect, and required for `custom` — which has no address of its
+   * own, because supplying one is the entire point of it.
+   */
+  baseUrl?: string;
 }
 
 /**

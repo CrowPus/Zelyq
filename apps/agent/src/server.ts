@@ -14,9 +14,11 @@ import { ZodError } from "zod";
 import type { AgentConfig } from "./config.js";
 import {
   apiKeyFromEnv,
+  baseUrlFor,
   defaultModelFor,
   PROVIDERS,
   type ProviderFactory,
+  speaksOpenAIDialect,
 } from "./providers/index.js";
 import { AgentSession } from "./session.js";
 
@@ -113,10 +115,26 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       (provider === config.provider ? config.apiKey : undefined) ??
       apiKeyFromEnv(provider);
 
-    if (!apiKey) {
+    // A model on your own network usually has no key at all, so demanding one
+    // is how this provider quietly fails for the person it exists for.
+    if (!apiKey && !info.apiKeyOptional) {
       throw new ZelyqError(
         "unauthorized",
         `No ${info.label} API key configured. Set ${info.apiKeyEnv.join(" or ")} (${info.docsUrl}), or pass a key when creating the session.`,
+      );
+    }
+
+    // An address on the request wins, then the process default for this same
+    // provider, then the registry.
+    const baseUrl = baseUrlFor(
+      provider,
+      input.baseUrl ?? (provider === config.provider ? config.baseUrl : undefined),
+    );
+    if (speaksOpenAIDialect(provider) && !baseUrl) {
+      throw new ZelyqError(
+        "bad_request",
+        `${info.label} needs an endpoint address. Set ZELYQ_MODEL_BASE_URL — for example ` +
+          "http://localhost:11434/v1 for Ollama, or https://models.internal/v1 for your own server.",
       );
     }
 
@@ -131,7 +149,8 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       model:
         input.model ?? (provider === config.provider ? config.model : defaultModelFor(provider)),
       effort: input.effort ?? config.effort,
-      apiKey,
+      apiKey: apiKey ?? "",
+      ...(baseUrl ? { baseUrl } : {}),
       runtime,
       maxIterations: config.maxTurnIterations,
       history: input.history,
