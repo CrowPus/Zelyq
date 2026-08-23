@@ -14,6 +14,8 @@ export interface RunOptions {
   model: string;
   effort: Effort;
   apiKey: string;
+  /** Endpoint, for a provider speaking the OpenAI dialect. */
+  baseUrl?: string;
   maxIterations: number;
   /** Wall-clock ceiling for one case. A hung turn must not hang the suite. */
   timeoutMs: number;
@@ -77,6 +79,7 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
       model: options.model,
       effort: options.effort,
       apiKey: options.apiKey,
+      ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
       runtime,
       maxIterations: evalCase.maxIterations ?? options.maxIterations,
     });

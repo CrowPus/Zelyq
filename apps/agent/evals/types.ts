@@ -100,6 +100,8 @@ export interface SuiteResult {
   provider: string;
   model: string;
   effort: string;
+  /** Which endpoint answered, when it was not the vendor's own. */
+  baseUrl?: string;
   /** Hash of the system prompt, so two runs can be compared meaningfully. */
   promptHash: string;
   cases: CaseResult[];
