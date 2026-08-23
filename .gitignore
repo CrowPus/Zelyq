@@ -49,3 +49,5 @@ playwright-report/
 
 # Playwright's own throwaway server
 .playwright/
+.codex
+research/

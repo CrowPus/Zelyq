@@ -20,7 +20,7 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm -r --filter \"./packages/**\" build && pnpm -r --filter \"./apps/**\" build",
-    "dev": "node scripts/dev.mjs",
+    "dev": "pnpm -r --filter \"./packages/**\" build && node scripts/dev.mjs",
     "dev:server": "pnpm --filter @zelyq/server dev",
     "dev:agent": "pnpm --filter @zelyq/agent dev",
     "dev:web": "pnpm --filter @zelyq/web dev",
