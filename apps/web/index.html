@@ -14,7 +14,7 @@
         try {
           const t = localStorage.getItem("zelyq.theme");
           if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-        } catch (e) {}
+        } catch {}
       })();
     </script>
   </head>

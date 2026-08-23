@@ -15,43 +15,50 @@ interface Props {
   onSaved(path: string): void;
 }
 
+/**
+ * `base` is the file as it was loaded or last saved; `draft` is what is in the
+ * box. Both live in one object on purpose — they only ever change together, and
+ * an earlier version that kept them in separate state had to set one from
+ * inside the other's updater, which React does not allow and which read a stale
+ * value every time.
+ */
+interface EditState {
+  path: string;
+  base: string;
+  draft: string;
+  /** The file changed on disk while this draft was unsaved. */
+  conflict: boolean;
+}
+
 export function CodeViewer({ projectId, path, file, loading, canEdit, onSaved }: Props) {
-  const [draft, setDraft] = useState<string | null>(null);
-  /** What the draft was started from, so a change underneath is detectable. */
-  const [base, setBase] = useState<string | null>(null);
-  const [conflict, setConflict] = useState(false);
+  const [edit, setEdit] = useState<EditState | null>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const content = file?.encoding === "utf8" ? file.content : null;
-  const dirty = draft !== null && base !== null && draft !== base;
+  const draft = edit?.draft ?? null;
+  const dirty = edit !== null && edit.draft !== edit.base;
+  const conflict = edit?.conflict ?? false;
 
   // A file the agent rewrote under an unsaved edit must not silently replace
   // it — that is somebody's work. Adopt it only when there is nothing to lose.
   useEffect(() => {
-    if (content === null) {
-      setDraft(null);
-      setBase(null);
-      setConflict(false);
+    if (path === null || content === null) {
+      setEdit(null);
       return;
     }
-    setDraft((current) => {
-      if (current === null || base === null || current === base) {
-        setBase(content);
-        setConflict(false);
-        return content;
-      }
-      if (content !== base) setConflict(true);
-      return current;
+    setEdit((prev) => {
+      if (!prev || prev.path !== path)
+        return { path, base: content, draft: content, conflict: false };
+      if (prev.draft === prev.base) return { path, base: content, draft: content, conflict: false };
+      if (content !== prev.base) return { ...prev, conflict: true };
+      return prev;
     });
-    // `base` is read inside the updater; including it would re-run on every save.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: content is the trigger
   }, [content, path]);
 
   const save = useMutation({
     mutationFn: (next: string) => api.writeFile(projectId, path as string, next),
     onSuccess: (_result, next) => {
-      setBase(next);
-      setConflict(false);
+      setEdit((prev) => (prev ? { ...prev, base: next, conflict: false } : prev));
       onSaved(path as string);
     },
   });
@@ -110,13 +117,13 @@ export function CodeViewer({ projectId, path, file, loading, canEdit, onSaved }:
           <button
             type="button"
             className="shrink-0 underline underline-offset-2"
-            onClick={() => {
-              if (content !== null) {
-                setDraft(content);
-                setBase(content);
-              }
-              setConflict(false);
-            }}
+            onClick={() =>
+              setEdit((prev) =>
+                prev && content !== null
+                  ? { path: prev.path, base: content, draft: content, conflict: false }
+                  : prev,
+              )
+            }
           >
             Discard mine
           </button>
@@ -151,14 +158,18 @@ export function CodeViewer({ projectId, path, file, loading, canEdit, onSaved }:
             className="w-11 shrink-0 overflow-hidden border-r border-border-default py-2 font-mono text-xs leading-[1.6] text-fg-muted select-none"
           >
             {Array.from({ length: lines }, (_, index) => (
-              <div key={index + 1} className="px-2 text-right tabular-nums">
+              // A line number has no identity but its position.
+              // biome-ignore lint/suspicious/noArrayIndexKey: the line number is the key
+              <div key={index} className="px-2 text-right tabular-nums">
                 {index + 1}
               </div>
             ))}
           </div>
           <textarea
             value={draft ?? ""}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) =>
+              setEdit((prev) => (prev ? { ...prev, draft: event.target.value } : prev))
+            }
             onScroll={(event) => {
               if (gutterRef.current) gutterRef.current.scrollTop = event.currentTarget.scrollTop;
             }}
