@@ -57,7 +57,16 @@ test("the transcript follows the agent while it works", async ({ page }) => {
   expect(worst, `fell ${Math.round(worst)}px behind at some point during the turn`).toBeLessThan(
     150,
   );
-  expect(await distanceFromBottom(page), "not at the bottom when the turn ended").toBeLessThan(150);
+
+  // The last thing a finished turn renders is its footer, which arrives a frame
+  // after the turn ends. Reading the position once, right then, measures the gap
+  // before it closes rather than whether it closes.
+  await expect
+    .poll(() => distanceFromBottom(page), {
+      timeout: 5000,
+      message: "did not settle at the bottom after the turn ended",
+    })
+    .toBeLessThan(150);
 });
 
 test("scrolling up to read stops it dragging you back", async ({ page }) => {
