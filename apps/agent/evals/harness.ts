@@ -3,7 +3,7 @@ import type { RuntimeDriver } from "@zelyq/runtime";
 import type { Effort, ProviderId } from "../src/providers/index.js";
 import { AgentSession } from "../src/session.js";
 import { runCheck } from "./checks.js";
-import type { CaseResult, EvalCase } from "./types.js";
+import type { CaseResult, Check, EvalCase } from "./types.js";
 import { diff, fingerprint, linkModules, loadTemplateFiles } from "./workspace.js";
 
 export interface RunOptions {
@@ -41,7 +41,8 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     id: evalCase.id,
     title: evalCase.title,
     tags: evalCase.tags,
-    works: false,
+    intact: false,
+    done: false,
     clean: false,
     checks: [],
     rounds: 0,
@@ -133,11 +134,23 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
       toolCalls: result.toolCalls,
       reply: result.reply,
     };
-    for (const check of evalCase.checks) {
+    // A case that asked for work must have produced some. Appended rather than
+    // written into every case, so it cannot be forgotten when a case is added;
+    // a case that asserts `no_writes` is expecting nothing and is exempt.
+    const expectsNoWrites = evalCase.checks.some((check) => check.kind === "no_writes");
+    const checks: Check[] = expectsNoWrites
+      ? evalCase.checks
+      : [...evalCase.checks, { kind: "changed_something" }];
+
+    for (const check of checks) {
       result.checks.push(await runCheck(check, context));
     }
 
-    result.works = result.checks.every((check) => !check.critical || check.ok);
+    // Three numbers, and the distinction between them is the whole point.
+    // `intact` says the app still runs; `done` says the work was done. An agent
+    // that changes nothing scores intact and not done, which is the truth.
+    result.intact = result.checks.every((check) => !check.critical || check.ok);
+    result.done = result.checks.every((check) => check.cosmetic || check.ok);
     result.clean = result.checks.every((check) => check.ok);
   } catch (error) {
     result.error ??= (error as Error).message;

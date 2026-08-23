@@ -44,11 +44,17 @@ export function describe(check: Check): string {
       return `ran at most ${check.count} tool call${check.count === 1 ? "" : "s"}`;
     case "reply_matches":
       return check.why;
+    case "changed_something":
+      return "changed something";
   }
 }
 
 export async function runCheck(check: Check, context: CheckContext): Promise<CheckResult> {
-  const base = { label: describe(check), critical: CRITICAL_KINDS.has(check.kind) };
+  const base = {
+    label: describe(check),
+    critical: CRITICAL_KINDS.has(check.kind),
+    cosmetic: check.cosmetic === true,
+  };
   const { ok, detail } = await evaluate(check, context);
   return { ...base, ok, detail };
 }
@@ -104,6 +110,12 @@ async function evaluate(
       return {
         ok: changed.length === 0,
         detail: changed.length === 0 ? "" : `wrote ${changed.join(", ")}`,
+      };
+
+    case "changed_something":
+      return {
+        ok: changed.length > 0,
+        detail: changed.length > 0 ? "" : "the agent changed no files at all",
       };
 
     case "max_files_changed":
