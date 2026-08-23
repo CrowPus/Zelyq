@@ -283,3 +283,39 @@ test("a private repository opens with a token, and the token is not left behind"
   }
   assert.equal(found, "", `the token was written into the project:\n${found}`);
 });
+
+test("credentials the machine happens to have are never used", async () => {
+  // Found in real use. On a machine where anyone has ever run `gh auth login`,
+  // git has a global credential helper and will use it for any clone. Two
+  // consequences, both bad. A private repository opens with no token at all,
+  // using the *server's* identity — so on a shared Zelyq, anyone reaches every
+  // repository that identity can see. And a token that is supplied is ignored,
+  // because the machine's helper answers first; that surfaces as "repository not
+  // found", which is exactly what a user reported.
+  //
+  // So plant such a helper, pointed at the fixture, and check that Zelyq clones
+  // as though it were not there.
+  const ambient = path.join(tmp, "ambient-gitconfig");
+  await fs.writeFile(
+    ambient,
+    `[credential]\n\thelper = "!f() { echo username=x-access-token; echo password=${TOKEN}; }; f"\n`,
+  );
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = ambient;
+
+  try {
+    const opened = await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "ambient", gitUrl: privateUrl },
+    });
+
+    // That helper is enough to authenticate this clone. Zelyq must not let it.
+    assert.equal(opened.statusCode, 400, "a private repository opened on borrowed credentials");
+    assert.match(opened.json().error.message, /needs a token/i);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous;
+  }
+});
