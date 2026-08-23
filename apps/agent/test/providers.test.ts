@@ -13,16 +13,27 @@ import {
 test("every registered provider is fully described", () => {
   for (const provider of Object.values(PROVIDERS)) {
     assert.ok(provider.label.length > 0, `${provider.id} needs a label`);
-    assert.ok(provider.defaultModel.length > 0, `${provider.id} needs a default model`);
     assert.ok(provider.apiKeyEnv.length > 0, `${provider.id} needs at least one key variable`);
     assert.match(provider.docsUrl, /^https:\/\//);
+
+    // A vendor knows which model it serves by default. An endpoint the operator
+    // supplies does not, and guessing produces a 404 that reads like our bug —
+    // so `baseUrl: null`, the self-hosted door, is the one entry allowed to have
+    // no default. Anything else missing one is a mistake.
+    if (provider.baseUrl === null) {
+      assert.equal(provider.defaultModel, "", `${provider.id} must not guess a model`);
+    } else {
+      assert.ok(provider.defaultModel.length > 0, `${provider.id} needs a default model`);
+    }
   }
 });
 
 test("provider ids are validated, not trusted", () => {
   assert.ok(isProviderId("anthropic"));
   assert.ok(isProviderId("google"));
-  assert.ok(!isProviderId("openai"));
+  assert.ok(isProviderId("openai"));
+  assert.ok(isProviderId("custom"));
+  assert.ok(!isProviderId("acme-models"));
   assert.ok(!isProviderId(""));
 });
 

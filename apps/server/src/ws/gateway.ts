@@ -169,6 +169,9 @@ export class ChatGateway {
       const provider = await this.settings.value("provider");
       const model = await this.settings.value("model");
       const apiKey = await this.settings.apiKeyFor(provider);
+      // Without this a base URL entered in Settings is stored and ignored, and
+      // a self-hosted endpoint can only be reached from the environment.
+      const baseUrl = await this.settings.value("modelBaseUrl");
 
       await this.agent.ensureSession({
         sessionId: room.sessionId,
@@ -176,6 +179,7 @@ export class ChatGateway {
         provider: session?.provider ?? provider,
         ...(model ? { model } : {}),
         ...(apiKey ? { apiKey } : {}),
+        ...(baseUrl ? { baseUrl } : {}),
         // Everything except the message we just stored — that is the prompt.
         history: history.slice(0, -1),
       });

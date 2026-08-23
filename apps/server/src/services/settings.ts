@@ -56,6 +56,8 @@ const DEFINITIONS: Definition[] = [
     options: [
       { value: "anthropic", label: "Claude (Anthropic)" },
       { value: "google", label: "Gemini (Google)" },
+      { value: "openai", label: "OpenAI" },
+      { value: "custom", label: "Self-hosted or custom endpoint" },
     ],
   },
   {
@@ -81,9 +83,47 @@ const DEFINITIONS: Definition[] = [
     placeholder: "AIza…",
   },
   {
+    key: "openaiApiKey",
+    label: "OpenAI API key",
+    description: "From platform.openai.com. Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Model",
+    envVar: "OPENAI_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "sk-…",
+  },
+  {
+    key: "modelBaseUrl",
+    label: "Model endpoint",
+    description:
+      "For a self-hosted or custom provider: the address of your OpenAI-compatible server, " +
+      "such as http://localhost:11434/v1 for Ollama. Plaintext http is refused unless it is on " +
+      "this machine, because your files would cross the network unencrypted.",
+    kind: "text",
+    group: "Model",
+    envVar: "ZELYQ_MODEL_BASE_URL",
+    fallback: "",
+    placeholder: "http://localhost:11434/v1",
+  },
+  {
+    key: "modelApiKey",
+    label: "Model endpoint key",
+    description:
+      "Only if your endpoint requires one. A model on your own network usually does not.",
+    kind: "secret",
+    group: "Model",
+    envVar: "ZELYQ_MODEL_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "optional",
+  },
+  {
     key: "model",
     label: "Model",
-    description: "Leave empty to use the provider's default.",
+    description:
+      "Leave empty to use the provider's default. A custom endpoint has no default — enter the " +
+      "name your server reports.",
     kind: "text",
     group: "Model",
     envVar: "ZELYQ_MODEL",
@@ -134,6 +174,14 @@ const DEFINITIONS: Definition[] = [
 
 const BY_KEY = new Map(DEFINITIONS.map((definition) => [definition.key, definition]));
 
+/** Which stored secret belongs to which provider. */
+const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
+  anthropic: "anthropicApiKey",
+  google: "geminiApiKey",
+  openai: "openaiApiKey",
+  custom: "modelApiKey",
+};
+
 export class SettingsService {
   /** Set when a restart-required setting changed since this process started. */
   private restartPending = false;
@@ -170,7 +218,8 @@ export class SettingsService {
 
   /** The API key for whichever provider is selected. */
   async apiKeyFor(provider: string): Promise<string> {
-    return await this.value(provider === "google" ? "geminiApiKey" : "anthropicApiKey");
+    const key = KEY_SETTING_BY_PROVIDER[provider] ?? "anthropicApiKey";
+    return await this.value(key);
   }
 
   /** Everything the settings screen renders. Secrets are described, not sent. */

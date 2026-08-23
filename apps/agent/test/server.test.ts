@@ -67,7 +67,9 @@ test("an unknown provider is rejected as a bad request", async () => {
   const response = await server.app.inject({
     method: "POST",
     url: "/sessions",
-    payload: { sessionId: "ses_x", projectId: "prj_test", provider: "openai" },
+    // A name no registry entry claims. "openai" used to serve as the unknown
+    // here, which stopped being true the moment it became a provider.
+    payload: { sessionId: "ses_x", projectId: "prj_test", provider: "acme-models" },
   });
   assert.equal(response.statusCode, 400);
 });
@@ -78,7 +80,7 @@ test("the providers endpoint reports what this instance can use", async () => {
   const body = response.json();
   assert.equal(body.default, "anthropic");
   const ids = body.providers.map((provider: { id: string }) => provider.id);
-  assert.deepEqual(ids.sort(), ["anthropic", "google"]);
+  assert.deepEqual(ids.sort(), ["anthropic", "custom", "google", "openai"]);
   for (const provider of body.providers) {
     assert.equal(typeof provider.configured, "boolean");
   }
