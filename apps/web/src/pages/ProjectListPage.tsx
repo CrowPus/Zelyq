@@ -19,6 +19,7 @@ export function ProjectListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
+  const [gitUrl, setGitUrl] = useState("");
   const [composing, setComposing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -31,8 +32,8 @@ export function ProjectListPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
 
   const createProject = useMutation({
-    mutationFn: (projectName: string) =>
-      api.createProject({ name: projectName, template: "vite-react" }),
+    mutationFn: (input: { name: string; gitUrl?: string }) =>
+      api.createProject({ ...input, template: "vite-react" }),
     onSuccess: ({ project }) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate(`/projects/${project.id}`);
@@ -54,7 +55,9 @@ export function ProjectListPage() {
   function submit(event: FormEvent) {
     event.preventDefault();
     const trimmed = name.trim();
-    if (trimmed) createProject.mutate(trimmed);
+    const repository = gitUrl.trim();
+    if (!trimmed) return;
+    createProject.mutate(repository ? { name: trimmed, gitUrl: repository } : { name: trimmed });
   }
 
   const list = projects.data?.projects ?? [];
@@ -100,26 +103,42 @@ export function ProjectListPage() {
           </div>
 
           {composing && (
-            <form onSubmit={submit} className="mt-6 flex items-center gap-2">
+            <form onSubmit={submit} className="mt-6 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  ref={inputRef}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  onKeyDown={(event) => event.key === "Escape" && setComposing(false)}
+                  placeholder="Project name"
+                  aria-label="Project name"
+                  className="max-w-xs"
+                />
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={createProject.isPending || !name.trim()}
+                >
+                  {createProject.isPending ? "Creating…" : "Create"}
+                </Button>
+                <Button variant="ghost" onClick={() => setComposing(false)}>
+                  Cancel
+                </Button>
+              </div>
+
               <Input
-                ref={inputRef}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
+                value={gitUrl}
+                onChange={(event) => setGitUrl(event.target.value)}
                 onKeyDown={(event) => event.key === "Escape" && setComposing(false)}
-                placeholder="Project name"
-                aria-label="Project name"
-                className="max-w-xs"
+                placeholder="https://github.com/you/your-repo.git — or leave empty for a new app"
+                aria-label="Repository URL"
+                className="max-w-xl"
               />
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={createProject.isPending || !name.trim()}
-              >
-                {createProject.isPending ? "Creating…" : "Create"}
-              </Button>
-              <Button variant="ghost" onClick={() => setComposing(false)}>
-                Cancel
-              </Button>
+              <p className="text-2xs text-fg-muted">
+                {gitUrl.trim()
+                  ? "Zelyq will clone this repository and work on it. The clone can take a minute."
+                  : "Leave the address empty and Zelyq starts a new React app instead."}
+              </p>
             </form>
           )}
 
