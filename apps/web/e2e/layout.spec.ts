@@ -112,3 +112,40 @@ test("a long message does not move the send button", async ({ page }) => {
   expect(Math.abs(after.y - before.y), "the send button moved vertically").toBeLessThanOrEqual(1);
   expect(Math.abs(after.x - before.x), "the send button moved horizontally").toBeLessThanOrEqual(1);
 });
+
+test("the editor's focus ring is not clipped by the window", async ({ page }) => {
+  // Reported from a screenshot: the editor fills its pane to the window edge,
+  // and the global focus ring is drawn 1px *outside* the element, so the
+  // viewport sliced it and it read as a box cut in half.
+  await page.setViewportSize({ width: 1512, height: 901 });
+  await signUp(page);
+  const projectId = await createProject(page, "focus-ring");
+
+  await page.goto(`/projects/${projectId}`);
+  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByText("index.html", { exact: false }).first().click();
+
+  const editor = page.getByLabel("Edit index.html");
+  await expect(editor).toBeVisible();
+  await editor.click();
+
+  const ring = await editor.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const box = element.getBoundingClientRect();
+    const offset = Number.parseFloat(style.outlineOffset) || 0;
+    const width = Number.parseFloat(style.outlineWidth) || 0;
+    return {
+      right: box.right + offset + width,
+      bottom: box.bottom + offset + width,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  });
+
+  expect(ring.right, "the focus ring runs off the right of the window").toBeLessThanOrEqual(
+    ring.viewportWidth + 0.5,
+  );
+  expect(ring.bottom, "the focus ring runs off the bottom of the window").toBeLessThanOrEqual(
+    ring.viewportHeight + 0.5,
+  );
+});

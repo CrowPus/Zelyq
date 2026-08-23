@@ -24,9 +24,9 @@ something a team can adopt.** Quality first, then the change record, then the de
       automatically, and feed a failure back into the turn instead of ending it. The system prompt
       asks the model to verify; nothing makes it. This is the largest single source of "it built me
       something broken"
-- [ ] Editable code view — write files back from the browser, not just read them
-- [ ] Reconcile preview state across a server restart — dev servers are tracked in memory, so a
-      restart leaves running processes orphaned and their ports held
+- [x] Editable code view — write files back from the browser, not just read them
+- [x] Reconcile preview state across a server restart, and between the agent and the server, which
+      each hold their own driver
 - [ ] Carry tool context across an agent restart. Conversations are rebuilt from message text, so a
       restart loses which files the agent read and what it already tried
 
