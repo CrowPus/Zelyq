@@ -31,6 +31,23 @@ const PREVIEW_READY_TIMEOUT_MS = 90_000;
 const MAX_READABLE_FILE_BYTES = 2 * 1024 * 1024;
 /** Sibling of the project roots, so nothing here lands inside a user's project. */
 const PREVIEW_STATE_DIR = ".zelyq-previews";
+/** Names the snapshot a new one should try to reuse files from. */
+const LATEST_SNAPSHOT = ".latest";
+/** What each snapshot recorded about the originals it copied: path → [size, mtimeMs]. */
+const SNAPSHOT_MANIFEST = ".manifest.json";
+
+type SnapshotManifest = Record<string, [number, number]>;
+
+async function readManifest(snapshotDir: string): Promise<SnapshotManifest> {
+  try {
+    return JSON.parse(
+      await fs.readFile(path.join(snapshotDir, SNAPSHOT_MANIFEST), "utf8"),
+    ) as SnapshotManifest;
+  } catch {
+    // No manifest means a snapshot from before this existed; copy everything.
+    return {};
+  }
+}
 
 /**
  * What one Zelyq process records so the others can find a preview it started.
@@ -110,9 +127,13 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   async removeProject(projectId: string): Promise<void> {
     await this.stopPreview(projectId).catch(() => undefined);
     await fs.rm(this.rootFor(projectId), { recursive: true, force: true });
-    // The preview sidecar lives outside the project root, so deleting the root
-    // would otherwise leave its log behind for a project that no longer exists.
+    // The preview sidecar and the snapshots both live outside the project root,
+    // so deleting the root leaves them behind for a project that no longer
+    // exists. Snapshots are the expensive one: a copy of the tree per turn.
     await fs.rm(this.previewLogFile(projectId), { force: true }).catch(() => undefined);
+    await fs
+      .rm(this.snapshotDir(projectId), { recursive: true, force: true })
+      .catch(() => undefined);
   }
 
   async scaffold(projectId: string, files: ScaffoldFile[]): Promise<void> {
@@ -479,12 +500,29 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   // Snapshots
   // -------------------------------------------------------------------------
 
+  /**
+   * Copies the project, reusing whatever has not changed since the last snapshot.
+   *
+   * One of these is taken before every agent turn. Copying the whole tree each
+   * time was fine when a project meant a ten-file template; against a real
+   * repository — a few hundred files is ordinary — it is a full copy per prompt,
+   * and a disk that fills without anybody noticing.
+   *
+   * So an unchanged file is hard-linked from the previous snapshot instead of
+   * copied. Size and modification time decide "unchanged", which is what git and
+   * rsync use for the same judgement. The links point at *earlier snapshots*,
+   * never at the working tree, so an ordinary write to a project file can never
+   * reach back and alter a snapshot that shares its content.
+   */
   async createSnapshot(projectId: string, label: string): Promise<Snapshot> {
     const root = await this.requireRoot(projectId);
     const id = newId("snapshot");
     const target = path.join(this.snapshotDir(projectId), id);
     await fs.mkdir(target, { recursive: true });
 
+    const previous = await this.latestSnapshotPath(projectId);
+    const priorManifest = previous ? await readManifest(previous) : {};
+    const manifest: SnapshotManifest = {};
     const files = await this.listFiles(projectId, { depth: 32 });
     let sizeBytes = 0;
     let fileCount = 0;
@@ -494,10 +532,36 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       const source = resolveInside(root, entry.path);
       const destination = path.join(target, entry.path);
       await fs.mkdir(path.dirname(destination), { recursive: true });
-      await fs.copyFile(source, destination);
+
+      const live = await fs.stat(source).catch(() => null);
+      if (live) manifest[entry.path] = [live.size, live.mtimeMs];
+
+      // Compared against what the last snapshot recorded about the *originals*,
+      // not against the copies it made. A copy's timestamp is the time of the
+      // copy, and no amount of restamping round-trips a filesystem's
+      // nanosecond precision, so comparing copies never finds a match.
+      let reused = false;
+      const prior = priorManifest[entry.path];
+      if (previous && live && prior && prior[0] === live.size && prior[1] === live.mtimeMs) {
+        // A hard link, so the bytes are stored once however many snapshots
+        // contain them.
+        reused = await fs
+          .link(path.join(previous, entry.path), destination)
+          .then(() => true)
+          .catch(() => false);
+      }
+      if (!reused) await fs.copyFile(source, destination);
+
       sizeBytes += entry.size ?? 0;
       fileCount += 1;
     }
+
+    await fs
+      .writeFile(path.join(target, SNAPSHOT_MANIFEST), JSON.stringify(manifest))
+      .catch(() => undefined);
+    await fs
+      .writeFile(path.join(this.snapshotDir(projectId), LATEST_SNAPSHOT), id)
+      .catch(() => undefined);
 
     return {
       id,
@@ -507,6 +571,20 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
+  }
+
+  /** The snapshot most recently taken, if it is still on disk. */
+  private async latestSnapshotPath(projectId: string): Promise<string | null> {
+    const dir = this.snapshotDir(projectId);
+    const id = await fs.readFile(path.join(dir, LATEST_SNAPSHOT), "utf8").catch(() => "");
+    if (!id.trim()) return null;
+    const candidate = path.join(dir, id.trim());
+    return (await fs
+      .stat(candidate)
+      .then((entry) => entry.isDirectory())
+      .catch(() => false))
+      ? candidate
+      : null;
   }
 
   async readSnapshotFile(
@@ -552,7 +630,13 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     for (const entry of await this.listFiles(projectId, { depth: 32 })) {
       if (entry.type === "file") await fs.rm(resolveInside(root, entry.path), { force: true });
     }
-    await fs.cp(source, root, { recursive: true });
+    // The manifest is bookkeeping about the snapshot, not part of the project.
+    // Copying it back would leave a stray file in the user's tree every time
+    // they undid a turn.
+    await fs.cp(source, root, {
+      recursive: true,
+      filter: (from) => path.basename(from) !== SNAPSHOT_MANIFEST,
+    });
   }
 
   async dispose(): Promise<void> {
