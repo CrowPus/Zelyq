@@ -149,3 +149,51 @@ test("list_files hides what the project's .gitignore hides", async () => {
     await fs.rm(workspace, { recursive: true, force: true });
   }
 });
+
+test("commands that destroy work the snapshot cannot restore are refused", async () => {
+  // A turn is undoable because a snapshot is taken before it, and snapshots do
+  // not contain .git. Anything the agent does through git is therefore outside
+  // the one safety net the user has been promised.
+  const destructive = [
+    "git reset --hard HEAD~3",
+    "git clean -fdx",
+    "git checkout --force main",
+    "git push origin main",
+    "git branch -D feature",
+    "rm -rf .git",
+  ];
+
+  for (const command of destructive) {
+    const result = await executeTool(stubContext(), "run_command", { command });
+    assert.equal(result.isError, true, `${command} should have been refused`);
+    assert.match(result.output, /destroy work/i, `${command}: ${result.output}`);
+  }
+});
+
+test("ordinary git commands still work", async () => {
+  // Refusing too much is its own failure: the agent needs to read the repository
+  // it is working in.
+  const harmless = ["git status", "git log --oneline -5", "git diff", "git branch --list"];
+
+  // The stub reports a clean exit so the only thing under test is the guard,
+  // not whether the command would have worked.
+  const context = stubContext({
+    exec: async () => ({
+      exitCode: 0,
+      stdout: "on branch main",
+      stderr: "",
+      durationMs: 1,
+      timedOut: false,
+      truncated: false,
+    }),
+  } as never);
+
+  for (const command of harmless) {
+    const result = await executeTool(context, "run_command", { command });
+    assert.notEqual(result.isError, true, `${command} should not have been refused`);
+    assert.ok(
+      !/destroy work/i.test(result.output),
+      `${command} was refused by a guard: ${result.output}`,
+    );
+  }
+});
