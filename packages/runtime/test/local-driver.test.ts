@@ -252,3 +252,119 @@ test("a crashed record does not hide a preview that is running elsewhere", async
     await asker.dispose();
   }
 });
+
+test("a second snapshot reuses files that did not change", async () => {
+  // Taken before every turn. Copying the whole tree each time was affordable for
+  // a ten-file template and is not for a real repository.
+  const driver = new LocalRuntimeDriver({
+    kind: "local",
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4941, 4945],
+    previewHost: "127.0.0.1",
+  });
+
+  await driver.ensureProject("prj_incremental");
+  await driver.scaffold("prj_incremental", [
+    { path: "steady.txt", content: "unchanged between snapshots" },
+    { path: "moving.txt", content: "before" },
+  ]);
+
+  const first = await driver.createSnapshot("prj_incremental", "first");
+  await driver.writeFile("prj_incremental", "moving.txt", "after");
+  const second = await driver.createSnapshot("prj_incremental", "second");
+
+  const at = (snapshot: string, file: string) =>
+    path.join(workspaceDir, ".snapshots", "prj_incremental", snapshot, file);
+
+  const steady = await Promise.all([
+    fs.stat(at(first.id, "steady.txt")),
+    fs.stat(at(second.id, "steady.txt")),
+  ]);
+  assert.equal(steady[0].ino, steady[1].ino, "an unchanged file should be stored once, not twice");
+
+  const moving = await Promise.all([
+    fs.stat(at(first.id, "moving.txt")),
+    fs.stat(at(second.id, "moving.txt")),
+  ]);
+  assert.notEqual(moving[0].ino, moving[1].ino, "a changed file must be a separate copy");
+
+  // The property that makes the sharing safe: links point at earlier snapshots,
+  // never at the working tree, so writing to the project cannot reach back.
+  await driver.writeFile("prj_incremental", "steady.txt", "edited after both snapshots");
+  assert.equal(
+    await fs.readFile(at(first.id, "steady.txt"), "utf8"),
+    "unchanged between snapshots",
+    "editing the project must not alter a snapshot that shares its content",
+  );
+
+  await driver.restoreSnapshot("prj_incremental", first.id);
+  assert.equal(
+    (await driver.readFile("prj_incremental", "moving.txt")).content,
+    "before",
+    "restore must still work when files are shared",
+  );
+
+  await driver.dispose();
+});
+
+test("deleting a project takes its snapshots with it", async () => {
+  const driver = new LocalRuntimeDriver({
+    kind: "local",
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4946, 4949],
+    previewHost: "127.0.0.1",
+  });
+
+  await driver.ensureProject("prj_snapleak");
+  await driver.writeFile("prj_snapleak", "a.txt", "content");
+  await driver.createSnapshot("prj_snapleak", "one");
+
+  const snapshots = path.join(workspaceDir, ".snapshots", "prj_snapleak");
+  assert.ok(
+    await fs.stat(snapshots).then(
+      () => true,
+      () => false,
+    ),
+  );
+
+  await driver.removeProject("prj_snapleak");
+  assert.equal(
+    await fs.stat(snapshots).then(
+      () => true,
+      () => false,
+    ),
+    false,
+    "snapshots live outside the project root and were being left behind",
+  );
+
+  await driver.dispose();
+});
+
+test("restoring does not leave snapshot bookkeeping in the project", async () => {
+  const driver = new LocalRuntimeDriver({
+    kind: "local",
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4951, 4955],
+    previewHost: "127.0.0.1",
+  });
+
+  await driver.ensureProject("prj_clean_restore");
+  await driver.writeFile("prj_clean_restore", "app.txt", "original");
+  const snapshot = await driver.createSnapshot("prj_clean_restore", "one");
+  await driver.writeFile("prj_clean_restore", "app.txt", "changed");
+  await driver.restoreSnapshot("prj_clean_restore", snapshot.id);
+
+  const names = (await driver.listFiles("prj_clean_restore", { includeIgnored: true })).map(
+    (entry) => entry.path,
+  );
+  assert.ok(
+    !names.some((name) => name.includes("manifest")),
+    `restore left bookkeeping behind: ${names.join(", ")}`,
+  );
+  assert.equal((await driver.readFile("prj_clean_restore", "app.txt")).content, "original");
+
+  await driver.dispose();
+});
