@@ -171,7 +171,11 @@ export function CodeViewer({ projectId, path, file, loading, canEdit, onSaved }:
             wrap="off"
             spellCheck={false}
             aria-label={`Edit ${path}`}
-            className="min-h-0 min-w-0 flex-1 resize-none overflow-auto bg-transparent px-3 py-2 font-mono text-xs leading-[1.6] text-fg-secondary focus:outline-none"
+            // Fills the pane to the window edge, so the focus ring has to be
+            // drawn inside it — see [data-inset-focus] in index.css. Removing
+            // the ring instead would cost keyboard users their only cue.
+            data-inset-focus=""
+            className="min-h-0 min-w-0 flex-1 resize-none overflow-auto bg-transparent px-3 py-2 font-mono text-xs leading-[1.6] text-fg-secondary"
           />
         </div>
       ) : (

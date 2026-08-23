@@ -218,6 +218,15 @@ h3 {
   border-radius: 2px;
 }
 
+/* A surface that fills its pane to the window edge cannot show a ring drawn
+   outside itself — the viewport clips it and it reads as a box cut in half.
+   Draw it inside instead. This lives here rather than as a utility class
+   because the rule above is unlayered, and unlayered CSS beats every Tailwind
+   utility no matter how specific the utility is. */
+[data-inset-focus]:focus-visible {
+  outline-offset: -2px;
+}
+
 ::selection {
   background-color: color-mix(in oklab, var(--focus) 25%, transparent);
 }
