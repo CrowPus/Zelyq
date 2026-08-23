@@ -34,6 +34,8 @@ export function describe(check: Check): string {
       return "wrote no files";
     case "max_files_changed":
       return `changed at most ${check.count} file${check.count === 1 ? "" : "s"}`;
+    case "max_file_lines":
+      return `no file over ${check.count} lines`;
   }
 }
 
@@ -102,6 +104,9 @@ async function evaluate(
         detail:
           changed.length <= check.count ? "" : `changed ${changed.length}: ${changed.join(", ")}`,
       };
+
+    case "max_file_lines":
+      return await checkFileLengths(runtime, projectId, after, check.count);
   }
 }
 
@@ -217,6 +222,31 @@ async function checkDependencies(
   ]);
   const added = names.filter((name) => !expected.has(name));
   return { ok: added.length === 0, detail: added.length ? `added ${added.join(", ")}` : "" };
+}
+
+/**
+ * Restraint has two failure modes, and bounding the file count only catches one.
+ * An agent told to stop creating files will cheerfully put a 650-line component
+ * in App.tsx instead, which passes every other check in this suite and is worse
+ * code than the sprawl it replaced.
+ */
+async function checkFileLengths(
+  runtime: RuntimeDriver,
+  projectId: string,
+  after: ProjectFingerprint,
+  limit: number,
+): Promise<{ ok: boolean; detail: string }> {
+  let worst = { file: "", lines: 0 };
+  for (const file of after.files.keys()) {
+    if (!/^src\/.+\.(tsx?|jsx?)$/.test(file)) continue;
+    const content = await runtime.readFile(projectId, file).catch(() => null);
+    if (content?.encoding !== "utf8") continue;
+    const lines = content.content.split("\n").length;
+    if (lines > worst.lines) worst = { file, lines };
+  }
+  return worst.lines > limit
+    ? { ok: false, detail: `${worst.file} is ${worst.lines} lines` }
+    : { ok: true, detail: "" };
 }
 
 async function readAllText(

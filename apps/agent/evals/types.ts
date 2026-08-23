@@ -33,7 +33,9 @@ export type Check =
   /** The agent wrote nothing at all — for questions that should not cause edits. */
   | { kind: "no_writes" }
   /** Restraint: at most this many files changed. */
-  | { kind: "max_files_changed"; count: number };
+  | { kind: "max_files_changed"; count: number }
+  /** No single source file longer than this. Catches restraint's opposite failure. */
+  | { kind: "max_file_lines"; count: number };
 
 /**
  * The three checks that decide whether the app *works*. They are reported

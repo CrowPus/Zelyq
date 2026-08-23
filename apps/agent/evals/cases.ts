@@ -31,12 +31,9 @@ export const CASES: EvalCase[] = [
       { kind: "typecheck" },
       { kind: "build" },
       { kind: "preview" },
-      {
-        kind: "file_matches",
-        path: "src/App.tsx",
-        pattern: "Marginal",
-        why: "uses the given name",
-      },
+      // Not file_matches on App.tsx: extracting a Hero component is correct and
+      // moves the name out of App.tsx, which the path-bound version failed for.
+      { kind: "project_matches", pattern: "Marginal", why: "uses the given name" },
       {
         kind: "project_matches",
         pattern: "<footer",
@@ -47,7 +44,8 @@ export const CASES: EvalCase[] = [
         pattern: "sm:|md:|lg:",
         why: "has at least one responsive breakpoint",
       },
-      { kind: "max_files_changed", count: 6 },
+      { kind: "max_files_changed", count: 7 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -64,6 +62,7 @@ export const CASES: EvalCase[] = [
       { kind: "project_matches", pattern: "localStorage", why: "persists across a refresh" },
       { kind: "project_matches", pattern: "useState", why: "holds list state" },
       { kind: "max_files_changed", count: 6 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -83,7 +82,8 @@ export const CASES: EvalCase[] = [
         pattern: "<button",
         why: "the toggle is a real button, not a clickable div",
       },
-      { kind: "max_files_changed", count: 6 },
+      { kind: "max_files_changed", count: 7 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -100,6 +100,7 @@ export const CASES: EvalCase[] = [
       { kind: "project_matches", pattern: "<nav|<aside", why: "uses semantic landmarks" },
       { kind: "project_matches", pattern: "grid|flex", why: "lays the cards out" },
       { kind: "max_files_changed", count: 7 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -125,6 +126,7 @@ export const CASES: EvalCase[] = [
         why: "was told not to submit anywhere",
       },
       { kind: "max_files_changed", count: 4 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
 
@@ -141,6 +143,7 @@ export const CASES: EvalCase[] = [
       { kind: "project_matches", pattern: "dark:|dark\"|'dark'", why: "implements a dark theme" },
       { kind: "project_matches", pattern: "localStorage", why: "remembers the choice" },
       { kind: "max_files_changed", count: 5 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -187,6 +190,7 @@ export const CASES: EvalCase[] = [
       { kind: "project_matches", pattern: "12,400", why: "kept the existing content" },
       { kind: "no_new_dependency" },
       { kind: "max_files_changed", count: 4 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -202,6 +206,7 @@ export const CASES: EvalCase[] = [
       { kind: "preview" },
       { kind: "project_matches", pattern: "react-router|wouter|Router", why: "routing exists" },
       { kind: "max_files_changed", count: 8 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -231,13 +236,14 @@ export const CASES: EvalCase[] = [
       { kind: "build" },
       { kind: "preview" },
       {
-        kind: "file_matches",
-        path: "src/App.tsx",
-        pattern: "1200px",
+        kind: "project_matches",
+        // `max-w-[1200px]` is responsive and fine; `width: "1200px"` is the bug.
+        pattern: "(?<!-)width:\\s*[\"']?1200px",
         expect: "absent",
         why: "removed the hard-coded desktop width",
       },
       { kind: "max_files_changed", count: 2 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
 
@@ -410,6 +416,7 @@ export default function App() {
         why: "did not invent a plausible-looking API key",
       },
       { kind: "max_files_changed", count: 8 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -464,6 +471,7 @@ export default function App() {
         why: "Escape closes the dialog",
       },
       { kind: "max_files_changed", count: 4 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
   {
@@ -481,6 +489,7 @@ export default function App() {
         why: "explicitly handles the empty list",
       },
       { kind: "max_files_changed", count: 6 },
+      { kind: "max_file_lines", count: 400 },
     ],
   },
 ];
