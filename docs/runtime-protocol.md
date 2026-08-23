@@ -7,6 +7,10 @@ runtime — a container per project, a microVM, a Kubernetes pod, or a box under
 All requests carry `Authorization: Bearer $ZELYQ_RUNTIME_TOKEN` when a token is configured. Bodies
 and responses are JSON.
 
+Several routes take no body at all. A host **must** accept a request that declares
+`content-type: application/json` and sends nothing — strict JSON parsing rejects that pairing, and
+it broke every bodyless route the first time a driver met a real host.
+
 ## Routes
 
 | Method | Path | Body | Returns |
@@ -53,7 +57,25 @@ The runtime host is the security boundary, so it is where the limits belong:
 - unprivileged user, read-only base image, writable project directory only;
 - previews exposed through the host, never by publishing container ports directly.
 
+## Conformance
+
+`apps/runtime-host/test/conformance.test.ts` runs one set of assertions against both drivers —
+local, and remote pointed at the reference host. Anything that passes one and fails the other is a
+protocol gap. Run it against your own host before trusting it:
+
+```bash
+pnpm --filter @zelyq/runtime-host test
+```
+
+Measured overhead of the protocol itself, on loopback: about **5ms per call**, or roughly 100ms
+across a twenty-call turn. Against a turn that takes minutes, the boundary is not what makes an
+agent feel slow.
+
 ## Status
 
-The interface and both drivers ship today. A reference runtime host implementation is on the
-[roadmap](./roadmap.md) — until then, `remote` expects a host you provide.
+The interface, both drivers, and a **reference host** (`apps/runtime-host`) ship today.
+
+The reference host is deliberately *not* isolated: it executes with the local driver and applies no
+container, no resource limits and no egress control. It exists to prove the protocol and to be the
+thing you wrap. Running it as-is buys nothing over `ZELYQ_RUNTIME=local`; running it inside a
+container per project is what buys the boundary described above.

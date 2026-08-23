@@ -44,10 +44,11 @@ built so that nothing about it is magic and nothing is locked in:
 
 - **One execution seam.** Every filesystem and shell operation goes through a single
   `RuntimeDriver` interface, so nothing above it knows where the code runs. `local` — child
-  processes on your machine — is what ships today and is what the rest of this README describes.
-  `remote` speaks a [documented HTTP protocol](./docs/runtime-protocol.md) to a runtime host, and
-  the driver is written and tested, but **no reference host ships yet**: choosing `remote` today
-  means implementing that protocol yourself. Building it is the next major milestone.
+  processes on your machine — is the zero-setup default. `remote` speaks a
+  [documented HTTP protocol](./docs/runtime-protocol.md) to a runtime host, and a reference host
+  ships in `apps/runtime-host`; one conformance suite runs against both drivers, so the two are
+  provably interchangeable. The reference host is **not yet isolated** — it proves the protocol and
+  is the thing you wrap in a container; the sandbox itself is the next milestone.
 - **Bring your own model key.** Claude or Gemini, chosen with one variable. No proxy, no account, no
   telemetry.
 - **Boring, inspectable storage.** SQLite by default (one file), PostgreSQL when you scale. Project

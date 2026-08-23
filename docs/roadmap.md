@@ -43,8 +43,10 @@ separates this from a chat with a black box.
 
 ## Then — deployable by a team
 
-- [ ] Reference runtime host (container per project) implementing the remote protocol. Until this
-      exists there is no sandbox: agent shell commands run as the server's user. See
+- [x] Reference runtime host implementing the remote protocol, with a conformance suite both
+      drivers pass ([apps/runtime-host](../apps/runtime-host))
+- [ ] Isolate that host: a container per project, resource limits, restricted egress. Until this
+      exists there is no sandbox — agent shell commands still run as the host's user. See
       [SECURITY.md](../SECURITY.md)
 - [ ] Per-user API keys, encrypted at rest
 - [ ] Invitation links, so someone can be added before they register
