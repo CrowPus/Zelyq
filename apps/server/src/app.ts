@@ -155,7 +155,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       service: "zelyq-server",
       version: process.env.npm_package_version ?? "0.1.0",
       database: { dialect: store.dialect, url: store.describe() },
-      auth: { firstRun: await auth.isFirstRun(), registrationOpen: config.allowRegistration },
+      // The live setting, not the value this process booted with: registration
+      // can be closed from the settings screen, and health saying otherwise is
+      // exactly the kind of wrong answer somebody acts on.
+      auth: {
+        firstRun: await auth.isFirstRun(),
+        registrationOpen: await settings.booleanValue("allowRegistration").catch(() => false),
+      },
       provider: config.provider,
       runtime: runtimeHealth,
       agent: agentHealth,

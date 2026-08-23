@@ -1,7 +1,9 @@
+import { useMutation } from "@tanstack/react-query";
 import type { Message, ToolCall } from "@zelyq/core";
 import { ArrowUp, ChevronRight, CircleAlert, Square } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
+import { api } from "../lib/api";
 import { IconButton, Kbd, StatusDot } from "./ui";
 
 /**
@@ -24,19 +26,50 @@ const COMPOSER_HEIGHT = 72;
 interface Props {
   chat: ChatState & { send(message: string): void; abort(): void };
   model?: string;
+  projectId: string;
+  /** Editors and above. The server checks again on the restore call. */
+  canEdit: boolean;
+  /** The project on disk changed, so the file tree and preview are stale. */
+  onReverted(): void;
+  /**
+   * Open a file showing what this turn did to it. `after` is the snapshot taken
+   * before the *following* turn — the project as this turn left it. Null when
+   * this is the newest turn, where "as it left it" is simply the file now.
+   */
+  onOpenDiff(path: string, before: string, after: string | null): void;
 }
 
-export function ChatPanel({ chat, model }: Props) {
+export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenDiff }: Props) {
   const [draft, setDraft] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Follow the stream, unless the reader has scrolled up to look at something.
+   * Yanking somebody back to the bottom while they are reading is worse than
+   * not following at all.
+   */
+  const following = useRef(true);
+  const contentRef = useRef<HTMLDivElement>(null);
 
-  // The deps are the trigger, not inputs: scroll when a message lands or the
-  // stream grows.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: these are the trigger, not inputs
+  /**
+   * Pinned by watching the content's height rather than guessing which values
+   * imply it changed. A tool row grows when it finishes and gains a duration,
+   * and markdown renders a frame later — neither alters anything worth putting
+   * in a dependency list, and both used to leave the view behind.
+   */
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chat.messages.length, chat.streaming?.text]);
+    const scroller = scrollerRef.current;
+    const content = contentRef.current;
+    if (!scroller || !content) return;
+
+    const pin = () => {
+      if (following.current) scroller.scrollTop = scroller.scrollHeight;
+    };
+    const observer = new ResizeObserver(pin);
+    observer.observe(content);
+    pin();
+    return () => observer.disconnect();
+  }, []);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -63,47 +96,72 @@ export function ChatPanel({ chat, model }: Props) {
         )}
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain break-words">
-        {chat.messages.length === 0 && !chat.streaming && (
-          <div className="px-4 py-8">
-            <p className="text-xs leading-relaxed text-fg-secondary">
-              Describe what you want built. Be specific about the pages, the data, and how it should
-              look — the agent reads the project, makes the changes, and starts the preview.
-            </p>
+      <div
+        ref={scrollerRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          // A little slack, so a pixel of rounding does not count as "scrolled away".
+          following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+        className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain break-words"
+      >
+        <div ref={contentRef}>
+          {chat.messages.length === 0 && !chat.streaming && (
+            <div className="px-4 py-8">
+              <p className="text-xs leading-relaxed text-fg-secondary">
+                Describe what you want built. Be specific about the pages, the data, and how it
+                should look — the agent reads the project, makes the changes, and starts the
+                preview.
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-col">
+            {chat.messages.map((message, index) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                nextSnapshotId={nextSnapshotAfter(chat.messages, index)}
+                projectId={projectId}
+                canEdit={canEdit}
+                onReverted={onReverted}
+                onOpenDiff={onOpenDiff}
+              />
+            ))}
+
+            {chat.streaming && (
+              <MessageRow
+                streaming
+                nextSnapshotId={null}
+                projectId={projectId}
+                canEdit={canEdit}
+                onReverted={onReverted}
+                onOpenDiff={onOpenDiff}
+                message={{
+                  id: chat.streaming.messageId,
+                  sessionId: "",
+                  role: "assistant",
+                  content: chat.streaming.text,
+                  thinking: chat.streaming.thinking,
+                  toolCalls: chat.streaming.toolCalls,
+                  // The snapshot is attached when the turn is persisted; nothing
+                  // to undo while it is still running.
+                  snapshotId: null,
+                  tokensIn: 0,
+                  tokensOut: 0,
+                  createdAt: new Date().toISOString(),
+                }}
+              />
+            )}
           </div>
-        )}
 
-        <div className="flex flex-col">
-          {chat.messages.map((message) => (
-            <MessageRow key={message.id} message={message} />
-          ))}
-
-          {chat.streaming && (
-            <MessageRow
-              streaming
-              message={{
-                id: chat.streaming.messageId,
-                sessionId: "",
-                role: "assistant",
-                content: chat.streaming.text,
-                thinking: chat.streaming.thinking,
-                toolCalls: chat.streaming.toolCalls,
-                tokensIn: 0,
-                tokensOut: 0,
-                createdAt: new Date().toISOString(),
-              }}
-            />
+          {chat.error && (
+            <p className="mx-3 my-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs break-words text-danger">
+              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+              {chat.error}
+            </p>
           )}
         </div>
-
-        {chat.error && (
-          <p className="mx-3 my-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs break-words text-danger">
-            <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-            {chat.error}
-          </p>
-        )}
-
-        <div ref={endRef} />
       </div>
 
       <form onSubmit={submit} className="shrink-0 border-t border-border-default p-2.5">
@@ -153,7 +211,23 @@ export function ChatPanel({ chat, model }: Props) {
   );
 }
 
-function MessageRow({ message, streaming }: { message: Message; streaming?: boolean }) {
+function MessageRow({
+  message,
+  streaming,
+  nextSnapshotId,
+  projectId,
+  canEdit,
+  onReverted,
+  onOpenDiff,
+}: {
+  message: Message;
+  streaming?: boolean;
+  nextSnapshotId: string | null;
+  projectId: string;
+  canEdit: boolean;
+  onReverted(): void;
+  onOpenDiff(path: string, before: string, after: string | null): void;
+}) {
   if (message.role === "user") {
     return (
       <div className="border-b border-border-default bg-surface-subtle px-4 py-3">
@@ -188,6 +262,138 @@ function MessageRow({ message, streaming }: { message: Message; streaming?: bool
             <span className="ml-0.5 inline-block h-[13px] w-[2px] translate-y-[2px] animate-pulse bg-fg" />
           )}
         </div>
+      )}
+
+      {!streaming && (
+        <TurnFooter
+          message={message}
+          nextSnapshotId={nextSnapshotId}
+          projectId={projectId}
+          canEdit={canEdit}
+          onReverted={onReverted}
+          onOpenDiff={onOpenDiff}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * What this turn changed, and a way back.
+ *
+ * The file list is read off the tool calls rather than diffed: the transcript
+ * already records every write and edit, so this costs nothing and is exactly as
+ * accurate as what the agent actually did.
+ */
+/**
+ * The project as a turn left it is the snapshot taken before the next one.
+ * Comparing a turn against the file *now* was the original mistake: on any turn
+ * but the newest it showed everything that happened since, which reads as
+ * "the agent rewrote the whole file".
+ */
+function nextSnapshotAfter(messages: Message[], index: number): string | null {
+  for (let i = index + 1; i < messages.length; i++) {
+    const id = messages[i]?.snapshotId;
+    if (id) return id;
+  }
+  return null;
+}
+
+function TurnFooter({
+  message,
+  nextSnapshotId,
+  projectId,
+  canEdit,
+  onReverted,
+  onOpenDiff,
+}: {
+  message: Message;
+  nextSnapshotId: string | null;
+  projectId: string;
+  canEdit: boolean;
+  onReverted(): void;
+  onOpenDiff(path: string, before: string, after: string | null): void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+
+  const changed = [
+    ...new Set(
+      message.toolCalls
+        .filter((call) => ["write_file", "edit_file", "delete_file"].includes(call.name))
+        .map((call) => String(call.input.path ?? ""))
+        .filter(Boolean),
+    ),
+  ];
+
+  const revert = useMutation({
+    mutationFn: () => api.restoreSnapshot(projectId, message.snapshotId as string),
+    onSuccess: () => {
+      setConfirming(false);
+      onReverted();
+    },
+  });
+
+  if (changed.length === 0) return null;
+
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border-default pt-2 text-2xs text-fg-muted">
+      <span className="font-medium">
+        {changed.length} file{changed.length === 1 ? "" : "s"} changed
+      </span>
+      <span className="flex min-w-0 flex-1 flex-wrap gap-x-2">
+        {changed.map((file) =>
+          message.snapshotId ? (
+            <button
+              key={file}
+              type="button"
+              onClick={() => onOpenDiff(file, message.snapshotId as string, nextSnapshotId)}
+              className="truncate font-mono text-fg-secondary underline decoration-dotted underline-offset-2 hover:text-fg"
+              title={`See what changed in ${file}`}
+            >
+              {file}
+            </button>
+          ) : (
+            <span key={file} className="truncate font-mono">
+              {file}
+            </span>
+          ),
+        )}
+      </span>
+
+      {/* Turns from before automatic snapshots have nothing to go back to. */}
+      {canEdit && message.snapshotId && !confirming && (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="shrink-0 text-fg-secondary underline underline-offset-2 hover:text-fg"
+        >
+          Undo this turn
+        </button>
+      )}
+
+      {confirming && (
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="text-warning">Put the files back as they were before this turn?</span>
+          <button
+            type="button"
+            disabled={revert.isPending}
+            onClick={() => revert.mutate()}
+            className="text-danger underline underline-offset-2 disabled:opacity-50"
+          >
+            {revert.isPending ? "Undoing…" : "Undo"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            className="underline underline-offset-2"
+          >
+            Cancel
+          </button>
+        </span>
+      )}
+
+      {revert.isError && (
+        <span className="shrink-0 text-danger">{(revert.error as Error).message}</span>
       )}
     </div>
   );

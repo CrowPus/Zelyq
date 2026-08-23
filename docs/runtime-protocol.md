@@ -26,6 +26,7 @@ and responses are JSON.
 | `GET` | `/v1/projects/:id/preview/logs?lines=` | — | `{ logs: string }` |
 | `POST` | `/v1/projects/:id/snapshots` | `{ label }` | `Snapshot` |
 | `POST` | `/v1/projects/:id/snapshots/:snapshotId/restore` | — | `204` |
+| `GET` | `/v1/projects/:id/snapshots/:snapshotId/files/*` | — | `FileContent` |
 
 Payload types are the exported TypeScript types in `@zelyq/core` and `@zelyq/runtime`.
 

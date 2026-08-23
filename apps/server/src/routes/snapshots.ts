@@ -26,6 +26,19 @@ export function registerSnapshotRoutes(
     return { snapshot };
   });
 
+  /** One file as it stood at a snapshot, so the UI can show what a turn changed. */
+  app.get<{ Params: { id: string; snapshotId: string; "*": string } }>(
+    "/api/projects/:id/snapshots/:snapshotId/files/*",
+    async (request) => {
+      await access.requireProject(access.requireUser(request), request.params.id, "viewer");
+      return await deps.runtime.readSnapshotFile(
+        request.params.id,
+        request.params.snapshotId,
+        request.params["*"],
+      );
+    },
+  );
+
   app.post<{ Params: { id: string; snapshotId: string } }>(
     "/api/projects/:id/snapshots/:snapshotId/restore",
     async (request) => {

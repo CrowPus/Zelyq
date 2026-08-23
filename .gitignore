@@ -46,3 +46,6 @@ apps/agent/evals/results/
 # Playwright
 test-results/
 playwright-report/
+
+# Playwright's own throwaway server
+.playwright/

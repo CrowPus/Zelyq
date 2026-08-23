@@ -3,6 +3,7 @@ import {
   newId,
   type Project,
   type Session,
+  type Snapshot,
   slugify,
   type User,
   ZelyqError,
@@ -75,6 +76,16 @@ export class ProjectService {
     const updated = await this.store.projects.update(id, patch);
     if (!updated) throw ZelyqError.notFound("Project", id);
     return updated;
+  }
+
+  /**
+   * Copies the project's files and records it. Used before every agent turn so
+   * the turn can be undone, and by the manual snapshot button.
+   */
+  async snapshot(id: string, label: string): Promise<Snapshot> {
+    const snapshot = await this.runtime.createSnapshot(id, label);
+    await this.store.snapshots.create(snapshot);
+    return snapshot;
   }
 
   async remove(id: string): Promise<void> {

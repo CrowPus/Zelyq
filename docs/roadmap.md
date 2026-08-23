@@ -36,9 +36,9 @@ The pieces exist — snapshots, restore, and a full tool transcript per message 
 automatic and nothing is visible. Making an agent turn something you can inspect and undo is what
 separates this from a chat with a black box.
 
-- [ ] A snapshot per turn, taken automatically
-- [ ] Diff per turn in the transcript — what actually changed, collapsed by default
-- [ ] Revert to any turn, in one click
+- [x] A snapshot per turn, taken automatically
+- [x] Diff per turn — click a changed file to see the lines added and removed
+- [x] Revert to any turn, in one click
 - [ ] An audit log of who changed what
 
 ## Then — deployable by a team

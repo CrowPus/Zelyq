@@ -71,6 +71,11 @@ export const messageSchema = z.object({
   /** Summarised reasoning, when the model returns it. */
   thinking: z.string().nullable().optional(),
   toolCalls: z.array(toolCallSchema).default([]),
+  /**
+   * The project as it stood immediately before this turn, so it can be undone.
+   * Null on user messages and on turns taken before snapshots were automatic.
+   */
+  snapshotId: z.string().nullable().optional(),
   tokensIn: z.number().int().nonnegative().default(0),
   tokensOut: z.number().int().nonnegative().default(0),
   createdAt: z.string().datetime(),

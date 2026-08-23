@@ -29,6 +29,9 @@ export function ProjectEditorPage() {
   const queryClient = useQueryClient();
   const [pane, setPane] = useState<Pane>("preview");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  /** Set when a file was opened from a turn, to show what that turn changed. */
+  const [compareSnapshotId, setCompareSnapshotId] = useState<string | null>(null);
+  const [compareAfterSnapshotId, setCompareAfterSnapshotId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [logs, setLogs] = useState("");
@@ -172,7 +175,24 @@ export function ProjectEditorPage() {
             so an interpolated `md:${x}` produces no CSS at all.
           */}
           <div className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 min-w-0 md:grid`}>
-            <ChatPanel chat={chat} model={health.data?.agent.model} />
+            <ChatPanel
+              chat={chat}
+              model={health.data?.agent.model}
+              projectId={id}
+              canEdit={canEdit}
+              onOpenDiff={(diffPath, before, after) => {
+                setSelectedPath(diffPath);
+                setCompareSnapshotId(before);
+                setCompareAfterSnapshotId(after);
+                setPane("code");
+              }}
+              onReverted={() => {
+                // The files on disk moved under everything that reads them.
+                queryClient.invalidateQueries({ queryKey: ["files", id] });
+                queryClient.invalidateQueries({ queryKey: ["file", id] });
+                setReloadToken((token) => token + 1);
+              }}
+            />
           </div>
 
           <div
@@ -201,7 +221,13 @@ export function ProjectEditorPage() {
                 entries={files.data?.entries ?? []}
                 selected={selectedPath}
                 loading={files.isLoading}
-                onSelect={setSelectedPath}
+                onSelect={(next) => {
+                  // Picking a file from the tree means "show me the file", not
+                  // "show me what some turn did to it".
+                  setCompareSnapshotId(null);
+                  setCompareAfterSnapshotId(null);
+                  setSelectedPath(next);
+                }}
               />
             </div>
             <CodeViewer
@@ -210,6 +236,12 @@ export function ProjectEditorPage() {
               file={file.data ?? null}
               loading={file.isLoading}
               canEdit={canEdit}
+              compareSnapshotId={compareSnapshotId}
+              compareAfterSnapshotId={compareAfterSnapshotId}
+              onCloseCompare={() => {
+                setCompareSnapshotId(null);
+                setCompareAfterSnapshotId(null);
+              }}
               onSaved={(saved) => {
                 queryClient.invalidateQueries({ queryKey: ["file", id, saved] });
                 queryClient.invalidateQueries({ queryKey: ["files", id] });

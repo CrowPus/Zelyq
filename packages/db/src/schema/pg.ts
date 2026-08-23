@@ -140,6 +140,12 @@ export const messages = pgTable(
     content: text("content").notNull().default(""),
     thinking: text("thinking"),
     toolCalls: text("tool_calls").notNull().default("[]"),
+    /**
+     * The project as it stood immediately before this turn ran, so the turn can
+     * be undone. Null for user messages, and for assistant turns that predate
+     * automatic snapshots.
+     */
+    snapshotId: text("snapshot_id"),
     tokensIn: integer("tokens_in").notNull().default(0),
     tokensOut: integer("tokens_out").notNull().default(0),
     createdAt: text("created_at").notNull(),

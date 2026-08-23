@@ -151,6 +151,7 @@ export class ChatGateway {
       content: prompt,
       thinking: null,
       toolCalls: [],
+      snapshotId: null,
       tokensIn: 0,
       tokensOut: 0,
       createdAt: new Date().toISOString(),
@@ -196,6 +197,20 @@ export class ChatGateway {
     await this.store.sessions.setStatus(room.sessionId, "running");
     await this.store.projects.setStatus(room.projectId, "building");
 
+    // Copy the project before the agent touches it, so this turn can be undone.
+    // A failure here must not stop the turn — the user asked for work, not for a
+    // backup — so the turn simply becomes one that cannot be undone, and says so.
+    let snapshotId: string | null = null;
+    try {
+      const snapshot = await this.projects.snapshot(
+        room.projectId,
+        `Before: ${prompt.slice(0, 120)}`,
+      );
+      snapshotId = snapshot.id;
+    } catch (error) {
+      this.log.error(error, "could not snapshot before the turn");
+    }
+
     const assistant: Message = {
       id: newId("message"),
       sessionId: room.sessionId,
@@ -203,6 +218,7 @@ export class ChatGateway {
       content: "",
       thinking: null,
       toolCalls: [],
+      snapshotId,
       tokensIn: 0,
       tokensOut: 0,
       createdAt: new Date().toISOString(),
@@ -211,6 +227,15 @@ export class ChatGateway {
 
     try {
       for await (const event of this.agent.prompt(room.sessionId, prompt, room.turn.signal)) {
+        // The agent builds its own copy of the finished message, and it does not
+        // know about the snapshot this server took before the turn. Broadcasting
+        // the agent's copy meant the undo control only appeared after a reload.
+        if (event.type === "turn.end") {
+          assistant.toolCalls = [...toolCalls.values()];
+          this.broadcast(room, { ...event, message: { ...assistant } });
+          continue;
+        }
+
         this.broadcast(room, event);
 
         switch (event.type) {

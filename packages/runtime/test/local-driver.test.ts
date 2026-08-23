@@ -195,3 +195,60 @@ test("a preview record whose process is gone is not reported as running", async 
   assert.equal(status.status, "stopped", "a dead pid must not be reported as running");
   await driverA.dispose();
 });
+
+test("a crashed record does not hide a preview that is running elsewhere", async () => {
+  // Reported from real use: the UI said "the dev server stopped" and showed no
+  // output, while the dev server was running and its log file was full. One
+  // driver held a crashed entry from a failed attempt and answered with that.
+  const config = {
+    kind: "local" as const,
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4961, 4965] as [number, number],
+    previewHost: "127.0.0.1",
+  };
+  const runner = new LocalRuntimeDriver(config);
+  const asker = new LocalRuntimeDriver(config);
+
+  await runner.ensureProject("prj_stale_crash");
+  await runner.scaffold("prj_stale_crash", [
+    { path: "package.json", content: '{"name":"s","scripts":{"dev":"node server.mjs"}}' },
+    {
+      path: "server.mjs",
+      content:
+        "import http from 'node:http';\n" +
+        "console.log('listening loud and clear');\n" +
+        "http.createServer((_, res) => res.end('ok')).listen(process.env.PORT);\n",
+    },
+  ]);
+
+  try {
+    const started = await runner.startPreview("prj_stale_crash");
+    assert.equal(started.status, "running");
+
+    // The asking driver failed its own attempt earlier and kept the wreckage.
+    const wreckage = {
+      child: null as never,
+      port: 0,
+      startedAt: new Date().toISOString(),
+      logs: [] as string[],
+      status: "crashed" as const,
+      lastError: "Dev server exited with code null",
+    };
+    (asker as unknown as { previews: Map<string, unknown> }).previews.set(
+      "prj_stale_crash",
+      wreckage,
+    );
+
+    const status = await asker.previewStatus("prj_stale_crash");
+    assert.equal(status.status, "running", "a live preview must win over a stale crash");
+    assert.equal(status.port, started.port);
+
+    const logs = await asker.previewLogs("prj_stale_crash");
+    assert.match(logs, /listening loud and clear/, "logs must fall back to the file");
+  } finally {
+    await runner.stopPreview("prj_stale_crash").catch(() => undefined);
+    await runner.dispose();
+    await asker.dispose();
+  }
+});

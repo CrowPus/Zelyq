@@ -3,6 +3,7 @@ import type { FileContent } from "@zelyq/core";
 import { CircleAlert, Save } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { DiffView } from "./DiffView";
 import { Button, EmptyState, Spinner } from "./ui";
 
 interface Props {
@@ -13,6 +14,11 @@ interface Props {
   /** Editors and above. The server decides again; this only shapes the UI. */
   canEdit: boolean;
   onSaved(path: string): void;
+  /** When set, the file opened to show what that turn changed. */
+  compareSnapshotId: string | null;
+  /** The snapshot taken before the following turn, if there was one. */
+  compareAfterSnapshotId: string | null;
+  onCloseCompare(): void;
 }
 
 /**
@@ -30,7 +36,17 @@ interface EditState {
   conflict: boolean;
 }
 
-export function CodeViewer({ projectId, path, file, loading, canEdit, onSaved }: Props) {
+export function CodeViewer({
+  projectId,
+  path,
+  file,
+  loading,
+  canEdit,
+  onSaved,
+  compareSnapshotId,
+  compareAfterSnapshotId,
+  onCloseCompare,
+}: Props) {
   const [edit, setEdit] = useState<EditState | null>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
@@ -91,6 +107,23 @@ export function CodeViewer({ projectId, path, file, loading, canEdit, onSaved }:
         {dirty && <span className="shrink-0 text-2xs text-warning">unsaved</span>}
 
         <span className="ml-auto flex shrink-0 items-center gap-2">
+          {compareSnapshotId && content !== null && (
+            <span className="flex items-center gap-0.5 rounded-md border border-border-default bg-surface-subtle p-0.5">
+              <button
+                type="button"
+                className="rounded-sm bg-surface px-1.5 py-0.5 text-2xs font-medium text-fg shadow-[0_1px_2px_rgb(0_0_0/0.06)]"
+              >
+                Changes
+              </button>
+              <button
+                type="button"
+                onClick={onCloseCompare}
+                className="rounded-sm px-1.5 py-0.5 text-2xs font-medium text-fg-secondary hover:text-fg"
+              >
+                File
+              </button>
+            </span>
+          )}
           {file && !file.truncated && file.encoding === "utf8" && (
             <span className="font-mono text-2xs text-fg-muted tabular-nums">{lines} lines</span>
           )}
@@ -147,6 +180,14 @@ export function CodeViewer({ projectId, path, file, loading, canEdit, onSaved }:
         <EmptyState
           title="Binary file"
           description={`${path} is not text, so there is nothing to show.`}
+        />
+      ) : compareSnapshotId && content !== null ? (
+        <DiffView
+          projectId={projectId}
+          beforeSnapshotId={compareSnapshotId}
+          afterSnapshotId={compareAfterSnapshotId}
+          path={path}
+          current={content}
         />
       ) : editable ? (
         // The gutter is a separate scroller kept in step with the textarea.

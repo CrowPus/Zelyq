@@ -78,7 +78,7 @@ test("cmd+s saves without reaching for the button", async ({ page }) => {
   expect(onDisk.content).toContain(marker);
 });
 
-test("a viewer is offered no way to edit", async ({ page, browser }) => {
+test("a viewer is offered no way to edit", async ({ page, browser, baseURL }) => {
   const ownerEmail = await signUp(page, "owner");
   expect(ownerEmail).toBeTruthy();
   const projectId = await createProject(page, "read-only");
@@ -87,7 +87,7 @@ test("a viewer is offered no way to edit", async ({ page, browser }) => {
     .then(async (r) => (await r.json()).teams[0].id);
 
   // A second browser context, so the two sessions do not share a cookie jar.
-  const guest = await browser.newContext({ baseURL: page.context()._options?.baseURL });
+  const guest = await browser.newContext({ baseURL });
   const guestPage = await guest.newPage();
   const guestEmail = await signUp(guestPage, "guest");
   await page.request.post(`/api/teams/${teamId}/members`, {
