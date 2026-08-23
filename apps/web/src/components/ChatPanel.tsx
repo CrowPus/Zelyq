@@ -1,7 +1,9 @@
+import { useMutation } from "@tanstack/react-query";
 import type { Message, ToolCall } from "@zelyq/core";
 import { ArrowUp, ChevronRight, CircleAlert, Square } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
+import { api } from "../lib/api";
 import { IconButton, Kbd, StatusDot } from "./ui";
 
 /**
@@ -24,9 +26,14 @@ const COMPOSER_HEIGHT = 72;
 interface Props {
   chat: ChatState & { send(message: string): void; abort(): void };
   model?: string;
+  projectId: string;
+  /** Editors and above. The server checks again on the restore call. */
+  canEdit: boolean;
+  /** The project on disk changed, so the file tree and preview are stale. */
+  onReverted(): void;
 }
 
-export function ChatPanel({ chat, model }: Props) {
+export function ChatPanel({ chat, model, projectId, canEdit, onReverted }: Props) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -75,12 +82,21 @@ export function ChatPanel({ chat, model }: Props) {
 
         <div className="flex flex-col">
           {chat.messages.map((message) => (
-            <MessageRow key={message.id} message={message} />
+            <MessageRow
+              key={message.id}
+              message={message}
+              projectId={projectId}
+              canEdit={canEdit}
+              onReverted={onReverted}
+            />
           ))}
 
           {chat.streaming && (
             <MessageRow
               streaming
+              projectId={projectId}
+              canEdit={canEdit}
+              onReverted={onReverted}
               message={{
                 id: chat.streaming.messageId,
                 sessionId: "",
@@ -88,6 +104,9 @@ export function ChatPanel({ chat, model }: Props) {
                 content: chat.streaming.text,
                 thinking: chat.streaming.thinking,
                 toolCalls: chat.streaming.toolCalls,
+                // The snapshot is attached when the turn is persisted; nothing
+                // to undo while it is still running.
+                snapshotId: null,
                 tokensIn: 0,
                 tokensOut: 0,
                 createdAt: new Date().toISOString(),
@@ -153,7 +172,19 @@ export function ChatPanel({ chat, model }: Props) {
   );
 }
 
-function MessageRow({ message, streaming }: { message: Message; streaming?: boolean }) {
+function MessageRow({
+  message,
+  streaming,
+  projectId,
+  canEdit,
+  onReverted,
+}: {
+  message: Message;
+  streaming?: boolean;
+  projectId: string;
+  canEdit: boolean;
+  onReverted(): void;
+}) {
   if (message.role === "user") {
     return (
       <div className="border-b border-border-default bg-surface-subtle px-4 py-3">
@@ -188,6 +219,102 @@ function MessageRow({ message, streaming }: { message: Message; streaming?: bool
             <span className="ml-0.5 inline-block h-[13px] w-[2px] translate-y-[2px] animate-pulse bg-fg" />
           )}
         </div>
+      )}
+
+      {!streaming && (
+        <TurnFooter
+          message={message}
+          projectId={projectId}
+          canEdit={canEdit}
+          onReverted={onReverted}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * What this turn changed, and a way back.
+ *
+ * The file list is read off the tool calls rather than diffed: the transcript
+ * already records every write and edit, so this costs nothing and is exactly as
+ * accurate as what the agent actually did.
+ */
+function TurnFooter({
+  message,
+  projectId,
+  canEdit,
+  onReverted,
+}: {
+  message: Message;
+  projectId: string;
+  canEdit: boolean;
+  onReverted(): void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+
+  const changed = [
+    ...new Set(
+      message.toolCalls
+        .filter((call) => ["write_file", "edit_file", "delete_file"].includes(call.name))
+        .map((call) => String(call.input.path ?? ""))
+        .filter(Boolean),
+    ),
+  ];
+
+  const revert = useMutation({
+    mutationFn: () => api.restoreSnapshot(projectId, message.snapshotId as string),
+    onSuccess: () => {
+      setConfirming(false);
+      onReverted();
+    },
+  });
+
+  if (changed.length === 0) return null;
+
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border-default pt-2 text-2xs text-fg-muted">
+      <span className="font-medium">
+        {changed.length} file{changed.length === 1 ? "" : "s"} changed
+      </span>
+      <span className="min-w-0 flex-1 truncate font-mono" title={changed.join("\n")}>
+        {changed.join("  ")}
+      </span>
+
+      {/* Turns from before automatic snapshots have nothing to go back to. */}
+      {canEdit && message.snapshotId && !confirming && (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="shrink-0 text-fg-secondary underline underline-offset-2 hover:text-fg"
+        >
+          Undo this turn
+        </button>
+      )}
+
+      {confirming && (
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="text-warning">Put the files back as they were before this turn?</span>
+          <button
+            type="button"
+            disabled={revert.isPending}
+            onClick={() => revert.mutate()}
+            className="text-danger underline underline-offset-2 disabled:opacity-50"
+          >
+            {revert.isPending ? "Undoing…" : "Undo"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            className="underline underline-offset-2"
+          >
+            Cancel
+          </button>
+        </span>
+      )}
+
+      {revert.isError && (
+        <span className="shrink-0 text-danger">{(revert.error as Error).message}</span>
       )}
     </div>
   );

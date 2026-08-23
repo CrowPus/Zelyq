@@ -172,7 +172,18 @@ export function ProjectEditorPage() {
             so an interpolated `md:${x}` produces no CSS at all.
           */}
           <div className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 min-w-0 md:grid`}>
-            <ChatPanel chat={chat} model={health.data?.agent.model} />
+            <ChatPanel
+              chat={chat}
+              model={health.data?.agent.model}
+              projectId={id}
+              canEdit={canEdit}
+              onReverted={() => {
+                // The files on disk moved under everything that reads them.
+                queryClient.invalidateQueries({ queryKey: ["files", id] });
+                queryClient.invalidateQueries({ queryKey: ["file", id] });
+                setReloadToken((token) => token + 1);
+              }}
+            />
           </div>
 
           <div

@@ -154,6 +154,11 @@ export const api = {
 
   listSnapshots: (id: string) => request<{ snapshots: Snapshot[] }>(`/projects/${id}/snapshots`),
 
+  restoreSnapshot: (id: string, snapshotId: string) =>
+    request<{ restored: boolean }>(`/projects/${id}/snapshots/${snapshotId}/restore`, {
+      method: "POST",
+    }),
+
   createSnapshot: (id: string, label: string) =>
     request<{ snapshot: Snapshot }>(`/projects/${id}/snapshots`, {
       method: "POST",

@@ -20,6 +20,7 @@ function toMessage(row: Row): Message {
     content: row.content,
     thinking: row.thinking,
     toolCalls,
+    snapshotId: row.snapshotId,
     tokensIn: row.tokensIn,
     tokensOut: row.tokensOut,
     createdAt: row.createdAt,
@@ -36,6 +37,7 @@ export function messageRepository(db: ZelyqDb) {
         content: message.content,
         thinking: message.thinking ?? null,
         toolCalls: JSON.stringify(message.toolCalls ?? []),
+        snapshotId: message.snapshotId ?? null,
         tokensIn: message.tokensIn,
         tokensOut: message.tokensOut,
         createdAt: message.createdAt,
@@ -46,7 +48,10 @@ export function messageRepository(db: ZelyqDb) {
     async update(
       id: string,
       patch: Partial<
-        Pick<Message, "content" | "thinking" | "toolCalls" | "tokensIn" | "tokensOut">
+        Pick<
+          Message,
+          "content" | "thinking" | "toolCalls" | "snapshotId" | "tokensIn" | "tokensOut"
+        >
       >,
     ): Promise<void> {
       await db
@@ -55,6 +60,7 @@ export function messageRepository(db: ZelyqDb) {
           ...(patch.content !== undefined ? { content: patch.content } : {}),
           ...(patch.thinking !== undefined ? { thinking: patch.thinking } : {}),
           ...(patch.toolCalls !== undefined ? { toolCalls: JSON.stringify(patch.toolCalls) } : {}),
+          ...(patch.snapshotId !== undefined ? { snapshotId: patch.snapshotId } : {}),
           ...(patch.tokensIn !== undefined ? { tokensIn: patch.tokensIn } : {}),
           ...(patch.tokensOut !== undefined ? { tokensOut: patch.tokensOut } : {}),
         })

@@ -1,24 +1,67 @@
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Layout regressions are the one class of bug the unit tests cannot see, and
- * this project has shipped two of them: a chat panel that spilled under the
- * preview, and a delete button sitting on top of a timestamp. Both are
- * measurable — bounding boxes either overlap or they do not.
+ * Layout and behaviour regressions are the one class of bug the unit tests
+ * cannot see, and this project has shipped several: a chat panel that spilled
+ * under the preview, a delete button on top of a timestamp, a focus ring sliced
+ * off by the window. All of them are measurable — boxes either overlap or they
+ * do not.
  *
- * These run against a Zelyq that is already up, because the interesting
- * failures involve real projects and a real agent. Point ZELYQ_E2E_URL at one.
+ * These boot their own server, agent and database on their own ports. An
+ * earlier version pointed at whatever instance happened to be running, which
+ * meant the tests wrote throwaway accounts into a real database and stopped
+ * working the moment registration was closed on it. A test suite should not be
+ * a guest in somebody's live instance.
  */
+const root = path.resolve(import.meta.dirname);
+const scratch = path.join(root, ".playwright");
+
+const shared = {
+  NODE_ENV: "production",
+  DATABASE_URL: `file:${path.join(scratch, "zelyq.db")}`,
+  ZELYQ_WORKSPACE_DIR: path.join(scratch, "workspace"),
+  ZELYQ_SECRET_KEY_FILE: path.join(scratch, "secret.key"),
+  ZELYQ_RUNTIME: "local",
+  ZELYQ_ALLOW_REGISTRATION: "true",
+  ZELYQ_AGENT_URL: "http://127.0.0.1:8798",
+  ZELYQ_AGENT_PORT: "8798",
+  ZELYQ_PREVIEW_PORT_MIN: "4500",
+  ZELYQ_PREVIEW_PORT_MAX: "4599",
+  ZELYQ_PREVIEW_HOST: "127.0.0.1",
+};
+
 export default defineConfig({
   testDir: "./apps/web/e2e",
-  timeout: 60_000,
+  timeout: 15 * 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
+  workers: 1,
   reporter: [["list"]],
   use: {
-    baseURL: process.env.ZELYQ_E2E_URL ?? "http://127.0.0.1:8081",
+    baseURL: "http://127.0.0.1:8091",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
+  webServer: [
+    {
+      command: "node apps/agent/dist/index.js",
+      port: 8798,
+      reuseExistingServer: false,
+      stdout: "ignore",
+      stderr: "pipe",
+      env: shared,
+    },
+    {
+      // Migrations first: a fresh database file has no tables.
+      command:
+        "pnpm --filter @zelyq/db migrate && ZELYQ_SERVER_PORT=8091 node apps/server/dist/index.js",
+      port: 8091,
+      reuseExistingServer: false,
+      stdout: "ignore",
+      stderr: "pipe",
+      env: { ...shared, ZELYQ_WEB_DIR: path.join(root, "apps/web/dist") },
+    },
+  ],
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });
