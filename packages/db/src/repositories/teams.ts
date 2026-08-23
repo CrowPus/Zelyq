@@ -83,6 +83,16 @@ export function teamRepository(db: ZelyqDb) {
       return rows.map((row) => ({ ...row, role: row.role as Role }));
     },
 
+    async countMembers(teamId: string): Promise<number> {
+      const rows = await db.select().from(teamMembers).where(eq(teamMembers.teamId, teamId));
+      return rows.length;
+    },
+
+    /** Only called for a team with no members left; projects are removed first. */
+    async remove(teamId: string): Promise<void> {
+      await db.delete(teams).where(eq(teams.id, teamId));
+    },
+
     /** Guards the last-owner case: a team must never be left without one. */
     async countOwners(teamId: string): Promise<number> {
       const rows = await db

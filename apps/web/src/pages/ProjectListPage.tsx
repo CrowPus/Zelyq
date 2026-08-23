@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, CircleAlert, Plus } from "lucide-react";
+import { roleAtLeast } from "@zelyq/core";
+import { Box, CircleAlert, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, EmptyState, Input, Spinner, StatusDot } from "../components/ui";
+import { Badge, Button, EmptyState, IconButton, Input, Spinner, StatusDot } from "../components/ui";
 import { api } from "../lib/api";
 
 const STATUS_TONE = {
@@ -21,7 +22,12 @@ export function ProjectListPage() {
   const [composing, setComposing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [confirming, setConfirming] = useState<string | null>(null);
+
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.listProjects });
+  // Deleting takes admin on the project's team. The server decides for real;
+  // this only keeps a button nobody may press off the screen.
+  const teams = useQuery({ queryKey: ["teams"], queryFn: api.listTeams });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
 
   const createProject = useMutation({
@@ -30,6 +36,14 @@ export function ProjectListPage() {
     onSuccess: ({ project }) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate(`/projects/${project.id}`);
+    },
+  });
+
+  const deleteProject = useMutation({
+    mutationFn: (id: string) => api.deleteProject(id),
+    onSuccess: () => {
+      setConfirming(null);
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
 
@@ -45,6 +59,14 @@ export function ProjectListPage() {
 
   const list = projects.data?.projects ?? [];
   const agent = health.data?.agent;
+  const roleByTeam = new Map((teams.data?.teams ?? []).map((team) => [team.id, team.role]));
+  const canDelete = (teamId: string): boolean => {
+    const role = roleByTeam.get(teamId);
+    return role !== undefined && roleAtLeast(role, "admin");
+  };
+  // Reserve the actions column for the whole table or none of it, so the header
+  // labels and the rows stay on the same grid.
+  const showActions = list.some((project) => canDelete(project.teamId));
 
   return (
     <AppShell
@@ -101,6 +123,13 @@ export function ProjectListPage() {
             </form>
           )}
 
+          {deleteProject.isError && (
+            <p className="mt-4 flex items-center gap-2 rounded-md border border-danger/25 bg-danger-subtle px-3 py-2 text-xs text-danger">
+              <CircleAlert size={14} strokeWidth={1.75} />
+              {(deleteProject.error as Error).message}
+            </p>
+          )}
+
           {createProject.isError && (
             <p className="mt-4 flex items-center gap-2 rounded-md border border-danger/25 bg-danger-subtle px-3 py-2 text-xs text-danger">
               <CircleAlert size={14} strokeWidth={1.75} />
@@ -133,39 +162,93 @@ export function ProjectListPage() {
 
             {list.length > 0 && (
               <>
-                <div className="grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 border-b border-border-default bg-surface-subtle px-4 py-2 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4">
+                <div
+                  className={`grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 border-b border-border-default bg-surface-subtle py-2 pl-4 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4 ${
+                    showActions ? "pr-12" : "pr-4"
+                  }`}
+                >
                   <span>Name</span>
                   <span>Status</span>
                   <span className="hidden text-right sm:block">Last updated</span>
                 </div>
                 <ul>
                   {list.map((project) => (
-                    <li key={project.id} className="border-b border-border-default last:border-b-0">
-                      <Link
-                        to={`/projects/${project.id}`}
-                        className="grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
-                      >
-                        <span className="flex min-w-0 items-center gap-2.5">
-                          <Box size={15} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm text-fg">{project.name}</span>
-                            <span className="block truncate font-mono text-2xs text-fg-muted">
-                              {project.description ?? project.template}
-                            </span>
+                    <li
+                      key={project.id}
+                      className="flex items-center border-b border-border-default last:border-b-0"
+                    >
+                      {confirming === project.id ? (
+                        <div className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2.5 pr-3 pl-4">
+                          <span className="min-w-0 truncate text-xs text-fg-secondary">
+                            Delete <span className="text-fg">{project.name}</span> and its files?
+                            This cannot be undone.
                           </span>
-                        </span>
-                        <span>
-                          <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
-                            {project.status}
-                          </Badge>
-                        </span>
-                        <time
-                          dateTime={project.updatedAt}
-                          className="hidden text-right text-xs text-fg-muted tabular-nums sm:block"
-                        >
-                          {formatRelative(project.updatedAt)}
-                        </time>
-                      </Link>
+                          <span className="flex shrink-0 items-center gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              disabled={deleteProject.isPending}
+                              onClick={() => deleteProject.mutate(project.id)}
+                            >
+                              {deleteProject.isPending ? "Deleting…" : "Delete"}
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
+                              Cancel
+                            </Button>
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <Link
+                            to={`/projects/${project.id}`}
+                            className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_92px] items-center gap-3 py-2.5 pl-4 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
+                          >
+                            <span className="flex min-w-0 items-center gap-2.5">
+                              <Box
+                                size={15}
+                                strokeWidth={1.75}
+                                className="shrink-0 text-fg-muted"
+                              />
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm text-fg">
+                                  {project.name}
+                                </span>
+                                <span className="block truncate font-mono text-2xs text-fg-muted">
+                                  {project.description ?? project.template}
+                                </span>
+                              </span>
+                            </span>
+                            <span>
+                              <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
+                                {project.status}
+                              </Badge>
+                            </span>
+                            <time
+                              dateTime={project.updatedAt}
+                              className="hidden text-right text-xs text-fg-muted tabular-nums sm:block"
+                            >
+                              {formatRelative(project.updatedAt)}
+                            </time>
+                          </Link>
+
+                          {/* A real column, not an overlay: nothing can sit on
+                              top of the timestamp this way. */}
+                          {showActions && (
+                            <span className="flex w-12 shrink-0 justify-center">
+                              {canDelete(project.teamId) && (
+                                <IconButton
+                                  size="sm"
+                                  variant="danger"
+                                  label={`Delete ${project.name}`}
+                                  onClick={() => setConfirming(project.id)}
+                                >
+                                  <Trash2 size={13} strokeWidth={1.75} />
+                                </IconButton>
+                              )}
+                            </span>
+                          )}
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>

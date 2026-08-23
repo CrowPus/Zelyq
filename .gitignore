@@ -36,3 +36,13 @@ Thumbs.db
 # Test / coverage
 coverage/
 .nyc_output/
+
+# Private working notes — not part of the open-source project
+docs/co-founders/
+
+# Eval harness output
+apps/agent/evals/results/
+
+# Playwright
+test-results/
+playwright-report/

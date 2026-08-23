@@ -40,6 +40,12 @@ machine. `viewer` is the role for everyone else.
 
 ### Remote mode (`ZELYQ_RUNTIME=remote`) — required for shared deployments
 
+**No reference runtime host ships with Zelyq yet.** The driver and the
+[wire protocol](./docs/runtime-protocol.md) are settled, but the host itself is not written, so
+remote mode currently means building one against that protocol. Until you have done so, treat every
+Zelyq deployment as local mode and read that section again. A reference host is the next major
+milestone.
+
 Execution moves to a runtime host you deploy, which should isolate each project (container or VM),
 apply CPU, memory, disk, and process limits, restrict egress to what projects need, and run
 unprivileged with a read-only base image.

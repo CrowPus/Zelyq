@@ -42,10 +42,12 @@ is rendering live on the right.</sub>
 Most "prompt to app" tools are a product with an engine hidden inside. Zelyq is the engine, and it is
 built so that nothing about it is magic and nothing is locked in:
 
-- **Same code on a laptop or in the cloud.** Every filesystem and shell operation goes through one
-  `RuntimeDriver` interface. `local` runs projects as child processes on your machine; `remote` talks
-  to a runtime host you deploy. Switching is one environment variable — the rest of the system cannot
-  tell the difference.
+- **One execution seam.** Every filesystem and shell operation goes through a single
+  `RuntimeDriver` interface, so nothing above it knows where the code runs. `local` — child
+  processes on your machine — is what ships today and is what the rest of this README describes.
+  `remote` speaks a [documented HTTP protocol](./docs/runtime-protocol.md) to a runtime host, and
+  the driver is written and tested, but **no reference host ships yet**: choosing `remote` today
+  means implementing that protocol yourself. Building it is the next major milestone.
 - **Bring your own model key.** Claude or Gemini, chosen with one variable. No proxy, no account, no
   telemetry.
 - **Boring, inspectable storage.** SQLite by default (one file), PostgreSQL when you scale. Project
@@ -55,8 +57,14 @@ built so that nothing about it is magic and nothing is locked in:
 
 **Early, and honest about it.** The end-to-end path works — create a project, prompt the agent, watch
 it read and edit files, run a live preview — and the interfaces around it were deliberately settled
-first. Expect breaking changes before `1.0`. See the [roadmap](./docs/roadmap.md) for what is next and
-what is explicitly out of scope.
+first. Expect breaking changes before `1.0`.
+
+Two limits worth knowing before you invest time. **There is no sandbox yet:** the `local` runtime
+runs agent shell commands as your own user, so Zelyq today is for one trusted developer on one
+machine — read the [threat model](./SECURITY.md#threat-model--read-this-before-deploying) before
+deploying it anywhere else. And **files are read-only in the browser** — the agent edits them; you
+cannot yet. See the [roadmap](./docs/roadmap.md) for what is next and what is explicitly out of
+scope.
 
 ## Quickstart
 

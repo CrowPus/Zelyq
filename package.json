@@ -2,7 +2,7 @@
   "name": "zelyq",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-source AI app builder \u2014 describe an app, watch an agent build it, edit it live.",
+  "description": "Open-source AI app builder — describe an app, watch an agent build it, edit it live.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/CrowPus/Zelyq#readme",
   "repository": {
@@ -31,10 +31,13 @@
     "test": "pnpm -r test",
     "db:generate": "pnpm --filter @zelyq/db generate",
     "db:migrate": "pnpm --filter @zelyq/db migrate",
-    "clean": "pnpm -r exec rm -rf dist node_modules/.cache && rm -rf node_modules"
+    "clean": "pnpm -r exec rm -rf dist node_modules/.cache && rm -rf node_modules",
+    "eval": "pnpm --filter @zelyq/agent eval",
+    "e2e": "playwright test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",
     "tsx": "^4.19.2",
     "typescript": "^7.0.2"

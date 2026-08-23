@@ -148,6 +148,17 @@ export class AuthService {
    * The caller's own session is replaced with a fresh one so they are not
    * signed out of the device they are standing at.
    */
+  /**
+   * Confirms the caller's own password before something irreversible. A session
+   * left open on a shared machine should not be enough to delete an account.
+   */
+  async confirmPassword(user: User, password: string): Promise<void> {
+    const record = await this.store.users.findByEmail(user.email);
+    if (!record || !(await verifyPassword(password, record.passwordHash))) {
+      throw new ZelyqError("unauthorized", "That is not your password.");
+    }
+  }
+
   async changePassword(
     user: User,
     input: { currentPassword: string; newPassword: string },

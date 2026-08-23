@@ -10,8 +10,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p evals/tsconfig.json",
+    "test": "node --import tsx --test test/*.test.ts",
+    "eval": "tsx evals/run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

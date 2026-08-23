@@ -126,3 +126,72 @@ test("snapshots capture and restore project files", async () => {
   await driver.restoreSnapshot("prj_e", snapshot.id);
   assert.match((await driver.readFile("prj_e", "note.txt")).content, /version one/);
 });
+
+test("a preview started by one driver is visible to another on the same workspace", async () => {
+  // The real deployment has two: the agent holds one and the server holds
+  // another, so a preview the agent's start_preview tool spawned was reported
+  // as stopped by the UI, and starting it from the UI spawned a second dev
+  // server for the same project.
+  const config = {
+    kind: "local" as const,
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4971, 4975] as [number, number],
+    previewHost: "127.0.0.1",
+  };
+  const agent = new LocalRuntimeDriver(config);
+  const server = new LocalRuntimeDriver(config);
+
+  await agent.ensureProject("prj_shared");
+  await agent.scaffold("prj_shared", [
+    { path: "package.json", content: '{"name":"shared","scripts":{"dev":"node server.mjs"}}' },
+    {
+      path: "server.mjs",
+      content:
+        "import http from 'node:http';\n" +
+        "http.createServer((_, res) => res.end('ok')).listen(process.env.PORT);\n",
+    },
+  ]);
+
+  try {
+    const started = await agent.startPreview("prj_shared");
+    assert.equal(started.status, "running");
+
+    const seen = await server.previewStatus("prj_shared");
+    assert.equal(seen.status, "running", "the second driver should see the running preview");
+    assert.equal(seen.port, started.port);
+    assert.equal(seen.url, started.url);
+
+    // And it must not start a rival dev server on a second port.
+    const again = await server.startPreview("prj_shared");
+    assert.equal(again.port, started.port, "should adopt the running preview, not spawn another");
+  } finally {
+    await server.stopPreview("prj_shared").catch(() => undefined);
+    await agent.dispose();
+    await server.dispose();
+  }
+});
+
+test("a preview record whose process is gone is not reported as running", async () => {
+  const config = {
+    kind: "local" as const,
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4976, 4979] as [number, number],
+    previewHost: "127.0.0.1",
+  };
+  const driverA = new LocalRuntimeDriver(config);
+  await driverA.ensureProject("prj_stale");
+
+  // A record left behind by a process that died without cleaning up.
+  const stateDir = path.join(workspaceDir, ".zelyq-previews");
+  await fs.mkdir(stateDir, { recursive: true });
+  await fs.writeFile(
+    path.join(stateDir, "prj_stale.json"),
+    JSON.stringify({ pid: 2 ** 22, port: 4979, startedAt: new Date().toISOString(), ownerPid: 1 }),
+  );
+
+  const status = await driverA.previewStatus("prj_stale");
+  assert.equal(status.status, "stopped", "a dead pid must not be reported as running");
+  await driverA.dispose();
+});
