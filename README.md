@@ -78,7 +78,7 @@ cp .env.example .env
 # Claude:  ANTHROPIC_API_KEY=sk-ant-...
 # Gemini:  ZELYQ_PROVIDER=google and GEMINI_API_KEY=...
 
-pnpm dev            # web :5173 · server :8787 · agent :8788
+pnpm dev            # builds the libraries, then web :5173 · server :8787 · agent :8788
 ```
 
 Open <http://localhost:5173>, create a project, and type what you want built. The first preview runs
