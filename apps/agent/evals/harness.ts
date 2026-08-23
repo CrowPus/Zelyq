@@ -117,7 +117,14 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     const after = await fingerprint(runtime, projectId);
     result.filesChanged = diff(before, after);
 
-    const context = { runtime, projectId, before, after, changed: result.filesChanged };
+    const context = {
+      runtime,
+      projectId,
+      before,
+      after,
+      changed: result.filesChanged,
+      toolCalls: result.toolCalls,
+    };
     for (const check of evalCase.checks) {
       result.checks.push(await runCheck(check, context));
     }

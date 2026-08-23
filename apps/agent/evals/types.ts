@@ -35,7 +35,9 @@ export type Check =
   /** Restraint: at most this many files changed. */
   | { kind: "max_files_changed"; count: number }
   /** No single source file longer than this. Catches restraint's opposite failure. */
-  | { kind: "max_file_lines"; count: number };
+  | { kind: "max_file_lines"; count: number }
+  /** At most this many tool calls. For input that is not a task at all. */
+  | { kind: "max_tool_calls"; count: number };
 
 /**
  * The three checks that decide whether the app *works*. They are reported

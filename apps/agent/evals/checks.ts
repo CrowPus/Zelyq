@@ -8,6 +8,8 @@ export interface CheckContext {
   before: ProjectFingerprint;
   after: ProjectFingerprint;
   changed: string[];
+  /** How many tools the turn ran. Writing nothing is not the same as doing nothing. */
+  toolCalls: number;
 }
 
 export function describe(check: Check): string {
@@ -36,6 +38,8 @@ export function describe(check: Check): string {
       return `changed at most ${check.count} file${check.count === 1 ? "" : "s"}`;
     case "max_file_lines":
       return `no file over ${check.count} lines`;
+    case "max_tool_calls":
+      return `ran at most ${check.count} tool call${check.count === 1 ? "" : "s"}`;
   }
 }
 
@@ -107,6 +111,12 @@ async function evaluate(
 
     case "max_file_lines":
       return await checkFileLengths(runtime, projectId, after, check.count);
+
+    case "max_tool_calls":
+      return {
+        ok: context.toolCalls <= check.count,
+        detail: context.toolCalls <= check.count ? "" : `ran ${context.toolCalls}`,
+      };
   }
 }
 

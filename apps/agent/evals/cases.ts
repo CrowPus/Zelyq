@@ -440,6 +440,24 @@ export default function App() {
     ],
   },
 
+  {
+    id: "greeting",
+    title: "A greeting is not a task",
+    tags: ["restraint"],
+    // From real use: "good morning" made the agent read the project and start a
+    // dev server — 22 seconds and a live process for a message that asked for
+    // nothing. Every other case in this suite is a request, so nothing caught it.
+    prompt: "good morning",
+    checks: [{ kind: "no_writes" }, { kind: "max_tool_calls", count: 0 }],
+  },
+  {
+    id: "acknowledgement",
+    title: "An acknowledgement is not a task",
+    tags: ["restraint"],
+    prompt: "ok cool, thanks",
+    checks: [{ kind: "no_writes" }, { kind: "max_tool_calls", count: 0 }],
+  },
+
   // ------------------------------------------------------------------- quality
   {
     id: "accessible-modal",
