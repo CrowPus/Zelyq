@@ -41,15 +41,35 @@ interface Props {
 
 export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenDiff }: Props) {
   const [draft, setDraft] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Follow the stream, unless the reader has scrolled up to look at something.
+   * Yanking somebody back to the bottom while they are reading is worse than
+   * not following at all.
+   */
+  const following = useRef(true);
+  const contentRef = useRef<HTMLDivElement>(null);
 
-  // The deps are the trigger, not inputs: scroll when a message lands or the
-  // stream grows.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: these are the trigger, not inputs
+  /**
+   * Pinned by watching the content's height rather than guessing which values
+   * imply it changed. A tool row grows when it finishes and gains a duration,
+   * and markdown renders a frame later — neither alters anything worth putting
+   * in a dependency list, and both used to leave the view behind.
+   */
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chat.messages.length, chat.streaming?.text]);
+    const scroller = scrollerRef.current;
+    const content = contentRef.current;
+    if (!scroller || !content) return;
+
+    const pin = () => {
+      if (following.current) scroller.scrollTop = scroller.scrollHeight;
+    };
+    const observer = new ResizeObserver(pin);
+    observer.observe(content);
+    pin();
+    return () => observer.disconnect();
+  }, []);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -76,63 +96,72 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
         )}
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain break-words">
-        {chat.messages.length === 0 && !chat.streaming && (
-          <div className="px-4 py-8">
-            <p className="text-xs leading-relaxed text-fg-secondary">
-              Describe what you want built. Be specific about the pages, the data, and how it should
-              look — the agent reads the project, makes the changes, and starts the preview.
-            </p>
+      <div
+        ref={scrollerRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          // A little slack, so a pixel of rounding does not count as "scrolled away".
+          following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+        className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain break-words"
+      >
+        <div ref={contentRef}>
+          {chat.messages.length === 0 && !chat.streaming && (
+            <div className="px-4 py-8">
+              <p className="text-xs leading-relaxed text-fg-secondary">
+                Describe what you want built. Be specific about the pages, the data, and how it
+                should look — the agent reads the project, makes the changes, and starts the
+                preview.
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-col">
+            {chat.messages.map((message, index) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                nextSnapshotId={nextSnapshotAfter(chat.messages, index)}
+                projectId={projectId}
+                canEdit={canEdit}
+                onReverted={onReverted}
+                onOpenDiff={onOpenDiff}
+              />
+            ))}
+
+            {chat.streaming && (
+              <MessageRow
+                streaming
+                nextSnapshotId={null}
+                projectId={projectId}
+                canEdit={canEdit}
+                onReverted={onReverted}
+                onOpenDiff={onOpenDiff}
+                message={{
+                  id: chat.streaming.messageId,
+                  sessionId: "",
+                  role: "assistant",
+                  content: chat.streaming.text,
+                  thinking: chat.streaming.thinking,
+                  toolCalls: chat.streaming.toolCalls,
+                  // The snapshot is attached when the turn is persisted; nothing
+                  // to undo while it is still running.
+                  snapshotId: null,
+                  tokensIn: 0,
+                  tokensOut: 0,
+                  createdAt: new Date().toISOString(),
+                }}
+              />
+            )}
           </div>
-        )}
 
-        <div className="flex flex-col">
-          {chat.messages.map((message, index) => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              nextSnapshotId={nextSnapshotAfter(chat.messages, index)}
-              projectId={projectId}
-              canEdit={canEdit}
-              onReverted={onReverted}
-              onOpenDiff={onOpenDiff}
-            />
-          ))}
-
-          {chat.streaming && (
-            <MessageRow
-              streaming
-              nextSnapshotId={null}
-              projectId={projectId}
-              canEdit={canEdit}
-              onReverted={onReverted}
-              onOpenDiff={onOpenDiff}
-              message={{
-                id: chat.streaming.messageId,
-                sessionId: "",
-                role: "assistant",
-                content: chat.streaming.text,
-                thinking: chat.streaming.thinking,
-                toolCalls: chat.streaming.toolCalls,
-                // The snapshot is attached when the turn is persisted; nothing
-                // to undo while it is still running.
-                snapshotId: null,
-                tokensIn: 0,
-                tokensOut: 0,
-                createdAt: new Date().toISOString(),
-              }}
-            />
+          {chat.error && (
+            <p className="mx-3 my-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs break-words text-danger">
+              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+              {chat.error}
+            </p>
           )}
         </div>
-
-        {chat.error && (
-          <p className="mx-3 my-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs break-words text-danger">
-            <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-            {chat.error}
-          </p>
-        )}
-
-        <div ref={endRef} />
       </div>
 
       <form onSubmit={submit} className="shrink-0 border-t border-border-default p-2.5">
