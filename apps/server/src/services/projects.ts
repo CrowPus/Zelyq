@@ -41,12 +41,16 @@ export class ProjectService {
 
     try {
       await this.runtime.ensureProject(id);
-      const files = await loadTemplate(this.config.templatesDir, input.template, {
-        projectName: project.name,
-        projectSlug: project.slug,
-        projectId: project.id,
-      });
-      await this.runtime.scaffold(id, files);
+      if (input.gitUrl) {
+        await this.cloneInto(id, input.gitUrl);
+      } else {
+        const files = await loadTemplate(this.config.templatesDir, input.template, {
+          projectName: project.name,
+          projectSlug: project.slug,
+          projectId: project.id,
+        });
+        await this.runtime.scaffold(id, files);
+      }
       await this.store.projects.setStatus(id, "ready");
     } catch (error) {
       await this.store.projects.setStatus(id, "error", (error as Error).message);
@@ -76,6 +80,58 @@ export class ProjectService {
     const updated = await this.store.projects.update(id, patch);
     if (!updated) throw ZelyqError.notFound("Project", id);
     return updated;
+  }
+
+  /**
+   * Clones a repository into a project, through the runtime rather than around
+   * it — so this works identically whether execution is local or on a remote
+   * host, and the clone lands wherever that runtime keeps projects.
+   *
+   * Shallow on purpose: the agent needs the code, not the history, and a deep
+   * clone of a long-lived repository is minutes of waiting before anything can
+   * happen.
+   *
+   * A token, when configured, is passed through the environment and read by a
+   * credential helper. It never appears in the command line, because the command
+   * is logged and its output is returned to callers.
+   */
+  private async cloneInto(id: string, gitUrl: string, token?: string): Promise<void> {
+    const helper = token
+      ? `-c credential.helper='!f() { echo username=x-access-token; echo "password=$ZELYQ_GIT_TOKEN"; }; f' `
+      : "";
+
+    const safeUrl = `'${gitUrl.replaceAll("'", "'\\''")}'`;
+    const env = {
+      GIT_TERMINAL_PROMPT: "0",
+      ...(token ? { ZELYQ_GIT_TOKEN: token } : {}),
+    };
+
+    const clone = (depth: boolean) =>
+      this.runtime.exec(id, {
+        command: `git ${helper}clone ${depth ? "--depth 1 --single-branch " : ""}-- ${safeUrl} .`,
+        timeoutMs: 10 * 60_000,
+        env,
+      });
+
+    let result = await clone(true);
+
+    // Older servers, and anything serving a repository as plain files, cannot
+    // do a shallow clone. Falling back costs a slower first clone and is far
+    // better than refusing a repository somebody can plainly reach.
+    if (result.exitCode !== 0 && /shallow|dumb http/i.test(result.stderr + result.stdout)) {
+      await this.runtime.exec(id, { command: "rm -rf ./* ./.[!.]* 2>/dev/null || true" });
+      result = await clone(false);
+    }
+
+    if (result.exitCode !== 0) {
+      // git puts the useful part on stderr, and the useful part is usually
+      // "repository not found" or "authentication failed" — both of which the
+      // person creating the project can act on.
+      const detail = (result.stderr || result.stdout).trim().split("\n").slice(-3).join(" ");
+      throw ZelyqError.badRequest(
+        `Could not clone that repository. ${detail || `git exited with code ${result.exitCode}`}`,
+      );
+    }
   }
 
   /**

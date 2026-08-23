@@ -33,6 +33,25 @@ export const createProjectSchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(2000).optional(),
   template: z.string().default("vite-react"),
+  /**
+   * Clone this repository instead of scaffolding a template.
+   *
+   * `http://` and `https://` only. `ssh://` and `git@` are refused because they
+   * need a key on the runtime, and a key that can clone can usually also push.
+   * `file://` is refused because the runtime's filesystem holds every other
+   * project — a local path is a way to read somebody else's work.
+   *
+   * `http://` is allowed on purpose: an internal git server on a private network
+   * is exactly the deployment this product is for. It is the caller's network to
+   * judge.
+   */
+  gitUrl: z
+    .string()
+    .url()
+    .refine((value) => /^https?:\/\//.test(value), {
+      message: "Only http:// and https:// repository URLs are supported",
+    })
+    .optional(),
   /** Optional first instruction — the project is created, then this is sent to the agent. */
   prompt: z.string().max(20_000).optional(),
 });
