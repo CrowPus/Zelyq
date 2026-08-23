@@ -491,6 +491,35 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     };
   }
 
+  async readSnapshotFile(
+    projectId: string,
+    snapshotId: string,
+    filePath: string,
+  ): Promise<FileContent> {
+    const root = path.join(this.snapshotDir(projectId), snapshotId);
+    const absolute = resolveInside(root, filePath);
+    await assertRealPathInside(root, absolute);
+
+    const stat = await fs.stat(absolute).catch(() => null);
+    if (!stat || stat.isDirectory()) throw ZelyqError.notFound("File", filePath);
+
+    const buffer = await fs.readFile(absolute);
+    if (isBinary(buffer)) {
+      return {
+        path: toPosix(filePath),
+        content: buffer.toString("base64"),
+        encoding: "base64",
+        truncated: false,
+      };
+    }
+    return {
+      path: toPosix(filePath),
+      content: buffer.toString("utf8"),
+      encoding: "utf8",
+      truncated: false,
+    };
+  }
+
   async restoreSnapshot(projectId: string, snapshotId: string): Promise<void> {
     const root = await this.requireRoot(projectId);
     const source = path.join(this.snapshotDir(projectId), snapshotId);

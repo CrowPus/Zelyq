@@ -154,6 +154,10 @@ export const api = {
 
   listSnapshots: (id: string) => request<{ snapshots: Snapshot[] }>(`/projects/${id}/snapshots`),
 
+  /** One file as it stood at a snapshot. 404 means the turn created it. */
+  readSnapshotFile: (id: string, snapshotId: string, path: string) =>
+    request<FileContent>(`/projects/${id}/snapshots/${snapshotId}/files/${encodeURI(path)}`),
+
   restoreSnapshot: (id: string, snapshotId: string) =>
     request<{ restored: boolean }>(`/projects/${id}/snapshots/${snapshotId}/restore`, {
       method: "POST",

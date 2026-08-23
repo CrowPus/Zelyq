@@ -31,9 +31,11 @@ interface Props {
   canEdit: boolean;
   /** The project on disk changed, so the file tree and preview are stale. */
   onReverted(): void;
+  /** Open a file showing what this turn did to it. */
+  onOpenDiff(path: string, snapshotId: string): void;
 }
 
-export function ChatPanel({ chat, model, projectId, canEdit, onReverted }: Props) {
+export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenDiff }: Props) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -88,6 +90,7 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted }: Props
               projectId={projectId}
               canEdit={canEdit}
               onReverted={onReverted}
+              onOpenDiff={onOpenDiff}
             />
           ))}
 
@@ -97,6 +100,7 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted }: Props
               projectId={projectId}
               canEdit={canEdit}
               onReverted={onReverted}
+              onOpenDiff={onOpenDiff}
               message={{
                 id: chat.streaming.messageId,
                 sessionId: "",
@@ -178,12 +182,14 @@ function MessageRow({
   projectId,
   canEdit,
   onReverted,
+  onOpenDiff,
 }: {
   message: Message;
   streaming?: boolean;
   projectId: string;
   canEdit: boolean;
   onReverted(): void;
+  onOpenDiff(path: string, snapshotId: string): void;
 }) {
   if (message.role === "user") {
     return (
@@ -227,6 +233,7 @@ function MessageRow({
           projectId={projectId}
           canEdit={canEdit}
           onReverted={onReverted}
+          onOpenDiff={onOpenDiff}
         />
       )}
     </div>
@@ -245,11 +252,13 @@ function TurnFooter({
   projectId,
   canEdit,
   onReverted,
+  onOpenDiff,
 }: {
   message: Message;
   projectId: string;
   canEdit: boolean;
   onReverted(): void;
+  onOpenDiff(path: string, snapshotId: string): void;
 }) {
   const [confirming, setConfirming] = useState(false);
 
@@ -277,8 +286,24 @@ function TurnFooter({
       <span className="font-medium">
         {changed.length} file{changed.length === 1 ? "" : "s"} changed
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono" title={changed.join("\n")}>
-        {changed.join("  ")}
+      <span className="flex min-w-0 flex-1 flex-wrap gap-x-2">
+        {changed.map((file) =>
+          message.snapshotId ? (
+            <button
+              key={file}
+              type="button"
+              onClick={() => onOpenDiff(file, message.snapshotId as string)}
+              className="truncate font-mono text-fg-secondary underline decoration-dotted underline-offset-2 hover:text-fg"
+              title={`See what changed in ${file}`}
+            >
+              {file}
+            </button>
+          ) : (
+            <span key={file} className="truncate font-mono">
+              {file}
+            </span>
+          ),
+        )}
       </span>
 
       {/* Turns from before automatic snapshots have nothing to go back to. */}

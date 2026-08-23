@@ -50,6 +50,12 @@ export interface RuntimeDriver {
 
   createSnapshot(projectId: string, label: string): Promise<Snapshot>;
   restoreSnapshot(projectId: string, snapshotId: string): Promise<void>;
+  /**
+   * One file as it stood at a snapshot, for showing what a turn changed.
+   * Throws `ZelyqError("not_found")` when the snapshot did not contain it —
+   * which is how a file the turn *created* is recognised.
+   */
+  readSnapshotFile(projectId: string, snapshotId: string, path: string): Promise<FileContent>;
 
   /** Release timers, child processes, and sockets. Called on shutdown. */
   dispose(): Promise<void>;
