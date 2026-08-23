@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, CircleAlert, Plus } from "lucide-react";
+import { roleAtLeast } from "@zelyq/core";
+import { Box, CircleAlert, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, EmptyState, Input, Spinner, StatusDot } from "../components/ui";
+import { Badge, Button, EmptyState, IconButton, Input, Spinner, StatusDot } from "../components/ui";
 import { api } from "../lib/api";
 
 const STATUS_TONE = {
@@ -21,7 +22,12 @@ export function ProjectListPage() {
   const [composing, setComposing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [confirming, setConfirming] = useState<string | null>(null);
+
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.listProjects });
+  // Deleting takes admin on the project's team. The server decides for real;
+  // this only keeps a button nobody may press off the screen.
+  const teams = useQuery({ queryKey: ["teams"], queryFn: api.listTeams });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
 
   const createProject = useMutation({
@@ -30,6 +36,14 @@ export function ProjectListPage() {
     onSuccess: ({ project }) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate(`/projects/${project.id}`);
+    },
+  });
+
+  const deleteProject = useMutation({
+    mutationFn: (id: string) => api.deleteProject(id),
+    onSuccess: () => {
+      setConfirming(null);
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
 
@@ -45,6 +59,11 @@ export function ProjectListPage() {
 
   const list = projects.data?.projects ?? [];
   const agent = health.data?.agent;
+  const roleByTeam = new Map((teams.data?.teams ?? []).map((team) => [team.id, team.role]));
+  const canDelete = (teamId: string): boolean => {
+    const role = roleByTeam.get(teamId);
+    return role !== undefined && roleAtLeast(role, "admin");
+  };
 
   return (
     <AppShell
@@ -101,6 +120,13 @@ export function ProjectListPage() {
             </form>
           )}
 
+          {deleteProject.isError && (
+            <p className="mt-4 flex items-center gap-2 rounded-md border border-danger/25 bg-danger-subtle px-3 py-2 text-xs text-danger">
+              <CircleAlert size={14} strokeWidth={1.75} />
+              {(deleteProject.error as Error).message}
+            </p>
+          )}
+
           {createProject.isError && (
             <p className="mt-4 flex items-center gap-2 rounded-md border border-danger/25 bg-danger-subtle px-3 py-2 text-xs text-danger">
               <CircleAlert size={14} strokeWidth={1.75} />
@@ -140,10 +166,13 @@ export function ProjectListPage() {
                 </div>
                 <ul>
                   {list.map((project) => (
-                    <li key={project.id} className="border-b border-border-default last:border-b-0">
+                    <li
+                      key={project.id}
+                      className="relative border-b border-border-default last:border-b-0"
+                    >
                       <Link
                         to={`/projects/${project.id}`}
-                        className="grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
+                        className="grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 py-2.5 pr-14 pl-4 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
                       >
                         <span className="flex min-w-0 items-center gap-2.5">
                           <Box size={15} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
@@ -166,6 +195,37 @@ export function ProjectListPage() {
                           {formatRelative(project.updatedAt)}
                         </time>
                       </Link>
+
+                      {canDelete(project.teamId) && (
+                        // Outside the Link: a button nested in an anchor is not
+                        // a control, it is a trap.
+                        <div className="absolute top-1/2 right-3 -translate-y-1/2">
+                          {confirming === project.id ? (
+                            <span className="flex items-center gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                disabled={deleteProject.isPending}
+                                onClick={() => deleteProject.mutate(project.id)}
+                              >
+                                {deleteProject.isPending ? "Deleting…" : "Delete"}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
+                                Cancel
+                              </Button>
+                            </span>
+                          ) : (
+                            <IconButton
+                              size="sm"
+                              variant="danger"
+                              label={`Delete ${project.name}`}
+                              onClick={() => setConfirming(project.id)}
+                            >
+                              <Trash2 size={13} strokeWidth={1.75} />
+                            </IconButton>
+                          )}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

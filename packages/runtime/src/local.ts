@@ -110,6 +110,9 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   async removeProject(projectId: string): Promise<void> {
     await this.stopPreview(projectId).catch(() => undefined);
     await fs.rm(this.rootFor(projectId), { recursive: true, force: true });
+    // The preview sidecar lives outside the project root, so deleting the root
+    // would otherwise leave its log behind for a project that no longer exists.
+    await fs.rm(this.previewLogFile(projectId), { force: true }).catch(() => undefined);
   }
 
   async scaffold(projectId: string, files: ScaffoldFile[]): Promise<void> {

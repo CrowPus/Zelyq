@@ -14,8 +14,12 @@ const Markdown = lazy(() => import("./Markdown").then((module) => ({ default: mo
 
 /** Two lines of room before it starts growing, and a ceiling before it takes
  * over the panel. */
-const COMPOSER_MIN_HEIGHT = 52;
-const COMPOSER_MAX_HEIGHT = 180;
+/**
+ * The composer is a fixed height and scrolls. It used to grow with its content,
+ * which moved the send button out from under the cursor mid-sentence — the
+ * control you are reaching for should not migrate while you type.
+ */
+const COMPOSER_HEIGHT = 72;
 
 interface Props {
   chat: ChatState & { send(message: string): void; abort(): void };
@@ -34,25 +38,13 @@ export function ChatPanel({ chat, model }: Props) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chat.messages.length, chat.streaming?.text]);
 
-  // Grow the composer with its content, between a floor and a ceiling. The
-  // floor matters: measuring an empty textarea yields a single line, which
-  // clipped the placeholder wherever it wrapped — a narrow screen, most often.
-  // `draft` is the trigger rather than an input; the height comes from the DOM.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: draft is the trigger
-  useEffect(() => {
-    const node = textareaRef.current;
-    if (!node) return;
-    node.style.height = "auto";
-    node.style.height = `${Math.min(Math.max(node.scrollHeight, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT)}px`;
-  }, [draft]);
-
   function submit(event: FormEvent) {
     event.preventDefault();
     const message = draft.trim();
     if (!message || chat.busy) return;
     chat.send(message);
     setDraft("");
-    if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+    textareaRef.current?.focus();
   }
 
   return (
@@ -115,7 +107,7 @@ export function ChatPanel({ chat, model }: Props) {
       </div>
 
       <form onSubmit={submit} className="shrink-0 border-t border-border-default p-2.5">
-        <div className="rounded-md border border-border-default bg-surface transition-colors focus-within:border-border-strong">
+        <div className="rounded-md border border-border-default bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-focus focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_26%,transparent)]">
           <textarea
             ref={textareaRef}
             value={draft}
@@ -123,10 +115,10 @@ export function ChatPanel({ chat, model }: Props) {
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit(event);
             }}
-            rows={2}
             placeholder="Describe a change…"
             aria-label="Message the agent"
-            className="w-full resize-none bg-transparent px-2.5 py-2 text-sm text-fg placeholder:text-fg-muted focus:outline-none"
+            style={{ height: COMPOSER_HEIGHT }}
+            className="w-full resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-fg placeholder:text-fg-muted focus:outline-none"
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2">
             <span className="flex items-center gap-1 text-2xs text-fg-muted">
