@@ -21,17 +21,33 @@ runs of the same suite are comparable.
 
 ```
  ✓ tiny-edit               3 rounds    4 tools    22s
- ~ dark-mode               7 rounds   19 tools    94s  — remembers the choice
+ ◑ dark-mode               7 rounds   19 tools    94s  — remembers the choice
+ ~ landing-page            2 rounds    1 tools    18s  — uses the given name, changed something
  ✗ add-routing            12 rounds   31 tools   180s  — build passes
 ```
 
-- **✓ clean** — every check passed.
-- **~ works** — the app builds and runs, but something softer failed. Worth reading.
+- **✓ clean** — every check passed, cosmetic ones included.
+- **◑ done** — the work was done; only a cosmetic check failed.
+- **~ intact** — it still builds and runs, but the work was **not** done.
 - **✗ broken** — a critical check failed. The user would have received a broken app.
 
-`works` is the headline number, and it is the one the roadmap tracks. `rounds` is how many
-round-trips the model took; a case that jumps from 4 rounds to 14 is flailing even if it still
-passes, and that shows up here before it shows up in your bill.
+`done` is the headline number and the one the roadmap tracks: the project is intact *and* every
+check that is not marked `cosmetic` passed. `rounds` is how many round-trips the model took; a case
+that jumps from 4 rounds to 14 is flailing even if it still passes, and that shows up here before it
+shows up in your bill.
+
+### Why `intact` is not the headline
+
+It used to be, under the name `works`, and it was wrong. `intact` means typecheck, build and preview
+all passed — and **every case starts from a template that already satisfies all three**. An agent
+that changes nothing scores 100%.
+
+That is not a hypothetical: it scored 100% in every run ever recorded, while the underlying check
+counts moved between 92 and 113. A stand-in model written to exercise plumbing did nothing at all
+and scored full marks. See `017` in the council notes.
+
+`intact` is still reported, because an agent that leaves a broken build has to be visible
+immediately. It just does not answer "did it do the job".
 
 ## Comparing two runs
 
@@ -45,7 +61,7 @@ pnpm eval --compare evals/results/<before>.json
 
 ```
  vs 2026-08-22T…json (prompt a1b2c3 → d4e5f6)
-   works    14/18 → 16/18
+   done     14/18 → 16/18
    fixed    dark-mode, add-routing
    broke    none
 ```
@@ -54,7 +70,7 @@ Now the change can be defended with a number instead of an impression.
 
 ## The checks
 
-Critical — these decide `works`:
+Critical — these decide `intact`, and nothing else:
 
 | Check | What it does |
 | --- | --- |
@@ -67,8 +83,27 @@ reports a green preview for an app whose components do not compile. Every source
 requested for that reason.
 
 Everything else — `file_matches`, `project_matches`, `unchanged`, `max_files_changed`,
-`no_new_dependency`, `no_writes` — is a softer assertion about *how* the work was done. They are
-what catch an agent that produces a working app by rewriting six files to change a label.
+`no_new_dependency`, `no_writes` — asserts that the work was actually done, and how. They are what
+catch an agent that produces a working app by rewriting six files to change a label, and they all
+count toward `done`.
+
+**`changed_something` is appended for you** to every case that does not assert `no_writes`. A case
+that asked for work and produced no diff has not done the work, and without it a case whose other
+assertions the template happens to satisfy would still score `done`.
+
+### Cosmetic checks
+
+A check may be marked `cosmetic: true`. It is still run and still reported, but it does not decide
+`done` — only `clean`.
+
+```ts
+{ kind: "project_matches", pattern: "sm:|md:|lg:", why: "has a breakpoint", cosmetic: true }
+```
+
+This is deliberately the opposite of an opt-in list of checks that count. **Everything counts unless
+somebody writes the word**, because a case whose author wrote no list would otherwise score
+generously — which is exactly how the old headline came to mean nothing. Marking a check cosmetic
+costs an act of writing and shows up in review.
 
 ## Adding a case
 
@@ -112,6 +147,6 @@ Worth stating plainly, so nobody reads a green suite as more than it is:
   served. A component that throws on render still passes. Catching that needs a headless browser —
   a reasonable next step for this harness.
 - **Regressions from one run.** Models are not deterministic. A single case flipping is noise; the
-  suite-level `works` number moving is signal. Run it twice before believing a small change.
+  suite-level `done` number moving is signal. Run it twice before believing a small change.
 - **Anything but `vite-react`.** One template today. `--template` is already plumbed through for
   when there are more.
