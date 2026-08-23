@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineTool, type ToolResult, truncate } from "./types.js";
+import { defineTool, type ToolContext, type ToolResult, truncate } from "./types.js";
 
 export const readFileTool = defineTool({
   name: "read_file",
@@ -77,11 +77,21 @@ export const editFileTool = defineTool({
   },
 });
 
+/**
+ * Enough of a project to understand its shape, and no more.
+ *
+ * The agent had only ever met a ten-file template it scaffolded itself. A real
+ * repository answers this question with thousands of paths, and a model that
+ * spends its context reading a file list has none left for the work.
+ */
+const MAX_LISTED = 400;
+
 export const listFilesTool = defineTool({
   name: "list_files",
   description:
-    "List the project's files. Dependency and build directories are excluded. Use this first to " +
-    "learn the layout before guessing at paths.",
+    "List the project's files. Dependency and build directories are excluded, and so is anything " +
+    "the project's .gitignore excludes. Use this first to learn the layout before guessing at " +
+    "paths. Large projects are cut short — narrow with `path` rather than asking for everything.",
   schema: z.object({
     path: z.string().optional().describe("Subdirectory to list; defaults to the project root"),
     depth: z.number().int().min(1).max(16).optional().describe("How deep to walk (default 6)"),
@@ -92,14 +102,67 @@ export const listFilesTool = defineTool({
       depth: input.depth ?? 6,
     });
     if (entries.length === 0) return { output: "No files found." };
-    const rendered = entries
+
+    const ignored = await gitIgnored(context, input.path);
+    // An ignored directory hides everything beneath it, and git reports the
+    // directory rather than each file inside it.
+    const hidden = (candidate: string): boolean => {
+      if (ignored.has(candidate)) return true;
+      for (const entry of ignored) {
+        if (candidate.startsWith(`${entry}/`)) return true;
+      }
+      return false;
+    };
+    const visible = entries.filter((entry) => !hidden(entry.path));
+    if (visible.length === 0) return { output: "No files found." };
+
+    const shown = visible.slice(0, MAX_LISTED);
+    const rendered = shown
       .map((entry) =>
         entry.type === "directory" ? `${entry.path}/` : `${entry.path}  (${entry.size ?? 0}b)`,
       )
       .join("\n");
-    return { output: truncate(rendered, 12_000) };
+
+    const note =
+      visible.length > shown.length
+        ? `\n\n[showing ${shown.length} of ${visible.length}. Narrow with the path argument, ` +
+          "or use search_files to find something specific.]"
+        : "";
+    return { output: truncate(rendered, 12_000) + note };
   },
 });
+
+/**
+ * What the project's own .gitignore excludes, asked of git rather than
+ * reimplemented. `git ls-files` already knows the rules exactly — including
+ * nested ignore files and negations — so anything git would not show is
+ * something the agent has no business reading either.
+ *
+ * Deliberately confined to the tool. The runtime's own file listing still sees
+ * everything, because a snapshot that skipped ignored files would restore an
+ * incomplete project when somebody undid a turn.
+ */
+async function gitIgnored(context: ToolContext, subPath?: string): Promise<Set<string>> {
+  const result = await context.runtime
+    .exec(context.projectId, {
+      command: "git ls-files --others --ignored --exclude-standard --directory",
+      ...(subPath ? { cwd: subPath } : {}),
+      timeoutMs: 15_000,
+    })
+    .catch(() => null);
+
+  // Not a git repository, or git is unavailable: nothing extra to hide.
+  if (!result || result.exitCode !== 0) return new Set();
+
+  const prefix = subPath ? `${subPath.replace(/\/+$/, "")}/` : "";
+  return new Set(
+    result.stdout
+      .split("\n")
+      .map((line) => line.trim().replace(/\/+$/, ""))
+      .filter(Boolean)
+      .map((line) => prefix + line),
+  );
+}
 
 export const deleteFileTool = defineTool({
   name: "delete_file",

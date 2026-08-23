@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
+import { LocalRuntimeDriver } from "@zelyq/runtime";
 import { ALL_TOOLS, executeTool, toolDefinitions } from "../src/index.js";
 import type { ToolContext } from "../src/types.js";
 import { truncate } from "../src/types.js";
@@ -90,4 +94,58 @@ test("truncate keeps both ends and says how much it dropped", () => {
   const output = truncate("a".repeat(5000), 1000);
   assert.ok(output.length < 1200);
   assert.match(output, /characters omitted/);
+});
+
+test("list_files hides what the project's .gitignore hides", async () => {
+  // A real repository carries build output, environment files and vendor
+  // directories that git already knows to ignore. Showing them to the agent
+  // wastes the context it needs for the work, and some of them are secrets.
+  const workspace = path.join(os.tmpdir(), `zelyq-tools-ignore-${Date.now()}`);
+  const runtime = new LocalRuntimeDriver({
+    kind: "local",
+    workspaceDir: workspace,
+    execTimeoutMs: 30_000,
+    previewPortRange: [4901, 4904],
+    previewHost: "127.0.0.1",
+  });
+
+  try {
+    await runtime.ensureProject("prj_ignore");
+    await runtime.scaffold("prj_ignore", [
+      { path: ".gitignore", content: "secrets.env\nbuilt/\n" },
+      { path: "README.md", content: "# real project\n" },
+      { path: "src/index.js", content: "console.log(1);\n" },
+      { path: "secrets.env", content: "TOKEN=should-never-be-listed\n" },
+      { path: "built/output.js", content: "// generated\n" },
+    ]);
+    await runtime.exec("prj_ignore", {
+      command:
+        "git init --quiet && git add -A && git -c user.email=t@e.com -c user.name=T commit --quiet -m init",
+    });
+
+    const listing = await executeTool(
+      {
+        projectId: "prj_ignore",
+        runtime,
+        signal: new AbortController().signal,
+        onFileChanged: () => undefined,
+        log: () => undefined,
+      },
+      "list_files",
+      {},
+    );
+
+    assert.ok(listing.output.includes("README.md"), "the project's own files must still be listed");
+    assert.ok(
+      !listing.output.includes("secrets.env"),
+      `an ignored file was shown to the agent:\n${listing.output}`,
+    );
+    assert.ok(
+      !listing.output.includes("built/output.js"),
+      `an ignored directory was shown to the agent:\n${listing.output}`,
+    );
+  } finally {
+    await runtime.dispose();
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
 });
