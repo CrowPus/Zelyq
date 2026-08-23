@@ -29,6 +29,23 @@ const DEFAULT_MAX_OUTPUT_BYTES = 512 * 1024;
 const PREVIEW_LOG_LINES = 500;
 const PREVIEW_READY_TIMEOUT_MS = 90_000;
 const MAX_READABLE_FILE_BYTES = 2 * 1024 * 1024;
+/** Sibling of the project roots, so nothing here lands inside a user's project. */
+const PREVIEW_STATE_DIR = ".zelyq-previews";
+
+/**
+ * What one Zelyq process records so the others can find a preview it started.
+ *
+ * Status is deliberately *not* stored. A status written to disk goes stale the
+ * moment the dev server dies; liveness is cheap to derive from the pid and the
+ * port, and derived state cannot lie.
+ */
+interface PreviewRecord {
+  pid: number;
+  port: number;
+  startedAt: string;
+  /** Which Zelyq process spawned it. Useful when reading these by hand. */
+  ownerPid: number;
+}
 
 interface PreviewProcess {
   child: ChildProcess;
@@ -295,6 +312,13 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     const existing = this.previews.get(projectId);
     if (existing && existing.status !== "crashed") return this.toPreview(projectId, existing);
 
+    // The agent and the server each construct their own driver, so a preview
+    // one of them started lives in a Map the other cannot see. Without this the
+    // agent's start_preview tool spawns a dev server the UI reports as stopped,
+    // and starting it from the UI spawns a second one for the same project.
+    const adopted = await this.adoptPreview(projectId);
+    if (adopted) return adopted;
+
     const root = await this.requireRoot(projectId);
 
     // A dev server with no dependencies installed fails in a way that reads
@@ -355,12 +379,25 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       lastError: null,
     };
     this.previews.set(projectId, preview);
+    if (child.pid) {
+      await this.writePreviewRecord(projectId, {
+        pid: child.pid,
+        port,
+        startedAt: preview.startedAt,
+        ownerPid: process.pid,
+      });
+    }
+
+    const logFile = this.previewLogFile(projectId);
+    await fs.writeFile(logFile, "").catch(() => undefined);
 
     const record = (chunk: Buffer) => {
       preview.logs.push(chunk.toString("utf8"));
       if (preview.logs.length > PREVIEW_LOG_LINES) {
         preview.logs.splice(0, preview.logs.length - PREVIEW_LOG_LINES);
       }
+      // Teed to disk so the process that did not spawn this can still read it.
+      void fs.appendFile(logFile, chunk).catch(() => undefined);
     };
     child.stdout?.on("data", record);
     child.stderr?.on("data", record);
@@ -371,6 +408,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
         preview.lastError = `Dev server exited with code ${code}`;
       }
       releasePort(port);
+      void this.clearPreviewRecord(projectId);
     });
 
     const ready = await waitForPort(port, PREVIEW_READY_TIMEOUT_MS);
@@ -385,24 +423,35 @@ export class LocalRuntimeDriver implements RuntimeDriver {
 
   async stopPreview(projectId: string): Promise<Preview> {
     const preview = this.previews.get(projectId);
-    if (!preview) return stoppedPreview(projectId);
+    if (preview) {
+      preview.status = "stopped";
+      if (preview.child) killTree(preview.child);
+      releasePort(preview.port);
+      this.previews.delete(projectId);
+      await this.clearPreviewRecord(projectId);
+      return stoppedPreview(projectId);
+    }
 
-    preview.status = "stopped";
-    if (preview.child) killTree(preview.child);
-    releasePort(preview.port);
-    this.previews.delete(projectId);
+    // Spawned by the other process. Both run on this machine as the same user,
+    // so stopping it by process group is legitimate — and leaving it running
+    // because the wrong process asked would hold the port forever.
+    const record = await this.readPreviewRecord(projectId);
+    if (record && isProcessAlive(record.pid)) killPidTree(record.pid);
+    await this.clearPreviewRecord(projectId);
     return stoppedPreview(projectId);
   }
 
   async previewStatus(projectId: string): Promise<Preview> {
     const preview = this.previews.get(projectId);
-    return preview ? this.toPreview(projectId, preview) : stoppedPreview(projectId);
+    if (preview) return this.toPreview(projectId, preview);
+    return (await this.adoptPreview(projectId)) ?? stoppedPreview(projectId);
   }
 
   async previewLogs(projectId: string, lines = 200): Promise<string> {
     const preview = this.previews.get(projectId);
-    if (!preview) return "";
-    return preview.logs.join("").split("\n").slice(-lines).join("\n");
+    if (preview) return preview.logs.join("").split("\n").slice(-lines).join("\n");
+    const text = await fs.readFile(this.previewLogFile(projectId), "utf8").catch(() => "");
+    return text.split("\n").slice(-lines).join("\n");
   }
 
   // -------------------------------------------------------------------------
@@ -498,6 +547,62 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     return "npx --yes serve -l $PORT .";
   }
 
+  private previewStateFile(projectId: string): string {
+    return path.join(this.workspaceDir, PREVIEW_STATE_DIR, `${projectId}.json`);
+  }
+
+  private previewLogFile(projectId: string): string {
+    return path.join(this.workspaceDir, PREVIEW_STATE_DIR, `${projectId}.log`);
+  }
+
+  private async writePreviewRecord(projectId: string, record: PreviewRecord): Promise<void> {
+    const file = this.previewStateFile(projectId);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, JSON.stringify(record));
+  }
+
+  private async readPreviewRecord(projectId: string): Promise<PreviewRecord | null> {
+    try {
+      return JSON.parse(
+        await fs.readFile(this.previewStateFile(projectId), "utf8"),
+      ) as PreviewRecord;
+    } catch {
+      return null;
+    }
+  }
+
+  private async clearPreviewRecord(projectId: string): Promise<void> {
+    await fs.rm(this.previewStateFile(projectId), { force: true }).catch(() => undefined);
+  }
+
+  /**
+   * Reports a preview this process did not start, if one is genuinely alive.
+   *
+   * Also the restart story: a record whose process is gone is swept here, so a
+   * crashed or orphaned dev server stops being reported as running rather than
+   * lingering until someone notices the port is held.
+   */
+  private async adoptPreview(projectId: string): Promise<Preview | null> {
+    const record = await this.readPreviewRecord(projectId);
+    if (!record) return null;
+
+    if (!isProcessAlive(record.pid)) {
+      await this.clearPreviewRecord(projectId);
+      return null;
+    }
+
+    const listening = await waitForPort(record.port, 500);
+    return {
+      projectId,
+      status: listening ? "running" : "starting",
+      url: listening ? `http://${this.previewHost}:${record.port}` : null,
+      port: record.port,
+      pid: record.pid,
+      startedAt: record.startedAt,
+      lastError: null,
+    };
+  }
+
   private toPreview(projectId: string, preview: PreviewProcess): Preview {
     return {
       projectId,
@@ -538,20 +643,34 @@ function compareDirents(
 function killTree(child: ChildProcess): void {
   if (!child.pid) return;
   try {
-    if (process.platform === "win32") {
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
-    } else {
-      process.kill(-child.pid, "SIGTERM");
-      setTimeout(() => {
-        try {
-          process.kill(-child.pid!, "SIGKILL");
-        } catch {
-          // Already gone.
-        }
-      }, 3000).unref();
-    }
+    killPidTree(child.pid);
   } catch {
     child.kill("SIGKILL");
+  }
+}
+
+function killPidTree(pid: number): void {
+  if (process.platform === "win32") {
+    spawn("taskkill", ["/pid", String(pid), "/T", "/F"]);
+    return;
+  }
+  process.kill(-pid, "SIGTERM");
+  setTimeout(() => {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }, 3000).unref();
+}
+
+/** Signal 0 tests for existence without delivering anything. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 
