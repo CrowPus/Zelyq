@@ -464,9 +464,16 @@ test("a dev server that goes to its own port fails fast, says where, and is not 
     // And nothing is left behind. A survivor here holds the port and keeps a
     // live pid in the record file, which reads back as "still starting" —
     // which is how a spinner becomes permanent.
+    // Poll with a real pause between attempts. `waitForPort` returns the moment
+    // it connects, so a loop that only calls it burns all thirty attempts in a
+    // few milliseconds while the port is still alive — the budget existed only
+    // in the case where the child had already died. On a loaded machine the
+    // child needs longer than that to go, and the test failed for it.
     let alive = true;
-    for (let i = 0; i < 30 && alive; i += 1) {
-      alive = await waitForPort(48397, 100);
+    const deadline = Date.now() + 10_000;
+    while (alive && Date.now() < deadline) {
+      alive = await waitForPort(48397, 200);
+      if (alive) await new Promise((resolve) => setTimeout(resolve, 200));
     }
     assert.equal(alive, false, "the dev server was left running after a failed preview");
   } finally {
