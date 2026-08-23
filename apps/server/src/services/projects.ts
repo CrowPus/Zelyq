@@ -42,7 +42,7 @@ export class ProjectService {
     try {
       await this.runtime.ensureProject(id);
       if (input.gitUrl) {
-        await this.cloneInto(id, input.gitUrl);
+        await this.cloneInto(id, input.gitUrl, input.gitToken);
         await this.assertZelyqCanWorkHere(id);
       } else {
         const files = await loadTemplate(this.config.templatesDir, input.template, {
@@ -177,13 +177,50 @@ export class ProjectService {
     }
 
     if (result.exitCode !== 0) {
-      // git puts the useful part on stderr, and the useful part is usually
-      // "repository not found" or "authentication failed" — both of which the
-      // person creating the project can act on.
-      const detail = (result.stderr || result.stdout).trim().split("\n").slice(-3).join(" ");
+      const output = result.stderr || result.stdout;
+
+      // A private repository refuses in several dialects, and none of them tell
+      // somebody what to do about it. Repeating git's wording here would be
+      // accurate and useless.
+      if (/authentication failed|could not read username|invalid credentials|403/i.test(output)) {
+        throw ZelyqError.badRequest(
+          token
+            ? "That token was refused. Check it has read access to this repository and has not expired."
+            : "This repository needs a token. Create one with read access to it — read is enough, " +
+                "Zelyq never pushes — and paste it into the token field.",
+        );
+      }
+      if (/repository not found|not found|does not exist/i.test(output)) {
+        throw ZelyqError.badRequest(
+          "That repository was not found. Check the address, and if it is private, paste a token " +
+            "with read access to it.",
+        );
+      }
+
+      const detail = output.trim().split("\n").slice(-3).join(" ");
       throw ZelyqError.badRequest(
         `Could not clone that repository. ${detail || `git exited with code ${result.exitCode}`}`,
       );
+    }
+
+    // The credential was a one-shot `-c` flag and a variable in the environment,
+    // so nothing should have been written into the clone. Checked rather than
+    // assumed: a token in .git/config is readable by the agent and usable to
+    // push, which is the one thing this feature promises not to do.
+    if (token) {
+      const config = await this.runtime
+        .readFile(id, ".git/config")
+        .then((file) => file.content)
+        .catch(() => "");
+      if (config.includes(token)) {
+        await this.runtime.exec(id, {
+          command: "git config --unset-all credential.helper || true",
+        });
+        throw ZelyqError.badRequest(
+          "The clone stored your token in the project, which Zelyq does not allow. " +
+            "The project has been discarded; please revoke that token.",
+        );
+      }
     }
   }
 
