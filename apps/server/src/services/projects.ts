@@ -149,9 +149,19 @@ export class ProjectService {
    * is logged and its output is returned to callers.
    */
   private async cloneInto(id: string, gitUrl: string, token?: string): Promise<void> {
+    // An empty value first, which resets the list rather than adding to it.
+    //
+    // Without this, git uses whatever credentials the machine already has —
+    // and a machine that has ever run `gh auth login` has some. Two
+    // consequences, both bad: a private repository clones with no token at all,
+    // using the *server's* identity, so anyone on a shared Zelyq reaches every
+    // repository that identity can see; and a token that is supplied is
+    // ignored, because the machine's helper answers first. The second one looks
+    // like "repository not found", because the server's identity genuinely
+    // cannot see somebody else's private repository.
     const helper = token
-      ? `-c credential.helper='!f() { echo username=x-access-token; echo "password=$ZELYQ_GIT_TOKEN"; }; f' `
-      : "";
+      ? `-c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo "password=$ZELYQ_GIT_TOKEN"; }; f' `
+      : "-c credential.helper= ";
 
     const safeUrl = `'${gitUrl.replaceAll("'", "'\\''")}'`;
     const env = {
@@ -191,9 +201,15 @@ export class ProjectService {
         );
       }
       if (/repository not found|not found|does not exist/i.test(output)) {
+        // GitHub answers 404 for a private repository the caller cannot see,
+        // rather than admitting it exists. So "not found" with a token supplied
+        // usually means the token cannot reach it, not that it is missing.
         throw ZelyqError.badRequest(
-          "That repository was not found. Check the address, and if it is private, paste a token " +
-            "with read access to it.",
+          token
+            ? "That repository was not found, which usually means this token cannot reach it. " +
+                "Check the address, and that the token has read access to this repository."
+            : "That repository was not found. Check the address, and if it is private, paste a " +
+                "token with read access to it.",
         );
       }
 
