@@ -10,6 +10,8 @@ export interface CheckContext {
   changed: string[];
   /** How many tools the turn ran. Writing nothing is not the same as doing nothing. */
   toolCalls: number;
+  /** The agent's final message, for requests that should be answered not built. */
+  reply: string;
 }
 
 export function describe(check: Check): string {
@@ -40,6 +42,8 @@ export function describe(check: Check): string {
       return `no file over ${check.count} lines`;
     case "max_tool_calls":
       return `ran at most ${check.count} tool call${check.count === 1 ? "" : "s"}`;
+    case "reply_matches":
+      return check.why;
   }
 }
 
@@ -117,6 +121,9 @@ async function evaluate(
         ok: context.toolCalls <= check.count,
         detail: context.toolCalls <= check.count ? "" : `ran ${context.toolCalls}`,
       };
+
+    case "reply_matches":
+      return match(context.reply, check.pattern, check.expect ?? "present");
   }
 }
 

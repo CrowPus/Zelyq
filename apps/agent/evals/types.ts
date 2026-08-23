@@ -37,7 +37,9 @@ export type Check =
   /** No single source file longer than this. Catches restraint's opposite failure. */
   | { kind: "max_file_lines"; count: number }
   /** At most this many tool calls. For input that is not a task at all. */
-  | { kind: "max_tool_calls"; count: number };
+  | { kind: "max_tool_calls"; count: number }
+  /** A regex over the agent's final message — the only check on what it said. */
+  | { kind: "reply_matches"; pattern: string; expect?: "present" | "absent"; why: string };
 
 /**
  * The three checks that decide whether the app *works*. They are reported
@@ -86,6 +88,8 @@ export interface CaseResult {
   tokensIn: number;
   tokensOut: number;
   filesChanged: string[];
+  /** The agent's final message. Some requests are answered, not built. */
+  reply: string;
   durationMs: number;
   /** Set when the turn itself failed — a provider error, a crash, a timeout. */
   error: string | null;

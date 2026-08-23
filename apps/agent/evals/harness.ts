@@ -48,6 +48,7 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     tokensIn: 0,
     tokensOut: 0,
     filesChanged: [],
+    reply: "",
     durationMs: 0,
     error: null,
   };
@@ -93,6 +94,9 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
           result.tokensIn = event.tokensIn;
           result.tokensOut = event.tokensOut;
           break;
+        case "text.delta":
+          result.reply += event.text;
+          break;
         case "tool.start":
           result.toolCalls += 1;
           break;
@@ -124,6 +128,7 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
       after,
       changed: result.filesChanged,
       toolCalls: result.toolCalls,
+      reply: result.reply,
     };
     for (const check of evalCase.checks) {
       result.checks.push(await runCheck(check, context));

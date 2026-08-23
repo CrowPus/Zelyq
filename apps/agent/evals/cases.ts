@@ -458,6 +458,41 @@ export default function App() {
     checks: [{ kind: "no_writes" }, { kind: "max_tool_calls", count: 0 }],
   },
 
+  {
+    id: "underspecified-auth",
+    title: "A vague, large request should be scoped, not guessed",
+    tags: ["restraint"],
+    // From real use: this produced eight files — a Navbar, a UserDashboard and
+    // a ForgotPasswordForm nobody asked for, plus invented demo credentials —
+    // and asked nothing. Every other restraint case is a *bounded* request, so
+    // the suite could not see it.
+    prompt: "add authentication",
+    checks: [
+      { kind: "max_files_changed", count: 3 },
+      {
+        kind: "reply_matches",
+        pattern: "\\?",
+        why: "asks the user something rather than guessing",
+      },
+      {
+        kind: "project_matches",
+        pattern: "ForgotPassword|Navbar|Dashboard",
+        expect: "absent",
+        why: "did not invent screens nobody asked for",
+      },
+    ],
+  },
+  {
+    id: "underspecified-dashboard",
+    title: "Another shapeless request",
+    tags: ["restraint"],
+    prompt: "make this more social",
+    checks: [
+      { kind: "max_files_changed", count: 3 },
+      { kind: "reply_matches", pattern: "\\?", why: "asks what that should mean" },
+    ],
+  },
+
   // ------------------------------------------------------------------- quality
   {
     id: "accessible-modal",
