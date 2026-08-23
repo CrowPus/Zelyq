@@ -48,7 +48,7 @@ export function ChatPanel({ chat, model }: Props) {
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col border-r border-border-default bg-surface">
+    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-border-default bg-surface">
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border-default px-3">
         <StatusDot
           tone={chat.busy ? "warning" : chat.status === "open" ? "success" : "danger"}
@@ -63,7 +63,7 @@ export function ChatPanel({ chat, model }: Props) {
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain break-words">
         {chat.messages.length === 0 && !chat.streaming && (
           <div className="px-4 py-8">
             <p className="text-xs leading-relaxed text-fg-secondary">

@@ -164,7 +164,7 @@ export function ProjectEditorPage() {
             from a template string — Tailwind extracts class names statically,
             so an interpolated `md:${x}` produces no CSS at all.
           */}
-          <div className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 md:grid`}>
+          <div className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 min-w-0 md:grid`}>
             <ChatPanel chat={chat} model={health.data?.agent.model} />
           </div>
 

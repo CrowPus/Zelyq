@@ -64,6 +64,9 @@ export function ProjectListPage() {
     const role = roleByTeam.get(teamId);
     return role !== undefined && roleAtLeast(role, "admin");
   };
+  // Reserve the actions column for the whole table or none of it, so the header
+  // labels and the rows stay on the same grid.
+  const showActions = list.some((project) => canDelete(project.teamId));
 
   return (
     <AppShell
@@ -159,7 +162,11 @@ export function ProjectListPage() {
 
             {list.length > 0 && (
               <>
-                <div className="grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 border-b border-border-default bg-surface-subtle px-4 py-2 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4">
+                <div
+                  className={`grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 border-b border-border-default bg-surface-subtle py-2 pl-4 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4 ${
+                    showActions ? "pr-12" : "pr-4"
+                  }`}
+                >
                   <span>Name</span>
                   <span>Status</span>
                   <span className="hidden text-right sm:block">Last updated</span>
@@ -168,63 +175,79 @@ export function ProjectListPage() {
                   {list.map((project) => (
                     <li
                       key={project.id}
-                      className="relative border-b border-border-default last:border-b-0"
+                      className="flex items-center border-b border-border-default last:border-b-0"
                     >
-                      <Link
-                        to={`/projects/${project.id}`}
-                        className="grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 py-2.5 pr-14 pl-4 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
-                      >
-                        <span className="flex min-w-0 items-center gap-2.5">
-                          <Box size={15} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm text-fg">{project.name}</span>
-                            <span className="block truncate font-mono text-2xs text-fg-muted">
-                              {project.description ?? project.template}
-                            </span>
+                      {confirming === project.id ? (
+                        <div className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2.5 pr-3 pl-4">
+                          <span className="min-w-0 truncate text-xs text-fg-secondary">
+                            Delete <span className="text-fg">{project.name}</span> and its files?
+                            This cannot be undone.
                           </span>
-                        </span>
-                        <span>
-                          <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
-                            {project.status}
-                          </Badge>
-                        </span>
-                        <time
-                          dateTime={project.updatedAt}
-                          className="hidden text-right text-xs text-fg-muted tabular-nums sm:block"
-                        >
-                          {formatRelative(project.updatedAt)}
-                        </time>
-                      </Link>
-
-                      {canDelete(project.teamId) && (
-                        // Outside the Link: a button nested in an anchor is not
-                        // a control, it is a trap.
-                        <div className="absolute top-1/2 right-3 -translate-y-1/2">
-                          {confirming === project.id ? (
-                            <span className="flex items-center gap-1.5">
-                              <Button
-                                size="sm"
-                                variant="danger"
-                                disabled={deleteProject.isPending}
-                                onClick={() => deleteProject.mutate(project.id)}
-                              >
-                                {deleteProject.isPending ? "Deleting…" : "Delete"}
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
-                                Cancel
-                              </Button>
-                            </span>
-                          ) : (
-                            <IconButton
+                          <span className="flex shrink-0 items-center gap-1.5">
+                            <Button
                               size="sm"
                               variant="danger"
-                              label={`Delete ${project.name}`}
-                              onClick={() => setConfirming(project.id)}
+                              disabled={deleteProject.isPending}
+                              onClick={() => deleteProject.mutate(project.id)}
                             >
-                              <Trash2 size={13} strokeWidth={1.75} />
-                            </IconButton>
-                          )}
+                              {deleteProject.isPending ? "Deleting…" : "Delete"}
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
+                              Cancel
+                            </Button>
+                          </span>
                         </div>
+                      ) : (
+                        <>
+                          <Link
+                            to={`/projects/${project.id}`}
+                            className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_92px] items-center gap-3 py-2.5 pl-4 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
+                          >
+                            <span className="flex min-w-0 items-center gap-2.5">
+                              <Box
+                                size={15}
+                                strokeWidth={1.75}
+                                className="shrink-0 text-fg-muted"
+                              />
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm text-fg">
+                                  {project.name}
+                                </span>
+                                <span className="block truncate font-mono text-2xs text-fg-muted">
+                                  {project.description ?? project.template}
+                                </span>
+                              </span>
+                            </span>
+                            <span>
+                              <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
+                                {project.status}
+                              </Badge>
+                            </span>
+                            <time
+                              dateTime={project.updatedAt}
+                              className="hidden text-right text-xs text-fg-muted tabular-nums sm:block"
+                            >
+                              {formatRelative(project.updatedAt)}
+                            </time>
+                          </Link>
+
+                          {/* A real column, not an overlay: nothing can sit on
+                              top of the timestamp this way. */}
+                          {showActions && (
+                            <span className="flex w-12 shrink-0 justify-center">
+                              {canDelete(project.teamId) && (
+                                <IconButton
+                                  size="sm"
+                                  variant="danger"
+                                  label={`Delete ${project.name}`}
+                                  onClick={() => setConfirming(project.id)}
+                                >
+                                  <Trash2 size={13} strokeWidth={1.75} />
+                                </IconButton>
+                              )}
+                            </span>
+                          )}
+                        </>
                       )}
                     </li>
                   ))}
