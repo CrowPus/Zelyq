@@ -31,6 +31,7 @@ export function ProjectEditorPage() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   /** Set when a file was opened from a turn, to show what that turn changed. */
   const [compareSnapshotId, setCompareSnapshotId] = useState<string | null>(null);
+  const [compareAfterSnapshotId, setCompareAfterSnapshotId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [logs, setLogs] = useState("");
@@ -179,9 +180,10 @@ export function ProjectEditorPage() {
               model={health.data?.agent.model}
               projectId={id}
               canEdit={canEdit}
-              onOpenDiff={(diffPath, snapshotId) => {
+              onOpenDiff={(diffPath, before, after) => {
                 setSelectedPath(diffPath);
-                setCompareSnapshotId(snapshotId);
+                setCompareSnapshotId(before);
+                setCompareAfterSnapshotId(after);
                 setPane("code");
               }}
               onReverted={() => {
@@ -223,6 +225,7 @@ export function ProjectEditorPage() {
                   // Picking a file from the tree means "show me the file", not
                   // "show me what some turn did to it".
                   setCompareSnapshotId(null);
+                  setCompareAfterSnapshotId(null);
                   setSelectedPath(next);
                 }}
               />
@@ -234,7 +237,11 @@ export function ProjectEditorPage() {
               loading={file.isLoading}
               canEdit={canEdit}
               compareSnapshotId={compareSnapshotId}
-              onCloseCompare={() => setCompareSnapshotId(null)}
+              compareAfterSnapshotId={compareAfterSnapshotId}
+              onCloseCompare={() => {
+                setCompareSnapshotId(null);
+                setCompareAfterSnapshotId(null);
+              }}
               onSaved={(saved) => {
                 queryClient.invalidateQueries({ queryKey: ["file", id, saved] });
                 queryClient.invalidateQueries({ queryKey: ["files", id] });

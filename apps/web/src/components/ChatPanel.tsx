@@ -31,8 +31,12 @@ interface Props {
   canEdit: boolean;
   /** The project on disk changed, so the file tree and preview are stale. */
   onReverted(): void;
-  /** Open a file showing what this turn did to it. */
-  onOpenDiff(path: string, snapshotId: string): void;
+  /**
+   * Open a file showing what this turn did to it. `after` is the snapshot taken
+   * before the *following* turn — the project as this turn left it. Null when
+   * this is the newest turn, where "as it left it" is simply the file now.
+   */
+  onOpenDiff(path: string, before: string, after: string | null): void;
 }
 
 export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenDiff }: Props) {
@@ -83,10 +87,11 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
         )}
 
         <div className="flex flex-col">
-          {chat.messages.map((message) => (
+          {chat.messages.map((message, index) => (
             <MessageRow
               key={message.id}
               message={message}
+              nextSnapshotId={nextSnapshotAfter(chat.messages, index)}
               projectId={projectId}
               canEdit={canEdit}
               onReverted={onReverted}
@@ -97,6 +102,7 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
           {chat.streaming && (
             <MessageRow
               streaming
+              nextSnapshotId={null}
               projectId={projectId}
               canEdit={canEdit}
               onReverted={onReverted}
@@ -179,6 +185,7 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
 function MessageRow({
   message,
   streaming,
+  nextSnapshotId,
   projectId,
   canEdit,
   onReverted,
@@ -186,10 +193,11 @@ function MessageRow({
 }: {
   message: Message;
   streaming?: boolean;
+  nextSnapshotId: string | null;
   projectId: string;
   canEdit: boolean;
   onReverted(): void;
-  onOpenDiff(path: string, snapshotId: string): void;
+  onOpenDiff(path: string, before: string, after: string | null): void;
 }) {
   if (message.role === "user") {
     return (
@@ -230,6 +238,7 @@ function MessageRow({
       {!streaming && (
         <TurnFooter
           message={message}
+          nextSnapshotId={nextSnapshotId}
           projectId={projectId}
           canEdit={canEdit}
           onReverted={onReverted}
@@ -247,18 +256,34 @@ function MessageRow({
  * already records every write and edit, so this costs nothing and is exactly as
  * accurate as what the agent actually did.
  */
+/**
+ * The project as a turn left it is the snapshot taken before the next one.
+ * Comparing a turn against the file *now* was the original mistake: on any turn
+ * but the newest it showed everything that happened since, which reads as
+ * "the agent rewrote the whole file".
+ */
+function nextSnapshotAfter(messages: Message[], index: number): string | null {
+  for (let i = index + 1; i < messages.length; i++) {
+    const id = messages[i]?.snapshotId;
+    if (id) return id;
+  }
+  return null;
+}
+
 function TurnFooter({
   message,
+  nextSnapshotId,
   projectId,
   canEdit,
   onReverted,
   onOpenDiff,
 }: {
   message: Message;
+  nextSnapshotId: string | null;
   projectId: string;
   canEdit: boolean;
   onReverted(): void;
-  onOpenDiff(path: string, snapshotId: string): void;
+  onOpenDiff(path: string, before: string, after: string | null): void;
 }) {
   const [confirming, setConfirming] = useState(false);
 
@@ -292,7 +317,7 @@ function TurnFooter({
             <button
               key={file}
               type="button"
-              onClick={() => onOpenDiff(file, message.snapshotId as string)}
+              onClick={() => onOpenDiff(file, message.snapshotId as string, nextSnapshotId)}
               className="truncate font-mono text-fg-secondary underline decoration-dotted underline-offset-2 hover:text-fg"
               title={`See what changed in ${file}`}
             >

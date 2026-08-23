@@ -446,14 +446,32 @@ export class LocalRuntimeDriver implements RuntimeDriver {
 
   async previewStatus(projectId: string): Promise<Preview> {
     const preview = this.previews.get(projectId);
-    if (preview) return this.toPreview(projectId, preview);
-    return (await this.adoptPreview(projectId)) ?? stoppedPreview(projectId);
+
+    // A live entry of our own is the best answer. A dead one is not: this
+    // process may hold a crashed record from a failed attempt while another
+    // process has a preview running perfectly well, and reporting our corpse
+    // told the user their dev server had stopped when it had not.
+    if (preview && preview.status !== "crashed" && preview.status !== "stopped") {
+      return this.toPreview(projectId, preview);
+    }
+
+    const adopted = await this.adoptPreview(projectId);
+    if (adopted) return adopted;
+
+    // Nothing is running anywhere, so our own record — with its error — is the
+    // most useful thing we have.
+    return preview ? this.toPreview(projectId, preview) : stoppedPreview(projectId);
   }
 
   async previewLogs(projectId: string, lines = 200): Promise<string> {
-    const preview = this.previews.get(projectId);
-    if (preview) return preview.logs.join("").split("\n").slice(-lines).join("\n");
-    const text = await fs.readFile(this.previewLogFile(projectId), "utf8").catch(() => "");
+    // Our own buffer first, but only if it holds anything. An empty buffer used
+    // to win over a file full of the output the user was asking for, which is
+    // how "no output yet" appeared next to a dev server that had printed plenty.
+    const buffered = this.previews.get(projectId)?.logs.join("") ?? "";
+    const text =
+      buffered.trim() !== ""
+        ? buffered
+        : await fs.readFile(this.previewLogFile(projectId), "utf8").catch(() => "");
     return text.split("\n").slice(-lines).join("\n");
   }
 

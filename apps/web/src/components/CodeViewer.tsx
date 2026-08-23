@@ -16,6 +16,8 @@ interface Props {
   onSaved(path: string): void;
   /** When set, the file opened to show what that turn changed. */
   compareSnapshotId: string | null;
+  /** The snapshot taken before the following turn, if there was one. */
+  compareAfterSnapshotId: string | null;
   onCloseCompare(): void;
 }
 
@@ -42,6 +44,7 @@ export function CodeViewer({
   canEdit,
   onSaved,
   compareSnapshotId,
+  compareAfterSnapshotId,
   onCloseCompare,
 }: Props) {
   const [edit, setEdit] = useState<EditState | null>(null);
@@ -181,7 +184,8 @@ export function CodeViewer({
       ) : compareSnapshotId && content !== null ? (
         <DiffView
           projectId={projectId}
-          snapshotId={compareSnapshotId}
+          beforeSnapshotId={compareSnapshotId}
+          afterSnapshotId={compareAfterSnapshotId}
           path={path}
           current={content}
         />

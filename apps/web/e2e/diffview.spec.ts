@@ -58,6 +58,41 @@ test("clicking a changed file shows the lines added and removed", async ({ page 
   await expect(page.getByText(/\+\d+ added/)).toBeHidden();
 });
 
+test("an earlier turn shows only what that turn did, not everything since", async ({ page }) => {
+  test.setTimeout(15 * 60_000);
+  await signUp(page);
+  const created = await page.request.post("/api/projects", {
+    data: { name: "two-turns", template: "vite-react" },
+  });
+  const projectId = (await created.json()).project.id;
+
+  await page.goto(`/projects/${projectId}`);
+  const composer = page.getByLabel("Message the agent");
+  const send = page.getByRole("button", { name: "Send message" });
+  const idle = page.getByRole("button", { name: "Stop the current turn" });
+
+  await composer.fill("change the heading to FIRST TURN HEADING");
+  await send.click();
+  await expect(idle).toBeHidden({ timeout: 12 * 60_000 });
+
+  await composer.fill("now change the heading to SECOND TURN HEADING");
+  await send.click();
+  await expect(idle).toBeHidden({ timeout: 12 * 60_000 });
+
+  // Open the file from the FIRST turn. It must show that turn's change only.
+  await page
+    .getByRole("button", { name: /^src\// })
+    .first()
+    .click();
+  await expect(page.getByText(/\+\d+ added/)).toBeVisible();
+
+  const body = await page.locator("table").last().innerText();
+  expect(body, "the first turn's diff should show what it did").toContain("FIRST TURN HEADING");
+  expect(body, "the first turn's diff must not include a later turn's work").not.toContain(
+    "SECOND TURN HEADING",
+  );
+});
+
 test("opening a file from the tree shows the file, not a diff", async ({ page }) => {
   await signUp(page);
   const created = await page.request.post("/api/projects", {

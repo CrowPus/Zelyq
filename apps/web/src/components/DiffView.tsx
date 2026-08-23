@@ -3,12 +3,31 @@ import { api } from "../lib/api";
 import { collapseUnchanged, countChanges, diffLines } from "../lib/diff";
 import { Spinner } from "./ui";
 
+/** An absent file is an empty side, not an error: the turn created or deleted it. */
+async function readSnapshot(
+  projectId: string,
+  snapshotId: string,
+  path: string,
+): Promise<string | null> {
+  try {
+    const file = await api.readSnapshotFile(projectId, snapshotId, path);
+    return file.encoding === "utf8" ? file.content : null;
+  } catch {
+    return "";
+  }
+}
+
 interface Props {
   projectId: string;
   /** The project as it stood before the turn being examined. */
-  snapshotId: string;
+  beforeSnapshotId: string;
+  /**
+   * The project as that turn left it — the snapshot taken before the next turn.
+   * Null when this was the newest turn, where "as it left it" is the file now.
+   */
+  afterSnapshotId: string | null;
   path: string;
-  /** The file as it is now. */
+  /** The file as it is now, used only when there is no later snapshot. */
   current: string;
 }
 
@@ -21,19 +40,21 @@ interface Props {
  * whether a heading changed or the whole component was replaced, which is the
  * only question worth asking before deciding to undo.
  */
-export function DiffView({ projectId, snapshotId, path, current }: Props) {
+export function DiffView({ projectId, beforeSnapshotId, afterSnapshotId, path, current }: Props) {
   const before = useQuery({
-    queryKey: ["snapshot-file", projectId, snapshotId, path],
+    queryKey: ["snapshot-file", projectId, beforeSnapshotId, path],
     // A 404 means the snapshot had no such file, so the turn created it. That
     // is a real answer, not a failure — an empty "before".
-    queryFn: () =>
-      api
-        .readSnapshotFile(projectId, snapshotId, path)
-        .then((file) => (file.encoding === "utf8" ? file.content : null))
-        .catch(() => ""),
+    queryFn: () => readSnapshot(projectId, beforeSnapshotId, path),
   });
 
-  if (before.isLoading) {
+  const after = useQuery({
+    queryKey: ["snapshot-file", projectId, afterSnapshotId, path],
+    enabled: afterSnapshotId !== null,
+    queryFn: () => readSnapshot(projectId, afterSnapshotId as string, path),
+  });
+
+  if (before.isLoading || (afterSnapshotId !== null && after.isLoading)) {
     return (
       <div className="flex items-center gap-2 px-3 py-3 text-xs text-fg-muted">
         <Spinner /> Working out what changed…
@@ -45,7 +66,8 @@ export function DiffView({ projectId, snapshotId, path, current }: Props) {
     return <p className="px-3 py-3 text-xs text-fg-muted">{path} is not a text file.</p>;
   }
 
-  const lines = diffLines(before.data ?? "", current);
+  const now = afterSnapshotId !== null ? (after.data ?? "") : current;
+  const lines = diffLines(before.data ?? "", now);
   const { added, removed } = countChanges(lines);
 
   if (added === 0 && removed === 0) {
