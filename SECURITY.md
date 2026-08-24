@@ -102,7 +102,10 @@ would be a promise about addresses nobody here controls, and getting it wrong br
 silently rather than failing safely. This is the operator's list, for the operator's deployment;
 check `GET /api/health` for `egress allowlist FAILED` the same way as the metadata rule. It is still
 not a general sandbox — filtering is by resolved IP address only, with no TLS inspection, so a CDN
-fronting both an allowed and a disallowed service behind the same address is not distinguished.
+fronting both an allowed and a disallowed service behind the same address is not distinguished. A
+host answering from a small, rotating pool of addresses (checked live: `github.com` answered three
+different ones across three independent lookups) can take a few refresh cycles before it works
+reliably — see [docs/configuration.md](./docs/configuration.md) for why.
 
 Container mode narrows what an agent command, and now the preview, can reach. **It is not a
 completed sandbox by default and must not be described as one** unless the egress allowlist above is
