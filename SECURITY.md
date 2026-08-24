@@ -85,16 +85,29 @@ and requires it to succeed there, so the control cannot pass by accident:
   chain, the chain Docker reserves for exactly this. If it cannot be installed, project creation is
   not blocked on it; check `GET /api/health` for `metadata block FAILED` rather than assuming it held.
 
-**What this does not stop.** Read this part before deciding what to run on the instance:
+**What this does not stop by default.** Read this part before deciding what to run on the instance:
 
-- **Outbound network access is otherwise not filtered.** The container can reach whatever the host
-  can, including private addresses on your network. Only the one address above is refused.
+- **Outbound network access is otherwise not filtered by default.** The container can reach whatever
+  the host can, including private addresses on your network. Only the one address above is refused,
+  unless you opt into the allowlist below.
 - Nothing here changes the fact that the agent's prompts and your file contents are still sent to
   your model vendor.
 
+**Opt-in: `ZELYQ_CONTAINER_EGRESS_ALLOWLIST`.** Comma-separated hostnames a project container may
+reach; everything else on the project network is default-denied at the same `DOCKER-USER` chain the
+metadata rule uses, refused rather than left to hang. Resolved and refreshed every five minutes.
+**There is no Zelyq-maintained default list.** `registry.npmjs.org` alone resolves to a dozen
+different Cloudflare addresses that are not a fixed fact — a list this project shipped and maintained
+would be a promise about addresses nobody here controls, and getting it wrong breaks a real install
+silently rather than failing safely. This is the operator's list, for the operator's deployment;
+check `GET /api/health` for `egress allowlist FAILED` the same way as the metadata rule. It is still
+not a general sandbox — filtering is by resolved IP address only, with no TLS inspection, so a CDN
+fronting both an allowed and a disallowed service behind the same address is not distinguished.
+
 Container mode narrows what an agent command, and now the preview, can reach. **It is not a
-completed sandbox and must not be described as one.** The egress gap above is being worked on; until
-it is closed, the guidance for local mode still applies to who you let near the instance.
+completed sandbox by default and must not be described as one** unless the egress allowlist above is
+also configured and maintained. Until it is, the guidance for local mode still applies to who you let
+near the instance.
 
 ### Accounts
 
@@ -145,7 +158,8 @@ Enforced today:
 
 Not provided by the core (supply it in your deployment):
 
-- Network egress filtering for generated code.
+- Network egress filtering by default — opt in with `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` above, and
+  maintain the list yourself; there is no Zelyq-maintained default.
 - Rate limiting and quota enforcement.
 - Secret scanning of generated files.
 

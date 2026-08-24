@@ -62,6 +62,16 @@ function containerOptionsFromEnv() {
     ...(process.env.ZELYQ_CONTAINER_BLOCK_METADATA === "false"
       ? { blockMetadataEndpoint: false }
       : {}),
+    // Defaults off inside the driver itself, and stays off unless an operator
+    // names hosts here — there is no Zelyq-maintained default list. See
+    // `028` in the council notes for why.
+    ...(process.env.ZELYQ_CONTAINER_EGRESS_ALLOWLIST
+      ? {
+          egressAllowlist: process.env.ZELYQ_CONTAINER_EGRESS_ALLOWLIST.split(",")
+            .map((hostname) => hostname.trim())
+            .filter(Boolean),
+        }
+      : {}),
   };
 }
 
