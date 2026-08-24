@@ -15,6 +15,7 @@ import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectRoutes } from "./routes/projects.js";
+import { registerProviderRoutes } from "./routes/providers.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerTeamRoutes } from "./routes/teams.js";
@@ -172,6 +173,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerAuthRoutes(app, { auth, sessionTtlDays: () => settings.numberValue("sessionTtlDays") });
   registerAccountRoutes(app, { accounts, auth, access });
   registerSettingsRoutes(app, { settings, access });
+  registerProviderRoutes(app, { agent, access });
   registerTeamRoutes(app, { store, access });
   registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });
   registerFileRoutes(app, { projects, runtime, access });

@@ -154,6 +154,13 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("prompt"),
     message: z.string().min(1),
     attachments: z.array(z.string()).optional(),
+    /**
+     * Picked from the chat's own model control — see `033`. Omitted means
+     * the live-configured default, exactly as before this existed. Present
+     * without `model` means "this provider's default model."
+     */
+    provider: providerIdSchema.optional(),
+    model: z.string().optional(),
   }),
   z.object({ type: z.literal("abort") }),
   z.object({ type: z.literal("ping") }),
@@ -177,3 +184,32 @@ export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export function encodeSse(event: AgentEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/providers (browser ← server) — see `033`
+// ---------------------------------------------------------------------------
+
+/**
+ * What the chat's model picker needs, and nothing else: never a key, never
+ * which environment variable backs one — the same restraint the agent's own
+ * `GET /providers` already has. Available to anyone signed in, unlike
+ * `/api/settings`, because none of this is sensitive on its own.
+ */
+export const availableProvidersSchema = z.object({
+  default: providerIdSchema,
+  providers: z.array(
+    z.object({
+      id: providerIdSchema,
+      label: z.string(),
+      defaultModel: z.string(),
+      configured: z.boolean(),
+      /**
+       * Every known-current model for this vendor — Opus, Sonnet, Haiku, not
+       * just "Claude" — so the picker offers a tier, not only a vendor.
+       * Absent means nothing is confirmed yet for this provider.
+       */
+      models: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+    }),
+  ),
+});
+export type AvailableProviders = z.infer<typeof availableProvidersSchema>;
