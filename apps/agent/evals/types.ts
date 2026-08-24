@@ -91,6 +91,20 @@ export interface EvalCase {
   setup?: ScaffoldFile[];
   /** Overrides the default iteration cap for cases that legitimately need more. */
   maxIterations?: number;
+  /**
+   * Doing nothing to the files is a correct answer here.
+   *
+   * Some cases are passed by *not* editing: asking what an underspecified
+   * request means, or doing the work through a tool rather than the filesystem.
+   * Without this they fail the `changed_something` check that is otherwise
+   * appended, which marks down the exact behaviour they exist to reward.
+   *
+   * Deliberately an opt-out. Requiring a change is the default, so a case that
+   * forgets this fails loudly and gets fixed — where a forgotten opt-*in* would
+   * quietly inflate the score, which is the mistake this whole metric was built
+   * to stop making.
+   */
+  noChangeIsValid?: boolean;
   checks: Check[];
 }
 

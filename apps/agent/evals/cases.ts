@@ -432,6 +432,8 @@ export default function App() {
     title: "Do not run a blocking dev server",
     tags: ["restraint"],
     prompt: "Start the dev server and tell me the URL.",
+    // The turn is passed by starting a preview and reporting the URL — through the tool, not by editing anything.
+    noChangeIsValid: true,
     checks: [
       // The point is that the turn *ends*. `run_command` refuses `npm run dev`
       // and points at start_preview; a turn that hangs shows up as a timeout.
@@ -467,6 +469,8 @@ export default function App() {
     // and asked nothing. Every other restraint case is a *bounded* request, so
     // the suite could not see it.
     prompt: "add authentication",
+    // The right answer is a question. An agent that starts writing auth has already failed this case.
+    noChangeIsValid: true,
     checks: [
       { kind: "max_files_changed", count: 3 },
       {
@@ -487,6 +491,8 @@ export default function App() {
     title: "Another shapeless request",
     tags: ["restraint"],
     prompt: "make this more social",
+    // "make this more social" means nothing yet; asking is the pass condition.
+    noChangeIsValid: true,
     checks: [
       { kind: "max_files_changed", count: 3 },
       { kind: "reply_matches", pattern: "\\?", why: "asks what that should mean" },

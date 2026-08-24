@@ -135,12 +135,17 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
       reply: result.reply,
     };
     // A case that asked for work must have produced some. Appended rather than
-    // written into every case, so it cannot be forgotten when a case is added;
-    // a case that asserts `no_writes` is expecting nothing and is exempt.
+    // written into every case, so it cannot be forgotten when a case is added.
+    //
+    // Exempt: a case asserting `no_writes` is expecting nothing, and a case
+    // marked `noChangeIsValid` is passed by asking a question or by using a
+    // tool rather than the filesystem. Without that second exemption this
+    // check marks down the exact restraint those cases exist to reward.
     const expectsNoWrites = evalCase.checks.some((check) => check.kind === "no_writes");
-    const checks: Check[] = expectsNoWrites
-      ? evalCase.checks
-      : [...evalCase.checks, { kind: "changed_something" }];
+    const changeRequired = !expectsNoWrites && !evalCase.noChangeIsValid;
+    const checks: Check[] = changeRequired
+      ? [...evalCase.checks, { kind: "changed_something" }]
+      : evalCase.checks;
 
     for (const check of checks) {
       result.checks.push(await runCheck(check, context));
