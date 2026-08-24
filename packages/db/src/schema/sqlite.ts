@@ -186,6 +186,38 @@ export const settings = sqliteTable("settings", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const auditLog = sqliteTable(
+  "audit_log",
+  {
+    id: text("id").primaryKey(),
+    /**
+     * No foreign key reference on `teamId`, `projectId`, or `userId` —
+     * deliberately, and for the same reason on all three: an audit log that
+     * erases an entry (or refuses to insert one) the moment the thing it
+     * names is deleted defeats its own purpose. This is not hypothetical —
+     * a `project.deleted` entry is written *after* the project row is gone,
+     * so a real foreign key here would reject that exact insert outright.
+     * Null only for an instance-wide action — none exist at this scope yet.
+     */
+    teamId: text("team_id"),
+    /** Null for a team-membership action, which has no single project. */
+    projectId: text("project_id"),
+    /** `actorName`/`actorEmail` below are what the log actually displays. */
+    userId: text("user_id"),
+    actorName: text("actor_name").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    action: text("action").notNull(),
+    /** JSON-encoded, never a secret value. */
+    detail: text("detail").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("audit_log_team_id_idx").on(table.teamId),
+    projectIdx: index("audit_log_project_id_idx").on(table.projectId),
+    createdIdx: index("audit_log_created_at_idx").on(table.createdAt),
+  }),
+);
+
 export const schema = {
   users,
   teams,
@@ -196,4 +228,5 @@ export const schema = {
   messages,
   snapshots,
   settings,
+  auditLog,
 };

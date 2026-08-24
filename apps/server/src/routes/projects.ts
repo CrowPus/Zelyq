@@ -29,6 +29,12 @@ export function registerProjectRoutes(
     await access.requireTeamRole(user, teamId, "editor");
 
     const project = await deps.projects.create({ ...input, teamId });
+    await access.recordChange(user, {
+      teamId,
+      projectId: project.id,
+      action: "project.created",
+      detail: { name: project.name },
+    });
     reply.status(201);
     return { project };
   });
@@ -41,20 +47,29 @@ export function registerProjectRoutes(
 
   app.patch<{ Params: { id: string } }>("/api/projects/:id", async (request) => {
     const user = access.requireUser(request);
-    await access.requireProject(user, request.params.id, "editor");
-    return {
-      project: await deps.projects.update(
-        request.params.id,
-        updateProjectSchema.parse(request.body),
-      ),
-    };
+    const { project: before } = await access.requireProject(user, request.params.id, "editor");
+    const changes = updateProjectSchema.parse(request.body);
+    const project = await deps.projects.update(request.params.id, changes);
+    await access.recordChange(user, {
+      teamId: before.teamId,
+      projectId: project.id,
+      action: "project.updated",
+      detail: { fields: Object.keys(changes) },
+    });
+    return { project };
   });
 
   // Deleting removes files from disk as well as the row, so it takes admin.
   app.delete<{ Params: { id: string } }>("/api/projects/:id", async (request, reply) => {
     const user = access.requireUser(request);
-    await access.requireProject(user, request.params.id, "admin");
+    const { project } = await access.requireProject(user, request.params.id, "admin");
     await deps.projects.remove(request.params.id);
+    await access.recordChange(user, {
+      teamId: project.teamId,
+      projectId: project.id,
+      action: "project.deleted",
+      detail: { name: project.name },
+    });
     reply.status(204);
   });
 }

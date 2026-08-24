@@ -208,3 +208,44 @@ export const snapshotSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type Snapshot = z.infer<typeof snapshotSchema>;
+
+// ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
+
+/**
+ * Project- and team-level actions, per `030` in the council notes. Instance-
+ * wide actions (settings, account deletion) are deliberately not here yet —
+ * a separate read surface, scoped to instance admins rather than a team.
+ */
+export const auditActionSchema = z.enum([
+  "project.created",
+  "project.updated",
+  "project.deleted",
+  "file.written",
+  "file.deleted",
+  "snapshot.created",
+  "snapshot.restored",
+  "team.member_added",
+  "team.member_role_changed",
+  "team.member_removed",
+]);
+export type AuditAction = z.infer<typeof auditActionSchema>;
+
+export const auditLogEntrySchema = z.object({
+  id: z.string(),
+  teamId: z.string().nullable(),
+  projectId: z.string().nullable(),
+  userId: z.string().nullable(),
+  /**
+   * Snapshotted at write time, not joined from `users` on read — so the log
+   * still says who did something after that account no longer exists.
+   */
+  actorName: z.string(),
+  actorEmail: z.string(),
+  action: auditActionSchema,
+  /** Never a secret value — a path, a role, which fields changed. */
+  detail: z.record(z.string(), z.unknown()).default({}),
+  createdAt: z.string().datetime(),
+});
+export type AuditLogEntry = z.infer<typeof auditLogEntrySchema>;

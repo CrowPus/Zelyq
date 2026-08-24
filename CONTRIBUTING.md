@@ -58,6 +58,7 @@ assets/      Source brand assets (the served copies live in apps/web/public)
 | Support a new execution target | `packages/runtime` — implement `RuntimeDriver` |
 | Add a field the UI needs | `packages/core` schema first, then server, then web |
 | Change persisted data | `packages/db/src/schema/*` **plus** a generated migration |
+| Add a route that creates, edits, or deletes a project- or team-level thing | Call `access.recordChange(...)` after it succeeds — see `apps/server/src/services/access.ts` and the existing call sites in `apps/server/src/routes/`. A mutating route that skips this is the one way the audit log rots |
 
 ## Checks
 

@@ -43,6 +43,13 @@
       "when": 1787479745726,
       "tag": "0005_hesitant_talkback",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787581161872,
+      "tag": "0006_mature_metal_master",
+      "breakpoints": true
     }
   ]
 }

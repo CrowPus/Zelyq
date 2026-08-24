@@ -7,6 +7,7 @@ import { AppShell } from "../components/AppShell";
 import { Badge, Button, Input, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { AUDIT_ACTION_LABELS, auditDetailSummary } from "../lib/audit";
 
 export function TeamPage() {
   const { id = "" } = useParams();
@@ -45,6 +46,14 @@ export function TeamPage() {
   });
 
   const canManage = team ? roleAtLeast(team.role, "admin") : false;
+
+  // The server gates this route the same way, admin or higher — this only
+  // decides whether to ask, not whether the answer is trusted.
+  const auditLog = useQuery({
+    queryKey: ["audit-log", id],
+    queryFn: () => api.auditLog(id),
+    enabled: canManage,
+  });
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -176,6 +185,42 @@ export function TeamPage() {
               </div>
             ))}
           </div>
+
+          {canManage && (
+            <div className="mt-6">
+              <h2 className="text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">
+                Who changed what
+              </h2>
+              <div className="mt-2 overflow-hidden rounded-lg border border-border-default bg-surface">
+                {auditLog.isLoading && (
+                  <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-muted">
+                    <Spinner /> Loading history…
+                  </div>
+                )}
+                {auditLog.data && auditLog.data.entries.length === 0 && (
+                  <p className="px-4 py-6 text-xs text-fg-muted">Nothing recorded yet.</p>
+                )}
+                {auditLog.data?.entries.map((entry) => {
+                  const detail = auditDetailSummary(entry.detail);
+                  return (
+                    <div
+                      key={entry.id}
+                      className="flex items-baseline gap-2 border-b border-border-default px-4 py-2 text-xs last:border-b-0"
+                    >
+                      <span className="font-medium text-fg">{entry.actorName}</span>
+                      <span className="text-fg-secondary">{AUDIT_ACTION_LABELS[entry.action]}</span>
+                      {detail && (
+                        <span className="truncate font-mono text-2xs text-fg-muted">{detail}</span>
+                      )}
+                      <span className="ml-auto shrink-0 text-2xs text-fg-muted">
+                        {new Date(entry.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <dl className="mt-6 grid gap-2 text-xs">
             {ROLES.map((option) => (
