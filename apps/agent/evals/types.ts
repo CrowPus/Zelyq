@@ -55,6 +55,15 @@ type CheckKind =
   /** A regex over the agent's final message — the only check on what it said. */
   | { kind: "reply_matches"; pattern: string; expect?: "present" | "absent"; why: string }
   /**
+   * The app actually renders in a browser: no uncaught exception, and the root
+   * element is not empty.
+   *
+   * `preview` proves every module compiles and is served. It cannot see a
+   * component that throws on mount — the app builds, the page is served, and
+   * the user gets a white screen. Appended wherever `preview` is asserted.
+   */
+  | { kind: "renders" }
+  /**
    * The agent changed at least one file.
    *
    * Appended automatically to every case that does not assert `no_writes`. A
@@ -65,8 +74,8 @@ type CheckKind =
   | { kind: "changed_something" };
 
 /**
- * The three checks that decide whether the project is still *intact* — that the
- * agent did not leave a broken build behind. They are reported separately
+ * The checks that decide whether the project is still *intact* — that the agent
+ * did not leave a broken build behind. They are reported separately
  * because failing one of them means the remaining assertions are describing a
  * broken app.
  *
@@ -79,6 +88,7 @@ export const CRITICAL_KINDS: ReadonlySet<Check["kind"]> = new Set([
   "typecheck",
   "build",
   "preview",
+  "renders",
 ]);
 
 export interface EvalCase {

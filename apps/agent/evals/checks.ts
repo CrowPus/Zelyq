@@ -1,3 +1,4 @@
+import { chromium } from "@playwright/test";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import { type Check, type CheckResult, CRITICAL_KINDS } from "./types.js";
 import type { ProjectFingerprint } from "./workspace.js";
@@ -46,6 +47,8 @@ export function describe(check: Check): string {
       return check.why;
     case "changed_something":
       return "changed something";
+    case "renders":
+      return "renders without throwing";
   }
 }
 
@@ -111,6 +114,9 @@ async function evaluate(
         ok: changed.length === 0,
         detail: changed.length === 0 ? "" : `wrote ${changed.join(", ")}`,
       };
+
+    case "renders":
+      return await checkRenders(runtime, projectId);
 
     case "changed_something":
       return {
@@ -192,6 +198,74 @@ async function checkPreview(
   }
 
   return { ok: true, detail: "" };
+}
+
+/**
+ * Does the app actually appear?
+ *
+ * `preview` proves every module compiles and is served. It cannot see the most
+ * common way a generated app fails a person: it builds, it is served, and then
+ * a component throws on mount and the screen stays white. `intact` scored 22/22
+ * in the first honest baseline with this hole in it.
+ *
+ * Two failures are reported, and only two. An **uncaught exception** and an
+ * **empty root** are unambiguous. Console warnings are not: React logs them in
+ * normal operation, and a check that cries wolf is one somebody marks cosmetic
+ * and then ignores.
+ */
+export async function checkRenders(
+  runtime: RuntimeDriver,
+  projectId: string,
+): Promise<{ ok: boolean; detail: string }> {
+  const preview = await runtime.startPreview(projectId);
+  if (preview.status !== "running" || !preview.url) {
+    return { ok: false, detail: `preview ${preview.status}` };
+  }
+  return await renderReport(preview.url);
+}
+
+/**
+ * Loads a URL in headless chromium and says what happened.
+ *
+ * Separated from the runtime so it can be tested against a page we control —
+ * including one that throws on purpose, which is the only way to know this
+ * check is capable of failing.
+ */
+/** Evaluated in the page, so it may not be type-checked against Node's globals. */
+const ROOT_HAS_CONTENT = "(document.querySelector('#root')?.childElementCount ?? 0) > 0";
+
+export async function renderReport(url: string): Promise<{ ok: boolean; detail: string }> {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const thrown: string[] = [];
+    page.on("pageerror", (error) => thrown.push(error.message));
+
+    await page.goto(url, { waitUntil: "load", timeout: 30_000 });
+
+    // A generous wait, because a slow mount on a loaded machine reading as a
+    // white screen would score the harness's impatience as the agent's bug.
+    // Settles the moment the root has content, so a healthy app pays nothing.
+    //
+    // Passed as a string rather than a closure on purpose. This expression runs
+    // in the browser, and a closure would put `document` into a directory whose
+    // other 700 lines are Node — where a stray `document` should stay a type
+    // error rather than becoming a runtime crash.
+    const mounted = await page
+      .waitForFunction(ROOT_HAS_CONTENT, null, { timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false);
+
+    // Reported separately: "it threw" and "it never appeared" are different
+    // bugs and the message has to say which.
+    if (thrown.length > 0) {
+      return { ok: false, detail: `threw on render: ${thrown[0]?.split("\n")[0] ?? "unknown"}` };
+    }
+    if (!mounted) return { ok: false, detail: "#root is empty — the app rendered nothing" };
+    return { ok: true, detail: "" };
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
 }
 
 /**
