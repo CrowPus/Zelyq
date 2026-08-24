@@ -49,9 +49,11 @@ separates this from a chat with a black box.
 - [ ] Isolate execution: a container per project, resource limits, restricted egress.
       **Partly done** — `ZELYQ_RUNTIME=container` runs agent shell commands *and the dev server
       preview* in a container per project, with resource limits, no reachability between projects,
-      and the cloud metadata endpoint blocked. Still open: everything else on the internet and the
-      host's own network is reachable. See
-      [SECURITY.md](../SECURITY.md)
+      and the cloud metadata endpoint blocked. General egress filtering exists as an opt-in,
+      operator-maintained allowlist (`ZELYQ_CONTAINER_EGRESS_ALLOWLIST`) rather than a default —
+      deliberately: an address like `registry.npmjs.org` resolves to a moving set Zelyq cannot
+      promise to keep current, and a wrong default breaks real installs instead of failing safely.
+      Still open: unfiltered by default until an operator opts in. See [SECURITY.md](../SECURITY.md)
 - [ ] Per-user API keys, encrypted at rest
 - [ ] Invitation links, so someone can be added before they register
 - [ ] SSO (OIDC) as an alternative to passwords

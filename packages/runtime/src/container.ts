@@ -69,12 +69,20 @@ import type {
  * exact deployment `023` exists for. `enable_icc=false` closes it while
  * leaving each container's own route to the real internet untouched.
  *
- * ## What this does not do yet
+ * The cloud metadata endpoint (169.254.169.254) is blocked by default, the
+ * same way and for the same reason — see `installMetadataBlock` and `025`.
  *
- * **Egress is not filtered.** A container can still reach the network the
- * host sits on, including the cloud metadata endpoint that hands out
- * instance credentials on most providers. That is the next step of `023` and
- * nothing here should be described as a completed sandbox until it lands.
+ * ## What this does not do by default
+ *
+ * **General egress is not filtered.** A container can still reach anything
+ * else on the internet and the host's own network. An operator who wants
+ * that closed can opt into `egressAllowlist` (`028` in the council notes) —
+ * a default-deny rule with an `ipset`-backed allow list the *operator*
+ * supplies and maintains. Zelyq does not ship or maintain a default list of
+ * "what a project needs": verified live before that proposal was written,
+ * `registry.npmjs.org` alone resolves to a dozen Cloudflare addresses that
+ * are not a fixed fact Zelyq could promise to keep current. Off by default;
+ * on is a deliberate, narrower choice than it sounds.
  */
 
 const DEFAULT_IMAGE = "node:22-bookworm-slim";
@@ -99,8 +107,23 @@ const ENGINE_TIMEOUT_MS = 300_000;
  * itself, no authentication required.
  */
 const METADATA_ADDRESS = "169.254.169.254/32";
-/** Only used to install `iptables` inside the throwaway helper container. */
+/** Only used to install `iptables`/`ipset` inside the throwaway helper container. */
 const FIREWALL_HELPER_IMAGE = "alpine";
+/**
+ * One set, shared the same way `DEFAULT_NETWORK` is: two Zelyq instances on
+ * one host sharing this name end up with the union of both allowlists, which
+ * is the same "removes reachability, never grants surprise reachability
+ * beyond what either operator asked for" shape `DEFAULT_NETWORK`'s sharing
+ * already relies on — not a gap introduced here.
+ */
+const EGRESS_ALLOW_SET = "zelyq-egress-allow";
+/**
+ * DNS TTLs are not a promise a firewall should trust — this is a fixed
+ * republish instead. Five minutes: frequent enough that a CDN reshuffling
+ * its addresses is noticed soon, infrequent enough that a helper container
+ * is not churning constantly for a list that rarely changes.
+ */
+const EGRESS_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 export interface ContainerOptions {
   image?: string;
@@ -120,6 +143,17 @@ export interface ContainerOptions {
    * own firewall and does not want an out-of-band tool touching it.
    */
   blockMetadataEndpoint?: boolean;
+  /**
+   * Hostnames project containers are allowed to reach; everything else on
+   * the internet is default-denied. Unset or empty (the default): nothing
+   * changes, egress is unfiltered as it always has been. There is no
+   * Zelyq-maintained default list — see the class doc and `028` for why:
+   * a list Zelyq owns is a promise about addresses it does not control and
+   * cannot keep current, and getting it wrong breaks a real install rather
+   * than failing safely. This is the operator's list, for the operator's
+   * deployment.
+   */
+  egressAllowlist?: string[];
 }
 
 export class ContainerRuntimeDriver implements RuntimeDriver {
@@ -185,6 +219,14 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * start without it — see the call site in `ensureContainer` for why.
    */
   private metadataBlockFailure: string | undefined;
+  /** Empty means disabled — see `ContainerOptions.egressAllowlist`. */
+  private readonly egressAllowlist: string[];
+  /** Same memoisation shape as `networkReady`/`metadataBlockReady`. */
+  private egressAllowlistReady: Promise<void> | undefined;
+  /** Same visibility contract as `metadataBlockFailure` — surfaced, not enforced. */
+  private egressAllowlistFailure: string | undefined;
+  /** Cleared on `dispose()` so refreshing an allowlist never outlives this driver. */
+  private egressRefreshTimer: NodeJS.Timeout | undefined;
 
   constructor(config: RuntimeConfig, options: ContainerOptions = {}) {
     this.local = new LocalRuntimeDriver(config);
@@ -203,6 +245,9 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     this.engine = options.engine ?? "docker";
     this.network = options.network ?? DEFAULT_NETWORK;
     this.blockMetadataEndpoint = options.blockMetadataEndpoint ?? true;
+    this.egressAllowlist = (options.egressAllowlist ?? [])
+      .map((hostname) => hostname.trim())
+      .filter(Boolean);
   }
 
   /**
@@ -243,13 +288,22 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       : this.metadataBlockFailure
         ? `metadata block FAILED: ${this.metadataBlockFailure}`
         : "metadata block on";
+    const egressStatus =
+      this.egressAllowlist.length === 0
+        ? null
+        : this.egressAllowlistFailure
+          ? `egress allowlist FAILED: ${this.egressAllowlistFailure}`
+          : `egress allowlist on (${this.egressAllowlist.length} host${
+              this.egressAllowlist.length === 1 ? "" : "s"
+            })`;
 
     return {
       kind: this.kind,
       ok: true,
       detail:
         `${local.detail} · ${this.engine} ${firstLine(probe.stdout)} · image ${this.image} · ` +
-        metadataStatus,
+        metadataStatus +
+        (egressStatus ? ` · ${egressStatus}` : ""),
       version: process.version,
     };
   }
@@ -293,6 +347,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   }
 
   async dispose(): Promise<void> {
+    if (this.egressRefreshTimer) clearInterval(this.egressRefreshTimer);
     // Sequential on purpose: a machine with many projects should not be asked
     // to tear down fifty containers at once while it is already shutting down.
     for (const projectId of [...this.started]) {
@@ -707,6 +762,13 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
           this.metadataBlockFailure = error instanceof Error ? error.message : String(error);
         });
       }
+      // Same non-blocking posture, same reason: an operator's allowlist going
+      // stale should not also be a "cannot open any project" problem.
+      if (this.egressAllowlist.length > 0) {
+        await this.ensureEgressAllowlist().catch((error: unknown) => {
+          this.egressAllowlistFailure = error instanceof Error ? error.message : String(error);
+        });
+      }
       await this.engineRun(["rm", "-f", name], 30_000).catch(() => undefined);
       const created = await this.engineRun(
         this.runArgs(name, root, publishPort),
@@ -847,7 +909,33 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       "tcp-reset",
     ];
 
-    const helper = `zelyq-firewall-setup-${process.pid}`;
+    await this.withFirewallHelper(async (execIn) => {
+      const check = await execIn(["iptables", "-C", "DOCKER-USER", ...rule]);
+      if (check.exitCode === 0) return; // already present — nothing to do
+
+      const insert = await execIn(["iptables", "-I", "DOCKER-USER", ...rule]);
+      if (insert.exitCode !== 0) {
+        throw new ZelyqError(
+          "runtime_unavailable",
+          `Could not block the metadata endpoint: ${
+            firstLine(insert.stderr) || firstLine(insert.stdout) || "unknown error"
+          }`,
+        );
+      }
+    });
+  }
+
+  /**
+   * Runs `fn` inside a short-lived, privileged helper container with
+   * `iptables` and `ipset` installed — the one mechanism `installMetadataBlock`
+   * and the egress allowlist below both use to touch the host's own firewall
+   * state. Started, used, removed, every time: never a persistent privileged
+   * container, the same posture `installMetadataBlock` established first.
+   */
+  private async withFirewallHelper<T>(
+    fn: (execIn: (args: string[]) => Promise<ExecResult>) => Promise<T>,
+  ): Promise<T> {
+    const helper = `zelyq-firewall-setup-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     const started = await runCaptured(
       this.engine,
       [
@@ -863,11 +951,11 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         FIREWALL_HELPER_IMAGE,
         "sh",
         "-c",
-        // Stays up long enough for the two `exec` calls below. iptables is
-        // not in the base image, so the first thing this container does is
-        // fetch it — over the host's own network, before any project
-        // container or restriction exists, so nothing here is circular.
-        "apk add --no-cache iptables >/dev/null 2>&1 && sleep 60",
+        // Stays up long enough for `fn`'s exec calls. Neither tool is in the
+        // base image, so the first thing this container does is fetch them —
+        // over the host's own network, before any project container or
+        // restriction exists, so nothing here is circular.
+        "apk add --no-cache iptables ipset >/dev/null 2>&1 && sleep 60",
       ],
       { timeoutMs: 60_000, maxOutputBytes: 5_000 },
     );
@@ -883,8 +971,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     try {
       // Waiting for `apk add` to finish, not for the container to exist —
       // `docker exec` against a container whose entrypoint has not reached
-      // `sleep` yet just fails, and would read as "iptables is broken"
-      // rather than "still installing it".
+      // `sleep` yet just fails, and would read as "the tools are broken"
+      // rather than "still installing them".
       const deadline = Date.now() + 30_000;
       let ready = false;
       while (Date.now() < deadline) {
@@ -901,36 +989,176 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       if (!ready) {
         throw new ZelyqError(
           "runtime_unavailable",
-          "The firewall setup helper could not install iptables in time.",
+          "The firewall setup helper could not install iptables/ipset in time.",
         );
       }
 
-      const check = await runCaptured(
-        this.engine,
-        ["exec", helper, "iptables", "-C", "DOCKER-USER", ...rule],
-        { timeoutMs: 10_000, maxOutputBytes: 2_000 },
+      return await fn((args) =>
+        runCaptured(this.engine, ["exec", helper, ...args], {
+          timeoutMs: 10_000,
+          maxOutputBytes: 2_000,
+        }),
       );
-      if (check.exitCode === 0) return; // already present — nothing to do
-
-      const insert = await runCaptured(
-        this.engine,
-        ["exec", helper, "iptables", "-I", "DOCKER-USER", ...rule],
-        { timeoutMs: 10_000, maxOutputBytes: 2_000 },
-      );
-      if (insert.exitCode !== 0) {
-        throw new ZelyqError(
-          "runtime_unavailable",
-          `Could not block the metadata endpoint: ${
-            firstLine(insert.stderr) || firstLine(insert.stdout) || "unknown error"
-          }`,
-        );
-      }
     } finally {
       await runCaptured(this.engine, ["rm", "-f", helper], {
         timeoutMs: 30_000,
         maxOutputBytes: 1_000,
       });
     }
+  }
+
+  /**
+   * Blocks project containers from reaching anything not named in
+   * `egressAllowlist` — see the class doc and `028` in the council notes for
+   * why this ships as a mechanism, opt-in, with no default list.
+   *
+   * Two pieces, installed once each: a default-deny `REJECT` scoped to this
+   * driver's own network subnet (same reasoning as `installMetadataBlock` —
+   * source-scoped, `REJECT` not `DROP`), and an `ACCEPT` for anything in
+   * `EGRESS_ALLOW_SET`, inserted *after* the deny rule so it lands above it —
+   * iptables is first-match-wins, and the accept has to be checked before the
+   * catch-all. Both are permanent once installed; only the set's *contents*
+   * change afterward, refreshed on `EGRESS_REFRESH_INTERVAL_MS` by
+   * `refreshEgressAllowlist`, which this calls once more before returning so
+   * the set is never empty in the moment between "rule installed" and
+   * "first refresh happens to run".
+   *
+   * DNS resolution itself is not expected to be blocked by the deny rule: a
+   * container's queries go to Docker's own embedded resolver, which makes the
+   * actual upstream query from the *host's* network namespace, not the
+   * container's — so it never appears at `DOCKER-USER` with the container
+   * subnet's source address in the first place. This is documented Docker
+   * networking behaviour, not verified live here — a live check would have
+   * meant writing a default-deny rule onto this shared host to watch DNS
+   * survive it, and the permission system correctly declined that same class
+   * of request earlier this week for `025`'s rule. Recorded as a checked
+   * distinction, not blurred with what actually was verified live above.
+   */
+  private ensureEgressAllowlist(): Promise<void> {
+    if (!this.egressAllowlistReady) {
+      this.egressAllowlistReady = this.installEgressAllowlist().catch((error: unknown) => {
+        this.egressAllowlistReady = undefined;
+        throw error;
+      });
+    }
+    return this.egressAllowlistReady;
+  }
+
+  private async installEgressAllowlist(): Promise<void> {
+    const subnet = await this.networkSubnet();
+    const rejectRule = ["-s", subnet, "-j", "REJECT", "--reject-with", "tcp-reset"];
+    const acceptRule = [
+      "-s",
+      subnet,
+      "-m",
+      "set",
+      "--match-set",
+      EGRESS_ALLOW_SET,
+      "dst",
+      "-j",
+      "ACCEPT",
+    ];
+
+    await this.withFirewallHelper(async (execIn) => {
+      const createSet = await execIn([
+        "ipset",
+        "create",
+        EGRESS_ALLOW_SET,
+        "hash:ip",
+        "family",
+        "inet",
+        "-exist",
+      ]);
+      if (createSet.exitCode !== 0) {
+        throw new ZelyqError(
+          "runtime_unavailable",
+          `Could not create the egress allowlist set: ${firstLine(createSet.stderr) || "unknown error"}`,
+        );
+      }
+
+      const rejectCheck = await execIn(["iptables", "-C", "DOCKER-USER", ...rejectRule]);
+      if (rejectCheck.exitCode !== 0) {
+        const insert = await execIn(["iptables", "-I", "DOCKER-USER", ...rejectRule]);
+        if (insert.exitCode !== 0) {
+          throw new ZelyqError(
+            "runtime_unavailable",
+            `Could not install the egress default-deny rule: ${firstLine(insert.stderr) || "unknown error"}`,
+          );
+        }
+      }
+
+      // Checked and inserted after the deny rule exists, so `-I` places it
+      // above — this must win the first-match race, not the catch-all.
+      const acceptCheck = await execIn(["iptables", "-C", "DOCKER-USER", ...acceptRule]);
+      if (acceptCheck.exitCode !== 0) {
+        const insert = await execIn(["iptables", "-I", "DOCKER-USER", ...acceptRule]);
+        if (insert.exitCode !== 0) {
+          throw new ZelyqError(
+            "runtime_unavailable",
+            `Could not install the egress allow rule: ${firstLine(insert.stderr) || "unknown error"}`,
+          );
+        }
+      }
+    });
+
+    await this.refreshEgressAllowlist();
+
+    this.egressRefreshTimer = setInterval(() => {
+      this.refreshEgressAllowlist().catch((error: unknown) => {
+        this.egressAllowlistFailure = error instanceof Error ? error.message : String(error);
+      });
+    }, EGRESS_REFRESH_INTERVAL_MS);
+    // Never keeps the process alive on its own — dispose() clears it, but a
+    // process exiting for an unrelated reason should not be blocked by this.
+    this.egressRefreshTimer.unref?.();
+  }
+
+  /**
+   * Re-resolves every allowed hostname and atomically swaps the result into
+   * `EGRESS_ALLOW_SET` — build the new membership in a scratch set, swap it
+   * in, destroy the old one. Never touches the set in place: a hostname's
+   * addresses changing mid-refresh would otherwise mean a window where the
+   * set has neither the old nor the complete new membership.
+   *
+   * A hostname that fails to resolve this round is skipped, not fatal — a
+   * transient DNS hiccup should not empty the whole allowlist; it re-resolves
+   * again at the next interval.
+   */
+  private async refreshEgressAllowlist(): Promise<void> {
+    const scratch = `${EGRESS_ALLOW_SET}-next`;
+    await this.withFirewallHelper(async (execIn) => {
+      await execIn(["ipset", "create", scratch, "hash:ip", "family", "inet", "-exist"]);
+      await execIn(["ipset", "flush", scratch]);
+
+      for (const hostname of this.egressAllowlist) {
+        const resolved = await execIn(["getent", "hosts", hostname]);
+        if (resolved.exitCode !== 0) continue;
+
+        // IPv4 only: project containers have no IPv6 route on this network
+        // (verified live for `025`'s round two), so an IPv6-only result is
+        // not reachable regardless, and `hash:ip family inet` would reject it.
+        const ips = new Set(
+          resolved.stdout
+            .split("\n")
+            .map((line) => line.trim().split(/\s+/)[0])
+            .filter(
+              (ip): ip is string => typeof ip === "string" && /^\d+\.\d+\.\d+\.\d+$/.test(ip),
+            ),
+        );
+        for (const ip of ips) await execIn(["ipset", "add", scratch, ip, "-exist"]);
+      }
+
+      await execIn(["ipset", "create", EGRESS_ALLOW_SET, "hash:ip", "family", "inet", "-exist"]);
+      const swap = await execIn(["ipset", "swap", scratch, EGRESS_ALLOW_SET]);
+      if (swap.exitCode !== 0) {
+        throw new ZelyqError(
+          "runtime_unavailable",
+          `Could not refresh the egress allowlist: ${firstLine(swap.stderr) || "unknown error"}`,
+        );
+      }
+      await execIn(["ipset", "destroy", scratch]);
+    });
+    this.egressAllowlistFailure = undefined;
   }
 
   private async networkSubnet(): Promise<string> {

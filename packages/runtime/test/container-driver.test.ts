@@ -241,7 +241,7 @@ function previewConfig(range: [number, number]) {
  */
 function makeDriver(
   runtimeConfig: ReturnType<typeof config>,
-  options: { engine?: string; blockMetadataEndpoint?: boolean } = {},
+  options: { engine?: string; blockMetadataEndpoint?: boolean; egressAllowlist?: string[] } = {},
 ): ContainerRuntimeDriver {
   return new ContainerRuntimeDriver(runtimeConfig, {
     blockMetadataEndpoint: false,
@@ -627,6 +627,72 @@ test("a container with the block disabled can still reach the metadata address",
     assert.match(health.detail, /metadata block disabled/, health.detail);
   } finally {
     await driver.removeProject("prj_metadata_unblocked").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
+});
+
+test("an egress allowlist lets the named host through and default-denies everything else", {
+  skip: !hasEngine || !liveFirewallTestOptIn,
+}, async () => {
+  const driver = new ContainerRuntimeDriver(previewConfig([4826, 4829]), {
+    blockMetadataEndpoint: false,
+    egressAllowlist: ["registry.npmjs.org"],
+  });
+  try {
+    await driver.ensureProject("prj_egress_allow");
+    // Any exec forces the network and the allowlist rules to be set up.
+    await driver.exec("prj_egress_allow", { command: "true" });
+
+    const allowed = await driver.exec("prj_egress_allow", {
+      command:
+        "node -e \"fetch('https://registry.npmjs.org', {signal: AbortSignal.timeout(5000)})" +
+        ".then(r=>console.log('ALLOWED '+r.status)).catch(e=>console.log('FAILED '+e.message))\"",
+      timeoutMs: 10_000,
+    });
+    assert.match(allowed.stdout, /ALLOWED 200/, allowed.stdout);
+
+    // Not on the list — the point of a default-deny allowlist rather than a
+    // single rule is that anything unnamed is refused, not just the one
+    // address this test happens to check.
+    const denied = await driver.exec("prj_egress_allow", {
+      command:
+        "node -e \"fetch('https://example.com', {signal: AbortSignal.timeout(3000)})" +
+        ".then(()=>console.log('REACHED')).catch(e=>console.log('BLOCKED: '+e.message))\"",
+      timeoutMs: 10_000,
+    });
+    assert.doesNotMatch(denied.stdout, /REACHED/, "an unlisted host was reachable");
+    assert.match(denied.stdout, /BLOCKED/, denied.stdout);
+
+    const health = await driver.health();
+    assert.match(health.detail, /egress allowlist on \(1 host\)/, health.detail);
+  } finally {
+    await driver.removeProject("prj_egress_allow").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
+});
+
+test("no allowlist configured means egress is unrestricted, and health says nothing about it", {
+  skip: !hasEngine || !liveFirewallTestOptIn,
+}, async () => {
+  const driver = new ContainerRuntimeDriver(previewConfig([4831, 4834]), {
+    blockMetadataEndpoint: false,
+  });
+  try {
+    await driver.ensureProject("prj_egress_unset");
+    await driver.exec("prj_egress_unset", { command: "true" });
+
+    const reached = await driver.exec("prj_egress_unset", {
+      command:
+        "node -e \"fetch('https://example.com', {signal: AbortSignal.timeout(5000)})" +
+        ".then(r=>console.log('REACHED '+r.status)).catch(e=>console.log('FAILED '+e.message))\"",
+      timeoutMs: 10_000,
+    });
+    assert.match(reached.stdout, /REACHED/, reached.stdout);
+
+    const health = await driver.health();
+    assert.doesNotMatch(health.detail, /egress allowlist/, health.detail);
+  } finally {
+    await driver.removeProject("prj_egress_unset").catch(() => undefined);
     await driver.dispose().catch(() => undefined);
   }
 });

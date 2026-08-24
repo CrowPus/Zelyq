@@ -155,6 +155,7 @@ Migrations run automatically when the server boots.
 | `ZELYQ_CONTAINER_CPUS` | `2` | CPU ceiling per project container. |
 | `ZELYQ_CONTAINER_ENGINE` | `docker` | The engine binary. `podman` works as a drop-in. |
 | `ZELYQ_CONTAINER_BLOCK_METADATA` | `true` | Set `false` to disable blocking the cloud metadata endpoint. See below. |
+| `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` | — | Comma-separated hostnames; unset means egress is unfiltered. See below. |
 | `ZELYQ_EXEC_TIMEOUT_MS` | `120000` | Hard ceiling on one agent shell command. |
 | `ZELYQ_PREVIEW_PORT_MIN` | `4300` | Start of the preview port range. |
 | `ZELYQ_PREVIEW_PORT_MAX` | `4399` | End of the range — this many concurrent previews. |
@@ -197,15 +198,39 @@ driver and fails there:
   installed, a project can still be created — check `GET /api/health` for `metadata block FAILED`
   rather than assuming the protection held.
 
-**What it does not stop yet, and this matters:**
+**What it does not stop by default, and this matters:**
 
 - **Outbound network access is otherwise not filtered.** `npm install` needs the registry, and
   nothing distinguishes that from anything else the container might reach on your network. Only the
   metadata address above is refused.
 
 So this narrows what an agent command, and now the preview, can reach. **It is
-not yet a complete sandbox and should not be treated as one.** The egress gap
-is being worked on.
+not a complete sandbox by default and should not be treated as one.**
+
+#### Opt-in: a general egress allowlist
+
+`ZELYQ_CONTAINER_EGRESS_ALLOWLIST` closes the rest of the gap, for an operator who wants it:
+
+```env
+ZELYQ_CONTAINER_EGRESS_ALLOWLIST=registry.npmjs.org,github.com
+```
+
+Unset (the default): nothing changes, egress stays unfiltered as described above. Set: project
+containers can reach only the named hosts — everything else on the `zelyq-projects` network is
+default-denied at the same `DOCKER-USER` chain the metadata rule uses, refused immediately rather
+than left to hang. Each hostname is resolved and the result refreshed every five minutes, since a DNS
+TTL is not a promise worth trusting a firewall to.
+
+**There is no Zelyq-maintained default list, on purpose.** `registry.npmjs.org` alone resolves to a
+dozen different addresses behind Cloudflare, and that set is not fixed — a list Zelyq shipped and
+maintained would be a promise about addresses nobody on this team controls, and getting it wrong
+breaks a real `npm install` silently rather than failing safely. This is the operator's list, sized to
+what *your* deployment's projects actually need to reach, checked with `GET /api/health` for
+`egress allowlist FAILED` the same way the metadata rule is.
+
+This still is not a general sandbox: it filters by resolved IP address only, so a CDN fronting both
+an allowed and a disallowed service behind the same address is not distinguished, and there is no TLS
+inspection.
 
 Requires a container engine on the host. Commands cost about **120ms more** each
 — roughly 2.4 seconds across a twenty-command turn, against turns measured in
