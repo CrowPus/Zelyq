@@ -1,3 +1,4 @@
+import type { ToolCall } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
 
 /**
@@ -59,8 +60,15 @@ export interface ConversationOptions {
   systemPrompt: string;
   tools: ToolDefinition[];
   effort: Effort;
-  /** Prior turns as plain text, used to rebuild context after a restart. */
-  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  /**
+   * Prior turns, used to rebuild context after a restart. `toolCalls`
+   * carries what a past assistant turn actually did — each provider
+   * reconstructs its own native tool_use/tool_result shape from it, the
+   * same shape `addToolResults` already builds for a live turn. A turn
+   * that was nothing but tool calls has empty `content`; it is still a
+   * real history entry, not an empty one to be dropped.
+   */
+  history?: Array<{ role: "user" | "assistant"; content: string; toolCalls?: ToolCall[] }>;
 }
 
 export interface ModelProvider {

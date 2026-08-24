@@ -12,6 +12,48 @@ import type {
   TurnResult,
 } from "./types.js";
 
+/**
+ * Rebuilds Gemini's native content history from persisted turns — a pure
+ * function of `history` so it is testable without a real client, the same
+ * way `stream()` and `addToolResults()` build the identical shape for a
+ * live turn. A past assistant turn with tool calls becomes a `model` entry
+ * with a `functionCall` part per call, immediately followed by a `user`
+ * entry with the matching `functionResponse` parts. `callIds` is not
+ * populated for these — it exists to pair a *live* call issued this session
+ * with its result; a restored pair is already fully resolved and never
+ * looked up through it again.
+ */
+export function buildGoogleHistory(
+  history: NonNullable<ConversationOptions["history"]>,
+): Content[] {
+  const contents: Content[] = [];
+  for (const message of history) {
+    if (message.role === "assistant" && message.toolCalls?.length) {
+      const parts: Part[] = [];
+      if (message.content.trim()) parts.push({ text: message.content });
+      for (const call of message.toolCalls) {
+        parts.push({ functionCall: { name: call.name, args: call.input } });
+      }
+      contents.push({ role: "model", parts });
+      contents.push({
+        role: "user",
+        parts: message.toolCalls.map((call) => ({
+          functionResponse: {
+            name: call.name,
+            response: call.isError ? { error: call.result ?? "" } : { output: call.result ?? "" },
+          },
+        })),
+      });
+    } else if (message.content.trim()) {
+      contents.push({
+        role: message.role === "assistant" ? "model" : "user",
+        parts: [{ text: message.content }],
+      });
+    }
+  }
+  return contents;
+}
+
 export class GoogleProvider implements ModelProvider {
   readonly id = "google" as const;
 
@@ -30,7 +72,7 @@ export class GoogleProvider implements ModelProvider {
 }
 
 class GoogleConversation implements Conversation {
-  private readonly contents: Content[] = [];
+  private readonly contents: Content[];
   /**
    * Gemini identifies a function response by name, not by an id it always
    * supplies. We mint stable ids for our own event stream and remember the
@@ -44,13 +86,7 @@ class GoogleConversation implements Conversation {
     private readonly model: string,
     private readonly options: ConversationOptions,
   ) {
-    for (const message of options.history ?? []) {
-      if (!message.content.trim()) continue;
-      this.contents.push({
-        role: message.role === "assistant" ? "model" : "user",
-        parts: [{ text: message.content }],
-      });
-    }
+    this.contents = buildGoogleHistory(options.history ?? []);
   }
 
   addUserMessage(text: string): void {
