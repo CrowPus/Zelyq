@@ -58,12 +58,18 @@ built so that nothing about it is magic and nothing is locked in:
   commands and the dev server preview jailed one container per project. `remote` speaks a
   [documented HTTP protocol](./docs/runtime-protocol.md) to a runtime host, and a reference host
   ships in `apps/runtime-host`; one conformance suite runs against all three drivers, so they are
-  provably interchangeable. **Isolation is partial** — container mode blocks the cloud metadata
-  endpoint by default and does not otherwise filter outbound network access unless you opt into
-  `ZELYQ_CONTAINER_EGRESS_ALLOWLIST`, which you name and maintain yourself. Read
+  provably interchangeable. **Isolation is partial** — container mode always blocks one project's
+  container from reaching another's and blocks the cloud metadata endpoint, but does not otherwise
+  filter outbound network access unless you opt into `ZELYQ_CONTAINER_EGRESS_ALLOWLIST`, which you
+  name and maintain yourself. Read
   [SECURITY.md](./SECURITY.md#threat-model--read-this-before-deploying) before deploying.
-- **Bring your own model key.** Claude or Gemini, chosen with one variable. No proxy, no account, no
-  telemetry.
+- **Bring your own model — cloud or your own machine.** Claude, Gemini, or OpenAI, chosen with one
+  variable and a key. Or point `ZELYQ_PROVIDER=custom` at anything speaking the OpenAI dialect —
+  Ollama, vLLM, LM Studio, a gateway of your own — and nothing about your project ever leaves your
+  network. No proxy, no Zelyq account, no telemetry, either way.
+- **Every turn is a change you can inspect and undo.** A snapshot before each turn, a diff of exactly
+  what changed, one-click revert to any turn — and an audit log of who did what, once more than one
+  person is working on an instance.
 - **Boring, inspectable storage.** SQLite by default (one file), PostgreSQL when you scale. Project
   files are plain files on disk — you can `cd` into them and take them with you.
 
@@ -73,12 +79,13 @@ built so that nothing about it is magic and nothing is locked in:
 it read and edit files, run a live preview — and the interfaces around it were deliberately settled
 first. Expect breaking changes before `1.0`.
 
-Two limits worth knowing before you invest time. **There is no sandbox yet:** the `local` runtime
-runs agent shell commands as your own user, so Zelyq today is for one trusted developer on one
-machine — read the [threat model](./SECURITY.md#threat-model--read-this-before-deploying) before
-deploying it anywhere else. And **files are read-only in the browser** — the agent edits them; you
-cannot yet. See the [roadmap](./docs/roadmap.md) for what is next and what is explicitly out of
-scope.
+Two limits worth knowing before you invest time. **There is no sandbox in `local` mode:** agent shell
+commands run as your own user, so that mode is for one trusted developer on one machine — read the
+[threat model](./SECURITY.md#threat-model--read-this-before-deploying) before deploying it anywhere
+else. And **`container` mode's outbound network access is unfiltered by default** — it blocks the
+cloud metadata endpoint and cross-project reachability, but a project can otherwise reach anything on
+your network unless you opt into `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` yourself. See the
+[roadmap](./docs/roadmap.md) for what is next and what is explicitly out of scope.
 
 ## Quickstart
 
@@ -91,6 +98,7 @@ pnpm install
 cp .env.example .env
 # Claude:  ANTHROPIC_API_KEY=sk-ant-...
 # Gemini:  ZELYQ_PROVIDER=google and GEMINI_API_KEY=...
+# OpenAI, or your own model on your own machine — see Models below
 
 pnpm dev            # builds the libraries, then web :5173 · server :8787 · agent :8788
 ```
@@ -148,9 +156,16 @@ Full detail: [docs/architecture.md](./docs/architecture.md).
 | --- | --- | --- | --- |
 | Claude | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
 | Gemini | `google` | `gemini-3.7-flash` | `GEMINI_API_KEY` |
+| OpenAI | `openai` | `gpt-5.1` | `OPENAI_API_KEY` |
+| Your own — Ollama, vLLM, LM Studio, anything OpenAI-compatible | `custom` | none — set `ZELYQ_MODEL` | none required |
 
-Only the selected provider's key is needed. Adding another provider is a registry entry plus one
-implementation — nothing in the server, the UI, or the tools changes.
+Only the selected provider's key is needed. `custom` also needs `ZELYQ_MODEL_BASE_URL` pointed at your
+endpoint (e.g. `http://localhost:11434/v1` for Ollama) — see [.env.example](./.env.example). Tested
+live against a local, CPU-only 8B model: real tool calls, real self-correction from a validation error,
+same behaviour as the cloud providers — just slower without a GPU.
+
+Adding another provider is a registry entry plus one implementation — nothing in the server, the UI,
+or the tools changes.
 
 ## Local vs. cloud
 
