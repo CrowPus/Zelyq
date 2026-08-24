@@ -241,6 +241,11 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   private egressAllowlistFailure: string | undefined;
   /** Cleared on `dispose()` so refreshing an allowlist never outlives this driver. */
   private egressRefreshTimer: NodeJS.Timeout | undefined;
+  /**
+   * Same memoisation shape as `egressAllowlistReady`, for the opposite case —
+   * see `teardownEgressAllowlist` for why this exists at all.
+   */
+  private egressAllowlistTornDown: Promise<void> | undefined;
 
   constructor(config: RuntimeConfig, options: ContainerOptions = {}) {
     this.local = new LocalRuntimeDriver(config);
@@ -304,7 +309,12 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         : "metadata block on";
     const egressStatus =
       this.egressAllowlist.length === 0
-        ? null
+        ? // A failed teardown means a previous run's rules may still be
+          // active despite nothing being configured now — worth surfacing,
+          // not the silent `null` an intentionally-unfiltered instance gets.
+          this.egressAllowlistFailure
+          ? `egress allowlist teardown FAILED, may still be restricting traffic: ${this.egressAllowlistFailure}`
+          : null
         : this.egressAllowlistFailure
           ? `egress allowlist FAILED: ${this.egressAllowlistFailure}`
           : `egress allowlist on (${this.egressAllowlist.length} host${
@@ -782,6 +792,13 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         await this.ensureEgressAllowlist().catch((error: unknown) => {
           this.egressAllowlistFailure = error instanceof Error ? error.message : String(error);
         });
+      } else {
+        // A driver that starts up with no allowlist must not silently
+        // inherit whatever a *previous* run's allowlist left installed on
+        // the host — see `034` in the council notes, found live.
+        await this.teardownEgressAllowlist().catch((error: unknown) => {
+          this.egressAllowlistFailure = error instanceof Error ? error.message : String(error);
+        });
       }
       await this.engineRun(["rm", "-f", name], 30_000).catch(() => undefined);
       const created = await this.engineRun(
@@ -1061,6 +1078,62 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       });
     }
     return this.egressAllowlistReady;
+  }
+
+  /**
+   * Removes whatever `installEgressAllowlist` above installed, for a driver
+   * that starts up with no allowlist configured — see `034` in the council
+   * notes for why this exists at all: `installEgressAllowlist`'s own doc
+   * calls its rules "permanent once installed," which was true only as long
+   * as an allowlist, once turned on, was never turned off again. That
+   * assumption held until the allowlist became a Settings field an operator
+   * can flip off — found live: a driver restarted with the allowlist
+   * removed left the previous run's `DOCKER-USER` rules in place, rejecting
+   * everything they didn't cover, indistinguishable from "still configured"
+   * to anyone who did not know to check `iptables` directly.
+   *
+   * Best-effort and tolerant of nothing being there to remove — the common
+   * case, an instance that has never enabled this, must not pay for a
+   * teardown of rules that were never installed. `-D` and `ipset destroy`
+   * both fail harmlessly against a rule or set that is already absent.
+   */
+  private teardownEgressAllowlist(): Promise<void> {
+    if (!this.egressAllowlistTornDown) {
+      this.egressAllowlistTornDown = this.removeEgressAllowlist().catch((error: unknown) => {
+        this.egressAllowlistTornDown = undefined;
+        throw error;
+      });
+    }
+    return this.egressAllowlistTornDown;
+  }
+
+  private async removeEgressAllowlist(): Promise<void> {
+    const subnet = await this.networkSubnet();
+    const rejectRules = [
+      ["-s", subnet, "-p", "tcp", "-j", "REJECT", "--reject-with", "tcp-reset"],
+      ["-s", subnet, "-p", "udp", "-j", "REJECT", "--reject-with", "icmp-port-unreachable"],
+    ];
+    const acceptRule = [
+      "-s",
+      subnet,
+      "-m",
+      "set",
+      "--match-set",
+      EGRESS_ALLOW_SET,
+      "dst",
+      "-j",
+      "ACCEPT",
+    ];
+
+    await this.withFirewallHelper(async (execIn) => {
+      // The accept rule first — `ipset destroy` refuses a set a rule still
+      // references, the same ordering `ensureEgressSet` already documents.
+      await execIn(["iptables", "-D", "DOCKER-USER", ...acceptRule]);
+      for (const rejectRule of rejectRules) {
+        await execIn(["iptables", "-D", "DOCKER-USER", ...rejectRule]);
+      }
+      await execIn(["ipset", "destroy", EGRESS_ALLOW_SET]);
+    });
   }
 
   /**
