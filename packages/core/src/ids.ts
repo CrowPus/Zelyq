@@ -19,6 +19,7 @@ export const ID_PREFIXES = {
   message: "msg",
   event: "evt",
   snapshot: "snp",
+  tool: "tol",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
