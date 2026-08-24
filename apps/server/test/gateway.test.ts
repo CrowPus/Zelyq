@@ -322,6 +322,56 @@ test("a provider picked from the chat itself overrides the live setting for that
   assert.equal(stored?.provider, "openai", "the picked provider is remembered on the session row");
 });
 
+test("a specific model picked from the chat reaches the agent, not just its provider's default", async () => {
+  // The picker (`033`) offers Opus, Sonnet, and Haiku as separate choices,
+  // not one "Claude" choice that quietly always uses the default tier.
+  const { cookie } = await register("model-tier-test@example.com");
+
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Model tier test" },
+    })
+  ).json().project;
+
+  agent.created.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        ws.send(
+          JSON.stringify({
+            type: "prompt",
+            message: "hi",
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001",
+          }),
+        );
+      }
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  assert.equal(agent.created[0]?.provider, "anthropic");
+  assert.equal(
+    agent.created[0]?.model,
+    "claude-haiku-4-5-20251001",
+    "the specific model picked must reach the agent, not the provider's own default",
+  );
+});
+
 test("a base URL configured for the live provider is not forwarded to a provider picked instead", async () => {
   // The scenario `033` calls out explicitly: settings has a base URL meant
   // for whatever provider is actually configured (google, here) — picking

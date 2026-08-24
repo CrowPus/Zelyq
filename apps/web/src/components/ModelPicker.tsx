@@ -5,6 +5,9 @@ import { api } from "../lib/api";
 
 export interface ModelChoice {
   provider: string;
+  /** Absent means the provider's own default — never guessed here. */
+  model?: string;
+  /** What the picker's button shows once this is selected. */
   label: string;
 }
 
@@ -16,11 +19,13 @@ interface Props {
 
 /**
  * A per-conversation model switch, styled after Copilot's own `/model` picker
- * — see `033`. Lists only providers this instance can actually use: a key
- * that isn't configured would just fail on the first prompt, so it isn't
- * offered at all. `custom` is deliberately absent — it names an operator's
- * own endpoint and model, not a vendor with a catalog to pick a tier from,
- * so it doesn't fit this picker's shape.
+ * — see `033`. Picking a *model*, not just a vendor: Claude Opus, Sonnet, and
+ * Haiku are three separate rows, not one "Claude" row that quietly always
+ * uses whichever one happens to be the default. A provider with nothing
+ * confirmed in its model catalog (see `032`) is left out entirely — there is
+ * nothing to pick, and offering it anyway would mean guessing a model name
+ * the agent would then refuse. `custom` is absent for the same reason `032`
+ * gives: it names an operator's own endpoint, not a vendor with tiers.
  */
 export function ModelPicker({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);
@@ -30,13 +35,13 @@ export function ModelPicker({ value, onChange }: Props) {
     staleTime: 60_000,
   });
 
-  const options = (providers.data?.providers ?? []).filter(
-    (provider) => provider.configured && provider.id !== "custom",
+  const groups = (providers.data?.providers ?? []).filter(
+    (provider) => provider.configured && provider.id !== "custom" && provider.models?.length,
   );
 
-  // Nothing to switch to — most instances run one configured provider, and a
-  // picker with a single, already-active choice in it is just noise.
-  if (options.length === 0) return null;
+  // Nothing with a real model catalog is configured — most instances run one
+  // provider, and a picker with nothing to switch to is just noise.
+  if (groups.length === 0) return null;
 
   return (
     <div className="relative">
@@ -48,7 +53,7 @@ export function ModelPicker({ value, onChange }: Props) {
         aria-label="Choose a model for this conversation"
         className="flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
       >
-        <span className="max-w-[10rem] truncate">{value?.label ?? "Default"}</span>
+        <span className="max-w-[12rem] truncate">{value?.label ?? "Default"}</span>
         <ChevronDown size={11} strokeWidth={2} />
       </button>
 
@@ -63,46 +68,41 @@ export function ModelPicker({ value, onChange }: Props) {
           />
           <div
             role="menu"
-            className="absolute bottom-full left-0 z-20 mb-1.5 w-56 rounded-lg border border-border-default bg-overlay p-1 shadow-overlay"
+            className="absolute bottom-full left-0 z-20 mb-1.5 max-h-80 w-64 overflow-y-auto rounded-lg border border-border-default bg-overlay p-1 shadow-overlay"
           >
             <MenuRow
               label="Default"
-              detail={
-                providers.data
-                  ? `Currently ${labelFor(providers.data, providers.data.default)}`
-                  : undefined
-              }
+              detail="Whatever this instance is currently set to"
               selected={value === null}
               onClick={() => {
                 onChange(null);
                 setOpen(false);
               }}
             />
-            <div className="my-1 border-t border-border-default" />
-            {options.map((provider) => (
-              <MenuRow
-                key={provider.id}
-                label={provider.label}
-                detail={provider.defaultModel || undefined}
-                selected={value?.provider === provider.id}
-                onClick={() => {
-                  onChange({ provider: provider.id, label: provider.label });
-                  setOpen(false);
-                }}
-              />
+            {groups.map((provider) => (
+              <div key={provider.id} className="mt-1 first:mt-0">
+                <div className="my-1 border-t border-border-default" />
+                <p className="px-2.5 pb-1 text-2xs font-medium tracking-[0.04em] text-fg-muted uppercase">
+                  {provider.label}
+                </p>
+                {provider.models?.map((model) => (
+                  <MenuRow
+                    key={`${provider.id}:${model.value}`}
+                    label={model.label}
+                    selected={value?.provider === provider.id && value.model === model.value}
+                    onClick={() => {
+                      onChange({ provider: provider.id, model: model.value, label: model.label });
+                      setOpen(false);
+                    }}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         </>
       )}
     </div>
   );
-}
-
-function labelFor(
-  providers: { providers: Array<{ id: string; label: string }> },
-  id: string,
-): string {
-  return providers.providers.find((provider) => provider.id === id)?.label ?? id;
 }
 
 function MenuRow({

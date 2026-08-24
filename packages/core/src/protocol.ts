@@ -203,6 +203,12 @@ export const availableProvidersSchema = z.object({
       label: z.string(),
       defaultModel: z.string(),
       configured: z.boolean(),
+      /**
+       * Every known-current model for this vendor — Opus, Sonnet, Haiku, not
+       * just "Claude" — so the picker offers a tier, not only a vendor.
+       * Absent means nothing is confirmed yet for this provider.
+       */
+      models: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
     }),
   ),
 });

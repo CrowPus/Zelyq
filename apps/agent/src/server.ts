@@ -100,6 +100,11 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       apiKeyEnv: provider.apiKeyEnv,
       docsUrl: provider.docsUrl,
       configured: Boolean(apiKeyFromEnv(provider.id)),
+      // What the chat's model picker actually needs (`033`) — every known
+      // model, not just the default, so switching means choosing a tier
+      // (Opus, Sonnet, Haiku…), not just a vendor. Absent for a provider
+      // with nothing confirmed yet — see the registry's own comment on why.
+      ...(provider.models ? { models: provider.models } : {}),
     })),
   }));
 

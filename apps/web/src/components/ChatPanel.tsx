@@ -82,7 +82,10 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
     event.preventDefault();
     const message = draft.trim();
     if (!message || chat.busy) return;
-    chat.send(message, modelChoice ? { provider: modelChoice.provider } : undefined);
+    chat.send(
+      message,
+      modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : undefined,
+    );
     setDraft("");
     textareaRef.current?.focus();
   }
@@ -95,7 +98,22 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
           pulse={chat.busy}
         />
         <h2 className="text-xs font-medium text-fg">Agent</h2>
-        {model && <span className="truncate font-mono text-2xs text-fg-muted">{model}</span>}
+        {/* The picker's own choice is the truth once one is made — showing the
+            instance default here too would contradict it. */}
+        {modelChoice ? (
+          <span className="truncate font-mono text-2xs text-fg-muted" title="Picked for this chat">
+            {modelChoice.label}
+          </span>
+        ) : (
+          model && (
+            <span
+              className="truncate font-mono text-2xs text-fg-muted"
+              title="Instance default — pick a model below to use something else"
+            >
+              {model}
+            </span>
+          )
+        )}
         {chat.tokensIn + chat.tokensOut > 0 && (
           <span className="ml-auto shrink-0 font-mono text-2xs text-fg-muted tabular-nums">
             {formatTokens(chat.tokensIn)} / {formatTokens(chat.tokensOut)}
