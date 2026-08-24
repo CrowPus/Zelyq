@@ -27,7 +27,7 @@ import type {
 
 const DEFAULT_MAX_OUTPUT_BYTES = 512 * 1024;
 const PREVIEW_LOG_LINES = 500;
-const PREVIEW_READY_TIMEOUT_MS = 90_000;
+export const PREVIEW_READY_TIMEOUT_MS = 90_000;
 const MAX_READABLE_FILE_BYTES = 2 * 1024 * 1024;
 /** Sibling of the project roots, so nothing here lands inside a user's project. */
 const PREVIEW_STATE_DIR = ".zelyq-previews";
@@ -56,12 +56,52 @@ async function readManifest(snapshotDir: string): Promise<SnapshotManifest> {
  * moment the dev server dies; liveness is cheap to derive from the pid and the
  * port, and derived state cannot lie.
  */
-interface PreviewRecord {
+export interface PreviewRecord {
   pid: number;
   port: number;
   startedAt: string;
   /** Which Zelyq process spawned it. Useful when reading these by hand. */
   ownerPid: number;
+}
+
+/**
+ * Where a preview's on-disk state lives — a sibling of the project roots, so
+ * nothing here lands inside a user's project or its bind mount.
+ *
+ * Free functions, parameterised by `workspaceDir`, rather than driver methods:
+ * every driver that runs a preview process shares this file layout, so a
+ * record one of them writes is readable by the others instead of each keeping
+ * a layout of its own that can drift.
+ */
+export function previewStateFile(workspaceDir: string, projectId: string): string {
+  return path.join(workspaceDir, PREVIEW_STATE_DIR, `${projectId}.json`);
+}
+export function previewLogFile(workspaceDir: string, projectId: string): string {
+  return path.join(workspaceDir, PREVIEW_STATE_DIR, `${projectId}.log`);
+}
+export async function writePreviewRecord(
+  workspaceDir: string,
+  projectId: string,
+  record: PreviewRecord,
+): Promise<void> {
+  const file = previewStateFile(workspaceDir, projectId);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(record));
+}
+export async function readPreviewRecord(
+  workspaceDir: string,
+  projectId: string,
+): Promise<PreviewRecord | null> {
+  try {
+    return JSON.parse(
+      await fs.readFile(previewStateFile(workspaceDir, projectId), "utf8"),
+    ) as PreviewRecord;
+  } catch {
+    return null;
+  }
+}
+export async function clearPreviewRecord(workspaceDir: string, projectId: string): Promise<void> {
+  await fs.rm(previewStateFile(workspaceDir, projectId), { force: true }).catch(() => undefined);
 }
 
 interface PreviewProcess {
@@ -658,67 +698,23 @@ export class LocalRuntimeDriver implements RuntimeDriver {
    * for.
    */
   private async detectDevCommand(root: string, port: number, host: string): Promise<string> {
-    let manifest: {
-      scripts?: Record<string, string>;
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    } | null = null;
-    try {
-      manifest = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
-    } catch {
-      // No package.json — fall through to a static server.
-    }
-
-    const script = manifest?.scripts?.dev ? "dev" : manifest?.scripts?.start ? "start" : null;
-    if (!script) return `npx --yes serve -l ${port} .`;
-
-    const body = manifest?.scripts?.[script] ?? "";
-    const deps = { ...manifest?.dependencies, ...manifest?.devDependencies };
-    const runner = script === "dev" ? "npm run dev" : "npm start";
-
-    // --strictPort is deliberate. The port was allocated free, so a refusal
-    // means something is genuinely wrong and should be said out loud rather
-    // than drifted around onto a port nobody is watching.
-    if (/\bvite\b/.test(body) || "vite" in deps) {
-      return `${runner} -- --port ${port} --host ${host} --strictPort`;
-    }
-    if (/\bnext\b/.test(body) || "next" in deps) {
-      return `${runner} -- --port ${port} --hostname ${host}`;
-    }
-
-    // react-scripts and anything unrecognised: PORT and HOST in the
-    // environment, as before. This list is not exhaustive and is not pretending
-    // to be — if a tool lands somewhere else, startPreview reads the port out of
-    // its own output and says so, which is what makes an incomplete list safe.
-    return runner;
-  }
-
-  private previewStateFile(projectId: string): string {
-    return path.join(this.workspaceDir, PREVIEW_STATE_DIR, `${projectId}.json`);
+    return await detectDevCommand(root, port, host);
   }
 
   private previewLogFile(projectId: string): string {
-    return path.join(this.workspaceDir, PREVIEW_STATE_DIR, `${projectId}.log`);
+    return previewLogFile(this.workspaceDir, projectId);
   }
 
   private async writePreviewRecord(projectId: string, record: PreviewRecord): Promise<void> {
-    const file = this.previewStateFile(projectId);
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, JSON.stringify(record));
+    await writePreviewRecord(this.workspaceDir, projectId, record);
   }
 
   private async readPreviewRecord(projectId: string): Promise<PreviewRecord | null> {
-    try {
-      return JSON.parse(
-        await fs.readFile(this.previewStateFile(projectId), "utf8"),
-      ) as PreviewRecord;
-    } catch {
-      return null;
-    }
+    return await readPreviewRecord(this.workspaceDir, projectId);
   }
 
   private async clearPreviewRecord(projectId: string): Promise<void> {
-    await fs.rm(this.previewStateFile(projectId), { force: true }).catch(() => undefined);
+    await clearPreviewRecord(this.workspaceDir, projectId);
   }
 
   /**
@@ -900,6 +896,49 @@ export function runCaptured(
   });
 }
 
+/**
+ * The command to start a project's dev server, and the port/host flags to make
+ * it listen where it was told to.
+ *
+ * No `this` dependency — shared as a free function so the container driver can
+ * detect the same command without going through a `LocalRuntimeDriver`.
+ */
+export async function detectDevCommand(root: string, port: number, host: string): Promise<string> {
+  let manifest: {
+    scripts?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  } | null = null;
+  try {
+    manifest = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+  } catch {
+    // No package.json — fall through to a static server.
+  }
+
+  const script = manifest?.scripts?.dev ? "dev" : manifest?.scripts?.start ? "start" : null;
+  if (!script) return `npx --yes serve -l ${port} .`;
+
+  const body = manifest?.scripts?.[script] ?? "";
+  const deps = { ...manifest?.dependencies, ...manifest?.devDependencies };
+  const runner = script === "dev" ? "npm run dev" : "npm start";
+
+  // --strictPort is deliberate. The port was allocated free, so a refusal
+  // means something is genuinely wrong and should be said out loud rather
+  // than drifted around onto a port nobody is watching.
+  if (/\bvite\b/.test(body) || "vite" in deps) {
+    return `${runner} -- --port ${port} --host ${host} --strictPort`;
+  }
+  if (/\bnext\b/.test(body) || "next" in deps) {
+    return `${runner} -- --port ${port} --hostname ${host}`;
+  }
+
+  // react-scripts and anything unrecognised: PORT and HOST in the environment,
+  // as before. This list is not exhaustive and is not pretending to be — if a
+  // tool lands somewhere else, startPreview reads the port out of its own
+  // output and says so, which is what makes an incomplete list safe.
+  return runner;
+}
+
 export function announcedPort(text: string): number | null {
   const match = text.match(/https?:\/\/[^\s/]+:(\d{2,5})\b/);
   if (!match?.[1]) return null;
@@ -907,7 +946,7 @@ export function announcedPort(text: string): number | null {
   return Number.isInteger(port) && port > 0 && port < 65_536 ? port : null;
 }
 
-function stoppedPreview(projectId: string): Preview {
+export function stoppedPreview(projectId: string): Preview {
   return {
     projectId,
     status: "stopped",
@@ -931,7 +970,7 @@ function compareDirents(
  * Killing the process group matters: `npm run dev` spawns the real dev server
  * as a grandchild, and killing only npm leaves the port held forever.
  */
-function killTree(child: ChildProcess): void {
+export function killTree(child: ChildProcess): void {
   if (!child.pid) return;
   try {
     killPidTree(child.pid);
@@ -940,7 +979,7 @@ function killTree(child: ChildProcess): void {
   }
 }
 
-function killPidTree(pid: number): void {
+export function killPidTree(pid: number): void {
   if (process.platform === "win32") {
     spawn("taskkill", ["/pid", String(pid), "/T", "/F"]);
     return;
@@ -956,7 +995,7 @@ function killPidTree(pid: number): void {
 }
 
 /** Signal 0 tests for existence without delivering anything. */
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

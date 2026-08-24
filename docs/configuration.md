@@ -160,10 +160,11 @@ Migrations run automatically when the server boots.
 | `ZELYQ_PREVIEW_HOST` | `127.0.0.1` | Host used in preview URLs. Set to a reachable address when Zelyq runs on a VM or remote host; anything other than loopback also makes project dev servers bind all interfaces. |
 | `ZELYQ_MAX_TURN_ITERATIONS` | `50` | Model round-trips per turn before the loop stops. Raises the ceiling on long builds; also raises the worst-case cost. |
 
-### Running agent commands in a container
+### Running agent commands and the preview in a container
 
 `ZELYQ_RUNTIME=container` is `local` with one difference: **agent shell commands
-run inside a container, one per project**, instead of as the user running Zelyq.
+and the dev server preview run inside a container, one per project**, instead
+of as the user running Zelyq.
 
 ```env
 ZELYQ_RUNTIME=container
@@ -188,11 +189,10 @@ driver and fails there:
   and nothing currently distinguishes that from anything else the container
   might reach — including a cloud provider's metadata endpoint, which commonly
   hands out instance credentials.
-- **The preview still runs on the host.** `npm run dev` executes project code
-  outside the container.
 
-So this narrows what an agent command can reach. **It is not yet a complete
-sandbox and should not be treated as one.** Both gaps are being worked on.
+So this narrows what an agent command, and now the preview, can reach. **It is
+not yet a complete sandbox and should not be treated as one.** The egress gap
+is being worked on.
 
 Requires a container engine on the host. Commands cost about **120ms more** each
 — roughly 2.4 seconds across a twenty-command turn, against turns measured in

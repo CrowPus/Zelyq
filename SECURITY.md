@@ -62,8 +62,8 @@ projects you do not trust.
 
 ### Container mode (`ZELYQ_RUNTIME=container`) — a partial boundary
 
-Agent shell commands run inside a container, one per project, rather than as your user. The project
-is bind-mounted and nothing else from the host is.
+Agent shell commands **and the dev server preview** run inside a container, one per project, rather
+than as your user. The project is bind-mounted and nothing else from the host is.
 
 **What this stops.** Each of these is covered by a test that runs the same probe against local mode
 and requires it to succeed there, so the control cannot pass by accident:
@@ -80,14 +80,12 @@ and requires it to succeed there, so the control cannot pass by accident:
   instance metadata endpoint, which on most providers will hand out credentials to anything that
   asks. Do not run container mode on an instance whose metadata endpoint returns credentials worth
   having until this is addressed.
-- **The preview still runs on the host.** `npm run dev` executes project code as your user, outside
-  the container, exactly as local mode does.
 - Nothing here changes the fact that the agent's prompts and your file contents are still sent to
   your model vendor.
 
-Container mode narrows what an agent command can reach. **It is not a completed sandbox and must
-not be described as one.** Both gaps above are being worked on; until they are closed, the guidance
-for local mode still applies to who you let near the instance.
+Container mode narrows what an agent command, and now the preview, can reach. **It is not a
+completed sandbox and must not be described as one.** The egress gap above is being worked on; until
+it is closed, the guidance for local mode still applies to who you let near the instance.
 
 ### Accounts
 
