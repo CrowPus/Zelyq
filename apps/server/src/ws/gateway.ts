@@ -160,12 +160,15 @@ export class ChatGateway {
 
     const history = await this.store.messages.listForSession(room.sessionId);
     try {
-      const session = await this.store.sessions.findById(room.sessionId);
-
       // Provider, model, and key come from settings, so a key entered in the
       // app reaches the agent. Without this the agent can only work when its
       // own environment happens to hold a key, which makes the settings screen
-      // look like it does nothing.
+      // look like it does nothing. The live value, always — never a session's
+      // own stored one, which is only ever what it happened to be created
+      // with and never updates itself. See `031` in the council notes: every
+      // real session on a real instance stayed pinned to its original
+      // provider forever, exactly because this used to prefer that stored
+      // value over what settings actually say now.
       const provider = await this.settings.value("provider");
       const model = await this.settings.value("model");
       const apiKey = await this.settings.apiKeyFor(provider);
@@ -173,16 +176,20 @@ export class ChatGateway {
       // a self-hosted endpoint can only be reached from the environment.
       const baseUrl = await this.settings.value("modelBaseUrl");
 
-      await this.agent.ensureSession({
+      const state = await this.agent.ensureSession({
         sessionId: room.sessionId,
         projectId: room.projectId,
-        provider: session?.provider ?? provider,
+        provider,
         ...(model ? { model } : {}),
         ...(apiKey ? { apiKey } : {}),
         ...(baseUrl ? { baseUrl } : {}),
         // Everything except the message we just stored — that is the prompt.
         history: history.slice(0, -1),
       });
+      // Keeps the stored row an honest record of what actually ran, rather
+      // than what it happened to be created with — the same gap that let
+      // this go unnoticed in the first place.
+      await this.store.sessions.setModel(room.sessionId, state.provider, state.model);
     } catch (error) {
       // Setup failures are the ones users actually hit (no API key, agent
       // down). Reporting the agent's own message beats letting the turn fail

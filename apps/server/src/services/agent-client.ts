@@ -55,11 +55,26 @@ export class AgentClient {
   }
 
   /**
-   * Makes sure the agent holds this session, creating it only if it does not.
+   * Makes sure the agent holds this session, creating it only if it does not
+   * — or if what it already holds no longer matches what is actually being
+   * asked for.
    *
    * Recreating it on every prompt would throw away the agent's in-memory
    * conversation and force the whole history back over the wire each turn,
-   * which also discards the prompt cache the session was building.
+   * which also discards the prompt cache the session was building. But a
+   * cached session's provider or model is only trustworthy while it matches
+   * what is currently configured — settings can change without a restart,
+   * and reusing a stale session unconditionally is exactly how a changed
+   * provider silently never took effect (found live, not assumed: every
+   * real session on a real instance stayed pinned to whatever provider it
+   * was first created with, forever).
+   *
+   * A session mid-turn is left alone regardless — evicting it to switch
+   * providers underneath an in-flight turn would abort it, a worse failure
+   * than finishing on the provider it started with and picking up the
+   * change on the next prompt. Recreating reuses the same history-from-
+   * persisted-messages path a restart already goes through — see `029` —
+   * so nothing new has to be built to reconstruct it.
    */
   async ensureSession(input: {
     sessionId: string;
@@ -75,7 +90,15 @@ export class AgentClient {
       signal: AbortSignal.timeout(5000),
     }).catch(() => null);
 
-    if (existing?.ok) return (await existing.json()) as AgentSessionState;
+    if (existing?.ok) {
+      const state = (await existing.json()) as AgentSessionState;
+      const changed =
+        (input.provider !== undefined && input.provider !== state.provider) ||
+        (input.model !== undefined && input.model !== state.model);
+      if (!changed || state.busy) return state;
+      await this.destroySession(input.sessionId);
+    }
+
     return await this.createSession(input);
   }
 
