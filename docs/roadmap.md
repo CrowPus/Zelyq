@@ -20,10 +20,11 @@ something a team can adopt.** Quality first, then the change record, then the de
 
 ## Now — quality you can measure
 
-- [ ] Close the verification loop: when files changed, run the typecheck and read the preview logs
-      automatically, and feed a failure back into the turn instead of ending it. The system prompt
-      asks the model to verify; nothing makes it. This is the largest single source of "it built me
-      something broken"
+- [x] Close the verification loop: when files changed, run the typecheck and read the preview logs
+      automatically, and feed a failure back into the turn instead of ending it. See
+      [docs/agent-behaviour.md](../docs/agent-behaviour.md#automatic-verification) — a project with
+      neither a `typecheck` nor a `build` script gets no automatic check, and a preview that stays
+      "running" is treated as passing, not proven correct
 - [x] Editable code view — write files back from the browser, not just read them
 - [x] Reconcile preview state across a server restart, and between the agent and the server, which
       each hold their own driver

@@ -11,11 +11,37 @@ prompt
         └─ tool_use blocks?
               ├─ yes → run them concurrently, return every result in one user
               │        message, loop
-              └─ no  → turn ends
+              └─ no  → files changed since the last check?
+                          ├─ yes → run it (see below); found a problem?
+                          │           ├─ yes → hand it back, loop
+                          │           └─ no  → turn ends
+                          └─ no  → turn ends
 ```
 
 Bounded by `ZELYQ_MAX_TURN_ITERATIONS` (default 50). Hitting the cap ends the turn cleanly rather
-than looping forever.
+than looping forever — a verification round-trip counts against this cap the same as any other tool
+call.
+
+## Automatic verification
+
+The system prompt asks the model to verify its own work; nothing forced that until `session.ts`
+gained a gate at the one point that matters — the moment the model stops asking for tools. When files
+changed since the last check, `AgentSession` runs the project's own `typecheck` script (falling back
+to `build`, which the scaffolded template also typechecks through) and, if the preview crashed, reads
+its log — the same convention `detectDevCommand` uses for reading a project's actual `package.json`
+rather than assuming a command exists. A project with neither script, or that never changed a file,
+gets no automatic step at all: it shows up in the transcript as a `verify` tool call only when there
+was something to check.
+
+**This is not proof the app renders correctly.** `previewStatus === "running"` is treated as passing,
+honestly: Vite recovers from many build errors without exiting, so this catches a dead process and a
+type error, not every possible broken render. A full headless-browser check exists in the eval
+harness (`apps/agent/evals`) for measuring that; bringing an equivalent check into every live turn is
+a larger, slower project, not something this gate does.
+
+A failure is handed back as a user-turn message rather than a tool result, because there is no
+`tool_use` id to attach one to — the model's last message had none, which is exactly why the gate
+fired.
 
 ## The three inputs that shape behaviour
 

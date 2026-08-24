@@ -1,4 +1,4 @@
-import { type AgentEvent, type Message, newId, type ToolCall } from "@zelyq/core";
+import { type AgentEvent, type Message, newId, type Preview, type ToolCall } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import { executeTool, type ToolContext, toolDefinitions } from "@zelyq/tools";
 import { buildSystemPrompt } from "./prompt.js";
@@ -126,6 +126,11 @@ export class AgentSession {
 
     const messageId = newId("message");
     const changedFiles = new Set<string>();
+    // Set whenever a file changes, cleared once a check has actually run —
+    // survives across iterations, unlike changedFiles itself, so the check
+    // at the bottom of this loop knows whether anything has changed since
+    // the last one, not just in the iteration that just finished.
+    let verificationNeeded = false;
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -183,7 +188,35 @@ export class AgentSession {
           break;
         }
 
-        if (result.toolCalls.length === 0) break;
+        if (result.toolCalls.length === 0) {
+          if (verificationNeeded) {
+            verificationNeeded = false;
+            const check = await this.needsVerification(toolContext);
+            if (check) {
+              const call: ToolCall = { id: newId("tool"), name: "verify", input: {} };
+              emit({ type: "tool.start", sessionId: this.id, messageId, call });
+              const startedAt = Date.now();
+              const outcome = await this.runVerification(toolContext, check);
+              const finished: ToolCall = {
+                ...call,
+                result: outcome.output.slice(0, 4000),
+                isError: outcome.failed,
+                durationMs: Date.now() - startedAt,
+              };
+              emit({ type: "tool.end", sessionId: this.id, messageId, call: finished });
+              toolCalls.push(finished);
+
+              if (outcome.failed) {
+                this.conversation.addUserMessage(
+                  `Automatic verification found a problem before this turn ended:\n\n${outcome.output}\n\n` +
+                    "Fix it, or explain why you can't, before finishing.",
+                );
+                continue;
+              }
+            }
+          }
+          break;
+        }
 
         // Tool calls in one assistant turn are independent: run them
         // concurrently and return every result together.
@@ -219,6 +252,7 @@ export class AgentSession {
         this.conversation.addToolResults(results);
 
         if (changedFiles.size > 0) {
+          verificationNeeded = true;
           emit({ type: "files.changed", sessionId: this.id, paths: [...changedFiles] });
           changedFiles.clear();
         }
@@ -262,5 +296,73 @@ export class AgentSession {
       this.busy = false;
       this.abortController = null;
     }
+  }
+
+  /**
+   * Whether there is anything for `runVerification` to actually do — checked
+   * before emitting a `tool.start`, so a project with no typecheck/build
+   * script and a preview that has not crashed produces no visible step at
+   * all. Follows the same convention `detectDevCommand` uses for reading a
+   * project's own `package.json` rather than assuming a command: a project
+   * opened from someone's own repository is not guaranteed to have either
+   * script, and guessing one is worse than checking nothing.
+   */
+  private async needsVerification(
+    context: ToolContext,
+  ): Promise<{ script: "typecheck" | "build" | null; crashedPreview: Preview | null } | null> {
+    let script: "typecheck" | "build" | null = null;
+    try {
+      const pkg = await context.runtime.readFile(context.projectId, "package.json");
+      const manifest = JSON.parse(pkg.content) as { scripts?: Record<string, string> };
+      script = manifest.scripts?.typecheck ? "typecheck" : manifest.scripts?.build ? "build" : null;
+    } catch {
+      // No package.json, or it does not parse as one — nothing to typecheck.
+    }
+
+    const preview = await context.runtime.previewStatus(context.projectId).catch(() => null);
+    const crashedPreview = preview?.status === "crashed" ? preview : null;
+
+    if (!script && !crashedPreview) return null;
+    return { script, crashedPreview };
+  }
+
+  /**
+   * Runs the typecheck/build script this project actually declares, and
+   * reads the preview's own log when it crashed. A preview that is merely
+   * `"running"` is treated as passing — honestly, not as proof of
+   * correctness: Vite recovers from many build errors without exiting, so
+   * this catches a dead process, not every possible broken render.
+   */
+  private async runVerification(
+    context: ToolContext,
+    check: { script: "typecheck" | "build" | null; crashedPreview: Preview | null },
+  ): Promise<{ output: string; failed: boolean }> {
+    const parts: string[] = [];
+    let failed = false;
+
+    if (check.script) {
+      const result = await context.runtime.exec(context.projectId, {
+        command: `npm run ${check.script}`,
+        timeoutMs: 120_000,
+      });
+      if (result.exitCode !== 0) {
+        failed = true;
+        const output = [result.stdout, result.stderr].filter((s) => s.trim()).join("\n");
+        parts.push(`npm run ${check.script} failed (exit ${result.exitCode}):\n${output}`);
+      }
+    }
+
+    if (check.crashedPreview) {
+      failed = true;
+      const logs = await context.runtime.previewLogs(context.projectId, 40);
+      parts.push(
+        `The preview crashed: ${check.crashedPreview.lastError ?? "unknown error"}\n\n${logs}`,
+      );
+    }
+
+    return {
+      failed,
+      output: failed ? parts.join("\n\n") : "Typecheck and the preview both look fine.",
+    };
   }
 }
