@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SettingField } from "@zelyq/core";
-import { CircleAlert, Lock, RotateCw, ShieldCheck } from "lucide-react";
+import { CircleAlert, Lock, RotateCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, Input, Spinner } from "../components/ui";
+import { Badge, Button, IconButton, Input, Spinner } from "../components/ui";
+import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 
 type Draft = Record<string, string | number | boolean>;
@@ -16,10 +17,18 @@ type Draft = Record<string, string | number | boolean>;
  */
 export function SettingsPage() {
   const queryClient = useQueryClient();
+  const { user } = useSession();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
+  const users = useQuery({ queryKey: ["users"], queryFn: api.listUsers });
   const [draft, setDraft] = useState<Draft>({});
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  const deleteUser = useMutation({
+    mutationFn: (id: string) => api.deleteUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+    onError: (caught) => setError((caught as Error).message),
+  });
 
   const save = useMutation({
     mutationFn: () => api.updateSettings(draft),
@@ -98,6 +107,63 @@ export function SettingsPage() {
               </div>
             </section>
           ))}
+
+          <section className="mt-7">
+            <h2 className="text-sm font-medium text-fg">Users</h2>
+            <p className="mt-0.5 text-xs text-fg-secondary">
+              Everyone with an account on this instance, across every team.
+            </p>
+
+            <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
+              {users.isLoading && (
+                <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-muted">
+                  <Spinner /> Loading users…
+                </div>
+              )}
+              {users.data?.users.map((account) => (
+                <div
+                  key={account.id}
+                  className="flex items-center gap-3 border-b border-border-default px-4 py-2.5 last:border-b-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-fg">
+                      {account.name}
+                      {account.id === user?.id && (
+                        <span className="ml-1.5 text-xs text-fg-muted">(you)</span>
+                      )}
+                      {account.instanceRole === "admin" && (
+                        <span className="ml-1.5 inline-block">
+                          <Badge tone="neutral">instance admin</Badge>
+                        </span>
+                      )}
+                    </p>
+                    <p className="truncate font-mono text-2xs text-fg-muted">{account.email}</p>
+                  </div>
+                  <span className="shrink-0 text-2xs text-fg-muted">
+                    joined {new Date(account.createdAt).toLocaleDateString()}
+                  </span>
+                  {account.id !== user?.id && (
+                    <IconButton
+                      size="sm"
+                      variant="danger"
+                      label={`Delete ${account.name}`}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Delete ${account.name} (${account.email})? This removes their account and anything only they could reach. This cannot be undone.`,
+                          )
+                        ) {
+                          deleteUser.mutate(account.id);
+                        }
+                      }}
+                    >
+                      <Trash2 size={13} strokeWidth={1.75} />
+                    </IconButton>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
 
           {error && (
             <p className="mt-5 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">

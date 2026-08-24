@@ -198,6 +198,32 @@ test("the last instance administrator cannot be deleted", async () => {
   assert.match(response.json().error.message, /last instance administrator/i);
 });
 
+test("listing users is admin-only, and lists every account on the instance", async () => {
+  const { cookie: adminCookie } = await signInAsInstanceOwner();
+  const { cookie: memberCookie } = await register("regular-member@example.com");
+
+  const refused = await server.app.inject({
+    method: "GET",
+    url: "/api/users",
+    headers: { cookie: memberCookie },
+  });
+  assert.equal(refused.statusCode, 403, refused.body);
+
+  const listed = await server.app.inject({
+    method: "GET",
+    url: "/api/users",
+    headers: { cookie: adminCookie },
+  });
+  assert.equal(listed.statusCode, 200, listed.body);
+  const emails = listed.json().users.map((account: { email: string }) => account.email);
+  assert.ok(emails.includes("owner@example.com"));
+  assert.ok(emails.includes("regular-member@example.com"));
+  // Never sent to the browser, admin or not.
+  for (const account of listed.json().users) {
+    assert.ok(!("passwordHash" in account), "password hash leaked to the client");
+  }
+});
+
 async function signInAsInstanceOwner(): Promise<{ cookie: string }> {
   const response = await server.app.inject({
     method: "POST",
