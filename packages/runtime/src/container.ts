@@ -61,19 +61,34 @@ import type {
  * `docker-proxy` accepts the handshake itself. Confirmed against a real
  * container before this was written, not guessed at; see `probeInContainer`.
  *
+ * Project containers share one dedicated network with inter-container
+ * communication disabled, rather than Docker's default bridge. Verified live
+ * before this was written, not assumed: on the default bridge, one project's
+ * container can reach another's — connect to its internal IP and port
+ * directly, no publishing required — which is a cross-*tenant* leak on the
+ * exact deployment `023` exists for. `enable_icc=false` closes it while
+ * leaving each container's own route to the real internet untouched.
+ *
  * ## What this does not do yet
  *
- * **Egress is not filtered.** A container on the default bridge can still reach
- * the network the host sits on, including the cloud metadata endpoint that
- * hands out instance credentials on most providers. That is the third step of
- * `023` and nothing here should be described as a completed sandbox until it
- * lands.
+ * **Egress is not filtered.** A container can still reach the network the
+ * host sits on, including the cloud metadata endpoint that hands out
+ * instance credentials on most providers. That is the next step of `023` and
+ * nothing here should be described as a completed sandbox until it lands.
  */
 
 const DEFAULT_IMAGE = "node:22-bookworm-slim";
 const DEFAULT_MEMORY = "2g";
 const DEFAULT_CPUS = "2";
 const DEFAULT_PIDS = 512;
+/**
+ * One network, shared by every project this driver ever creates a container
+ * for — including across separate Zelyq processes on the same host. Sharing
+ * it is safe rather than a shortcut: `enable_icc=false` only ever removes
+ * reachability, never grants it, so two unrelated Zelyq instances on one
+ * machine are no worse off sharing this network than each having their own.
+ */
+const DEFAULT_NETWORK = "zelyq-projects";
 /** Long enough for `docker run` to pull on a cold cache. */
 const ENGINE_TIMEOUT_MS = 300_000;
 
@@ -84,6 +99,8 @@ export interface ContainerOptions {
   pidsLimit?: number;
   /** The `docker` binary, or a drop-in such as `podman`. */
   engine?: string;
+  /** The network project containers attach to. Rarely worth changing. */
+  network?: string;
 }
 
 export class ContainerRuntimeDriver implements RuntimeDriver {
@@ -96,6 +113,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   private readonly cpus: string;
   private readonly pidsLimit: number;
   private readonly engine: string;
+  private readonly network: string;
   private readonly execTimeoutMs: number;
   private readonly portRange: [number, number];
   /** What the preview URL names — the address a browser on this machine reaches it at. */
@@ -130,6 +148,15 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * the same lock nested inside itself would never resolve.
    */
   private readonly previewLocks = new Map<string, Promise<unknown>>();
+  /**
+   * Memoised so the network is created at most once per process rather than
+   * once per project — `docker network create` on a name that already exists
+   * is an error, not a no-op, so every caller has to share one attempt rather
+   * than each trying its own. `undefined` until the first project needs it;
+   * cleared on failure so a transient docker error does not permanently wedge
+   * every container creation for the rest of the process's life.
+   */
+  private networkReady: Promise<void> | undefined;
 
   constructor(config: RuntimeConfig, options: ContainerOptions = {}) {
     this.local = new LocalRuntimeDriver(config);
@@ -146,6 +173,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     this.cpus = options.cpus ?? DEFAULT_CPUS;
     this.pidsLimit = options.pidsLimit ?? DEFAULT_PIDS;
     this.engine = options.engine ?? "docker";
+    this.network = options.network ?? DEFAULT_NETWORK;
   }
 
   /**
@@ -629,6 +657,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     await this.withProjectLock(projectId, async () => {
       if (this.hasWhatWeNeed(projectId, publishPort)) return;
 
+      await this.ensureNetwork();
       await this.engineRun(["rm", "-f", name], 30_000).catch(() => undefined);
       const created = await this.engineRun(
         this.runArgs(name, root, publishPort),
@@ -654,6 +683,59 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   }
 
   /**
+   * The dedicated, `enable_icc=false` network every project container joins.
+   * Idempotent: `docker network create` on an existing name is an error, so
+   * "already exists" is treated as success rather than propagated. Memoised
+   * on `networkReady` so concurrent callers — different projects racing their
+   * very first container — share one attempt instead of each making their
+   * own; a failed attempt clears the memo so the next call tries again rather
+   * than every container creation failing for the rest of the process.
+   */
+  private ensureNetwork(): Promise<void> {
+    if (!this.networkReady) {
+      this.networkReady = this.createNetworkIfMissing().catch((error: unknown) => {
+        this.networkReady = undefined;
+        throw error;
+      });
+    }
+    return this.networkReady;
+  }
+
+  private async createNetworkIfMissing(): Promise<void> {
+    const exists = await this.engineRun(["network", "inspect", this.network], 10_000);
+    if (exists.exitCode === 0) return;
+
+    const created = await this.engineRun(
+      [
+        "network",
+        "create",
+        // The whole point: one project's container must not be able to reach
+        // another's. Verified live before this was written — on the default
+        // bridge, a second container could connect to the first's internal
+        // port directly, no publishing required, which is a cross-tenant leak
+        // on the exact deployment this driver exists for.
+        "--opt",
+        "com.docker.network.bridge.enable_icc=false",
+        this.network,
+      ],
+      30_000,
+    );
+    if (created.exitCode === 0) return;
+
+    // Lost a race with another process creating the same network at the same
+    // moment — not a failure, the network exists either way now.
+    const raced = await this.engineRun(["network", "inspect", this.network], 10_000);
+    if (raced.exitCode === 0) return;
+
+    throw new ZelyqError(
+      "runtime_unavailable",
+      `Could not create the "${this.network}" network: ${
+        firstLine(created.stderr) || firstLine(created.stdout) || "unknown error"
+      }`,
+    );
+  }
+
+  /**
    * Every flag here is a decision, and the first one is the one that breaks.
    */
   private runArgs(name: string, root: string, publishPort?: number): string[] {
@@ -665,6 +747,10 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       ...(publishPort !== undefined
         ? ["--publish", `${this.previewBindHost}:${publishPort}:${publishPort}`]
         : []),
+      // Not the default bridge. One project must not be able to reach
+      // another's container — see the class doc and `ensureNetwork`.
+      "--network",
+      this.network,
       // Files the agent writes must be owned by the user Zelyq runs as. Without
       // this they come out root-owned on the host and Zelyq can no longer read
       // its own workspace — the single most common way this design fails.

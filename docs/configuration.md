@@ -180,6 +180,8 @@ driver and fails there:
 
 - reading another project's files, or anything else on the host
 - reaching a service on the host's loopback — an internal admin API, a database
+- reaching another project's container over the network — every project shares one dedicated
+  network with inter-container communication disabled
 - a runaway build taking the machine down (memory, CPU and process limits)
 - privilege escalation (`--cap-drop=ALL`, `no-new-privileges`, read-only root)
 
