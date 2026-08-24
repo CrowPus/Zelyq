@@ -145,7 +145,14 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     const changeRequired = !expectsNoWrites && !evalCase.noChangeIsValid;
     const checks: Check[] = changeRequired
       ? [...evalCase.checks, { kind: "changed_something" }]
-      : evalCase.checks;
+      : [...evalCase.checks];
+
+    // A case that asserts `preview` is asserting that the app runs, and
+    // `preview` cannot tell a running app from a white screen. Appended next to
+    // it rather than written into each case, for the same reason: a check that
+    // has to be remembered is one that will be missed.
+    const wantsPreview = evalCase.checks.some((check) => check.kind === "preview");
+    if (wantsPreview) checks.push({ kind: "renders" });
 
     for (const check of checks) {
       result.checks.push(await runCheck(check, context));
