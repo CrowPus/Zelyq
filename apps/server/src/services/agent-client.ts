@@ -1,7 +1,9 @@
 import {
   type AgentEvent,
   type AgentSessionState,
+  type AvailableProviders,
   agentEventSchema,
+  availableProvidersSchema,
   type Message,
   ZelyqError,
 } from "@zelyq/core";
@@ -22,6 +24,17 @@ export class AgentClient {
     });
     if (!response.ok) throw new ZelyqError("runtime_unavailable", "Agent service is unhealthy");
     return (await response.json()) as { status: string };
+  }
+
+  /** What the chat's model picker offers — see `033`. */
+  async listProviders(): Promise<AvailableProviders> {
+    const response = await fetch(`${this.baseUrl}/providers`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      throw new ZelyqError("runtime_unavailable", "Agent service is unhealthy");
+    }
+    return availableProvidersSchema.parse(await response.json());
   }
 
   async createSession(input: {

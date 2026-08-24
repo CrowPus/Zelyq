@@ -127,10 +127,18 @@ export class ChatGateway {
       return;
     }
 
-    await this.runTurn(room, message.message);
+    await this.runTurn(room, message.message, {
+      provider: message.provider,
+      model: message.model,
+    });
   }
 
-  private async runTurn(room: Room, prompt: string): Promise<void> {
+  private async runTurn(
+    room: Room,
+    prompt: string,
+    /** Picked from the chat's own model control, if at all — see `033`. */
+    override: { provider?: string; model?: string } = {},
+  ): Promise<void> {
     if (room.turn) {
       this.broadcast(room, {
         type: "error",
@@ -169,12 +177,21 @@ export class ChatGateway {
       // real session on a real instance stayed pinned to its original
       // provider forever, exactly because this used to prefer that stored
       // value over what settings actually say now.
-      const provider = await this.settings.value("provider");
-      const model = await this.settings.value("model");
+      const settingsProvider = await this.settings.value("provider");
+      // A pick from the chat's own model control (`033`) wins over the
+      // instance default for this turn onward. Omitted means what it always
+      // meant: the live setting.
+      const provider = override.provider ?? settingsProvider;
+      const pickedDifferentProvider = provider !== settingsProvider;
       const apiKey = await this.settings.apiKeyFor(provider);
-      // Without this a base URL entered in Settings is stored and ignored, and
-      // a self-hosted endpoint can only be reached from the environment.
-      const baseUrl = await this.settings.value("modelBaseUrl");
+      // Settings' own `model` and `modelBaseUrl` were configured for
+      // whichever provider settings actually names — forwarding either to a
+      // different provider picked from the chat would redirect it to a
+      // model or endpoint that was never meant for it. Left empty here, the
+      // agent falls back to that provider's own registry default (`032`).
+      const model =
+        override.model ?? (pickedDifferentProvider ? "" : await this.settings.value("model"));
+      const baseUrl = pickedDifferentProvider ? "" : await this.settings.value("modelBaseUrl");
 
       const state = await this.agent.ensureSession({
         sessionId: room.sessionId,

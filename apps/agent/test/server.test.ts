@@ -94,6 +94,16 @@ test("the providers endpoint reports what this instance can use", async () => {
   for (const provider of body.providers) {
     assert.equal(typeof provider.configured, "boolean");
   }
+
+  // The picker (`033`) needs a specific model to pick, not just a vendor —
+  // Opus, Sonnet, and Haiku are three choices, not one "Claude" choice.
+  const anthropic = body.providers.find((provider: { id: string }) => provider.id === "anthropic");
+  assert.ok(anthropic.models?.length >= 3, "Claude's known tiers must be listed");
+  assert.ok(anthropic.models.some((model: { value: string }) => model.value === "claude-opus-5"));
+
+  // A vendor with nothing confirmed yet must not invent a model list either.
+  const xai = body.providers.find((provider: { id: string }) => provider.id === "xai");
+  assert.equal(xai.models, undefined);
 });
 
 test("prompting an unknown session is a 404, not a crash", async () => {
