@@ -77,7 +77,16 @@ export interface ModelProvider {
   createConversation(options: ConversationOptions): Conversation;
 }
 
-export type ProviderId = "anthropic" | "google" | "openai" | "custom";
+export type ProviderId =
+  | "anthropic"
+  | "google"
+  | "openai"
+  | "xai"
+  | "deepseek"
+  | "mistral"
+  | "groq"
+  | "openrouter"
+  | "custom";
 
 export interface ProviderConfig {
   provider: ProviderId;

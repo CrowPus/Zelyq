@@ -121,7 +121,17 @@ export type Message = z.infer<typeof messageSchema>;
  * base URL the operator supplies — Ollama, vLLM, LM Studio, an in-house
  * gateway. It is the option that lets a team keep its code on its own network.
  */
-export const providerIdSchema = z.enum(["anthropic", "google", "openai", "custom"]);
+export const providerIdSchema = z.enum([
+  "anthropic",
+  "google",
+  "openai",
+  "xai",
+  "deepseek",
+  "mistral",
+  "groq",
+  "openrouter",
+  "custom",
+]);
 export type ProviderId = z.infer<typeof providerIdSchema>;
 
 export const effortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);

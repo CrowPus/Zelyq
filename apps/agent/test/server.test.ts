@@ -80,7 +80,17 @@ test("the providers endpoint reports what this instance can use", async () => {
   const body = response.json();
   assert.equal(body.default, "anthropic");
   const ids = body.providers.map((provider: { id: string }) => provider.id);
-  assert.deepEqual(ids.sort(), ["anthropic", "custom", "google", "openai"]);
+  assert.deepEqual(ids.sort(), [
+    "anthropic",
+    "custom",
+    "deepseek",
+    "google",
+    "groq",
+    "mistral",
+    "openai",
+    "openrouter",
+    "xai",
+  ]);
   for (const provider of body.providers) {
     assert.equal(typeof provider.configured, "boolean");
   }

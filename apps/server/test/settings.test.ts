@@ -400,3 +400,62 @@ test("registration can be closed from settings, and takes effect at once", async
   });
   assert.equal(allowed.statusCode, 201);
 });
+
+test("the model field suggests the current provider's known models, not a fixed list", async () => {
+  const modelField = (body: { groups: Array<{ fields: Array<Record<string, unknown>> }> }) =>
+    body.groups.flatMap((group) => group.fields).find((field) => field.key === "model");
+
+  try {
+    const anthropic = (
+      await server.app.inject({
+        method: "GET",
+        url: "/api/settings",
+        headers: { cookie: adminCookie },
+      })
+    ).json();
+    assert.deepEqual(modelField(anthropic)?.suggestions, [
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-haiku-4-5-20251001",
+    ]);
+
+    await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+      payload: { provider: "openai" },
+    });
+    const openai = (
+      await server.app.inject({
+        method: "GET",
+        url: "/api/settings",
+        headers: { cookie: adminCookie },
+      })
+    ).json();
+    assert.deepEqual(modelField(openai)?.suggestions, ["gpt-5.1"]);
+
+    await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+      payload: { provider: "groq" },
+    });
+    const groq = (
+      await server.app.inject({
+        method: "GET",
+        url: "/api/settings",
+        headers: { cookie: adminCookie },
+      })
+    ).json();
+    // Nothing confirmed for Groq yet — the field must stay free text with no
+    // suggestions, not a guessed one.
+    assert.equal(modelField(groq)?.suggestions, undefined);
+  } finally {
+    await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+      payload: { provider: null },
+    });
+  }
+});

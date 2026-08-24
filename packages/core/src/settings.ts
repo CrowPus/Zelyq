@@ -31,6 +31,13 @@ export const settingFieldSchema = z.object({
   restartRequired: z.boolean(),
   options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
   placeholder: z.string().optional(),
+  /**
+   * Known-current values for a free-text field — a model name, for instance
+   * — offered as suggestions rather than a closed set. Unlike `options`,
+   * typing anything else is still valid: the field stays free text so a
+   * model newer than this list is never blocked.
+   */
+  suggestions: z.array(z.string()).optional(),
 });
 export type SettingField = z.infer<typeof settingFieldSchema>;
 

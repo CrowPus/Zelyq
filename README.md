@@ -63,10 +63,10 @@ built so that nothing about it is magic and nothing is locked in:
   filter outbound network access unless you opt into `ZELYQ_CONTAINER_EGRESS_ALLOWLIST`, which you
   name and maintain yourself. Read
   [SECURITY.md](./SECURITY.md#threat-model--read-this-before-deploying) before deploying.
-- **Bring your own model — cloud or your own machine.** Claude, Gemini, or OpenAI, chosen with one
-  variable and a key. Or point `ZELYQ_PROVIDER=custom` at anything speaking the OpenAI dialect —
-  Ollama, vLLM, LM Studio, a gateway of your own — and nothing about your project ever leaves your
-  network. No proxy, no Zelyq account, no telemetry, either way.
+- **Bring your own model — cloud or your own machine.** Claude, Gemini, OpenAI, DeepSeek, Mistral,
+  Grok, Groq, or OpenRouter, chosen with one variable and a key. Or point `ZELYQ_PROVIDER=custom` at
+  anything speaking the OpenAI dialect — Ollama, vLLM, LM Studio, a gateway of your own — and nothing
+  about your project ever leaves your network. No proxy, no Zelyq account, no telemetry, either way.
 - **Every turn is a change you can inspect and undo.** A snapshot before each turn, a diff of exactly
   what changed, one-click revert to any turn — and an audit log of who did what, once more than one
   person is working on an instance.
@@ -157,6 +157,11 @@ Full detail: [docs/architecture.md](./docs/architecture.md).
 | Claude | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
 | Gemini | `google` | `gemini-3.7-flash` | `GEMINI_API_KEY` |
 | OpenAI | `openai` | `gpt-5.1` | `OPENAI_API_KEY` |
+| DeepSeek | `deepseek` | `deepseek-chat` | `DEEPSEEK_API_KEY` |
+| Mistral | `mistral` | `mistral-large-latest` | `MISTRAL_API_KEY` |
+| Grok (xAI) | `xai` | none — set `ZELYQ_MODEL` | `XAI_API_KEY` |
+| Groq | `groq` | none — set `ZELYQ_MODEL` | `GROQ_API_KEY` |
+| OpenRouter | `openrouter` | none — set `ZELYQ_MODEL` | `OPENROUTER_API_KEY` |
 | Your own — Ollama, vLLM, LM Studio, anything OpenAI-compatible | `custom` | none — set `ZELYQ_MODEL` | none required |
 
 Only the selected provider's key is needed. `custom` also needs `ZELYQ_MODEL_BASE_URL` pointed at your

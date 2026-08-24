@@ -36,6 +36,16 @@ export interface ProviderInfo {
   baseUrlEnv?: string;
   /** A key is optional for endpoints on your own network, which usually have none. */
   apiKeyOptional?: boolean;
+  /**
+   * Known-current models for this vendor, offered as suggestions in the
+   * settings screen — never a closed set, since `model` stays free text.
+   * Kept deliberately short: only names actually confirmed, not a vendor's
+   * full catalog guessed at. Absent entirely (as for the OpenAI-dialect
+   * vendors below with no default) means there is nothing yet confirmed to
+   * suggest — add to this list only once a name is verified, the same
+   * standard the rest of this project holds evidence to.
+   */
+  models?: Array<{ value: string; label: string }>;
 }
 
 /**
@@ -50,6 +60,11 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     defaultModel: "claude-opus-5",
     apiKeyEnv: ["ANTHROPIC_API_KEY"],
     docsUrl: "https://console.anthropic.com/settings/keys",
+    models: [
+      { value: "claude-opus-5", label: "Claude Opus 5 — most capable" },
+      { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced" },
+      { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fastest" },
+    ],
   },
   google: {
     id: "google",
@@ -57,6 +72,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     defaultModel: "gemini-3.7-flash",
     apiKeyEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     docsUrl: "https://aistudio.google.com/apikey",
+    models: [{ value: "gemini-3.7-flash", label: "Gemini 3.7 Flash" }],
   },
   openai: {
     id: "openai",
@@ -66,6 +82,66 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://platform.openai.com/api-keys",
     baseUrl: "https://api.openai.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    models: [{ value: "gpt-5.1", label: "GPT-5.1" }],
+  },
+  xai: {
+    id: "xai",
+    label: "Grok (xAI)",
+    defaultModel: "",
+    apiKeyEnv: ["XAI_API_KEY"],
+    docsUrl: "https://console.x.ai",
+    baseUrl: "https://api.x.ai/v1",
+    baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    // No default yet: no xAI model name confirmed against a real account.
+    // A hosted vendor guessing wrong here fails exactly like `custom` does
+    // when it has no model — same choice, same reason, not an oversight.
+  },
+  deepseek: {
+    id: "deepseek",
+    label: "DeepSeek",
+    defaultModel: "deepseek-chat",
+    apiKeyEnv: ["DEEPSEEK_API_KEY"],
+    docsUrl: "https://platform.deepseek.com/api_keys",
+    baseUrl: "https://api.deepseek.com/v1",
+    baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    models: [{ value: "deepseek-chat", label: "DeepSeek Chat" }],
+  },
+  mistral: {
+    id: "mistral",
+    label: "Mistral",
+    // Mistral itself publishes "-latest" as a stable alias for its current
+    // flagship, which is why this can be a real default and not a guessed
+    // dated snapshot the way a fixed version string would be.
+    defaultModel: "mistral-large-latest",
+    apiKeyEnv: ["MISTRAL_API_KEY"],
+    docsUrl: "https://console.mistral.ai/api-keys",
+    baseUrl: "https://api.mistral.ai/v1",
+    baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    models: [{ value: "mistral-large-latest", label: "Mistral Large (latest)" }],
+  },
+  groq: {
+    id: "groq",
+    label: "Groq",
+    defaultModel: "",
+    apiKeyEnv: ["GROQ_API_KEY"],
+    docsUrl: "https://console.groq.com/keys",
+    baseUrl: "https://api.groq.com/openai/v1",
+    baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    // No default: Groq hosts other vendors' open-weight models and rotates
+    // which one is fastest/flagship; a name confirmed today is likely to be
+    // wrong within the year. Pick explicitly instead of inheriting a guess.
+  },
+  openrouter: {
+    id: "openrouter",
+    label: "OpenRouter",
+    defaultModel: "",
+    apiKeyEnv: ["OPENROUTER_API_KEY"],
+    docsUrl: "https://openrouter.ai/keys",
+    baseUrl: "https://openrouter.ai/api/v1",
+    baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    // No default by design, not by omission: OpenRouter is an aggregator,
+    // not a lab — the entire point of it is choosing which vendor's model
+    // to route to, so there is no "its own" model to default to.
   },
   custom: {
     id: "custom",
@@ -82,7 +158,15 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
 };
 
 /** Providers that speak the OpenAI chat-completions dialect. */
-const OPENAI_DIALECT: ReadonlySet<ProviderId> = new Set<ProviderId>(["openai", "custom"]);
+const OPENAI_DIALECT: ReadonlySet<ProviderId> = new Set<ProviderId>([
+  "openai",
+  "xai",
+  "deepseek",
+  "mistral",
+  "groq",
+  "openrouter",
+  "custom",
+]);
 
 export function speaksOpenAIDialect(provider: ProviderId): boolean {
   return OPENAI_DIALECT.has(provider);
@@ -135,19 +219,29 @@ export function createProvider(config: {
     case "google":
       return new GoogleProvider(config.model, config.apiKey);
     case "openai":
+    case "xai":
+    case "deepseek":
+    case "mistral":
+    case "groq":
+    case "openrouter":
     case "custom": {
+      const info = PROVIDERS[config.provider];
       const baseUrl = baseUrlFor(config.provider, config.baseUrl);
       if (!baseUrl) {
         throw new Error(
-          `${PROVIDERS[config.provider].label} needs an endpoint address. ` +
+          `${info.label} needs an endpoint address. ` +
             "Set ZELYQ_MODEL_BASE_URL — for example http://localhost:11434/v1 for Ollama, " +
             "or https://models.internal/v1 for a server of your own.",
         );
       }
-      if (config.provider === "custom" && !config.model) {
+      // Every vendor without a registry default requires an explicit model —
+      // not just `custom`. Guessing one for a real vendor would silently
+      // pick whatever model happened to be first in its catalog; refusing
+      // and naming the fix is the same choice `custom` already made.
+      if (!info.defaultModel && !config.model) {
         throw new Error(
-          "A custom endpoint has no default model. Set ZELYQ_MODEL to the name your server " +
-            "serves, exactly as it reports it.",
+          `${info.label} has no default model here yet. Set ZELYQ_MODEL to the exact name ` +
+            "you want — check its docs for current model names.",
         );
       }
       return new OpenAICompatibleProvider({
