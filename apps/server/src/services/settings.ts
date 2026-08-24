@@ -57,6 +57,11 @@ const DEFINITIONS: Definition[] = [
       { value: "anthropic", label: "Claude (Anthropic)" },
       { value: "google", label: "Gemini (Google)" },
       { value: "openai", label: "OpenAI" },
+      { value: "xai", label: "Grok (xAI)" },
+      { value: "deepseek", label: "DeepSeek" },
+      { value: "mistral", label: "Mistral" },
+      { value: "groq", label: "Groq" },
+      { value: "openrouter", label: "OpenRouter" },
       { value: "custom", label: "Self-hosted or custom endpoint" },
     ],
   },
@@ -92,6 +97,61 @@ const DEFINITIONS: Definition[] = [
     fallback: "",
     secret: true,
     placeholder: "sk-…",
+  },
+  {
+    key: "xaiApiKey",
+    label: "Grok (xAI) API key",
+    description: "From console.x.ai. Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Model",
+    envVar: "XAI_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "xai-…",
+  },
+  {
+    key: "deepseekApiKey",
+    label: "DeepSeek API key",
+    description: "From platform.deepseek.com. Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Model",
+    envVar: "DEEPSEEK_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "sk-…",
+  },
+  {
+    key: "mistralApiKey",
+    label: "Mistral API key",
+    description: "From console.mistral.ai. Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Model",
+    envVar: "MISTRAL_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "optional",
+  },
+  {
+    key: "groqApiKey",
+    label: "Groq API key",
+    description: "From console.groq.com. Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Model",
+    envVar: "GROQ_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "gsk_…",
+  },
+  {
+    key: "openrouterApiKey",
+    label: "OpenRouter API key",
+    description: "From openrouter.ai/keys. Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Model",
+    envVar: "OPENROUTER_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "sk-or-…",
   },
   {
     key: "modelBaseUrl",
@@ -179,7 +239,28 @@ const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
   anthropic: "anthropicApiKey",
   google: "geminiApiKey",
   openai: "openaiApiKey",
+  xai: "xaiApiKey",
+  deepseek: "deepseekApiKey",
+  mistral: "mistralApiKey",
+  groq: "groqApiKey",
+  openrouter: "openrouterApiKey",
   custom: "modelApiKey",
+};
+
+/**
+ * Known-current model names per provider, offered as suggestions on the
+ * `model` field — never a closed list, since that field stays free text.
+ * Deliberately short: only names actually confirmed. Vendors with nothing
+ * confirmed yet (or, like a custom endpoint, no catalog of their own to
+ * confirm) are simply absent, same as leaving `models` unset in `apps/
+ * agent/src/providers/index.ts`'s registry — kept in sync with that file by
+ * hand today; unifying the two into one shared registry is real but
+ * separate cleanup, not required to ship this.
+ */
+const MODEL_SUGGESTIONS: Record<string, string[]> = {
+  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
+  google: ["gemini-3.7-flash"],
+  openai: ["gpt-5.1"],
 };
 
 export class SettingsService {
@@ -225,12 +306,17 @@ export class SettingsService {
   /** Everything the settings screen renders. Secrets are described, not sent. */
   async describe(): Promise<SettingsResponse> {
     const stored = await this.store.settings.all();
+    // Read once, outside the loop below: the `model` field's suggestions
+    // depend on whichever provider is actually in effect right now.
+    const effectiveProvider = await this.value("provider");
 
     const fields = await Promise.all(
       DEFINITIONS.map(async (definition): Promise<SettingField> => {
         const fromEnv = this.env[definition.envVar];
         const hasStored = stored[definition.key] !== undefined && stored[definition.key] !== "";
         const source = fromEnv ? "env" : hasStored ? "database" : "default";
+        const suggestions =
+          definition.key === "model" ? MODEL_SUGGESTIONS[effectiveProvider] : undefined;
 
         const base = {
           key: definition.key,
@@ -244,6 +330,7 @@ export class SettingsService {
           restartRequired: Boolean(definition.restartRequired),
           ...(definition.options ? { options: definition.options } : {}),
           ...(definition.placeholder ? { placeholder: definition.placeholder } : {}),
+          ...(suggestions ? { suggestions } : {}),
         } as const;
 
         if (definition.secret) {

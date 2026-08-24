@@ -260,20 +260,30 @@ function FieldRow({
             {(pending ?? field.value) ? "Enabled" : "Disabled"}
           </label>
         ) : (
-          <Input
-            type={
-              field.kind === "secret" ? "password" : field.kind === "number" ? "number" : "text"
-            }
-            value={String(pending ?? (field.kind === "secret" ? "" : (field.value ?? "")))}
-            onChange={(event) => onChange(event.target.value)}
-            aria-label={field.label}
-            autoComplete={field.kind === "secret" ? "new-password" : "off"}
-            placeholder={
-              field.kind === "secret" && field.configured
-                ? "Enter a new value to replace"
-                : field.placeholder
-            }
-          />
+          <>
+            <Input
+              type={
+                field.kind === "secret" ? "password" : field.kind === "number" ? "number" : "text"
+              }
+              value={String(pending ?? (field.kind === "secret" ? "" : (field.value ?? "")))}
+              onChange={(event) => onChange(event.target.value)}
+              aria-label={field.label}
+              autoComplete={field.kind === "secret" ? "new-password" : "off"}
+              placeholder={
+                field.kind === "secret" && field.configured
+                  ? "Enter a new value to replace"
+                  : field.placeholder
+              }
+              list={field.suggestions ? `${field.key}-suggestions` : undefined}
+            />
+            {field.suggestions && (
+              <datalist id={`${field.key}-suggestions`}>
+                {field.suggestions.map((suggestion) => (
+                  <option key={suggestion} value={suggestion} />
+                ))}
+              </datalist>
+            )}
+          </>
         )}
       </div>
     </div>
