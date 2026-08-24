@@ -16,7 +16,7 @@ import type { ServerConfig } from "../src/config.js";
  * exact provider a prompt resolved to.
  */
 function fakeAgent() {
-  const created: Array<{ provider?: string; model?: string }> = [];
+  const created: Array<{ provider?: string; model?: string; baseUrl?: string }> = [];
   const server = http.createServer((req, res) => {
     const send = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -26,6 +26,30 @@ function fakeAgent() {
       send(404, { error: { message: "not found" } });
       return;
     }
+    if (req.method === "GET" && req.url === "/providers") {
+      send(200, {
+        default: "google",
+        providers: [
+          {
+            id: "google",
+            label: "Gemini",
+            defaultModel: "gemini-3.7-flash",
+            apiKeyEnv: ["GEMINI_API_KEY"],
+            docsUrl: "https://aistudio.google.com/apikey",
+            configured: true,
+          },
+          {
+            id: "openai",
+            label: "OpenAI",
+            defaultModel: "gpt-5.1",
+            apiKeyEnv: ["OPENAI_API_KEY"],
+            docsUrl: "https://platform.openai.com/api-keys",
+            configured: false,
+          },
+        ],
+      });
+      return;
+    }
     if (req.method === "POST" && req.url === "/sessions") {
       let body = "";
       req.on("data", (chunk) => {
@@ -33,7 +57,7 @@ function fakeAgent() {
       });
       req.on("end", () => {
         const input = JSON.parse(body);
-        created.push({ provider: input.provider, model: input.model });
+        created.push({ provider: input.provider, model: input.model, baseUrl: input.baseUrl });
         send(201, {
           sessionId: input.sessionId,
           projectId: input.projectId,
@@ -248,4 +272,132 @@ test("a session already stored with a different provider is corrected on the nex
 
   const corrected = await server.store.sessions.findById(sessionId);
   assert.equal(corrected?.provider, "google", "the stored row must be corrected, not left stale");
+});
+
+test("a provider picked from the chat itself overrides the live setting for that prompt, and is remembered", async () => {
+  // See `033`: the composer's own model control, not a settings change —
+  // proves the override reaches the agent and the session row picks it up,
+  // the same way `031`'s fix already proved for the settings-driven path.
+  const { cookie } = await register("picker-test@example.com");
+
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Picker test" },
+    })
+  ).json().project;
+
+  agent.created.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  let sessionId = "";
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        sessionId = msg.sessionId;
+        ws.send(JSON.stringify({ type: "prompt", message: "hi", provider: "openai" }));
+      }
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  assert.equal(
+    agent.created[0]?.provider,
+    "openai",
+    "a provider picked in the chat must reach the agent, even though the live setting is google",
+  );
+
+  const stored = await server.store.sessions.findById(sessionId);
+  assert.equal(stored?.provider, "openai", "the picked provider is remembered on the session row");
+});
+
+test("a base URL configured for the live provider is not forwarded to a provider picked instead", async () => {
+  // The scenario `033` calls out explicitly: settings has a base URL meant
+  // for whatever provider is actually configured (google, here) — picking
+  // a different provider from the chat must not redirect it there too.
+  await server.store.settings.set("modelBaseUrl", "http://localhost:9/not-for-openai");
+
+  const { cookie } = await register("baseurl-isolation@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Base URL isolation test" },
+    })
+  ).json().project;
+
+  agent.created.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      ws.on("error", reject);
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "connected") {
+          ws.send(JSON.stringify({ type: "prompt", message: "hi", provider: "openai" }));
+        }
+        if (msg.type === "turn.end") {
+          ws.close();
+          resolve();
+        }
+      });
+    });
+
+    assert.equal(agent.created[0]?.provider, "openai");
+    assert.equal(
+      agent.created[0]?.baseUrl,
+      undefined,
+      "google's own base URL must not reach a provider picked instead of it",
+    );
+  } finally {
+    await server.store.settings.remove("modelBaseUrl");
+  }
+});
+
+test("GET /api/providers is available to anyone signed in, and never carries a key", async () => {
+  const { cookie } = await register("picker-reads@example.com");
+
+  const anonymous = await server.app.inject({ method: "GET", url: "/api/providers" });
+  assert.equal(anonymous.statusCode, 401, "signing in is still required");
+
+  const response = await server.app.inject({
+    method: "GET",
+    url: "/api/providers",
+    headers: { cookie },
+  });
+  assert.equal(
+    response.statusCode,
+    200,
+    "an ordinary account, not just an instance admin, can read it",
+  );
+
+  const body = response.json();
+  assert.equal(body.default, "google");
+  assert.deepEqual(
+    body.providers.map((provider: { id: string; configured: boolean }) => provider.id),
+    ["google", "openai"],
+  );
+  assert.equal(body.providers[0].configured, true);
+  assert.equal(body.providers[1].configured, false);
+
+  const serialised = JSON.stringify(body);
+  assert.ok(!serialised.includes("apiKeyEnv"), "the env var backing a provider must not leak");
+  assert.ok(!serialised.includes("docsUrl"), "only what the picker needs is returned");
 });

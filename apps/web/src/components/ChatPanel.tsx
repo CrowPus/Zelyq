@@ -4,6 +4,7 @@ import { ArrowUp, ChevronRight, CircleAlert, Square } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
+import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, StatusDot } from "./ui";
 
 /**
@@ -24,7 +25,10 @@ const Markdown = lazy(() => import("./Markdown").then((module) => ({ default: mo
 const COMPOSER_HEIGHT = 72;
 
 interface Props {
-  chat: ChatState & { send(message: string): void; abort(): void };
+  chat: ChatState & {
+    send(message: string, override?: { provider?: string; model?: string }): void;
+    abort(): void;
+  };
   model?: string;
   projectId: string;
   /** Editors and above. The server checks again on the restore call. */
@@ -41,6 +45,9 @@ interface Props {
 
 export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenDiff }: Props) {
   const [draft, setDraft] = useState("");
+  /** Picked from the composer's own model control — see `033`. Null means
+   * the instance default, unchanged. */
+  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   /**
@@ -75,7 +82,7 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
     event.preventDefault();
     const message = draft.trim();
     if (!message || chat.busy) return;
-    chat.send(message);
+    chat.send(message, modelChoice ? { provider: modelChoice.provider } : undefined);
     setDraft("");
     textareaRef.current?.focus();
   }
@@ -179,11 +186,14 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
             className="w-full resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-fg placeholder:text-fg-muted focus:outline-none"
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2">
-            <span className="flex items-center gap-1 text-2xs text-fg-muted">
-              <Kbd>⌘</Kbd>
-              <Kbd>↵</Kbd>
-              to send
-            </span>
+            <div className="flex items-center gap-2">
+              <ModelPicker value={modelChoice} onChange={setModelChoice} />
+              <span className="flex items-center gap-1 text-2xs text-fg-muted">
+                <Kbd>⌘</Kbd>
+                <Kbd>↵</Kbd>
+                to send
+              </span>
+            </div>
             {chat.busy ? (
               <IconButton
                 size="sm"

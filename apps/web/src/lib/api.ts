@@ -1,6 +1,7 @@
 import type {
   AddMemberInput,
   AuditLogEntry,
+  AvailableProviders,
   ChangePasswordInput,
   CreateProjectInput,
   FileContent,
@@ -83,6 +84,9 @@ export const api = {
     }),
 
   getSettings: () => request<SettingsResponse>("/settings"),
+
+  /** What the chat's model picker offers — open to anyone signed in. */
+  getProviders: () => request<AvailableProviders>("/providers"),
 
   updateSettings: (changes: UpdateSettingsInput) =>
     request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),

@@ -62,10 +62,17 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
     };
   }, [projectId]);
 
-  const send = useCallback((message: string) => {
+  const send = useCallback((message: string, override?: { provider?: string; model?: string }) => {
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type: "prompt", message }));
+    socket.send(
+      JSON.stringify({
+        type: "prompt",
+        message,
+        ...(override?.provider ? { provider: override.provider } : {}),
+        ...(override?.model ? { model: override.model } : {}),
+      }),
+    );
     setState((previous) => ({
       ...previous,
       busy: true,
