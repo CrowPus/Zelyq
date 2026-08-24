@@ -55,6 +55,10 @@ function containerOptionsFromEnv() {
     ...(process.env.ZELYQ_CONTAINER_MEMORY ? { memory: process.env.ZELYQ_CONTAINER_MEMORY } : {}),
     ...(process.env.ZELYQ_CONTAINER_CPUS ? { cpus: process.env.ZELYQ_CONTAINER_CPUS } : {}),
     ...(process.env.ZELYQ_CONTAINER_ENGINE ? { engine: process.env.ZELYQ_CONTAINER_ENGINE } : {}),
+    // Defaults on inside the driver itself; this is only how to turn it off.
+    ...(process.env.ZELYQ_CONTAINER_BLOCK_METADATA === "false"
+      ? { blockMetadataEndpoint: false }
+      : {}),
   };
 }
 

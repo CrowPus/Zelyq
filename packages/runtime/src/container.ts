@@ -91,6 +91,16 @@ const DEFAULT_PIDS = 512;
 const DEFAULT_NETWORK = "zelyq-projects";
 /** Long enough for `docker run` to pull on a cold cache. */
 const ENGINE_TIMEOUT_MS = 300_000;
+/**
+ * The cloud instance metadata address. AWS, Azure, DigitalOcean, Oracle Cloud
+ * and GCP all converge on this one link-local IP — documented, stable
+ * provider behaviour, not something specific to any one of them. On most
+ * providers it will hand a request for it credentials for the instance
+ * itself, no authentication required.
+ */
+const METADATA_ADDRESS = "169.254.169.254/32";
+/** Only used to install `iptables` inside the throwaway helper container. */
+const FIREWALL_HELPER_IMAGE = "alpine";
 
 export interface ContainerOptions {
   image?: string;
@@ -101,6 +111,15 @@ export interface ContainerOptions {
   engine?: string;
   /** The network project containers attach to. Rarely worth changing. */
   network?: string;
+  /**
+   * Whether to block containers from reaching the cloud metadata endpoint.
+   * On by default. See the class doc and `025` in the council notes for why
+   * this exists and what it does and does not do — it is the one thing this
+   * driver does that reaches past objects Zelyq itself creates and destroys,
+   * and disabling it is a legitimate choice for an operator who manages their
+   * own firewall and does not want an out-of-band tool touching it.
+   */
+  blockMetadataEndpoint?: boolean;
 }
 
 export class ContainerRuntimeDriver implements RuntimeDriver {
@@ -157,6 +176,15 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * every container creation for the rest of the process's life.
    */
   private networkReady: Promise<void> | undefined;
+  /** Same memoisation shape as `networkReady`, for the metadata-block rule. */
+  private metadataBlockReady: Promise<void> | undefined;
+  private readonly blockMetadataEndpoint: boolean;
+  /**
+   * Set when the block could not be installed, so `health()` can say so
+   * rather than the failure being silent. A container is still allowed to
+   * start without it — see the call site in `ensureContainer` for why.
+   */
+  private metadataBlockFailure: string | undefined;
 
   constructor(config: RuntimeConfig, options: ContainerOptions = {}) {
     this.local = new LocalRuntimeDriver(config);
@@ -174,6 +202,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     this.pidsLimit = options.pidsLimit ?? DEFAULT_PIDS;
     this.engine = options.engine ?? "docker";
     this.network = options.network ?? DEFAULT_NETWORK;
+    this.blockMetadataEndpoint = options.blockMetadataEndpoint ?? true;
   }
 
   /**
@@ -206,10 +235,21 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
           "Agent commands cannot run without a container engine.",
       };
     }
+    // Reported, not enforced here: a firewall problem should not also make
+    // the instance report unhealthy, or a project could not be created while
+    // someone diagnoses it. See the call site in `ensureContainer`.
+    const metadataStatus = !this.blockMetadataEndpoint
+      ? "metadata block disabled"
+      : this.metadataBlockFailure
+        ? `metadata block FAILED: ${this.metadataBlockFailure}`
+        : "metadata block on";
+
     return {
       kind: this.kind,
       ok: true,
-      detail: `${local.detail} · ${this.engine} ${firstLine(probe.stdout)} · image ${this.image}`,
+      detail:
+        `${local.detail} · ${this.engine} ${firstLine(probe.stdout)} · image ${this.image} · ` +
+        metadataStatus,
       version: process.version,
     };
   }
@@ -658,6 +698,15 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       if (this.hasWhatWeNeed(projectId, publishPort)) return;
 
       await this.ensureNetwork();
+      // The rule is scoped by source to this network's subnet, so it has to
+      // exist first — but it does not have to succeed before a container can
+      // be created. A firewall problem should not also be a "cannot open any
+      // project" problem; it is surfaced through `health()` instead.
+      if (this.blockMetadataEndpoint) {
+        await this.ensureMetadataBlock().catch((error: unknown) => {
+          this.metadataBlockFailure = error instanceof Error ? error.message : String(error);
+        });
+      }
       await this.engineRun(["rm", "-f", name], 30_000).catch(() => undefined);
       const created = await this.engineRun(
         this.runArgs(name, root, publishPort),
@@ -733,6 +782,172 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         firstLine(created.stderr) || firstLine(created.stdout) || "unknown error"
       }`,
     );
+  }
+
+  /**
+   * Blocks project containers from reaching the cloud instance metadata
+   * endpoint — see `025` in the council notes for the reasoning and the
+   * scope this was deliberately kept to.
+   *
+   * The one thing this driver does that reaches past objects Zelyq itself
+   * creates and destroys: a rule written into the *host's* `DOCKER-USER`
+   * iptables chain, the chain Docker reserves for exactly this — operator
+   * rules that survive `dockerd` restarts rather than being overwritten by
+   * it. Applied through a privileged helper container with `--network host`,
+   * never a direct `sudo` call from the Zelyq process itself: the same
+   * "docker group access is root-equivalent" property every other privileged
+   * operation in this file already relies on, used here for the first time to
+   * touch something outside Docker's own object model.
+   *
+   * **Scoped by source to this driver's own network, not host-wide.** A
+   * host-wide rule would protect every container on the machine, including
+   * ones Zelyq did not create — which sounds like a bonus and is actually
+   * scope creep: this driver has no business deciding network policy for
+   * workloads it does not own. Scoping by source also makes the rule
+   * genuinely idempotent to *check*: a second Zelyq instance on the same host
+   * computes the same subnet from the same network and finds its own rule
+   * already there, rather than each instance's host-wide rule silently
+   * shadowing the other's.
+   *
+   * **`REJECT`, not `DROP`.** A dropped packet leaves the caller to hang until
+   * its own timeout, which for arbitrary code reaching for this address on
+   * purpose or by accident could be long or absent — burning into an agent
+   * turn's exec budget for no visible reason. A reset closes the connection
+   * immediately: the same protection, a debuggable failure instead of a
+   * silent one.
+   */
+  private ensureMetadataBlock(): Promise<void> {
+    if (!this.metadataBlockReady) {
+      this.metadataBlockReady = this.installMetadataBlock().catch((error: unknown) => {
+        this.metadataBlockReady = undefined;
+        throw error;
+      });
+    }
+    return this.metadataBlockReady;
+  }
+
+  private async installMetadataBlock(): Promise<void> {
+    const subnet = await this.networkSubnet();
+    const rule = [
+      "-s",
+      subnet,
+      "-d",
+      METADATA_ADDRESS,
+      // Required by this host's nf_tables-backed iptables: `--reject-with
+      // tcp-reset` only makes sense for TCP, and without an explicit `-p tcp`
+      // the insert fails outright ("Invalid argument") rather than falling
+      // back to any implicit protocol. Every cloud metadata endpoint is
+      // HTTP/TCP, so this does not narrow what the rule actually needs to
+      // cover.
+      "-p",
+      "tcp",
+      "-j",
+      "REJECT",
+      "--reject-with",
+      "tcp-reset",
+    ];
+
+    const helper = `zelyq-firewall-setup-${process.pid}`;
+    const started = await runCaptured(
+      this.engine,
+      [
+        "run",
+        "--detach",
+        "--rm",
+        "--name",
+        helper,
+        "--network",
+        "host",
+        "--cap-add",
+        "NET_ADMIN",
+        FIREWALL_HELPER_IMAGE,
+        "sh",
+        "-c",
+        // Stays up long enough for the two `exec` calls below. iptables is
+        // not in the base image, so the first thing this container does is
+        // fetch it — over the host's own network, before any project
+        // container or restriction exists, so nothing here is circular.
+        "apk add --no-cache iptables >/dev/null 2>&1 && sleep 60",
+      ],
+      { timeoutMs: 60_000, maxOutputBytes: 5_000 },
+    );
+    if (started.exitCode !== 0) {
+      throw new ZelyqError(
+        "runtime_unavailable",
+        `Could not start the firewall setup helper: ${
+          firstLine(started.stderr) || firstLine(started.stdout) || "unknown error"
+        }`,
+      );
+    }
+
+    try {
+      // Waiting for `apk add` to finish, not for the container to exist —
+      // `docker exec` against a container whose entrypoint has not reached
+      // `sleep` yet just fails, and would read as "iptables is broken"
+      // rather than "still installing it".
+      const deadline = Date.now() + 30_000;
+      let ready = false;
+      while (Date.now() < deadline) {
+        const probe = await runCaptured(this.engine, ["exec", helper, "which", "iptables"], {
+          timeoutMs: 5_000,
+          maxOutputBytes: 1_000,
+        });
+        if (probe.exitCode === 0) {
+          ready = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!ready) {
+        throw new ZelyqError(
+          "runtime_unavailable",
+          "The firewall setup helper could not install iptables in time.",
+        );
+      }
+
+      const check = await runCaptured(
+        this.engine,
+        ["exec", helper, "iptables", "-C", "DOCKER-USER", ...rule],
+        { timeoutMs: 10_000, maxOutputBytes: 2_000 },
+      );
+      if (check.exitCode === 0) return; // already present — nothing to do
+
+      const insert = await runCaptured(
+        this.engine,
+        ["exec", helper, "iptables", "-I", "DOCKER-USER", ...rule],
+        { timeoutMs: 10_000, maxOutputBytes: 2_000 },
+      );
+      if (insert.exitCode !== 0) {
+        throw new ZelyqError(
+          "runtime_unavailable",
+          `Could not block the metadata endpoint: ${
+            firstLine(insert.stderr) || firstLine(insert.stdout) || "unknown error"
+          }`,
+        );
+      }
+    } finally {
+      await runCaptured(this.engine, ["rm", "-f", helper], {
+        timeoutMs: 30_000,
+        maxOutputBytes: 1_000,
+      });
+    }
+  }
+
+  private async networkSubnet(): Promise<string> {
+    const result = await this.engineRun(
+      ["network", "inspect", this.network, "--format", "{{(index .IPAM.Config 0).Subnet}}"],
+      10_000,
+    );
+    const subnet = result.stdout.trim();
+    if (result.exitCode !== 0 || !subnet) {
+      throw new ZelyqError(
+        "runtime_unavailable",
+        `Could not read the "${this.network}" network's subnet: ${
+          firstLine(result.stderr) || "unknown error"
+        }`,
+      );
+    }
+    return subnet;
   }
 
   /**

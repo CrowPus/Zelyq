@@ -154,6 +154,7 @@ Migrations run automatically when the server boots.
 | `ZELYQ_CONTAINER_MEMORY` | `2g` | Memory ceiling per project container. |
 | `ZELYQ_CONTAINER_CPUS` | `2` | CPU ceiling per project container. |
 | `ZELYQ_CONTAINER_ENGINE` | `docker` | The engine binary. `podman` works as a drop-in. |
+| `ZELYQ_CONTAINER_BLOCK_METADATA` | `true` | Set `false` to disable blocking the cloud metadata endpoint. See below. |
 | `ZELYQ_EXEC_TIMEOUT_MS` | `120000` | Hard ceiling on one agent shell command. |
 | `ZELYQ_PREVIEW_PORT_MIN` | `4300` | Start of the preview port range. |
 | `ZELYQ_PREVIEW_PORT_MAX` | `4399` | End of the range — this many concurrent previews. |
@@ -184,13 +185,23 @@ driver and fails there:
   network with inter-container communication disabled
 - a runaway build taking the machine down (memory, CPU and process limits)
 - privilege escalation (`--cap-drop=ALL`, `no-new-privileges`, read-only root)
+- **reaching the cloud instance metadata endpoint** (`169.254.169.254`), which on most providers
+  hands out instance credentials to anything that asks it, unauthenticated. On by default; set
+  `ZELYQ_CONTAINER_BLOCK_METADATA=false` to disable. The request is refused immediately rather than
+  left to hang, so code that tries fails fast instead of stalling.
+
+  This is the one thing container mode does that reaches outside objects Zelyq itself creates and
+  destroys: a single rule, scoped to Zelyq's own project network, written into the host's
+  `DOCKER-USER` firewall chain — the chain Docker reserves for operator rules exactly like this one,
+  applied through a short-lived helper container rather than a direct `sudo` call. If it cannot be
+  installed, a project can still be created — check `GET /api/health` for `metadata block FAILED`
+  rather than assuming the protection held.
 
 **What it does not stop yet, and this matters:**
 
-- **Outbound network access is not filtered.** `npm install` needs the registry,
-  and nothing currently distinguishes that from anything else the container
-  might reach — including a cloud provider's metadata endpoint, which commonly
-  hands out instance credentials.
+- **Outbound network access is otherwise not filtered.** `npm install` needs the registry, and
+  nothing distinguishes that from anything else the container might reach on your network. Only the
+  metadata address above is refused.
 
 So this narrows what an agent command, and now the preview, can reach. **It is
 not yet a complete sandbox and should not be treated as one.** The egress gap

@@ -58,8 +58,8 @@ built so that nothing about it is magic and nothing is locked in:
   commands and the dev server preview jailed one container per project. `remote` speaks a
   [documented HTTP protocol](./docs/runtime-protocol.md) to a runtime host, and a reference host
   ships in `apps/runtime-host`; one conformance suite runs against all three drivers, so they are
-  provably interchangeable. **Isolation is partial** — container mode does not yet filter outbound
-  network access. Read
+  provably interchangeable. **Isolation is partial** — container mode blocks the cloud metadata
+  endpoint but does not otherwise filter outbound network access. Read
   [SECURITY.md](./SECURITY.md#threat-model--read-this-before-deploying) before deploying.
 - **Bring your own model key.** Claude or Gemini, chosen with one variable. No proxy, no account, no
   telemetry.
