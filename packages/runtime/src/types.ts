@@ -61,7 +61,11 @@ export interface RuntimeDriver {
   dispose(): Promise<void>;
 }
 
-export type RuntimeKind = "local" | "remote";
+/**
+ * `container` is `local` with agent commands jailed: same workspace on the same
+ * disk, commands run inside a container per project. See `ContainerRuntimeDriver`.
+ */
+export type RuntimeKind = "local" | "remote" | "container";
 
 export interface RuntimeHealth {
   kind: RuntimeKind;
@@ -140,4 +144,12 @@ export interface RuntimeConfig {
    * browser cannot reach.
    */
   previewHost: string;
+  /** Container: image, limits and engine. Ignored by the other kinds. */
+  container?: {
+    image?: string;
+    memory?: string;
+    cpus?: string;
+    pidsLimit?: number;
+    engine?: string;
+  };
 }
