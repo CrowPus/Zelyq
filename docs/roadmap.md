@@ -41,7 +41,9 @@ separates this from a chat with a black box.
 - [x] A snapshot per turn, taken automatically
 - [x] Diff per turn — click a changed file to see the lines added and removed
 - [x] Revert to any turn, in one click
-- [ ] An audit log of who changed what
+- [x] An audit log of who changed what — project- and team-level actions (see
+      [docs/architecture.md](../docs/architecture.md)); instance-wide actions and per-prompt
+      attribution are named follow-ups, not silently expanded into or dropped
 
 ## Then — deployable by a team
 

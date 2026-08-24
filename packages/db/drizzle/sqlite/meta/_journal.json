@@ -43,6 +43,13 @@
       "when": 1787479721876,
       "tag": "0005_greedy_network",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787581160876,
+      "tag": "0006_new_exodus",
+      "breakpoints": true
     }
   ]
 }

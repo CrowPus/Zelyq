@@ -20,6 +20,7 @@ export const ID_PREFIXES = {
   event: "evt",
   snapshot: "snp",
   tool: "tol",
+  audit: "adt",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

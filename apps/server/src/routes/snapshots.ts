@@ -18,10 +18,17 @@ export function registerSnapshotRoutes(
   });
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/snapshots", async (request, reply) => {
-    await access.requireProject(access.requireUser(request), request.params.id, "editor");
+    const user = access.requireUser(request);
+    const { project } = await access.requireProject(user, request.params.id, "editor");
     const { label } = createSnapshotSchema.parse(request.body ?? {});
     const snapshot = await deps.runtime.createSnapshot(request.params.id, label);
     await deps.store.snapshots.create(snapshot);
+    await access.recordChange(user, {
+      teamId: project.teamId,
+      projectId: project.id,
+      action: "snapshot.created",
+      detail: { label },
+    });
     reply.status(201);
     return { snapshot };
   });
@@ -43,8 +50,15 @@ export function registerSnapshotRoutes(
     "/api/projects/:id/snapshots/:snapshotId/restore",
     async (request) => {
       // Restoring overwrites the working tree; that is a write.
-      await access.requireProject(access.requireUser(request), request.params.id, "editor");
+      const user = access.requireUser(request);
+      const { project } = await access.requireProject(user, request.params.id, "editor");
       await deps.runtime.restoreSnapshot(request.params.id, request.params.snapshotId);
+      await access.recordChange(user, {
+        teamId: project.teamId,
+        projectId: project.id,
+        action: "snapshot.restored",
+        detail: { snapshotId: request.params.snapshotId },
+      });
       return { restored: true };
     },
   );

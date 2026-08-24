@@ -180,6 +180,12 @@ that matters is made again on the server.
 
 ## What is deliberately not here yet
 
-Quotas, audit logs, SSO, and git integration are all absent. Each of them is easier to
+Quotas, SSO, and git integration are all absent. Each of them is easier to
 add against settled interfaces than to retrofit into a system that guessed at them early. See
 [roadmap.md](./roadmap.md).
+
+An audit log exists, scoped to project- and team-level actions — `access.recordChange` is called
+after each one succeeds, and `GET /api/teams/:id/audit-log` (admin role or higher) reads it back.
+Instance-wide actions (settings, account deletion) and per-prompt attribution are not in it yet —
+both would need their own read surface or schema change, named as deliberate follow-ups rather than
+silently expanded into.

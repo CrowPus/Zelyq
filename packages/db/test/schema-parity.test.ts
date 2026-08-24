@@ -20,6 +20,7 @@ const TABLES = [
   "messages",
   "snapshots",
   "settings",
+  "auditLog",
 ] as const;
 
 for (const name of TABLES) {
