@@ -124,6 +124,20 @@ const EGRESS_ALLOW_SET = "zelyq-egress-allow";
  * is not churning constantly for a list that rarely changes.
  */
 const EGRESS_REFRESH_INTERVAL_MS = 5 * 60_000;
+/**
+ * How long a resolved address stays allowed after its most recent sighting —
+ * an `ipset` per-entry timeout, not the refresh interval above. Deliberately
+ * a multiple of it, not equal to it: checked live, not assumed, that a
+ * single refresh's resolution is a *sample* of a round-robin pool, not the
+ * complete truth. Three independent queries for `github.com`, minutes
+ * apart, returned three different addresses, each one stable for repeated
+ * queries within that same short window. A one-shot "replace the allowed
+ * set with whatever this refresh happened to resolve" design — what this
+ * had before — drops an address the moment one refresh doesn't happen to
+ * re-sample it, which is indistinguishable from that address going bad.
+ * Three refresh cycles of silence is the signal actually worth acting on.
+ */
+const EGRESS_ALLOW_TIMEOUT_SECONDS = (EGRESS_REFRESH_INTERVAL_MS / 1000) * 3;
 
 export interface ContainerOptions {
   image?: string;
@@ -1012,27 +1026,32 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * `egressAllowlist` — see the class doc and `028` in the council notes for
    * why this ships as a mechanism, opt-in, with no default list.
    *
-   * Two pieces, installed once each: a default-deny `REJECT` scoped to this
-   * driver's own network subnet (same reasoning as `installMetadataBlock` —
-   * source-scoped, `REJECT` not `DROP`), and an `ACCEPT` for anything in
-   * `EGRESS_ALLOW_SET`, inserted *after* the deny rule so it lands above it —
-   * iptables is first-match-wins, and the accept has to be checked before the
-   * catch-all. Both are permanent once installed; only the set's *contents*
-   * change afterward, refreshed on `EGRESS_REFRESH_INTERVAL_MS` by
-   * `refreshEgressAllowlist`, which this calls once more before returning so
-   * the set is never empty in the moment between "rule installed" and
-   * "first refresh happens to run".
+   * Three rules, installed once each: two default-deny `REJECT`s scoped to
+   * this driver's own network subnet, one per protocol (same reasoning as
+   * `installMetadataBlock` — source-scoped, `REJECT` not `DROP`; split by
+   * protocol for the same nf_tables reason `installMetadataBlock` needed
+   * `-p tcp` — see `rejectRules` below), and an `ACCEPT` for anything in
+   * `EGRESS_ALLOW_SET`, inserted *after* the deny rules so it lands above
+   * them — iptables is first-match-wins. All three are permanent once
+   * installed; only the set's *contents* change afterward, on entries with
+   * their own expiry rather than a wholesale replace — see
+   * `refreshEgressAllowlist` for why. This calls it once more before
+   * returning so the set is never empty in the moment between "rules
+   * installed" and "first refresh happens to run".
    *
-   * DNS resolution itself is not expected to be blocked by the deny rule: a
+   * DNS resolution itself is not expected to be blocked by the deny rules: a
    * container's queries go to Docker's own embedded resolver, which makes the
    * actual upstream query from the *host's* network namespace, not the
    * container's — so it never appears at `DOCKER-USER` with the container
-   * subnet's source address in the first place. This is documented Docker
-   * networking behaviour, not verified live here — a live check would have
-   * meant writing a default-deny rule onto this shared host to watch DNS
-   * survive it, and the permission system correctly declined that same class
-   * of request earlier this week for `025`'s rule. Recorded as a checked
-   * distinction, not blurred with what actually was verified live above.
+   * subnet's source address in the first place. Documented Docker networking
+   * behaviour, and consistent with what live testing on a real deployment
+   * showed once these rules were active — `dns.resolve4` succeeded
+   * throughout — but that is DNS resolution surviving *in practice*, not a
+   * packet-level confirmation that a query never reaches this chain at all.
+   * That stronger check would need a live default-deny rule on a host purely
+   * to watch DNS traffic against it, and the permission system correctly
+   * declined that same class of request for `025`'s rule. Recorded as what
+   * was actually checked, not blurred with a claim stronger than that.
    */
   private ensureEgressAllowlist(): Promise<void> {
     if (!this.egressAllowlistReady) {
@@ -1042,6 +1061,64 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       });
     }
     return this.egressAllowlistReady;
+  }
+
+  /**
+   * Creates `EGRESS_ALLOW_SET` with the timeout extension it needs, tolerant
+   * of it already existing *without* one.
+   *
+   * `-exist` only reconciles a set created with the exact same options —
+   * found live, not assumed, when this driver's own earlier revision (before
+   * the timeout redesign above) left a plain, non-timeout set behind on this
+   * host, with a live `ACCEPT` rule still pointing at it by name. That
+   * combination took two attempts to get right: destroying and recreating
+   * looked sufficient until it turned out `ipset destroy` itself refuses a
+   * set an iptables rule still references — found live, the same way. The
+   * accept rule has to be removed *first*. Safe either way: for the instant
+   * the set is absent, the accept rule that is about to be reinstalled by
+   * the caller matches nothing, so traffic fails closed onto the `REJECT`
+   * rules rather than open.
+   */
+  private async ensureEgressSet(
+    execIn: (args: string[]) => Promise<ExecResult>,
+    subnet: string,
+  ): Promise<void> {
+    const args = [
+      "ipset",
+      "create",
+      EGRESS_ALLOW_SET,
+      "hash:ip",
+      "family",
+      "inet",
+      "timeout",
+      String(EGRESS_ALLOW_TIMEOUT_SECONDS),
+      "-exist",
+    ];
+    const create = await execIn(args);
+    if (create.exitCode === 0) return;
+
+    const staleAccept = [
+      "-s",
+      subnet,
+      "-m",
+      "set",
+      "--match-set",
+      EGRESS_ALLOW_SET,
+      "dst",
+      "-j",
+      "ACCEPT",
+    ];
+    await execIn(["iptables", "-D", "DOCKER-USER", ...staleAccept]);
+    await execIn(["ipset", "destroy", EGRESS_ALLOW_SET]);
+    const retry = await execIn(args);
+    if (retry.exitCode !== 0) {
+      throw new ZelyqError(
+        "runtime_unavailable",
+        `Could not create the egress allowlist set: ${
+          firstLine(retry.stderr) || firstLine(create.stderr) || "unknown error"
+        }`,
+      );
+    }
   }
 
   private async installEgressAllowlist(): Promise<void> {
@@ -1070,21 +1147,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     ];
 
     await this.withFirewallHelper(async (execIn) => {
-      const createSet = await execIn([
-        "ipset",
-        "create",
-        EGRESS_ALLOW_SET,
-        "hash:ip",
-        "family",
-        "inet",
-        "-exist",
-      ]);
-      if (createSet.exitCode !== 0) {
-        throw new ZelyqError(
-          "runtime_unavailable",
-          `Could not create the egress allowlist set: ${firstLine(createSet.stderr) || "unknown error"}`,
-        );
-      }
+      await this.ensureEgressSet(execIn, subnet);
 
       for (const rejectRule of rejectRules) {
         const rejectCheck = await execIn(["iptables", "-C", "DOCKER-USER", ...rejectRule]);
@@ -1126,21 +1189,29 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   }
 
   /**
-   * Re-resolves every allowed hostname and atomically swaps the result into
-   * `EGRESS_ALLOW_SET` — build the new membership in a scratch set, swap it
-   * in, destroy the old one. Never touches the set in place: a hostname's
-   * addresses changing mid-refresh would otherwise mean a window where the
-   * set has neither the old nor the complete new membership.
+   * Re-resolves every allowed hostname and re-adds whatever it gets back to
+   * `EGRESS_ALLOW_SET`, refreshing each address's timeout rather than
+   * replacing the set's contents wholesale.
+   *
+   * This used to swap in a freshly-resolved set each cycle, which is the
+   * obviously-correct design right up until a hostname round-robins across
+   * more addresses than one resolution happens to return — checked live, not
+   * assumed: `github.com` answered three different addresses across three
+   * independent queries a few minutes apart, and a wholesale-replace design
+   * dropped whichever ones the *next* query didn't happen to repeat, which
+   * is indistinguishable from a real address going bad. Letting `ipset`'s
+   * own per-entry timeout do the aging instead means an address only drops
+   * out after `EGRESS_ALLOW_TIMEOUT_SECONDS` of not being re-seen — three
+   * refresh cycles of actual silence, not one cycle's incomplete sample.
    *
    * A hostname that fails to resolve this round is skipped, not fatal — a
-   * transient DNS hiccup should not empty the whole allowlist; it re-resolves
-   * again at the next interval.
+   * transient DNS hiccup should not touch addresses this round did not ask
+   * about, and it resolves again at the next interval regardless.
    */
   private async refreshEgressAllowlist(): Promise<void> {
-    const scratch = `${EGRESS_ALLOW_SET}-next`;
+    const subnet = await this.networkSubnet();
     await this.withFirewallHelper(async (execIn) => {
-      await execIn(["ipset", "create", scratch, "hash:ip", "family", "inet", "-exist"]);
-      await execIn(["ipset", "flush", scratch]);
+      await this.ensureEgressSet(execIn, subnet);
 
       for (const hostname of this.egressAllowlist) {
         // `dig +short A`, not `getent hosts`: checked live, not assumed —
@@ -1162,18 +1233,21 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
             .map((line) => line.trim())
             .filter((ip): ip is string => /^\d+\.\d+\.\d+\.\d+$/.test(ip)),
         );
-        for (const ip of ips) await execIn(["ipset", "add", scratch, ip, "-exist"]);
+        for (const ip of ips) {
+          // Re-adding an entry that already exists, with `-exist`, refreshes
+          // its timeout rather than erroring — that refresh is the whole
+          // mechanism, not an incidental side effect.
+          await execIn([
+            "ipset",
+            "add",
+            EGRESS_ALLOW_SET,
+            ip,
+            "timeout",
+            String(EGRESS_ALLOW_TIMEOUT_SECONDS),
+            "-exist",
+          ]);
+        }
       }
-
-      await execIn(["ipset", "create", EGRESS_ALLOW_SET, "hash:ip", "family", "inet", "-exist"]);
-      const swap = await execIn(["ipset", "swap", scratch, EGRESS_ALLOW_SET]);
-      if (swap.exitCode !== 0) {
-        throw new ZelyqError(
-          "runtime_unavailable",
-          `Could not refresh the egress allowlist: ${firstLine(swap.stderr) || "unknown error"}`,
-        );
-      }
-      await execIn(["ipset", "destroy", scratch]);
     });
     this.egressAllowlistFailure = undefined;
   }

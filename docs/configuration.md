@@ -232,6 +232,15 @@ This still is not a general sandbox: it filters by resolved IP address only, so 
 an allowed and a disallowed service behind the same address is not distinguished, and there is no TLS
 inspection.
 
+**A host that answers from a small, rotating pool of addresses can take a few refresh cycles to work
+reliably.** Checked live, not assumed: `github.com` answered three different addresses across three
+independent lookups a few minutes apart. Each resolved address is kept allowed for three refresh
+cycles after it was last seen, specifically so a pool like that has time to be sampled rather than
+being dropped the moment one cycle doesn't happen to repeat it — but on a freshly-enabled allowlist,
+before that has had time to happen, a request can still occasionally land on an address the set
+has not seen yet. A host behind a large, consistent range — `registry.npmjs.org`'s Cloudflare
+anycast, for instance — does not show this at all.
+
 Requires a container engine on the host. Commands cost about **120ms more** each
 — roughly 2.4 seconds across a twenty-command turn, against turns measured in
 minutes.
