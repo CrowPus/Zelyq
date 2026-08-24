@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createStore, resolveSetting } from "@zelyq/db";
 import type { RuntimeConfig } from "@zelyq/runtime";
 import {
   apiKeyFromEnv,
@@ -36,6 +37,33 @@ function intFromEnv(name: string, fallback: number): number {
   return value;
 }
 
+/**
+ * A boot-time setting read from the database when nothing overrides it —
+ * see `034` in the council notes. The agent has no other reason to touch
+ * the database at all, so this is deliberately narrow: one short-lived
+ * connection per call, one key, closed immediately after.
+ *
+ * Best-effort on purpose. In the shipped `docker-compose.yml` the agent
+ * starts *before* the server, which is what actually runs migrations — a
+ * fresh install can have the agent reach for a `settings` table, or even a
+ * database file, that does not exist yet. That must never block or crash
+ * the agent's own startup; it just means falling back to the default this
+ * boot, exactly as if nothing had ever been stored.
+ */
+async function dbBackedSetting(envVar: string, dbKey: string, fallback: string): Promise<string> {
+  if (process.env[envVar]) return process.env[envVar] as string;
+
+  const databaseUrl = process.env.DATABASE_URL ?? "file:./data/zelyq.db";
+  const store = createStore(databaseUrl);
+  try {
+    return await resolveSetting(store.settings, envVar, dbKey, fallback);
+  } catch {
+    return fallback;
+  } finally {
+    await store.close().catch(() => undefined);
+  }
+}
+
 const RUNTIME_KINDS = ["local", "remote", "container"] as const;
 
 function runtimeKindFromEnv(): (typeof RUNTIME_KINDS)[number] {
@@ -49,7 +77,18 @@ function runtimeKindFromEnv(): (typeof RUNTIME_KINDS)[number] {
 }
 
 /** Image, limits and engine for `ZELYQ_RUNTIME=container`. */
-function containerOptionsFromEnv() {
+async function containerOptionsFromEnv() {
+  // Defaults off inside the driver itself, and stays off unless an operator
+  // names hosts here — there is no Zelyq-maintained default list. See `028`
+  // in the council notes for why, and `034` for why this can be set from
+  // Settings instead of only `.env`: this is exactly the field that sent
+  // someone back to a terminal to unblock a host their agent needed.
+  const egressAllowlist = await dbBackedSetting(
+    "ZELYQ_CONTAINER_EGRESS_ALLOWLIST",
+    "containerEgressAllowlist",
+    "",
+  );
+
   return {
     ...(process.env.ZELYQ_CONTAINER_IMAGE ? { image: process.env.ZELYQ_CONTAINER_IMAGE } : {}),
     ...(process.env.ZELYQ_CONTAINER_MEMORY ? { memory: process.env.ZELYQ_CONTAINER_MEMORY } : {}),
@@ -59,12 +98,10 @@ function containerOptionsFromEnv() {
     ...(process.env.ZELYQ_CONTAINER_BLOCK_METADATA === "false"
       ? { blockMetadataEndpoint: false }
       : {}),
-    // Defaults off inside the driver itself, and stays off unless an operator
-    // names hosts here — there is no Zelyq-maintained default list. See
-    // `028` in the council notes for why.
-    ...(process.env.ZELYQ_CONTAINER_EGRESS_ALLOWLIST
+    ...(egressAllowlist
       ? {
-          egressAllowlist: process.env.ZELYQ_CONTAINER_EGRESS_ALLOWLIST.split(",")
+          egressAllowlist: egressAllowlist
+            .split(",")
             .map((hostname) => hostname.trim())
             .filter(Boolean),
         }
@@ -72,7 +109,7 @@ function containerOptionsFromEnv() {
   };
 }
 
-export function loadAgentConfig(): AgentConfig {
+export async function loadAgentConfig(): Promise<AgentConfig> {
   const runtimeKind = runtimeKindFromEnv();
 
   const effort = (process.env.ZELYQ_EFFORT ?? "high") as AgentConfig["effort"];
@@ -114,12 +151,12 @@ export function loadAgentConfig(): AgentConfig {
       url: process.env.ZELYQ_RUNTIME_URL,
       token: process.env.ZELYQ_RUNTIME_TOKEN,
       execTimeoutMs: intFromEnv("ZELYQ_EXEC_TIMEOUT_MS", 120_000),
+      previewHost: await dbBackedSetting("ZELYQ_PREVIEW_HOST", "previewHost", "127.0.0.1"),
       previewPortRange: [
         intFromEnv("ZELYQ_PREVIEW_PORT_MIN", 4300),
         intFromEnv("ZELYQ_PREVIEW_PORT_MAX", 4399),
       ],
-      previewHost: process.env.ZELYQ_PREVIEW_HOST ?? "127.0.0.1",
-      container: containerOptionsFromEnv(),
+      container: await containerOptionsFromEnv(),
     },
   };
 }

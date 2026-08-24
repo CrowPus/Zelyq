@@ -696,3 +696,61 @@ test("no allowlist configured means egress is unrestricted, and health says noth
     await driver.dispose().catch(() => undefined);
   }
 });
+
+test("a driver restarted with the allowlist removed actually restores unrestricted egress", {
+  skip: !hasEngine || !liveFirewallTestOptIn,
+}, async () => {
+  // The exact regression `034` in the council notes fixes, reproduced: an
+  // allowlist enabled once, then a fresh driver instance — a restart, in
+  // production — started with no allowlist configured. Found live: without
+  // this, the *first* driver's rules outlived it, rejecting everything they
+  // did not cover regardless of what the second driver was ever told.
+  const restricted = new ContainerRuntimeDriver(previewConfig([4836, 4839]), {
+    blockMetadataEndpoint: false,
+    egressAllowlist: ["registry.npmjs.org"],
+  });
+  try {
+    await restricted.ensureProject("prj_egress_restart");
+    await restricted.exec("prj_egress_restart", { command: "true" });
+
+    const stillBlocked = await restricted.exec("prj_egress_restart", {
+      command:
+        "node -e \"fetch('https://example.com', {signal: AbortSignal.timeout(3000)})" +
+        ".then(()=>console.log('REACHED')).catch(e=>console.log('BLOCKED: '+e.message))\"",
+      timeoutMs: 10_000,
+    });
+    assert.match(stillBlocked.stdout, /BLOCKED/, "the allowlist must actually be active first");
+  } finally {
+    // Disposing the first driver does not touch its firewall rules — see
+    // `dispose()`'s own scope. That gap is exactly the point being tested:
+    // only a *second* driver deciding what the firewall should now look
+    // like is allowed to change it.
+    await restricted.dispose().catch(() => undefined);
+  }
+
+  const unrestricted = new ContainerRuntimeDriver(previewConfig([4836, 4839]), {
+    blockMetadataEndpoint: false,
+  });
+  try {
+    // No allowlist this time — forces the teardown path, not a fresh install.
+    await unrestricted.exec("prj_egress_restart", { command: "true" });
+
+    const reached = await unrestricted.exec("prj_egress_restart", {
+      command:
+        "node -e \"fetch('https://example.com', {signal: AbortSignal.timeout(5000)})" +
+        ".then(r=>console.log('REACHED '+r.status)).catch(e=>console.log('FAILED '+e.message))\"",
+      timeoutMs: 10_000,
+    });
+    assert.match(
+      reached.stdout,
+      /REACHED/,
+      "a previous run's allowlist must not outlive a restart that removed it",
+    );
+
+    const health = await unrestricted.health();
+    assert.doesNotMatch(health.detail, /egress allowlist/, health.detail);
+  } finally {
+    await unrestricted.removeProject("prj_egress_restart").catch(() => undefined);
+    await unrestricted.dispose().catch(() => undefined);
+  }
+});

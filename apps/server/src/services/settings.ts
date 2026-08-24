@@ -1,6 +1,6 @@
 import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core";
 import { ZelyqError } from "@zelyq/core";
-import type { Store } from "@zelyq/db";
+import { resolveSetting, type Store } from "@zelyq/db";
 import type { SecretBox } from "./secrets.js";
 import { maskSecret } from "./secrets.js";
 
@@ -41,6 +41,11 @@ const GROUPS: Array<{ name: string; description: string }> = [
     name: "Preview",
     description:
       "How running projects are reached. Change these when Zelyq is not on the machine you browse from.",
+  },
+  {
+    name: "Runtime",
+    description:
+      "How and where the agent executes project code. Container-mode settings only apply when ZELYQ_RUNTIME=container.",
   },
 ];
 
@@ -230,6 +235,21 @@ const DEFINITIONS: Definition[] = [
     fallback: "127.0.0.1",
     restartRequired: true,
   },
+  {
+    key: "containerEgressAllowlist",
+    label: "Container egress allowlist",
+    description:
+      "Comma-separated hostnames a project's container may reach when ZELYQ_RUNTIME=container, e.g. " +
+      "registry.npmjs.org,github.com. Leave empty and container egress is unfiltered — this is not a " +
+      "security setting to turn on lightly, only a way to lock it down once you know what a project " +
+      "needs. See docs/configuration.md.",
+    kind: "text",
+    group: "Runtime",
+    envVar: "ZELYQ_CONTAINER_EGRESS_ALLOWLIST",
+    fallback: "",
+    placeholder: "registry.npmjs.org,github.com",
+    restartRequired: true,
+  },
 ];
 
 const BY_KEY = new Map(DEFINITIONS.map((definition) => [definition.key, definition]));
@@ -278,14 +298,24 @@ export class SettingsService {
     const definition = BY_KEY.get(key);
     if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
 
+    // A secret's stored form is ciphertext, and a failed decrypt has its own
+    // fallback — resolveSetting only knows plain strings, so this one case
+    // keeps its own path rather than forcing a fit that isn't there.
+    if (!definition.secret) {
+      return await resolveSetting(
+        this.store.settings,
+        definition.envVar,
+        key,
+        definition.fallback,
+        this.env,
+      );
+    }
+
     const fromEnv = this.env[definition.envVar];
     if (fromEnv) return fromEnv;
-
     const stored = await this.store.settings.get(key);
     if (stored === null) return definition.fallback;
-
-    if (definition.secret) return this.secrets.decrypt(stored) ?? definition.fallback;
-    return stored;
+    return this.secrets.decrypt(stored) ?? definition.fallback;
   }
 
   async booleanValue(key: string): Promise<boolean> {
