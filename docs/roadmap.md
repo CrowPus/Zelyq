@@ -28,8 +28,9 @@ something a team can adopt.** Quality first, then the change record, then the de
 - [x] Editable code view — write files back from the browser, not just read them
 - [x] Reconcile preview state across a server restart, and between the agent and the server, which
       each hold their own driver
-- [ ] Carry tool context across an agent restart. Conversations are rebuilt from message text, so a
-      restart loses which files the agent read and what it already tried
+- [x] Carry tool context across an agent restart. Each provider reconstructs its own native
+      tool_use/tool_result shape from what a past turn actually did, the same construction it
+      already uses for a live turn
 
 ## Next — a change record you can trust
 
