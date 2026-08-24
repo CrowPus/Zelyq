@@ -1,4 +1,5 @@
 import { createDatabase, type DatabaseHandle } from "./client.js";
+import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { messageRepository } from "./repositories/messages.js";
 import { projectRepository } from "./repositories/projects.js";
@@ -10,6 +11,7 @@ import { userRepository } from "./repositories/users.js";
 
 export * from "./client.js";
 export { runMigrations } from "./migrate.js";
+export type { AuditLogRepository } from "./repositories/audit-log.js";
 export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
 export type { MessageRepository } from "./repositories/messages.js";
 export type { ProjectRepository } from "./repositories/projects.js";
@@ -29,6 +31,7 @@ export interface Store extends DatabaseHandle {
   messages: ReturnType<typeof messageRepository>;
   snapshots: ReturnType<typeof snapshotRepository>;
   settings: ReturnType<typeof settingsRepository>;
+  auditLog: ReturnType<typeof auditLogRepository>;
 }
 
 /**
@@ -48,5 +51,6 @@ export function createStore(url: string): Store {
     messages: messageRepository(handle.db),
     snapshots: snapshotRepository(handle.db),
     settings: settingsRepository(handle.db),
+    auditLog: auditLogRepository(handle.db),
   };
 }

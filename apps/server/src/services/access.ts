@@ -1,4 +1,12 @@
-import { type Project, type Role, roleAtLeast, type User, ZelyqError } from "@zelyq/core";
+import {
+  type AuditAction,
+  newId,
+  type Project,
+  type Role,
+  roleAtLeast,
+  type User,
+  ZelyqError,
+} from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { FastifyRequest } from "fastify";
 
@@ -77,5 +85,34 @@ export class AccessControl {
       throw new ZelyqError("forbidden", "You do not have write access to any team.");
     }
     return writable.id;
+  }
+
+  /**
+   * Records a project- or team-level change — see `030` in the council
+   * notes for the scope and for why `teamId`/`projectId`/`userId` carry no
+   * foreign key. Called once, after the action it describes has already
+   * succeeded, never before: a rejected or failed mutation must never
+   * produce a log entry claiming it happened.
+   */
+  async recordChange(
+    user: User,
+    entry: {
+      teamId: string | null;
+      projectId?: string;
+      action: AuditAction;
+      detail?: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    await this.store.auditLog.record({
+      id: newId("audit"),
+      teamId: entry.teamId,
+      projectId: entry.projectId ?? null,
+      userId: user.id,
+      actorName: user.name,
+      actorEmail: user.email,
+      action: entry.action,
+      detail: entry.detail ?? {},
+      createdAt: new Date().toISOString(),
+    });
   }
 }

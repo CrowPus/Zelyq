@@ -29,7 +29,8 @@ export function registerFileRoutes(
   });
 
   app.put<{ Params: { id: string; "*": string } }>("/api/projects/:id/files/*", async (request) => {
-    await access.requireProject(access.requireUser(request), request.params.id, "editor");
+    const user = access.requireUser(request);
+    const { project } = await access.requireProject(user, request.params.id, "editor");
     const input = writeFileSchema.parse(request.body);
     await deps.runtime.writeFile(
       request.params.id,
@@ -37,14 +38,27 @@ export function registerFileRoutes(
       input.content,
       input.encoding,
     );
+    await access.recordChange(user, {
+      teamId: project.teamId,
+      projectId: project.id,
+      action: "file.written",
+      detail: { path: request.params["*"] },
+    });
     return { path: request.params["*"], written: true };
   });
 
   app.delete<{ Params: { id: string; "*": string } }>(
     "/api/projects/:id/files/*",
     async (request, reply) => {
-      await access.requireProject(access.requireUser(request), request.params.id, "editor");
+      const user = access.requireUser(request);
+      const { project } = await access.requireProject(user, request.params.id, "editor");
       await deps.runtime.deleteFile(request.params.id, request.params["*"]);
+      await access.recordChange(user, {
+        teamId: project.teamId,
+        projectId: project.id,
+        action: "file.deleted",
+        detail: { path: request.params["*"] },
+      });
       reply.status(204);
     },
   );

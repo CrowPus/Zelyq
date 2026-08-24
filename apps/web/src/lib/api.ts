@@ -1,5 +1,6 @@
 import type {
   AddMemberInput,
+  AuditLogEntry,
   ChangePasswordInput,
   CreateProjectInput,
   FileContent,
@@ -106,6 +107,8 @@ export const api = {
 
   removeMember: (teamId: string, userId: string) =>
     request<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
+
+  auditLog: (teamId: string) => request<{ entries: AuditLogEntry[] }>(`/teams/${teamId}/audit-log`),
 
   health: () =>
     request<{

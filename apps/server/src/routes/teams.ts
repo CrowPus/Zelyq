@@ -46,6 +46,20 @@ export function registerTeamRoutes(
   });
 
   /**
+   * Seeing a full history of who did what is more sensitive than ordinary
+   * edit access — gated the same way `settings.ts` gates its own read.
+   */
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    "/api/teams/:id/audit-log",
+    async (request) => {
+      const user = access.requireUser(request);
+      await access.requireTeamRole(user, request.params.id, "admin");
+      const limit = request.query.limit ? Number.parseInt(request.query.limit, 10) : undefined;
+      return { entries: await store.auditLog.listForTeam(request.params.id, limit) };
+    },
+  );
+
+  /**
    * Adds an existing account by email. There is no invitation email in the core
    * — an instance has no mail transport it can assume — so the person registers
    * first and an admin adds them.
@@ -73,6 +87,11 @@ export function registerTeamRoutes(
     }
 
     await store.teams.addMember(teamId, invitee.id, input.role);
+    await access.recordChange(user, {
+      teamId,
+      action: "team.member_added",
+      detail: { email: input.email, role: input.role },
+    });
     reply.status(201);
     return { members: await store.teams.listMembers(teamId) };
   });
@@ -106,6 +125,12 @@ export function registerTeamRoutes(
       }
 
       await store.teams.updateMemberRole(teamId, userId, input.role);
+      const target = await store.users.findById(userId);
+      await access.recordChange(user, {
+        teamId,
+        action: "team.member_role_changed",
+        detail: { email: target?.email ?? userId, from: targetRole, to: input.role },
+      });
       return { members: await store.teams.listMembers(teamId) };
     },
   );
@@ -133,7 +158,13 @@ export function registerTeamRoutes(
         );
       }
 
+      const target = await store.users.findById(userId);
       await store.teams.removeMember(teamId, userId);
+      await access.recordChange(user, {
+        teamId,
+        action: "team.member_removed",
+        detail: { email: target?.email ?? userId, self: isSelf },
+      });
       reply.status(204);
     },
   );
