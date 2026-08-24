@@ -42,6 +42,11 @@ const GROUPS: Array<{ name: string; description: string }> = [
     description:
       "How running projects are reached. Change these when Zelyq is not on the machine you browse from.",
   },
+  {
+    name: "Runtime",
+    description:
+      "How and where the agent executes project code. Container-mode settings only apply when ZELYQ_RUNTIME=container.",
+  },
 ];
 
 const DEFINITIONS: Definition[] = [
@@ -228,6 +233,21 @@ const DEFINITIONS: Definition[] = [
     group: "Preview",
     envVar: "ZELYQ_PREVIEW_HOST",
     fallback: "127.0.0.1",
+    restartRequired: true,
+  },
+  {
+    key: "containerEgressAllowlist",
+    label: "Container egress allowlist",
+    description:
+      "Comma-separated hostnames a project's container may reach when ZELYQ_RUNTIME=container, e.g. " +
+      "registry.npmjs.org,github.com. Leave empty and container egress is unfiltered — this is not a " +
+      "security setting to turn on lightly, only a way to lock it down once you know what a project " +
+      "needs. See docs/configuration.md.",
+    kind: "text",
+    group: "Runtime",
+    envVar: "ZELYQ_CONTAINER_EGRESS_ALLOWLIST",
+    fallback: "",
+    placeholder: "registry.npmjs.org,github.com",
     restartRequired: true,
   },
 ];
