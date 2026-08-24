@@ -132,8 +132,13 @@ test("a command cannot read another project's files", { skip: !hasEngine }, asyn
     "for p in ../prj_victim/secret.txt prj_victim/secret.txt " +
     "../../prj_victim/secret.txt /workspace/prj_victim/secret.txt; do " +
     'cat "$p" 2>/dev/null; done; ' +
-    // And a sweep, in case the mount is somewhere none of those name.
-    'grep -rl "other project\'s data" / 2>/dev/null | head -1';
+    // And a sweep of the bind mount itself, in case a wider mount put the
+    // victim somewhere none of the guessed paths name — this is exactly the
+    // mutation that broke the first version of this test. Scoped to
+    // `/workspace`, not `/`: the real risk is the *mount* being too wide, not
+    // the container's own filesystem, and a sweep from `/` is what took this
+    // test from a second to two minutes by wandering into /proc.
+    'grep -rl "other project\'s data" /workspace 2>/dev/null | head -1';
   const seen = await bothDrivers(probe);
 
   assert.doesNotMatch(seen.container, /other project's data|prj_victim/, "the container read it");
@@ -199,4 +204,234 @@ test("the health check reports the engine, and fails without one", {
   const unhealthy = await broken.health();
   assert.equal(unhealthy.ok, false);
   assert.match(unhealthy.detail, /not usable|cannot run/i);
+});
+
+// ---------------------------------------------------------------------------
+// The preview, inside the container. Step two of `023`.
+//
+// Two real bugs were found writing these, both by driving the driver against
+// a real container rather than trusting the design: `kill` is a shell
+// builtin in this image, not a binary, so passing it as a bare exec argument
+// failed with "executable file not found" and every liveness check and every
+// stop silently did nothing. And a host-side `waitForPort` on the published
+// port is not a valid readiness check at all — `docker-proxy` accepts the TCP
+// handshake the moment the container exists, whether or not anything inside
+// is listening, so a server that never bound the port still read as
+// "running". Both are fixed in `container.ts`; these tests are what would
+// catch either regressing.
+// ---------------------------------------------------------------------------
+
+function previewConfig(range: [number, number]) {
+  return { ...config("container"), previewPortRange: range };
+}
+
+test("a preview starts inside the container, is fetchable, and a stop leaves nothing running", {
+  skip: !hasEngine,
+}, async () => {
+  const driver = new ContainerRuntimeDriver(previewConfig([4771, 4774]));
+  try {
+    await driver.ensureProject("prj_preview_ok");
+    await driver.scaffold("prj_preview_ok", [
+      {
+        path: "package.json",
+        content: JSON.stringify({ name: "x", scripts: { dev: "node server.js" } }),
+      },
+      {
+        path: "server.js",
+        content:
+          "require('http').createServer((_,res)=>res.end('ok'))" +
+          ".listen(process.env.PORT,'0.0.0.0',()=>console.log('Local: http://localhost:'+process.env.PORT+'/'));",
+      },
+    ]);
+
+    const started = await driver.startPreview("prj_preview_ok");
+    assert.equal(started.status, "running", JSON.stringify(started));
+    assert.ok(started.url, "a running preview must have a URL");
+
+    const response = await fetch(started.url as string);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "ok");
+
+    assert.equal((await driver.previewStatus("prj_preview_ok")).status, "running");
+
+    const stopped = await driver.stopPreview("prj_preview_ok");
+    assert.equal(stopped.status, "stopped");
+
+    // Not just the record — the process itself. This is the bug `kill`
+    // being a shell builtin produced: the stop call succeeded and the
+    // server kept answering.
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await assert.rejects(
+      fetch(started.url as string),
+      "the dev server should be genuinely unreachable after stop, not merely marked stopped",
+    );
+    assert.equal((await driver.previewStatus("prj_preview_ok")).status, "stopped");
+  } finally {
+    await driver.removeProject("prj_preview_ok").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
+});
+
+test("a dev server that goes to its own port fails fast and names the port it actually used", {
+  skip: !hasEngine,
+}, async () => {
+  const driver = new ContainerRuntimeDriver(previewConfig([4776, 4779]));
+  try {
+    await driver.ensureProject("prj_preview_stubborn");
+    await driver.scaffold("prj_preview_stubborn", [
+      {
+        path: "package.json",
+        content: JSON.stringify({ name: "x", scripts: { dev: "node server.js" } }),
+      },
+      {
+        // Ignores the PORT it was given, the way a tool with its own fixed
+        // config does. This is the case a host-side `waitForPort` cannot
+        // tell apart from success, because the published port always
+        // accepts a TCP connection whether or not the real server is there.
+        path: "server.js",
+        content:
+          "require('http').createServer((_,res)=>res.end('stubborn')).listen(9999,'0.0.0.0'," +
+          "()=>console.log('  \\u2794  Local:   http://localhost:9999/'));",
+      },
+    ]);
+
+    const startedAt = Date.now();
+    const result = await driver.startPreview("prj_preview_stubborn");
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(result.status, "crashed", JSON.stringify(result));
+    assert.match(result.lastError ?? "", /9999/, "should name the port it actually went to");
+    assert.ok(
+      elapsedMs < 20_000,
+      `took ${elapsedMs}ms — should fail in seconds, not wait out the full readiness timeout`,
+    );
+
+    // The crash reason persists on a repeat check, the same way local.ts
+    // keeps a failed attempt visible rather than reverting to "stopped".
+    const status = await driver.previewStatus("prj_preview_stubborn");
+    assert.equal(status.status, "crashed");
+    assert.match(status.lastError ?? "", /9999/);
+  } finally {
+    await driver.removeProject("prj_preview_stubborn").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
+});
+
+test("starting a preview recreates the container to publish the port, proven by its creation time", {
+  skip: !hasEngine,
+}, async () => {
+  // Docker publishes ports at creation time; there is no way to add one to
+  // a running container. `023`'s design accepted a recreate as the cost of
+  // that — this proves it actually happens rather than trusting the code
+  // path was taken, per `017`'s rule that a claim like this needs evidence,
+  // not an assertion that the end state merely looks right.
+  const driver = new ContainerRuntimeDriver(previewConfig([4791, 4794]));
+  const name = containerName("prj_preview_recreate");
+  try {
+    await driver.ensureProject("prj_preview_recreate");
+    await driver.scaffold("prj_preview_recreate", [
+      {
+        path: "package.json",
+        content: JSON.stringify({ name: "x", scripts: { dev: "node server.js" } }),
+      },
+      {
+        path: "server.js",
+        content:
+          "require('http').createServer((_,res)=>res.end('ok'))" +
+          ".listen(process.env.PORT,'0.0.0.0',()=>console.log('Local: http://localhost:'+process.env.PORT+'/'));",
+      },
+    ]);
+
+    // A plain command first — this creates the container with no port
+    // published, since nothing has asked for one yet.
+    await driver.exec("prj_preview_recreate", { command: "node -v" });
+    const before = execFileSync("docker", ["inspect", name, "--format", "{{.Created}}"])
+      .toString()
+      .trim();
+    const portsBefore = execFileSync("docker", [
+      "inspect",
+      name,
+      "--format",
+      "{{json .HostConfig.PortBindings}}",
+    ])
+      .toString()
+      .trim();
+    assert.equal(portsBefore, "{}", "should have no published port before any preview");
+
+    const started = await driver.startPreview("prj_preview_recreate");
+    assert.equal(started.status, "running", JSON.stringify(started));
+
+    const after = execFileSync("docker", ["inspect", name, "--format", "{{.Created}}"])
+      .toString()
+      .trim();
+    const portsAfter = execFileSync("docker", [
+      "inspect",
+      name,
+      "--format",
+      "{{json .HostConfig.PortBindings}}",
+    ])
+      .toString()
+      .trim();
+
+    assert.notEqual(before, after, "the container must have been recreated to publish the port");
+    assert.notEqual(portsAfter, "{}", "the port should now be published");
+
+    const response = await fetch(started.url as string);
+    assert.equal(response.status, 200);
+  } finally {
+    await driver.removeProject("prj_preview_recreate").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
+});
+
+test("concurrent exec and a preview start for the same project do not corrupt state", {
+  skip: !hasEngine,
+}, async () => {
+  // The one race `023` named rather than engineered away: a container
+  // recreate landing mid-flight against other work for the same project.
+  // The lock's job is to stop it from corrupting anything, not to make the
+  // moment free — this proves the former, not the latter.
+  const driver = new ContainerRuntimeDriver(previewConfig([4796, 4799]));
+  try {
+    await driver.ensureProject("prj_preview_race");
+    await driver.scaffold("prj_preview_race", [
+      {
+        path: "package.json",
+        content: JSON.stringify({ name: "x", scripts: { dev: "node server.js" } }),
+      },
+      {
+        path: "server.js",
+        content:
+          "require('http').createServer((_,res)=>res.end('ok'))" +
+          ".listen(process.env.PORT,'0.0.0.0',()=>console.log('Local: http://localhost:'+process.env.PORT+'/'));",
+      },
+    ]);
+
+    const [execResults, startResult] = await Promise.all([
+      Promise.all(
+        Array.from({ length: 5 }, (_, i) =>
+          driver.exec("prj_preview_race", { command: `echo turn-${i}` }),
+        ),
+      ),
+      driver.startPreview("prj_preview_race"),
+    ]);
+
+    for (const result of execResults) {
+      assert.equal(result.exitCode, 0, "no command should fail to a recreate race");
+    }
+    assert.equal(startResult.status, "running", JSON.stringify(startResult));
+
+    const response = await fetch(startResult.url as string);
+    assert.equal(response.status, 200);
+
+    // Two concurrent starts must agree on one running preview, not spawn two.
+    const [a, b] = await Promise.all([
+      driver.startPreview("prj_preview_race"),
+      driver.startPreview("prj_preview_race"),
+    ]);
+    assert.equal(a.pid, b.pid, "concurrent starts spawned two different servers");
+  } finally {
+    await driver.removeProject("prj_preview_race").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
 });

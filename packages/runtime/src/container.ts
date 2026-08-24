@@ -1,6 +1,20 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { FileContent, FileEntry, Preview, Snapshot } from "@zelyq/core";
 import { ZelyqError } from "@zelyq/core";
-import { agentCommandEnv, LocalRuntimeDriver, runCaptured } from "./local.js";
+import {
+  agentCommandEnv,
+  announcedPort,
+  clearPreviewRecord,
+  detectDevCommand,
+  LocalRuntimeDriver,
+  PREVIEW_READY_TIMEOUT_MS,
+  readPreviewRecord,
+  runCaptured,
+  stoppedPreview,
+  writePreviewRecord,
+} from "./local.js";
+import { allocatePort, releasePort } from "./ports.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -14,14 +28,16 @@ import type {
 } from "./types.js";
 
 /**
- * Agent commands run inside a container, one per project.
+ * Agent commands and the dev server both run inside a container, one per
+ * project.
  *
  * Zelyq runs code a language model wrote. Until now that code ran as the
  * server's own user — `SECURITY.md` says so plainly — which is why the product
  * has only ever been safe for one trusted developer on one machine.
  *
  * **The container is an execution jail, not a storage layer.** Of the twenty
- * methods on `RuntimeDriver`, exactly two spawn a process. The rest read and
+ * methods on `RuntimeDriver`, exactly two spawn a process — `exec` and
+ * `startPreview` — and both do it inside the container now. The rest read and
  * write files under the project root, and they keep doing that on the host,
  * directly and unchanged, against a directory the container has bind-mounted.
  * Reimplementing the filesystem across a container boundary would have been
@@ -34,6 +50,17 @@ import type {
  * isolated, and what is not, is visible in this file rather than implied by
  * what a subclass forgot to override.
  *
+ * The preview has no live child-process object to hold the way the local
+ * driver's does — `startPreview` runs the dev server detached via `docker
+ * exec` and returns, so status is always *derived*: from the on-disk record
+ * `local.ts` already writes, and a liveness/readiness check run through
+ * `docker exec` rather than the host's own pid table or a host-side port
+ * probe. The second of those was not assumed to work — a host-side TCP
+ * connect to the published port turned out to succeed the moment the
+ * container exists, whether or not anything inside is listening, because
+ * `docker-proxy` accepts the handshake itself. Confirmed against a real
+ * container before this was written, not guessed at; see `probeInContainer`.
+ *
  * ## What this does not do yet
  *
  * **Egress is not filtered.** A container on the default bridge can still reach
@@ -41,11 +68,6 @@ import type {
  * hands out instance credentials on most providers. That is the third step of
  * `023` and nothing here should be described as a completed sandbox until it
  * lands.
- *
- * **The preview still runs on the host.** `startPreview` is delegated
- * unchanged, so `npm run dev` — which executes project code — is not yet
- * jailed. That is step two. Until then this driver narrows the blast radius of
- * agent shell commands and nothing more.
  */
 
 const DEFAULT_IMAGE = "node:22-bookworm-slim";
@@ -68,23 +90,78 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   readonly kind = "container" as const;
 
   private readonly local: LocalRuntimeDriver;
+  private readonly workspaceDir: string;
   private readonly image: string;
   private readonly memory: string;
   private readonly cpus: string;
   private readonly pidsLimit: number;
   private readonly engine: string;
   private readonly execTimeoutMs: number;
+  private readonly portRange: [number, number];
+  /** What the preview URL names — the address a browser on this machine reaches it at. */
+  private readonly previewHost: string;
+  /** What `--publish` binds to. Loopback for loopback previews; every interface otherwise. */
+  private readonly previewBindHost: string;
   /** Projects whose container this process has already started. */
   private readonly started = new Set<string>();
+  /** The preview port published on that container, if any. */
+  private readonly containerPort = new Map<string, number>();
+  /**
+   * A start that failed before any process existed to track — a bad install,
+   * a container that would not come up. There is no pid and no record file for
+   * either, so without this a repeat status check would report "stopped"
+   * rather than repeating the reason, which is what `local.ts` avoids by
+   * keeping a failed attempt in memory too.
+   */
+  private readonly lastFailure = new Map<string, Preview>();
+  /**
+   * Serialises operations that change what a project's container *is* —
+   * create, recreate, destroy. Held only around the mutation itself, inside
+   * `ensureContainer`/`destroyContainer` — never around a caller of those,
+   * which is what keeps this safe to acquire from inside `withPreviewLock`
+   * below without the two deadlocking each other.
+   */
+  private readonly locks = new Map<string, Promise<unknown>>();
+  /**
+   * Serialises `startPreview` and `stopPreview` for one project, so two
+   * concurrent calls cannot both decide nothing is running and both spawn a
+   * server. A separate map from `locks`, deliberately: `startPreview` runs
+   * *inside* this lock and calls `exec`, which acquires `locks` internally —
+   * the same lock nested inside itself would never resolve.
+   */
+  private readonly previewLocks = new Map<string, Promise<unknown>>();
 
   constructor(config: RuntimeConfig, options: ContainerOptions = {}) {
     this.local = new LocalRuntimeDriver(config);
+    this.workspaceDir = path.resolve(config.workspaceDir);
     this.execTimeoutMs = config.execTimeoutMs;
+    this.portRange = config.previewPortRange;
+    this.previewHost = config.previewHost || "127.0.0.1";
+    this.previewBindHost =
+      this.previewHost === "127.0.0.1" || this.previewHost === "localhost"
+        ? "127.0.0.1"
+        : "0.0.0.0";
     this.image = options.image ?? DEFAULT_IMAGE;
     this.memory = options.memory ?? DEFAULT_MEMORY;
     this.cpus = options.cpus ?? DEFAULT_CPUS;
     this.pidsLimit = options.pidsLimit ?? DEFAULT_PIDS;
     this.engine = options.engine ?? "docker";
+  }
+
+  /**
+   * Runs `fn` after every operation already queued for this project has
+   * settled, and queues `fn` itself for whatever comes next. A prior failure
+   * does not block the next operation — only its own caller sees the
+   * rejection — which is why the queued tail swallows errors while the
+   * returned promise does not.
+   */
+  private withProjectLock<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
+    return chained(this.locks, projectId, fn);
+  }
+
+  /** Same mechanism, the other map — see the field comments for why they differ. */
+  private withPreviewLock<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
+    return chained(this.previewLocks, projectId, fn);
   }
 
   async health(): Promise<RuntimeHealth> {
@@ -119,6 +196,9 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    */
   async exec(projectId: string, options: ExecOptions): Promise<ExecResult> {
     const { root } = await this.local.ensureProject(projectId);
+    // Unlocked at this level on purpose: `ensureContainer` locks only the
+    // create/recreate it may need to do, not the check, so an ordinary
+    // command that finds a container already there pays nothing for it.
     await this.ensureContainer(projectId, root);
 
     // Refused rather than resolved on the host: a `cwd` that escaped the
@@ -138,7 +218,9 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   }
 
   async removeProject(projectId: string): Promise<void> {
-    await this.destroyContainer(projectId);
+    await this.stopPreview(projectId).catch(() => undefined);
+    await this.withProjectLock(projectId, () => this.destroyContainer(projectId));
+    this.lastFailure.delete(projectId);
     await this.local.removeProject(projectId);
   }
 
@@ -146,7 +228,9 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     // Sequential on purpose: a machine with many projects should not be asked
     // to tear down fifty containers at once while it is already shutting down.
     for (const projectId of [...this.started]) {
-      await this.destroyContainer(projectId).catch(() => undefined);
+      await this.withProjectLock(projectId, () => this.destroyContainer(projectId)).catch(
+        () => undefined,
+      );
     }
     await this.local.dispose();
   }
@@ -191,62 +275,396 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   }
 
   /**
-   * Still the host's, and therefore still unjailed. Step two of `023` moves the
-   * dev server inside; until it does, this is delegated rather than quietly
-   * reimplemented, so the gap is visible here instead of being discovered.
+   * The dev server, inside the container.
+   *
+   * There is no live child-process object to hold — the process is started
+   * detached via `docker exec` and outlives this call — so status is always
+   * derived, the same way `local.ts` derives it for a preview *another*
+   * process started: from the on-disk record plus a liveness check, here
+   * always run through `docker exec` rather than the host's own pid table.
    */
-  startPreview(projectId: string, options?: PreviewOptions): Promise<Preview> {
-    return this.local.startPreview(projectId, options);
+  async startPreview(projectId: string, options: PreviewOptions = {}): Promise<Preview> {
+    return await this.withPreviewLock(projectId, async () => {
+      const quick = await this.checkPreview(projectId);
+      if (quick.status === "running" || quick.status === "starting") return quick;
+
+      const { root } = await this.local.ensureProject(projectId);
+      this.lastFailure.delete(projectId);
+      const name = containerName(projectId);
+
+      // A container to install into. No port needed yet — that is decided
+      // once the install has succeeded, and asking for one here would recreate
+      // the container twice on a project's very first preview.
+      await this.ensureContainer(projectId, root);
+
+      const hasModules = await fs
+        .access(path.join(root, "node_modules"))
+        .then(() => true)
+        .catch(() => false);
+      if (!hasModules) {
+        const install = await this.exec(projectId, {
+          command: "npm install --no-audit --no-fund --include=dev",
+          timeoutMs: 10 * 60_000,
+        });
+        if (install.exitCode !== 0) {
+          return this.fail(projectId, `Dependency install failed (exit ${install.exitCode})`);
+        }
+      }
+
+      const port = options.port ?? (await allocatePort(this.portRange));
+      // The container must have exactly this port published. If it does not —
+      // the common case, since the install above did not ask for one — it is
+      // recreated. Safe: nothing lives in the container's own layer.
+      await this.ensureContainer(projectId, root, port);
+
+      // Inside the container the server always binds every interface; it is
+      // `--publish` above, not this flag, that decides what the host can
+      // reach. Binding `previewBindHost` here would tell the process to listen
+      // only on the container's own loopback or its own single address, which
+      // is not the interface docker's forwarding arrives on.
+      const command = options.command ?? (await detectDevCommand(root, port, "0.0.0.0"));
+      const env = { ...agentCommandEnv(options.env), PORT: String(port), HOST: "0.0.0.0" };
+
+      const spawned = await this.spawnDetached(name, command, env);
+      if (!spawned.pid) {
+        releasePort(port);
+        return this.fail(
+          projectId,
+          `Could not start the dev server: ${spawned.detail || "no process id was reported"}`,
+        );
+      }
+
+      const startedAt = new Date().toISOString();
+      await writePreviewRecord(this.workspaceDir, projectId, {
+        pid: spawned.pid,
+        port,
+        startedAt,
+        ownerPid: process.pid,
+      });
+
+      // The same shape as `local.ts`: keep waiting on the port we assigned:
+      // an announced *different* port shortens the remaining wait to three
+      // seconds rather than confirming the other port is reachable, because
+      // it is a diagnosis, not a redirect.
+      const deadline = Date.now() + PREVIEW_READY_TIMEOUT_MS;
+      let shortDeadline: number | null = null;
+      let elsewhere: number | null = null;
+      let ready = false;
+      while (Date.now() < (shortDeadline ?? deadline)) {
+        if (await this.probeInContainer(name, port)) {
+          ready = true;
+          break;
+        }
+        if (elsewhere === null) {
+          const log = await this.readLog(name);
+          const announced = announcedPort(log);
+          if (announced !== null && announced !== port) {
+            elsewhere = announced;
+            shortDeadline = Date.now() + 3_000;
+          }
+        }
+        // Each iteration is already at least one `docker exec` round trip;
+        // this just keeps a fast engine from spinning tighter than there is
+        // any reason to.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+
+      if (ready) {
+        return {
+          projectId,
+          status: "running",
+          url: `http://${this.previewHost}:${port}`,
+          port,
+          pid: spawned.pid,
+          startedAt,
+          lastError: null,
+        };
+      }
+
+      // Whatever it is doing, it is not serving this preview. Left alive it
+      // holds a container-internal port and a live pid a later status check
+      // would read back as "still starting" — the same reason `local.ts`
+      // kills the child on this path.
+      await this.killInContainer(name, spawned.pid);
+      releasePort(port);
+      await clearPreviewRecord(this.workspaceDir, projectId);
+
+      return this.fail(
+        projectId,
+        elsewhere === null
+          ? "Dev server did not start listening in time"
+          : `The dev server started on port ${elsewhere}, not the ${port} Zelyq assigned it. ` +
+              "That usually means the project's own config sets a fixed port.",
+      );
+    });
   }
-  stopPreview(projectId: string): Promise<Preview> {
-    return this.local.stopPreview(projectId);
+
+  async stopPreview(projectId: string): Promise<Preview> {
+    return await this.withPreviewLock(projectId, async () => {
+      this.lastFailure.delete(projectId);
+      // Not gated on whether *this* process started the container: the other
+      // half of Zelyq (agent or server, each holding its own driver instance)
+      // may have. A container that does not exist just fails the exec below,
+      // caught the same way every other engine call is.
+      const record = await readPreviewRecord(this.workspaceDir, projectId);
+      if (record) {
+        await this.killInContainer(containerName(projectId), record.pid);
+        releasePort(record.port);
+      }
+      await clearPreviewRecord(this.workspaceDir, projectId);
+      return stoppedPreview(projectId);
+    });
   }
-  previewStatus(projectId: string): Promise<Preview> {
-    return this.local.previewStatus(projectId);
+
+  async previewStatus(projectId: string): Promise<Preview> {
+    return await this.checkPreview(projectId);
   }
-  previewLogs(projectId: string, lines?: number): Promise<string> {
-    return this.local.previewLogs(projectId, lines);
+
+  async previewLogs(projectId: string, lines = 200): Promise<string> {
+    const text = await this.readLog(containerName(projectId));
+    return text.split("\n").slice(-lines).join("\n");
+  }
+
+  /**
+   * Derives status the way `local.ts` does for a preview a *different*
+   * process started: from the on-disk record and a liveness check, never from
+   * memory this process might not hold.
+   */
+  private async checkPreview(projectId: string): Promise<Preview> {
+    const record = await readPreviewRecord(this.workspaceDir, projectId);
+    if (!record) return this.lastFailure.get(projectId) ?? stoppedPreview(projectId);
+
+    const name = containerName(projectId);
+    const alive = await this.processAliveInContainer(name, record.pid);
+    if (!alive) {
+      await clearPreviewRecord(this.workspaceDir, projectId);
+      return this.lastFailure.get(projectId) ?? stoppedPreview(projectId);
+    }
+
+    // Checked from inside the container, not via a host-side `waitForPort`:
+    // `docker-proxy` accepts the TCP handshake on the published host port
+    // regardless of whether anything inside is listening, so a host-side
+    // check here would report every live process as "running" forever.
+    const listening = await this.probeInContainer(name, record.port);
+
+    // A live process on a dead port, once it has had long enough to start, is
+    // not "still starting" — reporting it as such is how a spinner becomes
+    // permanent. Same reasoning as `local.ts`'s `adoptPreview`.
+    const age = Date.now() - new Date(record.startedAt).getTime();
+    if (!listening && Number.isFinite(age) && age > PREVIEW_READY_TIMEOUT_MS) {
+      return {
+        projectId,
+        status: "crashed",
+        url: null,
+        port: record.port,
+        pid: record.pid,
+        startedAt: record.startedAt,
+        lastError: `The dev server is running but nothing is listening on port ${record.port}.`,
+      };
+    }
+
+    return {
+      projectId,
+      status: listening ? "running" : "starting",
+      url: listening ? `http://${this.previewHost}:${record.port}` : null,
+      port: record.port,
+      pid: record.pid,
+      startedAt: record.startedAt,
+      lastError: null,
+    };
+  }
+
+  private fail(projectId: string, message: string): Preview {
+    const failed: Preview = {
+      projectId,
+      status: "crashed",
+      url: null,
+      port: null,
+      pid: null,
+      startedAt: new Date().toISOString(),
+      lastError: message,
+    };
+    this.lastFailure.set(projectId, failed);
+    return failed;
+  }
+
+  /**
+   * Starts `command` in the background inside the container and returns its
+   * pid, without a pidfile round trip: `setsid` makes the backgrounded process
+   * its own session leader — killable as a group by that same pid, the
+   * container-side equivalent of `killPidTree` — and its pid is `$!`, echoed
+   * straight back on this call's own stdout before it returns.
+   */
+  private async spawnDetached(
+    name: string,
+    command: string,
+    env: Record<string, string>,
+  ): Promise<{ pid: number | null; detail: string }> {
+    const escaped = command.replace(/'/g, `'\\''`);
+    const script = `setsid bash -c '${escaped}' > /tmp/preview.log 2>&1 < /dev/null & echo $!`;
+
+    const envArgs: string[] = [];
+    for (const [key, value] of Object.entries(env)) envArgs.push("--env", `${key}=${value}`);
+
+    const result = await this.engineRun(
+      ["exec", ...envArgs, "--workdir", "/workspace", name, "/bin/bash", "-c", script],
+      15_000,
+    );
+    const pid = Number.parseInt(result.stdout.trim(), 10);
+    return {
+      pid: Number.isFinite(pid) && pid > 0 ? pid : null,
+      detail: firstLine(result.stderr) || firstLine(result.stdout),
+    };
+  }
+
+  /** Bounded, so a dev server that never stops talking cannot grow this without limit. */
+  private async readLog(name: string): Promise<string> {
+    const result = await this.engineRun(
+      ["exec", name, "tail", "-c", "65536", "/tmp/preview.log"],
+      10_000,
+    );
+    return result.exitCode === 0 ? result.stdout : "";
+  }
+
+  /**
+   * Whether something is actually answering on `port`, checked from *inside*
+   * the container.
+   *
+   * `waitForPort` — a host-side TCP connect — is not a valid check here and
+   * was tried first: `docker-proxy` accepts the TCP handshake on the
+   * published host port the moment the container exists, whether or not
+   * anything inside is listening, so the host-side connect succeeds
+   * immediately regardless of whether the dev server has even started.
+   * Confirmed against a real container before this was written, not assumed:
+   * a script that never binds the assigned port at all still read as
+   * "running" under the host-side check.
+   *
+   * `node` is always present in the image; `curl`/`wget` are not.
+   */
+  private async probeInContainer(name: string, port: number): Promise<boolean> {
+    const script = `node -e "fetch('http://127.0.0.1:${port}').then(()=>process.exit(0)).catch(()=>process.exit(1))"`;
+    const result = await this.engineRun(["exec", name, "bash", "-c", script], 5_000);
+    return result.exitCode === 0;
+  }
+
+  /**
+   * `kill` is a shell builtin, not a binary — `node:22-bookworm-slim` has no
+   * `/bin/kill`, so every call here has to go through a shell. The first
+   * version of this driver passed `kill` as the exec argument directly:
+   * docker reported "executable file not found", every liveness check read as
+   * dead, and every stop was a silent no-op that left the server running.
+   */
+  private async processAliveInContainer(name: string, pid: number): Promise<boolean> {
+    const result = await this.engineRun(["exec", name, "bash", "-c", `kill -0 ${pid}`], 10_000);
+    return result.exitCode === 0;
+  }
+
+  /**
+   * The container-side equivalent of `killPidTree`: the same signal, the same
+   * negative-pid process-group target, the same grace period. `setsid` in
+   * `spawnDetached` is what makes the group exist — confirmed against a real
+   * container, not assumed: `npm run dev` and its `sh`/`node` children all
+   * shared one process group, and `kill -TERM -<pid>` took out every one.
+   */
+  private async killInContainer(name: string, pid: number): Promise<void> {
+    await this.engineRun(["exec", name, "bash", "-c", `kill -TERM -${pid}`], 10_000);
+    setTimeout(() => {
+      void this.engineRun(["exec", name, "bash", "-c", `kill -KILL -${pid}`], 10_000).catch(
+        () => undefined,
+      );
+    }, 3_000).unref();
   }
 
   // -------------------------------------------------------------------------
 
-  /** Idempotent: adopts a container left behind by a previous process. */
-  private async ensureContainer(projectId: string, root: string): Promise<void> {
-    if (this.started.has(projectId)) return;
-
+  /**
+   * Idempotent, and — the part step one did not need — able to recreate.
+   *
+   * Docker publishes ports at creation time; there is no way to add one to a
+   * container that is already running. So when `publishPort` names a port the
+   * current container does not have, the only way to get it is to destroy and
+   * recreate. Safe: nothing lives in the container's own writable layer, the
+   * project is the bind mount, and the root filesystem is already read-only.
+   *
+   * Called directly — not wrapped in a caller's lock — because it locks only
+   * the create/recreate itself, internally, once it knows one is needed. Any
+   * caller may safely call it from inside `withPreviewLock`: that lock and
+   * `locks` below are different maps, so nothing here can deadlock against it.
+   */
+  private async ensureContainer(
+    projectId: string,
+    root: string,
+    publishPort?: number,
+  ): Promise<void> {
     const name = containerName(projectId);
-    const running = await this.engineRun(
-      ["inspect", "--format", "{{.State.Running}}", name],
-      10_000,
-    );
-    if (running.exitCode === 0 && running.stdout.trim() === "true") {
-      this.started.add(projectId);
-      return;
-    }
-    // Present but stopped — a machine that rebooted, or a previous crash.
-    if (running.exitCode === 0) await this.engineRun(["rm", "-f", name], 30_000);
 
-    const created = await this.engineRun(this.runArgs(name, root), ENGINE_TIMEOUT_MS);
-    if (created.exitCode !== 0) {
-      throw new ZelyqError(
-        "runtime_unavailable",
-        `Could not start a container for this project: ${
-          firstLine(created.stderr) || firstLine(created.stdout) || "unknown error"
-        }`,
+    if (this.hasWhatWeNeed(projectId, publishPort)) return;
+
+    if (!this.started.has(projectId)) {
+      const running = await this.engineRun(
+        ["inspect", "--format", "{{.State.Running}}", name],
+        10_000,
       );
+      if (running.exitCode === 0 && running.stdout.trim() === "true") {
+        if (publishPort === undefined) {
+          this.started.add(projectId);
+          return;
+        }
+        const published = await this.engineRun(["port", name, `${publishPort}/tcp`], 10_000);
+        if (published.exitCode === 0 && published.stdout.trim() !== "") {
+          this.started.add(projectId);
+          this.containerPort.set(projectId, publishPort);
+          return;
+        }
+        // Exists, from an earlier `exec`-only container — recreate below.
+      } else if (running.exitCode === 0) {
+        // Present but stopped: a machine that rebooted, or a previous crash.
+        await this.engineRun(["rm", "-f", name], 30_000);
+      }
     }
-    this.started.add(projectId);
+
+    // Only the mutation is serialised. A concurrent caller that reaches here
+    // while a recreate is already running waits for it, then re-checks —
+    // harmlessly finding it already done, rather than recreating twice.
+    await this.withProjectLock(projectId, async () => {
+      if (this.hasWhatWeNeed(projectId, publishPort)) return;
+
+      await this.engineRun(["rm", "-f", name], 30_000).catch(() => undefined);
+      const created = await this.engineRun(
+        this.runArgs(name, root, publishPort),
+        ENGINE_TIMEOUT_MS,
+      );
+      if (created.exitCode !== 0) {
+        throw new ZelyqError(
+          "runtime_unavailable",
+          `Could not start a container for this project: ${
+            firstLine(created.stderr) || firstLine(created.stdout) || "unknown error"
+          }`,
+        );
+      }
+      this.started.add(projectId);
+      if (publishPort === undefined) this.containerPort.delete(projectId);
+      else this.containerPort.set(projectId, publishPort);
+    });
+  }
+
+  private hasWhatWeNeed(projectId: string, publishPort?: number): boolean {
+    if (!this.started.has(projectId)) return false;
+    return publishPort === undefined || this.containerPort.get(projectId) === publishPort;
   }
 
   /**
    * Every flag here is a decision, and the first one is the one that breaks.
    */
-  private runArgs(name: string, root: string): string[] {
+  private runArgs(name: string, root: string, publishPort?: number): string[] {
     return [
       "run",
       "--detach",
       "--name",
       name,
+      ...(publishPort !== undefined
+        ? ["--publish", `${this.previewBindHost}:${publishPort}:${publishPort}`]
+        : []),
       // Files the agent writes must be owned by the user Zelyq runs as. Without
       // this they come out root-owned on the host and Zelyq can no longer read
       // its own workspace — the single most common way this design fails.
@@ -292,6 +710,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
 
   private async destroyContainer(projectId: string): Promise<void> {
     this.started.delete(projectId);
+    this.containerPort.delete(projectId);
     await this.engineRun(["rm", "-f", containerName(projectId)], 60_000);
   }
 
@@ -334,4 +753,24 @@ export function containerCwd(cwd?: string): string {
 
 function firstLine(text: string): string {
   return text.split("\n")[0]?.trim() ?? "";
+}
+
+/**
+ * Runs `fn` after every operation already queued under `key` in `map` has
+ * settled, and queues `fn` itself for whatever comes next. A prior rejection
+ * does not block the next operation — only its own caller sees it — which is
+ * why the stored tail swallows errors while the returned promise does not.
+ */
+function chained<T>(
+  map: Map<string, Promise<unknown>>,
+  key: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const tail = (map.get(key) ?? Promise.resolve()).catch(() => undefined);
+  const run = tail.then(fn);
+  map.set(
+    key,
+    run.catch(() => undefined),
+  );
+  return run;
 }
