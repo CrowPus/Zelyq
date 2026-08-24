@@ -196,7 +196,13 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit(event);
+              // Plain Enter sends, matching every other chat surface people
+              // already use daily — Shift+Enter is what's reserved for a
+              // newline, not the other way around.
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                submit(event);
+              }
             }}
             placeholder="Describe a change…"
             aria-label="Message the agent"
@@ -207,9 +213,12 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
             <div className="flex items-center gap-2">
               <ModelPicker value={modelChoice} onChange={setModelChoice} />
               <span className="flex items-center gap-1 text-2xs text-fg-muted">
-                <Kbd>⌘</Kbd>
                 <Kbd>↵</Kbd>
                 to send
+                <span className="mx-0.5 text-fg-muted/60">·</span>
+                <Kbd>⇧</Kbd>
+                <Kbd>↵</Kbd>
+                new line
               </span>
             </div>
             {chat.busy ? (
