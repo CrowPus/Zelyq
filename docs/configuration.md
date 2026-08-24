@@ -158,7 +158,7 @@ Migrations run automatically when the server boots.
 | `ZELYQ_EXEC_TIMEOUT_MS` | `120000` | Hard ceiling on one agent shell command. |
 | `ZELYQ_PREVIEW_PORT_MIN` | `4300` | Start of the preview port range. |
 | `ZELYQ_PREVIEW_PORT_MAX` | `4399` | End of the range — this many concurrent previews. |
-| `ZELYQ_PREVIEW_HOST` | `127.0.0.1` | Host used in preview URLs. Set to a reachable address when Zelyq runs on a VM or remote host; anything other than loopback also makes project dev servers bind all interfaces. |
+| `ZELYQ_PREVIEW_HOST` | `127.0.0.1` | Decides whether project dev servers bind `127.0.0.1` or all interfaces — set it to anything other than loopback on a VM or remote host, or previews are not reachable from outside the machine at all. The web UI figures out the address it displays and loads a preview at from the browser's own location, not from this variable, so you no longer need to get the exact value right for previews to load — only the loopback-or-not choice, for whether they're reachable at all. Non-browser callers of the API (a script, `curl`) still get this value in the `url` field. |
 | `ZELYQ_MAX_TURN_ITERATIONS` | `50` | Model round-trips per turn before the loop stops. Raises the ceiling on long builds; also raises the worst-case cost. |
 
 ### Running agent commands and the preview in a container
@@ -228,7 +228,11 @@ NODE_ENV=production
 ```
 The server serves the built UI, so a single open port covers the UI, the API, and the WebSocket.
 Previews still run on their own ports — open as many of `ZELYQ_PREVIEW_PORT_MIN..MAX` as you want
-concurrent previews.
+concurrent previews. Any non-loopback value here makes dev servers accept connections from outside
+the VM, which is what actually matters; the web UI works out the address it shows and loads previews
+at from the browser itself, so this no longer has to be the *exact* right value for previews to load
+— a real, reachable address is still worth setting, though, since non-browser callers of the API still
+get this value back verbatim.
 
 **A team, on one server**
 ```env

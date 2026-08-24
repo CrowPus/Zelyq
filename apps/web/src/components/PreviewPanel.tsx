@@ -1,6 +1,7 @@
 import type { Preview } from "@zelyq/core";
 import { ExternalLink, Play, RotateCw, ScrollText, Square } from "lucide-react";
 import { useState } from "react";
+import { resolvePreviewUrl } from "../lib/preview-url";
 import { Button, EmptyState, IconButton, Spinner, StatusDot } from "./ui";
 
 interface Props {
@@ -24,7 +25,8 @@ export function PreviewPanel({
 }: Props) {
   const [showLogs, setShowLogs] = useState(false);
   const [frameToken, setFrameToken] = useState(0);
-  const running = preview?.status === "running" && Boolean(preview.url);
+  const previewUrl = resolvePreviewUrl(preview, window.location.hostname);
+  const running = preview?.status === "running" && Boolean(previewUrl);
   const busy = starting || preview?.status === "starting";
 
   return (
@@ -43,7 +45,7 @@ export function PreviewPanel({
           pulse={busy}
         />
         <span className="truncate font-mono text-2xs text-fg-muted">
-          {running ? preview.url : (preview?.status ?? "stopped")}
+          {running ? previewUrl : (preview?.status ?? "stopped")}
         </span>
 
         <div className="ml-auto flex items-center gap-0.5">
@@ -57,7 +59,7 @@ export function PreviewPanel({
                 <RotateCw size={13} strokeWidth={1.75} />
               </IconButton>
               <a
-                href={preview.url ?? "#"}
+                href={previewUrl ?? "#"}
                 target="_blank"
                 rel="noreferrer"
                 aria-label="Open preview in a new tab"
@@ -108,7 +110,7 @@ export function PreviewPanel({
         {running ? (
           <iframe
             key={`${reloadToken}-${frameToken}`}
-            src={preview.url ?? ""}
+            src={previewUrl ?? ""}
             title="Project preview"
             className="size-full border-0 bg-white"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
