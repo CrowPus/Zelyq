@@ -52,6 +52,18 @@ export function sessionRepository(db: ZelyqDb) {
         .where(eq(sessions.id, id));
     },
 
+    /**
+     * Keeps the stored row an honest record of what a session is actually
+     * using, rather than what it happened to be created with — see `031`
+     * in the council notes for why that gap mattered.
+     */
+    async setModel(id: string, provider: Session["provider"], model: string): Promise<void> {
+      await db
+        .update(sessions)
+        .set({ provider, model, updatedAt: new Date().toISOString() })
+        .where(eq(sessions.id, id));
+    },
+
     async addUsage(id: string, tokensIn: number, tokensOut: number): Promise<void> {
       const current = await this.findById(id);
       if (!current) return;
