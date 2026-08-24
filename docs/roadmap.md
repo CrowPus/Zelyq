@@ -60,7 +60,7 @@ separates this from a chat with a black box.
 
 - [ ] More templates: Next.js, plain Vite, static site, Node API
 - [ ] Element inspector — click something in the preview to point the agent at it
-- [ ] A headless browser in the eval harness, so a component that throws on render is caught
+- [x] A headless browser in the eval harness, so a component that throws on render is caught
 - [ ] Build and deploy targets (static hosts, containers)
 - [ ] Plugin interface for third-party tools
 - [ ] File upload and image attachments in prompts
