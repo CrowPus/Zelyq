@@ -231,6 +231,9 @@ export async function checkRenders(
  * including one that throws on purpose, which is the only way to know this
  * check is capable of failing.
  */
+/** Evaluated in the page, so it may not be type-checked against Node's globals. */
+const ROOT_HAS_CONTENT = "(document.querySelector('#root')?.childElementCount ?? 0) > 0";
+
 export async function renderReport(url: string): Promise<{ ok: boolean; detail: string }> {
   const browser = await chromium.launch();
   try {
@@ -242,15 +245,15 @@ export async function renderReport(url: string): Promise<{ ok: boolean; detail: 
 
     // A generous wait, because a slow mount on a loaded machine reading as a
     // white screen would score the harness's impatience as the agent's bug.
-    // Settles as soon as the root has content, so a healthy app pays nothing.
-    await page
-      .waitForFunction(() => (document.querySelector("#root")?.childElementCount ?? 0) > 0, null, {
-        timeout: 15_000,
-      })
-      .catch(() => undefined);
-
+    // Settles the moment the root has content, so a healthy app pays nothing.
+    //
+    // Passed as a string rather than a closure on purpose. This expression runs
+    // in the browser, and a closure would put `document` into a directory whose
+    // other 700 lines are Node — where a stray `document` should stay a type
+    // error rather than becoming a runtime crash.
     const mounted = await page
-      .evaluate(() => (document.querySelector("#root")?.childElementCount ?? 0) > 0)
+      .waitForFunction(ROOT_HAS_CONTENT, null, { timeout: 15_000 })
+      .then(() => true)
       .catch(() => false);
 
     // Reported separately: "it threw" and "it never appeared" are different
