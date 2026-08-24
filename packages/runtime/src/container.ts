@@ -833,6 +833,14 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       subnet,
       "-d",
       METADATA_ADDRESS,
+      // Required by this host's nf_tables-backed iptables: `--reject-with
+      // tcp-reset` only makes sense for TCP, and without an explicit `-p tcp`
+      // the insert fails outright ("Invalid argument") rather than falling
+      // back to any implicit protocol. Every cloud metadata endpoint is
+      // HTTP/TCP, so this does not narrow what the rule actually needs to
+      // cover.
+      "-p",
+      "tcp",
       "-j",
       "REJECT",
       "--reject-with",
