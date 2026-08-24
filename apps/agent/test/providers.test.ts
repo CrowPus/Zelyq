@@ -18,10 +18,17 @@ test("every registered provider is fully described", () => {
 
     // A vendor knows which model it serves by default. An endpoint the operator
     // supplies does not, and guessing produces a 404 that reads like our bug —
-    // so `baseUrl: null`, the self-hosted door, is the one entry allowed to have
-    // no default. Anything else missing one is a mistake.
-    if (provider.baseUrl === null) {
-      assert.equal(provider.defaultModel, "", `${provider.id} must not guess a model`);
+    // so `baseUrl: null`, the self-hosted door, is one entry allowed to have no
+    // default. The other: a hosted vendor with no `models` entry either, which
+    // means nothing about it is confirmed yet — same evidence bar as `custom`,
+    // just for a different reason (see `032`). Anything with a confirmed model
+    // list but no default is a mistake — those two must agree.
+    if (provider.baseUrl === null || !provider.models) {
+      assert.equal(
+        provider.defaultModel,
+        "",
+        `${provider.id} must not guess a model it has not confirmed`,
+      );
     } else {
       assert.ok(provider.defaultModel.length > 0, `${provider.id} needs a default model`);
     }
@@ -32,6 +39,11 @@ test("provider ids are validated, not trusted", () => {
   assert.ok(isProviderId("anthropic"));
   assert.ok(isProviderId("google"));
   assert.ok(isProviderId("openai"));
+  assert.ok(isProviderId("xai"));
+  assert.ok(isProviderId("deepseek"));
+  assert.ok(isProviderId("mistral"));
+  assert.ok(isProviderId("groq"));
+  assert.ok(isProviderId("openrouter"));
   assert.ok(isProviderId("custom"));
   assert.ok(!isProviderId("acme-models"));
   assert.ok(!isProviderId(""));
@@ -40,6 +52,12 @@ test("provider ids are validated, not trusted", () => {
 test("each provider brings its own default model", () => {
   assert.equal(defaultModelFor("anthropic"), "claude-opus-5");
   assert.match(defaultModelFor("google"), /^gemini-/);
+  assert.equal(defaultModelFor("deepseek"), "deepseek-chat");
+  assert.equal(defaultModelFor("mistral"), "mistral-large-latest");
+  // Confirmed as having none, not merely unset — see the registry comments.
+  assert.equal(defaultModelFor("xai"), "");
+  assert.equal(defaultModelFor("groq"), "");
+  assert.equal(defaultModelFor("openrouter"), "");
 });
 
 test("api keys resolve from the provider's own variables, in order", () => {
@@ -61,6 +79,34 @@ test("the factory builds each provider", () => {
   assert.equal(claude.id, "anthropic");
   const gemini = createProvider({ provider: "google", model: "gemini-3.7-flash", apiKey: "x" });
   assert.equal(gemini.id, "google");
+});
+
+test("the newer OpenAI-dialect vendors build without a base URL to remember", () => {
+  // createProvider takes whatever model the caller resolved — it does not
+  // re-apply a registry default itself, the same contract every existing
+  // provider already has. `defaultModelFor` is what a caller uses first.
+  const deepseek = createProvider({
+    provider: "deepseek",
+    model: defaultModelFor("deepseek"),
+    apiKey: "x",
+  });
+  assert.equal(deepseek.id, "deepseek");
+  const mistral = createProvider({
+    provider: "mistral",
+    model: defaultModelFor("mistral"),
+    apiKey: "x",
+  });
+  assert.equal(mistral.id, "mistral");
+});
+
+test("a hosted vendor with no confirmed default refuses rather than guesses", () => {
+  assert.throws(
+    () => createProvider({ provider: "xai", model: "", apiKey: "x" }),
+    /no default model/,
+  );
+  // Naming a model explicitly always works, even with no registry default.
+  const grok = createProvider({ provider: "xai", model: "grok-4", apiKey: "x" });
+  assert.equal(grok.id, "xai");
 });
 
 test("effort maps onto Gemini's thinking levels", () => {

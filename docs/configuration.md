@@ -40,11 +40,16 @@ expect. Values are read once at startup: after editing `.env`, restart.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `ZELYQ_PROVIDER` | `anthropic` | `anthropic`, `google`, `openai`, or `custom`. |
+| `ZELYQ_PROVIDER` | `anthropic` | `anthropic`, `google`, `openai`, `deepseek`, `mistral`, `xai`, `groq`, `openrouter`, or `custom`. |
 | `ANTHROPIC_API_KEY` | — | Required when the provider is `anthropic`. |
 | `GEMINI_API_KEY` | — | Required when the provider is `google`. `GOOGLE_API_KEY` is accepted as a fallback. |
 | `OPENAI_API_KEY` | — | Required when the provider is `openai`. |
-| `ZELYQ_MODEL_BASE_URL` | provider default | The endpoint for `openai` and `custom`. Required for `custom`. |
+| `DEEPSEEK_API_KEY` | — | Required when the provider is `deepseek`. |
+| `MISTRAL_API_KEY` | — | Required when the provider is `mistral`. |
+| `XAI_API_KEY` | — | Required when the provider is `xai`. |
+| `GROQ_API_KEY` | — | Required when the provider is `groq`. |
+| `OPENROUTER_API_KEY` | — | Required when the provider is `openrouter`. |
+| `ZELYQ_MODEL_BASE_URL` | provider default | Overrides the endpoint for any OpenAI-dialect provider. Required for `custom`. |
 | `ZELYQ_MODEL_API_KEY` | — | Key for a `custom` endpoint. Optional — most self-hosted servers have none. |
 | `ZELYQ_MODEL` | provider default | Overrides the model. Required for `custom`, which has no default. |
 | `ZELYQ_EFFORT` | `high` | `low`, `medium`, `high`, `xhigh`, or `max`. Controls reasoning depth and token spend. |
@@ -56,7 +61,18 @@ expect. Values are read once at startup: after editing `.env`, restart.
 | `anthropic` | `claude-opus-5` | vendor | <https://console.anthropic.com/settings/keys> |
 | `google` | `gemini-3.7-flash` | vendor | <https://aistudio.google.com/apikey> |
 | `openai` | `gpt-5.1` | `https://api.openai.com/v1` | <https://platform.openai.com/api-keys> |
+| `deepseek` | `deepseek-chat` | `https://api.deepseek.com/v1` | <https://platform.deepseek.com/api_keys> |
+| `mistral` | `mistral-large-latest` | `https://api.mistral.ai/v1` | <https://console.mistral.ai/api-keys> |
+| `xai` | none — set `ZELYQ_MODEL` | `https://api.x.ai/v1` | <https://console.x.ai> |
+| `groq` | none — set `ZELYQ_MODEL` | `https://api.groq.com/openai/v1` | <https://console.groq.com/keys> |
+| `openrouter` | none — set `ZELYQ_MODEL` | `https://openrouter.ai/api/v1` | <https://openrouter.ai/keys> |
 | `custom` | none — set `ZELYQ_MODEL` | you supply it | usually none |
+
+`xai`, `groq`, and `openrouter` have no default model yet — not an oversight: a hosted vendor's model
+name is only worth defaulting to once it has actually been confirmed against a real account, and
+none of these three has been yet (Groq and OpenRouter also both rotate or aggregate models by
+nature, so a fixed default would go stale fast even once one is picked). Set `ZELYQ_MODEL` to the
+exact name the vendor reports.
 
 Only the selected provider's key is needed. `GET /api/health` reports the active provider and
 model, and the agent's `GET /providers` lists every provider with a `configured` flag saying whether
