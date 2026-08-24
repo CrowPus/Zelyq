@@ -15,6 +15,7 @@ import type {
   TeamMembership,
   UpdateProfileInput,
   UpdateSettingsInput,
+  User,
 } from "@zelyq/core";
 
 /**
@@ -85,6 +86,11 @@ export const api = {
 
   updateSettings: (changes: UpdateSettingsInput) =>
     request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),
+
+  /** Every account on this instance — instance administrator only. */
+  listUsers: () => request<{ users: User[] }>("/users"),
+
+  deleteUser: (id: string) => request<void>(`/users/${id}`, { method: "DELETE" }),
 
   listTeams: () => request<{ teams: TeamMembership[] }>("/teams"),
 
