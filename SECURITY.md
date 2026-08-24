@@ -70,6 +70,10 @@ and requires it to succeed there, so the control cannot pass by accident:
 
 - reading another project's files, or anything else on the host filesystem
 - reaching a service on the host's loopback interface
+- **reaching another project's container over the network** — every project container joins one
+  dedicated network with inter-container communication disabled, so one project cannot connect to
+  another's internal port even by its address. Found by testing for it, not assumed: on Docker's
+  default bridge, this reachability existed
 - exhausting the machine — memory, CPU and process limits apply per project
 - privilege escalation: all capabilities dropped, `no-new-privileges`, read-only root filesystem
 

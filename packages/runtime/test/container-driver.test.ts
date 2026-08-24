@@ -435,3 +435,98 @@ test("concurrent exec and a preview start for the same project do not corrupt st
     await driver.dispose().catch(() => undefined);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Project-to-project isolation.
+//
+// Found live, not in a design review: on Docker's default bridge, one
+// project's container could reach another's internal port directly — no
+// publishing, no cooperation, just its IP. That is a cross-*tenant* leak on
+// the exact deployment this driver exists for, independent of anything to do
+// with the host or the internet. Fixed by moving every project container onto
+// one dedicated network created with inter-container communication disabled.
+// ---------------------------------------------------------------------------
+
+test("one project's container cannot reach another's, even by internal IP", {
+  skip: !hasEngine,
+}, async () => {
+  const driver = new ContainerRuntimeDriver(previewConfig([4801, 4804]));
+  const other = new ContainerRuntimeDriver(previewConfig([4806, 4809]));
+  try {
+    await driver.ensureProject("prj_isolation_victim");
+    await driver.scaffold("prj_isolation_victim", [
+      {
+        path: "package.json",
+        content: JSON.stringify({ name: "x", scripts: { dev: "node server.js" } }),
+      },
+      {
+        path: "server.js",
+        content:
+          "require('http').createServer((_,res)=>res.end('secret'))" +
+          ".listen(process.env.PORT,'0.0.0.0',()=>console.log('Local: http://localhost:'+process.env.PORT+'/'));",
+      },
+    ]);
+    const victim = await driver.startPreview("prj_isolation_victim");
+    assert.equal(victim.status, "running", JSON.stringify(victim));
+
+    await other.ensureProject("prj_isolation_attacker");
+    const victimIp = execFileSync("docker", [
+      "inspect",
+      containerName("prj_isolation_victim"),
+      "--format",
+      "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+    ])
+      .toString()
+      .trim();
+
+    const probe = await other.exec("prj_isolation_attacker", {
+      command:
+        `node -e "fetch('http://${victimIp}:${victim.port}',{signal:AbortSignal.timeout(3000)})` +
+        `.then(()=>console.log('REACHED')).catch(e=>console.log('BLOCKED: '+e.message))"`,
+    });
+    assert.doesNotMatch(probe.stdout, /REACHED/, "one project reached another's container");
+    assert.match(probe.stdout, /BLOCKED/, probe.stdout);
+
+    // The point of scoping this to inter-container traffic, not a general
+    // block: the same container's own route to the real internet must
+    // still work, or every `npm install` breaks.
+    const internet = await other.exec("prj_isolation_attacker", {
+      command:
+        "node -e \"fetch('https://registry.npmjs.org',{signal:AbortSignal.timeout(5000)})" +
+        ".then(r=>console.log('INTERNET '+r.status)).catch(e=>console.log('FAILED '+e.message))\"",
+    });
+    assert.match(internet.stdout, /INTERNET 200/, internet.stdout);
+  } finally {
+    await driver.removeProject("prj_isolation_victim").catch(() => undefined);
+    await other.removeProject("prj_isolation_attacker").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+    await other.dispose().catch(() => undefined);
+  }
+});
+
+test("the project network is created with inter-container communication disabled", {
+  skip: !hasEngine,
+}, async () => {
+  // Proof the option actually landed, not just that the reachability test
+  // above happened to pass — the two together are what the council's rule
+  // asks for: an assertion on the mechanism, not only on its effect.
+  const driver = new ContainerRuntimeDriver(previewConfig([4811, 4814]));
+  try {
+    await driver.ensureProject("prj_network_opt");
+    await driver.exec("prj_network_opt", { command: "true" });
+
+    const icc = execFileSync("docker", [
+      "network",
+      "inspect",
+      "zelyq-projects",
+      "--format",
+      '{{index .Options "com.docker.network.bridge.enable_icc"}}',
+    ])
+      .toString()
+      .trim();
+    assert.equal(icc, "false");
+  } finally {
+    await driver.removeProject("prj_network_opt").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
+});
