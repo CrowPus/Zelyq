@@ -955,7 +955,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         // base image, so the first thing this container does is fetch them —
         // over the host's own network, before any project container or
         // restriction exists, so nothing here is circular.
-        "apk add --no-cache iptables ipset >/dev/null 2>&1 && sleep 60",
+        "apk add --no-cache iptables ipset bind-tools >/dev/null 2>&1 && sleep 60",
       ],
       { timeoutMs: 60_000, maxOutputBytes: 5_000 },
     );
@@ -1046,7 +1046,17 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
 
   private async installEgressAllowlist(): Promise<void> {
     const subnet = await this.networkSubnet();
-    const rejectRule = ["-s", subnet, "-j", "REJECT", "--reject-with", "tcp-reset"];
+    // Two rules, not one — the same nf_tables requirement that
+    // installMetadataBlock hit: `--reject-with` needs a reject type that
+    // actually applies to the packet's protocol, so one rule cannot cover
+    // both. Left as a single TCP-only rule, this would silently not be a
+    // default-deny at all for UDP (DNS-over-UDP does not reach this chain
+    // regardless — see the class doc — but QUIC/HTTP3 and anything else over
+    // UDP would sail straight through a rule that only matches TCP).
+    const rejectRules = [
+      ["-s", subnet, "-p", "tcp", "-j", "REJECT", "--reject-with", "tcp-reset"],
+      ["-s", subnet, "-p", "udp", "-j", "REJECT", "--reject-with", "icmp-port-unreachable"],
+    ];
     const acceptRule = [
       "-s",
       subnet,
@@ -1076,14 +1086,16 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         );
       }
 
-      const rejectCheck = await execIn(["iptables", "-C", "DOCKER-USER", ...rejectRule]);
-      if (rejectCheck.exitCode !== 0) {
-        const insert = await execIn(["iptables", "-I", "DOCKER-USER", ...rejectRule]);
-        if (insert.exitCode !== 0) {
-          throw new ZelyqError(
-            "runtime_unavailable",
-            `Could not install the egress default-deny rule: ${firstLine(insert.stderr) || "unknown error"}`,
-          );
+      for (const rejectRule of rejectRules) {
+        const rejectCheck = await execIn(["iptables", "-C", "DOCKER-USER", ...rejectRule]);
+        if (rejectCheck.exitCode !== 0) {
+          const insert = await execIn(["iptables", "-I", "DOCKER-USER", ...rejectRule]);
+          if (insert.exitCode !== 0) {
+            throw new ZelyqError(
+              "runtime_unavailable",
+              `Could not install the egress default-deny rule: ${firstLine(insert.stderr) || "unknown error"}`,
+            );
+          }
         }
       }
 
@@ -1131,19 +1143,24 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       await execIn(["ipset", "flush", scratch]);
 
       for (const hostname of this.egressAllowlist) {
-        const resolved = await execIn(["getent", "hosts", hostname]);
+        // `dig +short A`, not `getent hosts`: checked live, not assumed —
+        // this resolver hands `getent hosts` only the AAAA record for a
+        // dual-stack name like registry.npmjs.org, silently dropping every
+        // IPv4 address. `+short A` asks for the A records specifically and
+        // gets them regardless of the resolver's own address preference.
+        const resolved = await execIn(["dig", "+short", "A", hostname]);
         if (resolved.exitCode !== 0) continue;
 
         // IPv4 only: project containers have no IPv6 route on this network
         // (verified live for `025`'s round two), so an IPv6-only result is
-        // not reachable regardless, and `hash:ip family inet` would reject it.
+        // not reachable regardless, and `hash:ip family inet` would reject
+        // it. The filter also drops a CNAME line `+short` can print ahead of
+        // the final A records for a name that is itself an alias.
         const ips = new Set(
           resolved.stdout
             .split("\n")
-            .map((line) => line.trim().split(/\s+/)[0])
-            .filter(
-              (ip): ip is string => typeof ip === "string" && /^\d+\.\d+\.\d+\.\d+$/.test(ip),
-            ),
+            .map((line) => line.trim())
+            .filter((ip): ip is string => /^\d+\.\d+\.\d+\.\d+$/.test(ip)),
         );
         for (const ip of ips) await execIn(["ipset", "add", scratch, ip, "-exist"]);
       }
