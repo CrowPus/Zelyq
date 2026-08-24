@@ -1,6 +1,6 @@
 import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core";
 import { ZelyqError } from "@zelyq/core";
-import type { Store } from "@zelyq/db";
+import { resolveSetting, type Store } from "@zelyq/db";
 import type { SecretBox } from "./secrets.js";
 import { maskSecret } from "./secrets.js";
 
@@ -278,14 +278,24 @@ export class SettingsService {
     const definition = BY_KEY.get(key);
     if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
 
+    // A secret's stored form is ciphertext, and a failed decrypt has its own
+    // fallback — resolveSetting only knows plain strings, so this one case
+    // keeps its own path rather than forcing a fit that isn't there.
+    if (!definition.secret) {
+      return await resolveSetting(
+        this.store.settings,
+        definition.envVar,
+        key,
+        definition.fallback,
+        this.env,
+      );
+    }
+
     const fromEnv = this.env[definition.envVar];
     if (fromEnv) return fromEnv;
-
     const stored = await this.store.settings.get(key);
     if (stored === null) return definition.fallback;
-
-    if (definition.secret) return this.secrets.decrypt(stored) ?? definition.fallback;
-    return stored;
+    return this.secrets.decrypt(stored) ?? definition.fallback;
   }
 
   async booleanValue(key: string): Promise<boolean> {

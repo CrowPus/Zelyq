@@ -21,6 +21,7 @@ export type { SnapshotRepository } from "./repositories/snapshots.js";
 export type { TeamRepository } from "./repositories/teams.js";
 export type { UserRepository } from "./repositories/users.js";
 export * from "./schema/index.js";
+export { resolveSetting, type SettingsReader } from "./settings-resolver.js";
 
 export interface Store extends DatabaseHandle {
   users: ReturnType<typeof userRepository>;

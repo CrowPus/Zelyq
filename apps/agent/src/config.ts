@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createStore, resolveSetting } from "@zelyq/db";
 import type { RuntimeConfig } from "@zelyq/runtime";
 import {
   apiKeyFromEnv,
@@ -34,6 +35,33 @@ function intFromEnv(name: string, fallback: number): number {
   const value = Number.parseInt(raw, 10);
   if (Number.isNaN(value)) throw new Error(`${name} must be a number, got "${raw}"`);
   return value;
+}
+
+/**
+ * `previewHost` is set from the database when nothing overrides it — see
+ * `034` in the council notes. The agent has no other reason to touch the
+ * database at all, so this is deliberately narrow: one short-lived
+ * connection, one key, closed immediately after.
+ *
+ * Best-effort on purpose. In the shipped `docker-compose.yml` the agent
+ * starts *before* the server, which is what actually runs migrations — a
+ * fresh install can have the agent reach for a `settings` table, or even a
+ * database file, that does not exist yet. That must never block or crash
+ * the agent's own startup; it just means falling back to the default this
+ * boot, exactly as if nothing had ever been stored.
+ */
+async function previewHostFromDb(fallback: string): Promise<string> {
+  if (process.env.ZELYQ_PREVIEW_HOST) return process.env.ZELYQ_PREVIEW_HOST;
+
+  const databaseUrl = process.env.DATABASE_URL ?? "file:./data/zelyq.db";
+  const store = createStore(databaseUrl);
+  try {
+    return await resolveSetting(store.settings, "ZELYQ_PREVIEW_HOST", "previewHost", fallback);
+  } catch {
+    return fallback;
+  } finally {
+    await store.close().catch(() => undefined);
+  }
 }
 
 const RUNTIME_KINDS = ["local", "remote", "container"] as const;
@@ -72,7 +100,7 @@ function containerOptionsFromEnv() {
   };
 }
 
-export function loadAgentConfig(): AgentConfig {
+export async function loadAgentConfig(): Promise<AgentConfig> {
   const runtimeKind = runtimeKindFromEnv();
 
   const effort = (process.env.ZELYQ_EFFORT ?? "high") as AgentConfig["effort"];
@@ -114,11 +142,11 @@ export function loadAgentConfig(): AgentConfig {
       url: process.env.ZELYQ_RUNTIME_URL,
       token: process.env.ZELYQ_RUNTIME_TOKEN,
       execTimeoutMs: intFromEnv("ZELYQ_EXEC_TIMEOUT_MS", 120_000),
+      previewHost: await previewHostFromDb("127.0.0.1"),
       previewPortRange: [
         intFromEnv("ZELYQ_PREVIEW_PORT_MIN", 4300),
         intFromEnv("ZELYQ_PREVIEW_PORT_MAX", 4399),
       ],
-      previewHost: process.env.ZELYQ_PREVIEW_HOST ?? "127.0.0.1",
       container: containerOptionsFromEnv(),
     },
   };

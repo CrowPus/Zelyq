@@ -44,7 +44,7 @@ This spends real money on real model calls. Start with --limit.
   process.exit(0);
 }
 
-const config = loadAgentConfig();
+const config = await loadAgentConfig();
 
 const info = PROVIDERS[config.provider];
 

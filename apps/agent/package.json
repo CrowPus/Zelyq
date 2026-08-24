@@ -19,6 +19,7 @@
     "@fastify/cors": "^11.3.0",
     "@google/genai": "^2.18.0",
     "@zelyq/core": "workspace:*",
+    "@zelyq/db": "workspace:*",
     "@zelyq/runtime": "workspace:*",
     "@zelyq/tools": "workspace:*",
     "fastify": "^5.2.0",

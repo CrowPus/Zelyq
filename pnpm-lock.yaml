@@ -41,6 +41,9 @@ importers:
       '@zelyq/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@zelyq/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@zelyq/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime

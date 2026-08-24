@@ -6,7 +6,7 @@ import { buildAgentServer } from "./server.js";
 // Before anything reads process.env.
 const envFile = loadEnvFile();
 
-const config = loadAgentConfig();
+const config = await loadAgentConfig();
 const server = buildAgentServer(config);
 
 async function shutdown(signal: string): Promise<void> {
