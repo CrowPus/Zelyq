@@ -45,9 +45,10 @@ separates this from a chat with a black box.
 
 - [x] Reference runtime host implementing the remote protocol, with a conformance suite both
       drivers pass ([apps/runtime-host](../apps/runtime-host))
-- [ ] Isolate that host: a container per project, resource limits, restricted egress. Until this
-      exists there is no sandbox — agent shell commands still run as the host's user. See
-      [SECURITY.md](../SECURITY.md)
+- [ ] Isolate execution: a container per project, resource limits, restricted egress.
+      **Partly done** — `ZELYQ_RUNTIME=container` runs agent shell commands in a container per
+      project with resource limits. Still open: egress filtering, and the preview, which still runs
+      on the host. See [SECURITY.md](../SECURITY.md)
 - [ ] Per-user API keys, encrypted at rest
 - [ ] Invitation links, so someone can be added before they register
 - [ ] SSO (OIDC) as an alternative to passwords

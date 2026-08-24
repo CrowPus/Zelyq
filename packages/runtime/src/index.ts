@@ -1,7 +1,13 @@
+import { ContainerRuntimeDriver } from "./container.js";
 import { LocalRuntimeDriver } from "./local.js";
 import { RemoteRuntimeDriver } from "./remote.js";
 import type { RuntimeConfig, RuntimeDriver } from "./types.js";
 
+export {
+  ContainerRuntimeDriver,
+  containerCwd,
+  containerName,
+} from "./container.js";
 export { defaultWorkspaceDir, LocalRuntimeDriver } from "./local.js";
 export {
   assertRealPathInside,
@@ -24,6 +30,8 @@ export function createRuntimeDriver(config: RuntimeConfig): RuntimeDriver {
       return new LocalRuntimeDriver(config);
     case "remote":
       return new RemoteRuntimeDriver(config);
+    case "container":
+      return new ContainerRuntimeDriver(config, config.container ?? {});
     default: {
       const exhaustive: never = config.kind;
       throw new Error(`Unknown runtime kind: ${String(exhaustive)}`);

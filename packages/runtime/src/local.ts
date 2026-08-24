@@ -149,94 +149,25 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   async exec(projectId: string, options: ExecOptions): Promise<ExecResult> {
     const root = await this.requireRoot(projectId);
     const cwd = options.cwd ? resolveInside(root, options.cwd) : root;
-    const timeoutMs = options.timeoutMs ?? this.execTimeoutMs;
-    const maxBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
-    const startedAt = Date.now();
 
-    return await new Promise<ExecResult>((resolve) => {
-      const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
-      // Deliberately not a login shell. A login shell re-sources the user's
-      // profile, which commonly re-points `node` and `npm` at a different
-      // version than the one running Zelyq (nvm, asdf, volta). That produced a
-      // real failure: project installs silently ran on an older npm whose
-      // optional-dependency handling skips platform-specific native packages.
-      const shellArgs =
-        process.platform === "win32" ? ["/c", options.command] : ["-c", options.command];
+    // Deliberately not a login shell. A login shell re-sources the user's
+    // profile, which commonly re-points `node` and `npm` at a different
+    // version than the one running Zelyq (nvm, asdf, volta). That produced a
+    // real failure: project installs silently ran on an older npm whose
+    // optional-dependency handling skips platform-specific native packages.
+    const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
+    const shellArgs =
+      process.platform === "win32" ? ["/c", options.command] : ["-c", options.command];
 
-      const child = spawn(shell, shellArgs, {
-        cwd,
-        env: {
-          ...process.env,
-          PATH: pathWithNodeFirst(),
-          // Projects are development workloads even when Zelyq itself runs in
-          // production. Inheriting NODE_ENV=production makes `npm install`
-          // silently skip devDependencies, so the dev server is never installed
-          // and every preview fails with "vite: not found".
-          NODE_ENV: "development",
-          ...options.env,
-          // Keep tool output parseable: no spinners, no colour codes, no pagers.
-          CI: "1",
-          NO_COLOR: "1",
-          FORCE_COLOR: "0",
-          TERM: "dumb",
-          PAGER: "cat",
-        },
-        // Own process group, so a timeout kills the whole tree rather than
-        // leaving orphaned grandchildren holding ports.
-        detached: process.platform !== "win32",
-      });
-
-      let stdout = "";
-      let stderr = "";
-      let truncated = false;
-      let timedOut = false;
-
-      const append = (target: "out" | "err", chunk: Buffer) => {
-        const text = chunk.toString("utf8");
-        if (target === "out") {
-          if (stdout.length + text.length > maxBytes) {
-            stdout = (stdout + text).slice(0, maxBytes);
-            truncated = true;
-          } else stdout += text;
-        } else {
-          if (stderr.length + text.length > maxBytes) {
-            stderr = (stderr + text).slice(0, maxBytes);
-            truncated = true;
-          } else stderr += text;
-        }
-      };
-
-      child.stdout?.on("data", (chunk: Buffer) => append("out", chunk));
-      child.stderr?.on("data", (chunk: Buffer) => append("err", chunk));
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        killTree(child);
-      }, timeoutMs);
-
-      child.on("error", (error) => {
-        clearTimeout(timer);
-        resolve({
-          exitCode: 127,
-          stdout,
-          stderr: stderr + String(error),
-          durationMs: Date.now() - startedAt,
-          timedOut,
-          truncated,
-        });
-      });
-
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        resolve({
-          exitCode: timedOut ? 124 : (code ?? 0),
-          stdout,
-          stderr: timedOut ? `${stderr}\n[timed out after ${timeoutMs}ms]` : stderr,
-          durationMs: Date.now() - startedAt,
-          timedOut,
-          truncated,
-        });
-      });
+    return await runCaptured(shell, shellArgs, {
+      cwd,
+      env: {
+        ...process.env,
+        PATH: pathWithNodeFirst(),
+        ...agentCommandEnv(options.env),
+      },
+      timeoutMs: options.timeoutMs ?? this.execTimeoutMs,
+      maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
     });
   }
 
@@ -858,6 +789,117 @@ export class LocalRuntimeDriver implements RuntimeDriver {
  * sitting in the log file the whole time a user was being told "did not start
  * listening in time".
  */
+/**
+ * The environment every agent command runs with, wherever it runs.
+ *
+ * Each line here was a real failure once, so both the local driver and the
+ * container driver take it from the same place rather than keeping two copies
+ * that drift.
+ */
+export function agentCommandEnv(extra?: Record<string, string>): Record<string, string> {
+  return {
+    // Projects are development workloads even when Zelyq itself runs in
+    // production. Inheriting NODE_ENV=production makes `npm install` silently
+    // skip devDependencies, so the dev server is never installed and every
+    // preview fails with "vite: not found".
+    NODE_ENV: "development",
+    ...extra,
+    // Keep tool output parseable: no spinners, no colour codes, no pagers.
+    CI: "1",
+    NO_COLOR: "1",
+    FORCE_COLOR: "0",
+    TERM: "dumb",
+    PAGER: "cat",
+  };
+}
+
+export interface CapturedRun {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs: number;
+  maxOutputBytes: number;
+}
+
+/**
+ * Spawn a process, capture bounded output, and never reject.
+ *
+ * Shared by the local driver, which spawns a shell, and the container driver,
+ * which spawns `docker exec`. The capture rules — a byte ceiling, a timeout
+ * that kills the whole process group, exit 124 for a timeout and 127 for a
+ * process that could not start — are contract, not detail: the agent reads
+ * these values and decides what to do next.
+ */
+export function runCaptured(
+  command: string,
+  args: string[],
+  options: CapturedRun,
+): Promise<ExecResult> {
+  const startedAt = Date.now();
+  const maxBytes = options.maxOutputBytes;
+
+  return new Promise<ExecResult>((resolve) => {
+    const child = spawn(command, args, {
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...(options.env ? { env: options.env } : {}),
+      // Own process group, so a timeout kills the whole tree rather than
+      // leaving orphaned grandchildren holding ports.
+      detached: process.platform !== "win32",
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let truncated = false;
+    let timedOut = false;
+
+    const append = (target: "out" | "err", chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      if (target === "out") {
+        if (stdout.length + text.length > maxBytes) {
+          stdout = (stdout + text).slice(0, maxBytes);
+          truncated = true;
+        } else stdout += text;
+      } else {
+        if (stderr.length + text.length > maxBytes) {
+          stderr = (stderr + text).slice(0, maxBytes);
+          truncated = true;
+        } else stderr += text;
+      }
+    };
+
+    child.stdout?.on("data", (chunk: Buffer) => append("out", chunk));
+    child.stderr?.on("data", (chunk: Buffer) => append("err", chunk));
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(child);
+    }, options.timeoutMs);
+
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolve({
+        exitCode: 127,
+        stdout,
+        stderr: stderr + String(error),
+        durationMs: Date.now() - startedAt,
+        timedOut,
+        truncated,
+      });
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({
+        exitCode: timedOut ? 124 : (code ?? 0),
+        stdout,
+        stderr: timedOut ? `${stderr}\n[timed out after ${options.timeoutMs}ms]` : stderr,
+        durationMs: Date.now() - startedAt,
+        timedOut,
+        truncated,
+      });
+    });
+  });
+}
+
 export function announcedPort(text: string): number | null {
   const match = text.match(/https?:\/\/[^\s/]+:(\d{2,5})\b/);
   if (!match?.[1]) return null;

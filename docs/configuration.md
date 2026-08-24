@@ -147,14 +147,56 @@ Migrations run automatically when the server boots.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `ZELYQ_RUNTIME` | `local` | `local` or `remote`. See [self-hosting.md](./self-hosting.md). |
+| `ZELYQ_RUNTIME` | `local` | `local`, `container`, or `remote`. See [self-hosting.md](./self-hosting.md). |
 | `ZELYQ_RUNTIME_URL` | — | Required when `ZELYQ_RUNTIME=remote`. |
 | `ZELYQ_RUNTIME_TOKEN` | — | Bearer token for the runtime host. |
+| `ZELYQ_CONTAINER_IMAGE` | `node:22-bookworm-slim` | Image agent commands run in, for `container`. |
+| `ZELYQ_CONTAINER_MEMORY` | `2g` | Memory ceiling per project container. |
+| `ZELYQ_CONTAINER_CPUS` | `2` | CPU ceiling per project container. |
+| `ZELYQ_CONTAINER_ENGINE` | `docker` | The engine binary. `podman` works as a drop-in. |
 | `ZELYQ_EXEC_TIMEOUT_MS` | `120000` | Hard ceiling on one agent shell command. |
 | `ZELYQ_PREVIEW_PORT_MIN` | `4300` | Start of the preview port range. |
 | `ZELYQ_PREVIEW_PORT_MAX` | `4399` | End of the range — this many concurrent previews. |
 | `ZELYQ_PREVIEW_HOST` | `127.0.0.1` | Host used in preview URLs. Set to a reachable address when Zelyq runs on a VM or remote host; anything other than loopback also makes project dev servers bind all interfaces. |
 | `ZELYQ_MAX_TURN_ITERATIONS` | `50` | Model round-trips per turn before the loop stops. Raises the ceiling on long builds; also raises the worst-case cost. |
+
+### Running agent commands in a container
+
+`ZELYQ_RUNTIME=container` is `local` with one difference: **agent shell commands
+run inside a container, one per project**, instead of as the user running Zelyq.
+
+```env
+ZELYQ_RUNTIME=container
+```
+
+Nothing else changes. The workspace stays on the same disk in the same place;
+the container has that one project bind-mounted at `/workspace` and nothing else
+from the host. Files it writes are owned by the user Zelyq runs as, so Zelyq
+reads and writes them exactly as before.
+
+**What it stops**, each verified by a test that also runs against the local
+driver and fails there:
+
+- reading another project's files, or anything else on the host
+- reaching a service on the host's loopback — an internal admin API, a database
+- a runaway build taking the machine down (memory, CPU and process limits)
+- privilege escalation (`--cap-drop=ALL`, `no-new-privileges`, read-only root)
+
+**What it does not stop yet, and this matters:**
+
+- **Outbound network access is not filtered.** `npm install` needs the registry,
+  and nothing currently distinguishes that from anything else the container
+  might reach — including a cloud provider's metadata endpoint, which commonly
+  hands out instance credentials.
+- **The preview still runs on the host.** `npm run dev` executes project code
+  outside the container.
+
+So this narrows what an agent command can reach. **It is not yet a complete
+sandbox and should not be treated as one.** Both gaps are being worked on.
+
+Requires a container engine on the host. Commands cost about **120ms more** each
+— roughly 2.4 seconds across a twenty-command turn, against turns measured in
+minutes.
 
 ## Choosing a configuration
 

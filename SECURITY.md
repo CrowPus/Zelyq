@@ -60,6 +60,35 @@ Local mode is appropriate for a single trusted developer working on their own ma
 a sandbox. Do not expose a local-mode instance to other people, and do not point it at prompts or
 projects you do not trust.
 
+### Container mode (`ZELYQ_RUNTIME=container`) — a partial boundary
+
+Agent shell commands run inside a container, one per project, rather than as your user. The project
+is bind-mounted and nothing else from the host is.
+
+**What this stops.** Each of these is covered by a test that runs the same probe against local mode
+and requires it to succeed there, so the control cannot pass by accident:
+
+- reading another project's files, or anything else on the host filesystem
+- reaching a service on the host's loopback interface
+- exhausting the machine — memory, CPU and process limits apply per project
+- privilege escalation: all capabilities dropped, `no-new-privileges`, read-only root filesystem
+
+**What this does not stop.** Read this part before deciding what to run on the instance:
+
+- **Outbound network access is not filtered.** The container can reach whatever the host can,
+  including private addresses on your network and — the one that matters most — a cloud provider's
+  instance metadata endpoint, which on most providers will hand out credentials to anything that
+  asks. Do not run container mode on an instance whose metadata endpoint returns credentials worth
+  having until this is addressed.
+- **The preview still runs on the host.** `npm run dev` executes project code as your user, outside
+  the container, exactly as local mode does.
+- Nothing here changes the fact that the agent's prompts and your file contents are still sent to
+  your model vendor.
+
+Container mode narrows what an agent command can reach. **It is not a completed sandbox and must
+not be described as one.** Both gaps above are being worked on; until they are closed, the guidance
+for local mode still applies to who you let near the instance.
+
 ### Accounts
 
 The first account created owns the instance and adopts any projects that predate it. After that,

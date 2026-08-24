@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { LocalRuntimeDriver, RemoteRuntimeDriver, type RuntimeDriver } from "@zelyq/runtime";
+import {
+  ContainerRuntimeDriver,
+  LocalRuntimeDriver,
+  RemoteRuntimeDriver,
+  type RuntimeDriver,
+} from "@zelyq/runtime";
 import { buildHost, type RuntimeHost } from "../src/app.js";
 
 /**
@@ -22,6 +28,7 @@ import { buildHost, type RuntimeHost } from "../src/app.js";
 
 const scratch = path.join(os.tmpdir(), `zelyq-conformance-${Date.now()}`);
 const localWorkspace = path.join(scratch, "local");
+const containerWorkspace = path.join(scratch, "container");
 const hostWorkspace = path.join(scratch, "host");
 const TOKEN = "conformance-token";
 
@@ -31,6 +38,7 @@ let hostUrl: string;
 before(async () => {
   await fs.mkdir(localWorkspace, { recursive: true });
   await fs.mkdir(hostWorkspace, { recursive: true });
+  await fs.mkdir(containerWorkspace, { recursive: true });
 
   host = buildHost({
     host: "127.0.0.1",
@@ -57,7 +65,7 @@ after(async () => {
 });
 
 function drivers(): Array<{ name: string; make(): RuntimeDriver }> {
-  return [
+  const list: Array<{ name: string; make(): RuntimeDriver }> = [
     {
       name: "local",
       make: () =>
@@ -83,6 +91,38 @@ function drivers(): Array<{ name: string; make(): RuntimeDriver }> {
         }),
     },
   ];
+
+  // The suite exists to prove the drivers are interchangeable, so a driver that
+  // opts out of it proves nothing. Included only when an engine is present:
+  // `packages/runtime/test/container-driver.test.ts` is what fails CI if an
+  // engine is missing, so the gap cannot go unnoticed.
+  if (containerEngineAvailable()) {
+    list.push({
+      name: "container",
+      make: () =>
+        new ContainerRuntimeDriver({
+          kind: "container",
+          workspaceDir: containerWorkspace,
+          execTimeoutMs: 60_000,
+          previewPortRange: [4830, 4839],
+          previewHost: "127.0.0.1",
+        }),
+    });
+  }
+
+  return list;
+}
+
+function containerEngineAvailable(): boolean {
+  try {
+    execFileSync("docker", ["version", "--format", "{{.Server.Version}}"], {
+      stdio: "pipe",
+      timeout: 15_000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 for (const { name, make } of drivers()) {

@@ -54,11 +54,13 @@ built so that nothing about it is magic and nothing is locked in:
 
 - **One execution seam.** Every filesystem and shell operation goes through a single
   `RuntimeDriver` interface, so nothing above it knows where the code runs. `local` — child
-  processes on your machine — is the zero-setup default. `remote` speaks a
+  processes on your machine — is the zero-setup default. `container` is the same with agent shell
+  commands jailed one container per project. `remote` speaks a
   [documented HTTP protocol](./docs/runtime-protocol.md) to a runtime host, and a reference host
-  ships in `apps/runtime-host`; one conformance suite runs against both drivers, so the two are
-  provably interchangeable. The reference host is **not yet isolated** — it proves the protocol and
-  is the thing you wrap in a container; the sandbox itself is the next milestone.
+  ships in `apps/runtime-host`; one conformance suite runs against all three drivers, so they are
+  provably interchangeable. **Isolation is partial** — container mode does not yet filter outbound
+  network access, and the preview still runs on the host. Read
+  [SECURITY.md](./SECURITY.md#threat-model--read-this-before-deploying) before deploying.
 - **Bring your own model key.** Claude or Gemini, chosen with one variable. No proxy, no account, no
   telemetry.
 - **Boring, inspectable storage.** SQLite by default (one file), PostgreSQL when you scale. Project

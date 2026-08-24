@@ -39,14 +39,33 @@ function dataDirFrom(databaseUrl: string | undefined): string {
   return path.resolve("./data");
 }
 
+const RUNTIME_KINDS = ["local", "remote", "container"] as const;
+
+function runtimeKindFromEnv(): (typeof RUNTIME_KINDS)[number] {
+  const kind = process.env.ZELYQ_RUNTIME ?? "local";
+  if (!(RUNTIME_KINDS as readonly string[]).includes(kind)) {
+    throw new Error(
+      `ZELYQ_RUNTIME must be one of ${RUNTIME_KINDS.map((k) => `"${k}"`).join(", ")}, got "${kind}"`,
+    );
+  }
+  return kind as (typeof RUNTIME_KINDS)[number];
+}
+
+/** Image, limits and engine for `ZELYQ_RUNTIME=container`. */
+function containerOptionsFromEnv() {
+  return {
+    ...(process.env.ZELYQ_CONTAINER_IMAGE ? { image: process.env.ZELYQ_CONTAINER_IMAGE } : {}),
+    ...(process.env.ZELYQ_CONTAINER_MEMORY ? { memory: process.env.ZELYQ_CONTAINER_MEMORY } : {}),
+    ...(process.env.ZELYQ_CONTAINER_CPUS ? { cpus: process.env.ZELYQ_CONTAINER_CPUS } : {}),
+    ...(process.env.ZELYQ_CONTAINER_ENGINE ? { engine: process.env.ZELYQ_CONTAINER_ENGINE } : {}),
+  };
+}
+
 export function loadServerConfig(): ServerConfig {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(here, "..", "..", "..");
-  const runtimeKind = (process.env.ZELYQ_RUNTIME ?? "local") as "local" | "remote";
+  const runtimeKind = runtimeKindFromEnv();
 
-  if (runtimeKind !== "local" && runtimeKind !== "remote") {
-    throw new Error(`ZELYQ_RUNTIME must be "local" or "remote", got "${runtimeKind}"`);
-  }
   if (runtimeKind === "remote" && !process.env.ZELYQ_RUNTIME_URL) {
     throw new Error("ZELYQ_RUNTIME=remote requires ZELYQ_RUNTIME_URL");
   }
@@ -92,6 +111,7 @@ export function loadServerConfig(): ServerConfig {
         intFromEnv("ZELYQ_PREVIEW_PORT_MAX", 4399),
       ],
       previewHost: process.env.ZELYQ_PREVIEW_HOST ?? "127.0.0.1",
+      container: containerOptionsFromEnv(),
     },
   };
 }
