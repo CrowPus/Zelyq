@@ -76,10 +76,14 @@ export class AgentSession {
       tools: toolDefinitions(),
       effort: options.effort,
       history: (options.history ?? [])
-        .filter((message) => message.role !== "system" && message.content.trim())
+        .filter(
+          (message) =>
+            message.role !== "system" && (message.content.trim() || message.toolCalls?.length),
+        )
         .map((message) => ({
           role: message.role === "assistant" ? ("assistant" as const) : ("user" as const),
           content: message.content,
+          toolCalls: message.toolCalls,
         })),
     });
   }
