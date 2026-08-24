@@ -76,14 +76,19 @@ and requires it to succeed there, so the control cannot pass by accident:
   default bridge, this reachability existed
 - exhausting the machine — memory, CPU and process limits apply per project
 - privilege escalation: all capabilities dropped, `no-new-privileges`, read-only root filesystem
+- **reaching the cloud instance metadata endpoint** (`169.254.169.254`) — on by default, disable with
+  `ZELYQ_CONTAINER_BLOCK_METADATA=false`. Every major provider's metadata service hands out
+  credentials for the instance itself to anything that asks it, unauthenticated; a project container
+  reaching it is refused, not silently dropped, so code that tries fails fast instead of hanging. This
+  is the one thing container mode does that reaches past objects Zelyq itself creates and destroys —
+  it writes one rule, scoped to Zelyq's own project network, into the host's `DOCKER-USER` firewall
+  chain, the chain Docker reserves for exactly this. If it cannot be installed, project creation is
+  not blocked on it; check `GET /api/health` for `metadata block FAILED` rather than assuming it held.
 
 **What this does not stop.** Read this part before deciding what to run on the instance:
 
-- **Outbound network access is not filtered.** The container can reach whatever the host can,
-  including private addresses on your network and — the one that matters most — a cloud provider's
-  instance metadata endpoint, which on most providers will hand out credentials to anything that
-  asks. Do not run container mode on an instance whose metadata endpoint returns credentials worth
-  having until this is addressed.
+- **Outbound network access is otherwise not filtered.** The container can reach whatever the host
+  can, including private addresses on your network. Only the one address above is refused.
 - Nothing here changes the fact that the agent's prompts and your file contents are still sent to
   your model vendor.
 

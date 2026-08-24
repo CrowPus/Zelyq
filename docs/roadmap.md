@@ -47,8 +47,9 @@ separates this from a chat with a black box.
       drivers pass ([apps/runtime-host](../apps/runtime-host))
 - [ ] Isolate execution: a container per project, resource limits, restricted egress.
       **Partly done** — `ZELYQ_RUNTIME=container` runs agent shell commands *and the dev server
-      preview* in a container per project, with resource limits and no reachability between
-      projects. Still open: egress filtering to the internet and the host's own network. See
+      preview* in a container per project, with resource limits, no reachability between projects,
+      and the cloud metadata endpoint blocked. Still open: everything else on the internet and the
+      host's own network is reachable. See
       [SECURITY.md](../SECURITY.md)
 - [ ] Per-user API keys, encrypted at rest
 - [ ] Invitation links, so someone can be added before they register
