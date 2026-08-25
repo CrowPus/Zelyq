@@ -8,12 +8,19 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!-- zelyq:inspector:start -->
     <!--
-      Zelyq's element inspector — see docs/attachments.md's sibling,
-      docs/plugins.md, for the same "smallest honest version" philosophy.
-      Inert until Zelyq's own page activates it with a postMessage; does
-      nothing to this app's own behavior otherwise. Safe to delete if you'd
-      rather not have it.
+      Zelyq's element inspector — see docs/plugins.md for the same
+      "smallest honest version" philosophy. Inert until Zelyq's own page
+      activates it with a postMessage; does nothing to this app's own
+      behavior otherwise. Safe to delete if you'd rather not have it.
+
+      A project made before this shipped, or not started from this
+      template at all, gets this same block patched in automatically the
+      first time its preview starts — see `039` in the council notes. The
+      sentinel comments around this block are what let the server find and
+      copy exactly this, and nothing else, into a project that doesn't
+      have it yet.
     -->
     <script>
       (function () {
@@ -92,5 +99,6 @@
         document.addEventListener("click", onClick, true);
       })();
     </script>
+    <!-- zelyq:inspector:end -->
   </body>
 </html>

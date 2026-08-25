@@ -180,7 +180,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerTeamRoutes(app, { store, access });
   registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });
   registerFileRoutes(app, { projects, runtime, access });
-  registerPreviewRoutes(app, { projects, runtime, access });
+  registerPreviewRoutes(app, { projects, runtime, access, templatesDir: config.templatesDir });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
   registerAttachmentRoutes(app, { attachments, access });
 
