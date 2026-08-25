@@ -1,4 +1,4 @@
-import type { AgentEvent, Message, ServerMessage, ToolCall } from "@zelyq/core";
+import type { AgentEvent, AttachmentRef, Message, ServerMessage, ToolCall } from "@zelyq/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface ChatState {
@@ -62,37 +62,49 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
     };
   }, [projectId]);
 
-  const send = useCallback((message: string, override?: { provider?: string; model?: string }) => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(
-      JSON.stringify({
-        type: "prompt",
-        message,
-        ...(override?.provider ? { provider: override.provider } : {}),
-        ...(override?.model ? { model: override.model } : {}),
-      }),
-    );
-    setState((previous) => ({
-      ...previous,
-      busy: true,
-      error: null,
-      messages: [
-        ...previous.messages,
-        {
-          id: `local_${Date.now()}`,
-          sessionId: "",
-          role: "user",
-          content: message,
-          thinking: null,
-          toolCalls: [],
-          tokensIn: 0,
-          tokensOut: 0,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    }));
-  }, []);
+  const send = useCallback(
+    (
+      message: string,
+      override?: { provider?: string; model?: string; attachments?: AttachmentRef[] },
+    ) => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(
+        JSON.stringify({
+          type: "prompt",
+          message,
+          ...(override?.provider ? { provider: override.provider } : {}),
+          ...(override?.model ? { model: override.model } : {}),
+          // The wire only ever carries the ids the server already has —
+          // the full refs below are for the local echo's own display.
+          ...(override?.attachments?.length
+            ? { attachments: override.attachments.map((a) => a.id) }
+            : {}),
+        }),
+      );
+      setState((previous) => ({
+        ...previous,
+        busy: true,
+        error: null,
+        messages: [
+          ...previous.messages,
+          {
+            id: `local_${Date.now()}`,
+            sessionId: "",
+            role: "user",
+            content: message,
+            thinking: null,
+            toolCalls: [],
+            attachments: override?.attachments ?? [],
+            tokensIn: 0,
+            tokensOut: 0,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }));
+    },
+    [],
+  );
 
   const abort = useCallback(() => {
     socketRef.current?.send(JSON.stringify({ type: "abort" }));
@@ -159,6 +171,7 @@ function reduce(
         content: state.streaming?.text ?? "",
         thinking: state.streaming?.thinking ?? null,
         toolCalls: state.streaming?.toolCalls ?? [],
+        attachments: [],
         tokensIn: 0,
         tokensOut: 0,
         createdAt: new Date().toISOString(),
@@ -186,6 +199,7 @@ function reduce(
                 content: `${state.streaming.text}\n\n_Stopped._`,
                 thinking: null,
                 toolCalls: state.streaming.toolCalls,
+                attachments: [],
                 tokensIn: 0,
                 tokensOut: 0,
                 createdAt: new Date().toISOString(),

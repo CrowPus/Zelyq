@@ -21,6 +21,7 @@ export const ID_PREFIXES = {
   snapshot: "snp",
   tool: "tol",
   audit: "adt",
+  attachment: "atc",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

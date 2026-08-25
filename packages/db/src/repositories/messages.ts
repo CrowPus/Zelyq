@@ -1,25 +1,29 @@
-import type { Message, MessageRole, ToolCall } from "@zelyq/core";
+import type { AttachmentRef, Message, MessageRole, ToolCall } from "@zelyq/core";
 import { asc, eq } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { messages } from "../schema/sqlite.js";
 
 type Row = typeof messages.$inferSelect;
 
-function toMessage(row: Row): Message {
-  let toolCalls: ToolCall[] = [];
+/** A malformed row should not take down the whole transcript. */
+function parseJsonArray<T>(raw: string): T[] {
   try {
-    toolCalls = JSON.parse(row.toolCalls) as ToolCall[];
+    const parsed = JSON.parse(raw) as T[];
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    // A malformed row should not take down the whole transcript.
-    toolCalls = [];
+    return [];
   }
+}
+
+function toMessage(row: Row): Message {
   return {
     id: row.id,
     sessionId: row.sessionId,
     role: row.role as MessageRole,
     content: row.content,
     thinking: row.thinking,
-    toolCalls,
+    toolCalls: parseJsonArray<ToolCall>(row.toolCalls),
+    attachments: parseJsonArray<AttachmentRef>(row.attachments),
     snapshotId: row.snapshotId,
     tokensIn: row.tokensIn,
     tokensOut: row.tokensOut,
@@ -37,6 +41,7 @@ export function messageRepository(db: ZelyqDb) {
         content: message.content,
         thinking: message.thinking ?? null,
         toolCalls: JSON.stringify(message.toolCalls ?? []),
+        attachments: JSON.stringify(message.attachments ?? []),
         snapshotId: message.snapshotId ?? null,
         tokensIn: message.tokensIn,
         tokensOut: message.tokensOut,

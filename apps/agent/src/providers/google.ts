@@ -1,4 +1,5 @@
 import { type Content, GoogleGenAI, type Part, ThinkingLevel } from "@google/genai";
+import type { PromptAttachment } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
 import type {
   Conversation,
@@ -54,6 +55,21 @@ export function buildGoogleHistory(
   return contents;
 }
 
+/**
+ * Builds the `parts` for one user turn — inline-data parts for each
+ * attachment, then a trailing text part if there is any text. A pure
+ * function so it is testable without a live client or the non-exported
+ * `GoogleConversation` class it lives inside. See `037` in the council notes.
+ */
+export function buildGoogleUserParts(text: string, attachments?: PromptAttachment[]): Part[] {
+  if (!attachments?.length) return [{ text }];
+  const parts: Part[] = attachments.map((attachment) => ({
+    inlineData: { mimeType: attachment.mimeType, data: attachment.data },
+  }));
+  if (text.trim()) parts.push({ text });
+  return parts;
+}
+
 export class GoogleProvider implements ModelProvider {
   readonly id = "google" as const;
 
@@ -89,8 +105,8 @@ class GoogleConversation implements Conversation {
     this.contents = buildGoogleHistory(options.history ?? []);
   }
 
-  addUserMessage(text: string): void {
-    this.contents.push({ role: "user", parts: [{ text }] });
+  addUserMessage(text: string, attachments?: PromptAttachment[]): void {
+    this.contents.push({ role: "user", parts: buildGoogleUserParts(text, attachments) });
   }
 
   addToolResults(results: ToolResult[]): void {

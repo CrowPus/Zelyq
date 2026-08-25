@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
-import type { Message, ToolCall } from "@zelyq/core";
-import { ArrowUp, ChevronRight, CircleAlert, Square } from "lucide-react";
+import type { AttachmentRef, Message, ToolCall } from "@zelyq/core";
+import { ArrowUp, ChevronRight, CircleAlert, Paperclip, Square, X } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
@@ -27,7 +27,10 @@ const COMPOSER_HEIGHT = 72;
 
 interface Props {
   chat: ChatState & {
-    send(message: string, override?: { provider?: string; model?: string }): void;
+    send(
+      message: string,
+      override?: { provider?: string; model?: string; attachments?: AttachmentRef[] },
+    ): void;
     abort(): void;
   };
   model?: string;
@@ -49,6 +52,11 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
   /** Picked from the composer's own model control — see `033`. Null means
    * the instance default, unchanged. */
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
+  /** Uploaded and ready to send with the next prompt — see `037`. */
+  const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
+  const [uploading, setUploading] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   /**
@@ -82,13 +90,37 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
   function submit(event: FormEvent) {
     event.preventDefault();
     const message = draft.trim();
-    if (!message || chat.busy) return;
-    chat.send(
-      message,
-      modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : undefined,
-    );
+    if ((!message && attachments.length === 0) || chat.busy || uploading > 0) return;
+    chat.send(message, {
+      ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
+      ...(attachments.length ? { attachments } : {}),
+    });
     setDraft("");
+    setAttachments([]);
+    setUploadError(null);
     textareaRef.current?.focus();
+  }
+
+  async function attachFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    setUploadError(null);
+    const files = Array.from(fileList);
+    setUploading((count) => count + files.length);
+    for (const file of files) {
+      try {
+        const data = await fileToBase64(file);
+        const { attachment } = await api.uploadAttachment(projectId, {
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          data,
+        });
+        setAttachments((previous) => [...previous, attachment]);
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : "Could not attach that file.");
+      } finally {
+        setUploading((count) => count - 1);
+      }
+    }
   }
 
   return (
@@ -170,6 +202,7 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
                   content: chat.streaming.text,
                   thinking: chat.streaming.thinking,
                   toolCalls: chat.streaming.toolCalls,
+                  attachments: [],
                   // The snapshot is attached when the turn is persisted; nothing
                   // to undo while it is still running.
                   snapshotId: null,
@@ -192,6 +225,48 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
 
       <form onSubmit={submit} className="shrink-0 border-t border-border-default p-2.5">
         <div className="rounded-md border border-border-default bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-focus focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_26%,transparent)]">
+          {(attachments.length > 0 || uploading > 0) && (
+            <div className="flex flex-wrap gap-1.5 px-2.5 pt-2">
+              {attachments.map((attachment) => (
+                <span
+                  key={attachment.id}
+                  className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary"
+                >
+                  <span className="max-w-32 truncate font-mono">{attachment.filename}</span>
+                  <span className="text-fg-muted tabular-nums">
+                    {formatBytes(attachment.sizeBytes)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${attachment.filename}`}
+                    onClick={() =>
+                      setAttachments((previous) => previous.filter((a) => a.id !== attachment.id))
+                    }
+                    className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
+              {uploading > 0 && (
+                <span className="flex items-center gap-1 rounded-md border border-border-default bg-surface-subtle px-2 py-1 text-2xs text-fg-muted">
+                  Attaching {uploading} file{uploading === 1 ? "" : "s"}…
+                </span>
+              )}
+            </div>
+          )}
+          {uploadError && <p className="px-2.5 pt-2 text-2xs text-danger">{uploadError}</p>}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp,image/gif,text/*,.md,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.yaml,.yml"
+            className="hidden"
+            onChange={(event) => {
+              void attachFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
           <textarea
             ref={textareaRef}
             value={draft}
@@ -212,6 +287,13 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2">
             <div className="flex items-center gap-2">
+              <IconButton
+                size="sm"
+                label="Attach a file"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip size={13} strokeWidth={2} />
+              </IconButton>
               <ModelPicker value={modelChoice} onChange={setModelChoice} />
               <span className="flex items-center gap-1 text-2xs text-fg-muted">
                 <Kbd>↵</Kbd>
@@ -237,7 +319,7 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
                 variant="primary"
                 label="Send message"
                 type="submit"
-                disabled={!draft.trim()}
+                disabled={!draft.trim() && attachments.length === 0}
               >
                 <ArrowUp size={13} strokeWidth={2.5} />
               </IconButton>
@@ -269,9 +351,39 @@ function MessageRow({
   if (message.role === "user") {
     return (
       <div className="border-b border-border-default bg-surface-subtle px-4 py-3">
-        <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
-          {message.content}
-        </p>
+        {/* Optional, not just typed that way: a message can arrive from a
+            server that hasn't restarted since this field was added — a
+            stale build, a rolling deploy, a cached response — and the UI
+            must not crash the whole panel over a field one message doesn't
+            have. */}
+        {(message.attachments?.length ?? 0) > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {message.attachments?.map((attachment) =>
+              IMAGE_MIME_TYPES.has(attachment.mimeType) ? (
+                <img
+                  key={attachment.id}
+                  src={api.attachmentUrl(projectId, attachment.id)}
+                  alt={attachment.filename}
+                  title={attachment.filename}
+                  className="h-16 w-16 rounded-md border border-border-default object-cover"
+                />
+              ) : (
+                <span
+                  key={attachment.id}
+                  className="flex items-center gap-1 rounded-md border border-border-default bg-surface px-2 py-1 text-2xs text-fg-secondary"
+                >
+                  <Paperclip size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+                  <span className="max-w-40 truncate font-mono">{attachment.filename}</span>
+                </span>
+              ),
+            )}
+          </div>
+        )}
+        {message.content && (
+          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
+            {message.content}
+          </p>
+        )}
       </div>
     );
   }
@@ -495,4 +607,27 @@ function formatDuration(ms: number): string {
 
 function formatTokens(count: number): string {
   return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
+}
+
+/**
+ * `btoa` needs a plain string, and spreading a large `Uint8Array` straight
+ * into `String.fromCharCode` blows the call stack on anything past a few MB
+ * — so it's built up in chunks instead.
+ */
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }

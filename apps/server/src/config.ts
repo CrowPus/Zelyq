@@ -20,6 +20,14 @@ export interface ServerConfig {
   /** 32-byte key for settings encryption; generated beside the data when unset. */
   secretKey: string | undefined;
   secretKeyFile: string;
+  /**
+   * Where uploaded prompt attachments live — beside the database, never
+   * inside a project's own workspace. See `037` in the council notes: an
+   * uploaded image is conversation data, not project data, and `035` now
+   * commits a project's own files to git automatically — an attachment
+   * landing in that history by accident is not this feature's call to make.
+   */
+  attachmentsDir: string;
   /** Built web assets to serve. Absent in development, where Vite serves them. */
   webDir: string | null;
   runtime: RuntimeConfig;
@@ -108,6 +116,10 @@ export function loadServerConfig(): ServerConfig {
     secretKeyFile: path.resolve(
       process.env.ZELYQ_SECRET_KEY_FILE ??
         path.join(dataDirFrom(process.env.DATABASE_URL), "secret.key"),
+    ),
+    attachmentsDir: path.resolve(
+      process.env.ZELYQ_ATTACHMENTS_DIR ??
+        path.join(dataDirFrom(process.env.DATABASE_URL), "attachments"),
     ),
     webDir: process.env.ZELYQ_WEB_DIR
       ? path.resolve(process.env.ZELYQ_WEB_DIR)

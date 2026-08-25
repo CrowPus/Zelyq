@@ -68,8 +68,10 @@ separates this from a chat with a black box.
 - [ ] Element inspector — click something in the preview to point the agent at it
 - [x] A headless browser in the eval harness, so a component that throws on render is caught
 - [ ] Build and deploy targets (static hosts, containers)
-- [ ] Plugin interface for third-party tools
-- [ ] File upload and image attachments in prompts
+- [x] Plugin interface for third-party tools — `ZELYQ_PLUGIN_DIR`, loaded once at boot. See
+      [docs/plugins.md](../docs/plugins.md)
+- [x] File upload and image attachments in prompts — images reach the model natively; other files
+      are inlined as text
 - [ ] Per-project provider and model selection in the UI
 
 ## Explicitly not planned

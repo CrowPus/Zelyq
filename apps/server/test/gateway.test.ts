@@ -17,6 +17,10 @@ import type { ServerConfig } from "../src/config.js";
  */
 function fakeAgent() {
   const created: Array<{ provider?: string; model?: string; baseUrl?: string }> = [];
+  const prompts: Array<{
+    message: string;
+    attachments?: Array<{ filename: string; mimeType: string; data: string }>;
+  }> = [];
   const server = http.createServer((req, res) => {
     const send = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -73,6 +77,18 @@ function fakeAgent() {
       return;
     }
     if (req.method === "POST" && req.url?.match(/^\/sessions\/.+\/prompt$/)) {
+      let promptBody = "";
+      req.on("data", (chunk) => {
+        promptBody += chunk;
+      });
+      req.on("end", () => {
+        const input = JSON.parse(promptBody);
+        prompts.push({ message: input.message, attachments: input.attachments });
+        writePromptResponse();
+      });
+      return;
+    }
+    function writePromptResponse() {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(
         `data: ${JSON.stringify({ type: "turn.start", sessionId: "x", messageId: "msg_1", at: new Date().toISOString() })}\n\n`,
@@ -90,6 +106,7 @@ function fakeAgent() {
             content: "hi",
             thinking: null,
             toolCalls: [],
+            attachments: [],
             tokensIn: 1,
             tokensOut: 1,
             createdAt: new Date().toISOString(),
@@ -101,7 +118,7 @@ function fakeAgent() {
     }
     send(404, { error: { message: "not found" } });
   });
-  return { server, created };
+  return { server, created, prompts };
 }
 
 const tmp = path.join(os.tmpdir(), `zelyq-gateway-${Date.now()}`);
@@ -154,6 +171,7 @@ before(async () => {
     webDir: null,
     secretKey: undefined,
     secretKeyFile: path.join(tmp, "secret.key"),
+    attachmentsDir: path.join(tmp, "attachments"),
     runtime: {
       kind: "local",
       workspaceDir: path.join(tmp, "workspace"),
@@ -450,4 +468,242 @@ test("GET /api/providers is available to anyone signed in, and never carries a k
   const serialised = JSON.stringify(body);
   assert.ok(!serialised.includes("apiKeyEnv"), "the env var backing a provider must not leak");
   assert.ok(!serialised.includes("docsUrl"), "only what the picker needs is returned");
+});
+
+// --- Attachments (see `037`) ---------------------------------------------
+
+// A 1x1 transparent PNG.
+const PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+async function upload(
+  cookie: string,
+  projectId: string,
+  input: { filename: string; mimeType: string; data: string },
+): Promise<{ id: string }> {
+  const response = await server.app.inject({
+    method: "POST",
+    url: `/api/projects/${projectId}/attachments`,
+    headers: { cookie },
+    payload: input,
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  return response.json().attachment;
+}
+
+test("an uploaded image reaches the agent as base64 image data, and is persisted on the message row", async () => {
+  const { cookie } = await register("attach-image@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Image attachment test" },
+    })
+  ).json().project;
+
+  const attachment = await upload(cookie, project.id, {
+    filename: "pixel.png",
+    mimeType: "image/png",
+    data: PNG_BASE64,
+  });
+
+  agent.prompts.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  let sessionId = "";
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        sessionId = msg.sessionId;
+        ws.send(
+          JSON.stringify({
+            type: "prompt",
+            message: "what is this?",
+            attachments: [attachment.id],
+          }),
+        );
+      }
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  assert.equal(agent.prompts.length, 1);
+  assert.equal(
+    agent.prompts[0]?.message,
+    "what is this?",
+    "the prompt text is not rewritten for an image",
+  );
+  assert.equal(agent.prompts[0]?.attachments?.length, 1);
+  assert.equal(agent.prompts[0]?.attachments?.[0]?.mimeType, "image/png");
+  assert.equal(agent.prompts[0]?.attachments?.[0]?.data, PNG_BASE64);
+
+  const history = await server.store.messages.listForSession(sessionId);
+  const userMessage = history.find((m) => m.role === "user");
+  assert.equal(
+    userMessage?.content,
+    "what is this?",
+    "the stored transcript keeps exactly what was typed",
+  );
+  assert.equal(userMessage?.attachments.length, 1);
+  assert.equal(userMessage?.attachments[0]?.id, attachment.id);
+  assert.equal(userMessage?.attachments[0]?.filename, "pixel.png");
+});
+
+test("an uploaded text file is inlined into the prompt sent to the agent, not sent as an image", async () => {
+  const { cookie } = await register("attach-text@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Text attachment test" },
+    })
+  ).json().project;
+
+  const attachment = await upload(cookie, project.id, {
+    filename: "notes.txt",
+    mimeType: "text/plain",
+    data: Buffer.from("remember to fix the header").toString("base64"),
+  });
+
+  agent.prompts.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  let sessionId = "";
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        sessionId = msg.sessionId;
+        ws.send(
+          JSON.stringify({ type: "prompt", message: "apply this", attachments: [attachment.id] }),
+        );
+      }
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  assert.equal(agent.prompts.length, 1);
+  assert.ok(
+    agent.prompts[0]?.message.includes("remember to fix the header"),
+    "the file's text content is inlined into the prompt sent to the agent",
+  );
+  assert.ok(agent.prompts[0]?.message.startsWith("apply this"), "the typed prompt still leads");
+  assert.ok(
+    !agent.prompts[0]?.attachments?.length,
+    "a text file is never sent through the image-attachments channel",
+  );
+
+  const history = await server.store.messages.listForSession(sessionId);
+  const userMessage = history.find((m) => m.role === "user");
+  assert.equal(
+    userMessage?.content,
+    "apply this",
+    "the stored transcript is exactly what was typed, without the inlined file text",
+  );
+  assert.equal(userMessage?.attachments[0]?.filename, "notes.txt");
+});
+
+test("an unknown attachment id refuses the turn with a clear error, before anything is persisted", async () => {
+  const { cookie } = await register("attach-missing@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Missing attachment test" },
+    })
+  ).json().project;
+
+  agent.prompts.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  let sessionId = "";
+  const errorMessage = await new Promise<string>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        sessionId = msg.sessionId;
+        ws.send(
+          JSON.stringify({ type: "prompt", message: "hi", attachments: ["atc_doesnotexist"] }),
+        );
+      }
+      if (msg.type === "error") {
+        ws.close();
+        resolve(msg.message);
+      }
+    });
+  });
+
+  assert.match(errorMessage, /could not be found/);
+  assert.equal(agent.prompts.length, 0, "the agent must never be reached for a bad attachment id");
+  const history = await server.store.messages.listForSession(sessionId);
+  assert.equal(history.length, 0, "nothing is persisted when the turn is refused up front");
+});
+
+test("a non-image, non-UTF8 attachment is refused with a clear error, not silently mangled", async () => {
+  const { cookie } = await register("attach-binary@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Binary attachment test" },
+    })
+  ).json().project;
+
+  // Not a registered image mimeType, and not valid UTF-8 either — an
+  // arbitrary binary blob, the kind a user might attach by mistake.
+  const attachment = await upload(cookie, project.id, {
+    filename: "data.bin",
+    mimeType: "application/octet-stream",
+    data: Buffer.from([0xff, 0xfe, 0x00, 0x01, 0xc0, 0xc1]).toString("base64"),
+  });
+
+  agent.prompts.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  const errorMessage = await new Promise<string>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        ws.send(JSON.stringify({ type: "prompt", message: "hi", attachments: [attachment.id] }));
+      }
+      if (msg.type === "error") {
+        ws.close();
+        resolve(msg.message);
+      }
+    });
+  });
+
+  assert.match(errorMessage, /isn't an image or a text file/);
+  assert.equal(agent.prompts.length, 0);
 });

@@ -5,6 +5,7 @@ import {
   agentEventSchema,
   availableProvidersSchema,
   type Message,
+  type PromptAttachment,
   ZelyqError,
 } from "@zelyq/core";
 
@@ -132,11 +133,12 @@ export class AgentClient {
     sessionId: string,
     message: string,
     signal?: AbortSignal,
+    attachments?: PromptAttachment[],
   ): AsyncGenerator<AgentEvent> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, ...(attachments?.length ? { attachments } : {}) }),
       signal,
     });
 

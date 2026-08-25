@@ -1,4 +1,4 @@
-import type { ToolCall } from "@zelyq/core";
+import type { PromptAttachment, ToolCall } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
 
 /**
@@ -18,7 +18,13 @@ import type { ToolDefinition } from "@zelyq/tools";
  * Gemini's thought signatures — inside the provider where they belong.
  */
 export interface Conversation {
-  addUserMessage(text: string): void;
+  /**
+   * `attachments` are images only — see `037` in the council notes. A
+   * non-image attachment is inlined into `text` by the caller before this
+   * is ever reached, so every implementation only has one native shape
+   * (text plus optional images) to build, not two.
+   */
+  addUserMessage(text: string, attachments?: PromptAttachment[]): void;
 
   /**
    * One model round-trip. Yields deltas as they arrive and returns what the

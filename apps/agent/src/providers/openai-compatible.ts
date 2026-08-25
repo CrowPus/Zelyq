@@ -1,3 +1,4 @@
+import type { PromptAttachment } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
 import type {
   Conversation,
@@ -86,9 +87,35 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
 /** A message in the dialect. Assistant turns carry tool calls; results are their own role. */
 type ChatMessage =
-  | { role: "system" | "user"; content: string }
+  | { role: "system"; content: string }
+  | { role: "user"; content: string | ChatContentPart[] }
   | { role: "assistant"; content: string | null; tool_calls?: ChatToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
+
+/** A user message's own multi-part shape — the dialect's vision format. */
+type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+/**
+ * Builds a user message's `content` — plain text when there are no
+ * attachments (the dialect accepts a bare string there), or the multi-part
+ * form when there are. A pure function so it is testable without a live
+ * client or the non-exported `OpenAICompatibleConversation` class it lives
+ * inside. See `037` in the council notes.
+ */
+export function buildOpenAIUserContent(
+  text: string,
+  attachments?: PromptAttachment[],
+): string | ChatContentPart[] {
+  if (!attachments?.length) return text;
+  const content: ChatContentPart[] = attachments.map((attachment) => ({
+    type: "image_url" as const,
+    image_url: { url: `data:${attachment.mimeType};base64,${attachment.data}` },
+  }));
+  if (text.trim()) content.push({ type: "text", text });
+  return content;
+}
 
 interface ChatToolCall {
   id: string;
@@ -122,8 +149,8 @@ class OpenAICompatibleConversation implements Conversation {
     }
   }
 
-  addUserMessage(text: string): void {
-    this.messages.push({ role: "user", content: text });
+  addUserMessage(text: string, attachments?: PromptAttachment[]): void {
+    this.messages.push({ role: "user", content: buildOpenAIUserContent(text, attachments) });
   }
 
   addToolResults(results: ToolResult[]): void {

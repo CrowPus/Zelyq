@@ -1,4 +1,11 @@
-import { type AgentEvent, type Message, newId, type Preview, type ToolCall } from "@zelyq/core";
+import {
+  type AgentEvent,
+  type Message,
+  newId,
+  type Preview,
+  type PromptAttachment,
+  type ToolCall,
+} from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import { executeTool, type ToolContext, toolDefinitions } from "@zelyq/tools";
 import { buildSystemPrompt } from "./prompt.js";
@@ -111,7 +118,7 @@ export class AgentSession {
    * the model stops asking for tools, the user aborts, or the iteration cap is
    * reached — expected failures become `error` events rather than throwing.
    */
-  async run(userMessage: string, emit: Emit): Promise<void> {
+  async run(userMessage: string, emit: Emit, attachments?: PromptAttachment[]): Promise<void> {
     if (this.busy) {
       emit({
         type: "error",
@@ -141,7 +148,7 @@ export class AgentSession {
 
     emit({ type: "turn.start", sessionId: this.id, messageId, at: new Date().toISOString() });
 
-    this.conversation.addUserMessage(userMessage);
+    this.conversation.addUserMessage(userMessage, attachments);
 
     const toolContext: ToolContext = {
       projectId: this.projectId,
@@ -279,6 +286,10 @@ export class AgentSession {
           content: assistantText,
           thinking: thinkingText || null,
           toolCalls,
+          // The agent's own copy of the finished message — never carries
+          // attachments of its own; those belong to the user message the
+          // server already persisted, which this does not replace.
+          attachments: [],
           tokensIn: this.tokensIn,
           tokensOut: this.tokensOut,
           createdAt: new Date().toISOString(),

@@ -11,6 +11,7 @@ import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { ServerConfig } from "./config.js";
 import { registerAccountRoutes } from "./routes/accounts.js";
+import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
@@ -22,6 +23,7 @@ import { registerTeamRoutes } from "./routes/teams.js";
 import { AccessControl } from "./services/access.js";
 import { AccountService } from "./services/accounts.js";
 import { AgentClient } from "./services/agent-client.js";
+import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
 import { ProjectService } from "./services/projects.js";
 import { resolveSecretKey, SecretBox } from "./services/secrets.js";
@@ -83,6 +85,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   const access = new AccessControl(store);
   const accounts = new AccountService(store, projects);
+  const attachments = new AttachmentService(config.attachmentsDir);
 
   await app.register(cors, {
     origin: config.corsOrigin.includes("*") ? true : config.corsOrigin,
@@ -179,8 +182,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerFileRoutes(app, { projects, runtime, access });
   registerPreviewRoutes(app, { projects, runtime, access });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
+  registerAttachmentRoutes(app, { attachments, access });
 
-  const gateway = new ChatGateway(store, projects, agent, access, settings, {
+  const gateway = new ChatGateway(store, projects, agent, access, settings, attachments, {
     info: (message) => app.log.info(message),
     error: (object, message) => app.log.error(object, message),
   });

@@ -91,6 +91,20 @@ export const toolCallSchema = z.object({
 });
 export type ToolCall = z.infer<typeof toolCallSchema>;
 
+/**
+ * What a message's attachment refers to — never the bytes themselves. The
+ * browser fetches those separately when it actually needs to render one;
+ * a transcript that always carried them inline would make every history
+ * load pay for every image ever attached, whether shown or not.
+ */
+export const attachmentRefSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+});
+export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
+
 export const messageSchema = z.object({
   id: z.string(),
   sessionId: z.string(),
@@ -99,6 +113,7 @@ export const messageSchema = z.object({
   /** Summarised reasoning, when the model returns it. */
   thinking: z.string().nullable().optional(),
   toolCalls: z.array(toolCallSchema).default([]),
+  attachments: z.array(attachmentRefSchema).default([]),
   /**
    * The project as it stood immediately before this turn, so it can be undone.
    * Null on user messages and on turns taken before snapshots were automatic.

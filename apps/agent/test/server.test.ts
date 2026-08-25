@@ -37,6 +37,17 @@ test("health reports the runtime it is wired to", async () => {
   assert.equal(body.service, "zelyq-agent");
   assert.equal(body.runtime.kind, "local");
   assert.equal(body.modelConfigured, false);
+  assert.deepEqual(body.plugins, [], "no plugin names were passed in, so none are reported");
+});
+
+test("health reports plugin tool names when the loader found any — see 037", async () => {
+  const withPlugins = buildAgentServer(config, { pluginNames: ["roll_dice", "word_count"] });
+  try {
+    const response = await withPlugins.app.inject({ method: "GET", url: "/health" });
+    assert.deepEqual(response.json().plugins, ["roll_dice", "word_count"]);
+  } finally {
+    await withPlugins.close();
+  }
 });
 
 test("creating a session without any API key fails clearly", async () => {

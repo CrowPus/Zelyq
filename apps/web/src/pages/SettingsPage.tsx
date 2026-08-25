@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SettingField } from "@zelyq/core";
-import { CircleAlert, Lock, RotateCw, ShieldCheck, Trash2 } from "lucide-react";
+import { CircleAlert, Lock, Puzzle, RotateCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, IconButton, Input, Spinner } from "../components/ui";
+import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 
@@ -20,6 +20,7 @@ export function SettingsPage() {
   const { user } = useSession();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
   const users = useQuery({ queryKey: ["users"], queryFn: api.listUsers });
+  const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
   const [draft, setDraft] = useState<Draft>({});
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -87,6 +88,79 @@ export function SettingsPage() {
               Some changes need the server restarted before they take effect.
             </p>
           )}
+
+          <section className="mt-7">
+            <h2 className="text-sm font-medium text-fg">Instance status</h2>
+            <p className="mt-0.5 text-xs text-fg-secondary">
+              What's actually running right now — reflects the last restart, not this page.
+            </p>
+
+            <div className="mt-3 divide-y divide-border-default overflow-hidden rounded-lg border border-border-default bg-surface">
+              {health.isLoading && (
+                <div className="flex items-center gap-2 px-4 py-3 text-xs text-fg-muted">
+                  <Spinner /> Checking…
+                </div>
+              )}
+              {health.isError && (
+                <p className="px-4 py-3 text-xs text-danger">
+                  Could not reach the server to check status.
+                </p>
+              )}
+              {health.data && (
+                <>
+                  <StatusRow
+                    label="Model"
+                    ok={health.data.agent.status === "ok"}
+                    detail={
+                      health.data.agent.model
+                        ? `${health.data.agent.provider ?? health.data.provider} · ${health.data.agent.model}`
+                        : "not configured"
+                    }
+                  />
+                  <StatusRow
+                    label="Runtime"
+                    ok={health.data.runtime.ok}
+                    detail={
+                      health.data.runtime.detail ?? (health.data.runtime.ok ? "ok" : "degraded")
+                    }
+                  />
+                  <div className="flex items-start gap-3 px-3 py-3">
+                    <Puzzle
+                      size={14}
+                      strokeWidth={1.75}
+                      className="mt-0.5 shrink-0 text-fg-muted"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-fg">Plugin tools</p>
+                      {health.data.agent.plugins?.length ? (
+                        <p className="mt-0.5 flex flex-wrap gap-1.5">
+                          {health.data.agent.plugins.map((name) => (
+                            <Badge key={name} tone="success">
+                              {name}
+                            </Badge>
+                          ))}
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 text-xs text-fg-secondary">
+                          None loaded. Set <code className="font-mono">ZELYQ_PLUGIN_DIR</code> and
+                          restart the agent — see{" "}
+                          <a
+                            href="https://github.com/CrowPus/Zelyq/blob/main/docs/plugins.md"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline underline-offset-2 hover:text-fg"
+                          >
+                            docs/plugins.md
+                          </a>
+                          .
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
 
           {settings.data?.groups.map((group) => (
             <section key={group.name} className="mt-7">
@@ -194,6 +268,16 @@ export function SettingsPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function StatusRow({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
+  return (
+    <div className="flex items-center gap-3 px-3 py-3">
+      <StatusDot tone={ok ? "success" : "danger"} />
+      <span className="w-20 shrink-0 text-sm text-fg">{label}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-secondary">{detail}</span>
+    </div>
   );
 }
 
