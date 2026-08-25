@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { AttachmentRef, Message, ToolCall } from "@zelyq/core";
 import {
   ArrowUp,
@@ -7,6 +7,7 @@ import {
   Crosshair,
   GraduationCap,
   Paperclip,
+  Puzzle,
   Square,
   X,
 } from "lucide-react";
@@ -15,7 +16,7 @@ import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
-import { matchSlashSkills } from "../lib/skills";
+import { findSlashCommand, matchByPrefix, replaceSlashCommand } from "../lib/slash-menu";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, StatusDot } from "./ui";
 import { ZelyqThinking } from "./ZelyqThinking";
@@ -54,6 +55,10 @@ interface Props {
   /** What `/` in the composer offers — see `044`. Name and description only;
    * a skill's full body never reaches the browser. */
   skills: Array<{ name: string; description: string }>;
+  /** Loaded plugin tool names — shown in the `/` menu for visibility. A
+   * plugin is always available, not a per-message choice, so this section
+   * is informational only, unlike the Model and Skills ones next to it. */
+  plugins: string[];
   projectId: string;
   /** Editors and above. The server checks again on the restore call. */
   canEdit: boolean;
@@ -75,6 +80,7 @@ export function ChatPanel({
   chat,
   model,
   skills,
+  plugins,
   projectId,
   canEdit,
   pointedElement,
@@ -105,14 +111,74 @@ export function ChatPanel({
   const following = useRef(true);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // The menu is derived, not stateful — see matchSlashSkills.
-  const matchingSkills = matchSlashSkills(draft, skills, selectedSkills);
-  const showSkillMenu = matchingSkills.length > 0;
+  /** Tracked so the slash command can be found wherever the cursor actually
+   * is, not just at the end of the draft — see `044`'s correction. */
+  const [cursor, setCursor] = useState(0);
+
+  const providers = useQuery({
+    queryKey: ["providers"],
+    queryFn: api.getProviders,
+    staleTime: 60_000,
+  });
+  const modelOptions = (providers.data?.providers ?? []).flatMap((provider) =>
+    provider.configured && provider.id !== "custom" && provider.models?.length
+      ? provider.models.map((option) => ({
+          provider: provider.id,
+          model: option.value,
+          label: `${provider.label} — ${option.label}`,
+        }))
+      : [],
+  );
+
+  // The menu is derived, not stateful — the draft and cursor together *are*
+  // its open state. See lib/slash-menu.ts.
+  const slashCommand = findSlashCommand(draft, cursor);
+  const matchingSkills = slashCommand
+    ? matchByPrefix(
+        skills.filter((skill) => !selectedSkills.some((selected) => selected.name === skill.name)),
+        slashCommand.query,
+        (skill) => skill.name,
+      )
+    : [];
+  const matchingModels = slashCommand
+    ? matchByPrefix(modelOptions, slashCommand.query, (option) => option.label)
+    : [];
+  const matchingPlugins = slashCommand ? matchByPrefix(plugins, slashCommand.query, (p) => p) : [];
+  const showSlashMenu =
+    matchingSkills.length > 0 || matchingModels.length > 0 || matchingPlugins.length > 0;
+  // The single flat list Enter/Tab picks the first row of — skills first, so
+  // the thing `044` actually exists for wins a tie.
+  const firstMatch: { kind: "skill" | "model"; index: number } | null =
+    matchingSkills.length > 0
+      ? { kind: "skill", index: 0 }
+      : matchingModels.length > 0
+        ? { kind: "model", index: 0 }
+        : null;
 
   function selectSkill(skill: { name: string; description: string }) {
+    if (!slashCommand) return;
     setSelectedSkills((previous) => [...previous, skill]);
-    setDraft("");
-    textareaRef.current?.focus();
+    applySlashReplacement(slashCommand);
+  }
+
+  function selectModelOption(option: { provider: string; model: string; label: string }) {
+    if (!slashCommand) return;
+    setModelChoice(option);
+    applySlashReplacement(slashCommand);
+  }
+
+  /** Removes the `/query` fragment the selection just resolved, wherever in
+   * the draft it was, and puts the cursor back exactly where it stood. */
+  function applySlashReplacement(command: NonNullable<typeof slashCommand>) {
+    const next = replaceSlashCommand(draft, command);
+    setDraft(next);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(command.start, command.start);
+      setCursor(command.start);
+    });
   }
 
   /**
@@ -156,6 +222,7 @@ export function ChatPanel({
       ...(selectedSkills.length ? { skills: selectedSkills.map((skill) => skill.name) } : {}),
     });
     setDraft("");
+    setCursor(0);
     setAttachments([]);
     setSelectedSkills([]);
     setUploadError(null);
@@ -286,30 +353,72 @@ export function ChatPanel({
       </div>
 
       <form onSubmit={submit} className="relative shrink-0 border-t border-border-default p-2.5">
-        {showSkillMenu && (
+        {showSlashMenu && (
           <div
             role="listbox"
-            aria-label="Skills"
-            className="absolute inset-x-2.5 bottom-full z-10 mb-1.5 max-h-48 overflow-y-auto rounded-md border border-border-default bg-overlay py-1 shadow-overlay"
+            aria-label="Commands"
+            className="absolute inset-x-2.5 bottom-full z-10 mb-1.5 max-h-64 overflow-y-auto rounded-md border border-border-default bg-overlay py-1 shadow-overlay"
           >
-            {matchingSkills.map((skill, index) => (
-              <button
-                key={skill.name}
-                type="button"
-                // Enter (below) always picks the first row — highlighting it
-                // is what makes that not a surprise.
-                className={`flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left ${
-                  index === 0 ? "bg-surface-hover" : "hover:bg-surface-hover"
-                }`}
-                onClick={() => selectSkill(skill)}
-              >
-                <span className="flex items-center gap-1.5 font-mono text-xs text-fg">
-                  <GraduationCap size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
-                  {skill.name}
-                </span>
-                <span className="truncate text-2xs text-fg-secondary">{skill.description}</span>
-              </button>
-            ))}
+            {matchingModels.length > 0 && (
+              <SlashSection title="Model">
+                {matchingModels.map((option, index) => (
+                  <button
+                    key={`${option.provider}:${option.model}`}
+                    type="button"
+                    className={`flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left font-mono text-xs text-fg ${
+                      firstMatch?.kind === "model" && index === 0
+                        ? "bg-surface-hover"
+                        : "hover:bg-surface-hover"
+                    }`}
+                    onClick={() => selectModelOption(option)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </SlashSection>
+            )}
+            {matchingSkills.length > 0 && (
+              <SlashSection title="Skills">
+                {matchingSkills.map((skill, index) => (
+                  <button
+                    key={skill.name}
+                    type="button"
+                    className={`flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left ${
+                      firstMatch?.kind === "skill" && index === 0
+                        ? "bg-surface-hover"
+                        : "hover:bg-surface-hover"
+                    }`}
+                    onClick={() => selectSkill(skill)}
+                  >
+                    <span className="flex items-center gap-1.5 font-mono text-xs text-fg">
+                      <GraduationCap
+                        size={12}
+                        strokeWidth={1.75}
+                        className="shrink-0 text-fg-muted"
+                      />
+                      {skill.name}
+                    </span>
+                    <span className="truncate text-2xs text-fg-secondary">{skill.description}</span>
+                  </button>
+                ))}
+              </SlashSection>
+            )}
+            {matchingPlugins.length > 0 && (
+              <SlashSection title="Plugins">
+                {matchingPlugins.map((name) => (
+                  // Not a button — a plugin tool is always available to the
+                  // agent already, never a per-message choice the way a
+                  // skill is, so there is nothing here to "pick".
+                  <div
+                    key={name}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 font-mono text-xs text-fg-secondary"
+                  >
+                    <Puzzle size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+                    {name}
+                  </div>
+                ))}
+              </SlashSection>
+            )}
           </div>
         )}
         <div className="rounded-md border border-border-default bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-focus focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_26%,transparent)]">
@@ -397,16 +506,24 @@ export function ChatPanel({
           <textarea
             ref={textareaRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setCursor(event.target.selectionStart ?? event.target.value.length);
+            }}
+            // The cursor moves on its own too — arrow keys, clicking
+            // elsewhere in the text — and the menu has to track it there as
+            // well, or it stays anchored to wherever it last opened.
+            onKeyUp={(event) => setCursor(event.currentTarget.selectionStart ?? 0)}
+            onClick={(event) => setCursor(event.currentTarget.selectionStart ?? 0)}
             onKeyDown={(event) => {
-              // While the skill menu is showing, Enter and Tab pick the
-              // first row instead of doing what they'd otherwise do —
-              // sending a turn with "/shadcn" still literally in it would
-              // be exactly the "hoped it noticed" failure `044` exists to
-              // remove.
-              if (showSkillMenu && (event.key === "Enter" || event.key === "Tab")) {
+              // While the menu is showing, Enter and Tab pick its first row
+              // instead of doing what they'd otherwise do — sending a turn
+              // with "/shadcn" still literally in it would be exactly the
+              // "hoped it noticed" failure `044` exists to remove.
+              if (showSlashMenu && (event.key === "Enter" || event.key === "Tab") && firstMatch) {
                 event.preventDefault();
-                selectSkill(matchingSkills[0]!);
+                if (firstMatch.kind === "skill") selectSkill(matchingSkills[0]!);
+                else selectModelOption(matchingModels[0]!);
                 return;
               }
               // Plain Enter sends, matching every other chat surface people
@@ -752,4 +869,19 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+/** One titled group in the `/` menu — Model, Skills, Plugins — the same
+ * grouped shape the founder's own reference showed, not an undifferentiated
+ * list with no way to tell what kind of thing each row is. */
+function SlashSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-1 first:mt-0">
+      <div className="mt-1 border-t border-border-default first:mt-0 first:border-t-0" />
+      <p className="px-2.5 pt-1.5 pb-1 text-2xs font-medium tracking-[0.04em] text-fg-muted uppercase">
+        {title}
+      </p>
+      {children}
+    </div>
+  );
 }
