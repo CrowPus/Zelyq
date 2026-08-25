@@ -592,7 +592,12 @@ export function ChatPanel({
             className="w-full resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-fg placeholder:text-fg-muted focus:outline-none"
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2">
-            <div className="flex items-center gap-2">
+            {/* min-w-0 is load-bearing: a flex child's default min-width is
+                its own content width, which silently blocks it from ever
+                shrinking — exactly what let a long model name push the send
+                button out of the panel entirely instead of the row giving
+                way here first. */}
+            <div className="flex min-w-0 items-center gap-2">
               <IconButton
                 size="sm"
                 label="Attach a file"
@@ -601,7 +606,11 @@ export function ChatPanel({
                 <Paperclip size={13} strokeWidth={2} />
               </IconButton>
               <ModelPicker value={modelChoice} onChange={setModelChoice} />
-              <span className="flex items-center gap-1 text-2xs text-fg-muted">
+              {/* Least essential piece of this row, so it's the one that
+                  gives way first — min-w-0 here too, or being a flex
+                  container itself makes it just as unshrinkable as its
+                  parent was without this same fix. */}
+              <span className="flex min-w-0 shrink items-center gap-1 overflow-hidden text-2xs whitespace-nowrap text-fg-muted">
                 <Kbd>↵</Kbd>
                 to send
                 <span className="mx-0.5 text-fg-muted/60">·</span>
@@ -616,6 +625,7 @@ export function ChatPanel({
                 variant="secondary"
                 label="Stop the current turn"
                 onClick={chat.abort}
+                className="shrink-0"
               >
                 <Square size={11} strokeWidth={2.5} className="fill-current" />
               </IconButton>
@@ -626,6 +636,7 @@ export function ChatPanel({
                 label="Send message"
                 type="submit"
                 disabled={!draft.trim() && attachments.length === 0 && !pointedElement}
+                className="shrink-0"
               >
                 <ArrowUp size={13} strokeWidth={2.5} />
               </IconButton>
