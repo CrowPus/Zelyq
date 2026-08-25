@@ -69,7 +69,9 @@ separates this from a chat with a black box.
 ## Later — depth
 
 - [ ] More templates: Next.js, plain Vite, static site, Node API
-- [ ] Element inspector — click something in the preview to point the agent at it
+- [x] Element inspector — click something in the preview to point the agent at it. Works on
+      projects not started from the Zelyq template too — the bridge script is patched into an
+      existing project's `index.html` the first time its preview starts
 - [x] A headless browser in the eval harness, so a component that throws on render is caught
 - [ ] Build and deploy targets (static hosts, containers)
 - [x] Plugin interface for third-party tools — `ZELYQ_PLUGIN_DIR`, loaded once at boot. See
