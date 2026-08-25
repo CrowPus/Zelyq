@@ -313,11 +313,14 @@ test("an unknown setting is rejected rather than quietly stored", async () => {
   assert.equal(response.statusCode, 400);
 });
 
-test("the environment wins, and locks the field in the UI", async () => {
-  // An operator who sets a variable expects it to hold. A setting the UI could
-  // silently override behind their back is a support ticket waiting to happen.
-  const previous = process.env.ZELYQ_EFFORT;
-  process.env.ZELYQ_EFFORT = "max";
+test("the environment wins, and locks the field in the UI — for a setting that is actually a lock", async () => {
+  // previewHost is genuinely security/topology-sensitive and needs a restart
+  // regardless, so it keeps the original behavior: an operator who sets it
+  // expects it to hold, and a setting the UI could silently override behind
+  // their back is a support ticket waiting to happen. `provider`/`model`/
+  // `effort` are the deliberate exception to this — see the tests below.
+  const previous = process.env.ZELYQ_PREVIEW_HOST;
+  process.env.ZELYQ_PREVIEW_HOST = "10.0.0.9";
 
   try {
     const read = await server.app.inject({
@@ -325,27 +328,134 @@ test("the environment wins, and locks the field in the UI", async () => {
       url: "/api/settings",
       headers: { cookie: adminCookie },
     });
-    const effort = read
+    const previewHost = read
       .json()
       .groups.flatMap((group: { fields: Array<{ key: string }> }) => group.fields)
-      .find((field: { key: string }) => field.key === "effort");
+      .find((field: { key: string }) => field.key === "previewHost");
 
-    assert.equal(effort.value, "max");
-    assert.equal(effort.source, "env");
-    assert.equal(effort.managedByEnv, true, "the UI must render this read-only");
-    assert.equal(effort.envVar, "ZELYQ_EFFORT");
+    assert.equal(previewHost.value, "10.0.0.9");
+    assert.equal(previewHost.source, "env");
+    assert.equal(previewHost.managedByEnv, true, "the UI must render this read-only");
+    assert.equal(previewHost.envVar, "ZELYQ_PREVIEW_HOST");
 
     // Writing it must fail loudly rather than store a value that has no effect.
     const write = await server.app.inject({
       method: "PUT",
       url: "/api/settings",
       headers: { cookie: adminCookie },
-      payload: { effort: "low" },
+      payload: { previewHost: "192.168.1.1" },
     });
     assert.equal(write.statusCode, 409);
-    assert.match(write.json().error.message, /ZELYQ_EFFORT/);
+    assert.match(write.json().error.message, /ZELYQ_PREVIEW_HOST/);
   } finally {
-    process.env.ZELYQ_EFFORT = previous ?? "";
+    process.env.ZELYQ_PREVIEW_HOST = previous ?? "";
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Overridable — 041: which model to use is not a security posture, and every
+// path that can reach these fields already requires an instance admin.
+// ---------------------------------------------------------------------------
+
+test("provider, model, and effort stay editable from the UI even when the environment sets them", async () => {
+  // The actual bug this closes: `.env` naming a provider used to lock the
+  // Settings page out of ever changing it again, forcing a hand-edit of that
+  // file and a restart just to switch models.
+  const previous = { provider: process.env.ZELYQ_PROVIDER, effort: process.env.ZELYQ_EFFORT };
+  process.env.ZELYQ_PROVIDER = "google";
+  process.env.ZELYQ_EFFORT = "max";
+
+  try {
+    const beforeWrite = await server.app.inject({
+      method: "GET",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+    });
+    const fieldsBefore = beforeWrite
+      .json()
+      .groups.flatMap((group: { fields: Array<Record<string, unknown>> }) => group.fields);
+    const providerBefore = fieldsBefore.find((f) => f.key === "provider");
+    assert.equal(providerBefore?.value, "google", "the environment is still the bootstrap default");
+    assert.equal(providerBefore?.source, "env");
+    assert.equal(providerBefore?.managedByEnv, false, "must not be rendered read-only");
+
+    // And, unlike a locked field, actually writable.
+    const write = await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+      payload: { provider: "anthropic", effort: "low" },
+    });
+    assert.equal(write.statusCode, 200, write.body);
+
+    const afterWrite = await server.app.inject({
+      method: "GET",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+    });
+    const fieldsAfter = afterWrite
+      .json()
+      .groups.flatMap((group: { fields: Array<Record<string, unknown>> }) => group.fields);
+    const providerAfter = fieldsAfter.find((f) => f.key === "provider");
+    const effortAfter = fieldsAfter.find((f) => f.key === "effort");
+
+    assert.equal(
+      providerAfter?.value,
+      "anthropic",
+      "the stored choice must win over the environment",
+    );
+    assert.equal(providerAfter?.source, "database");
+    assert.equal(effortAfter?.value, "low");
+    assert.equal(effortAfter?.source, "database");
+  } finally {
+    await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+      payload: { provider: null, effort: null },
+    });
+    process.env.ZELYQ_PROVIDER = previous.provider ?? "";
+    process.env.ZELYQ_EFFORT = previous.effort ?? "";
+  }
+});
+
+test("clearing an overridden provider falls back to the environment, not straight to the default", async () => {
+  const previous = process.env.ZELYQ_PROVIDER;
+  process.env.ZELYQ_PROVIDER = "google";
+
+  try {
+    await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+      payload: { provider: "anthropic" },
+    });
+
+    await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+      payload: { provider: "" },
+    });
+
+    const read = await server.app.inject({
+      method: "GET",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+    });
+    const provider = read
+      .json()
+      .groups.flatMap((group: { fields: Array<Record<string, unknown>> }) => group.fields)
+      .find((f) => f.key === "provider");
+
+    assert.equal(
+      provider?.value,
+      "google",
+      "the environment is still there once the override is gone",
+    );
+    assert.equal(provider?.source, "env");
+  } finally {
+    process.env.ZELYQ_PROVIDER = previous ?? "";
   }
 });
 
