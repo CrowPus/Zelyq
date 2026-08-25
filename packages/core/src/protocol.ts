@@ -118,6 +118,14 @@ export const createAgentSessionSchema = z.object({
   effort: effortSchema.optional(),
   /** Per-session key. Falls back to the agent process environment when absent. */
   apiKey: z.string().optional(),
+  /**
+   * `"subscription"` means `apiKey` above actually holds an OAuth token read
+   * from a locally-installed CLI's own session (Claude Code today), not a
+   * classic API key — see `045` in the council notes. Absent, or
+   * `"api_key"`, is the ordinary path and needs no change anywhere it
+   * already worked.
+   */
+  authMode: z.enum(["api_key", "subscription"]).optional(),
   /** Endpoint for a provider speaking the OpenAI dialect; required for `custom`. */
   baseUrl: z.string().optional(),
   /** Prior turns, so a restarted agent can resume a conversation. */
@@ -161,6 +169,10 @@ export const agentSessionStateSchema = z.object({
   provider: providerIdSchema,
   model: z.string(),
   effort: z.string(),
+  /** See `045` — whether this session is authenticated with a classic key
+   * or a CLI-sourced subscription token. `ensureSession` recreates the
+   * session when this changes, the same as a changed provider already does. */
+  authMode: z.enum(["api_key", "subscription"]),
   busy: z.boolean(),
   turns: z.number().int().nonnegative(),
   tokensIn: z.number().int().nonnegative(),

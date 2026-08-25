@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "../components/AppShell";
+import { CliSessionControl } from "../components/CliSessionControl";
 import { SkillUploadControl } from "../components/SkillUploadControl";
 import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../components/ui";
 import { useSession } from "../hooks/useSession";
@@ -222,6 +223,18 @@ export function SettingsPage() {
                     }
                   />
                 ))}
+                {group.name === "Model" && (
+                  <>
+                    <CliSessionControl
+                      provider="anthropic"
+                      onUsed={() => queryClient.invalidateQueries({ queryKey: ["settings"] })}
+                    />
+                    <CliSessionControl
+                      provider="openai"
+                      onUsed={() => queryClient.invalidateQueries({ queryKey: ["settings"] })}
+                    />
+                  </>
+                )}
               </div>
             </section>
           ))}

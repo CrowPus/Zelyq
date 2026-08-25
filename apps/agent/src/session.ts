@@ -10,6 +10,7 @@ import type { RuntimeDriver } from "@zelyq/runtime";
 import { executeTool, type ToolContext, toolDefinitions } from "@zelyq/tools";
 import { buildSystemPrompt, withPlugins, withSkills } from "./prompt.js";
 import {
+  type AuthMode,
   type Conversation,
   classifyProviderError,
   createProvider,
@@ -28,6 +29,9 @@ export interface SessionOptions {
   model: string;
   effort: Effort;
   apiKey: string;
+  /** See `045` in the council notes — `apiKey` above is a CLI-sourced OAuth
+   * token, not a classic key, when this is `"subscription"`. */
+  authMode?: AuthMode;
   /** Endpoint for a provider speaking the OpenAI dialect. */
   baseUrl?: string;
   runtime: RuntimeDriver;
@@ -78,6 +82,7 @@ export class AgentSession {
       provider: options.provider,
       model: options.model,
       apiKey: options.apiKey,
+      ...(options.authMode ? { authMode: options.authMode } : {}),
       ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
     });
 
@@ -109,6 +114,7 @@ export class AgentSession {
       provider: this.options.provider,
       model: this.options.model,
       effort: this.options.effort,
+      authMode: this.options.authMode ?? "api_key",
       busy: this.busy,
       turns: this.turns,
       tokensIn: this.tokensIn,

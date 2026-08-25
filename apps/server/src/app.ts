@@ -78,7 +78,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
         ),
     }),
   );
-  const settings = new SettingsService(store, secrets);
+  const settings = new SettingsService(
+    store,
+    secrets,
+    process.env,
+    config.claudeCredentialsPath,
+    config.codexCredentialsPath,
+  );
   // Access-related settings are read at call time, so changing them in the UI
   // takes effect without a restart.
   const auth = new AuthService(store, {
@@ -181,7 +187,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerAccountRoutes(app, { accounts, auth, access });
   registerSettingsRoutes(app, { settings, access });
   registerSkillRoutes(app, { skillUploads, access });
-  registerProviderRoutes(app, { agent, access });
+  registerProviderRoutes(app, { agent, access, settings });
   registerTeamRoutes(app, { store, access });
   registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });
   registerFileRoutes(app, { projects, runtime, access });

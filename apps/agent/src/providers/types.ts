@@ -96,10 +96,19 @@ export type ProviderId =
   | "openrouter"
   | "custom";
 
+export type AuthMode = "api_key" | "subscription";
+
 export interface ProviderConfig {
   provider: ProviderId;
   model: string;
   apiKey: string;
+  /**
+   * `"subscription"` means `apiKey` is actually an OAuth token read from a
+   * locally-installed CLI's own session, not a classic API key — see `045`
+   * in the council notes. A provider that doesn't support this mode simply
+   * ignores it and treats `apiKey` as it always has.
+   */
+  authMode?: AuthMode;
   /**
    * Where to send the request. Only meaningful for providers that speak the
    * OpenAI dialect, and required for `custom` — which has no address of its

@@ -350,10 +350,10 @@ interface StreamChunk {
  * is held back rather than parsed. Anything that is not valid JSON is skipped:
  * some servers emit comments and keep-alives between events.
  */
-async function* readServerSentEvents(
+export async function* readServerSentEvents<T = StreamChunk>(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal,
-): AsyncGenerator<StreamChunk> {
+): AsyncGenerator<T> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -375,7 +375,7 @@ async function* readServerSentEvents(
         if (!payload || payload === "[DONE]") continue;
 
         try {
-          yield JSON.parse(payload) as StreamChunk;
+          yield JSON.parse(payload) as T;
         } catch {
           // Not our event. Keep reading.
         }

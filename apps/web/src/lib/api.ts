@@ -109,6 +109,17 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
+  /** Existence only — see `045` (Claude) and its OpenAI follow-up (Codex).
+   * Safe to call whenever Settings renders. */
+  detectCliSession: (provider: "anthropic" | "openai") =>
+    request<{ found: boolean }>(`/settings/cli-sessions/${provider}`),
+
+  /** The actual read, triggered only by an explicit click. See `045`. Named
+   * "connect", not "use…" — a plain fetch wrapper, not a hook, and the
+   * `use` prefix reads as one to lint tooling and to a skimming eye alike. */
+  connectCliSession: (provider: "anthropic" | "openai") =>
+    request<SettingsResponse>(`/settings/cli-sessions/${provider}/use`, { method: "POST" }),
+
   /** Every account on this instance — instance administrator only. */
   listUsers: () => request<{ users: User[] }>("/users"),
 

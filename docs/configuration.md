@@ -84,6 +84,24 @@ thinking at the configured effort, Gemini uses thinking levels. Gemini has no le
 onto `high` there too; a `custom` endpoint is not sent a reasoning setting at all, because a server
 that rejects unknown fields would fail every turn.
 
+### Using a subscription instead of an API key
+
+If Claude Code or Codex is already signed in on the machine Zelyq's server runs on, Settings offers
+"Use this instead" next to that provider's key field — reads the CLI's own already-consented session
+and uses it in place of a metered key, so a Claude Pro/Max or ChatGPT Plus/Pro subscription someone
+already pays for is what Zelyq uses too. See `045` in the council notes for the full reasoning: this
+is never a login Zelyq performs itself, only reading a token the CLI's own official app already
+stored, with an explicit click before it's ever used.
+
+Claude's path uses the same public Messages API a key would, just a different header — proven
+against a real account. Codex's is materially less certain: a ChatGPT-signed-in Codex session only
+works against a private endpoint OpenAI has never published for outside use, so this is built from
+public research into real working third-party integrations, not confirmed first-hand. Settings says
+so plainly next to the button, not just here.
+
+Picking "Use this instead" also switches the active provider to the one just connected, and pasting
+a real key afterward switches back — the two never disagree silently.
+
 ### Keeping your code on your own network
 
 `custom` is the reason this section exists. It is not a vendor — it is any endpoint speaking the
