@@ -134,11 +134,17 @@ export class AgentClient {
     message: string,
     signal?: AbortSignal,
     attachments?: PromptAttachment[],
+    /** Names only, from the composer's `/` picker — see `044`. */
+    skills?: string[],
   ): AsyncGenerator<AgentEvent> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify({ message, ...(attachments?.length ? { attachments } : {}) }),
+      body: JSON.stringify({
+        message,
+        ...(attachments?.length ? { attachments } : {}),
+        ...(skills?.length ? { skills } : {}),
+      }),
       signal,
     });
 

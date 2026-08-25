@@ -149,8 +149,10 @@ export const api = {
         model?: string;
         /** Tool names loaded from `ZELYQ_PLUGIN_DIR` at the agent's last boot. See `037`. */
         plugins?: string[];
-        /** Skill names loaded at the agent's last boot, built-in and `ZELYQ_SKILLS_DIR`. See `042`. */
-        skills?: string[];
+        /** Skills loaded at the agent's last boot, built-in and `ZELYQ_SKILLS_DIR` — name and
+         * description, enough for the composer's `/` picker (`044`) to be worth choosing from.
+         * Bodies stay agent-side, never sent here. See `042`. */
+        skills?: Array<{ name: string; description: string }>;
       };
     }>("/health"),
 

@@ -1,11 +1,21 @@
 import { useMutation } from "@tanstack/react-query";
 import type { AttachmentRef, Message, ToolCall } from "@zelyq/core";
-import { ArrowUp, ChevronRight, CircleAlert, Crosshair, Paperclip, Square, X } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronRight,
+  CircleAlert,
+  Crosshair,
+  GraduationCap,
+  Paperclip,
+  Square,
+  X,
+} from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
+import { matchSlashSkills } from "../lib/skills";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, StatusDot } from "./ui";
 import { ZelyqThinking } from "./ZelyqThinking";
@@ -31,11 +41,19 @@ interface Props {
   chat: ChatState & {
     send(
       message: string,
-      override?: { provider?: string; model?: string; attachments?: AttachmentRef[] },
+      override?: {
+        provider?: string;
+        model?: string;
+        attachments?: AttachmentRef[];
+        skills?: string[];
+      },
     ): void;
     abort(): void;
   };
   model?: string;
+  /** What `/` in the composer offers — see `044`. Name and description only;
+   * a skill's full body never reaches the browser. */
+  skills: Array<{ name: string; description: string }>;
   projectId: string;
   /** Editors and above. The server checks again on the restore call. */
   canEdit: boolean;
@@ -56,6 +74,7 @@ interface Props {
 export function ChatPanel({
   chat,
   model,
+  skills,
   projectId,
   canEdit,
   pointedElement,
@@ -69,6 +88,10 @@ export function ChatPanel({
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
   /** Uploaded and ready to send with the next prompt — see `037`. */
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
+  /** Picked from the `/` menu, guaranteed to be used — see `044`. */
+  const [selectedSkills, setSelectedSkills] = useState<
+    Array<{ name: string; description: string }>
+  >([]);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,6 +104,16 @@ export function ChatPanel({
    */
   const following = useRef(true);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // The menu is derived, not stateful — see matchSlashSkills.
+  const matchingSkills = matchSlashSkills(draft, skills, selectedSkills);
+  const showSkillMenu = matchingSkills.length > 0;
+
+  function selectSkill(skill: { name: string; description: string }) {
+    setSelectedSkills((previous) => [...previous, skill]);
+    setDraft("");
+    textareaRef.current?.focus();
+  }
 
   /**
    * Pinned by watching the content's height rather than guessing which values
@@ -105,7 +138,11 @@ export function ChatPanel({
   function submit(event: FormEvent) {
     event.preventDefault();
     const message = draft.trim();
-    if ((!message && attachments.length === 0 && !pointedElement) || chat.busy || uploading > 0) {
+    if (
+      (!message && attachments.length === 0 && !pointedElement && selectedSkills.length === 0) ||
+      chat.busy ||
+      uploading > 0
+    ) {
       return;
     }
     // Woven in client-side, ahead of what was typed — the exact same string
@@ -114,9 +151,13 @@ export function ChatPanel({
     chat.send(finalMessage, {
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(attachments.length ? { attachments } : {}),
+      // Names only — the guaranteed weaving happens agent-side, from a
+      // skill's already-loaded body, not from anything sent here. See `044`.
+      ...(selectedSkills.length ? { skills: selectedSkills.map((skill) => skill.name) } : {}),
     });
     setDraft("");
     setAttachments([]);
+    setSelectedSkills([]);
     setUploadError(null);
     onClearPointedElement();
     textareaRef.current?.focus();
@@ -244,10 +285,59 @@ export function ChatPanel({
         </div>
       </div>
 
-      <form onSubmit={submit} className="shrink-0 border-t border-border-default p-2.5">
+      <form onSubmit={submit} className="relative shrink-0 border-t border-border-default p-2.5">
+        {showSkillMenu && (
+          <div
+            role="listbox"
+            aria-label="Skills"
+            className="absolute inset-x-2.5 bottom-full z-10 mb-1.5 max-h-48 overflow-y-auto rounded-md border border-border-default bg-overlay py-1 shadow-overlay"
+          >
+            {matchingSkills.map((skill, index) => (
+              <button
+                key={skill.name}
+                type="button"
+                // Enter (below) always picks the first row — highlighting it
+                // is what makes that not a surprise.
+                className={`flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left ${
+                  index === 0 ? "bg-surface-hover" : "hover:bg-surface-hover"
+                }`}
+                onClick={() => selectSkill(skill)}
+              >
+                <span className="flex items-center gap-1.5 font-mono text-xs text-fg">
+                  <GraduationCap size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+                  {skill.name}
+                </span>
+                <span className="truncate text-2xs text-fg-secondary">{skill.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="rounded-md border border-border-default bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-focus focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_26%,transparent)]">
-          {(pointedElement || attachments.length > 0 || uploading > 0) && (
+          {(pointedElement ||
+            attachments.length > 0 ||
+            uploading > 0 ||
+            selectedSkills.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2.5 pt-2">
+              {selectedSkills.map((skill) => (
+                <span
+                  key={skill.name}
+                  title={skill.description}
+                  className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary"
+                >
+                  <GraduationCap size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+                  <span className="max-w-40 truncate font-mono">{skill.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Don't use the ${skill.name} skill`}
+                    onClick={() =>
+                      setSelectedSkills((previous) => previous.filter((s) => s.name !== skill.name))
+                    }
+                    className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
               {pointedElement && (
                 <span className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary">
                   <Crosshair size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
@@ -309,6 +399,16 @@ export function ChatPanel({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
+              // While the skill menu is showing, Enter and Tab pick the
+              // first row instead of doing what they'd otherwise do —
+              // sending a turn with "/shadcn" still literally in it would
+              // be exactly the "hoped it noticed" failure `044` exists to
+              // remove.
+              if (showSkillMenu && (event.key === "Enter" || event.key === "Tab")) {
+                event.preventDefault();
+                selectSkill(matchingSkills[0]!);
+                return;
+              }
               // Plain Enter sends, matching every other chat surface people
               // already use daily — Shift+Enter is what's reserved for a
               // newline, not the other way around.

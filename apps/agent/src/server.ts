@@ -35,8 +35,12 @@ export interface AgentServerDeps {
    * on `/health` so an instance admin can confirm a plugin actually loaded
    * from the UI instead of reading the agent's own boot log. */
   pluginNames?: string[];
-  /** The skills every new session's prompt will list — see `042`. */
-  skills?: Array<{ name: string; description: string }>;
+  /** Every loaded skill, name/description for the prompt catalog (`042`)
+   * and full body for `044`'s guaranteed `/`-selected weaving — a strict
+   * superset of what used to be just the catalog, so the one existing
+   * reader (`/health`'s badge list) needed no change beyond reading `.name`
+   * off each entry instead of treating it as a bare string. */
+  skills?: Array<{ name: string; description: string; body: string }>;
 }
 
 export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}): AgentServer {
@@ -67,6 +71,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
 
   const runtime = createRuntimeDriver(config.runtime);
   const sessions = new Map<string, AgentSession>();
+  // Built once — skills load only at boot (`042`), never re-scanned while
+  // running, so this never goes stale for the life of the process.
+  const skillsByName = new Map((deps.skills ?? []).map((skill) => [skill.name, skill]));
 
   app.register(cors, { origin: config.corsOrigin, methods: ["GET", "POST", "DELETE"] });
 
@@ -96,7 +103,13 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       model: config.model,
       modelConfigured: Boolean(config.apiKey),
       plugins: deps.pluginNames ?? [],
-      skills: (deps.skills ?? []).map((skill) => skill.name),
+      // Descriptions too, not just names — the composer's `/` picker (`044`)
+      // needs enough to be worth choosing from; the body stays agent-side,
+      // never sent here.
+      skills: (deps.skills ?? []).map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+      })),
       timestamp: new Date().toISOString(),
     };
   });
@@ -175,6 +188,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       maxIterations: config.maxTurnIterations,
       history: input.history,
       skills: deps.skills,
+      resolveSkillBody: (name) => skillsByName.get(name),
       ...(deps.providerFactory ? { providerFactory: deps.providerFactory } : {}),
     });
 
@@ -233,7 +247,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       if (!reply.raw.writableEnded) session.abort();
     });
 
-    await session.run(input.message, emit, input.attachments);
+    await session.run(input.message, emit, input.attachments, input.skills);
     reply.raw.end();
   });
 

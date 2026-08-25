@@ -176,10 +176,10 @@ export function SettingsPage() {
                       <p className="text-sm text-fg">Skills</p>
                       {health.data.agent.skills?.length ? (
                         <p className="mt-0.5 flex flex-wrap gap-1.5">
-                          {health.data.agent.skills.map((name) => (
-                            <Badge key={name} tone="success">
-                              {name}
-                            </Badge>
+                          {health.data.agent.skills.map((skill) => (
+                            <span key={skill.name} title={skill.description}>
+                              <Badge tone="success">{skill.name}</Badge>
+                            </span>
                           ))}
                         </p>
                       ) : (

@@ -8,7 +8,7 @@ import {
 } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import { executeTool, type ToolContext, toolDefinitions } from "@zelyq/tools";
-import { buildSystemPrompt } from "./prompt.js";
+import { buildSystemPrompt, withSkills } from "./prompt.js";
 import {
   type Conversation,
   classifyProviderError,
@@ -35,6 +35,10 @@ export interface SessionOptions {
   history?: Message[];
   /** The name/description catalog only — see `042`. Empty when nothing loaded. */
   skills?: Array<{ name: string; description: string }>;
+  /** Full body lookup for `044`'s guaranteed `/`-selected weaving — a
+   * separate field from `skills` above so the prompt catalog never has to
+   * carry every skill's full text just to build a two-line list. */
+  resolveSkillBody?: (name: string) => { body: string } | undefined;
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
@@ -121,7 +125,12 @@ export class AgentSession {
    * the model stops asking for tools, the user aborts, or the iteration cap is
    * reached — expected failures become `error` events rather than throwing.
    */
-  async run(userMessage: string, emit: Emit, attachments?: PromptAttachment[]): Promise<void> {
+  async run(
+    userMessage: string,
+    emit: Emit,
+    attachments?: PromptAttachment[],
+    skillNames?: string[],
+  ): Promise<void> {
     if (this.busy) {
       emit({
         type: "error",
@@ -151,7 +160,16 @@ export class AgentSession {
 
     emit({ type: "turn.start", sessionId: this.id, messageId, at: new Date().toISOString() });
 
-    this.conversation.addUserMessage(userMessage, attachments);
+    // Guaranteed, not offered — see `044`. Woven into what the model sees,
+    // the same way attachment text already is by the time this reaches the
+    // agent at all; the transcript's own record of what was typed is a
+    // server-side concern, untouched by this.
+    const messageForModel =
+      skillNames?.length && this.options.resolveSkillBody
+        ? withSkills(userMessage, skillNames, this.options.resolveSkillBody)
+        : userMessage;
+
+    this.conversation.addUserMessage(messageForModel, attachments);
 
     const toolContext: ToolContext = {
       projectId: this.projectId,

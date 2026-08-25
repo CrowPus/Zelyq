@@ -100,3 +100,31 @@ ${list}
 </skills>
 `;
 }
+
+/**
+ * Weaves explicitly-selected skills' full bodies into a user message —
+ * see `044` in the council notes. Unlike `<skills>` above (name and
+ * description, the model's own choice whether to call `use_skill`), this
+ * is a guarantee: content the user picked from the composer's `/` menu
+ * rides in the one message a model cannot fail to read, the same reason
+ * `037`'s attachment inlining and `038`'s pointed-element weaving already
+ * put their own content directly into the message rather than offering it
+ * as something optional to fetch. A skill named that isn't actually loaded
+ * (stale picker data, since deleted) is skipped rather than failing the
+ * whole turn over it — `resolve` returning `undefined` is exactly that.
+ */
+export function withSkills(
+  message: string,
+  names: string[],
+  resolve: (name: string) => { body: string } | undefined,
+): string {
+  const blocks = names
+    .map((name) => {
+      const skill = resolve(name);
+      return skill ? `Use the ${name} skill for this task:\n\n${skill.body}` : null;
+    })
+    .filter((block): block is string => block !== null);
+
+  if (blocks.length === 0) return message;
+  return `${blocks.join("\n\n---\n\n")}\n\n---\n\n${message}`;
+}

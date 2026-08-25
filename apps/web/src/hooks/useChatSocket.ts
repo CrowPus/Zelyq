@@ -65,7 +65,13 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
   const send = useCallback(
     (
       message: string,
-      override?: { provider?: string; model?: string; attachments?: AttachmentRef[] },
+      override?: {
+        provider?: string;
+        model?: string;
+        attachments?: AttachmentRef[];
+        /** Picked from the composer's `/` picker — see `044`. Names only. */
+        skills?: string[];
+      },
     ) => {
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -80,6 +86,7 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
           ...(override?.attachments?.length
             ? { attachments: override.attachments.map((a) => a.id) }
             : {}),
+          ...(override?.skills?.length ? { skills: override.skills } : {}),
         }),
       );
       setState((previous) => ({
