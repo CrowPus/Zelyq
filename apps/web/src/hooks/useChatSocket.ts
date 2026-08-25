@@ -71,6 +71,8 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
         attachments?: AttachmentRef[];
         /** Picked from the composer's `/` picker — see `044`. Names only. */
         skills?: string[];
+        /** Picked from the same `/` menu's Plugins section — see `044`'s follow-up. */
+        plugins?: string[];
       },
     ) => {
       const socket = socketRef.current;
@@ -87,6 +89,7 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
             ? { attachments: override.attachments.map((a) => a.id) }
             : {}),
           ...(override?.skills?.length ? { skills: override.skills } : {}),
+          ...(override?.plugins?.length ? { plugins: override.plugins } : {}),
         }),
       );
       setState((previous) => ({

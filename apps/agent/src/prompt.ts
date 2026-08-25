@@ -128,3 +128,21 @@ export function withSkills(
   if (blocks.length === 0) return message;
   return `${blocks.join("\n\n---\n\n")}\n\n---\n\n${message}`;
 }
+
+/**
+ * Weaves explicitly-selected plugin tool names into a user message — the
+ * same idea `withSkills` is, honestly weaker: a plugin has no body to
+ * guarantee the way a skill's `SKILL.md` does, only a name. This becomes a
+ * clear instruction to use that tool, which the model can still decide not
+ * to act on — a tool call is never something text in a message can force
+ * the same way handing over real content can. Named plainly here rather
+ * than papered over as an equal promise to `withSkills`'.
+ */
+export function withPlugins(message: string, names: string[]): string {
+  if (names.length === 0) return message;
+  const line =
+    names.length === 1
+      ? `Use the ${names[0]} tool for this task.`
+      : `Use these tools for this task: ${names.join(", ")}.`;
+  return `${line}\n\n---\n\n${message}`;
+}

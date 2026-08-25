@@ -247,7 +247,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       if (!reply.raw.writableEnded) session.abort();
     });
 
-    await session.run(input.message, emit, input.attachments, input.skills);
+    await session.run(input.message, emit, input.attachments, input.skills, input.plugins);
     reply.raw.end();
   });
 

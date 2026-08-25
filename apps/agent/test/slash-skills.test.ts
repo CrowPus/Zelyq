@@ -84,7 +84,12 @@ after(async () => {
   await server.close();
 });
 
-async function sendPrompt(sessionId: string, message: string, skills?: string[]) {
+async function sendPrompt(
+  sessionId: string,
+  message: string,
+  skills?: string[],
+  plugins?: string[],
+) {
   await server.app.inject({
     method: "POST",
     url: "/sessions",
@@ -94,7 +99,11 @@ async function sendPrompt(sessionId: string, message: string, skills?: string[])
   const response = await fetch(`${base}/sessions/${sessionId}/prompt`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message, ...(skills ? { skills } : {}) }),
+    body: JSON.stringify({
+      message,
+      ...(skills ? { skills } : {}),
+      ...(plugins ? { plugins } : {}),
+    }),
   });
   await response.text();
 }
@@ -129,4 +138,34 @@ test("a skill name the picker sent that no longer exists is skipped, not a faile
   capturedUserMessage = "";
   await sendPrompt("ses_slash_4", "still works", ["a-skill-that-was-deleted"]);
   assert.equal(capturedUserMessage, "still works");
+});
+
+// ---------------------------------------------------------------------------
+// `/`-selected plugins — 044's follow-up. Honestly weaker than a skill's
+// guarantee: no body to weave, only a name that becomes an instruction. This
+// still has to actually reach the model on turn one, the same boundary.
+// ---------------------------------------------------------------------------
+
+test("a plugin explicitly selected via / becomes an instruction in the model's message on turn one", async () => {
+  capturedUserMessage = "";
+  await sendPrompt("ses_slash_5", "roll a d20", undefined, ["roll_dice"]);
+
+  assert.match(capturedUserMessage, /Use the roll_dice tool for this task\./);
+  assert.ok(
+    capturedUserMessage.endsWith("roll a d20"),
+    "the user's actual request must still be there, and last",
+  );
+});
+
+test("skills and plugins selected together: skill content first, then the plugin instruction, then the message", async () => {
+  capturedUserMessage = "";
+  await sendPrompt("ses_slash_6", "build the checkout", ["stripe-checkout"], ["roll_dice"]);
+
+  assert.match(capturedUserMessage, /STRIPE BODY/);
+  assert.match(capturedUserMessage, /Use the roll_dice tool for this task\./);
+  assert.ok(
+    capturedUserMessage.indexOf("STRIPE BODY") < capturedUserMessage.indexOf("roll_dice tool"),
+    "skill content reads first, ahead of the plugin nudge",
+  );
+  assert.ok(capturedUserMessage.endsWith("build the checkout"));
 });

@@ -47,6 +47,7 @@ interface Props {
         model?: string;
         attachments?: AttachmentRef[];
         skills?: string[];
+        plugins?: string[];
       },
     ): void;
     abort(): void;
@@ -55,9 +56,10 @@ interface Props {
   /** What `/` in the composer offers — see `044`. Name and description only;
    * a skill's full body never reaches the browser. */
   skills: Array<{ name: string; description: string }>;
-  /** Loaded plugin tool names — shown in the `/` menu for visibility. A
-   * plugin is always available, not a per-message choice, so this section
-   * is informational only, unlike the Model and Skills ones next to it. */
+  /** Loaded plugin tool names — offered in the `/` menu the same way skills
+   * are. Picking one can only ever produce a strong instruction naming the
+   * tool, never a content guarantee the way a skill's body is — a plugin is
+   * a function, not text — but it is still a real per-message choice. */
   plugins: string[];
   projectId: string;
   /** Editors and above. The server checks again on the restore call. */
@@ -98,6 +100,9 @@ export function ChatPanel({
   const [selectedSkills, setSelectedSkills] = useState<
     Array<{ name: string; description: string }>
   >([]);
+  /** Picked from the `/` menu's Plugins section — see `044`'s follow-up.
+   * Names only; there's no body to hold onto the way a skill has one. */
+  const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -143,17 +148,25 @@ export function ChatPanel({
   const matchingModels = slashCommand
     ? matchByPrefix(modelOptions, slashCommand.query, (option) => option.label)
     : [];
-  const matchingPlugins = slashCommand ? matchByPrefix(plugins, slashCommand.query, (p) => p) : [];
+  const matchingPlugins = slashCommand
+    ? matchByPrefix(
+        plugins.filter((name) => !selectedPlugins.includes(name)),
+        slashCommand.query,
+        (name) => name,
+      )
+    : [];
   const showSlashMenu =
     matchingSkills.length > 0 || matchingModels.length > 0 || matchingPlugins.length > 0;
   // The single flat list Enter/Tab picks the first row of — skills first, so
   // the thing `044` actually exists for wins a tie.
-  const firstMatch: { kind: "skill" | "model"; index: number } | null =
+  const firstMatch: { kind: "skill" | "model" | "plugin"; index: number } | null =
     matchingSkills.length > 0
       ? { kind: "skill", index: 0 }
       : matchingModels.length > 0
         ? { kind: "model", index: 0 }
-        : null;
+        : matchingPlugins.length > 0
+          ? { kind: "plugin", index: 0 }
+          : null;
 
   function selectSkill(skill: { name: string; description: string }) {
     if (!slashCommand) return;
@@ -164,6 +177,12 @@ export function ChatPanel({
   function selectModelOption(option: { provider: string; model: string; label: string }) {
     if (!slashCommand) return;
     setModelChoice(option);
+    applySlashReplacement(slashCommand);
+  }
+
+  function selectPlugin(name: string) {
+    if (!slashCommand) return;
+    setSelectedPlugins((previous) => [...previous, name]);
     applySlashReplacement(slashCommand);
   }
 
@@ -205,7 +224,11 @@ export function ChatPanel({
     event.preventDefault();
     const message = draft.trim();
     if (
-      (!message && attachments.length === 0 && !pointedElement && selectedSkills.length === 0) ||
+      (!message &&
+        attachments.length === 0 &&
+        !pointedElement &&
+        selectedSkills.length === 0 &&
+        selectedPlugins.length === 0) ||
       chat.busy ||
       uploading > 0
     ) {
@@ -220,11 +243,15 @@ export function ChatPanel({
       // Names only — the guaranteed weaving happens agent-side, from a
       // skill's already-loaded body, not from anything sent here. See `044`.
       ...(selectedSkills.length ? { skills: selectedSkills.map((skill) => skill.name) } : {}),
+      // Names only, too — agent-side this becomes an instruction naming the
+      // tool, not real content the way a skill's body is. See `044`'s follow-up.
+      ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
     });
     setDraft("");
     setCursor(0);
     setAttachments([]);
     setSelectedSkills([]);
+    setSelectedPlugins([]);
     setUploadError(null);
     onClearPointedElement();
     textareaRef.current?.focus();
@@ -405,17 +432,20 @@ export function ChatPanel({
             )}
             {matchingPlugins.length > 0 && (
               <SlashSection title="Plugins">
-                {matchingPlugins.map((name) => (
-                  // Not a button — a plugin tool is always available to the
-                  // agent already, never a per-message choice the way a
-                  // skill is, so there is nothing here to "pick".
-                  <div
+                {matchingPlugins.map((name, index) => (
+                  <button
                     key={name}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 font-mono text-xs text-fg-secondary"
+                    type="button"
+                    className={`flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left font-mono text-xs text-fg ${
+                      firstMatch?.kind === "plugin" && index === 0
+                        ? "bg-surface-hover"
+                        : "hover:bg-surface-hover"
+                    }`}
+                    onClick={() => selectPlugin(name)}
                   >
                     <Puzzle size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
                     {name}
-                  </div>
+                  </button>
                 ))}
               </SlashSection>
             )}
@@ -425,7 +455,8 @@ export function ChatPanel({
           {(pointedElement ||
             attachments.length > 0 ||
             uploading > 0 ||
-            selectedSkills.length > 0) && (
+            selectedSkills.length > 0 ||
+            selectedPlugins.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2.5 pt-2">
               {selectedSkills.map((skill) => (
                 <span
@@ -440,6 +471,26 @@ export function ChatPanel({
                     aria-label={`Don't use the ${skill.name} skill`}
                     onClick={() =>
                       setSelectedSkills((previous) => previous.filter((s) => s.name !== skill.name))
+                    }
+                    className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
+              {selectedPlugins.map((name) => (
+                <span
+                  key={name}
+                  title={`Use the ${name} tool for this task`}
+                  className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary"
+                >
+                  <Puzzle size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+                  <span className="max-w-40 truncate font-mono">{name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Don't use the ${name} tool`}
+                    onClick={() =>
+                      setSelectedPlugins((previous) => previous.filter((p) => p !== name))
                     }
                     className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
                   >
@@ -523,7 +574,8 @@ export function ChatPanel({
               if (showSlashMenu && (event.key === "Enter" || event.key === "Tab") && firstMatch) {
                 event.preventDefault();
                 if (firstMatch.kind === "skill") selectSkill(matchingSkills[0]!);
-                else selectModelOption(matchingModels[0]!);
+                else if (firstMatch.kind === "model") selectModelOption(matchingModels[0]!);
+                else selectPlugin(matchingPlugins[0]!);
                 return;
               }
               // Plain Enter sends, matching every other chat surface people

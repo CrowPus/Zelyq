@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildSystemPrompt, withSkills } from "../src/prompt.js";
+import { buildSystemPrompt, withPlugins, withSkills } from "../src/prompt.js";
 
 /** See `042` in the council notes — the catalog is the cheap, always-present
  * tier; these are the fast, direct checks the live-turn test in
@@ -72,4 +72,25 @@ test("one resolving and one not still weaves the one that does", () => {
   );
   assert.match(result, /REAL BODY/);
   assert.doesNotMatch(result, /deleted-skill/);
+});
+
+// ---------------------------------------------------------------------------
+// withPlugins — 044's follow-up: an instruction naming a tool, honestly
+// weaker than withSkills' guarantee since a plugin has no body to weave.
+// ---------------------------------------------------------------------------
+
+test("no plugin names selected leaves the message completely untouched", () => {
+  const result = withPlugins("design my website", []);
+  assert.equal(result, "design my website");
+});
+
+test("one plugin name becomes a single-tool instruction ahead of the message", () => {
+  const result = withPlugins("roll a d20", ["roll_dice"]);
+  assert.match(result, /Use the roll_dice tool for this task\./);
+  assert.ok(result.endsWith("roll a d20"), "the original message must still be last");
+});
+
+test("multiple plugin names are named together in one instruction line", () => {
+  const result = withPlugins("go", ["roll_dice", "flip_coin"]);
+  assert.match(result, /Use these tools for this task: roll_dice, flip_coin\./);
 });

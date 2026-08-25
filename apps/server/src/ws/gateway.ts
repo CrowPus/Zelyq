@@ -139,6 +139,7 @@ export class ChatGateway {
       model: message.model,
       attachmentIds: message.attachments,
       skills: message.skills,
+      plugins: message.plugins,
     });
   }
 
@@ -152,6 +153,8 @@ export class ChatGateway {
       attachmentIds?: string[];
       /** Picked from the composer's `/` skill picker — see `044`. */
       skills?: string[];
+      /** Picked from the same `/` menu's Plugins section — see `044`'s follow-up. */
+      plugins?: string[];
     } = {},
   ): Promise<void> {
     if (room.turn) {
@@ -340,6 +343,7 @@ export class ChatGateway {
         room.turn.signal,
         imageAttachments,
         override.skills,
+        override.plugins,
       )) {
         // The agent builds its own copy of the finished message, and it does not
         // know about the snapshot this server took before the turn. Broadcasting

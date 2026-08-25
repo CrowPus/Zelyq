@@ -8,7 +8,7 @@ import {
 } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import { executeTool, type ToolContext, toolDefinitions } from "@zelyq/tools";
-import { buildSystemPrompt, withSkills } from "./prompt.js";
+import { buildSystemPrompt, withPlugins, withSkills } from "./prompt.js";
 import {
   type Conversation,
   classifyProviderError,
@@ -130,6 +130,7 @@ export class AgentSession {
     emit: Emit,
     attachments?: PromptAttachment[],
     skillNames?: string[],
+    pluginNames?: string[],
   ): Promise<void> {
     if (this.busy) {
       emit({
@@ -163,11 +164,17 @@ export class AgentSession {
     // Guaranteed, not offered — see `044`. Woven into what the model sees,
     // the same way attachment text already is by the time this reaches the
     // agent at all; the transcript's own record of what was typed is a
-    // server-side concern, untouched by this.
+    // server-side concern, untouched by this. Plugins wrap first (innermost,
+    // closest to the original message) since a plugin pick is only ever a
+    // one-line instruction, not real content — skills then wrap the whole
+    // thing so their full bodies read first.
+    const withPluginInstruction = pluginNames?.length
+      ? withPlugins(userMessage, pluginNames)
+      : userMessage;
     const messageForModel =
       skillNames?.length && this.options.resolveSkillBody
-        ? withSkills(userMessage, skillNames, this.options.resolveSkillBody)
-        : userMessage;
+        ? withSkills(withPluginInstruction, skillNames, this.options.resolveSkillBody)
+        : withPluginInstruction;
 
     this.conversation.addUserMessage(messageForModel, attachments);
 

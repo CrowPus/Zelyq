@@ -136,6 +136,8 @@ export class AgentClient {
     attachments?: PromptAttachment[],
     /** Names only, from the composer's `/` picker — see `044`. */
     skills?: string[],
+    /** Names only, from the same `/` picker's Plugins section — see `044`'s follow-up. */
+    plugins?: string[],
   ): AsyncGenerator<AgentEvent> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/prompt`, {
       method: "POST",
@@ -144,6 +146,7 @@ export class AgentClient {
         message,
         ...(attachments?.length ? { attachments } : {}),
         ...(skills?.length ? { skills } : {}),
+        ...(plugins?.length ? { plugins } : {}),
       }),
       signal,
     });
