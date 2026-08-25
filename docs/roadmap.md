@@ -84,7 +84,10 @@ separates this from a chat with a black box.
 - [x] Skills: packaged, expert instructions for one kind of task, loaded on demand instead of
       carried by every session's prompt — a name and description sit in context cheaply, the full
       body loads through `use_skill` only when a task actually matches. Ships with two, for the
-      template's own stack, plus `ZELYQ_SKILLS_DIR` for your own. See [docs/skills.md](../docs/skills.md)
+      template's own stack, plus `ZELYQ_SKILLS_DIR` for your own, plus an upload button in Settings
+      so adding one doesn't require touching the filesystem — takes effect on the agent's next
+      restart. Uploading a plugin is a separate, harder question (a plugin is code, not text) and
+      isn't built yet. See [docs/skills.md](../docs/skills.md)
 - [x] File upload and image attachments in prompts — images reach the model natively; other files
       are inlined as text
 - [ ] Per-project provider and model selection in the UI

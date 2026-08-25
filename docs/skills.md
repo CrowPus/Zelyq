@@ -84,16 +84,31 @@ running. A skill here with the same `name` as one of the ones that ship
 in the box (`skills/` at the repository root) replaces it outright —
 that's the expected way to swap in your own house version of a built-in.
 
+## Uploading one, without touching the filesystem
+
+An instance administrator can add a skill from **Settings** — pick a
+skill's folder, `SKILL.md` and all, and it's uploaded and validated the
+same way a skill loaded from disk already is. See `043` in the council
+notes. It still takes a restart of the agent to actually activate, the
+same as a plugin change already does — uploading writes the files, it
+doesn't reach into a process already running. Precedence, most manual
+override last: an upload can replace a built-in skill's name, and
+`ZELYQ_SKILLS_DIR` can replace either. There's no delete button for an
+uploaded skill yet — remove its directory under `ZELYQ_SKILLS_UPLOAD_DIR`
+by hand, the same as a built-in would need.
+
 ## The trust model, stated plainly
 
 A skill is text, not code. It cannot execute anything on its own — the
 worst it can do is try to talk the agent into using a tool it already has
 badly. That's a real, but categorically smaller, version of the question
-[plugins.md](./plugins.md) already answers for actual code: still an
-operator-trust decision, which is why loading one still requires
-filesystem access to the machine Zelyq runs on and a restart, and still
-isn't reachable from Settings or a project's own repository — just a
-lower ceiling of what goes wrong if the trust is misplaced.
+[plugins.md](./plugins.md) already answers for actual code — which is
+exactly why a skill can be uploaded through Settings while a plugin still
+can't: uploading only ever requires being the instance admin, the same
+person who could already reach the filesystem directly, and that gate
+was always the real boundary, not "does this touch the UI." A plugin
+staying off Settings is unrelated and unchanged — it is still arbitrary
+code, a different and larger question.
 
 ## What ships today
 

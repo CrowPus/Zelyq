@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseSkillFile } from "@zelyq/core";
 import { defineTool, type ToolResult, truncate, type ZelyqTool } from "@zelyq/tools";
 import { z } from "zod";
 
@@ -11,7 +12,7 @@ export interface Skill {
   /** Absolute. Internal only — never shown to the model, only used to resolve a requested path safely. */
   dir: string;
   /** Where this came from, for the boot log and /health — never shown to the model. */
-  source: "built-in" | "operator";
+  source: "built-in" | "operator" | "uploaded";
 }
 
 export interface SkillLoadResult {
@@ -24,7 +25,6 @@ interface SkillLogger {
   warn(message: string): void;
 }
 
-const NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 const SKILL_FILE = "SKILL.md";
 
 /**
@@ -52,9 +52,20 @@ const SKILL_FILE = "SKILL.md";
  * the agent's behalf — that would be a real, new, separate trust boundary
  * (a project's container cannot even see this directory, for one), not an
  * extension of what a skill already safely is.
+ *
+ * Three sources, in the order later wins: `builtInDir` (the repo's own
+ * `skills/`), `uploadedDir` (written by an instance admin through the
+ * Settings page — see `043`), and `operatorDir` (`ZELYQ_SKILLS_DIR`, the
+ * most manual, most explicit override). All three are still read once at
+ * boot, never re-scanned while running — an upload takes effect on the
+ * next restart, the same as a plugin already does, and the same reasoning
+ * `037` already gave still holds: a skill being text rather than code is
+ * why *loading* one can reach the UI at all, not a reason to also let it
+ * take effect without a restart an admin can see coming.
  */
 export async function loadSkills(
   builtInDir: string | undefined,
+  uploadedDir: string | undefined,
   operatorDir: string | undefined,
   log: SkillLogger = console,
 ): Promise<SkillLoadResult> {
@@ -104,37 +115,15 @@ export async function loadSkills(
     }
   };
 
-  // Operator second, deliberately — see the doc comment above.
+  // Later wins on a name collision — see the doc comment above. Built-in
+  // first (the box's own defaults), then uploaded (chosen through the
+  // Settings page — see `043`), then the operator's own directory last,
+  // still the most explicit, most manual override available.
   await load(builtInDir, "built-in");
+  await load(uploadedDir, "uploaded");
   await load(operatorDir, "operator");
 
   return { skills: [...byName.values()], skipped };
-}
-
-/** `SKILL.md`'s own frontmatter is deliberately tiny — two flat strings —
- * so a hand-rolled parser is simpler and one less dependency than a real
- * YAML library for a shape that never needs one. */
-function parseSkillFile(raw: string): Omit<Skill, "dir" | "source"> | string {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) return `missing the --- frontmatter block ${SKILL_FILE} starts with`;
-
-  const [, frontmatter, body] = match;
-  const fields: Record<string, string> = {};
-  for (const line of (frontmatter ?? "").split("\n")) {
-    const field = line.match(/^([a-zA-Z]+):\s*(.*)$/);
-    if (field) fields[field[1]!] = field[2]!.trim();
-  }
-
-  const name = fields.name;
-  if (!name) return "frontmatter is missing 'name'";
-  if (!NAME_PATTERN.test(name)) {
-    return `name "${name}" must be lowercase letters, digits, and hyphens, starting with a letter`;
-  }
-  const description = fields.description;
-  if (!description) return `skill "${name}" is missing a 'description'`;
-  if (!(body ?? "").trim()) return `skill "${name}" has no instructions after the frontmatter`;
-
-  return { name, description, body: (body ?? "").trim() };
 }
 
 /** Every file under a skill's directory besides `SKILL.md` itself, as

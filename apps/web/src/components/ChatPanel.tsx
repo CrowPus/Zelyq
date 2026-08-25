@@ -4,6 +4,7 @@ import { ArrowUp, ChevronRight, CircleAlert, Crosshair, Paperclip, Square, X } f
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
+import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, StatusDot } from "./ui";
@@ -643,21 +644,6 @@ function formatDuration(ms: number): string {
 
 function formatTokens(count: number): string {
   return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
-}
-
-/**
- * `btoa` needs a plain string, and spreading a large `Uint8Array` straight
- * into `String.fromCharCode` blows the call stack on anything past a few MB
- * — so it's built up in chunks instead.
- */
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);

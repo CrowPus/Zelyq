@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "../components/AppShell";
+import { SkillUploadControl } from "../components/SkillUploadControl";
 import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -195,6 +196,9 @@ export function SettingsPage() {
                           .
                         </p>
                       )}
+                      <div className="mt-2">
+                        <SkillUploadControl />
+                      </div>
                     </div>
                   </div>
                 </>

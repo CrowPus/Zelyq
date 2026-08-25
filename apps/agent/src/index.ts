@@ -25,7 +25,18 @@ const plugins = await loadPlugins(process.env.ZELYQ_PLUGIN_DIR, ALL_TOOLS);
 // config.ts` already resolves `templatesDir` at. See `042` in the council
 // notes.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const skillsResult = await loadSkills(path.join(repoRoot, "skills"), process.env.ZELYQ_SKILLS_DIR);
+// The same directory the server's upload route writes into — see `043` in
+// the council notes. Resolved independently here the exact way
+// ZELYQ_WORKSPACE_DIR already is on both sides: a shared default that
+// only has to be a real agreement in a deployment where the two
+// processes' relative paths could differ, which `docker-compose.yml`'s
+// shared /data volume already accounts for.
+const uploadedSkillsDir = path.resolve(process.env.ZELYQ_SKILLS_UPLOAD_DIR ?? "./data/skills");
+const skillsResult = await loadSkills(
+  path.join(repoRoot, "skills"),
+  uploadedSkillsDir,
+  process.env.ZELYQ_SKILLS_DIR,
+);
 if (skillsResult.skills.length > 0) ALL_TOOLS.push(buildUseSkillTool(skillsResult.skills));
 
 const server = buildAgentServer(config, {

@@ -118,6 +118,7 @@ const config: ServerConfig = {
   secretKey: undefined,
   secretKeyFile: path.join(tmp, "secret.key"),
   attachmentsDir: path.join(tmp, "route-attachments"),
+  uploadedSkillsDir: path.join(tmp, "route-skills"),
   runtime: {
     kind: "local",
     workspaceDir: path.join(tmp, "workspace"),

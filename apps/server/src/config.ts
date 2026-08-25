@@ -28,6 +28,14 @@ export interface ServerConfig {
    * landing in that history by accident is not this feature's call to make.
    */
   attachmentsDir: string;
+  /**
+   * Where a skill uploaded through Settings is written — see `043` in the
+   * council notes. The agent reads this same directory as its own
+   * "uploaded" skills source; the default here and the agent's own default
+   * are the same relative shape `ZELYQ_WORKSPACE_DIR` already establishes
+   * for a directory both processes need to agree on.
+   */
+  uploadedSkillsDir: string;
   /** Built web assets to serve. Absent in development, where Vite serves them. */
   webDir: string | null;
   runtime: RuntimeConfig;
@@ -120,6 +128,10 @@ export function loadServerConfig(): ServerConfig {
     attachmentsDir: path.resolve(
       process.env.ZELYQ_ATTACHMENTS_DIR ??
         path.join(dataDirFrom(process.env.DATABASE_URL), "attachments"),
+    ),
+    uploadedSkillsDir: path.resolve(
+      process.env.ZELYQ_SKILLS_UPLOAD_DIR ??
+        path.join(dataDirFrom(process.env.DATABASE_URL), "skills"),
     ),
     webDir: process.env.ZELYQ_WEB_DIR
       ? path.resolve(process.env.ZELYQ_WEB_DIR)

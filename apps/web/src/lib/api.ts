@@ -18,6 +18,7 @@ import type {
   TeamMembership,
   UpdateProfileInput,
   UpdateSettingsInput,
+  UploadSkillInput,
   User,
 } from "@zelyq/core";
 
@@ -92,6 +93,13 @@ export const api = {
 
   updateSettings: (changes: UpdateSettingsInput) =>
     request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),
+
+  /** Instance administrator only. See `043` — takes effect on the agent's next restart. */
+  uploadSkill: (input: UploadSkillInput) =>
+    request<{ skill: { name: string; description: string; fileCount: number } }>("/skills", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   /** Every account on this instance — instance administrator only. */
   listUsers: () => request<{ users: User[] }>("/users"),

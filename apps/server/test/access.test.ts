@@ -28,6 +28,7 @@ const config: ServerConfig = {
   secretKey: undefined,
   secretKeyFile: path.join(tmp, "secret.key"),
   attachmentsDir: path.join(tmp, "attachments"),
+  uploadedSkillsDir: path.join(tmp, "skills"),
   runtime: {
     kind: "local",
     workspaceDir: path.join(tmp, "workspace"),

@@ -30,6 +30,22 @@ export class AccessControl {
     return user;
   }
 
+  /**
+   * Instance-wide config — Settings, and now skill uploads (`043`) — is not
+   * team-scoped, so team roles do not apply. Only an instance administrator
+   * may reach it. Extracted here rather than left as `settings.ts`'s own
+   * local closure once a second route needed the identical check — one
+   * place to get a security-relevant gate right, not two copies that could
+   * quietly drift.
+   */
+  requireInstanceAdmin(request: FastifyRequest): User {
+    const user = this.requireUser(request);
+    if (user.instanceRole !== "admin") {
+      throw new ZelyqError("forbidden", "Only an instance administrator can do this.");
+    }
+    return user;
+  }
+
   /** The caller's role in a team, or throws as if the team did not exist. */
   async requireTeamRole(user: User, teamId: string, minimum: Role): Promise<Role> {
     const role = await this.store.teams.roleOf(teamId, user.id);

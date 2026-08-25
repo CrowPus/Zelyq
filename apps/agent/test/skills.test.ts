@@ -80,13 +80,13 @@ Just say "hi". Nothing else.
 
 test("no directories at all means nothing loaded, and nothing to crash on", async () => {
   const { logger } = capturingLogger();
-  const result = await loadSkills(undefined, undefined, logger);
+  const result = await loadSkills(undefined, undefined, undefined, logger);
   assert.deepEqual(result, { skills: [], skipped: [] });
 });
 
 test("a missing built-in directory warns and returns empty, without crashing boot", async () => {
   const { logger, warnings } = capturingLogger();
-  const result = await loadSkills(path.join(tmp, "does-not-exist"), undefined, logger);
+  const result = await loadSkills(path.join(tmp, "does-not-exist"), undefined, undefined, logger);
   assert.deepEqual(result.skills, []);
   assert.equal(warnings.length, 1);
 });
@@ -96,7 +96,7 @@ test("a real, valid skill directory loads with its name, description, and body i
   await writeSkillDir(root, "word-golf", VALID);
 
   const { logger, infos } = capturingLogger();
-  const result = await loadSkills(root, undefined, logger);
+  const result = await loadSkills(root, undefined, undefined, logger);
 
   assert.equal(result.skills.length, 1);
   const skill = result.skills[0]!;
@@ -113,7 +113,7 @@ test("a directory with no SKILL.md is skipped with a clear reason, not silently 
   await fs.writeFile(path.join(root, "empty-attempt", "readme.md"), "not the right filename\n");
 
   const { logger, warnings } = capturingLogger();
-  const result = await loadSkills(root, undefined, logger);
+  const result = await loadSkills(root, undefined, undefined, logger);
 
   assert.equal(result.skills.length, 0);
   assert.equal(result.skipped.length, 1);
@@ -126,7 +126,7 @@ test("missing frontmatter is skipped with a clear reason", async () => {
   await writeSkillDir(root, "broken", "Just some instructions, no --- block at all.\n");
 
   const { logger, warnings } = capturingLogger();
-  const result = await loadSkills(root, undefined, logger);
+  const result = await loadSkills(root, undefined, undefined, logger);
 
   assert.equal(result.skills.length, 0);
   assert.equal(result.skipped.length, 1);
@@ -138,7 +138,7 @@ test("a name that isn't lowercase-and-hyphens is rejected, not silently accepted
   const root = path.join(tmp, "bad-name");
   await writeSkillDir(root, "shouty", "---\nname: Stripe_Checkout\ndescription: d\n---\n\nbody\n");
 
-  const result = await loadSkills(root, undefined, {
+  const result = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -150,7 +150,7 @@ test("a missing description is rejected — it's the only thing always in contex
   const root = path.join(tmp, "no-description");
   await writeSkillDir(root, "thin", "---\nname: thin\n---\n\nsome body\n");
 
-  const result = await loadSkills(root, undefined, {
+  const result = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -162,7 +162,7 @@ test("frontmatter with nothing after it is rejected — a skill with no instruct
   const root = path.join(tmp, "empty-body");
   await writeSkillDir(root, "hollow", "---\nname: hollow\ndescription: d\n---\n\n   \n");
 
-  const result = await loadSkills(root, undefined, {
+  const result = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -175,7 +175,7 @@ test("one bad skill directory does not stop the rest from loading", async () => 
   await writeSkillDir(root, "broken", "no frontmatter here\n");
   await writeSkillDir(root, "zzz-good", "---\nname: zzz-good\ndescription: d\n---\n\nbody\n");
 
-  const result = await loadSkills(root, undefined, {
+  const result = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -201,7 +201,7 @@ test("an operator skill with the same name as a built-in replaces it, source and
   );
 
   const { logger, infos } = capturingLogger();
-  const result = await loadSkills(builtInRoot, operatorRoot, logger);
+  const result = await loadSkills(builtInRoot, undefined, operatorRoot, logger);
 
   assert.equal(result.skills.length, 1, "one skill, not two — the operator's wins outright");
   assert.equal(result.skills[0]?.description, "our house version");
@@ -209,9 +209,41 @@ test("an operator skill with the same name as a built-in replaces it, source and
   assert.ok(infos.some((m) => m.includes("replacing")));
 });
 
+test("all three sources can carry the same name at once — uploaded beats built-in, operator beats both", async () => {
+  const builtInRoot = path.join(tmp, "three-way-builtin");
+  const uploadedRoot = path.join(tmp, "three-way-uploaded");
+  const operatorRoot = path.join(tmp, "three-way-operator");
+  await writeSkillDir(
+    builtInRoot,
+    "greet",
+    "---\nname: greet\ndescription: the box's\n---\n\nbody\n",
+  );
+  await writeSkillDir(
+    uploadedRoot,
+    "greet",
+    "---\nname: greet\ndescription: uploaded through Settings\n---\n\nbody\n",
+  );
+  await writeSkillDir(
+    operatorRoot,
+    "greet",
+    "---\nname: greet\ndescription: the operator's own\n---\n\nbody\n",
+  );
+
+  const noop = { warn: () => undefined, info: () => undefined };
+
+  const uploadedOnly = await loadSkills(builtInRoot, uploadedRoot, undefined, noop);
+  assert.equal(uploadedOnly.skills[0]?.description, "uploaded through Settings");
+  assert.equal(uploadedOnly.skills[0]?.source, "uploaded");
+
+  const allThree = await loadSkills(builtInRoot, uploadedRoot, operatorRoot, noop);
+  assert.equal(allThree.skills.length, 1, "still one skill, the most specific source wins");
+  assert.equal(allThree.skills[0]?.description, "the operator's own");
+  assert.equal(allThree.skills[0]?.source, "operator");
+});
+
 test("the repo's own skills/ directory actually loads — guards against future drift breaking the format", async () => {
   const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
-  const result = await loadSkills(path.join(repoRoot, "skills"), undefined, {
+  const result = await loadSkills(path.join(repoRoot, "skills"), undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -253,7 +285,7 @@ test("use_skill with just a name returns the entry point plus a list of what els
       "recipes/example.md": "a worked example",
     },
   );
-  const { skills } = await loadSkills(root, undefined, {
+  const { skills } = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -277,7 +309,7 @@ test("use_skill with a path returns that specific file's real content", async ()
     "---\nname: deep-skill-2\ndescription: d\n---\n\ntop\n",
     { "references/detail.md": "THE ACTUAL DEEPER CONTENT" },
   );
-  const { skills } = await loadSkills(root, undefined, {
+  const { skills } = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -297,7 +329,7 @@ test("use_skill refuses a path that tries to escape the skill's own directory", 
   await writeSkillDir(root, "guarded", "---\nname: guarded\ndescription: d\n---\n\nbody\n");
   await fs.writeFile(path.join(tmp, "secret.txt"), "should never be readable this way", "utf8");
 
-  const { skills } = await loadSkills(root, undefined, {
+  const { skills } = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -311,7 +343,7 @@ test("use_skill refuses a path that tries to escape the skill's own directory", 
 test("use_skill with an unknown path names the error clearly rather than throwing", async () => {
   const root = path.join(tmp, "missing-path");
   await writeSkillDir(root, "thin-skill", "---\nname: thin-skill\ndescription: d\n---\n\nbody\n");
-  const { skills } = await loadSkills(root, undefined, {
+  const { skills } = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -329,7 +361,7 @@ test("use_skill with an unknown path names the error clearly rather than throwin
 test("use_skill: an unknown skill name lists what is actually available", async () => {
   const root = path.join(tmp, "known-only");
   await writeSkillDir(root, "real-one", "---\nname: real-one\ndescription: d\n---\n\nbody\n");
-  const { skills } = await loadSkills(root, undefined, {
+  const { skills } = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });
@@ -364,7 +396,7 @@ test("a live turn: the model reads a skill's entry point, then follows up for a 
     "---\nname: test-skill\ndescription: A skill only this test knows about\n---\n\nTOP LEVEL BODY\n",
     { "references/detail.md": "THE DEEPER REFERENCE CONTENT" },
   );
-  const { skills } = await loadSkills(root, undefined, {
+  const { skills } = await loadSkills(root, undefined, undefined, {
     warn: () => undefined,
     info: () => undefined,
   });

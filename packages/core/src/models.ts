@@ -290,3 +290,19 @@ export const auditLogEntrySchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type AuditLogEntry = z.infer<typeof auditLogEntrySchema>;
+
+// ---------------------------------------------------------------------------
+// Skill uploads — see `043` in the council notes
+// ---------------------------------------------------------------------------
+
+export const uploadSkillFileSchema = z.object({
+  /** Relative to the skill's own root — "SKILL.md", "references/detail.md". */
+  path: z.string().min(1),
+  /** Base64. */
+  data: z.string(),
+});
+
+export const uploadSkillSchema = z.object({
+  files: z.array(uploadSkillFileSchema).min(1),
+});
+export type UploadSkillInput = z.infer<typeof uploadSkillSchema>;
