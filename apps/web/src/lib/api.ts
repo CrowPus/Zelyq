@@ -31,6 +31,9 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly status: number,
+    /** A `bad_request` from a failed zod parse carries `{ issues: [{ path, message }] }`
+     * here — the field-level reason, which `message` alone never says. */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -53,11 +56,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;
+    const error = (
+      payload as {
+        error?: { code?: string; message?: string; details?: Record<string, unknown> };
+      } | null
+    )?.error;
     throw new ApiError(
       error?.code ?? "internal",
       error?.message ?? `Request failed with ${response.status}`,
       response.status,
+      error?.details,
     );
   }
 

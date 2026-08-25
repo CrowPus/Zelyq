@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { CircleAlert, CircleCheck, GraduationCap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../lib/api";
-import { fileToBase64 } from "../lib/files";
+import { buildSkillUploadFiles } from "../lib/files";
 import { Button } from "./ui";
 
 /**
@@ -29,15 +29,15 @@ export function SkillUploadControl({ onUploaded }: { onUploaded?: () => void }) 
   }, []);
 
   const upload = useMutation({
-    mutationFn: async (fileList: FileList) => {
-      const files = Array.from(fileList);
-      const rootFolder = files[0]?.webkitRelativePath.split("/")[0] ?? "";
-      const payloadFiles = await Promise.all(
-        files.map(async (file) => ({
-          path: rootFolder ? file.webkitRelativePath.slice(rootFolder.length + 1) : file.name,
-          data: await fileToBase64(file),
-        })),
-      );
+    // `File[]`, not `FileList` — a `FileList` is a *live* view onto the input's
+    // current selection. `onChange` below resets `event.target.value` right
+    // after calling `mutate`, to allow re-selecting the same folder twice in a
+    // row, and that reset clears `.files` immediately. `mutationFn` runs later
+    // than that reset (`mutate` defers it, at minimum a microtask), so reading
+    // a `FileList` here saw an already-emptied selection — every upload sent
+    // zero files and failed schema validation before this was caught live.
+    mutationFn: async (files: File[]) => {
+      const payloadFiles = await buildSkillUploadFiles(files);
       return api.uploadSkill({ files: payloadFiles });
     },
     onSuccess: ({ skill }) => {
@@ -55,7 +55,10 @@ export function SkillUploadControl({ onUploaded }: { onUploaded?: () => void }) 
         className="hidden"
         onChange={(event) => {
           setUploaded(null);
-          if (event.target.files?.length) upload.mutate(event.target.files);
+          // Captured now, before the reset below — see the note on
+          // `mutationFn` above for why this can't be the live FileList.
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) upload.mutate(files);
           event.target.value = "";
         }}
       />
@@ -72,7 +75,7 @@ export function SkillUploadControl({ onUploaded }: { onUploaded?: () => void }) 
       {upload.isError && (
         <p className="mt-1.5 flex items-start gap-1 text-2xs text-danger">
           <CircleAlert size={12} strokeWidth={1.75} className="mt-px shrink-0" />
-          {upload.error instanceof ApiError ? upload.error.message : "Could not upload that skill."}
+          {describeUploadError(upload.error)}
         </p>
       )}
       {uploaded && !upload.isPending && !upload.isError && (
@@ -85,4 +88,17 @@ export function SkillUploadControl({ onUploaded }: { onUploaded?: () => void }) 
       )}
     </div>
   );
+}
+
+/** `error.message` alone is the generic "Request validation failed" for a
+ * schema rejection — the actual field and reason only exist in `details`.
+ * Showing the first one is what would have made this bug obvious the
+ * moment it happened live, instead of needing to be reproduced by hand. */
+function describeUploadError(error: unknown): string {
+  if (!(error instanceof ApiError)) return "Could not upload that skill.";
+  const issues = error.details?.issues;
+  const first = Array.isArray(issues) ? (issues[0] as { path?: string; message?: string }) : null;
+  if (first?.message)
+    return `${error.message}: ${first.path ? `${first.path} — ` : ""}${first.message}`;
+  return error.message;
 }
