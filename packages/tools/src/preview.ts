@@ -1,3 +1,4 @@
+import { chromium } from "playwright";
 import { z } from "zod";
 import { defineTool, type ToolResult, truncate } from "./types.js";
 
@@ -36,5 +37,46 @@ export const previewLogsTool = defineTool({
   async run(context, input): Promise<ToolResult> {
     const logs = await context.runtime.previewLogs(context.projectId, input.lines ?? 80);
     return { output: logs.trim() || "No dev-server output yet." };
+  },
+});
+
+export const viewPreviewTool = defineTool({
+  name: "view_preview",
+  description:
+    "See a screenshot of the running preview — what a person would actually see in the browser, " +
+    "not what the code implies. Use it after a change that could affect what's rendered: a new " +
+    "component, a layout or styling change. Skip it for a change that's obviously text- or " +
+    "logic-only — this costs real image tokens, so reach for it deliberately, not on every turn. " +
+    "Fails cleanly if the preview isn't running; call start_preview first.",
+  schema: z.object({}),
+  async run(context): Promise<ToolResult> {
+    const preview = await context.runtime.previewStatus(context.projectId);
+    if (preview.status !== "running" || !preview.url) {
+      return {
+        output: `The preview isn't running (${preview.status}). Start it with start_preview first.`,
+        isError: true,
+      };
+    }
+
+    const browser = await chromium.launch();
+    try {
+      // A fixed viewport bounds the screenshot's resolution directly — no
+      // separate resize step needed once JPEG re-encoding already keeps the
+      // bytes themselves small.
+      const page = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+      await page.goto(preview.url, { waitUntil: "load", timeout: 30_000 });
+      const screenshot = await page.screenshot({ type: "jpeg", quality: 70 });
+      return {
+        output: "Screenshot of the running preview.",
+        images: [{ mimeType: "image/jpeg", data: screenshot.toString("base64") }],
+      };
+    } catch (error) {
+      return {
+        output: `Could not capture the preview: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true,
+      };
+    } finally {
+      await browser.close().catch(() => undefined);
+    }
   },
 });

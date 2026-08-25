@@ -7,11 +7,22 @@ import { maskSecret } from "./secrets.js";
 /**
  * One definition per setting, and the only list of them.
  *
- * Precedence is fixed: environment beats database beats default. An operator
- * who sets a variable expects it to hold; a setting that could be changed from
- * the UI behind their back is a support ticket waiting to happen. Fields the
- * environment supplies are returned as `managedByEnv` so the UI shows them
- * read-only, naming the variable, rather than pretending they are editable.
+ * Precedence is environment beats database beats default, unless the field
+ * is `envOverridable`. Fields the environment supplies are returned as
+ * `managedByEnv` so the UI shows them read-only, naming the variable, rather
+ * than pretending they are editable — that lock is real protection for a
+ * secret an operator pinned on purpose, or an access-control field like open
+ * registration.
+ *
+ * `provider`, `model`, and `effort` are the exception — see `041`. They are
+ * pure model-choice, not a security posture, and every path that can read or
+ * write them already requires an instance admin — the same person who could
+ * have set the environment variable in the first place. Locking them meant
+ * the only way to change which model Zelyq uses, once `.env` names one, was
+ * to hand-edit that file and restart every process by hand — exactly the
+ * "static settings" complaint the Settings page exists to prevent. For these
+ * three, a value chosen through the UI wins; the environment is only ever
+ * the bootstrap default.
  */
 interface Definition {
   key: string;
@@ -23,6 +34,7 @@ interface Definition {
   fallback: string;
   secret?: boolean;
   restartRequired?: boolean;
+  envOverridable?: boolean;
   options?: Array<{ value: string; label: string }>;
   placeholder?: string;
 }
@@ -58,6 +70,7 @@ const DEFINITIONS: Definition[] = [
     group: "Model",
     envVar: "ZELYQ_PROVIDER",
     fallback: "anthropic",
+    envOverridable: true,
     options: [
       { value: "anthropic", label: "Claude (Anthropic)" },
       { value: "google", label: "Gemini (Google)" },
@@ -193,6 +206,7 @@ const DEFINITIONS: Definition[] = [
     group: "Model",
     envVar: "ZELYQ_MODEL",
     fallback: "",
+    envOverridable: true,
     placeholder: "provider default",
   },
   {
@@ -203,6 +217,7 @@ const DEFINITIONS: Definition[] = [
     group: "Model",
     envVar: "ZELYQ_EFFORT",
     fallback: "high",
+    envOverridable: true,
     options: ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value, label: value })),
   },
   {
@@ -308,6 +323,7 @@ export class SettingsService {
         key,
         definition.fallback,
         this.env,
+        definition.envOverridable,
       );
     }
 
@@ -344,7 +360,20 @@ export class SettingsService {
       DEFINITIONS.map(async (definition): Promise<SettingField> => {
         const fromEnv = this.env[definition.envVar];
         const hasStored = stored[definition.key] !== undefined && stored[definition.key] !== "";
-        const source = fromEnv ? "env" : hasStored ? "database" : "default";
+        // An overridable field is never locked, and a stored choice outranks
+        // the environment — so it is what "source" must say produced the
+        // effective value, even while the environment also has one.
+        const source = definition.envOverridable
+          ? hasStored
+            ? "database"
+            : fromEnv
+              ? "env"
+              : "default"
+          : fromEnv
+            ? "env"
+            : hasStored
+              ? "database"
+              : "default";
         const suggestions =
           definition.key === "model" ? MODEL_SUGGESTIONS[effectiveProvider] : undefined;
 
@@ -356,7 +385,7 @@ export class SettingsService {
           group: definition.group,
           source,
           envVar: definition.envVar,
-          managedByEnv: Boolean(fromEnv),
+          managedByEnv: !definition.envOverridable && Boolean(fromEnv),
           restartRequired: Boolean(definition.restartRequired),
           ...(definition.options ? { options: definition.options } : {}),
           ...(definition.placeholder ? { placeholder: definition.placeholder } : {}),
@@ -408,7 +437,7 @@ export class SettingsService {
       const definition = BY_KEY.get(key);
       if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
 
-      if (this.env[definition.envVar]) {
+      if (this.env[definition.envVar] && !definition.envOverridable) {
         throw new ZelyqError(
           "conflict",
           `${definition.label} is set by ${definition.envVar} in the environment. Remove it there to manage this setting here.`,

@@ -256,6 +256,7 @@ export class AgentSession {
               name: toolCall.name,
               output: outcome.output,
               isError: outcome.isError ?? false,
+              images: outcome.images,
             };
           }),
         );

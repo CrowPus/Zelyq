@@ -60,3 +60,45 @@ test("the fallback applies when neither the environment nor the database has a v
   );
   assert.equal(resolved, "a-default");
 });
+
+// ---------------------------------------------------------------------------
+// envOverridable — 041: a value chosen through the UI wins over the
+// environment, which is only ever the bootstrap default for these fields.
+// ---------------------------------------------------------------------------
+
+test("envOverridable: a stored value wins over the environment", async () => {
+  await store.settings.set("provider", "anthropic");
+  const resolved = await resolveSetting(
+    store.settings,
+    "ZELYQ_PROVIDER",
+    "provider",
+    "anthropic",
+    { ZELYQ_PROVIDER: "google" },
+    true,
+  );
+  assert.equal(resolved, "anthropic", "the database choice must outrank the environment");
+});
+
+test("envOverridable: the environment is still the bootstrap default when nothing is stored", async () => {
+  const resolved = await resolveSetting(
+    store.settings,
+    "ZELYQ_PROVIDER",
+    "unsetProvider",
+    "anthropic",
+    { ZELYQ_PROVIDER: "google" },
+    true,
+  );
+  assert.equal(resolved, "google");
+});
+
+test("envOverridable: the fallback applies when neither is set", async () => {
+  const resolved = await resolveSetting(
+    store.settings,
+    "ZELYQ_PROVIDER",
+    "stillUnsetProvider",
+    "anthropic",
+    {},
+    true,
+  );
+  assert.equal(resolved, "anthropic");
+});

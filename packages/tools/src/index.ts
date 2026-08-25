@@ -7,7 +7,7 @@ import {
   searchFilesTool,
   writeFileTool,
 } from "./files.js";
-import { previewLogsTool, startPreviewTool } from "./preview.js";
+import { previewLogsTool, startPreviewTool, viewPreviewTool } from "./preview.js";
 import { runCommandTool } from "./shell.js";
 import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
 
@@ -21,6 +21,7 @@ export {
   runCommandTool,
   searchFilesTool,
   startPreviewTool,
+  viewPreviewTool,
   writeFileTool,
 };
 
@@ -38,6 +39,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   runCommandTool,
   startPreviewTool,
   previewLogsTool,
+  viewPreviewTool,
 ];
 
 export interface ToolDefinition {

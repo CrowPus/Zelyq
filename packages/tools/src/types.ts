@@ -20,6 +20,14 @@ export interface ToolResult {
   /** What the model sees. Keep it terse and factual — this is context budget. */
   output: string;
   isError?: boolean;
+  /**
+   * Images a tool's result carries — a screenshot, for now. Same shape
+   * `PromptAttachment` already uses, minus `filename`. See `040` in the
+   * council notes: each provider attaches these to a tool result its own
+   * way, some of them by way of a synthetic follow-up message, because not
+   * every vendor's tool-result shape can hold an image directly.
+   */
+  images?: Array<{ mimeType: string; data: string }>;
 }
 
 export interface ZelyqTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
