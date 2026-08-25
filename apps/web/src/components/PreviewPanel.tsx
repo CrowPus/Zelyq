@@ -97,7 +97,11 @@ export function PreviewPanel({
                   inspecting ? "Stop pointing at something" : "Point at something in the preview"
                 }
                 onClick={toggleInspecting}
-                className={inspecting ? "bg-surface-active text-fg" : ""}
+                // A barely-different background reads as "did that even
+                // register?" — this needs to look pressed, the same weight
+                // Start preview's own primary button already carries, not a
+                // subtle tint only visible on close inspection.
+                className={inspecting ? "bg-primary text-primary-fg hover:bg-primary-hover" : ""}
               >
                 <Crosshair size={13} strokeWidth={1.75} />
               </IconButton>
@@ -157,13 +161,32 @@ export function PreviewPanel({
       </header>
 
       <div className="relative min-h-0 flex-1">
+        {/* A colored strip plus an explicit Cancel — not just a cursor change
+            over an iframe, which is easy to never notice. This is the actual
+            fix for "I clicked it, how do I know it's on": something has to
+            say so in words, every time, not just imply it. */}
+        {inspecting && (
+          <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-2 bg-primary px-3 py-1.5 text-xs font-medium text-primary-fg shadow-sm">
+            <span className="flex items-center gap-1.5">
+              <Crosshair size={13} strokeWidth={2} />
+              Click anything in the preview to point at it
+            </span>
+            <button
+              type="button"
+              onClick={toggleInspecting}
+              className="rounded-sm px-1.5 py-0.5 text-2xs underline underline-offset-2 hover:no-underline"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         {running ? (
           <iframe
             ref={iframeRef}
             key={`${reloadToken}-${frameToken}`}
             src={previewUrl ?? ""}
             title="Project preview"
-            className={`size-full border-0 bg-white ${inspecting ? "cursor-crosshair" : ""}`}
+            className={`size-full border-0 bg-white ${inspecting ? "cursor-crosshair ring-2 ring-inset ring-primary" : ""}`}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
           />
         ) : busy ? (

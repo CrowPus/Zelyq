@@ -46,6 +46,11 @@ async function startPreviewAndSelectHeading(page: Page) {
   await expect(frame.locator("h1")).toBeVisible({ timeout: 30_000 });
 
   await inspectButton.click();
+
+  // The whole point of this banner: activating must be unmistakable, not
+  // just a subtle button tint someone could easily miss.
+  await expect(page.getByText("Click anything in the preview to point at it")).toBeVisible();
+
   await frame.locator("h1").click();
 
   return {
@@ -74,8 +79,10 @@ test("clicking an element in the preview points the composer at it, and sending 
   const composer = page.locator("form");
   await expect(composer).toContainText(HEADING_MARKUP);
 
-  // Toggling back off is a real control, not just decoration.
-  await expect(inspectButton).not.toHaveClass(/bg-surface-active/);
+  // Toggling back off is a real control, not just decoration — and the
+  // banner goes with it, not left stuck on-screen after a selection.
+  await expect(inspectButton).not.toHaveClass(/bg-primary/);
+  await expect(page.getByText("Click anything in the preview to point at it")).toBeHidden();
 
   await page.getByLabel("Message the agent").fill("make this smaller");
   await page.getByRole("button", { name: "Send message" }).click();
