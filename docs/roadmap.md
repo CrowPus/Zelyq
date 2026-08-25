@@ -73,6 +73,11 @@ separates this from a chat with a black box.
       projects not started from the Zelyq template too — the bridge script is patched into an
       existing project's `index.html` the first time its preview starts
 - [x] A headless browser in the eval harness, so a component that throws on render is caught
+- [x] Agent vision: a `view_preview` tool lets the agent screenshot its own running preview and
+      actually look at it, not just read the code that produced it. Reaches for it on its own
+      judgement, not automatically on every turn — costs real image tokens, so the tool's own
+      description says when it's worth calling. Ships with a real headless Chromium in the
+      production image (`docker/Dockerfile`), not left as an open gap
 - [ ] Build and deploy targets (static hosts, containers)
 - [x] Plugin interface for third-party tools — `ZELYQ_PLUGIN_DIR`, loaded once at boot. See
       [docs/plugins.md](../docs/plugins.md)

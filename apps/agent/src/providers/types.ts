@@ -58,6 +58,8 @@ export interface ToolResult {
   name: string;
   output: string;
   isError: boolean;
+  /** See `040` in the council notes — same shape `@zelyq/tools`' own `ToolResult.images` uses. */
+  images?: Array<{ mimeType: string; data: string }>;
 }
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";

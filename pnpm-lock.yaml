@@ -276,6 +276,9 @@ importers:
       '@zelyq/runtime':
         specifier: workspace:*
         version: link:../runtime
+      playwright:
+        specifier: ^1.62.1
+        version: 1.62.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3

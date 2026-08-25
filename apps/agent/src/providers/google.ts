@@ -70,6 +70,31 @@ export function buildGoogleUserParts(text: string, attachments?: PromptAttachmen
   return parts;
 }
 
+/**
+ * Builds the parts for one tool result — a `functionResponse`, plus one
+ * `inlineData` part per image it carries. A `functionResponse` cannot itself
+ * hold image bytes, so an image rides as its own part immediately after it.
+ * A pure function, same reason `buildGoogleUserParts` is: testable without a
+ * live client. See `040` in the council notes.
+ */
+export function buildGoogleToolResultParts(result: ToolResult, callId: string | undefined): Part[] {
+  const parts: Part[] = [
+    {
+      functionResponse: {
+        ...(callId ? { id: callId } : {}),
+        name: result.name,
+        // Gemini treats "output" as the result and "error" as a failure; any
+        // other key would be handed back as opaque data.
+        response: result.isError ? { error: result.output } : { output: result.output },
+      },
+    },
+  ];
+  for (const image of result.images ?? []) {
+    parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+  }
+  return parts;
+}
+
 export class GoogleProvider implements ModelProvider {
   readonly id = "google" as const;
 
@@ -111,18 +136,10 @@ class GoogleConversation implements Conversation {
 
   addToolResults(results: ToolResult[]): void {
     // All results in one user turn, matching the parallel calls the model made.
-    this.contents.push({
-      role: "user",
-      parts: results.map((result) => ({
-        functionResponse: {
-          ...(this.callIds.get(result.id) ? { id: this.callIds.get(result.id) } : {}),
-          name: result.name,
-          // Gemini treats "output" as the result and "error" as a failure; any
-          // other key would be handed back as opaque data.
-          response: result.isError ? { error: result.output } : { output: result.output },
-        },
-      })),
-    });
+    const parts = results.flatMap((result) =>
+      buildGoogleToolResultParts(result, this.callIds.get(result.id)),
+    );
+    this.contents.push({ role: "user", parts });
   }
 
   async *stream(signal: AbortSignal): AsyncGenerator<ProviderEvent, TurnResult, undefined> {

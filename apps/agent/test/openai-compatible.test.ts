@@ -314,6 +314,65 @@ test("tool results are sent back as their own messages, naming the call", async 
   assert.equal(toolReply?.content, "file contents");
 });
 
+test("a tool result carrying an image rides as a synthetic user message right after it — see 040", async () => {
+  // This dialect's `role: "tool"` message has no image-carrying variant —
+  // the content field is a plain string. The image has to travel as an
+  // ordinary user turn instead, immediately after the tool result it belongs
+  // to, or it never reaches the model at all.
+  replies.push({
+    events: [
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: "call_1", function: { name: "view_preview", arguments: "{}" } },
+              ],
+            },
+          },
+        ],
+      },
+      { choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+    ],
+  });
+  replies.push({
+    events: [textDelta("looks fine"), { choices: [{ delta: {}, finish_reason: "stop" }] }],
+  });
+
+  const conversation = conversationFor();
+  conversation.addUserMessage("check the preview");
+  await runTurn(conversation);
+
+  conversation.addToolResults([
+    {
+      id: "call_1",
+      name: "view_preview",
+      output: "Screenshot of the running preview.",
+      isError: false,
+      images: [{ mimeType: "image/jpeg", data: "ZmFrZS1qcGVn" }],
+    },
+  ]);
+  const before = received.length;
+  await runTurn(conversation);
+
+  const sent = received[before]?.body as { messages: Array<Record<string, unknown>> };
+  const toolIndex = sent.messages.findIndex((message) => message.role === "tool");
+  const following = sent.messages[toolIndex + 1];
+
+  assert.ok(toolIndex !== -1, "the tool result itself was not sent");
+  assert.equal(
+    typeof sent.messages[toolIndex]?.content,
+    "string",
+    "a tool message's content must stay a plain string in this dialect",
+  );
+  assert.equal(following?.role, "user", "the image must ride as the very next message");
+  const parts = following?.content as Array<{ type: string; image_url?: { url: string } }>;
+  assert.ok(Array.isArray(parts), "the synthetic user message must use the multi-part shape");
+  const imagePart = parts.find((part) => part.type === "image_url");
+  assert.ok(imagePart, "no image_url part found");
+  assert.equal(imagePart?.image_url?.url, "data:image/jpeg;base64,ZmFrZS1qcGVn");
+});
+
 test("reasoning text is surfaced as thinking, under either field name", async () => {
   replies.push({
     events: [

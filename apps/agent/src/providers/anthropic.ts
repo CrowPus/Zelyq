@@ -79,6 +79,28 @@ export function buildAnthropicUserContent(
   return content;
 }
 
+/**
+ * A `tool_result` block's own `content` can be a plain string or an array of
+ * blocks — images included, natively, no workaround needed. Stays a plain
+ * string when there are no images, so a result without one produces the
+ * exact wire shape it always has. See `040` in the council notes.
+ */
+export function buildAnthropicToolResultContent(
+  result: ToolResult,
+): Anthropic.ToolResultBlockParam["content"] {
+  if (!result.images?.length) return result.output;
+  const content: Anthropic.ToolResultBlockParam["content"] = result.images.map((image) => ({
+    type: "image" as const,
+    source: {
+      type: "base64" as const,
+      media_type: image.mimeType as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
+      data: image.data,
+    },
+  }));
+  content.push({ type: "text", text: result.output });
+  return content;
+}
+
 export class AnthropicProvider implements ModelProvider {
   readonly id = "anthropic" as const;
 
@@ -119,7 +141,7 @@ class AnthropicConversation implements Conversation {
       content: results.map((result) => ({
         type: "tool_result" as const,
         tool_use_id: result.id,
-        content: result.output,
+        content: buildAnthropicToolResultContent(result),
         is_error: result.isError,
       })),
     });

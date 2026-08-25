@@ -163,6 +163,26 @@ class OpenAICompatibleConversation implements Conversation {
         tool_call_id: result.id,
         content: result.output,
       });
+
+      // A `role: "tool"` message's content is a plain string in this dialect
+      // — no image-carrying variant of it exists. An image rides instead as
+      // an ordinary user turn immediately after, built with the exact same
+      // image-part shape `addUserMessage` already uses, labelled so the
+      // model understands why a user turn appeared that it never sent. See
+      // `040` in the council notes.
+      if (result.images?.length) {
+        this.messages.push({
+          role: "user",
+          content: buildOpenAIUserContent(
+            `Screenshot from ${result.name}:`,
+            result.images.map((image) => ({
+              filename: "screenshot",
+              mimeType: image.mimeType,
+              data: image.data,
+            })),
+          ),
+        });
+      }
     }
   }
 
