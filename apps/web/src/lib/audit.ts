@@ -4,6 +4,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "project.created": "created the project",
   "project.updated": "updated the project",
   "project.deleted": "deleted the project",
+  "project.pushed": "pushed to a remote",
   "file.written": "edited a file",
   "file.deleted": "deleted a file",
   "snapshot.created": "saved a snapshot",

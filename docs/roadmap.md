@@ -60,12 +60,18 @@ separates this from a chat with a black box.
 - [ ] Per-user API keys, encrypted at rest
 - [ ] Invitation links, so someone can be added before they register
 - [ ] SSO (OIDC) as an alternative to passwords
-- [ ] Git integration: init, commit per turn, push to a remote
+- [x] Git integration: init, commit per turn, push to a remote — real git, server-orchestrated,
+      never through the agent's own shell tool (already blocked there). Push is manual and
+      on-demand, never automatic, never `--force`; a token is used once and never stored. Needs
+      `git` on whatever `ZELYQ_RUNTIME=container` image is configured — the default project
+      container image does not ship it today, the same gap clone already had
 
 ## Later — depth
 
 - [ ] More templates: Next.js, plain Vite, static site, Node API
-- [ ] Element inspector — click something in the preview to point the agent at it
+- [x] Element inspector — click something in the preview to point the agent at it. Works on
+      projects not started from the Zelyq template too — the bridge script is patched into an
+      existing project's `index.html` the first time its preview starts
 - [x] A headless browser in the eval harness, so a component that throws on render is caught
 - [ ] Build and deploy targets (static hosts, containers)
 - [x] Plugin interface for third-party tools — `ZELYQ_PLUGIN_DIR`, loaded once at boot. See

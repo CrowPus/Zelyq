@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { runMigrations } from "@zelyq/db";
+import { createRuntimeDriver } from "@zelyq/runtime";
 import { WebSocket } from "ws";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
@@ -706,4 +707,75 @@ test("a non-image, non-UTF8 attachment is refused with a clear error, not silent
 
   assert.match(errorMessage, /isn't an image or a text file/);
   assert.equal(agent.prompts.length, 0);
+});
+
+// --- Git integration (see `035`) -----------------------------------------
+
+test("a turn that changes a file produces a real git commit in the project's own workspace", async () => {
+  const { cookie } = await register("git-commit@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Git commit test" },
+    })
+  ).json().project;
+
+  // The fake agent never touches the filesystem — this stands in for
+  // whatever a real turn's tool calls would have written, so the turn
+  // itself, run through the real WS flow, is what's actually exercised.
+  const projectDir = path.join(tmp, "workspace", project.id);
+  await fs.writeFile(path.join(projectDir, "changed-by-turn.txt"), "hello");
+
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        ws.send(JSON.stringify({ type: "prompt", message: "add a file" }));
+      }
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  const runtime = createRuntimeDriver({
+    kind: "local",
+    workspaceDir: path.join(tmp, "workspace"),
+    execTimeoutMs: 10_000,
+    previewPortRange: [4996, 4999],
+    previewHost: "127.0.0.1",
+  });
+  try {
+    // commitTurn runs in the gateway's own `finally`, *after* turn.end is
+    // already broadcast — receiving that message on the wire is not proof
+    // the server has finished (or even started) committing yet. Poll
+    // rather than assume synchronous completion.
+    let log = await runtime.exec(project.id, { command: "git log --oneline" });
+    for (let attempt = 0; attempt < 50 && log.exitCode !== 0; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      log = await runtime.exec(project.id, { command: "git log --oneline" });
+    }
+    assert.equal(log.exitCode, 0, "the project must be a real git repository by now");
+    assert.equal(log.stdout.trim().split("\n").length, 1, "exactly one commit for the one turn");
+    assert.match(log.stdout, /Before: add a file/);
+
+    const status = await runtime.exec(project.id, { command: "git status --porcelain" });
+    assert.equal(
+      status.stdout.trim(),
+      "",
+      "the file that changed was actually committed, not left dirty",
+    );
+  } finally {
+    await runtime.dispose();
+  }
 });

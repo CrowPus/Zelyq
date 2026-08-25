@@ -1,4 +1,4 @@
-import { createProjectSchema, updateProjectSchema } from "@zelyq/core";
+import { createProjectSchema, pushToRemoteSchema, updateProjectSchema } from "@zelyq/core";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { ProjectService } from "../services/projects.js";
@@ -57,6 +57,23 @@ export function registerProjectRoutes(
       detail: { fields: Object.keys(changes) },
     });
     return { project };
+  });
+
+  // Manual, on-demand — see `035`. Editor, the same role sending a prompt
+  // already needs; push is a real, externally-visible action, so it's
+  // recorded in the audit log the same as any other mutating one.
+  app.post<{ Params: { id: string } }>("/api/projects/:id/git/push", async (request) => {
+    const user = access.requireUser(request);
+    const { project } = await access.requireProject(user, request.params.id, "editor");
+    const input = pushToRemoteSchema.parse(request.body);
+    await deps.projects.pushToRemote(request.params.id, input.gitUrl, input.gitToken);
+    await access.recordChange(user, {
+      teamId: project.teamId,
+      projectId: project.id,
+      action: "project.pushed",
+      detail: {},
+    });
+    return { pushed: true };
   });
 
   // Deleting removes files from disk as well as the row, so it takes admin.

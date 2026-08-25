@@ -27,44 +27,59 @@ export const projectSchema = z.object({
 });
 export type Project = z.infer<typeof projectSchema>;
 
+/**
+ * `http://` and `https://` only. `ssh://` and `git@` are refused because they
+ * need a key on the runtime, and a key that can clone can usually also push.
+ * `file://` is refused because the runtime's filesystem holds every other
+ * project — a local path is a way to read somebody else's work.
+ *
+ * `http://` is allowed on purpose: an internal git server on a private network
+ * is exactly the deployment this product is for. It is the caller's network to
+ * judge.
+ *
+ * Shared by `createProjectSchema` (clone) and `pushToRemoteSchema` (`035`
+ * Part B) — the same address shape either direction.
+ */
+const gitUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:\/\//.test(value), {
+    message: "Only http:// and https:// repository URLs are supported",
+  });
+
+/**
+ * Used for one operation and never stored — nothing at rest is nothing to
+ * leak, nothing to rotate, nothing for another user of a shared instance to
+ * borrow. The cost is pasting it again next time. Shared by
+ * `createProjectSchema` (clone) and `pushToRemoteSchema` (push).
+ */
+const gitTokenSchema = z.string().min(1).max(500);
+
 export const createProjectSchema = z.object({
   /** Omitted means the caller's default team. */
   teamId: z.string().optional(),
   name: z.string().min(1).max(120),
   description: z.string().max(2000).optional(),
   template: z.string().default("vite-react"),
-  /**
-   * Clone this repository instead of scaffolding a template.
-   *
-   * `http://` and `https://` only. `ssh://` and `git@` are refused because they
-   * need a key on the runtime, and a key that can clone can usually also push.
-   * `file://` is refused because the runtime's filesystem holds every other
-   * project — a local path is a way to read somebody else's work.
-   *
-   * `http://` is allowed on purpose: an internal git server on a private network
-   * is exactly the deployment this product is for. It is the caller's network to
-   * judge.
-   */
-  gitUrl: z
-    .string()
-    .url()
-    .refine((value) => /^https?:\/\//.test(value), {
-      message: "Only http:// and https:// repository URLs are supported",
-    })
-    .optional(),
-  /**
-   * A token for a private repository, used for this clone and never stored.
-   *
-   * Nothing at rest is nothing to leak at rest, nothing to rotate, and nothing
-   * for another user of a shared instance to borrow. The cost is pasting it
-   * again to refresh a clone — and refreshing does not exist yet, which is the
-   * right time to design credential storage rather than now.
-   */
-  gitToken: z.string().min(1).max(500).optional(),
+  /** Clone this repository instead of scaffolding a template. */
+  gitUrl: gitUrlSchema.optional(),
+  gitToken: gitTokenSchema.optional(),
   /** Optional first instruction — the project is created, then this is sent to the agent. */
   prompt: z.string().max(20_000).optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
+
+/**
+ * `035` Part B. `gitUrl` is only needed the first time a project with no
+ * remote yet is pushed — `git remote add origin` then push, the other
+ * direction of the same job clone already does. Once a remote exists, later
+ * pushes need only `gitToken`, if the repository is private.
+ */
+export const pushToRemoteSchema = z.object({
+  gitUrl: gitUrlSchema.optional(),
+  gitToken: gitTokenSchema.optional(),
+});
+export type PushToRemoteInput = z.infer<typeof pushToRemoteSchema>;
 
 export const updateProjectSchema = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -247,6 +262,7 @@ export const auditActionSchema = z.enum([
   "project.created",
   "project.updated",
   "project.deleted",
+  "project.pushed",
   "file.written",
   "file.deleted",
   "snapshot.created",

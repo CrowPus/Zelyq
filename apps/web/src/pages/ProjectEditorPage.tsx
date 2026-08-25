@@ -8,6 +8,7 @@ import { ChatPanel } from "../components/ChatPanel";
 import { CodeViewer } from "../components/CodeViewer";
 import { FileExplorer } from "../components/FileExplorer";
 import { PreviewPanel } from "../components/PreviewPanel";
+import { PushControl } from "../components/PushControl";
 import { Badge, Button, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
@@ -163,6 +164,9 @@ export function ProjectEditorPage() {
           >
             <span className="max-md:hidden">Snapshot</span>
           </Button>
+          {/* Same role the route itself already requires — editing and
+              pushing are the same trust level. */}
+          {canEdit && <PushControl projectId={id} />}
         </>
       }
     >
