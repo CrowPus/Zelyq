@@ -133,6 +133,8 @@ export const api = {
         model?: string;
         /** Tool names loaded from `ZELYQ_PLUGIN_DIR` at the agent's last boot. See `037`. */
         plugins?: string[];
+        /** Skill names loaded at the agent's last boot, built-in and `ZELYQ_SKILLS_DIR`. See `042`. */
+        skills?: string[];
       };
     }>("/health"),
 
