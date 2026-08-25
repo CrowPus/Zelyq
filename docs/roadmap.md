@@ -60,7 +60,11 @@ separates this from a chat with a black box.
 - [ ] Per-user API keys, encrypted at rest
 - [ ] Invitation links, so someone can be added before they register
 - [ ] SSO (OIDC) as an alternative to passwords
-- [ ] Git integration: init, commit per turn, push to a remote
+- [x] Git integration: init, commit per turn, push to a remote — real git, server-orchestrated,
+      never through the agent's own shell tool (already blocked there). Push is manual and
+      on-demand, never automatic, never `--force`; a token is used once and never stored. Needs
+      `git` on whatever `ZELYQ_RUNTIME=container` image is configured — the default project
+      container image does not ship it today, the same gap clone already had
 
 ## Later — depth
 

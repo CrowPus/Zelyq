@@ -250,6 +250,182 @@ export class ProjectService {
     return snapshot;
   }
 
+  /**
+   * Real, ordinary git, separate from snapshots — which remain the actual
+   * undo mechanism. See `035` in the council notes: this exists so a
+   * project's history is real and usable the moment someone runs `git log`,
+   * not because anything else here needs it.
+   *
+   * Never through the agent's own shell tool — `shell.ts` already blocks git
+   * commands there, for the reason it always has: the project's git history
+   * sits outside the snapshot that makes a turn undoable, so a tool-driven
+   * git command could corrupt what this quietly maintains alongside it. This
+   * is the second, server-orchestrated git operation that relationship
+   * already describes — the same one `cloneInto` already is.
+   *
+   * Idempotent and cheap enough to call every turn: `git init` only runs if
+   * `.git` is not already there (a fresh scaffold; a clone already has one),
+   * and identity is only set if this repo has none of its own yet — a
+   * cloned repository's own configured author, if it somehow already has
+   * one, is respected rather than overwritten.
+   */
+  async ensureGitRepo(id: string): Promise<void> {
+    const isRepo = await this.runtime.exec(id, { command: "git rev-parse --is-inside-work-tree" });
+    if (isRepo.exitCode !== 0) {
+      const init = await this.runtime.exec(id, { command: "git init -q" });
+      if (init.exitCode !== 0) {
+        throw new Error(
+          `git init failed: ${init.stderr || init.stdout || `exit ${init.exitCode}`}`,
+        );
+      }
+    }
+    const identity = await this.runtime.exec(id, { command: "git config --local user.name" });
+    if (identity.exitCode !== 0 || !identity.stdout.trim()) {
+      await this.runtime.exec(id, { command: 'git config --local user.name "Zelyq"' });
+      await this.runtime.exec(id, { command: 'git config --local user.email "noreply@zelyq.dev"' });
+    }
+  }
+
+  /**
+   * Commits whatever a turn actually changed — a real `git diff`, not a
+   * tool-name allowlist, so this covers a plugin tool's own file writes
+   * (`037`) the same as a built-in one's. No commit when nothing actually
+   * changed: an empty commit for a turn that only read files would be noise
+   * in a history meant to be real and usable, not a log of every attempt.
+   *
+   * Throws on a real git failure rather than swallowing it — the caller
+   * (`gateway.ts`) is the one that decides this is best-effort and wraps
+   * the call in its own try/catch; silently no-op'ing here would mean a
+   * genuine failure (disk full, permissions) never reaches that log line
+   * at all.
+   */
+  async commitTurn(id: string, prompt: string): Promise<void> {
+    await this.runtime.exec(id, { command: "git add -A" });
+    const staged = await this.runtime.exec(id, { command: "git diff --cached --quiet" });
+    if (staged.exitCode === 0) return; // nothing staged — nothing changed
+    if (staged.exitCode > 1) {
+      // 0 = no diff, 1 = a diff exists — anything else means git itself
+      // failed (no repository, corrupt index), not "nothing to commit".
+      throw new Error(
+        `git diff failed: ${staged.stderr || staged.stdout || `exit ${staged.exitCode}`}`,
+      );
+    }
+
+    // The exact text a snapshot's own label already uses — one more
+    // consumer of a value already computed, not a new decision about what a
+    // commit message should say.
+    const message = `Before: ${prompt.slice(0, 120)}`;
+    const safeMessage = `'${message.replaceAll("'", "'\\''")}'`;
+    const commit = await this.runtime.exec(id, { command: `git commit -q -m ${safeMessage}` });
+    if (commit.exitCode !== 0) {
+      throw new Error(
+        `git commit failed: ${commit.stderr || commit.stdout || `exit ${commit.exitCode}`}`,
+      );
+    }
+  }
+
+  /**
+   * Push, manual and on-demand — `035` Part B. The promise clone already
+   * made had to be replaced with its honest version, not quietly broken:
+   * **Zelyq never pushes without being asked, and still never stores what
+   * you give it.** Reuses `cloneInto`'s exact shape — the credential-helper
+   * trick, the same safe quoting, `GIT_TERMINAL_PROMPT=0` — because this is
+   * the same job in the other direction, not a new one.
+   *
+   * Never `--force`, not configurable to be one. A push that is not a
+   * fast-forward fails with git's own ordinary error rather than
+   * overwriting anything someone else pushed — the correct outcome, not a
+   * bug to route around.
+   */
+  async pushToRemote(id: string, gitUrl?: string, token?: string): Promise<void> {
+    const existingRemote = await this.runtime.exec(id, { command: "git remote get-url origin" });
+    if (existingRemote.exitCode !== 0) {
+      if (!gitUrl) {
+        throw ZelyqError.badRequest(
+          "This project has no remote yet. Paste a repository URL to push to.",
+        );
+      }
+      const safeUrl = `'${gitUrl.replaceAll("'", "'\\''")}'`;
+      const addRemote = await this.runtime.exec(id, {
+        command: `git remote add origin ${safeUrl}`,
+      });
+      if (addRemote.exitCode !== 0) {
+        throw ZelyqError.badRequest(
+          `Could not add that remote. ${
+            addRemote.stderr.trim() || `git exited with code ${addRemote.exitCode}`
+          }`,
+        );
+      }
+    }
+
+    // Same trick cloneInto already uses: an empty helper first so the
+    // server's own ambient git identity, if it has one, cannot answer for a
+    // push nobody gave a credential for.
+    const helper = token
+      ? `-c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo "password=$ZELYQ_GIT_TOKEN"; }; f' `
+      : "-c credential.helper= ";
+    const env = {
+      GIT_TERMINAL_PROMPT: "0",
+      ...(token ? { ZELYQ_GIT_TOKEN: token } : {}),
+    };
+
+    const result = await this.runtime.exec(id, {
+      command: `git ${helper}push -- origin HEAD`,
+      timeoutMs: 5 * 60_000,
+      env,
+    });
+
+    if (result.exitCode !== 0) {
+      const output = result.stderr || result.stdout;
+
+      if (/authentication failed|could not read username|invalid credentials|403/i.test(output)) {
+        throw ZelyqError.badRequest(
+          token
+            ? "That token was refused. Check it has write access to this repository and has not expired."
+            : "This repository needs a token with write access. Create one and paste it into the token field.",
+        );
+      }
+      if (/repository not found|not found|does not exist/i.test(output)) {
+        throw ZelyqError.badRequest(
+          token
+            ? "That repository was not found, which usually means this token cannot reach it. " +
+                "Check the address, and that the token has write access to it."
+            : "That repository was not found. Check the address, and if it is private, paste a " +
+                "token with write access to it.",
+        );
+      }
+      if (/non-fast-forward|fetch first|rejected/i.test(output)) {
+        throw ZelyqError.badRequest(
+          "The remote has commits this project doesn't. Zelyq never force-pushes, so this needs " +
+            "resolving by hand — pull the remote's changes into this project's history first.",
+        );
+      }
+
+      const detail = output.trim().split("\n").slice(-3).join(" ");
+      throw ZelyqError.badRequest(
+        `Could not push. ${detail || `git exited with code ${result.exitCode}`}`,
+      );
+    }
+
+    // Same paranoia clone already has: the credential was one-shot, so
+    // nothing should have been written into the project.
+    if (token) {
+      const config = await this.runtime
+        .readFile(id, ".git/config")
+        .then((file) => file.content)
+        .catch(() => "");
+      if (config.includes(token)) {
+        await this.runtime.exec(id, {
+          command: "git config --unset-all credential.helper || true",
+        });
+        throw ZelyqError.badRequest(
+          "The push stored your token in the project, which Zelyq does not allow. " +
+            "Please revoke that token.",
+        );
+      }
+    }
+  }
+
   async remove(id: string): Promise<void> {
     await this.get(id);
     await this.runtime.removeProject(id);

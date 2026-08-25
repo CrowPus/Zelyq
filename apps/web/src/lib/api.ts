@@ -9,6 +9,7 @@ import type {
   FileEntry,
   Preview,
   Project,
+  PushToRemoteInput,
   Role,
   SessionResponse,
   SettingsResponse,
@@ -188,6 +189,13 @@ export const api = {
     request<{ snapshot: Snapshot }>(`/projects/${id}/snapshots`, {
       method: "POST",
       body: JSON.stringify({ label }),
+    }),
+
+  /** Manual, on-demand — see `035`. `gitUrl` only matters the first time, before a remote exists. */
+  pushToRemote: (id: string, input: PushToRemoteInput) =>
+    request<{ pushed: boolean }>(`/projects/${id}/git/push`, {
+      method: "POST",
+      body: JSON.stringify(input),
     }),
 
   /** `data` is base64. See `037` — 8MB cap, enforced again server-side. */

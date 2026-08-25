@@ -302,6 +302,15 @@ export class ChatGateway {
       this.log.error(error, "could not snapshot before the turn");
     }
 
+    // Real, ordinary git, alongside the snapshot above — see `035`. Same
+    // best-effort posture: a project's own git history existing is a
+    // courtesy, not something a turn should ever fail over.
+    try {
+      await this.projects.ensureGitRepo(room.projectId);
+    } catch (error) {
+      this.log.error(error, "could not initialise git for the project");
+    }
+
     const assistant: Message = {
       id: newId("message"),
       sessionId: room.sessionId,
@@ -368,6 +377,13 @@ export class ChatGateway {
       await this.store.sessions.addUsage(room.sessionId, assistant.tokensIn, assistant.tokensOut);
       await this.store.sessions.setStatus(room.sessionId, "idle");
       await this.store.projects.setStatus(room.projectId, "ready");
+      // Best-effort, same as ensureGitRepo above — a commit is a courtesy
+      // on top of the turn, never a reason to have failed it.
+      try {
+        await this.projects.commitTurn(room.projectId, prompt);
+      } catch (error) {
+        this.log.error(error, "could not commit the turn's changes");
+      }
       room.turn = null;
     }
   }
