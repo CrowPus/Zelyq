@@ -144,6 +144,23 @@ conversations started on one model stay labelled with it.
 | `ZELYQ_ALLOW_REGISTRATION` | `true` | Whether people may sign themselves up. The first account is always allowed regardless, and becomes the owner. Set `false` on anything internet-reachable and add people through the team screen. |
 | `ZELYQ_SESSION_TTL_DAYS` | `30` | How long a sign-in lasts. Sessions are extended on use and can be ended by signing out. |
 
+### Single sign-on (OIDC)
+
+OIDC is disabled unless all four variables below are set. Zelyq uses authorization code flow with
+PKCE, discovers the provider from its issuer, and links identities by the provider's immutable
+`iss` + `sub` pair. A claim is only ever acted on when the provider returns `email_verified: true` —
+whether that means linking to an account that already uses the claimed email, or creating a new
+one; email alone is never treated as an identity, and an unverified claim is refused outright
+either way. Register the exact callback URL with the provider, and use HTTPS outside local
+development.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ZELYQ_OIDC_ISSUER` | — | Provider issuer, for example `https://login.example.com`. Discovery reads `/.well-known/openid-configuration`. |
+| `ZELYQ_OIDC_CLIENT_ID` | — | Public client identifier. |
+| `ZELYQ_OIDC_CLIENT_SECRET` | — | Confidential client secret; keep it in the server environment. |
+| `ZELYQ_OIDC_REDIRECT_URI` | — | Exact registered callback, for example `https://zelyq.example.com/api/auth/oidc/callback`. |
+
 The session cookie is marked `Secure` automatically when the request arrives over HTTPS, and not when
 it does not — so sign-in still works on a plain-HTTP instance without silently sending the cookie in
 the clear where TLS is available.
@@ -179,6 +196,8 @@ Migrations run automatically when the server boots.
 | `ZELYQ_PREVIEW_HOST` | `127.0.0.1` | Decides whether project dev servers bind `127.0.0.1` or all interfaces — set it to anything other than loopback on a VM or remote host, or previews are not reachable from outside the machine at all. The web UI figures out the address it displays and loads a preview at from the browser's own location, not from this variable, so you no longer need to get the exact value right for previews to load — only the loopback-or-not choice, for whether they're reachable at all. Non-browser callers of the API (a script, `curl`) still get this value in the `url` field. |
 | `ZELYQ_MAX_TURN_ITERATIONS` | `50` | Model round-trips per turn before the loop stops. Raises the ceiling on long builds; also raises the worst-case cost. |
 | `ZELYQ_PLUGIN_DIR` | — | A local directory of extra tools for the agent, loaded once at boot. See [plugins.md](./plugins.md). |
+| `ZELYQ_SKILLS_DIR` | — | A local directory of extra skills — packaged instructions for a specific kind of task, loaded once at boot. See [skills.md](./skills.md). |
+| `ZELYQ_SKILLS_UPLOAD_DIR` | `<data dir>/skills` | Where a skill uploaded through Settings is written. Resolved independently by the server and the agent — must be the same directory for both, same requirement `ZELYQ_WORKSPACE_DIR` already has. See [skills.md](./skills.md). |
 
 ### Running agent commands and the preview in a container
 

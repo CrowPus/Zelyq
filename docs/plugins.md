@@ -30,6 +30,18 @@ dropdown is not the same act as an instance admin loading arbitrary code,
 and a project a teammate cloned should never get to choose what tools the
 agent that reads it is handed.
 
+## Picking one from the composer, honestly
+
+The same `/` menu [skills](./skills.md) are picked from also lists loaded
+plugin tools. Picking one there is *not* the same guarantee a picked skill
+gets: a skill has a body to weave into the message; a plugin is a
+function, with only a name. Selecting a plugin instead produces a plain
+instruction — "use the `word_count` tool for this task" — woven into the
+message the same way, but honestly weaker: the model can still choose not
+to call the tool, the way it always could. There is no way to force a
+tool call from text the way real content can be forced into a message a
+model reads. See `044`'s follow-up in the council notes.
+
 ## Writing one
 
 Set `ZELYQ_PLUGIN_DIR` to a local directory (see

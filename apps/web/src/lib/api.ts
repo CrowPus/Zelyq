@@ -18,6 +18,7 @@ import type {
   TeamMembership,
   UpdateProfileInput,
   UpdateSettingsInput,
+  UploadSkillInput,
   User,
 } from "@zelyq/core";
 
@@ -30,6 +31,9 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly status: number,
+    /** A `bad_request` from a failed zod parse carries `{ issues: [{ path, message }] }`
+     * here — the field-level reason, which `message` alone never says. */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -52,11 +56,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;
+    const error = (
+      payload as {
+        error?: { code?: string; message?: string; details?: Record<string, unknown> };
+      } | null
+    )?.error;
     throw new ApiError(
       error?.code ?? "internal",
       error?.message ?? `Request failed with ${response.status}`,
       response.status,
+      error?.details,
     );
   }
 
@@ -64,7 +73,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  authStatus: () => request<{ firstRun: boolean }>("/auth/status"),
+  authStatus: () => request<{ firstRun: boolean; oidcEnabled: boolean }>("/auth/status"),
 
   me: () => request<SessionResponse>("/auth/me"),
 
@@ -92,6 +101,13 @@ export const api = {
 
   updateSettings: (changes: UpdateSettingsInput) =>
     request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),
+
+  /** Instance administrator only. See `043` — takes effect on the agent's next restart. */
+  uploadSkill: (input: UploadSkillInput) =>
+    request<{ skill: { name: string; description: string; fileCount: number } }>("/skills", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   /** Every account on this instance — instance administrator only. */
   listUsers: () => request<{ users: User[] }>("/users"),
@@ -133,6 +149,10 @@ export const api = {
         model?: string;
         /** Tool names loaded from `ZELYQ_PLUGIN_DIR` at the agent's last boot. See `037`. */
         plugins?: string[];
+        /** Skills loaded at the agent's last boot, built-in and `ZELYQ_SKILLS_DIR` — name and
+         * description, enough for the composer's `/` picker (`044`) to be worth choosing from.
+         * Bodies stay agent-side, never sent here. See `042`. */
+        skills?: Array<{ name: string; description: string }>;
       };
     }>("/health"),
 

@@ -14,6 +14,12 @@ export interface ServerConfig {
   /** After the first account exists, whether strangers may still sign up. */
   allowRegistration: boolean;
   sessionTtlDays: number;
+  oidc?: {
+    issuer: string | undefined;
+    clientId: string | undefined;
+    clientSecret: string | undefined;
+    redirectUri: string | undefined;
+  };
   model: string;
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   templatesDir: string;
@@ -28,6 +34,14 @@ export interface ServerConfig {
    * landing in that history by accident is not this feature's call to make.
    */
   attachmentsDir: string;
+  /**
+   * Where a skill uploaded through Settings is written — see `043` in the
+   * council notes. The agent reads this same directory as its own
+   * "uploaded" skills source; the default here and the agent's own default
+   * are the same relative shape `ZELYQ_WORKSPACE_DIR` already establishes
+   * for a directory both processes need to agree on.
+   */
+  uploadedSkillsDir: string;
   /** Built web assets to serve. Absent in development, where Vite serves them. */
   webDir: string | null;
   runtime: RuntimeConfig;
@@ -108,6 +122,12 @@ export function loadServerConfig(): ServerConfig {
     provider: (process.env.ZELYQ_PROVIDER ?? "anthropic") as ServerConfig["provider"],
     allowRegistration: (process.env.ZELYQ_ALLOW_REGISTRATION ?? "true") !== "false",
     sessionTtlDays: intFromEnv("ZELYQ_SESSION_TTL_DAYS", 30),
+    oidc: {
+      issuer: process.env.ZELYQ_OIDC_ISSUER,
+      clientId: process.env.ZELYQ_OIDC_CLIENT_ID,
+      clientSecret: process.env.ZELYQ_OIDC_CLIENT_SECRET,
+      redirectUri: process.env.ZELYQ_OIDC_REDIRECT_URI,
+    },
     model: process.env.ZELYQ_MODEL ?? "",
     effort: (process.env.ZELYQ_EFFORT ?? "high") as ServerConfig["effort"],
     templatesDir: path.resolve(process.env.ZELYQ_TEMPLATES_DIR ?? path.join(repoRoot, "templates")),
@@ -120,6 +140,10 @@ export function loadServerConfig(): ServerConfig {
     attachmentsDir: path.resolve(
       process.env.ZELYQ_ATTACHMENTS_DIR ??
         path.join(dataDirFrom(process.env.DATABASE_URL), "attachments"),
+    ),
+    uploadedSkillsDir: path.resolve(
+      process.env.ZELYQ_SKILLS_UPLOAD_DIR ??
+        path.join(dataDirFrom(process.env.DATABASE_URL), "skills"),
     ),
     webDir: process.env.ZELYQ_WEB_DIR
       ? path.resolve(process.env.ZELYQ_WEB_DIR)

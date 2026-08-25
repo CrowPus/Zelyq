@@ -1,4 +1,11 @@
-import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  randomUUID,
+  scrypt,
+  timingSafeEqual,
+} from "node:crypto";
 import { promisify } from "node:util";
 import {
   type LoginInput,
@@ -29,6 +36,9 @@ const scryptAsync = promisify(scrypt) as (
  */
 const SCRYPT = { N: 32_768, r: 8, p: 1, maxmem: 96 * 1024 * 1024 } as const;
 const KEY_LENGTH = 64;
+
+/** How long an in-flight OIDC sign-in has to complete before it must restart. */
+const OIDC_STATE_TTL_MS = 10 * 60_000;
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
@@ -67,13 +77,258 @@ export function hashToken(token: string): string {
 export interface AuthConfig {
   allowRegistration: () => Promise<boolean>;
   sessionTtlDays: () => Promise<number>;
+  oidc?: {
+    issuer?: string;
+    clientId?: string;
+    clientSecret?: string;
+    redirectUri?: string;
+  };
+}
+
+export interface OidcStart {
+  authorizationUrl: string;
+  state: string;
+  verifier: string;
+}
+
+interface OidcMetadata {
+  issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  userinfo_endpoint?: string;
+}
+
+interface OidcClaims {
+  sub: string;
+  email?: string;
+  email_verified?: boolean;
+  name?: string;
+  preferred_username?: string;
 }
 
 export class AuthService {
   constructor(
     private readonly store: Store,
     private readonly config: AuthConfig,
-  ) {}
+  ) {
+    this.oidcStateSecret = randomBytes(32);
+  }
+
+  private readonly oidcStateSecret: Buffer;
+  /**
+   * Single-use guard for in-flight state values, keyed to when each one
+   * stops being valid. `oidcStart` is unauthenticated and callable at any
+   * rate, so an abandoned flow — someone who never returns from the
+   * provider, or a deliberate flood of start requests — must not grow this
+   * forever; every call prunes what's already expired before adding its own
+   * entry, so the map stays bounded to what's actually still live rather
+   * than accumulating for the life of the process.
+   */
+  private readonly oidcStates = new Map<string, number>();
+
+  oidcEnabled(): boolean {
+    const oidc = this.config.oidc;
+    return Boolean(oidc?.issuer && oidc.clientId && oidc.clientSecret && oidc.redirectUri);
+  }
+
+  async oidcStart(): Promise<OidcStart> {
+    const oidc = this.requireOidc();
+    const metadata = await this.oidcMetadata(oidc.issuer);
+    const verifier = randomBytes(32).toString("base64url");
+    const state = randomBytes(32).toString("base64url");
+    this.pruneExpiredOidcStates();
+    this.oidcStates.set(state, Date.now() + OIDC_STATE_TTL_MS);
+    const nonce = randomBytes(32).toString("base64url");
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    // The provider only ever gets this one opaque value back to us verbatim
+    // in its callback — so what we hand it here has to be the *signed* state,
+    // the same one the callback route compares against the cookie. Sending
+    // the raw, unsigned `state` instead (as this used to) meant the value the
+    // provider echoed back could never match what the cookie held: no real
+    // sign-in could ever complete.
+    const signedState = this.signState(state, nonce);
+    const url = new URL(metadata.authorization_endpoint);
+    url.search = new URLSearchParams({
+      client_id: oidc.clientId,
+      redirect_uri: oidc.redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      state: signedState,
+      nonce,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    }).toString();
+    return { authorizationUrl: url.toString(), state: signedState, verifier };
+  }
+
+  async oidcComplete(input: {
+    code: string;
+    state: string;
+    verifier: string;
+  }): Promise<{ user: User; token: string }> {
+    const oidc = this.requireOidc();
+    const state = this.verifyState(input.state);
+    if (!state || !this.oidcStates.delete(state.value)) {
+      throw new ZelyqError("unauthorized", "The identity sign-in expired. Start again.");
+    }
+    const metadata = await this.oidcMetadata(oidc.issuer);
+    const response = await fetch(metadata.token_endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: input.code,
+        redirect_uri: oidc.redirectUri,
+        client_id: oidc.clientId,
+        client_secret: oidc.clientSecret,
+        code_verifier: input.verifier,
+      }),
+    });
+    if (!response.ok)
+      throw new ZelyqError("unauthorized", "The identity provider rejected sign-in.");
+    const token = (await response.json()) as { access_token?: string };
+    if (!token.access_token || !metadata.userinfo_endpoint) {
+      throw new ZelyqError("internal", "The identity provider returned an incomplete response.");
+    }
+    const claimsResponse = await fetch(metadata.userinfo_endpoint, {
+      headers: { authorization: `Bearer ${token.access_token}` },
+    });
+    if (!claimsResponse.ok)
+      throw new ZelyqError("unauthorized", "Could not read your identity provider profile.");
+    const claims = (await claimsResponse.json()) as OidcClaims;
+    if (!claims.sub || !claims.email)
+      throw new ZelyqError("unauthorized", "Your identity provider did not provide an email.");
+    if (
+      claimsResponse.url &&
+      new URL(claimsResponse.url).origin !== new URL(metadata.userinfo_endpoint).origin
+    ) {
+      throw new ZelyqError("unauthorized", "The identity provider returned an invalid profile.");
+    }
+    const user = await this.findOrCreateOidcUser(metadata.issuer, claims);
+    return { user, token: await this.createSession(user.id) };
+  }
+
+  private requireOidc(): {
+    issuer: string;
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+  } {
+    const oidc = this.config.oidc;
+    if (!oidc?.issuer || !oidc.clientId || !oidc.clientSecret || !oidc.redirectUri) {
+      throw new ZelyqError("not_found", "Single sign-on is not enabled on this instance.");
+    }
+    return {
+      issuer: oidc.issuer,
+      clientId: oidc.clientId,
+      clientSecret: oidc.clientSecret,
+      redirectUri: oidc.redirectUri,
+    };
+  }
+
+  private async oidcMetadata(issuer: string): Promise<OidcMetadata> {
+    const response = await fetch(`${issuer.replace(/\/$/, "")}/.well-known/openid-configuration`);
+    if (!response.ok) throw new ZelyqError("internal", "Could not reach the identity provider.");
+    const metadata = (await response.json()) as OidcMetadata;
+    if (
+      metadata.issuer.replace(/\/$/, "") !== issuer.replace(/\/$/, "") ||
+      !metadata.authorization_endpoint ||
+      !metadata.token_endpoint ||
+      !metadata.userinfo_endpoint
+    ) {
+      throw new ZelyqError("internal", "The identity provider configuration is invalid.");
+    }
+    return metadata;
+  }
+
+  private signState(value: string, nonce: string): string {
+    const payload = Buffer.from(
+      JSON.stringify({ value, nonce, expiresAt: Date.now() + OIDC_STATE_TTL_MS }),
+    ).toString("base64url");
+    const signature = createHmac("sha256", this.oidcStateSecret)
+      .update(payload)
+      .digest("base64url");
+    return `${payload}.${signature}`;
+  }
+
+  /** Called on every `oidcStart` so an unauthenticated flood of starts can't
+   * grow `oidcStates` past what's actually still within its TTL. */
+  private pruneExpiredOidcStates(): void {
+    const now = Date.now();
+    for (const [value, expiresAt] of this.oidcStates) {
+      if (expiresAt <= now) this.oidcStates.delete(value);
+    }
+  }
+
+  private verifyState(signed: string): { value: string; nonce: string } | null {
+    const [payload, signature] = signed.split(".");
+    if (!payload || !signature) return null;
+    const expected = createHmac("sha256", this.oidcStateSecret).update(payload).digest();
+    const actual = Buffer.from(signature, "base64url");
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+      value?: string;
+      nonce?: string;
+      expiresAt?: number;
+    };
+    return parsed.value && parsed.nonce && parsed.expiresAt && parsed.expiresAt > Date.now()
+      ? { value: parsed.value, nonce: parsed.nonce }
+      : null;
+  }
+
+  private async findOrCreateOidcUser(issuer: string, claims: OidcClaims): Promise<User> {
+    const linked = await this.store.oidcIdentities.find(issuer, claims.sub);
+    if (linked) return (await this.store.users.findById(linked.userId))!;
+    const email = claims.email!.trim().toLowerCase();
+    // Applies before existing/new is even decided — an unverified claim must
+    // never establish an identity either way. Checking it only inside the
+    // "existing account" branch (as this used to) left the "new account"
+    // branch free to create an account under an email the caller does not
+    // actually control, which a later, genuinely verified sign-in from the
+    // real owner would then silently link to — a standing backdoor into
+    // their account. See docs/configuration.md's OIDC section.
+    if (claims.email_verified !== true) {
+      throw new ZelyqError(
+        "unauthorized",
+        "Your identity provider did not confirm your email address, so it cannot be used to sign in here.",
+      );
+    }
+    const existing = await this.store.users.findByEmail(email);
+    if (existing) {
+      await this.store.oidcIdentities.create({
+        id: randomUUID(),
+        userId: existing.id,
+        issuer,
+        subject: claims.sub,
+      });
+      return existing;
+    }
+    if (!(await this.isFirstRun()) && !(await this.config.allowRegistration())) {
+      throw new ZelyqError("forbidden", "Registration is closed on this instance.");
+    }
+    const firstRun = await this.isFirstRun();
+    const user = await this.store.users.create({
+      id: newId("user"),
+      email,
+      name: (claims.name ?? claims.preferred_username ?? email).trim().slice(0, 80),
+      passwordHash: `oidc$${randomBytes(32).toString("hex")}`,
+      instanceRole: firstRun ? "admin" : "member",
+    });
+    const team = await this.store.teams.create({
+      id: newId("team"),
+      name: firstRun ? "Default team" : `${user.name}'s team`,
+      slug: await this.uniqueSlug(slugify(firstRun ? "default" : user.name, "team")),
+    });
+    await this.store.teams.addMember(team.id, user.id, "owner");
+    if (firstRun) await this.store.projects.reassignTeam(null, team.id);
+    await this.store.oidcIdentities.create({
+      id: randomUUID(),
+      userId: user.id,
+      issuer,
+      subject: claims.sub,
+    });
+    return user;
+  }
 
   /** True when nobody has signed up yet — the UI shows first-run setup. */
   async isFirstRun(): Promise<boolean> {

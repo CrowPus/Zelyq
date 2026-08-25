@@ -57,6 +57,13 @@
       "when": 1787611204394,
       "tag": "0007_ordinary_vampiro",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787650000000,
+      "tag": "0008_oidc_identities",
+      "breakpoints": true
     }
   ]
 }

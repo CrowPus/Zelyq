@@ -1,10 +1,22 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { AttachmentRef, Message, ToolCall } from "@zelyq/core";
-import { ArrowUp, ChevronRight, CircleAlert, Crosshair, Paperclip, Square, X } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronRight,
+  CircleAlert,
+  Crosshair,
+  GraduationCap,
+  Paperclip,
+  Puzzle,
+  Square,
+  X,
+} from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
+import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
+import { findSlashCommand, matchByPrefix, replaceSlashCommand } from "../lib/slash-menu";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, StatusDot } from "./ui";
 import { ZelyqThinking } from "./ZelyqThinking";
@@ -30,11 +42,25 @@ interface Props {
   chat: ChatState & {
     send(
       message: string,
-      override?: { provider?: string; model?: string; attachments?: AttachmentRef[] },
+      override?: {
+        provider?: string;
+        model?: string;
+        attachments?: AttachmentRef[];
+        skills?: string[];
+        plugins?: string[];
+      },
     ): void;
     abort(): void;
   };
   model?: string;
+  /** What `/` in the composer offers — see `044`. Name and description only;
+   * a skill's full body never reaches the browser. */
+  skills: Array<{ name: string; description: string }>;
+  /** Loaded plugin tool names — offered in the `/` menu the same way skills
+   * are. Picking one can only ever produce a strong instruction naming the
+   * tool, never a content guarantee the way a skill's body is — a plugin is
+   * a function, not text — but it is still a real per-message choice. */
+  plugins: string[];
   projectId: string;
   /** Editors and above. The server checks again on the restore call. */
   canEdit: boolean;
@@ -55,6 +81,8 @@ interface Props {
 export function ChatPanel({
   chat,
   model,
+  skills,
+  plugins,
   projectId,
   canEdit,
   pointedElement,
@@ -68,6 +96,13 @@ export function ChatPanel({
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
   /** Uploaded and ready to send with the next prompt — see `037`. */
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
+  /** Picked from the `/` menu, guaranteed to be used — see `044`. */
+  const [selectedSkills, setSelectedSkills] = useState<
+    Array<{ name: string; description: string }>
+  >([]);
+  /** Picked from the `/` menu's Plugins section — see `044`'s follow-up.
+   * Names only; there's no body to hold onto the way a skill has one. */
+  const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -80,6 +115,90 @@ export function ChatPanel({
    */
   const following = useRef(true);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  /** Tracked so the slash command can be found wherever the cursor actually
+   * is, not just at the end of the draft — see `044`'s correction. */
+  const [cursor, setCursor] = useState(0);
+
+  const providers = useQuery({
+    queryKey: ["providers"],
+    queryFn: api.getProviders,
+    staleTime: 60_000,
+  });
+  const modelOptions = (providers.data?.providers ?? []).flatMap((provider) =>
+    provider.configured && provider.id !== "custom" && provider.models?.length
+      ? provider.models.map((option) => ({
+          provider: provider.id,
+          model: option.value,
+          label: `${provider.label} — ${option.label}`,
+        }))
+      : [],
+  );
+
+  // The menu is derived, not stateful — the draft and cursor together *are*
+  // its open state. See lib/slash-menu.ts.
+  const slashCommand = findSlashCommand(draft, cursor);
+  const matchingSkills = slashCommand
+    ? matchByPrefix(
+        skills.filter((skill) => !selectedSkills.some((selected) => selected.name === skill.name)),
+        slashCommand.query,
+        (skill) => skill.name,
+      )
+    : [];
+  const matchingModels = slashCommand
+    ? matchByPrefix(modelOptions, slashCommand.query, (option) => option.label)
+    : [];
+  const matchingPlugins = slashCommand
+    ? matchByPrefix(
+        plugins.filter((name) => !selectedPlugins.includes(name)),
+        slashCommand.query,
+        (name) => name,
+      )
+    : [];
+  const showSlashMenu =
+    matchingSkills.length > 0 || matchingModels.length > 0 || matchingPlugins.length > 0;
+  // The single flat list Enter/Tab picks the first row of — skills first, so
+  // the thing `044` actually exists for wins a tie.
+  const firstMatch: { kind: "skill" | "model" | "plugin"; index: number } | null =
+    matchingSkills.length > 0
+      ? { kind: "skill", index: 0 }
+      : matchingModels.length > 0
+        ? { kind: "model", index: 0 }
+        : matchingPlugins.length > 0
+          ? { kind: "plugin", index: 0 }
+          : null;
+
+  function selectSkill(skill: { name: string; description: string }) {
+    if (!slashCommand) return;
+    setSelectedSkills((previous) => [...previous, skill]);
+    applySlashReplacement(slashCommand);
+  }
+
+  function selectModelOption(option: { provider: string; model: string; label: string }) {
+    if (!slashCommand) return;
+    setModelChoice(option);
+    applySlashReplacement(slashCommand);
+  }
+
+  function selectPlugin(name: string) {
+    if (!slashCommand) return;
+    setSelectedPlugins((previous) => [...previous, name]);
+    applySlashReplacement(slashCommand);
+  }
+
+  /** Removes the `/query` fragment the selection just resolved, wherever in
+   * the draft it was, and puts the cursor back exactly where it stood. */
+  function applySlashReplacement(command: NonNullable<typeof slashCommand>) {
+    const next = replaceSlashCommand(draft, command);
+    setDraft(next);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(command.start, command.start);
+      setCursor(command.start);
+    });
+  }
 
   /**
    * Pinned by watching the content's height rather than guessing which values
@@ -104,7 +223,15 @@ export function ChatPanel({
   function submit(event: FormEvent) {
     event.preventDefault();
     const message = draft.trim();
-    if ((!message && attachments.length === 0 && !pointedElement) || chat.busy || uploading > 0) {
+    if (
+      (!message &&
+        attachments.length === 0 &&
+        !pointedElement &&
+        selectedSkills.length === 0 &&
+        selectedPlugins.length === 0) ||
+      chat.busy ||
+      uploading > 0
+    ) {
       return;
     }
     // Woven in client-side, ahead of what was typed — the exact same string
@@ -113,9 +240,18 @@ export function ChatPanel({
     chat.send(finalMessage, {
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(attachments.length ? { attachments } : {}),
+      // Names only — the guaranteed weaving happens agent-side, from a
+      // skill's already-loaded body, not from anything sent here. See `044`.
+      ...(selectedSkills.length ? { skills: selectedSkills.map((skill) => skill.name) } : {}),
+      // Names only, too — agent-side this becomes an instruction naming the
+      // tool, not real content the way a skill's body is. See `044`'s follow-up.
+      ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
     });
     setDraft("");
+    setCursor(0);
     setAttachments([]);
+    setSelectedSkills([]);
+    setSelectedPlugins([]);
     setUploadError(null);
     onClearPointedElement();
     textareaRef.current?.focus();
@@ -243,10 +379,125 @@ export function ChatPanel({
         </div>
       </div>
 
-      <form onSubmit={submit} className="shrink-0 border-t border-border-default p-2.5">
+      <form onSubmit={submit} className="relative shrink-0 border-t border-border-default p-2.5">
+        {showSlashMenu && (
+          <div
+            role="listbox"
+            aria-label="Commands"
+            className="absolute inset-x-2.5 bottom-full z-10 mb-1.5 max-h-64 overflow-y-auto rounded-md border border-border-default bg-overlay py-1 shadow-overlay"
+          >
+            {matchingModels.length > 0 && (
+              <SlashSection title="Model">
+                {matchingModels.map((option, index) => (
+                  <button
+                    key={`${option.provider}:${option.model}`}
+                    type="button"
+                    className={`flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left font-mono text-xs text-fg ${
+                      firstMatch?.kind === "model" && index === 0
+                        ? "bg-surface-hover"
+                        : "hover:bg-surface-hover"
+                    }`}
+                    onClick={() => selectModelOption(option)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </SlashSection>
+            )}
+            {matchingSkills.length > 0 && (
+              <SlashSection title="Skills">
+                {matchingSkills.map((skill, index) => (
+                  <button
+                    key={skill.name}
+                    type="button"
+                    className={`flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left ${
+                      firstMatch?.kind === "skill" && index === 0
+                        ? "bg-surface-hover"
+                        : "hover:bg-surface-hover"
+                    }`}
+                    onClick={() => selectSkill(skill)}
+                  >
+                    <span className="flex items-center gap-1.5 font-mono text-xs text-fg">
+                      <GraduationCap
+                        size={12}
+                        strokeWidth={1.75}
+                        className="shrink-0 text-fg-muted"
+                      />
+                      {skill.name}
+                    </span>
+                    <span className="truncate text-2xs text-fg-secondary">{skill.description}</span>
+                  </button>
+                ))}
+              </SlashSection>
+            )}
+            {matchingPlugins.length > 0 && (
+              <SlashSection title="Plugins">
+                {matchingPlugins.map((name, index) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left font-mono text-xs text-fg ${
+                      firstMatch?.kind === "plugin" && index === 0
+                        ? "bg-surface-hover"
+                        : "hover:bg-surface-hover"
+                    }`}
+                    onClick={() => selectPlugin(name)}
+                  >
+                    <Puzzle size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+                    {name}
+                  </button>
+                ))}
+              </SlashSection>
+            )}
+          </div>
+        )}
         <div className="rounded-md border border-border-default bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-focus focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_26%,transparent)]">
-          {(pointedElement || attachments.length > 0 || uploading > 0) && (
+          {(pointedElement ||
+            attachments.length > 0 ||
+            uploading > 0 ||
+            selectedSkills.length > 0 ||
+            selectedPlugins.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2.5 pt-2">
+              {selectedSkills.map((skill) => (
+                <span
+                  key={skill.name}
+                  title={skill.description}
+                  className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary"
+                >
+                  <GraduationCap size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+                  <span className="max-w-40 truncate font-mono">{skill.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Don't use the ${skill.name} skill`}
+                    onClick={() =>
+                      setSelectedSkills((previous) => previous.filter((s) => s.name !== skill.name))
+                    }
+                    className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
+              {selectedPlugins.map((name) => (
+                <span
+                  key={name}
+                  title={`Use the ${name} tool for this task`}
+                  className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary"
+                >
+                  <Puzzle size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+                  <span className="max-w-40 truncate font-mono">{name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Don't use the ${name} tool`}
+                    onClick={() =>
+                      setSelectedPlugins((previous) => previous.filter((p) => p !== name))
+                    }
+                    className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
               {pointedElement && (
                 <span className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary">
                   <Crosshair size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
@@ -306,8 +557,27 @@ export function ChatPanel({
           <textarea
             ref={textareaRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setCursor(event.target.selectionStart ?? event.target.value.length);
+            }}
+            // The cursor moves on its own too — arrow keys, clicking
+            // elsewhere in the text — and the menu has to track it there as
+            // well, or it stays anchored to wherever it last opened.
+            onKeyUp={(event) => setCursor(event.currentTarget.selectionStart ?? 0)}
+            onClick={(event) => setCursor(event.currentTarget.selectionStart ?? 0)}
             onKeyDown={(event) => {
+              // While the menu is showing, Enter and Tab pick its first row
+              // instead of doing what they'd otherwise do — sending a turn
+              // with "/shadcn" still literally in it would be exactly the
+              // "hoped it noticed" failure `044` exists to remove.
+              if (showSlashMenu && (event.key === "Enter" || event.key === "Tab") && firstMatch) {
+                event.preventDefault();
+                if (firstMatch.kind === "skill") selectSkill(matchingSkills[0]!);
+                else if (firstMatch.kind === "model") selectModelOption(matchingModels[0]!);
+                else selectPlugin(matchingPlugins[0]!);
+                return;
+              }
               // Plain Enter sends, matching every other chat surface people
               // already use daily — Shift+Enter is what's reserved for a
               // newline, not the other way around.
@@ -645,25 +915,25 @@ function formatTokens(count: number): string {
   return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
 }
 
-/**
- * `btoa` needs a plain string, and spreading a large `Uint8Array` straight
- * into `String.fromCharCode` blows the call stack on anything past a few MB
- * — so it's built up in chunks instead.
- */
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+/** One titled group in the `/` menu — Model, Skills, Plugins — the same
+ * grouped shape the founder's own reference showed, not an undifferentiated
+ * list with no way to tell what kind of thing each row is. */
+function SlashSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-1 first:mt-0">
+      <div className="mt-1 border-t border-border-default first:mt-0 first:border-t-0" />
+      <p className="px-2.5 pt-1.5 pb-1 text-2xs font-medium tracking-[0.04em] text-fg-muted uppercase">
+        {title}
+      </p>
+      {children}
+    </div>
+  );
 }

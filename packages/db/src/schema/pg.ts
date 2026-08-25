@@ -79,6 +79,26 @@ export const authSessions = pgTable(
   }),
 );
 
+export const oidcIdentities = pgTable(
+  "oidc_identities",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    issuer: text("issuer").notNull(),
+    subject: text("subject").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    providerSubjectIdx: uniqueIndex("oidc_identities_issuer_subject_idx").on(
+      table.issuer,
+      table.subject,
+    ),
+    userIdx: index("oidc_identities_user_id_idx").on(table.userId),
+  }),
+);
+
 export const projects = pgTable(
   "projects",
   {
@@ -218,6 +238,7 @@ export const schema = {
   teams,
   teamMembers,
   authSessions,
+  oidcIdentities,
   projects,
   sessions,
   messages,

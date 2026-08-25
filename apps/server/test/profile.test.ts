@@ -25,11 +25,13 @@ const config: ServerConfig = {
   effort: "high",
   allowRegistration: true,
   sessionTtlDays: 30,
+  oidc: { issuer: undefined, clientId: undefined, clientSecret: undefined, redirectUri: undefined },
   templatesDir: path.join(repoRoot, "templates"),
   webDir: null,
   secretKey: randomBytes(32).toString("base64"),
   secretKeyFile: path.join(tmp, "secret.key"),
   attachmentsDir: path.join(tmp, "attachments"),
+  uploadedSkillsDir: path.join(tmp, "skills"),
   runtime: {
     kind: "local",
     workspaceDir: path.join(tmp, "workspace"),

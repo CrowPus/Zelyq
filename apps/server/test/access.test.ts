@@ -28,6 +28,7 @@ const config: ServerConfig = {
   secretKey: undefined,
   secretKeyFile: path.join(tmp, "secret.key"),
   attachmentsDir: path.join(tmp, "attachments"),
+  uploadedSkillsDir: path.join(tmp, "skills"),
   runtime: {
     kind: "local",
     workspaceDir: path.join(tmp, "workspace"),
@@ -82,6 +83,7 @@ test("everything is closed to anonymous callers", async () => {
 test("the first account becomes an owner with a team", async () => {
   const status = await server.app.inject({ method: "GET", url: "/api/auth/status" });
   assert.equal(status.json().firstRun, true);
+  assert.equal(status.json().oidcEnabled, false);
 
   const cookie = await register("owner@example.com", "Ada");
   const me = await server.app.inject({ method: "GET", url: "/api/auth/me", headers: as(cookie) });

@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+
+const [input, output] = process.argv.slice(2)
+
+if (!input || !output) {
+  console.error('Usage: optimize-glb <input.glb> <output.glb>')
+  console.error('Keeps the source untouched and creates an optimized WebP-texture runtime copy.')
+  process.exit(2)
+}
+
+if (!existsSync(input)) {
+  console.error(`Asset not found: ${input}`)
+  process.exit(2)
+}
+
+if (input === output) {
+  console.error('Refusing to overwrite the source asset. Choose a different output path.')
+  process.exit(2)
+}
+
+const result = spawnSync(
+  process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  ['--yes', '@gltf-transform/cli', 'optimize', input, output, '--texture-compress', 'webp'],
+  { stdio: 'inherit' }
+)
+
+if (result.error) {
+  console.error('Failed to run glTF Transform. Ensure Node.js/npm are available.')
+  console.error(result.error.message)
+  process.exit(1)
+}
+
+process.exit(result.status ?? 1)

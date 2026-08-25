@@ -47,6 +47,9 @@ ZELYQ_ALLOW_REGISTRATION=false
 so strangers cannot sign themselves up, and add people through the team screen instead. They register
 before you can add them, so create their accounts while signup is open, or turn it on briefly.
 
+Or skip the password route entirely and let people sign in with an identity they already have — see
+[configuration.md](./configuration.md#single-sign-on-oidc) for OIDC.
+
 Because sessions ride in a cookie, put the instance behind TLS — the cookie is only marked `Secure`
 on an HTTPS connection.
 

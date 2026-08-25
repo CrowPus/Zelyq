@@ -21,6 +21,7 @@ export function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const oidcError = new URLSearchParams(window.location.search).has("error");
 
   const registering = firstRun || mode === "register";
 
@@ -121,6 +122,13 @@ export function SignInPage() {
             </p>
           )}
 
+          {oidcError && !error && (
+            <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
+              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+              Single sign-on could not be completed. Please try again.
+            </p>
+          )}
+
           <Button type="submit" variant="primary" disabled={busy} className="mt-1 w-full">
             {busy
               ? "Working…"
@@ -131,6 +139,17 @@ export function SignInPage() {
                   : "Sign in"}
           </Button>
         </form>
+
+        {status.data?.oidcEnabled && !registering && (
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-3 w-full"
+            onClick={() => window.location.assign("/api/auth/oidc/start")}
+          >
+            Continue with single sign-on
+          </Button>
+        )}
 
         {!firstRun && (
           <p className="mt-4 text-center text-xs text-fg-muted">

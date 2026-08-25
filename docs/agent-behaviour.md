@@ -108,3 +108,8 @@ runtime swappable.
 Want to add a tool without touching the Zelyq checkout at all — your own script, kept in your own
 deployment? See [plugins.md](./plugins.md); it's the same `ToolContext`, loaded from a directory you
 name instead of a file in this repo.
+
+Want to teach the agent something without adding a tool at all — how to do one kind of task well,
+not a new capability? See [skills.md](./skills.md). A skill is instructions, not code: cheap in
+context until the agent actually asks for one, and loaded the same way a plugin is — a directory you
+name, read once at boot.

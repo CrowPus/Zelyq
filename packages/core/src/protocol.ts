@@ -143,6 +143,15 @@ export type PromptAttachment = z.infer<typeof promptAttachmentSchema>;
 export const promptSchema = z.object({
   message: z.string().min(1).max(100_000),
   attachments: z.array(promptAttachmentSchema).optional(),
+  /** Names only — the agent already has every skill's full body loaded
+   * (`042`) and weaves the selected ones into the message itself before the
+   * turn starts. See `044` in the council notes. */
+  skills: z.array(z.string()).optional(),
+  /** Names of any plugin tools picked from the same `/` menu — see `044`'s
+   * follow-up. A plugin has no body to guarantee the way a skill's does; a
+   * name here becomes a clear instruction to use that tool, woven into the
+   * message the same way, but honestly not the same kind of promise. */
+  plugins: z.array(z.string()).optional(),
 });
 export type PromptInput = z.infer<typeof promptSchema>;
 
@@ -175,6 +184,10 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
      */
     provider: providerIdSchema.optional(),
     model: z.string().optional(),
+    /** Picked from the composer's `/` skill picker — see `044`. Names only. */
+    skills: z.array(z.string()).optional(),
+    /** Picked from the same `/` menu's Plugins section — names only. */
+    plugins: z.array(z.string()).optional(),
   }),
   z.object({ type: z.literal("abort") }),
   z.object({ type: z.literal("ping") }),

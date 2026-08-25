@@ -18,6 +18,7 @@ import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerProviderRoutes } from "./routes/providers.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
+import { registerSkillRoutes } from "./routes/skills.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerTeamRoutes } from "./routes/teams.js";
 import { AccessControl } from "./services/access.js";
@@ -28,6 +29,7 @@ import { AuthService } from "./services/auth.js";
 import { ProjectService } from "./services/projects.js";
 import { resolveSecretKey, SecretBox } from "./services/secrets.js";
 import { SettingsService } from "./services/settings.js";
+import { SkillUploadService } from "./services/skill-uploads.js";
 import { ChatGateway } from "./ws/gateway.js";
 
 declare module "fastify" {
@@ -82,10 +84,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const auth = new AuthService(store, {
     allowRegistration: () => settings.booleanValue("allowRegistration"),
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
+    oidc: config.oidc,
   });
   const access = new AccessControl(store);
   const accounts = new AccountService(store, projects);
   const attachments = new AttachmentService(config.attachmentsDir);
+  const skillUploads = new SkillUploadService(config.uploadedSkillsDir);
 
   await app.register(cors, {
     origin: config.corsOrigin.includes("*") ? true : config.corsOrigin,
@@ -176,6 +180,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerAuthRoutes(app, { auth, sessionTtlDays: () => settings.numberValue("sessionTtlDays") });
   registerAccountRoutes(app, { accounts, auth, access });
   registerSettingsRoutes(app, { settings, access });
+  registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access });
   registerTeamRoutes(app, { store, access });
   registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });

@@ -1,8 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SettingField } from "@zelyq/core";
-import { CircleAlert, Lock, Puzzle, RotateCw, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  CircleAlert,
+  GraduationCap,
+  Lock,
+  Puzzle,
+  RotateCw,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "../components/AppShell";
+import { SkillUploadControl } from "../components/SkillUploadControl";
 import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -155,6 +164,41 @@ export function SettingsPage() {
                           .
                         </p>
                       )}
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 px-3 py-3">
+                    <GraduationCap
+                      size={14}
+                      strokeWidth={1.75}
+                      className="mt-0.5 shrink-0 text-fg-muted"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-fg">Skills</p>
+                      {health.data.agent.skills?.length ? (
+                        <p className="mt-0.5 flex flex-wrap gap-1.5">
+                          {health.data.agent.skills.map((skill) => (
+                            <span key={skill.name} title={skill.description}>
+                              <Badge tone="success">{skill.name}</Badge>
+                            </span>
+                          ))}
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 text-xs text-fg-secondary">
+                          None loaded. See{" "}
+                          <a
+                            href="https://github.com/CrowPus/Zelyq/blob/main/docs/skills.md"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline underline-offset-2 hover:text-fg"
+                          >
+                            docs/skills.md
+                          </a>
+                          .
+                        </p>
+                      )}
+                      <div className="mt-2">
+                        <SkillUploadControl />
+                      </div>
                     </div>
                   </div>
                 </>

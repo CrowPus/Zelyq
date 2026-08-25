@@ -31,10 +31,53 @@ export function registerAuthRoutes(
     });
   };
 
+  const setOidcStateCookie = (request: FastifyRequest, reply: FastifyReply, value: string) => {
+    reply.setCookie("zelyq_oidc_state", value, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/api/auth/oidc",
+      secure: request.protocol === "https",
+      maxAge: 10 * 60,
+    });
+  };
+
   /** Lets the sign-in screen offer "create the first account" on a fresh install. */
   app.get("/api/auth/status", async () => ({
     firstRun: await deps.auth.isFirstRun(),
+    oidcEnabled: deps.auth.oidcEnabled(),
   }));
+
+  app.get("/api/auth/oidc/start", async (request, reply) => {
+    const started = await deps.auth.oidcStart();
+    setOidcStateCookie(request, reply, `${started.state}|${started.verifier}`);
+    return reply.redirect(started.authorizationUrl);
+  });
+
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+    "/api/auth/oidc/callback",
+    async (request, reply) => {
+      const stateCookie = request.cookies.zelyq_oidc_state;
+      reply.clearCookie("zelyq_oidc_state", { path: "/api/auth/oidc" });
+      if (request.query.error || !request.query.code || !request.query.state || !stateCookie) {
+        return reply.redirect("/signin?error=oidc");
+      }
+      const [signedState, verifier] = stateCookie.split("|");
+      if (request.query.state !== signedState || !verifier)
+        return reply.redirect("/signin?error=oidc");
+      try {
+        const result = await deps.auth.oidcComplete({
+          code: request.query.code,
+          state: signedState,
+          verifier,
+        });
+        await setSessionCookie(request, reply, result.token);
+        return reply.redirect("/signin");
+      } catch (error) {
+        request.log.warn({ error }, "OIDC sign-in failed");
+        return reply.redirect("/signin?error=oidc");
+      }
+    },
+  );
 
   app.post("/api/auth/register", async (request, reply) => {
     const input = registerSchema.parse(request.body);

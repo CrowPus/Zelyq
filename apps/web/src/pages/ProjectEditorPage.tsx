@@ -185,6 +185,8 @@ export function ProjectEditorPage() {
             <ChatPanel
               chat={chat}
               model={health.data?.agent.model}
+              skills={health.data?.agent.skills ?? []}
+              plugins={health.data?.agent.plugins ?? []}
               projectId={id}
               canEdit={canEdit}
               pointedElement={pointedElement}
