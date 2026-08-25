@@ -1,9 +1,12 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "@zelyq/core/node";
 import { ALL_TOOLS } from "@zelyq/tools";
 import { loadAgentConfig } from "./config.js";
 import { loadPlugins } from "./plugins.js";
 import { PROVIDERS } from "./providers/index.js";
 import { buildAgentServer } from "./server.js";
+import { buildUseSkillTool, loadSkills } from "./skills.js";
 
 // Before anything reads process.env.
 const envFile = loadEnvFile();
@@ -17,10 +20,26 @@ const config = await loadAgentConfig();
 // without the agent's own boot log being the only place to see them.
 const plugins = await loadPlugins(process.env.ZELYQ_PLUGIN_DIR, ALL_TOOLS);
 
-const server = buildAgentServer(config, { pluginNames: plugins.loaded });
+// The repo's own `skills/` sits three levels above this file whether it is
+// running from source or from `dist` — same depth `apps/server/src/
+// config.ts` already resolves `templatesDir` at. See `042` in the council
+// notes.
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const skillsResult = await loadSkills(path.join(repoRoot, "skills"), process.env.ZELYQ_SKILLS_DIR);
+if (skillsResult.skills.length > 0) ALL_TOOLS.push(buildUseSkillTool(skillsResult.skills));
+
+const server = buildAgentServer(config, {
+  pluginNames: plugins.loaded,
+  skills: skillsResult.skills,
+});
 if (plugins.loaded.length > 0) {
   server.app.log.info(
     `${plugins.loaded.length} plugin tool(s) loaded: ${plugins.loaded.join(", ")}`,
+  );
+}
+if (skillsResult.skills.length > 0) {
+  server.app.log.info(
+    `${skillsResult.skills.length} skill(s) loaded: ${skillsResult.skills.map((s) => s.name).join(", ")}`,
   );
 }
 

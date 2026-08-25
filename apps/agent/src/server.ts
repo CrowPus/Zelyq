@@ -35,6 +35,8 @@ export interface AgentServerDeps {
    * on `/health` so an instance admin can confirm a plugin actually loaded
    * from the UI instead of reading the agent's own boot log. */
   pluginNames?: string[];
+  /** The skills every new session's prompt will list — see `042`. */
+  skills?: Array<{ name: string; description: string }>;
 }
 
 export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}): AgentServer {
@@ -94,6 +96,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       model: config.model,
       modelConfigured: Boolean(config.apiKey),
       plugins: deps.pluginNames ?? [],
+      skills: (deps.skills ?? []).map((skill) => skill.name),
       timestamp: new Date().toISOString(),
     };
   });
@@ -171,6 +174,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       runtime,
       maxIterations: config.maxTurnIterations,
       history: input.history,
+      skills: deps.skills,
       ...(deps.providerFactory ? { providerFactory: deps.providerFactory } : {}),
     });
 

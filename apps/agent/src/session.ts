@@ -33,6 +33,8 @@ export interface SessionOptions {
   runtime: RuntimeDriver;
   maxIterations: number;
   history?: Message[];
+  /** The name/description catalog only — see `042`. Empty when nothing loaded. */
+  skills?: Array<{ name: string; description: string }>;
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
@@ -79,6 +81,7 @@ export class AgentSession {
       systemPrompt: buildSystemPrompt({
         projectName: options.projectName,
         template: options.template,
+        skills: options.skills,
       }),
       tools: toolDefinitions(),
       effort: options.effort,

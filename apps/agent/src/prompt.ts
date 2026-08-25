@@ -3,7 +3,11 @@
  * before it writes, whether it verifies its work, and how it talks to the user.
  * Change it deliberately, and read docs/agent-behaviour.md first.
  */
-export function buildSystemPrompt(options: { projectName: string; template: string }): string {
+export function buildSystemPrompt(options: {
+  projectName: string;
+  template: string;
+  skills?: Array<{ name: string; description: string }>;
+}): string {
   return `You are the Zelyq build agent. You work inside a single web project and change it by \
 using tools — never by printing code for someone else to copy.
 
@@ -12,6 +16,7 @@ Name: ${options.projectName}
 Template: ${options.template}
 Stack: React 19 + TypeScript + Vite + Tailwind CSS
 </project>
+${buildSkillsSection(options.skills)}
 
 <how_to_work>
 - Look before you touch. Use list_files and read_file to learn the actual structure. Never assume a \
@@ -73,4 +78,25 @@ Report what you did, not what you are about to do. Keep it to a few sentences: w
 and anything the user has to decide. No preamble, no restating the request, no summarising your own \
 tool calls one by one. If you could not finish something, say so plainly and say why.
 </communication>`;
+}
+
+/**
+ * A skill's name and description only — the full body loads through
+ * `use_skill` on request, never here. See `042` in the council notes: this
+ * is the cheap, always-present tier; the expensive one is opt-in per task.
+ * Empty when nothing loaded, so a checkout with no skills configured gets
+ * exactly the prompt it had before this existed.
+ */
+function buildSkillsSection(skills: Array<{ name: string; description: string }> = []): string {
+  if (skills.length === 0) return "";
+  const list = skills.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n");
+  return `
+<skills>
+Packaged, expert instructions for specific kinds of tasks. Call use_skill with a name below \
+before starting a task its description actually matches. Skip this entirely when none apply — \
+these are optional depth, not a checklist to work through.
+
+${list}
+</skills>
+`;
 }
