@@ -31,6 +31,10 @@ export interface AgentServer {
 export interface AgentServerDeps {
   /** Overridable so tests can exercise the full turn without a network. */
   providerFactory?: ProviderFactory;
+  /** Names of any tools loaded from `ZELYQ_PLUGIN_DIR` — see `037`. Surfaced
+   * on `/health` so an instance admin can confirm a plugin actually loaded
+   * from the UI instead of reading the agent's own boot log. */
+  pluginNames?: string[];
 }
 
 export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}): AgentServer {
@@ -44,6 +48,13 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     // Turns can run for many minutes; the default socket timeout would cut the
     // SSE stream mid-answer.
     connectionTimeout: 0,
+    // Fastify's own default is 1MB — far under `037`'s 8MB attachment cap
+    // once an image is base64-encoded (~33% larger) and sitting inside the
+    // rest of the prompt payload the server forwards here. Matches the
+    // server's own bodyLimit (`app.ts`), which exists for the same reason.
+    // Found live: an attached screenshot 500'd with no useful message
+    // because this was still the framework default.
+    bodyLimit: 16 * 1024 * 1024,
     // The UI polls preview status on a timer, and Fastify's per-request logging
     // turns that into ~20 lines every few seconds — enough to bury a real
     // error. Errors and explicit log calls still come through; set
@@ -82,6 +93,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       provider: config.provider,
       model: config.model,
       modelConfigured: Boolean(config.apiKey),
+      plugins: deps.pluginNames ?? [],
       timestamp: new Date().toISOString(),
     };
   });
@@ -217,7 +229,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       if (!reply.raw.writableEnded) session.abort();
     });
 
-    await session.run(input.message, emit);
+    await session.run(input.message, emit, input.attachments);
     reply.raw.end();
   });
 

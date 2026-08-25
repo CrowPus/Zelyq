@@ -140,6 +140,8 @@ export const messages = pgTable(
     content: text("content").notNull().default(""),
     thinking: text("thinking"),
     toolCalls: text("tool_calls").notNull().default("[]"),
+    /** JSON-encoded AttachmentRef[] — see `037` in the council notes. */
+    attachments: text("attachments").notNull().default("[]"),
     /**
      * The project as it stood immediately before this turn ran, so the turn can
      * be undone. Null for user messages, and for assistant turns that predate

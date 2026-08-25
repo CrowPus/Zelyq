@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { PromptAttachment } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
 import type {
   Conversation,
@@ -52,6 +53,32 @@ export function buildAnthropicHistory(
   return messages;
 }
 
+/**
+ * Builds the `content` for one user turn — plain text when there are no
+ * attachments (Anthropic accepts a bare string there), or the block-array
+ * form when there are. A pure function of its arguments, same reason
+ * `buildAnthropicHistory` is: testable without a live client or the
+ * non-exported `AnthropicConversation` class it lives inside. Images before
+ * text — the documented Anthropic convention, and a model reads what it's
+ * looking at before the caption for it. See `037` in the council notes.
+ */
+export function buildAnthropicUserContent(
+  text: string,
+  attachments?: PromptAttachment[],
+): Anthropic.MessageParam["content"] {
+  if (!attachments?.length) return text;
+  const content: Anthropic.MessageParam["content"] = attachments.map((attachment) => ({
+    type: "image" as const,
+    source: {
+      type: "base64" as const,
+      media_type: attachment.mimeType as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
+      data: attachment.data,
+    },
+  }));
+  if (text.trim()) content.push({ type: "text", text });
+  return content;
+}
+
 export class AnthropicProvider implements ModelProvider {
   readonly id = "anthropic" as const;
 
@@ -80,8 +107,8 @@ class AnthropicConversation implements Conversation {
     this.messages = buildAnthropicHistory(options.history ?? []);
   }
 
-  addUserMessage(text: string): void {
-    this.messages.push({ role: "user", content: text });
+  addUserMessage(text: string, attachments?: PromptAttachment[]): void {
+    this.messages.push({ role: "user", content: buildAnthropicUserContent(text, attachments) });
   }
 
   addToolResults(results: ToolResult[]): void {

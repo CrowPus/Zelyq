@@ -1,5 +1,6 @@
 import type {
   AddMemberInput,
+  AttachmentRef,
   AuditLogEntry,
   AvailableProviders,
   ChangePasswordInput,
@@ -124,7 +125,14 @@ export const api = {
     request<{
       status: string;
       provider: string;
-      agent: { status: string; provider?: string; model?: string };
+      runtime: { ok: boolean; detail?: string };
+      agent: {
+        status: string;
+        provider?: string;
+        model?: string;
+        /** Tool names loaded from `ZELYQ_PLUGIN_DIR` at the agent's last boot. See `037`. */
+        plugins?: string[];
+      };
     }>("/health"),
 
   listTemplates: () =>
@@ -181,4 +189,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ label }),
     }),
+
+  /** `data` is base64. See `037` — 8MB cap, enforced again server-side. */
+  uploadAttachment: (
+    projectId: string,
+    input: { filename: string; mimeType: string; data: string },
+  ) =>
+    request<{ attachment: AttachmentRef }>(`/projects/${projectId}/attachments`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  /** Not a `request()` call — this is a URL for an `<img>` or a download link,
+   * not JSON to parse. The browser sends the session cookie itself. */
+  attachmentUrl: (projectId: string, attachmentId: string) =>
+    `/api/projects/${projectId}/attachments/${attachmentId}`,
 };

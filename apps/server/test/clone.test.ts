@@ -44,6 +44,7 @@ const config: ServerConfig = {
   webDir: null,
   secretKey: randomBytes(32).toString("base64"),
   secretKeyFile: path.join(tmp, "secret.key"),
+  attachmentsDir: path.join(tmp, "attachments"),
   runtime: {
     kind: "local",
     workspaceDir: path.join(tmp, "workspace"),

@@ -104,3 +104,7 @@ injecting a timestamp, say — you invalidate that on every request and pay full
 The tool receives a `ToolContext` and nothing else. If it needs something not on that context, add
 it there rather than importing a global — that constraint is what keeps tools testable and the
 runtime swappable.
+
+Want to add a tool without touching the Zelyq checkout at all — your own script, kept in your own
+deployment? See [plugins.md](./plugins.md); it's the same `ToolContext`, loaded from a directory you
+name instead of a file in this repo.

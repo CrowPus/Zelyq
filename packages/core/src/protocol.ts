@@ -125,10 +125,24 @@ export const createAgentSessionSchema = z.object({
 });
 export type CreateAgentSessionInput = z.infer<typeof createAgentSessionSchema>;
 
+/**
+ * A resolved attachment, exactly as a provider needs to embed it — never an
+ * ID the agent would have to look up itself. The agent has no access to the
+ * server's attachment storage (a different process, possibly a different
+ * machine for a remote runtime); the server resolves an ID to these bytes
+ * before this ever reaches here. See `037` in the council notes.
+ */
+export const promptAttachmentSchema = z.object({
+  filename: z.string(),
+  mimeType: z.string(),
+  /** Base64-encoded bytes. */
+  data: z.string(),
+});
+export type PromptAttachment = z.infer<typeof promptAttachmentSchema>;
+
 export const promptSchema = z.object({
   message: z.string().min(1).max(100_000),
-  /** Paths the user attached as context (relative to the project root). */
-  attachments: z.array(z.string()).optional(),
+  attachments: z.array(promptAttachmentSchema).optional(),
 });
 export type PromptInput = z.infer<typeof promptSchema>;
 

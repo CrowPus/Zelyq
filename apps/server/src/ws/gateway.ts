@@ -1,8 +1,10 @@
 import {
   type AgentEvent,
+  type AttachmentRef,
   clientMessageSchema,
   type Message,
   newId,
+  type PromptAttachment,
   type Role,
   roleAtLeast,
   type ToolCall,
@@ -12,8 +14,12 @@ import type { Store } from "@zelyq/db";
 import type { WebSocket } from "ws";
 import type { AccessControl } from "../services/access.js";
 import type { AgentClient } from "../services/agent-client.js";
+import type { AttachmentService } from "../services/attachments.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
+
+/** What a provider actually knows how to embed as an image — see `037`. */
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 interface Room {
   projectId: string;
@@ -46,6 +52,7 @@ export class ChatGateway {
     private readonly agent: AgentClient,
     private readonly access: AccessControl,
     private readonly settings: SettingsService,
+    private readonly attachments: AttachmentService,
     private readonly log: { info(msg: string): void; error(obj: unknown, msg?: string): void },
   ) {}
 
@@ -130,6 +137,7 @@ export class ChatGateway {
     await this.runTurn(room, message.message, {
       provider: message.provider,
       model: message.model,
+      attachmentIds: message.attachments,
     });
   }
 
@@ -137,7 +145,7 @@ export class ChatGateway {
     room: Room,
     prompt: string,
     /** Picked from the chat's own model control, if at all — see `033`. */
-    override: { provider?: string; model?: string } = {},
+    override: { provider?: string; model?: string; attachmentIds?: string[] } = {},
   ): Promise<void> {
     if (room.turn) {
       this.broadcast(room, {
@@ -150,8 +158,62 @@ export class ChatGateway {
       return;
     }
 
+    // Resolved before anything is persisted, so a bad attachment id refuses
+    // the turn cleanly rather than leaving a user message with a reference
+    // to something that never actually made it to the model. See `037` in
+    // the council notes: an image goes to the model as itself; anything
+    // else is inlined as text, refused rather than silently mangled if it
+    // is not valid UTF-8.
+    const attachmentRefs: AttachmentRef[] = [];
+    const imageAttachments: PromptAttachment[] = [];
+    let promptForAgent = prompt;
+    if (override.attachmentIds?.length) {
+      let inlinedText = "";
+      for (const id of override.attachmentIds) {
+        const found = await this.attachments.get(room.projectId, id);
+        if (!found) {
+          this.broadcast(room, {
+            type: "error",
+            sessionId: room.sessionId,
+            code: "bad_request",
+            message: "One of the attached files could not be found. Attach it again.",
+            fatal: false,
+          });
+          return;
+        }
+        attachmentRefs.push(found.ref);
+        if (IMAGE_MIME_TYPES.has(found.ref.mimeType)) {
+          imageAttachments.push({
+            filename: found.ref.filename,
+            mimeType: found.ref.mimeType,
+            data: found.data.toString("base64"),
+          });
+          continue;
+        }
+        let text: string;
+        try {
+          text = new TextDecoder("utf-8", { fatal: true }).decode(found.data);
+        } catch {
+          this.broadcast(room, {
+            type: "error",
+            sessionId: room.sessionId,
+            code: "bad_request",
+            message:
+              `"${found.ref.filename}" isn't an image or a text file Zelyq can read — attach ` +
+              "an image, or a plain text file, instead.",
+            fatal: false,
+          });
+          return;
+        }
+        inlinedText += `\n\n--- Attached file: ${found.ref.filename} ---\n${text}\n--- End of ${found.ref.filename} ---`;
+      }
+      promptForAgent = prompt + inlinedText;
+    }
+
     // Persist the user's message before anything can fail, so a crashed turn
-    // still leaves a readable transcript.
+    // still leaves a readable transcript. `content` stays exactly what was
+    // typed — inlined attachment text is only ever added to what the model
+    // sees, never to what the transcript shows was typed.
     const userMessage: Message = {
       id: newId("message"),
       sessionId: room.sessionId,
@@ -159,6 +221,7 @@ export class ChatGateway {
       content: prompt,
       thinking: null,
       toolCalls: [],
+      attachments: attachmentRefs,
       snapshotId: null,
       tokensIn: 0,
       tokensOut: 0,
@@ -246,6 +309,7 @@ export class ChatGateway {
       content: "",
       thinking: null,
       toolCalls: [],
+      attachments: [],
       snapshotId,
       tokensIn: 0,
       tokensOut: 0,
@@ -254,7 +318,12 @@ export class ChatGateway {
     const toolCalls = new Map<string, ToolCall>();
 
     try {
-      for await (const event of this.agent.prompt(room.sessionId, prompt, room.turn.signal)) {
+      for await (const event of this.agent.prompt(
+        room.sessionId,
+        promptForAgent,
+        room.turn.signal,
+        imageAttachments,
+      )) {
         // The agent builds its own copy of the finished message, and it does not
         // know about the snapshot this server took before the turn. Broadcasting
         // the agent's copy meant the undo control only appeared after a reload.

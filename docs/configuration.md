@@ -156,6 +156,7 @@ the clear where TLS is available.
 | `ZELYQ_WORKSPACE_DIR` | `./workspace` | Where project files live in local mode. |
 | `ZELYQ_TEMPLATES_DIR` | `<repo>/templates` | Where starter templates are read from. |
 | `ZELYQ_WEB_DIR` | `apps/web/dist` in production | Built UI to serve. Unset in development. |
+| `ZELYQ_ATTACHMENTS_DIR` | `<data dir>/attachments` | Where uploaded prompt attachments live — beside the database, never inside a project's own workspace. See [attachments.md](./attachments.md) for why. |
 
 Migrations run automatically when the server boots.
 
@@ -177,6 +178,7 @@ Migrations run automatically when the server boots.
 | `ZELYQ_PREVIEW_PORT_MAX` | `4399` | End of the range — this many concurrent previews. |
 | `ZELYQ_PREVIEW_HOST` | `127.0.0.1` | Decides whether project dev servers bind `127.0.0.1` or all interfaces — set it to anything other than loopback on a VM or remote host, or previews are not reachable from outside the machine at all. The web UI figures out the address it displays and loads a preview at from the browser's own location, not from this variable, so you no longer need to get the exact value right for previews to load — only the loopback-or-not choice, for whether they're reachable at all. Non-browser callers of the API (a script, `curl`) still get this value in the `url` field. |
 | `ZELYQ_MAX_TURN_ITERATIONS` | `50` | Model round-trips per turn before the loop stops. Raises the ceiling on long builds; also raises the worst-case cost. |
+| `ZELYQ_PLUGIN_DIR` | — | A local directory of extra tools for the agent, loaded once at boot. See [plugins.md](./plugins.md). |
 
 ### Running agent commands and the preview in a container
 
