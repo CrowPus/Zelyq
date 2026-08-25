@@ -29,6 +29,14 @@ const shared = {
   ZELYQ_PREVIEW_PORT_MIN: "4500",
   ZELYQ_PREVIEW_PORT_MAX: "4599",
   ZELYQ_PREVIEW_HOST: "127.0.0.1",
+  // Pinned explicitly, not left to whatever .env happens to say — found
+  // live: a real instance's .env set ZELYQ_SERVER_HOST to its own external
+  // IP, which this process can't actually bind() to (that address isn't a
+  // local interface, just how the machine is reached from outside), and
+  // this suite silently inherited it instead of staying isolated the way
+  // the comment above already promises it does.
+  ZELYQ_SERVER_HOST: "127.0.0.1",
+  ZELYQ_AGENT_HOST: "127.0.0.1",
 };
 
 export default defineConfig({

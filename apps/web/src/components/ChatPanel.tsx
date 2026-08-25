@@ -1,9 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
 import type { AttachmentRef, Message, ToolCall } from "@zelyq/core";
-import { ArrowUp, ChevronRight, CircleAlert, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, ChevronRight, CircleAlert, Crosshair, Paperclip, Square, X } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
+import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, StatusDot } from "./ui";
 import { ZelyqThinking } from "./ZelyqThinking";
@@ -37,6 +38,10 @@ interface Props {
   projectId: string;
   /** Editors and above. The server checks again on the restore call. */
   canEdit: boolean;
+  /** Clicked in the preview with the inspector on — see `038`. Null when
+   * nothing is currently pointed at. */
+  pointedElement: SelectedElement | null;
+  onClearPointedElement(): void;
   /** The project on disk changed, so the file tree and preview are stale. */
   onReverted(): void;
   /**
@@ -47,7 +52,16 @@ interface Props {
   onOpenDiff(path: string, before: string, after: string | null): void;
 }
 
-export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenDiff }: Props) {
+export function ChatPanel({
+  chat,
+  model,
+  projectId,
+  canEdit,
+  pointedElement,
+  onClearPointedElement,
+  onReverted,
+  onOpenDiff,
+}: Props) {
   const [draft, setDraft] = useState("");
   /** Picked from the composer's own model control — see `033`. Null means
    * the instance default, unchanged. */
@@ -90,14 +104,20 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
   function submit(event: FormEvent) {
     event.preventDefault();
     const message = draft.trim();
-    if ((!message && attachments.length === 0) || chat.busy || uploading > 0) return;
-    chat.send(message, {
+    if ((!message && attachments.length === 0 && !pointedElement) || chat.busy || uploading > 0) {
+      return;
+    }
+    // Woven in client-side, ahead of what was typed — the exact same string
+    // field chat.send() already carries, nothing new downstream. See `038`.
+    const finalMessage = pointedElement ? withPointedElement(message, pointedElement) : message;
+    chat.send(finalMessage, {
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(attachments.length ? { attachments } : {}),
     });
     setDraft("");
     setAttachments([]);
     setUploadError(null);
+    onClearPointedElement();
     textareaRef.current?.focus();
   }
 
@@ -225,8 +245,24 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
 
       <form onSubmit={submit} className="shrink-0 border-t border-border-default p-2.5">
         <div className="rounded-md border border-border-default bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-focus focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_26%,transparent)]">
-          {(attachments.length > 0 || uploading > 0) && (
+          {(pointedElement || attachments.length > 0 || uploading > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2.5 pt-2">
+              {pointedElement && (
+                <span className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary">
+                  <Crosshair size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+                  <span className="max-w-40 truncate font-mono">
+                    {describeElement(pointedElement)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Stop pointing at this"
+                    onClick={onClearPointedElement}
+                    className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              )}
               {attachments.map((attachment) => (
                 <span
                   key={attachment.id}
@@ -319,7 +355,7 @@ export function ChatPanel({ chat, model, projectId, canEdit, onReverted, onOpenD
                 variant="primary"
                 label="Send message"
                 type="submit"
-                disabled={!draft.trim() && attachments.length === 0}
+                disabled={!draft.trim() && attachments.length === 0 && !pointedElement}
               >
                 <ArrowUp size={13} strokeWidth={2.5} />
               </IconButton>
