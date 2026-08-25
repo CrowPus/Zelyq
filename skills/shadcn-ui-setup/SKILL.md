@@ -35,6 +35,14 @@ most common way this goes wrong, because no such package exists.
    name. If an import does not resolve, the component was not actually
    added; add it, do not invent the module.
 
+## Not sure which component fits the request?
+
+Read `references/available-components.md` — it groups the components
+that come up often by what they're actually for (an overlay, a form
+primitive, a status indicator, a layout piece), so a request like "add a
+cart drawer" or "confirm before deleting" maps to a real component name
+instead of a guess.
+
 ## What not to build
 
 - Do not hand-roll a component shadcn already provides (a dialog, a

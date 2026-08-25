@@ -16,14 +16,18 @@ import { buildAgentServer } from "../src/server.js";
 import { buildUseSkillTool, loadSkills } from "../src/skills.js";
 
 /**
- * Skills — see `042` in the council notes. `loadSkills` is exercised
- * against a real filesystem, real malformed files included, the same
- * standard `plugins.test.ts` already holds for `037` — a mocked reader
- * would only prove the mock agrees with the implementation. The last test
- * goes further, the way the proposal promised: a real live turn, through
- * a real HTTP server and real tool execution, proving the model can
- * actually reach a skill's full instructions, not just that the loader
- * produces the right in-memory shape.
+ * Skills — see `042` in the council notes. A skill is a *directory*,
+ * `SKILL.md` as its short entry point plus whatever deeper files it
+ * chooses to carry — the shape got corrected mid-session after shipping
+ * as one flat file per skill the first time, which wasn't a real skill,
+ * just a longer tool description. `loadSkills` is exercised against a
+ * real filesystem, real malformed directories included, the same standard
+ * `plugins.test.ts` already holds for `037`. The live-turn test at the
+ * bottom goes further: a real HTTP server, real tool execution, and two
+ * separate `use_skill` calls in the same turn — the first for the catalog
+ * entry, the second for a specific deeper file — proving progressive
+ * disclosure actually works round-trip, not just that the loader produces
+ * the right in-memory shape.
  */
 
 let tmp: string;
@@ -46,9 +50,24 @@ function capturingLogger() {
   };
 }
 
-async function writeSkill(dir: string, filename: string, content: string): Promise<void> {
+/** Writes one skill directory: SKILL.md plus any other files given by
+ * relative path, matching how a real skill carries references/recipes/
+ * templates/scripts underneath its entry point. */
+async function writeSkillDir(
+  root: string,
+  skillName: string,
+  skillMd: string,
+  extraFiles: Record<string, string> = {},
+): Promise<string> {
+  const dir = path.join(root, skillName);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, filename), content, "utf8");
+  await fs.writeFile(path.join(dir, "SKILL.md"), skillMd, "utf8");
+  for (const [relative, content] of Object.entries(extraFiles)) {
+    const file = path.join(dir, relative);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, content, "utf8");
+  }
+  return dir;
 }
 
 const VALID = `---
@@ -72,12 +91,12 @@ test("a missing built-in directory warns and returns empty, without crashing boo
   assert.equal(warnings.length, 1);
 });
 
-test("a real, valid skill loads with its name, description, and body intact", async () => {
-  const dir = path.join(tmp, "valid");
-  await writeSkill(dir, "word-golf.md", VALID);
+test("a real, valid skill directory loads with its name, description, and body intact", async () => {
+  const root = path.join(tmp, "valid");
+  await writeSkillDir(root, "word-golf", VALID);
 
   const { logger, infos } = capturingLogger();
-  const result = await loadSkills(dir, undefined, logger);
+  const result = await loadSkills(root, undefined, logger);
 
   assert.equal(result.skills.length, 1);
   const skill = result.skills[0]!;
@@ -88,55 +107,78 @@ test("a real, valid skill loads with its name, description, and body intact", as
   assert.ok(infos.some((m) => m.includes("word-golf")));
 });
 
-test("missing frontmatter is skipped with a clear reason, not silently dropped", async () => {
-  const dir = path.join(tmp, "no-frontmatter");
-  await writeSkill(dir, "broken.md", "Just some instructions, no --- block at all.\n");
+test("a directory with no SKILL.md is skipped with a clear reason, not silently dropped", async () => {
+  const root = path.join(tmp, "no-skill-md");
+  await fs.mkdir(path.join(root, "empty-attempt"), { recursive: true });
+  await fs.writeFile(path.join(root, "empty-attempt", "readme.md"), "not the right filename\n");
 
   const { logger, warnings } = capturingLogger();
-  const result = await loadSkills(dir, undefined, logger);
+  const result = await loadSkills(root, undefined, logger);
+
+  assert.equal(result.skills.length, 0);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0]?.reason ?? "", /has no SKILL\.md/);
+  assert.ok(warnings.some((m) => m.includes("empty-attempt")));
+});
+
+test("missing frontmatter is skipped with a clear reason", async () => {
+  const root = path.join(tmp, "no-frontmatter");
+  await writeSkillDir(root, "broken", "Just some instructions, no --- block at all.\n");
+
+  const { logger, warnings } = capturingLogger();
+  const result = await loadSkills(root, undefined, logger);
 
   assert.equal(result.skills.length, 0);
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0]?.reason ?? "", /frontmatter/);
-  assert.ok(warnings.some((m) => m.includes("broken.md")));
+  assert.ok(warnings.some((m) => m.includes("broken")));
 });
 
 test("a name that isn't lowercase-and-hyphens is rejected, not silently accepted", async () => {
-  const dir = path.join(tmp, "bad-name");
-  await writeSkill(dir, "shouty.md", "---\nname: Stripe_Checkout\ndescription: d\n---\n\nbody\n");
+  const root = path.join(tmp, "bad-name");
+  await writeSkillDir(root, "shouty", "---\nname: Stripe_Checkout\ndescription: d\n---\n\nbody\n");
 
-  const { logger, warnings } = capturingLogger();
-  const result = await loadSkills(dir, undefined, logger);
-
+  const result = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
   assert.equal(result.skills.length, 0);
   assert.match(result.skipped[0]?.reason ?? "", /lowercase/);
-  assert.ok(warnings.some((m) => m.includes("shouty.md")));
 });
 
 test("a missing description is rejected — it's the only thing always in context", async () => {
-  const dir = path.join(tmp, "no-description");
-  await writeSkill(dir, "thin.md", "---\nname: thin\n---\n\nsome body\n");
+  const root = path.join(tmp, "no-description");
+  await writeSkillDir(root, "thin", "---\nname: thin\n---\n\nsome body\n");
 
-  const result = await loadSkills(dir, undefined, { warn: () => undefined, info: () => undefined });
+  const result = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
   assert.equal(result.skills.length, 0);
   assert.match(result.skipped[0]?.reason ?? "", /description/);
 });
 
 test("frontmatter with nothing after it is rejected — a skill with no instructions teaches nothing", async () => {
-  const dir = path.join(tmp, "empty-body");
-  await writeSkill(dir, "hollow.md", "---\nname: hollow\ndescription: d\n---\n\n   \n");
+  const root = path.join(tmp, "empty-body");
+  await writeSkillDir(root, "hollow", "---\nname: hollow\ndescription: d\n---\n\n   \n");
 
-  const result = await loadSkills(dir, undefined, { warn: () => undefined, info: () => undefined });
+  const result = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
   assert.equal(result.skills.length, 0);
   assert.match(result.skipped[0]?.reason ?? "", /no instructions/);
 });
 
-test("one bad file does not stop the rest of the directory from loading", async () => {
-  const dir = path.join(tmp, "mixed");
-  await writeSkill(dir, "broken.md", "no frontmatter here\n");
-  await writeSkill(dir, "zzz-good.md", "---\nname: zzz-good\ndescription: d\n---\n\nbody\n");
+test("one bad skill directory does not stop the rest from loading", async () => {
+  const root = path.join(tmp, "mixed");
+  await writeSkillDir(root, "broken", "no frontmatter here\n");
+  await writeSkillDir(root, "zzz-good", "---\nname: zzz-good\ndescription: d\n---\n\nbody\n");
 
-  const result = await loadSkills(dir, undefined, { warn: () => undefined, info: () => undefined });
+  const result = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
   assert.deepEqual(
     result.skills.map((s) => s.name),
     ["zzz-good"],
@@ -145,21 +187,21 @@ test("one bad file does not stop the rest of the directory from loading", async 
 });
 
 test("an operator skill with the same name as a built-in replaces it, source and all", async () => {
-  const builtIn = path.join(tmp, "builtin-override");
-  const operator = path.join(tmp, "operator-override");
-  await writeSkill(
-    builtIn,
-    "greet.md",
+  const builtInRoot = path.join(tmp, "builtin-override");
+  const operatorRoot = path.join(tmp, "operator-override");
+  await writeSkillDir(
+    builtInRoot,
+    "greet",
     "---\nname: greet\ndescription: the box's version\n---\n\nbox body\n",
   );
-  await writeSkill(
-    operator,
-    "greet.md",
+  await writeSkillDir(
+    operatorRoot,
+    "greet",
     "---\nname: greet\ndescription: our house version\n---\n\nhouse body\n",
   );
 
   const { logger, infos } = capturingLogger();
-  const result = await loadSkills(builtIn, operator, logger);
+  const result = await loadSkills(builtInRoot, operatorRoot, logger);
 
   assert.equal(result.skills.length, 1, "one skill, not two — the operator's wins outright");
   assert.equal(result.skills[0]?.description, "our house version");
@@ -196,19 +238,103 @@ test("the repo's own skills/ directory actually loads — guards against future 
   }
 });
 
-test("buildUseSkillTool: a known skill returns its full body", async () => {
-  const tool = buildUseSkillTool([
-    { name: "word-golf", description: "d", body: "the real instructions", source: "built-in" },
-  ]);
-  const result = await tool.run(fakeContext(), { name: "word-golf" });
-  assert.equal(result.output, "the real instructions");
+// ---------------------------------------------------------------------------
+// use_skill — the catalog call and the follow-up path call
+// ---------------------------------------------------------------------------
+
+test("use_skill with just a name returns the entry point plus a list of what else is there", async () => {
+  const root = path.join(tmp, "with-resources");
+  await writeSkillDir(
+    root,
+    "deep-skill",
+    "---\nname: deep-skill\ndescription: d\n---\n\ntop-level instructions\n",
+    {
+      "references/detail.md": "the deeper reference content",
+      "recipes/example.md": "a worked example",
+    },
+  );
+  const { skills } = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
+
+  const tool = buildUseSkillTool(skills);
+  const result = await tool.run(fakeContext(), { name: "deep-skill" });
+
+  assert.match(result.output, /top-level instructions/);
+  assert.match(result.output, /references\/detail\.md/);
+  assert.match(result.output, /recipes\/example\.md/);
+  // The catalog call must not dump the deeper files' actual content —
+  // that's the entire point of asking for them by path separately.
+  assert.doesNotMatch(result.output, /the deeper reference content/);
+});
+
+test("use_skill with a path returns that specific file's real content", async () => {
+  const root = path.join(tmp, "with-resources-2");
+  await writeSkillDir(
+    root,
+    "deep-skill-2",
+    "---\nname: deep-skill-2\ndescription: d\n---\n\ntop\n",
+    { "references/detail.md": "THE ACTUAL DEEPER CONTENT" },
+  );
+  const { skills } = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
+
+  const tool = buildUseSkillTool(skills);
+  const result = await tool.run(fakeContext(), {
+    name: "deep-skill-2",
+    path: "references/detail.md",
+  });
+
+  assert.equal(result.output, "THE ACTUAL DEEPER CONTENT");
   assert.notEqual(result.isError, true);
 });
 
-test("buildUseSkillTool: an unknown skill names what is actually available", async () => {
-  const tool = buildUseSkillTool([
-    { name: "real-one", description: "d", body: "b", source: "built-in" },
-  ]);
+test("use_skill refuses a path that tries to escape the skill's own directory", async () => {
+  const root = path.join(tmp, "traversal");
+  await writeSkillDir(root, "guarded", "---\nname: guarded\ndescription: d\n---\n\nbody\n");
+  await fs.writeFile(path.join(tmp, "secret.txt"), "should never be readable this way", "utf8");
+
+  const { skills } = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
+  const tool = buildUseSkillTool(skills);
+  const result = await tool.run(fakeContext(), { name: "guarded", path: "../secret.txt" });
+
+  assert.equal(result.isError, true);
+  assert.match(result.output, /outside/);
+});
+
+test("use_skill with an unknown path names the error clearly rather than throwing", async () => {
+  const root = path.join(tmp, "missing-path");
+  await writeSkillDir(root, "thin-skill", "---\nname: thin-skill\ndescription: d\n---\n\nbody\n");
+  const { skills } = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
+
+  const tool = buildUseSkillTool(skills);
+  const result = await tool.run(fakeContext(), {
+    name: "thin-skill",
+    path: "references/does-not-exist.md",
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.output, /Could not read/);
+});
+
+test("use_skill: an unknown skill name lists what is actually available", async () => {
+  const root = path.join(tmp, "known-only");
+  await writeSkillDir(root, "real-one", "---\nname: real-one\ndescription: d\n---\n\nbody\n");
+  const { skills } = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
+
+  const tool = buildUseSkillTool(skills);
   const result = await tool.run(fakeContext(), { name: "made-up" });
   assert.equal(result.isError, true);
   assert.match(result.output, /real-one/);
@@ -225,18 +351,24 @@ function fakeContext() {
 }
 
 // ---------------------------------------------------------------------------
-// A real live turn: the catalog reaches the prompt, and use_skill actually
-// runs through the same executeTool/ALL_TOOLS path a real session uses.
+// A real live turn: the catalog reaches the prompt, and two separate
+// use_skill calls — one for the entry point, one for a deeper file — both
+// run through the same executeTool/ALL_TOOLS path a real session uses.
 // ---------------------------------------------------------------------------
 
-test("a live turn: the prompt carries the catalog, and use_skill returns the real body through a real tool call", async () => {
-  const skill = {
-    name: "test-skill",
-    description: "A skill only this test knows about",
-    body: "THE REAL SKILL BODY",
-    source: "built-in" as const,
-  };
-  const tool = buildUseSkillTool([skill]);
+test("a live turn: the model reads a skill's entry point, then follows up for a deeper file, both for real", async () => {
+  const root = path.join(tmp, "live-turn-skill");
+  await writeSkillDir(
+    root,
+    "test-skill",
+    "---\nname: test-skill\ndescription: A skill only this test knows about\n---\n\nTOP LEVEL BODY\n",
+    { "references/detail.md": "THE DEEPER REFERENCE CONTENT" },
+  );
+  const { skills } = await loadSkills(root, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
+  const tool = buildUseSkillTool(skills);
   ALL_TOOLS.push(tool);
 
   let capturedSystemPrompt = "";
@@ -253,6 +385,20 @@ test("a live turn: the prompt carries the catalog, and use_skill returns the rea
             toolCalls: [{ id: "call_1", name: "use_skill", input: { name: "test-skill" } }],
             stopReason: "tool_use",
             usage: { inputTokens: 5, outputTokens: 2 },
+          },
+        },
+        {
+          events: [],
+          result: {
+            toolCalls: [
+              {
+                id: "call_2",
+                name: "use_skill",
+                input: { name: "test-skill", path: "references/detail.md" },
+              },
+            ],
+            stopReason: "tool_use",
+            usage: { inputTokens: 3, outputTokens: 1 },
           },
         },
         {
@@ -299,7 +445,7 @@ test("a live turn: the prompt carries the catalog, and use_skill returns the rea
 
   const server = buildAgentServer(config, {
     providerFactory: () => provider,
-    skills: [{ name: skill.name, description: skill.description }],
+    skills: [{ name: "test-skill", description: "A skill only this test knows about" }],
   });
 
   try {
@@ -315,9 +461,6 @@ test("a live turn: the prompt carries the catalog, and use_skill returns the rea
     });
     assert.equal(created.status, 201);
 
-    // The catalog is what reaches every session's prompt — asserted before
-    // the turn even runs, so a broken catalog fails here, not by accident
-    // further down.
     assert.match(capturedSystemPrompt, /<skills>/);
     assert.match(capturedSystemPrompt, /test-skill: A skill only this test knows about/);
 
@@ -331,14 +474,28 @@ test("a live turn: the prompt carries the catalog, and use_skill returns the rea
       .split("\n\n")
       .map((frame) => frame.split("\n").find((line) => line.startsWith("data: ")))
       .filter((line): line is string => Boolean(line))
-      .map((line) => JSON.parse(line.slice(6)) as { type: string; call?: { result?: string } });
+      .map(
+        (line) =>
+          JSON.parse(line.slice(6)) as { type: string; call?: { name: string; result?: string } },
+      );
 
-    const toolEnd = events.find((event) => event.type === "tool.end");
-    assert.ok(toolEnd, "use_skill never ran");
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    assert.equal(toolEnds.length, 2, "both use_skill calls must have actually run");
+
+    const entryPoint = toolEnds[0]!;
+    assert.match(entryPoint.call?.result ?? "", /TOP LEVEL BODY/);
+    assert.match(entryPoint.call?.result ?? "", /references\/detail\.md/);
+    assert.doesNotMatch(
+      entryPoint.call?.result ?? "",
+      /THE DEEPER REFERENCE CONTENT/,
+      "the entry-point call must not have leaked the deeper file's content early",
+    );
+
+    const followUp = toolEnds[1]!;
     assert.equal(
-      toolEnd?.call?.result,
-      "THE REAL SKILL BODY",
-      "the model must receive the skill's actual instructions, not a stand-in",
+      followUp.call?.result,
+      "THE DEEPER REFERENCE CONTENT",
+      "the second call must return the real file the first call only listed",
     );
   } finally {
     await server.close();
