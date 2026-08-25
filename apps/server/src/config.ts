@@ -42,6 +42,16 @@ export interface ServerConfig {
    * for a directory both processes need to agree on.
    */
   uploadedSkillsDir: string;
+  /**
+   * Where Claude Code's own CLI stores its session — see `045` in the
+   * council notes. Always the server process's own `$HOME` in a real
+   * deployment, which is why nothing here reads an environment variable
+   * for it; a test constructs `ServerConfig` directly and points this at a
+   * fixture instead.
+   */
+  claudeCredentialsPath?: string;
+  /** Same, for Codex's session — see `045`'s OpenAI follow-up. */
+  codexCredentialsPath?: string;
   /** Built web assets to serve. Absent in development, where Vite serves them. */
   webDir: string | null;
   runtime: RuntimeConfig;

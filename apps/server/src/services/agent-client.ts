@@ -45,6 +45,9 @@ export class AgentClient {
     model?: string;
     effort?: string;
     apiKey?: string;
+    /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
+     * subscription token. */
+    authMode?: string;
     baseUrl?: string;
     history?: Message[];
   }): Promise<AgentSessionState> {
@@ -97,6 +100,9 @@ export class AgentClient {
     model?: string;
     effort?: string;
     apiKey?: string;
+    /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
+     * subscription token. */
+    authMode?: string;
     baseUrl?: string;
     history?: Message[];
   }): Promise<AgentSessionState> {
@@ -108,7 +114,8 @@ export class AgentClient {
       const state = (await existing.json()) as AgentSessionState;
       const changed =
         (input.provider !== undefined && input.provider !== state.provider) ||
-        (input.model !== undefined && input.model !== state.model);
+        (input.model !== undefined && input.model !== state.model) ||
+        (input.authMode !== undefined && input.authMode !== state.authMode);
       if (!changed || state.busy) return state;
       await this.destroySession(input.sessionId);
     }

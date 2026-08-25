@@ -17,7 +17,13 @@ import type { ServerConfig } from "../src/config.js";
  * exact provider a prompt resolved to.
  */
 function fakeAgent() {
-  const created: Array<{ provider?: string; model?: string; baseUrl?: string }> = [];
+  const created: Array<{
+    provider?: string;
+    model?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    authMode?: string;
+  }> = [];
   const prompts: Array<{
     message: string;
     attachments?: Array<{ filename: string; mimeType: string; data: string }>;
@@ -62,7 +68,13 @@ function fakeAgent() {
       });
       req.on("end", () => {
         const input = JSON.parse(body);
-        created.push({ provider: input.provider, model: input.model, baseUrl: input.baseUrl });
+        created.push({
+          provider: input.provider,
+          model: input.model,
+          baseUrl: input.baseUrl,
+          apiKey: input.apiKey,
+          authMode: input.authMode,
+        });
         send(201, {
           sessionId: input.sessionId,
           projectId: input.projectId,
@@ -128,6 +140,9 @@ const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 let agent: ReturnType<typeof fakeAgent>;
 let agentPort: number;
 let server: ZelyqServer;
+/** The very first account registered — see `before()` — kept aside since
+ * only it is the instance admin later tests need for settings routes. */
+let adminCookie: string;
 
 async function register(email: string): Promise<{ cookie: string }> {
   const response = await server.app.inject({
@@ -149,6 +164,12 @@ before(async () => {
   // only seeds a brand-new session's initial value. Setting it here is what
   // makes this test exercise the actual live-resolution path.
   process.env.ZELYQ_PROVIDER = "google";
+  // Same story for `configured` — see `045`'s follow-up: it now reflects
+  // whether Settings can actually resolve a key for a provider, not
+  // whatever the agent's own response happened to claim. Without this, the
+  // fake agent's `configured: true` for google would be a claim nothing
+  // here could back up.
+  process.env.GEMINI_API_KEY = "test-gemini-key";
 
   agent = fakeAgent();
   await new Promise<void>((resolve) => agent.server.listen(0, "127.0.0.1", resolve));
@@ -174,6 +195,8 @@ before(async () => {
     secretKeyFile: path.join(tmp, "secret.key"),
     attachmentsDir: path.join(tmp, "attachments"),
     uploadedSkillsDir: path.join(tmp, "skills"),
+    codexCredentialsPath: path.join(tmp, "codex-auth.json"),
+    claudeCredentialsPath: path.join(tmp, "claude-credentials.json"),
     runtime: {
       kind: "local",
       workspaceDir: path.join(tmp, "workspace"),
@@ -185,6 +208,12 @@ before(async () => {
   await runMigrations(config.databaseUrl);
   server = await buildServer(config);
   await server.app.listen({ host: "127.0.0.1", port: 0 });
+
+  // The first account ever registered owns the instance — grabbed here,
+  // before any test-specific registration, so it's available to whichever
+  // test actually needs admin rights rather than each one guessing at
+  // whether it happens to run first.
+  adminCookie = (await register("gateway-admin@example.com")).cookie;
 });
 
 after(async () => {
@@ -192,6 +221,7 @@ after(async () => {
   await new Promise<void>((resolve) => agent.server.close(() => resolve()));
   await fs.rm(tmp, { recursive: true, force: true });
   delete process.env.ZELYQ_PROVIDER;
+  delete process.env.GEMINI_API_KEY;
 });
 
 test("a prompt resolves the live-configured provider, not a stale one baked into the session", async () => {
@@ -438,6 +468,213 @@ test("a base URL configured for the live provider is not forwarded to a provider
     );
   } finally {
     await server.store.settings.remove("modelBaseUrl");
+  }
+});
+
+test("a connected Codex session wins over OPENAI_API_KEY also being set in the environment", async () => {
+  // Found live: the founder had a real OPENAI_API_KEY pinned in .env — the
+  // ordinary, correct way to configure a plain key — and separately
+  // connected a Codex session through Settings. Every turn silently used
+  // the env key instead, because `apiKeyFor`'s env-wins-first rule for an
+  // ordinary key had no idea "subscription" mode meant something entirely
+  // different was supposed to win instead. See `045`'s OpenAI follow-up.
+  process.env.OPENAI_API_KEY = "sk-a-real-pinned-key-unrelated-to-codex";
+  try {
+    await fs.writeFile(
+      path.join(tmp, "codex-auth.json"),
+      JSON.stringify({
+        tokens: { access_token: "codex-access-token", account_id: "acc_env_test" },
+      }),
+    );
+
+    const use = await server.app.inject({
+      method: "POST",
+      url: "/api/settings/cli-sessions/openai/use",
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(use.statusCode, 200, use.body);
+
+    const { cookie } = await register("env-vs-subscription@example.com");
+    const project = (
+      await server.app.inject({
+        method: "POST",
+        url: "/api/projects",
+        headers: { cookie },
+        payload: { name: "Env vs subscription test" },
+      })
+    ).json().project;
+
+    agent.created.length = 0;
+    const address = server.app.server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+      headers: { cookie },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("error", reject);
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "connected") {
+          ws.send(JSON.stringify({ type: "prompt", message: "hi" }));
+        }
+        if (msg.type === "turn.end") {
+          ws.close();
+          resolve();
+        }
+      });
+    });
+
+    assert.equal(agent.created[0]?.authMode, "subscription");
+    assert.equal(
+      agent.created[0]?.apiKey,
+      "codex-access-token:acc_env_test",
+      "the connected session must win, not the unrelated pinned env key",
+    );
+  } finally {
+    delete process.env.OPENAI_API_KEY;
+    // Connecting the session changed `provider` and `openaiAuthMode` too —
+    // reset both, or a later test asserting the original default provider
+    // fails on leftover state from this one, not its own behaviour.
+    await server.store.settings.set("provider", "google");
+    await server.store.settings.remove("openaiAuthMode");
+    await server.store.settings.remove("openaiApiKey");
+  }
+});
+
+test("connecting a subscription doesn't carry over an env-pinned model meant for the previous provider", async () => {
+  // Found live, a second time: a model an operator's own ZELYQ_MODEL pins
+  // for whatever provider was configured at deploy time rode straight
+  // into a request built for the newly-connected provider — Claude
+  // rejected the Gemini-shaped model string outright. Set via
+  // process.env, not stored — an *env-pinned* default is exactly the
+  // case this has to override; a *stored*, deliberate choice is the
+  // opposite case, covered by the next test, and must never be discarded
+  // the same way.
+  process.env.ZELYQ_MODEL = "gemini-3.7-flash";
+  try {
+    await fs.writeFile(
+      path.join(tmp, "claude-credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: { accessToken: "claude-token", expiresAt: Date.now() + 60_000 },
+      }),
+    );
+
+    const use = await server.app.inject({
+      method: "POST",
+      url: "/api/settings/cli-sessions/anthropic/use",
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(use.statusCode, 200, use.body);
+
+    const { cookie } = await register("model-carryover@example.com");
+    const project = (
+      await server.app.inject({
+        method: "POST",
+        url: "/api/projects",
+        headers: { cookie },
+        payload: { name: "Model carryover test" },
+      })
+    ).json().project;
+
+    agent.created.length = 0;
+    const address = server.app.server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+      headers: { cookie },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("error", reject);
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "connected") {
+          ws.send(JSON.stringify({ type: "prompt", message: "hi" }));
+        }
+        if (msg.type === "turn.end") {
+          ws.close();
+          resolve();
+        }
+      });
+    });
+
+    assert.equal(agent.created[0]?.provider, "anthropic");
+    assert.notEqual(
+      agent.created[0]?.model,
+      "gemini-3.7-flash",
+      "an env-pinned model meant for the old provider must never reach the new one",
+    );
+  } finally {
+    delete process.env.ZELYQ_MODEL;
+    await server.store.settings.set("provider", "google");
+    await server.store.settings.remove("anthropicAuthMode");
+    await server.store.settings.remove("anthropicApiKey");
+  }
+});
+
+test("a model deliberately set for a connected subscription is used, not discarded", async () => {
+  // The regression that shipped in the very first fix for the test above:
+  // forcing empty unconditionally whenever a subscription was active
+  // blocked a model actually, deliberately chosen *for* that provider
+  // from ever reaching it either — found live, immediately after the fix
+  // above went out, by trying to set exactly this. A real, stored choice
+  // has to win regardless of which mode is active.
+  await server.store.settings.set("model", "claude-sonnet-5");
+  try {
+    await fs.writeFile(
+      path.join(tmp, "claude-credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: { accessToken: "claude-token", expiresAt: Date.now() + 60_000 },
+      }),
+    );
+    const use = await server.app.inject({
+      method: "POST",
+      url: "/api/settings/cli-sessions/anthropic/use",
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(use.statusCode, 200, use.body);
+
+    const { cookie } = await register("deliberate-model@example.com");
+    const project = (
+      await server.app.inject({
+        method: "POST",
+        url: "/api/projects",
+        headers: { cookie },
+        payload: { name: "Deliberate model test" },
+      })
+    ).json().project;
+
+    agent.created.length = 0;
+    const address = server.app.server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+      headers: { cookie },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("error", reject);
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "connected") {
+          ws.send(JSON.stringify({ type: "prompt", message: "hi" }));
+        }
+        if (msg.type === "turn.end") {
+          ws.close();
+          resolve();
+        }
+      });
+    });
+
+    assert.equal(
+      agent.created[0]?.model,
+      "claude-sonnet-5",
+      "a model deliberately chosen for this provider must actually be used",
+    );
+  } finally {
+    await server.store.settings.remove("model");
+    await server.store.settings.set("provider", "google");
+    await server.store.settings.remove("anthropicAuthMode");
+    await server.store.settings.remove("anthropicApiKey");
   }
 });
 

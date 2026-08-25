@@ -171,6 +171,23 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       );
     }
 
+    // A Codex session speaks a different backend from the ordinary OpenAI
+    // API key path, with its own model names — `defaultModelFor("openai")`
+    // ("gpt-5.1") is the *other* path's default, confirmed against the
+    // public API, never checked against this one. Silently sending it here
+    // would fail the same way a mismatched model from any other provider
+    // already did — see `045`'s OpenAI follow-up — so this asks for an
+    // explicit model instead of guessing one that was never verified for
+    // this endpoint, the same restraint the registry already holds every
+    // vendor with no confirmed default to (xai, groq, openrouter).
+    if (provider === "openai" && input.authMode === "subscription" && !input.model) {
+      throw new ZelyqError(
+        "bad_request",
+        "A Codex session has no confirmed default model yet. Set one explicitly in Settings — " +
+          "whatever model name your own Codex CLI reports using.",
+      );
+    }
+
     await runtime.ensureProject(input.projectId);
 
     const session = new AgentSession({
@@ -183,6 +200,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
         input.model ?? (provider === config.provider ? config.model : defaultModelFor(provider)),
       effort: input.effort ?? config.effort,
       apiKey: apiKey ?? "",
+      ...(input.authMode ? { authMode: input.authMode } : {}),
       ...(baseUrl ? { baseUrl } : {}),
       runtime,
       maxIterations: config.maxTurnIterations,

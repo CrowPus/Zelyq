@@ -74,6 +74,60 @@ test("asking for a provider with no key names that provider, not the default", a
   assert.match(response.json().error.message, /GEMINI_API_KEY/);
 });
 
+// ---------------------------------------------------------------------------
+// A Codex subscription session speaks a different backend, with its own
+// model names — see `045`'s OpenAI follow-up. Found live: silently falling
+// back to defaultModelFor("openai") ("gpt-5.1", confirmed only for the
+// ordinary public API) sent a model the Codex backend never recognised.
+// ---------------------------------------------------------------------------
+
+test("a Codex session with no model given is refused clearly, not defaulted wrong", async () => {
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/sessions",
+    payload: {
+      sessionId: "ses_codex_no_model",
+      projectId: "prj_test",
+      provider: "openai",
+      apiKey: "tok:acc_1",
+      authMode: "subscription",
+    },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().error.message, /Codex session has no confirmed default model/);
+});
+
+test("a Codex session with an explicit model is accepted", async () => {
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/sessions",
+    payload: {
+      sessionId: "ses_codex_with_model",
+      projectId: "prj_test",
+      provider: "openai",
+      model: "gpt-5.3-codex",
+      apiKey: "tok:acc_1",
+      authMode: "subscription",
+    },
+  });
+  assert.equal(response.statusCode, 201, response.body);
+});
+
+test("an ordinary OpenAI session (no subscription mode) still gets its usual default with no model given", async () => {
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/sessions",
+    payload: {
+      sessionId: "ses_openai_ordinary",
+      projectId: "prj_test",
+      provider: "openai",
+      apiKey: "sk-a-real-key",
+    },
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json().model, "gpt-5.1");
+});
+
 test("an unknown provider is rejected as a bad request", async () => {
   const response = await server.app.inject({
     method: "POST",

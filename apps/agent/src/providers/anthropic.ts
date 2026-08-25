@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { PromptAttachment } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
 import type {
+  AuthMode,
   Conversation,
   ConversationOptions,
   ModelProvider,
@@ -12,6 +13,18 @@ import type {
 } from "./types.js";
 
 const MAX_TOKENS = 64_000;
+
+/**
+ * The header Claude Code's own CLI sends alongside an OAuth session token —
+ * required for the Messages API to accept a subscription token in place of
+ * an API key at all. Undocumented as a public API surface (this is what a
+ * first-party client sends, not a published contract), so `045`'s own bar
+ * applies: confirmed by trying it against a real account, not assumed from
+ * writing this comment. If the vendor ever changes it, a subscription-mode
+ * request starts failing with a normal `unauthorized`, the same as an
+ * expired token would — not a silent wrong answer.
+ */
+const OAUTH_BETA_HEADER = "oauth-2025-04-20";
 
 /**
  * Rebuilds Anthropic's native message history from persisted turns — a pure
@@ -109,8 +122,20 @@ export class AnthropicProvider implements ModelProvider {
   constructor(
     readonly model: string,
     apiKey: string,
+    authMode: AuthMode = "api_key",
   ) {
-    this.client = new Anthropic({ apiKey });
+    // A subscription token is Bearer auth, not `x-api-key` — the SDK already
+    // has a first-class option for that (`authToken`), same client either
+    // way. The beta header is the part unique to a Claude Code-issued token;
+    // sending it with an ordinary API key would be harmless but is left off
+    // to keep a normal request looking exactly like it always has.
+    this.client =
+      authMode === "subscription"
+        ? new Anthropic({
+            authToken: apiKey,
+            defaultHeaders: { "anthropic-beta": OAUTH_BETA_HEADER },
+          })
+        : new Anthropic({ apiKey });
   }
 
   createConversation(options: ConversationOptions): Conversation {
@@ -234,4 +259,42 @@ export function classifyAnthropicError(error: unknown): ProviderErrorCode {
   if (error instanceof Anthropic.APIConnectionError) return "connection";
   if (error instanceof Anthropic.APIError) return "model_error";
   return "internal";
+}
+
+/**
+ * The SDK's own `.message` for a rate limit or auth failure is often just
+ * the raw HTTP status and JSON body verbatim (`429 {"type":"error",...}`) —
+ * found live, shown to a real person exactly like that. Real error
+ * subclasses are already available to branch on, which is a better signal
+ * than parsing a string — Google's own `describeGoogleError` has to unwrap
+ * JSON by hand because it doesn't get typed errors the way this SDK does.
+ */
+export function describeAnthropicError(error: unknown): string {
+  if (error instanceof Anthropic.RateLimitError) {
+    return (
+      "Claude is rate-limiting requests on this account right now. A Claude Code session " +
+      "shares its usage with everything else signed into that account, so this can happen " +
+      "faster than a dedicated API key would. Wait a moment and try again, or switch " +
+      "providers for now."
+    );
+  }
+  if (error instanceof Anthropic.AuthenticationError) {
+    return (
+      "Claude rejected this request's credentials. If this account is using a Claude Code " +
+      "session instead of an API key, it may have expired — reconnect it from Settings."
+    );
+  }
+
+  const raw = (error as Error)?.message ?? String(error);
+  const start = raw.indexOf("{");
+  if (start === -1) return raw;
+  try {
+    const parsed = JSON.parse(raw.slice(start)) as { error?: { message?: string } };
+    const message = parsed.error?.message;
+    // "Error" is the SDK's own generic placeholder, not a real explanation —
+    // worse than the raw string, not better, so it doesn't win.
+    return message && message !== "Error" ? message : raw;
+  } catch {
+    return raw;
+  }
 }

@@ -1,9 +1,21 @@
-import { AnthropicProvider, classifyAnthropicError } from "./anthropic.js";
+import { AnthropicProvider, classifyAnthropicError, describeAnthropicError } from "./anthropic.js";
+import {
+  ChatGptResponsesError,
+  ChatGptResponsesProvider,
+  classifyChatGptResponsesError,
+  describeChatGptResponsesError,
+  unpackCodexCredential,
+} from "./chatgpt-responses.js";
 import { classifyGoogleError, describeGoogleError, GoogleProvider } from "./google.js";
 import { classifyOpenAICompatibleError, OpenAICompatibleProvider } from "./openai-compatible.js";
-import type { ModelProvider, ProviderErrorCode, ProviderId } from "./types.js";
+import type { AuthMode, ModelProvider, ProviderErrorCode, ProviderId } from "./types.js";
 
-export { AnthropicProvider } from "./anthropic.js";
+export { AnthropicProvider, describeAnthropicError } from "./anthropic.js";
+export {
+  ChatGptResponsesError,
+  ChatGptResponsesProvider,
+  packCodexCredential,
+} from "./chatgpt-responses.js";
 export {
   describeGoogleError,
   GoogleProvider,
@@ -211,49 +223,40 @@ export function createProvider(config: {
   provider: ProviderId;
   model: string;
   apiKey: string;
+  authMode?: AuthMode;
   baseUrl?: string;
 }): ModelProvider {
   switch (config.provider) {
     case "anthropic":
-      return new AnthropicProvider(config.model, config.apiKey);
+      return new AnthropicProvider(config.model, config.apiKey, config.authMode);
     case "google":
       return new GoogleProvider(config.model, config.apiKey);
-    case "openai":
+    case "openai": {
+      // See `045`'s OpenAI follow-up: a Codex "sign in with ChatGPT"
+      // session speaks an entirely different, private API, not just a
+      // different header on the same public one the way Claude's does —
+      // so subscription mode gets its own provider class here rather than
+      // a header change to OpenAICompatibleProvider below.
+      if (config.authMode === "subscription") {
+        const credential = unpackCodexCredential(config.apiKey);
+        if (!credential) {
+          throw new Error("The Codex session credential is malformed. Reconnect it from Settings.");
+        }
+        return new ChatGptResponsesProvider(
+          config.model,
+          credential.accessToken,
+          credential.accountId,
+        );
+      }
+      return buildOpenAICompatibleProvider(config);
+    }
     case "xai":
     case "deepseek":
     case "mistral":
     case "groq":
     case "openrouter":
-    case "custom": {
-      const info = PROVIDERS[config.provider];
-      const baseUrl = baseUrlFor(config.provider, config.baseUrl);
-      if (!baseUrl) {
-        throw new Error(
-          `${info.label} needs an endpoint address. ` +
-            "Set ZELYQ_MODEL_BASE_URL — for example http://localhost:11434/v1 for Ollama, " +
-            "or https://models.internal/v1 for a server of your own.",
-        );
-      }
-      // Every vendor without a registry default requires an explicit model —
-      // not just `custom`. Guessing one for a real vendor would silently
-      // pick whatever model happened to be first in its catalog; refusing
-      // and naming the fix is the same choice `custom` already made.
-      if (!info.defaultModel && !config.model) {
-        throw new Error(
-          `${info.label} has no default model here yet. Set ZELYQ_MODEL to the exact name ` +
-            "you want — check its docs for current model names.",
-        );
-      }
-      return new OpenAICompatibleProvider({
-        id: config.provider,
-        model: config.model,
-        apiKey: config.apiKey,
-        baseUrl,
-        // Only where the dialect's reasoning field is known to be understood.
-        // An unknown server that rejects it would fail every turn.
-        supportsReasoningEffort: config.provider === "openai",
-      });
-    }
+    case "custom":
+      return buildOpenAICompatibleProvider(config);
     default: {
       const exhaustive: never = config.provider;
       throw new Error(`Unknown provider: ${String(exhaustive)}`);
@@ -261,14 +264,57 @@ export function createProvider(config: {
   }
 }
 
+function buildOpenAICompatibleProvider(config: {
+  provider: ProviderId;
+  model: string;
+  apiKey: string;
+  baseUrl?: string;
+}): ModelProvider {
+  const info = PROVIDERS[config.provider];
+  const baseUrl = baseUrlFor(config.provider, config.baseUrl);
+  if (!baseUrl) {
+    throw new Error(
+      `${info.label} needs an endpoint address. ` +
+        "Set ZELYQ_MODEL_BASE_URL — for example http://localhost:11434/v1 for Ollama, " +
+        "or https://models.internal/v1 for a server of your own.",
+    );
+  }
+  // Every vendor without a registry default requires an explicit model —
+  // not just `custom`. Guessing one for a real vendor would silently
+  // pick whatever model happened to be first in its catalog; refusing
+  // and naming the fix is the same choice `custom` already made.
+  if (!info.defaultModel && !config.model) {
+    throw new Error(
+      `${info.label} has no default model here yet. Set ZELYQ_MODEL to the exact name ` +
+        "you want — check its docs for current model names.",
+    );
+  }
+  return new OpenAICompatibleProvider({
+    id: config.provider,
+    model: config.model,
+    apiKey: config.apiKey,
+    baseUrl,
+    // Only where the dialect's reasoning field is known to be understood.
+    // An unknown server that rejects it would fail every turn.
+    supportsReasoningEffort: config.provider === "openai",
+  });
+}
+
 export function classifyProviderError(provider: ProviderId, error: unknown): ProviderErrorCode {
+  // Checked by the error's own type, not the provider id — a Codex session
+  // error is never an OpenAICompatibleError even though `provider` says
+  // "openai" here, the same reason `apiKey` alone couldn't tell the two
+  // apart either. See `045`'s OpenAI follow-up.
+  if (error instanceof ChatGptResponsesError) return classifyChatGptResponsesError(error);
   if (speaksOpenAIDialect(provider)) return classifyOpenAICompatibleError(error);
   return provider === "google" ? classifyGoogleError(error) : classifyAnthropicError(error);
 }
 
 /** The message a user should read, with vendor envelopes unwrapped. */
 export function describeProviderError(provider: ProviderId, error: unknown): string {
+  if (error instanceof ChatGptResponsesError) return describeChatGptResponsesError(error);
   if (provider === "google") return describeGoogleError(error);
+  if (provider === "anthropic") return describeAnthropicError(error);
   return (error as Error)?.message ?? String(error);
 }
 
@@ -280,4 +326,5 @@ export type ProviderFactory = (config: {
   provider: ProviderId;
   model: string;
   apiKey: string;
+  authMode?: AuthMode;
 }) => ModelProvider;

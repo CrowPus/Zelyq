@@ -257,13 +257,30 @@ export class ChatGateway {
       const provider = override.provider ?? settingsProvider;
       const pickedDifferentProvider = provider !== settingsProvider;
       const apiKey = await this.settings.apiKeyFor(provider);
+      // A provider picked from the chat that isn't the settings-configured
+      // one has no subscription session detected for it — only ever
+      // meaningful for the provider Settings actually names. See `045`.
+      const authMode = pickedDifferentProvider
+        ? "api_key"
+        : await this.settings.authModeFor(provider);
       // Settings' own `model` and `modelBaseUrl` were configured for
       // whichever provider settings actually names — forwarding either to a
       // different provider picked from the chat would redirect it to a
       // model or endpoint that was never meant for it. Left empty here, the
       // agent falls back to that provider's own registry default (`032`).
+      //
+      // `modelFor` — not `value("model")` — is what actually handles a
+      // connected subscription correctly: found live, twice. First a model
+      // pinned for whatever provider was configured before (an operator's
+      // `ZELYQ_MODEL`, or one typed in by hand) rode straight into a newly
+      // connected provider's request and got rejected. The fix for that
+      // then went too far the other way — forcing empty unconditionally
+      // whenever a subscription was active blocked a model actually,
+      // deliberately typed *for* that session from ever reaching it either.
+      // `modelFor` only forces empty when nothing is genuinely stored; a
+      // real, deliberate choice always wins regardless of mode.
       const model =
-        override.model ?? (pickedDifferentProvider ? "" : await this.settings.value("model"));
+        override.model ?? (pickedDifferentProvider ? "" : await this.settings.modelFor(provider));
       const baseUrl = pickedDifferentProvider ? "" : await this.settings.value("modelBaseUrl");
 
       const state = await this.agent.ensureSession({
@@ -272,6 +289,7 @@ export class ChatGateway {
         provider,
         ...(model ? { model } : {}),
         ...(apiKey ? { apiKey } : {}),
+        ...(authMode !== "api_key" ? { authMode } : {}),
         ...(baseUrl ? { baseUrl } : {}),
         // Everything except the message we just stored — that is the prompt.
         history: history.slice(0, -1),
