@@ -1,6 +1,12 @@
 import type { Preview } from "@zelyq/core";
-import { ExternalLink, Play, RotateCw, ScrollText, Square } from "lucide-react";
-import { useState } from "react";
+import { Crosshair, ExternalLink, Play, RotateCw, ScrollText, Square } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  INSPECTOR_ACTIVATE,
+  INSPECTOR_DEACTIVATE,
+  isSelectedElementMessage,
+  type SelectedElement,
+} from "../lib/inspector";
 import { resolvePreviewUrl } from "../lib/preview-url";
 import { Button, EmptyState, IconButton, Spinner, StatusDot } from "./ui";
 
@@ -12,6 +18,8 @@ interface Props {
   onStop(): void;
   onRefreshLogs(): void;
   reloadToken: number;
+  /** Clicked in select mode — see `038`. */
+  onElementSelected(element: SelectedElement): void;
 }
 
 export function PreviewPanel({
@@ -22,12 +30,44 @@ export function PreviewPanel({
   onStop,
   onRefreshLogs,
   reloadToken,
+  onElementSelected,
 }: Props) {
   const [showLogs, setShowLogs] = useState(false);
   const [frameToken, setFrameToken] = useState(0);
+  const [inspecting, setInspecting] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const previewUrl = resolvePreviewUrl(preview, window.location.hostname);
   const running = preview?.status === "running" && Boolean(previewUrl);
   const busy = starting || preview?.status === "starting";
+
+  // A fresh iframe (reload, or the frame swapping in after starting) has no
+  // idea select mode was ever on — turning it off here rather than trying
+  // to re-activate a new content window avoids a message aimed at a frame
+  // that's mid-swap.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken/frameToken changing IS the trigger — a fresh iframe means select mode has to be re-armed, not carried over silently.
+  useEffect(() => {
+    setInspecting(false);
+  }, [reloadToken, frameToken]);
+
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (!isSelectedElementMessage(event.data)) return;
+      onElementSelected(event.data.element);
+      setInspecting(false);
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [onElementSelected]);
+
+  function toggleInspecting() {
+    const next = !inspecting;
+    setInspecting(next);
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: next ? INSPECTOR_ACTIVATE : INSPECTOR_DEACTIVATE },
+      "*",
+    );
+  }
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas">
@@ -51,6 +91,16 @@ export function PreviewPanel({
         <div className="ml-auto flex items-center gap-0.5">
           {running && (
             <>
+              <IconButton
+                size="sm"
+                label={
+                  inspecting ? "Stop pointing at something" : "Point at something in the preview"
+                }
+                onClick={toggleInspecting}
+                className={inspecting ? "bg-surface-active text-fg" : ""}
+              >
+                <Crosshair size={13} strokeWidth={1.75} />
+              </IconButton>
               <IconButton
                 size="sm"
                 label="Reload preview"
@@ -109,10 +159,11 @@ export function PreviewPanel({
       <div className="relative min-h-0 flex-1">
         {running ? (
           <iframe
+            ref={iframeRef}
             key={`${reloadToken}-${frameToken}`}
             src={previewUrl ?? ""}
             title="Project preview"
-            className="size-full border-0 bg-white"
+            className={`size-full border-0 bg-white ${inspecting ? "cursor-crosshair" : ""}`}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
           />
         ) : busy ? (

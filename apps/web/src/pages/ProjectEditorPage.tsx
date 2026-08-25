@@ -11,6 +11,7 @@ import { PreviewPanel } from "../components/PreviewPanel";
 import { Badge, Button, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
+import type { SelectedElement } from "../lib/inspector";
 
 /** One value drives both layouts: the right-hand pane on desktop, the only
  * pane on a phone. */
@@ -35,6 +36,8 @@ export function ProjectEditorPage() {
   const [starting, setStarting] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [logs, setLogs] = useState("");
+  /** Clicked in the preview with the inspector on — see `038`. */
+  const [pointedElement, setPointedElement] = useState<SelectedElement | null>(null);
 
   const project = useQuery({ queryKey: ["project", id], queryFn: () => api.getProject(id) });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: 60_000 });
@@ -180,6 +183,8 @@ export function ProjectEditorPage() {
               model={health.data?.agent.model}
               projectId={id}
               canEdit={canEdit}
+              pointedElement={pointedElement}
+              onClearPointedElement={() => setPointedElement(null)}
               onOpenDiff={(diffPath, before, after) => {
                 setSelectedPath(diffPath);
                 setCompareSnapshotId(before);
@@ -208,6 +213,13 @@ export function ProjectEditorPage() {
               onStop={stopPreview}
               onRefreshLogs={refreshLogs}
               reloadToken={reloadToken}
+              onElementSelected={(element) => {
+                setPointedElement(element);
+                // Only matters on a phone, where panes are exclusive tabs —
+                // pointing at something is what you do right before typing
+                // about it.
+                setPane("chat");
+              }}
             />
           </div>
 
