@@ -15,6 +15,7 @@ const TABLES = [
   "teams",
   "teamMembers",
   "authSessions",
+  "oidcIdentities",
   "projects",
   "sessions",
   "messages",

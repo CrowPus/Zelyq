@@ -57,6 +57,13 @@
       "when": 1787611205461,
       "tag": "0007_lazy_skrulls",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787650000000,
+      "tag": "0008_oidc_identities",
+      "breakpoints": true
     }
   ]
 }

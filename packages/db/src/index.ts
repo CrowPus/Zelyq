@@ -2,6 +2,7 @@ import { createDatabase, type DatabaseHandle } from "./client.js";
 import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { messageRepository } from "./repositories/messages.js";
+import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
 import { projectRepository } from "./repositories/projects.js";
 import { sessionRepository } from "./repositories/sessions.js";
 import { settingsRepository } from "./repositories/settings.js";
@@ -14,6 +15,7 @@ export { runMigrations } from "./migrate.js";
 export type { AuditLogRepository } from "./repositories/audit-log.js";
 export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
 export type { MessageRepository } from "./repositories/messages.js";
+export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
 export type { ProjectRepository } from "./repositories/projects.js";
 export type { SessionRepository } from "./repositories/sessions.js";
 export type { SettingsRepository } from "./repositories/settings.js";
@@ -27,6 +29,7 @@ export interface Store extends DatabaseHandle {
   users: ReturnType<typeof userRepository>;
   teams: ReturnType<typeof teamRepository>;
   authSessions: ReturnType<typeof authSessionRepository>;
+  oidcIdentities: ReturnType<typeof oidcIdentityRepository>;
   projects: ReturnType<typeof projectRepository>;
   sessions: ReturnType<typeof sessionRepository>;
   messages: ReturnType<typeof messageRepository>;
@@ -47,6 +50,7 @@ export function createStore(url: string): Store {
     users: userRepository(handle.db),
     teams: teamRepository(handle.db),
     authSessions: authSessionRepository(handle.db),
+    oidcIdentities: oidcIdentityRepository(handle.db),
     projects: projectRepository(handle.db),
     sessions: sessionRepository(handle.db),
     messages: messageRepository(handle.db),

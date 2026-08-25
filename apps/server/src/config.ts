@@ -14,6 +14,12 @@ export interface ServerConfig {
   /** After the first account exists, whether strangers may still sign up. */
   allowRegistration: boolean;
   sessionTtlDays: number;
+  oidc?: {
+    issuer: string | undefined;
+    clientId: string | undefined;
+    clientSecret: string | undefined;
+    redirectUri: string | undefined;
+  };
   model: string;
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   templatesDir: string;
@@ -116,6 +122,12 @@ export function loadServerConfig(): ServerConfig {
     provider: (process.env.ZELYQ_PROVIDER ?? "anthropic") as ServerConfig["provider"],
     allowRegistration: (process.env.ZELYQ_ALLOW_REGISTRATION ?? "true") !== "false",
     sessionTtlDays: intFromEnv("ZELYQ_SESSION_TTL_DAYS", 30),
+    oidc: {
+      issuer: process.env.ZELYQ_OIDC_ISSUER,
+      clientId: process.env.ZELYQ_OIDC_CLIENT_ID,
+      clientSecret: process.env.ZELYQ_OIDC_CLIENT_SECRET,
+      redirectUri: process.env.ZELYQ_OIDC_REDIRECT_URI,
+    },
     model: process.env.ZELYQ_MODEL ?? "",
     effort: (process.env.ZELYQ_EFFORT ?? "high") as ServerConfig["effort"],
     templatesDir: path.resolve(process.env.ZELYQ_TEMPLATES_DIR ?? path.join(repoRoot, "templates")),

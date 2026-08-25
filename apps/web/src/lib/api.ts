@@ -73,7 +73,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  authStatus: () => request<{ firstRun: boolean }>("/auth/status"),
+  authStatus: () => request<{ firstRun: boolean; oidcEnabled: boolean }>("/auth/status"),
 
   me: () => request<SessionResponse>("/auth/me"),
 

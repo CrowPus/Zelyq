@@ -84,6 +84,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const auth = new AuthService(store, {
     allowRegistration: () => settings.booleanValue("allowRegistration"),
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
+    oidc: config.oidc,
   });
   const access = new AccessControl(store);
   const accounts = new AccountService(store, projects);

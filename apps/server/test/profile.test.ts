@@ -25,6 +25,7 @@ const config: ServerConfig = {
   effort: "high",
   allowRegistration: true,
   sessionTtlDays: 30,
+  oidc: { issuer: undefined, clientId: undefined, clientSecret: undefined, redirectUri: undefined },
   templatesDir: path.join(repoRoot, "templates"),
   webDir: null,
   secretKey: randomBytes(32).toString("base64"),
