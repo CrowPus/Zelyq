@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+
+const input = process.argv[2]
+
+if (!input) {
+  console.error('Usage: inspect-glb <path-to-model.glb|gltf>')
+  process.exit(2)
+}
+
+if (!existsSync(input)) {
+  console.error(`Asset not found: ${input}`)
+  process.exit(2)
+}
+
+const result = spawnSync(
+  process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  ['--yes', '@gltf-transform/cli', 'inspect', input],
+  { stdio: 'inherit' }
+)
+
+if (result.error) {
+  console.error('Failed to run glTF Transform. Ensure Node.js/npm are available.')
+  console.error(result.error.message)
+  process.exit(1)
+}
+
+process.exit(result.status ?? 1)

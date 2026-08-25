@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+import { chromium } from 'playwright'
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
+
+const url = process.argv[2]
+const outDir = process.argv[3] ?? 'artifacts/cinematic-scroll'
+const viewportWidth = Number(process.env.VIEWPORT_WIDTH ?? 1440)
+const viewportHeight = Number(process.env.VIEWPORT_HEIGHT ?? 900)
+const positions = (process.env.SCROLL_POINTS ?? '0,0.1,0.25,0.5,0.75,0.9,1')
+  .split(',')
+  .map(Number)
+  .filter((n) => Number.isFinite(n) && n >= 0 && n <= 1)
+
+if (!url) {
+  console.error('Usage: capture-scroll <url> [output-directory]')
+  console.error('Requires Playwright: npm install -D playwright')
+  process.exit(2)
+}
+
+await mkdir(outDir, { recursive: true })
+
+const browser = await chromium.launch({ headless: true })
+const page = await browser.newPage({
+  viewport: { width: viewportWidth, height: viewportHeight },
+  reducedMotion: 'no-preference',
+})
+
+const errors = []
+page.on('console', (msg) => {
+  if (msg.type() === 'error') errors.push(`console: ${msg.text()}`)
+})
+page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`))
+
+await page.goto(url, { waitUntil: 'networkidle' })
+await page.waitForTimeout(500)
+
+const metrics = await page.evaluate(() => ({
+  scrollHeight: document.documentElement.scrollHeight,
+  innerHeight: window.innerHeight,
+}))
+const maxScroll = Math.max(0, metrics.scrollHeight - metrics.innerHeight)
+
+for (const progress of positions) {
+  const y = Math.round(maxScroll * progress)
+
+  await page.evaluate((targetY) => {
+    window.scrollTo({ top: targetY, behavior: 'instant' })
+  }, y)
+
+  await page.waitForTimeout(350)
+
+  await page.screenshot({
+    path: path.join(
+      outDir,
+      `${String(Math.round(progress * 100)).padStart(3, '0')}-percent.png`
+    ),
+    fullPage: false,
+  })
+}
+
+const reducedPage = await browser.newPage({
+  viewport: { width: viewportWidth, height: viewportHeight },
+  reducedMotion: 'reduce',
+})
+await reducedPage.goto(url, { waitUntil: 'networkidle' })
+await reducedPage.waitForTimeout(300)
+await reducedPage.screenshot({
+  path: path.join(outDir, 'reduced-motion-top.png'),
+  fullPage: false,
+})
+
+await browser.close()
+
+if (errors.length) {
+  console.error('\nBrowser errors detected:')
+  for (const error of errors) console.error(`- ${error}`)
+  process.exitCode = 1
+}
+
+console.log(`Captured ${positions.length + 1} screenshots in ${outDir}`)
