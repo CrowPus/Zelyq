@@ -144,6 +144,23 @@ conversations started on one model stay labelled with it.
 | `ZELYQ_ALLOW_REGISTRATION` | `true` | Whether people may sign themselves up. The first account is always allowed regardless, and becomes the owner. Set `false` on anything internet-reachable and add people through the team screen. |
 | `ZELYQ_SESSION_TTL_DAYS` | `30` | How long a sign-in lasts. Sessions are extended on use and can be ended by signing out. |
 
+### Single sign-on (OIDC)
+
+OIDC is disabled unless all four variables below are set. Zelyq uses authorization code flow with
+PKCE, discovers the provider from its issuer, and links identities by the provider's immutable
+`iss` + `sub` pair. A claim is only ever acted on when the provider returns `email_verified: true` —
+whether that means linking to an account that already uses the claimed email, or creating a new
+one; email alone is never treated as an identity, and an unverified claim is refused outright
+either way. Register the exact callback URL with the provider, and use HTTPS outside local
+development.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ZELYQ_OIDC_ISSUER` | — | Provider issuer, for example `https://login.example.com`. Discovery reads `/.well-known/openid-configuration`. |
+| `ZELYQ_OIDC_CLIENT_ID` | — | Public client identifier. |
+| `ZELYQ_OIDC_CLIENT_SECRET` | — | Confidential client secret; keep it in the server environment. |
+| `ZELYQ_OIDC_REDIRECT_URI` | — | Exact registered callback, for example `https://zelyq.example.com/api/auth/oidc/callback`. |
+
 The session cookie is marked `Secure` automatically when the request arrives over HTTPS, and not when
 it does not — so sign-in still works on a plain-HTTP instance without silently sending the cookie in
 the clear where TLS is available.

@@ -59,7 +59,9 @@ separates this from a chat with a black box.
       Still open: unfiltered by default until an operator opts in. See [SECURITY.md](../SECURITY.md)
 - [ ] Per-user API keys, encrypted at rest
 - [ ] Invitation links, so someone can be added before they register
-- [ ] SSO (OIDC) as an alternative to passwords
+- [x] SSO (OIDC) as an alternative to passwords — authorization code + PKCE, provider discovery,
+      verified-email linking, identity persistence, and the existing httpOnly session cookie. See
+      [docs/configuration.md](./configuration.md#single-sign-on-oidc)
 - [x] Git integration: init, commit per turn, push to a remote — real git, server-orchestrated,
       never through the agent's own shell tool (already blocked there). Push is manual and
       on-demand, never automatic, never `--force`; a token is used once and never stored. Needs
@@ -88,6 +90,11 @@ separates this from a chat with a black box.
       so adding one doesn't require touching the filesystem — takes effect on the agent's next
       restart. Uploading a plugin is a separate, harder question (a plugin is code, not text) and
       isn't built yet. See [docs/skills.md](../docs/skills.md)
+- [x] A `/` menu in the composer — skills, plugins, and models, filtered as you type, anywhere in
+      the message, not just at the start. A picked skill's full body is guaranteed woven into the
+      message the model reads on turn one; a picked plugin, honestly weaker since it has no body to
+      weave, becomes a plain instruction naming the tool instead. See [docs/skills.md](../docs/skills.md)
+      and [docs/plugins.md](../docs/plugins.md)
 - [x] File upload and image attachments in prompts — images reach the model natively; other files
       are inlined as text
 - [ ] Per-project provider and model selection in the UI

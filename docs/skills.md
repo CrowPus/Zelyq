@@ -97,6 +97,17 @@ override last: an upload can replace a built-in skill's name, and
 uploaded skill yet — remove its directory under `ZELYQ_SKILLS_UPLOAD_DIR`
 by hand, the same as a built-in would need.
 
+## Picking one from the composer, guaranteed
+
+Typing `/` anywhere in the composer — not just at the start of the draft —
+opens a menu of skills, plugins, and models, filtered as you keep typing.
+Picking a skill there is a different promise from the catalog above: its
+full body is woven directly into the message the model reads on turn one,
+before the turn even starts, rather than left for the model to decide
+whether `use_skill` is worth calling. It rides in the one message a model
+cannot fail to read, the same reason attachments and a pointed preview
+element already work this way. See `044` in the council notes.
+
 ## The trust model, stated plainly
 
 A skill is text, not code. It cannot execute anything on its own — the
