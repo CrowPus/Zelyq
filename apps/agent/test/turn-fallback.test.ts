@@ -197,6 +197,17 @@ test("a turn that ends normally but with genuinely empty model text still gets a
     assert.notEqual(content.length, 0);
     assert.match(content, /finished without providing a summary/);
     assert.match(content, /src\/only\.tsx/);
+    // Independent review: the first version of this test only checked
+    // `message.content`, which is exactly the shape of hole that let the
+    // gateway-discarding bug through in the first place — a version that
+    // only streams the fallback on the iteration-cap path would pass every
+    // assertion above and still leave this, the normal-exit empty-text
+    // path, silently broken for anyone listening through the gateway.
+    const textDeltas = events
+      .filter((event) => event.type === "text.delta")
+      .map((event) => event.text)
+      .join("");
+    assert.equal(textDeltas, content);
   } finally {
     await close();
   }
@@ -226,6 +237,129 @@ test("a turn that writes real closing text keeps exactly that text — the fallb
     };
     assert.equal(end.stopReason, "end_turn");
     assert.equal(end.message?.content, "Added the missing button.");
+  } finally {
+    await close();
+  }
+});
+
+test("a stray sentence early in a turn does not disable the checkpoint backstop — independent review found this", async () => {
+  // The exact near-miss independent review found: one line of real text
+  // on the way in, then heads-down tool calls until the budget runs out.
+  // Checking only "is the text empty" would let this slip through with
+  // just "Working on it." as the entire account of a turn that actually
+  // did real work — the reconstructed summary must still be appended.
+  const { base, close } = await setup(
+    [
+      {
+        events: [{ type: "text" as const, text: "Working on it." }],
+        result: {
+          toolCalls: [
+            { id: "call_1", name: "write_file", input: { path: "src/x.tsx", content: "x" } },
+          ],
+          stopReason: "tool_use" as const,
+          usage: { inputTokens: 5, outputTokens: 5 },
+        },
+      },
+      writesWithoutText("src/y.tsx", "call_2"),
+      writesWithoutText("src/z.tsx", "call_3"),
+    ],
+    2,
+  );
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_fb/prompt`);
+    const end = events.at(-1) as {
+      type: string;
+      stopReason?: string;
+      message?: { content: string };
+    };
+    assert.equal(end.stopReason, "max_iterations");
+    const content = end.message?.content ?? "";
+    // The model's own sentence must survive, not be thrown away —
+    assert.match(content, /^Working on it\./);
+    // — but it is not, on its own, an honest account of a capped turn.
+    assert.match(content, /step limit/);
+    assert.match(content, /src\/x\.tsx/);
+    assert.match(content, /src\/y\.tsx/);
+    const textDeltas = events
+      .filter((event) => event.type === "text.delta")
+      .map((event) => event.text)
+      .join("");
+    assert.equal(textDeltas, content);
+  } finally {
+    await close();
+  }
+});
+
+test("whitespace-only text is appended to, not replaced by, the fallback — text.delta and content must still agree", async () => {
+  const { base, close } = await setup(
+    [
+      {
+        events: [{ type: "text" as const, text: "  \n\n " }],
+        result: {
+          toolCalls: [],
+          stopReason: "end_turn" as const,
+          usage: { inputTokens: 2, outputTokens: 1 },
+        },
+      },
+    ],
+    5,
+  );
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_fb/prompt`);
+    const end = events.at(-1) as {
+      type: string;
+      stopReason?: string;
+      message?: { content: string };
+    };
+    assert.equal(end.stopReason, "end_turn");
+    const content = end.message?.content ?? "";
+    const textDeltas = events
+      .filter((event) => event.type === "text.delta")
+      .map((event) => event.text)
+      .join("");
+    // The exact invariant a straight `assistantText = fallback` broke: the
+    // gateway persists whatever it saw stream by, whitespace included, so
+    // this event's own content has to match that, not silently drop it.
+    assert.equal(textDeltas, content);
+    assert.match(content, /finished without providing a summary/);
+  } finally {
+    await close();
+  }
+});
+
+test("a refusal does not get a synthetic 'no summary' body layered underneath it", async () => {
+  const { base, close } = await setup(
+    [
+      {
+        events: [],
+        result: {
+          toolCalls: [],
+          stopReason: "refusal" as const,
+          refusalReason: "that would require fabricating credentials",
+          usage: { inputTokens: 4, outputTokens: 0 },
+        },
+      },
+    ],
+    5,
+  );
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_fb/prompt`);
+    const errorEvent = events.find((event) => event.type === "error");
+    assert.ok(errorEvent, "the refusal must still surface its own error event");
+    const end = events.at(-1) as {
+      type: string;
+      stopReason?: string;
+      message?: { content: string };
+    };
+    assert.equal(end.type, "turn.end");
+    // Honest about what actually happened, not the generic "end_turn" a
+    // refusal used to report before this.
+    assert.equal(end.stopReason, "refusal");
+    assert.equal(
+      end.message?.content,
+      "",
+      "no fallback text belongs underneath a refusal — the error event already explains it",
+    );
   } finally {
     await close();
   }

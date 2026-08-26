@@ -219,6 +219,14 @@ export class AgentSession {
     // ran out mid-work" and only synthesize a fallback in the latter case,
     // or whenever the model's own text is empty regardless of why.
     let stoppedByBreak = false;
+    // A refusal already carries its own `error` event with the model's own
+    // reason — the fallback synthesis below must not run on top of it
+    // (peer review: a refusal was getting a "finished without providing a
+    // summary" body underneath it, which reads as a quiet normal ending
+    // sitting under a refusal banner, not the actual explanation for why
+    // nothing happened). Also lets `turn.end`'s own `stopReason` say
+    // "refusal" honestly instead of the generic "end_turn".
+    let refused = false;
     // Structural cap on invented scope, added after a live incident — see
     // ZED-0001's incident addendum. `020` in the council notes already
     // measured correct decomposition for a reasonably-scoped small feature
@@ -322,6 +330,7 @@ export class AgentSession {
             fatal: false,
           });
           stoppedByBreak = true;
+          refused = true;
           break;
         }
 
@@ -532,28 +541,52 @@ export class AgentSession {
       // out mid-work, or a provider just returned nothing) the user never
       // sees a silent reply after real work happened.
       //
-      // Emitted as a `text.delta`, not folded in only at the bottom of
-      // this event: the server's WS gateway builds its own copy of the
-      // assistant message by accumulating `text.delta` events as they
-      // stream, then discards this event's own `message` entirely (see
-      // `apps/server/src/ws/gateway.ts` — found live, the first version
-      // of this fix synthesized text that never actually reached anyone
-      // talking to the agent through that gateway, only a direct SSE
-      // caller). Streaming it keeps every consumer — that gateway, a
-      // direct SSE caller, the eval harness — in agreement about what
-      // this turn's message actually was.
+      // Independent review of the first version of this found two more
+      // gaps in the same failure family, both fixed by the shape below:
+      //
+      // 1. Checking only "is the text empty" missed the near-miss case —
+      //    a turn that says one stray sentence ("Working on it.") on an
+      //    early iteration and then goes heads-down calling tools until
+      //    the budget runs out hit the exact same user-visible failure
+      //    (real work, no real account of it) but skipped the backstop
+      //    entirely, since that one sentence made `assistantText`
+      //    non-empty. Hitting the iteration cap now always appends the
+      //    reconstructed summary, whether or not the model said something
+      //    on the way — real text already said is kept, never discarded.
+      //
+      // 2. Whitespace-only text (a model that streamed nothing but blank
+      //    lines) broke the exact invariant this exists to protect: the
+      //    old code replaced `assistantText` outright, so the DB-persisted
+      //    copy (built by the server's gateway from every `text.delta` it
+      //    saw, whitespace included) and this event's own `message.content`
+      //    disagreed. `addition` below is always appended with `+=`, never
+      //    substituted, so the delta stream this emits and the final
+      //    `assistantText` stay identical by construction — the same
+      //    property `apps/server/src/ws/gateway.ts` needs.
+      //
+      // A refusal is deliberately excluded (`!refused`): its own `error`
+      // event already carries the model's stated reason, and layering
+      // "finished without providing a summary" underneath it would read
+      // as a quiet normal ending sitting under a refusal banner.
       const hitIterationCap = !stoppedByBreak;
-      if (assistantText.trim().length === 0) {
-        const fallback = this.synthesizeFallbackSummary(toolCalls, hitIterationCap);
-        emit({ type: "text.delta", sessionId: this.id, messageId, text: fallback });
-        assistantText = fallback;
+      const hasRealText = assistantText.trim().length > 0;
+      let addition = "";
+      if (!refused && hitIterationCap) {
+        const summary = this.synthesizeFallbackSummary(toolCalls, true);
+        addition = hasRealText ? `\n\n${summary}` : summary;
+      } else if (!refused && !hasRealText) {
+        addition = this.synthesizeFallbackSummary(toolCalls, false);
+      }
+      if (addition) {
+        emit({ type: "text.delta", sessionId: this.id, messageId, text: addition });
+        assistantText += addition;
       }
 
       emit({
         type: "turn.end",
         sessionId: this.id,
         messageId,
-        stopReason: hitIterationCap ? "max_iterations" : "end_turn",
+        stopReason: refused ? "refusal" : hitIterationCap ? "max_iterations" : "end_turn",
         message: {
           id: messageId,
           sessionId: this.id,
