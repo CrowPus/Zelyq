@@ -1,0 +1,13 @@
+{
+  "name": "@zelyq/operator-plugins",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test ../test/plugins/*.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.62.1",
+    "sharp": "^0.35.4",
+    "zod": "^4.4.3"
+  }
+}
