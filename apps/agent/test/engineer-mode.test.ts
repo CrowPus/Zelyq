@@ -290,10 +290,13 @@ test("engineer mode: the 7th new file in one turn is refused, not written", asyn
     const refused = toolEnds.filter((event) => (event.call as { isError: boolean }).isError);
     assert.equal(succeeded.length, 6, "exactly 6 files actually get written — the checkpoint");
     assert.equal(refused.length, 2, "the 7th and 8th are both refused");
-    for (const event of refused) {
-      const message = (event.call as { result: string }).result;
-      assert.match(message, /refusing to create another/);
-    }
+    // The 7th call is the one that trips the checkpoint; the 8th is a
+    // mutating call refused because the checkpoint was already reached —
+    // two different, deliberately distinct messages (see MUTATING_TOOL_NAMES
+    // and the checkpointReached comment in session.ts).
+    const [seventh, eighth] = refused.map((event) => (event.call as { result: string }).result);
+    assert.match(seventh!, /refusing to create another/);
+    assert.match(eighth!, /checkpoint was already reached/);
   } finally {
     await close();
   }
@@ -476,7 +479,10 @@ test("engineer mode: a shell command that creates new files is counted toward th
       true,
       "write_file must be refused once files created via run_command already reached the checkpoint",
     );
-    assert.match(eighthFileResult!.call.result, /refusing to create another/);
+    // The checkpoint was already reached by the run_command's own 7 files
+    // (over the 6-file line) before this write_file attempt ever ran, so
+    // this is the "already reached" message, not the "just reached" one.
+    assert.match(eighthFileResult!.call.result, /checkpoint was already reached/);
   } finally {
     await close();
   }
@@ -511,6 +517,161 @@ test("engineer mode: a shell command creating fewer files than the checkpoint do
       textDeltas,
       /refusing to create another/,
       "two new files from a shell command must not trip a 6-file checkpoint",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: a lockfile a shell command writes does not consume a slot in the checkpoint", async () => {
+  // Found live: `npm install` creating package-lock.json got counted by
+  // the reactive run_command check the same as an actually-invented
+  // file, silently costing one of six real slots for something the
+  // model never chose to create. This writes the lockfile directly, via
+  // a real shell command through the real runtime, the same way the
+  // other run_command tests in this file do — a real `npm install`
+  // would be slow and network-dependent for no extra signal, since what
+  // is being tested is the reactive diff's own filtering, not npm.
+  const writesLockfile = {
+    events: [{ type: "text" as const, text: "Installing a dependency." }],
+    result: {
+      toolCalls: [
+        {
+          id: "call_npm",
+          name: "run_command",
+          input: { command: "echo '{}' > package-lock.json" },
+        },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  const script = [writesLockfile, ...[1, 2, 3, 4, 5, 6].map(writesFile), saysDoneWithMarker];
+  const { base, close } = await setup(script, true, 12);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const refused = toolEnds.filter((event) => (event.call as { isError: boolean }).isError);
+    assert.equal(
+      refused.length,
+      0,
+      "all 6 real files must succeed — the lockfile must not have consumed one of the 6 slots",
+    );
+  } finally {
+    await close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The real design flaw a second live incident found: refusing only the
+// write that crosses the checkpoint, while leaving edit_file and
+// run_command open, does not stop the model — it just removes the option
+// to decompose properly, and it crams the remaining planned work into
+// whatever file it can still touch instead. These tests are the actual
+// fix: once the checkpoint is reached, no mutating tool runs, period.
+// ---------------------------------------------------------------------------
+
+test("engineer mode: once the checkpoint is reached, edit_file is refused too — not just new writes", async () => {
+  const editsAppTsxAfterCheckpoint = {
+    events: [{ type: "text" as const, text: "Cramming it in instead." }],
+    result: {
+      toolCalls: [
+        {
+          id: "call_cram",
+          name: "edit_file",
+          input: { path: "src/App.tsx", old_text: "x", new_text: "y" },
+        },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  // 7 writes, not 6 — the 7th is what actually flips checkpointReached to
+  // true. Six alone reaches the count but never trips anything, since
+  // nothing has tried to go past it yet.
+  const script = [1, 2, 3, 4, 5, 6, 7]
+    .map(writesFile)
+    .concat([editsAppTsxAfterCheckpoint, saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 12, { "src/App.tsx": "original" });
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const editResult = toolEnds.find(
+      (event) => (event.call as { name: string }).name === "edit_file",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(editResult, "the edit_file attempt must actually have run");
+    assert.equal(
+      editResult!.call.isError,
+      true,
+      "edit_file must be refused too, once 6 new files were created this turn — this is the actual fix for cramming everything into one file instead of stopping",
+    );
+    assert.match(editResult!.call.result, /checkpoint was already reached/);
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: once the checkpoint is reached, a further run_command is refused too", async () => {
+  const shellAfterCheckpoint = {
+    events: [{ type: "text" as const, text: "One more script." }],
+    result: {
+      toolCalls: [
+        { id: "call_more_shell", name: "run_command", input: { command: "npm install" } },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  // 7 writes, not 6 — see the comment on the edit_file test above.
+  const script = [1, 2, 3, 4, 5, 6, 7]
+    .map(writesFile)
+    .concat([shellAfterCheckpoint, saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 12);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const shellResult = toolEnds.find(
+      (event) => (event.call as { name: string }).name === "run_command",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(
+      shellResult,
+      "the run_command attempt must actually have run through the refusal path",
+    );
+    assert.equal(shellResult!.call.isError, true);
+    assert.match(shellResult!.call.result, /checkpoint was already reached/);
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: read-only tools still work after the checkpoint is reached", async () => {
+  const readsAfterCheckpoint = {
+    events: [{ type: "text" as const, text: "Checking what exists." }],
+    result: {
+      toolCalls: [{ id: "call_read", name: "read_file", input: { path: "src/App.tsx" } }],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  // 7 writes, not 6 — this must genuinely reach checkpointReached first,
+  // or this test would pass for the wrong reason (read_file always works,
+  // checkpoint or not — the point is proving it still works once the
+  // checkpoint actually has been reached).
+  const script = [1, 2, 3, 4, 5, 6, 7]
+    .map(writesFile)
+    .concat([readsAfterCheckpoint, saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 12, { "src/App.tsx": "original" });
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const readResult = toolEnds.find(
+      (event) => (event.call as { name: string }).name === "read_file",
+    ) as { call: { isError: boolean } } | undefined;
+    assert.ok(readResult, "the read_file attempt must actually have run");
+    assert.equal(
+      readResult!.call.isError,
+      false,
+      "read-only tools must stay available after the checkpoint, so the model can still write an accurate summary",
     );
   } finally {
     await close();

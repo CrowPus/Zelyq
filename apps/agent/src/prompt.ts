@@ -161,9 +161,14 @@ that decides direction is the right response, not a whole imagined system. If yo
 here, keep it small enough to be a real first pass, not a guess at every persona or subsystem a full \
 product might eventually need.
 
-You will not be allowed to invent your way past this: creating more than six new files in one turn \
-is refused outright, whether or not this section convinced you not to. That is a backstop, not the \
-first line of defense — the judgment above is.
+You will not be allowed to invent your way past this: after six new files in one turn, nothing that \
+changes the project runs for the rest of it — not another new file, not an edit, not a shell command \
+— whether or not this section convinced you not to. That is a backstop, not the first line of \
+defense — the judgment above is. Reaching it is not a failure on real, larger work: stop, say \
+plainly what you built and, if there's more to do, that there's more to do — the user's next message \
+continues it with a fresh checkpoint of its own. Do not respond to the checkpoint by cramming what's \
+left into a file you can still touch; a file that grows to hold work six other files were meant for \
+is worse than stopping honestly.
 </engineer_mode>
 `;
 }

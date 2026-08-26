@@ -25,6 +25,30 @@ import {
   type ProviderId,
 } from "./providers/index.js";
 
+/** Every tool that can change the project, refused once Engineer Mode's
+ * new-file checkpoint is reached — see the `checkpointReached` comment in
+ * `run()`. `delete_file` is included for the same reason the others are:
+ * once checkpointed, nothing about the project should change, not only
+ * file creation. Read-only tools (`read_file`, `list_files`,
+ * `search_files`, preview inspection) are deliberately absent — the model
+ * can still look at what exists to write an accurate summary. */
+const MUTATING_TOOL_NAMES = new Set(["write_file", "edit_file", "delete_file", "run_command"]);
+
+/** Lockfiles a package manager writes as a normal side effect of
+ * `npm install` and its equivalents — found live: `run_command`'s
+ * reactive new-file detection was counting `package-lock.json` toward
+ * the same six-file budget as an actually-invented file, silently
+ * costing the model one of its six slots for something it didn't choose
+ * to create. Excluded by basename, not path, since these always live at
+ * the project root. */
+const GENERATED_LOCKFILE_NAMES = new Set([
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
+]);
+
 export interface SessionOptions {
   sessionId: string;
   projectId: string;
@@ -190,18 +214,28 @@ export class AgentSession {
     // stops it. Distinct genuinely-new paths — a file that already existed
     // before this turn started never counts, no matter which tool touches
     // it, so a legitimate rewrite of App.tsx is never mistaken for
-    // invented scope. Found live, the hard way: an earlier version of this
-    // check counted every distinct `write_file` path regardless of
-    // whether the file was new, wrongly capped a rewrite of the template's
-    // own App.tsx, and the model — faced with a real, needed edit refused
-    // for no real reason — worked around it by writing the file through
-    // `run_command` and a raw `node -e` script instead, which this same
-    // cap didn't touch at all. Two fixes, not one: existing files are
-    // exempt regardless of tool, and any file that appears after a
-    // `run_command` call is now counted the same way a `write_file` call
-    // already was.
+    // invented scope.
+    //
+    // A second live incident, on a legitimate, well-specified request
+    // (a four-resource admin dashboard), showed the first version of this
+    // fix was still wrong in a different way: refusing only the write that
+    // crosses the checkpoint, while leaving `edit_file` and everything
+    // else open, does not stop the model — it just removes the option to
+    // decompose properly. Blocked from creating a seventh honestly-named
+    // component, it crammed six components' worth of code into the one
+    // file it could still touch, growing App.tsx to hundreds of lines
+    // rather than actually stopping. `checkpointReached` fixes this by
+    // ending the turn's ability to change anything at all, not just create
+    // new files, the moment the checkpoint is hit — the model's only
+    // remaining job is to say what it built and stop, the same way a
+    // human engineer checks in before continuing a large task rather than
+    // forcing everything already planned into whatever is left open.
+    // Reaching the checkpoint is expected on real, larger work, not a
+    // failure — the user's next prompt is what continues it, with a fresh
+    // per-turn budget of its own.
     const NEW_FILE_CHECKPOINT = 6;
     const newFilesThisTurn = new Set<string>();
+    let checkpointReached = false;
     const existingFilesAtTurnStart = this.options.engineerMode
       ? await this.listAllFilePaths()
       : new Set<string>();
@@ -348,30 +382,51 @@ export class AgentSession {
             // above. Checked before the real tool runs, not after: once
             // the cap is hit this turn, it stays hit — no reopening it by
             // waiting a round, and no relying on the model reading a
-            // warning and choosing to comply. `edit_file`, and `write_file`
-            // on a file that already existed before this turn (including
-            // one already created earlier this same turn), are both
-            // unaffected — only a path that is genuinely new trips it.
+            // warning and choosing to comply. `write_file` on a file that
+            // already existed before this turn (including one already
+            // created earlier this same turn) never counts toward the
+            // cap — only a path that is genuinely new does.
             const path =
               toolCall.name === "write_file" &&
               typeof toolCall.input.path === "string" &&
               !existingFilesAtTurnStart.has(toolCall.input.path)
                 ? toolCall.input.path
                 : undefined;
-            const capped =
+            // Once the checkpoint is reached, every tool that changes the
+            // project is refused, not only further new files — see the
+            // checkpointReached comment above for why leaving `edit_file`
+            // and `run_command` open the first time this shipped just
+            // moved where the model crammed its remaining work, not
+            // whether it did. Read-only tools (`read_file`, `list_files`,
+            // `search_files`, preview inspection) stay available so the
+            // model can still write an accurate summary of what exists.
+            const blockedByCheckpoint =
               this.options.engineerMode &&
+              checkpointReached &&
+              MUTATING_TOOL_NAMES.has(toolCall.name);
+            const newFileCapped =
+              this.options.engineerMode &&
+              !blockedByCheckpoint &&
               path !== undefined &&
               !newFilesThisTurn.has(path) &&
               newFilesThisTurn.size >= NEW_FILE_CHECKPOINT;
-            if (path !== undefined && !capped) newFilesThisTurn.add(path);
+            if (newFileCapped) checkpointReached = true;
+            if (path !== undefined && !newFileCapped && !blockedByCheckpoint) {
+              newFilesThisTurn.add(path);
+            }
+            const capped = blockedByCheckpoint || newFileCapped;
             const outcome = capped
               ? {
-                  output:
-                    `Engineer Mode has created ${NEW_FILE_CHECKPOINT} new files this turn without checking in — ` +
-                    `refusing to create another ("${path}"). Stop here: summarize what exists so far in your ` +
-                    "final message, and if you're not certain this is actually what was asked, ask the " +
-                    "question that would tell you instead of continuing to build. You can still edit the " +
-                    "files already created this turn.",
+                  output: newFileCapped
+                    ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
+                      `create another new file ("${path}"). Nothing that changes the project will run for the ` +
+                      "rest of this turn, not just new files. Stop here: your final message should summarize " +
+                      "what exists so far, and if you're not certain this is actually what was asked, ask the " +
+                      "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
+                      "— the user's next message continues it, with a fresh checkpoint of its own."
+                    : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
+                      `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
+                      "now instead.",
                   isError: true,
                 }
               : await executeTool(toolContext, toolCall.name, toolCall.input);
@@ -398,15 +453,19 @@ export class AgentSession {
 
         // Closes the bypass a live incident found: `run_command` can write
         // a file through an arbitrary shell command just as well as
-        // `write_file` can, and nothing above touches it. Cannot refuse
-        // this ahead of time the way `write_file` is refused — the file
-        // already exists by the time a command finishes — so this is
-        // reactive: count whatever appeared, and if that pushes past the
-        // checkpoint, say so once. A single command that creates many
-        // files in one shot can still get past the checkpoint before this
-        // catches up; the checkpoint governing every write_file call
-        // afterward, and the message telling the model plainly what
-        // happened, is the honest limit of what a check run only after
+        // `write_file` can, and nothing above touches it — unless
+        // `checkpointReached` already refused the call outright, which
+        // only happens once this same check has already fired at least
+        // once. The very first `run_command` that crosses the checkpoint
+        // cannot be refused ahead of time — the files already exist by
+        // the time the command finishes — so this is reactive: count
+        // whatever appeared, and if that pushes past the checkpoint, set
+        // `checkpointReached` so every mutating tool is refused from here
+        // on, the same as the write_file path already does. A single
+        // command that creates many files in one shot can still get past
+        // the checkpoint before this catches up; the message telling the
+        // model plainly what happened, and that nothing else will run
+        // this turn, is the honest limit of what a check run only after
         // the fact can promise.
         if (
           this.options.engineerMode &&
@@ -415,18 +474,23 @@ export class AgentSession {
           const currentFiles = await this.listAllFilePaths();
           const newlyAppeared = [...currentFiles].filter(
             (filePath) =>
-              !existingFilesAtTurnStart.has(filePath) && !newFilesThisTurn.has(filePath),
+              !existingFilesAtTurnStart.has(filePath) &&
+              !newFilesThisTurn.has(filePath) &&
+              !GENERATED_LOCKFILE_NAMES.has(filePath),
           );
           if (newlyAppeared.length > 0) {
             const wasUnderCap = newFilesThisTurn.size < NEW_FILE_CHECKPOINT;
             for (const filePath of newlyAppeared) newFilesThisTurn.add(filePath);
             if (wasUnderCap && newFilesThisTurn.size >= NEW_FILE_CHECKPOINT) {
+              checkpointReached = true;
               this.conversation.addUserMessage(
                 `A shell command just created ${newlyAppeared.length} new file(s), bringing this turn's ` +
                   `total new files to ${newFilesThisTurn.size} — at or past the ${NEW_FILE_CHECKPOINT}-file ` +
-                  "checkpoint. Further new files, whether through write_file or a shell command, will be " +
-                  "refused. Stop here: summarize what exists so far, and if you're not certain this is what " +
-                  "was actually asked, ask the question that would tell you.",
+                  "checkpoint. Nothing that changes the project will run for the rest of this turn, not just " +
+                  "new files. Stop here: summarize what exists so far, and if you're not certain this is what " +
+                  "was actually asked, ask the question that would tell you. If this is genuinely larger, " +
+                  "ongoing work, say so plainly — the user's next message continues it, with a fresh " +
+                  "checkpoint of its own.",
               );
             }
           }
@@ -492,7 +556,13 @@ export class AgentSession {
    * `node_modules`, `.git`, and the rest of what the file tree hides.
    */
   private async listAllFilePaths(): Promise<Set<string>> {
-    const entries = await this.options.runtime.listFiles(this.projectId).catch(() => []);
+    // `depth: 32` matches the "give me an actually complete listing"
+    // convention `local.ts` already uses internally — the default (8)
+    // would silently miss a pre-existing file nested deeper than that,
+    // reopening exactly the bug this method exists to prevent.
+    const entries = await this.options.runtime
+      .listFiles(this.projectId, { depth: 32 })
+      .catch(() => []);
     return new Set(entries.filter((entry) => entry.type === "file").map((entry) => entry.path));
   }
 
