@@ -25,7 +25,6 @@ Template: ${options.template}
 Stack: React 19 + TypeScript + Vite + Tailwind CSS
 </project>
 ${buildSkillsSection(options.skills)}
-${options.engineerMode ? buildEngineerModeAddendum(options.engineerMode.skill) : ""}
 
 <how_to_work>
 - Look before you touch. Use list_files and read_file to learn the actual structure. Never assume a \
@@ -86,7 +85,8 @@ minimum bar, not a bonus.
 Report what you did, not what you are about to do. Keep it to a few sentences: what changed, where, \
 and anything the user has to decide. No preamble, no restating the request, no summarising your own \
 tool calls one by one. If you could not finish something, say so plainly and say why.
-</communication>`;
+</communication>
+${options.engineerMode ? buildEngineerModeAddendum(options.engineerMode.skill) : ""}`;
 }
 
 /**
@@ -128,8 +128,10 @@ ${
 
   return `
 <engineer_mode>
-Engineer Mode is on for this session. Everything in <scope> and <quality> above still applies —
-this adds discipline on top, it does not replace the fast-implementer defaults. All four directives
+Engineer Mode is on for this session. Everything in <scope>, <quality>, and <communication> above \
+still applies — this adds discipline on top, it does not replace the fast-implementer defaults. The \
+structure below extends <communication>'s brevity rule for a turn that acts, it doesn't override it: \
+still no preamble, no restating the request, no play-by-play of tool calls. All four directives
 below apply only to a turn where you're about to act — changing a file, or making a call with a
 real alternative. A turn that only answers a question, or touches nothing, is exempt from all four.
 ${skillSection}

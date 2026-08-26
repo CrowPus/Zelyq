@@ -149,15 +149,28 @@ test("engineer mode: a turn that changes a file without the purpose marker is ha
 });
 
 test("engineer mode: the hand-back happens only once, not forever, on a model that never adds the marker", async () => {
+  // maxIterations is 5 (see setup's config) and the scripted provider
+  // clamps to its last step once exhausted — a regressed, unbounded
+  // hand-back would still eventually stop, at the iteration cap, and
+  // still end on a "turn.end" event. Counting tool.start alone can't tell
+  // that apart from the correct, once-bounded behavior: a hand-back never
+  // produces a tool call itself, only a fresh round of text. Counting
+  // iterations directly — one per "text.delta" burst — is what actually
+  // distinguishes "stopped after one hand-back" (3: write, first "Done.",
+  // second "Done.") from "regressed to unbounded" (5: ran to the cap).
   const { base, close } = await setup(
     [writesAFileNoMarker, saysDoneNoMarker, saysDoneNoMarker, saysDoneNoMarker],
     true,
   );
   try {
     const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
-    // Bounded to one retry, not the iteration cap — the turn ends on the
-    // second "Done.", the step right after the one hand-back.
     assert.equal(events.at(-1)?.type, "turn.end");
+    const textBursts = events.filter((event) => event.type === "text.delta");
+    assert.equal(
+      textBursts.length,
+      3,
+      "3 iterations (write, hand-back, accepted) proves the bound — 5 would mean it ran to the cap instead",
+    );
     const toolStarts = events.filter((event) => event.type === "tool.start");
     assert.equal(
       toolStarts.length,
@@ -170,14 +183,17 @@ test("engineer mode: the hand-back happens only once, not forever, on a model th
 });
 
 test("engineer mode: a turn with the marker already present is not handed back", async () => {
+  // Same reasoning as the test above: only two script steps are provided,
+  // so a hand-back that fired would clamp to replaying the second step —
+  // itself carrying the marker, so it would pass too, and the turn would
+  // still end normally. Counting iterations, not just outcome, is what
+  // actually proves no extra round happened.
   const { base, close } = await setup([writesAFileNoMarker, saysDoneWithMarker], true);
   try {
     const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
     assert.equal(events.at(-1)?.type, "turn.end");
-    // Only two script steps provided — a hand-back would try to consume a
-    // third and get the second step replayed instead, which the marker
-    // check below would then also pass, making this assertion the honest
-    // way to prove no extra round happened rather than just "it didn't crash".
+    const textBursts = events.filter((event) => event.type === "text.delta");
+    assert.equal(textBursts.length, 2, "write then done — a hand-back would make this 3");
     const toolStarts = events.filter((event) => event.type === "tool.start");
     assert.equal(toolStarts.length, 1);
   } finally {

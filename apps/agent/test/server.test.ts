@@ -168,6 +168,26 @@ test("engineer mode with effort at high is accepted and reflected in session sta
   assert.equal(response.json().engineerMode, true);
 });
 
+test("engineer mode with effort entirely omitted falls through to the process default, which is high", async () => {
+  // config.effort is "high" (see the module-scope config above) — the same
+  // fallthrough resolvedEffort = input.effort ?? config.effort already
+  // takes for every other session, exercised here specifically for the
+  // one field the floor check reads.
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/sessions",
+    payload: {
+      sessionId: "ses_em_no_effort_given",
+      projectId: "prj_test",
+      apiKey: "sk-test",
+      engineerMode: true,
+    },
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json().effort, "high");
+  assert.equal(response.json().engineerMode, true);
+});
+
 test("engineer mode off is unaffected by a low effort setting", async () => {
   const response = await server.app.inject({
     method: "POST",

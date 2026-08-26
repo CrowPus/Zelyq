@@ -94,6 +94,20 @@ test("a resolved skill's body and resource listing both land in the addendum", (
   assert.match(prompt, /use_skill\("senior-software-engineering", path\)/);
 });
 
+test("the addendum lands after <scope>, <quality>, and <communication>, not before — its own 'above' claim depends on this", () => {
+  // Found by independent implementation review: the addendum used to sit
+  // above those sections while its own text said they were "above" it —
+  // backwards. This locks the actual position in, not just the wording.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  const communicationEnd = prompt.indexOf("</communication>");
+  const addendumStart = prompt.indexOf("<engineer_mode>");
+  assert.ok(communicationEnd > 0 && addendumStart > 0);
+  assert.ok(
+    addendumStart > communicationEnd,
+    'the addendum must come after <communication>, so its own "above" claim is actually true',
+  );
+});
+
 test("a resolved skill with no deeper files omits the (otherwise empty) listing line", () => {
   const prompt = buildSystemPrompt({
     projectName: "p",
