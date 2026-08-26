@@ -12,8 +12,63 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
+  GITLEAKS_VERSION: "8.30.1"
 
 jobs:
+  security:
+    name: Secrets and vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks scans commit history, not only the working tree — a
+          # shallow checkout would only ever see the last commit's diff.
+          fetch-depth: 0
+
+      # No marketplace action here on purpose: gitleaks-action requires a
+      # paid license once a repository is under an organization, and pinning
+      # to a downloaded, checksum-verified binary means this step never
+      # depends on that changing under us.
+      - name: Install gitleaks
+        run: |
+          # sha256sum -c reads the filename off each checksums.txt line and
+          # opens that exact name — it has to match what curl saved to, not
+          # just refer to the same release asset. Found live: -o'ing this to
+          # a generic gitleaks.tar.gz passed the download and failed
+          # verification with "No such file or directory".
+          asset="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSL -o "$asset" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${asset}"
+          curl -sSL -o checksums.txt "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep "$asset" checksums.txt | sha256sum -c -
+          tar -xzf "$asset" gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+
+      # .gitleaks.toml at the repo root allowlists exactly one fixture file
+      # that deliberately contains a fake credential as eval test data —
+      # everything else uses gitleaks' full default ruleset.
+      - name: Scan for secrets
+        run: gitleaks detect --source . --no-banner --redact
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit workspace dependencies
+        run: pnpm audit --audit-level=high
+
+      # plugins/ is an independent Node project (its own package-lock.json,
+      # not part of the pnpm workspace) — pnpm audit above never sees it.
+      - name: Audit plugin library dependencies
+        working-directory: plugins
+        run: npm audit --audit-level=high
+
   verify:
     name: Lint, typecheck, test
     runs-on: ubuntu-latest

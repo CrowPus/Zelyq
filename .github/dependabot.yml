@@ -12,6 +12,21 @@ updates:
         dependency-type: production
         update-types: [minor, patch]
 
+  # plugins/ is an independent Node project (its own package-lock.json), not
+  # part of the pnpm workspace the entry above covers — CI's audit job
+  # already checks it separately; this is what keeps it from just aging.
+  - package-ecosystem: npm
+    directory: "/plugins"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+      production-dependencies:
+        dependency-type: production
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

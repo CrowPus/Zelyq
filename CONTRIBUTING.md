@@ -68,7 +68,26 @@ pnpm lint        # Biome
 pnpm test        # node:test across workspaces
 ```
 
-Please run all three before pushing. CI runs the same commands, so a local pass means a green PR.
+Please run all three before pushing. CI runs the same commands, plus one more (below) — a pass on
+all four locally means a green PR.
+
+### Secrets and dependency vulnerabilities
+
+A separate, required CI check — **Secrets and vulnerabilities** — scans every PR for a committed
+secret and any high-or-critical dependency vulnerability. It is not covered by the three commands
+above, and it blocks merging the same way they do. To check it yourself before pushing:
+
+```bash
+pnpm audit --audit-level=high          # the workspace
+(cd plugins && npm audit --audit-level=high)   # plugins/ has its own lockfile, outside the workspace
+```
+
+For the secret scan, install [gitleaks](https://github.com/gitleaks/gitleaks) once and run
+`gitleaks detect --source . --no-banner` — it reads `.gitleaks.toml` at the repo root the same way
+CI does. If a finding is a fixture that deliberately contains a fake credential, widen
+`.gitleaks.toml`'s allowlist in the same PR and say why; do not lower the audit severity threshold
+to get past a real one. See [SECURITY.md](./SECURITY.md#repository-scanning) for what each layer
+actually covers.
 
 ## Commit and PR conventions
 
