@@ -206,6 +206,19 @@ export class AgentSession {
     // than accepting one uncorrected turn.
     let anyFileChangedThisTurn = false;
     let purposeCheckDone = false;
+    // Found live: a turn that keeps calling tools every single iteration
+    // never reaches either check above, or the loop's own normal exit —
+    // it just falls out when `iteration` reaches `maxIterations`, whatever
+    // `assistantText` happens to hold at that point. On a run that spent
+    // its whole per-turn budget on tool calls and never got to write a
+    // final message, that's nothing — the user is left staring at a blank
+    // reply after real work actually happened. `stoppedByBreak` tells the
+    // two paths apart: set at both of the loop's own internal `break`s
+    // (a refusal, and the ordinary "nothing left to do" exit) so the code
+    // after the loop can tell "the model chose to stop" from "the budget
+    // ran out mid-work" and only synthesize a fallback in the latter case,
+    // or whenever the model's own text is empty regardless of why.
+    let stoppedByBreak = false;
     // Structural cap on invented scope, added after a live incident — see
     // ZED-0001's incident addendum. `020` in the council notes already
     // measured correct decomposition for a reasonably-scoped small feature
@@ -308,6 +321,7 @@ export class AgentSession {
             }.`,
             fatal: false,
           });
+          stoppedByBreak = true;
           break;
         }
 
@@ -363,6 +377,7 @@ export class AgentSession {
             );
             continue;
           }
+          stoppedByBreak = true;
           break;
         }
 
@@ -509,11 +524,36 @@ export class AgentSession {
         return;
       }
 
+      // Found live: a 56-tool-call turn that legitimately built real
+      // things still ended with a stored message of length zero, because
+      // the loop above spent its whole budget on tool calls and never
+      // reached a point where it could stop and ask the model to sum up.
+      // This is the backstop — whatever the reason (the step budget ran
+      // out mid-work, or a provider just returned nothing) the user never
+      // sees a silent reply after real work happened.
+      //
+      // Emitted as a `text.delta`, not folded in only at the bottom of
+      // this event: the server's WS gateway builds its own copy of the
+      // assistant message by accumulating `text.delta` events as they
+      // stream, then discards this event's own `message` entirely (see
+      // `apps/server/src/ws/gateway.ts` — found live, the first version
+      // of this fix synthesized text that never actually reached anyone
+      // talking to the agent through that gateway, only a direct SSE
+      // caller). Streaming it keeps every consumer — that gateway, a
+      // direct SSE caller, the eval harness — in agreement about what
+      // this turn's message actually was.
+      const hitIterationCap = !stoppedByBreak;
+      if (assistantText.trim().length === 0) {
+        const fallback = this.synthesizeFallbackSummary(toolCalls, hitIterationCap);
+        emit({ type: "text.delta", sessionId: this.id, messageId, text: fallback });
+        assistantText = fallback;
+      }
+
       emit({
         type: "turn.end",
         sessionId: this.id,
         messageId,
-        stopReason: "end_turn",
+        stopReason: hitIterationCap ? "max_iterations" : "end_turn",
         message: {
           id: messageId,
           sessionId: this.id,
@@ -546,6 +586,54 @@ export class AgentSession {
       this.busy = false;
       this.abortController = null;
     }
+  }
+
+  /**
+   * The backstop for a turn that ends with nothing to show for itself in
+   * words, even though the tool calls themselves prove real work happened
+   * — see the `hitIterationCap` comment above `turn.end`. Never claims to
+   * be the model's own account: it says plainly that no summary was
+   * given, and reconstructs a plain list of what actually ran from the
+   * tool calls' own names and inputs. Deliberately mechanical rather than
+   * a second model call — a turn that already spent its whole budget
+   * calling tools should not spend more of it hoping for a summary this
+   * time; a reconstructed list the user can trust is better than a maybe.
+   */
+  private synthesizeFallbackSummary(toolCalls: ToolCall[], hitIterationCap: boolean): string {
+    const created = new Set<string>();
+    const edited = new Set<string>();
+    const deleted = new Set<string>();
+    const commands: string[] = [];
+    for (const call of toolCalls) {
+      if (call.isError) continue;
+      const path = typeof call.input.path === "string" ? call.input.path : undefined;
+      if (call.name === "write_file" && path) created.add(path);
+      else if (call.name === "edit_file" && path) edited.add(path);
+      else if (call.name === "delete_file" && path) deleted.add(path);
+      else if (call.name === "run_command" && typeof call.input.command === "string") {
+        commands.push(call.input.command);
+      }
+    }
+
+    const lines: string[] = [
+      hitIterationCap
+        ? "This turn hit its internal step limit before it could write a summary of what it did."
+        : "This turn finished without providing a summary of what it did.",
+      "Here's what changed, reconstructed from the tool calls that actually ran:",
+    ];
+    if (created.size > 0) lines.push(`- Created: ${[...created].join(", ")}`);
+    if (edited.size > 0) lines.push(`- Edited: ${[...edited].join(", ")}`);
+    if (deleted.size > 0) lines.push(`- Deleted: ${[...deleted].join(", ")}`);
+    if (commands.length > 0) lines.push(`- Ran: ${commands.map((c) => `\`${c}\``).join(", ")}`);
+    if (created.size === 0 && edited.size === 0 && deleted.size === 0 && commands.length === 0) {
+      lines.push("- No changes were made.");
+    }
+    if (hitIterationCap) {
+      lines.push(
+        "There may be more left to do — say what you'd like next and it'll pick up from here.",
+      );
+    }
+    return lines.join("\n");
   }
 
   /**
