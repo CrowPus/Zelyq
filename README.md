@@ -4,11 +4,14 @@
 
 # Zelyq
 
-**Describe an app. Watch an agent build it. Edit the result live.**
+**Vibecoding writes code. Zelyq builds like an engineer.**
 
-Zelyq is an open-source AI app builder. You give it a prompt; an agent plans, writes files, runs
-commands, starts a dev server, and reports back — while you watch the tool calls, the file tree, and
-the running result.
+Most "prompt to app" tools generate something that looks right and leave you to find out where it
+isn't. Zelyq's agent plans before it acts, verifies its own work before it calls a turn finished,
+tells you plainly what it checked versus what it assumed, and stops to ask instead of guessing when
+a request is too vague to build responsibly. It writes files, runs commands, starts a dev server,
+and reports back — while you watch every tool call, every file it touched, and the running result,
+live.
 
 [![CI](https://github.com/CrowPus/Zelyq/actions/workflows/ci.yml/badge.svg)](https://github.com/CrowPus/Zelyq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
@@ -22,30 +25,51 @@ the running result.
 
 <br />
 
-<!-- The hero follows the reader's GitHub theme. -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/editor-dark.png" />
-  <img src="assets/screenshots/editor-light.png" alt="The Zelyq editor: an agent transcript on the left, the running app on the right" width="900" />
-</picture>
+<a href="assets/screenshots/aura.mp4">
+  <img src="assets/screenshots/aura-studio.png" alt="AURA STUDIO: a full Shopify-style commerce admin — analytics, a discount engine, live theme customization, multi-currency settings, and order management — built by the Zelyq agent from one prompt" width="900" />
+</a>
 
-<sub>One prompt, unedited: the agent read the project, wrote <code>src/App.tsx</code>, and the result
-is rendering live on the right.</sub>
-
-<!-- TODO: replace the still above with a short screen recording of a build, end to end. -->
-
-<br />
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/existing-project-dark.png" />
-  <img src="assets/screenshots/existing-project-light.png" alt="A shop's existing website open in Zelyq: the agent has read the real codebase and answered a question about it, with the site running live on the right" width="900" />
-</picture>
-
-<sub>Or open code you already have. A real multilingual shop site, not built here — the agent read the
-existing codebase and explained how its language switching works, without changing a line.</sub>
+<sub><a href="assets/screenshots/aura.mp4">▶ Watch it happen</a> — one prompt in, and the agent
+built a working commerce admin: analytics dashboard, discount engine, live theme customizer,
+multi-currency and tax settings, and an encrypted checkout simulation, across 8 files, with its own
+typecheck and preview passing before it called the turn done.</sub>
 
 </div>
 
 ---
+
+## It behaves like an engineer, not a generator
+
+A code generator's job ends when something compiles. An engineer's job includes knowing what they
+actually built, whether it works, and when they don't have enough information to keep going
+responsibly. Zelyq's agent is built toward the second one:
+
+- **It verifies before it calls anything done.** The moment the model stops asking for tools, Zelyq
+  runs the project's own typecheck (or build) and checks the live preview for a crash — automatically,
+  not because the prompt asked nicely. A turn that broke something gets handed back to fix, not
+  reported as finished.
+- **It says what it knows versus what it guessed.** Turn on **Engineer Mode** and every turn that
+  changes something states its purpose up front, then separates what it verified (ran, read, tested)
+  from what it inferred and what it assumed — instead of one confident-sounding paragraph that blurs
+  the three together.
+- **It names the alternative it didn't pick.** When a real choice existed — an architecture, a
+  library, a tradeoff with no obviously-better answer — Engineer Mode has it say what it didn't choose
+  and why, in a sentence or two, not silently.
+- **It builds what was asked, then stops.** No invented navbars, no sample-data toggles nobody
+  requested, no filling a vague ask with guesses. A request too shapeless to build responsibly gets one
+  clarifying question instead of eight files you didn't want.
+- **It reaches for expert practice only when a task needs it.** A catalog of packaged, senior-level
+  skills — frontend engineering, UI/UX design, application security, CI/CD — loads into a turn only
+  when its description actually matches, so the agent isn't running a security review on a landing
+  page or a deployment checklist on a button.
+- **It stops and asks instead of guessing on anything irreversible.** Deleting data, an action with no
+  undo, a request that's really a conversation ("I want to test you," "how would you build X") rather
+  than a spec — Engineer Mode treats these as a reason to ask, not a reason to improvise.
+
+None of this is a black box promise — every mechanism above is real code, not marketing copy: the
+verification gate and Engineer Mode both live in [`apps/agent/src/session.ts`](./apps/agent/src/session.ts)
+and [`apps/agent/src/prompt.ts`](./apps/agent/src/prompt.ts), and [docs/agent-behaviour.md](./docs/agent-behaviour.md)
+documents exactly how the turn loop decides what to do.
 
 ## What it is
 
