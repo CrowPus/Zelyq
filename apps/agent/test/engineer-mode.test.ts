@@ -52,6 +52,7 @@ async function collectTurn(url: string): Promise<Array<{ type: string; [key: str
 async function setup(
   script: Array<{ events: ProviderEvent[]; result: TurnResult }>,
   engineerMode: boolean,
+  maxIterations = 5,
 ): Promise<{ base: string; close(): Promise<void> }> {
   const workspaceDir = path.join(
     os.tmpdir(),
@@ -74,7 +75,7 @@ async function setup(
     model: "scripted",
     effort: "high",
     apiKey: "test-key",
-    maxTurnIterations: 5,
+    maxTurnIterations: maxIterations,
     runtime: {
       kind: "local",
       workspaceDir,
@@ -228,6 +229,150 @@ test("engineer mode off: a file changed with no marker is never handed back — 
     assert.equal(events.at(-1)?.type, "turn.end");
     const toolStarts = events.filter((event) => event.type === "tool.start");
     assert.equal(toolStarts.length, 1, "no structural hand-back outside engineer mode");
+  } finally {
+    await close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The new-file checkpoint — added after a live incident: a vague, exploratory
+// prompt ("I'm testing you, I want to build X") produced three imagined
+// subsystems and 22 files before anything stopped it, in Engineer Mode, with
+// the mode's own prose doing nothing to prevent it. This reproduces that
+// shape directly: a scripted provider that keeps inventing new files exactly
+// the way the real one did, and proves the cap actually refuses them rather
+// than only asking nicely.
+// ---------------------------------------------------------------------------
+
+function writesFile(fileNumber: number) {
+  return {
+    events: [{ type: "text" as const, text: `Building piece ${fileNumber}.` }],
+    result: {
+      toolCalls: [
+        {
+          id: `call_${fileNumber}`,
+          name: "write_file",
+          input: { path: `src/invented/Piece${fileNumber}.tsx`, content: "x" },
+        },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+}
+
+test("engineer mode: the 7th new file in one turn is refused, not written", async () => {
+  // 8 distinct new-file attempts, one per iteration — the shape the real
+  // incident actually had (many small tool-call rounds), not one giant
+  // batch — then a closing step with the marker already present, so the
+  // turn actually ends instead of clamping to the last write forever.
+  const script = [1, 2, 3, 4, 5, 6, 7, 8].map(writesFile).concat([saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 15);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    assert.equal(
+      toolEnds.length,
+      8,
+      "all 8 attempts happen — refusal is a tool result, not a dropped call",
+    );
+
+    const succeeded = toolEnds.filter((event) => !(event.call as { isError: boolean }).isError);
+    const refused = toolEnds.filter((event) => (event.call as { isError: boolean }).isError);
+    assert.equal(succeeded.length, 6, "exactly 6 files actually get written — the checkpoint");
+    assert.equal(refused.length, 2, "the 7th and 8th are both refused");
+    for (const event of refused) {
+      const message = (event.call as { result: string }).result;
+      assert.match(message, /refusing to create another/);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: the checkpoint does not reopen once tripped, even for a later distinct path", async () => {
+  const script = [1, 2, 3, 4, 5, 6, 7].map(writesFile).concat([saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 12);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const last = toolEnds.at(-1) as { call: { isError: boolean; input: { path: string } } };
+    assert.equal(
+      last.call.isError,
+      true,
+      "the 7th distinct path is still refused, not a fresh count",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: exactly at the checkpoint (6 files), nothing is refused", async () => {
+  const script = [1, 2, 3, 4, 5, 6].map(writesFile).concat([saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 10);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    assert.equal(toolEnds.length, 6);
+    assert.ok(
+      toolEnds.every((event) => !(event.call as { isError: boolean }).isError),
+      "6 new files is the allowed boundary, not already over it",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode off: the checkpoint does not apply at all — default mode is unaffected", async () => {
+  // Same shape that trips the cap in engineer mode, run with it off. This is
+  // a deliberate scope decision (see the ZED-0001 incident addendum): the
+  // same failure exists in default mode too, per prior research, but fixing
+  // that is a separate decision this entry does not make unilaterally.
+  const script = [1, 2, 3, 4, 5, 6, 7, 8].map(writesFile).concat([saysDoneNoMarker]);
+  const { base, close } = await setup(script, false, 15);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    assert.equal(toolEnds.length, 8);
+    assert.ok(
+      toolEnds.every((event) => !(event.call as { isError: boolean }).isError),
+      "no cap outside engineer mode",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: editing an already-created file is never blocked by the checkpoint", async () => {
+  // 6 new files to trip the cap, then an edit_file on one of them — must
+  // succeed, since the cap is about inventing more scope, not about
+  // continuing to work on what's already there.
+  const editStep = {
+    events: [{ type: "text" as const, text: "Refining piece 1." }],
+    result: {
+      toolCalls: [
+        {
+          id: "call_edit",
+          name: "edit_file",
+          input: { path: "src/invented/Piece1.tsx", old_string: "x", new_string: "y" },
+        },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  const script = [1, 2, 3, 4, 5, 6].map(writesFile).concat([editStep, saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 12);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const editResult = toolEnds.find(
+      (event) => (event.call as { name: string }).name === "edit_file",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(editResult, "the edit_file call must actually have run");
+    // It may still fail for its own reasons (the tool's own match logic),
+    // but never with the checkpoint's specific refusal message.
+    assert.doesNotMatch(editResult!.call.result, /refusing to create another/);
   } finally {
     await close();
   }

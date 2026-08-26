@@ -66,6 +66,21 @@ test("engineer mode on adds the addendum with all four directives", () => {
   assert.match(prompt, /Build what was asked, then stop/);
 });
 
+test("engineer mode names an exploratory, scope-undecided request as its own stop-and-ask trigger", () => {
+  // Added after a live incident — see ZED-0001's incident addendum. A
+  // request that opens a conversation, not a spec, must be named
+  // explicitly, not left to be inferred from the generic shapeless-request
+  // rule that already failed to catch it once.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  assert.match(prompt, /opens a conversation rather than gives you a spec/);
+  assert.match(prompt, /talking to an engineer, not filing a ticket/);
+});
+
+test("engineer mode's addendum names the new-file checkpoint as a real backstop, not just a suggestion", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  assert.match(prompt, /more than six new files in one turn is refused outright/);
+});
+
 test("a turn that touches nothing, or only answers a question, is exempted in the addendum's own text", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
   assert.match(prompt, /exempt from all four/);

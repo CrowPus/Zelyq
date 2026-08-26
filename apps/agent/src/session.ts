@@ -182,6 +182,16 @@ export class AgentSession {
     // than accepting one uncorrected turn.
     let anyFileChangedThisTurn = false;
     let purposeCheckDone = false;
+    // Structural cap on invented scope, added after a live incident — see
+    // ZED-0001's incident addendum. `020` in the council notes already
+    // measured correct decomposition for a reasonably-scoped small feature
+    // at 6-7 files; a vague prompt that turns into three imagined
+    // subsystems blows past that by an order of magnitude before anything
+    // stops it. Distinct `write_file` paths, since `write_file` is what
+    // creates a file — the prompt already tells the model to prefer
+    // `edit_file` for anything that already exists.
+    const NEW_FILE_CHECKPOINT = 6;
+    const newFilesThisTurn = new Set<string>();
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -321,7 +331,34 @@ export class AgentSession {
             emit({ type: "tool.start", sessionId: this.id, messageId, call });
 
             const startedAt = Date.now();
-            const outcome = await executeTool(toolContext, toolCall.name, toolCall.input);
+            // Structural scope cap — see the NEW_FILE_CHECKPOINT comment
+            // above. Checked before the real tool runs, not after: once
+            // the cap is hit this turn, it stays hit — no reopening it by
+            // waiting a round, and no relying on the model reading a
+            // warning and choosing to comply. `edit_file` on a file
+            // already created this turn is unaffected; only genuinely new
+            // paths trip it.
+            const path =
+              toolCall.name === "write_file" && typeof toolCall.input.path === "string"
+                ? toolCall.input.path
+                : undefined;
+            const capped =
+              this.options.engineerMode &&
+              path !== undefined &&
+              !newFilesThisTurn.has(path) &&
+              newFilesThisTurn.size >= NEW_FILE_CHECKPOINT;
+            if (path !== undefined && !capped) newFilesThisTurn.add(path);
+            const outcome = capped
+              ? {
+                  output:
+                    `Engineer Mode has created ${NEW_FILE_CHECKPOINT} new files this turn without checking in — ` +
+                    `refusing to create another ("${path}"). Stop here: summarize what exists so far in your ` +
+                    "final message, and if you're not certain this is actually what was asked, ask the " +
+                    "question that would tell you instead of continuing to build. You can still edit the " +
+                    "files already created this turn.",
+                  isError: true,
+                }
+              : await executeTool(toolContext, toolCall.name, toolCall.input);
             const finished: ToolCall = {
               ...call,
               result: outcome.output.slice(0, 4000),
