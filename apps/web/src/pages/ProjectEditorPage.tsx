@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
-import { Camera, Code2, MessageSquare, Monitor } from "lucide-react";
+import { Camera, Code2, Compass, MessageSquare, Monitor } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { ChatPanel } from "../components/ChatPanel";
 import { CodeViewer } from "../components/CodeViewer";
 import { FileExplorer } from "../components/FileExplorer";
+import { PlanPanel } from "../components/PlanPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
 import { PushControl } from "../components/PushControl";
 import { Badge, Button, Spinner } from "../components/ui";
@@ -16,7 +17,7 @@ import type { SelectedElement } from "../lib/inspector";
 
 /** One value drives both layouts: the right-hand pane on desktop, the only
  * pane on a phone. */
-type Pane = "chat" | "preview" | "code";
+type Pane = "chat" | "preview" | "code" | "plan";
 
 const STATUS_TONE = {
   ready: "success",
@@ -68,6 +69,10 @@ export function ProjectEditorPage() {
       queryClient.invalidateQueries({ queryKey: ["files", id] });
       if (selectedPath && paths.includes(selectedPath)) {
         queryClient.invalidateQueries({ queryKey: ["file", id, selectedPath] });
+      }
+      // 048 — Architect Mode writes architecture/report.html at the end of a run.
+      if (paths.some((p) => p.startsWith("architecture/"))) {
+        queryClient.invalidateQueries({ queryKey: ["plan", id] });
       }
       setReloadToken((token) => token + 1);
     },
@@ -125,7 +130,8 @@ export function ProjectEditorPage() {
 
   const current = project.data!.project;
   // Desktop always shows the chat on the left, so "chat" falls back to preview.
-  const rightPane: "preview" | "code" = pane === "code" ? "code" : "preview";
+  const rightPane: "preview" | "code" | "plan" =
+    pane === "code" ? "code" : pane === "plan" ? "plan" : "preview";
 
   return (
     <AppShell
@@ -153,6 +159,13 @@ export function ProjectEditorPage() {
               icon={<Code2 size={13} strokeWidth={1.75} />}
             >
               Code
+            </TabButton>
+            <TabButton
+              active={rightPane === "plan"}
+              onClick={() => setPane("plan")}
+              icon={<Compass size={13} strokeWidth={1.75} />}
+            >
+              Plan
             </TabButton>
           </div>
           <Button
@@ -267,6 +280,14 @@ export function ProjectEditorPage() {
               }}
             />
           </div>
+
+          <div
+            className={`${pane === "plan" ? "grid" : "hidden"} min-h-0 ${
+              rightPane === "plan" ? "md:grid" : "md:hidden"
+            }`}
+          >
+            <PlanPanel projectId={id} />
+          </div>
         </div>
 
         <PaneBar pane={pane} onChange={setPane} />
@@ -281,6 +302,7 @@ function PaneBar({ pane, onChange }: { pane: Pane; onChange(next: Pane): void })
     { id: "chat", label: "Agent", icon: <MessageSquare size={15} strokeWidth={1.75} /> },
     { id: "preview", label: "Preview", icon: <Monitor size={15} strokeWidth={1.75} /> },
     { id: "code", label: "Code", icon: <Code2 size={15} strokeWidth={1.75} /> },
+    { id: "plan", label: "Plan", icon: <Compass size={15} strokeWidth={1.75} /> },
   ];
 
   return (
