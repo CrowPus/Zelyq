@@ -6,7 +6,7 @@ import { loadAgentConfig } from "./config.js";
 import { loadPlugins } from "./plugins.js";
 import { PROVIDERS } from "./providers/index.js";
 import { buildAgentServer } from "./server.js";
-import { buildUseSkillTool, loadSkills } from "./skills.js";
+import { buildUseSkillTool, listResources, loadSkills } from "./skills.js";
 
 // Before anything reads process.env.
 const envFile = loadEnvFile();
@@ -39,9 +39,25 @@ const skillsResult = await loadSkills(
 );
 if (skillsResult.skills.length > 0) ALL_TOOLS.push(buildUseSkillTool(skillsResult.skills));
 
+// Resolved once at boot, here, rather than inside `server.ts` on every
+// Engineer Mode session creation — `dir` is deliberately internal to
+// `skills.ts` (never shown to the model), so this is the one place with
+// legitimate access to it, same as `buildUseSkillTool` above. See ZED-0001,
+// Implementation boundary: baking a skill straight into the system prompt
+// bypasses the live `use_skill` call that would normally list its deeper
+// files, so the addendum needs this listing supplied another way.
+const skillsWithResources = await Promise.all(
+  skillsResult.skills.map(async (skill) => ({
+    name: skill.name,
+    description: skill.description,
+    body: skill.body,
+    resources: await listResources(skill.dir),
+  })),
+);
+
 const server = buildAgentServer(config, {
   pluginNames: plugins.loaded,
-  skills: skillsResult.skills,
+  skills: skillsWithResources,
 });
 if (plugins.loaded.length > 0) {
   server.app.log.info(

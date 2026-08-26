@@ -20,6 +20,8 @@ function fakeAgent() {
   const created: Array<{
     provider?: string;
     model?: string;
+    effort?: string;
+    engineerMode?: boolean;
     baseUrl?: string;
     apiKey?: string;
     authMode?: string;
@@ -71,6 +73,8 @@ function fakeAgent() {
         created.push({
           provider: input.provider,
           model: input.model,
+          effort: input.effort,
+          engineerMode: input.engineerMode,
           baseUrl: input.baseUrl,
           apiKey: input.apiKey,
           authMode: input.authMode,
@@ -80,7 +84,8 @@ function fakeAgent() {
           projectId: input.projectId,
           provider: input.provider,
           model: input.model ?? "default-model",
-          effort: "high",
+          effort: input.effort ?? "high",
+          engineerMode: input.engineerMode ?? false,
           busy: false,
           turns: 0,
           tokensIn: 0,
@@ -420,6 +425,139 @@ test("a specific model picked from the chat reaches the agent, not just its prov
     "claude-haiku-4-5-20251001",
     "the specific model picked must reach the agent, not the provider's own default",
   );
+});
+
+// ---------------------------------------------------------------------------
+// The live-configured effort setting — found while building ZED-0001's
+// effort floor: this was never read here at all, so the Settings page's
+// "Reasoning effort" field looked live but had no effect on any session.
+// ---------------------------------------------------------------------------
+
+test("the live-configured effort setting reaches the agent — found live: it never did before", async () => {
+  await server.app.inject({
+    method: "PUT",
+    url: "/api/settings",
+    headers: { cookie: adminCookie },
+    payload: { effort: "low" },
+  });
+
+  const { cookie } = await register("effort-threading-test@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Effort threading test" },
+    })
+  ).json().project;
+
+  agent.created.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") ws.send(JSON.stringify({ type: "prompt", message: "hi" }));
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  assert.equal(
+    agent.created[0]?.effort,
+    "low",
+    "the Settings page's effort value must actually reach the agent",
+  );
+
+  // Restore, so this doesn't leak into whichever test runs next.
+  await server.app.inject({
+    method: "PUT",
+    url: "/api/settings",
+    headers: { cookie: adminCookie },
+    payload: { effort: "high" },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Engineer Mode toggle — ZED-0001, Phase 1. Threaded from the composer the
+// same way a model or skill pick already is: a per-turn override, not a
+// Settings-page default (see the entry's Proposed decision, and its
+// discovery that effort itself has no such per-session client override).
+// ---------------------------------------------------------------------------
+
+test("engineer mode picked from the chat reaches the agent", async () => {
+  const { cookie } = await register("engineer-mode-on-test@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Engineer mode on test" },
+    })
+  ).json().project;
+
+  agent.created.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        ws.send(JSON.stringify({ type: "prompt", message: "hi", engineerMode: true }));
+      }
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  assert.equal(agent.created[0]?.engineerMode, true);
+});
+
+test("engineer mode omitted from the chat leaves the default session unaffected", async () => {
+  const { cookie } = await register("engineer-mode-off-test@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Engineer mode off test" },
+    })
+  ).json().project;
+
+  agent.created.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") ws.send(JSON.stringify({ type: "prompt", message: "hi" }));
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  assert.equal(agent.created[0]?.engineerMode, false);
 });
 
 test("a base URL configured for the live provider is not forwarded to a provider picked instead", async () => {

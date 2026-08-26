@@ -128,6 +128,61 @@ test("an ordinary OpenAI session (no subscription mode) still gets its usual def
   assert.equal(response.json().model, "gpt-5.1");
 });
 
+// ---------------------------------------------------------------------------
+// Engineer Mode's effort floor — ZED-0001, Phase 1. The client-side check is
+// the primary UX (see the entry's Proposed decision), but a real constraint
+// needs server-side enforcement too, the same discipline the Codex checks
+// above already hold — a hand-crafted request must not bypass it.
+// ---------------------------------------------------------------------------
+
+test("engineer mode with effort below high is refused, not silently downgraded", async () => {
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/sessions",
+    payload: {
+      sessionId: "ses_em_low_effort",
+      projectId: "prj_test",
+      apiKey: "sk-test",
+      effort: "medium",
+      engineerMode: true,
+    },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().error.message, /Engineer Mode needs reasoning effort at "high"/);
+  assert.match(response.json().error.message, /"medium"/);
+});
+
+test("engineer mode with effort at high is accepted and reflected in session state", async () => {
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/sessions",
+    payload: {
+      sessionId: "ses_em_high_effort",
+      projectId: "prj_test",
+      apiKey: "sk-test",
+      effort: "high",
+      engineerMode: true,
+    },
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json().engineerMode, true);
+});
+
+test("engineer mode off is unaffected by a low effort setting", async () => {
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/sessions",
+    payload: {
+      sessionId: "ses_em_off_low_effort",
+      projectId: "prj_test",
+      apiKey: "sk-test",
+      effort: "low",
+    },
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json().engineerMode, false);
+});
+
 test("an unknown provider is rejected as a bad request", async () => {
   const response = await server.app.inject({
     method: "POST",

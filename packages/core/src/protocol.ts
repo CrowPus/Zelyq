@@ -116,6 +116,10 @@ export const createAgentSessionSchema = z.object({
   provider: providerIdSchema.optional(),
   model: z.string().optional(),
   effort: effortSchema.optional(),
+  /** ZED-0001, Phase 1: guarantees the senior-engineering behavior profile
+   * for this session instead of the default fast-implementer prompt.
+   * Requires `effort` at `high` or above — the agent refuses otherwise. */
+  engineerMode: z.boolean().optional(),
   /** Per-session key. Falls back to the agent process environment when absent. */
   apiKey: z.string().optional(),
   /**
@@ -169,6 +173,9 @@ export const agentSessionStateSchema = z.object({
   provider: providerIdSchema,
   model: z.string(),
   effort: z.string(),
+  /** See ZED-0001. `ensureSession` recreates the session when this changes,
+   * the same as a changed provider already does. */
+  engineerMode: z.boolean(),
   /** See `045` — whether this session is authenticated with a classic key
    * or a CLI-sourced subscription token. `ensureSession` recreates the
    * session when this changes, the same as a changed provider already does. */
@@ -200,6 +207,9 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     skills: z.array(z.string()).optional(),
     /** Picked from the same `/` menu's Plugins section — names only. */
     plugins: z.array(z.string()).optional(),
+    /** Engineer Mode toggle — see ZED-0001. Omitted or false means the
+     * default fast-implementer behavior, unchanged. */
+    engineerMode: z.boolean().optional(),
   }),
   z.object({ type: z.literal("abort") }),
   z.object({ type: z.literal("ping") }),

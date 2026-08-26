@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildSystemPrompt, withPlugins, withSkills } from "../src/prompt.js";
+import {
+  buildSystemPrompt,
+  ENGINEER_MODE_PURPOSE_MARKER,
+  withPlugins,
+  withSkills,
+} from "../src/prompt.js";
 
 /** See `042` in the council notes — the catalog is the cheap, always-present
  * tier; these are the fast, direct checks the live-turn test in
@@ -30,6 +35,72 @@ test("loaded skills appear as a name: description catalog, not their full bodies
   assert.match(prompt, /- stripe-checkout: Wire a Stripe Checkout redirect flow\./);
   assert.match(prompt, /- shadcn-ui-setup: Install shadcn\/ui components correctly\./);
   assert.match(prompt, /use_skill/, "the prompt must tell the model how to actually load one");
+});
+
+// ---------------------------------------------------------------------------
+// Engineer Mode addendum — ZED-0001, Phase 1. Built once into the system
+// prompt itself, distinct from both the catalog and withSkills' per-message
+// weaving above — see the entry's Proposed decision for why that distinction
+// is load-bearing.
+// ---------------------------------------------------------------------------
+
+test("engineer mode off (the default) adds nothing to the prompt", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.doesNotMatch(prompt, /<engineer_mode>/);
+});
+
+test("engineer mode on adds the addendum with all four directives", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: {},
+  });
+  assert.match(prompt, /<engineer_mode>/);
+  assert.match(prompt, new RegExp(ENGINEER_MODE_PURPOSE_MARKER.replace(":", "\\:")));
+  assert.match(prompt, /Epistemic labeling/);
+  assert.match(prompt, /Decision responsibility/);
+  assert.match(prompt, /Stop-and-ask boundary/);
+  // The default prompt's own scope discipline must still be present and
+  // uncontradicted — Engineer Mode is additive, never a replacement. See
+  // ZED-0001, Implementation boundary → Excluded.
+  assert.match(prompt, /Build what was asked, then stop/);
+});
+
+test("a turn that touches nothing, or only answers a question, is exempted in the addendum's own text", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  assert.match(prompt, /exempt from all four/);
+});
+
+test("engineer mode with no skill found still gets the four directives, degraded rather than refused", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  assert.doesNotMatch(prompt, /<engineer_mode_skill>/);
+  assert.match(prompt, /Purpose framing/);
+});
+
+test("a resolved skill's body and resource listing both land in the addendum", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: {
+      skill: { body: "THE SENIOR ENGINEERING SKILL BODY", resources: ["references/security.md"] },
+    },
+  });
+  assert.match(prompt, /<engineer_mode_skill>/);
+  assert.match(prompt, /THE SENIOR ENGINEERING SKILL BODY/);
+  // This is the whole point of carrying the listing at all — see ZED-0001's
+  // third validation round: baking only the body in leaves the model with
+  // no way to know a deeper file like this one exists.
+  assert.match(prompt, /references\/security\.md/);
+  assert.match(prompt, /use_skill\("senior-software-engineering", path\)/);
+});
+
+test("a resolved skill with no deeper files omits the (otherwise empty) listing line", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: { skill: { body: "JUST A BODY", resources: [] } },
+  });
+  assert.doesNotMatch(prompt, /Other files this skill has/);
 });
 
 // ---------------------------------------------------------------------------

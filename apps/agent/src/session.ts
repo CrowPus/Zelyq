@@ -8,7 +8,12 @@ import {
 } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import { executeTool, type ToolContext, toolDefinitions } from "@zelyq/tools";
-import { buildSystemPrompt, withPlugins, withSkills } from "./prompt.js";
+import {
+  buildSystemPrompt,
+  ENGINEER_MODE_PURPOSE_MARKER,
+  withPlugins,
+  withSkills,
+} from "./prompt.js";
 import {
   type AuthMode,
   type Conversation,
@@ -43,6 +48,12 @@ export interface SessionOptions {
    * separate field from `skills` above so the prompt catalog never has to
    * carry every skill's full text just to build a two-line list. */
   resolveSkillBody?: (name: string) => { body: string } | undefined;
+  /** ZED-0001, Phase 1. `engineerModeSkill` is the `senior-software-engineering`
+   * skill's body and resource listing, resolved by the caller the same way
+   * `resolveSkillBody` already is — absent when that skill wasn't found at
+   * boot, in which case the mode's four directives still apply on their own. */
+  engineerMode?: boolean;
+  engineerModeSkill?: { body: string; resources: string[] };
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
@@ -91,6 +102,7 @@ export class AgentSession {
         projectName: options.projectName,
         template: options.template,
         skills: options.skills,
+        ...(options.engineerMode ? { engineerMode: { skill: options.engineerModeSkill } } : {}),
       }),
       tools: toolDefinitions(),
       effort: options.effort,
@@ -114,6 +126,7 @@ export class AgentSession {
       provider: this.options.provider,
       model: this.options.model,
       effort: this.options.effort,
+      engineerMode: this.options.engineerMode ?? false,
       authMode: this.options.authMode ?? "api_key",
       busy: this.busy,
       turns: this.turns,
@@ -161,6 +174,14 @@ export class AgentSession {
     // at the bottom of this loop knows whether anything has changed since
     // the last one, not just in the iteration that just finished.
     let verificationNeeded = false;
+    // ZED-0001, Phase 1's structural anchor. Unlike `changedFiles`, never
+    // cleared — this asks "did anything change at all this turn", not
+    // "since the last check". `purposeCheckDone` bounds the hand-back to
+    // once, the same reason the entry calls this a shape check: retrying
+    // forever on a model that just never adds the marker would be worse
+    // than accepting one uncorrected turn.
+    let anyFileChangedThisTurn = false;
+    let purposeCheckDone = false;
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -260,6 +281,31 @@ export class AgentSession {
               }
             }
           }
+
+          // ZED-0001, Phase 1's structural anchor — see Proposed decision
+          // point 3. A shape check, not a semantic one: this confirms the
+          // marker is present somewhere in what the model said this turn,
+          // never that the sentence after it is actually a good account of
+          // the turn's purpose. Checked against the whole turn's
+          // accumulated text rather than isolating one "final" message,
+          // since iterations don't mark that boundary today — a simpler,
+          // honestly-described check over a more precise one that would
+          // need new bookkeeping to earn.
+          if (
+            this.options.engineerMode &&
+            anyFileChangedThisTurn &&
+            !purposeCheckDone &&
+            !assistantText.includes(ENGINEER_MODE_PURPOSE_MARKER)
+          ) {
+            purposeCheckDone = true;
+            this.conversation.addUserMessage(
+              `Engineer Mode is on and this turn changed files, but your message never stated the ` +
+                `turn's purpose. Start your final message with a line beginning exactly ` +
+                `"${ENGINEER_MODE_PURPOSE_MARKER}" followed by one or two sentences on what you understood ` +
+                'the goal to be and what "done" means here.',
+            );
+            continue;
+          }
           break;
         }
 
@@ -299,6 +345,7 @@ export class AgentSession {
 
         if (changedFiles.size > 0) {
           verificationNeeded = true;
+          anyFileChangedThisTurn = true;
           emit({ type: "files.changed", sessionId: this.id, paths: [...changedFiles] });
           changedFiles.clear();
         }

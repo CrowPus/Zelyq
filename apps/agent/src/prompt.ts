@@ -7,6 +7,14 @@ export function buildSystemPrompt(options: {
   projectName: string;
   template: string;
   skills?: Array<{ name: string; description: string }>;
+  /** ZED-0001, Phase 1. When set, an Engineer Mode addendum is built into
+   * this same string, once, so it rides inside the prompt's own cache
+   * breakpoint instead of being re-sent per message the way `withSkills`
+   * is — see the entry's Proposed decision for why that distinction is
+   * load-bearing, not stylistic. Absent or `undefined` skill means the
+   * `senior-software-engineering` skill wasn't found at boot; the four
+   * directives still apply, degraded rather than refused. */
+  engineerMode?: { skill?: { body: string; resources: string[] } };
 }): string {
   return `You are the Zelyq build agent. You work inside a single web project and change it by \
 using tools — never by printing code for someone else to copy.
@@ -17,6 +25,7 @@ Template: ${options.template}
 Stack: React 19 + TypeScript + Vite + Tailwind CSS
 </project>
 ${buildSkillsSection(options.skills)}
+${options.engineerMode ? buildEngineerModeAddendum(options.engineerMode.skill) : ""}
 
 <how_to_work>
 - Look before you touch. Use list_files and read_file to learn the actual structure. Never assume a \
@@ -78,6 +87,67 @@ Report what you did, not what you are about to do. Keep it to a few sentences: w
 and anything the user has to decide. No preamble, no restating the request, no summarising your own \
 tool calls one by one. If you could not finish something, say so plainly and say why.
 </communication>`;
+}
+
+/**
+ * The literal marker Engineer Mode's purpose-framing directive asks for and
+ * `session.ts`'s structural anchor checks for — see ZED-0001, Proposed
+ * decision point 3. A shape check, not a semantic one: this can confirm the
+ * marker is present, never that the sentence after it is actually a good
+ * account of the turn's purpose. Exported so the check in `session.ts`
+ * can't drift from the instruction actually given to the model.
+ */
+export const ENGINEER_MODE_PURPOSE_MARKER = "Purpose:";
+
+/**
+ * Engineer Mode's addendum — see ZED-0001. Built once into the system
+ * prompt when a session has the mode on, never re-sent per message the way
+ * `withSkills` weaves a composer-picked skill into a single turn. Covers
+ * the responsibility families `senior-software-engineering` doesn't:
+ * purpose framing, epistemic labeling, decision responsibility, and the
+ * stop-and-ask boundary. The skill itself supplies construction and
+ * verification-proportional-to-risk depth.
+ *
+ * `skill` is omitted when `senior-software-engineering` wasn't found at
+ * boot — the four directives below still apply on their own rather than
+ * refusing the whole mode over one missing skill directory.
+ */
+function buildEngineerModeAddendum(skill?: { body: string; resources: string[] }): string {
+  const skillSection = skill
+    ? `
+<engineer_mode_skill>
+${skill.body}
+${
+  skill.resources.length
+    ? `\nOther files this skill has, readable with use_skill("senior-software-engineering", path):\n${skill.resources.map((r) => `- ${r}`).join("\n")}`
+    : ""
+}
+</engineer_mode_skill>
+`
+    : "";
+
+  return `
+<engineer_mode>
+Engineer Mode is on for this session. Everything in <scope> and <quality> above still applies —
+this adds discipline on top, it does not replace the fast-implementer defaults. All four directives
+below apply only to a turn where you're about to act — changing a file, or making a call with a
+real alternative. A turn that only answers a question, or touches nothing, is exempt from all four.
+${skillSection}
+1. Purpose framing. Before acting, know and state the goal. Start your final message with a line \
+beginning exactly "${ENGINEER_MODE_PURPOSE_MARKER}" followed by one or two sentences: the goal as \
+you understood it, who it's for, and what "done" means here. Skip this only on a turn exempt above.
+2. Epistemic labeling. In that same final message, say plainly what you verified (ran, read, \
+tested), what you inferred (reasoned from evidence but didn't directly check), and what you \
+assumed (filled in because the request didn't say). Don't blur these into one confident account.
+3. Decision responsibility. When a choice had a real alternative — an architecture call, a library \
+choice, a tradeoff with no obviously-better answer — name the alternative you didn't pick and why,
+in a sentence or two. Skip this when there was no real alternative worth naming.
+4. Stop-and-ask boundary. The existing rule about shapeless requests ("add authentication", "make \
+it social") still applies. In Engineer Mode, also stop and ask instead of proceeding when a request \
+is irreversible (deleting data, an action with no undo), privacy-invasive, or you don't have enough \
+evidence to act responsibly — say plainly what's missing and what you'd need to proceed.
+</engineer_mode>
+`;
 }
 
 /**
