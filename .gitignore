@@ -37,6 +37,12 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Python bytecode cache — the senior-software-engineering skill's own
+# scripts/project-audit is Python; nothing else in this repo runs it,
+# so there was no existing rule for its cache directory.
+__pycache__/
+*.pyc
+
 # Private working notes — not part of the open-source project
 docs/co-founders/
 
@@ -50,4 +56,3 @@ playwright-report/
 # Playwright's own throwaway server
 .playwright/
 .codex
-research/
