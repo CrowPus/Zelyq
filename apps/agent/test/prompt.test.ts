@@ -16,6 +16,18 @@ test("no skills means no <skills> section at all — unchanged prompt for a chec
   assert.doesNotMatch(prompt, /<skills>/);
 });
 
+test("how_to_work tells the model a loaded plugin tool is not a reason to use it on its own", () => {
+  // A separate, much larger surface than skills — a plugin tool has no
+  // catalog entry of its own in the prompt at all, only its function
+  // definition, so this generic principle is the only place a decision
+  // rule about the whole category can live. Present even with no skills
+  // and no engineerMode, since plugin tools are loaded independently of
+  // both.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.match(prompt, /A tool being available is not a reason to reach for it/);
+  assert.match(prompt, /no backend or deployment pipeline of its own/);
+});
+
 test("an empty skills array behaves the same as omitting it entirely", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", skills: [] });
   assert.doesNotMatch(prompt, /<skills>/);
@@ -35,6 +47,34 @@ test("loaded skills appear as a name: description catalog, not their full bodies
   assert.match(prompt, /- stripe-checkout: Wire a Stripe Checkout redirect flow\./);
   assert.match(prompt, /- shadcn-ui-setup: Install shadcn\/ui components correctly\./);
   assert.match(prompt, /use_skill/, "the prompt must tell the model how to actually load one");
+});
+
+test("the skills catalog tells the model a task can match more than one, and how to pick among overlapping ones", () => {
+  // The library grew past two obviously-distinct skills to several that
+  // genuinely overlap on frontend work — "skip what doesn't apply" alone
+  // stopped being enough once picking wrong had real alternatives to pick
+  // wrong between.
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    skills: [{ name: "x", description: "y" }],
+  });
+  assert.match(prompt, /can genuinely match more than one/);
+  assert.match(prompt, /Load each that does/);
+});
+
+test("the skills catalog states plainly that projects here have no backend of their own", () => {
+  // Found live: a skill written for backend services or release
+  // engineering, sitting in the same catalog as the frontend-only
+  // template's actual stack, with nothing in the prompt saying so —
+  // exactly the shape of thing that talks a model into inventing
+  // infrastructure this product does not have.
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    skills: [{ name: "x", description: "y" }],
+  });
+  assert.match(prompt, /no backend, database, or deployment pipeline of its own/);
 });
 
 // ---------------------------------------------------------------------------

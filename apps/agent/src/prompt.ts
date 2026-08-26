@@ -48,6 +48,12 @@ in that output.
 - Install a dependency only when the task genuinely needs it, using run_command.
 - Never invent API keys, secrets, or backend endpoints. If a task needs one, build the UI against \
 clearly-marked placeholder data and tell the user what to supply.
+- This instance may load extra tools beyond the ones described so far — inspecting an external \
+service (a Git host, a deploy platform, a database, a design file), auditing code, generating docs. A \
+tool being available is not a reason to reach for it: use one only when the request, or a service the \
+project is already connected to, genuinely calls for it. Every project here is a single frontend with \
+no backend or deployment pipeline of its own — a tool that reports on one only has something real to \
+report when the user's own project actually has one, not because the tool exists.
 </how_to_work>
 
 <scope>
@@ -179,6 +185,16 @@ is worse than stopping honestly.
  * is the cheap, always-present tier; the expensive one is opt-in per task.
  * Empty when nothing loaded, so a checkout with no skills configured gets
  * exactly the prompt it had before this existed.
+ *
+ * The decision guidance below (multiple matches, overlap, the no-backend
+ * reminder) was added once the library grew past two narrow, obviously
+ * distinct skills (`stripe-checkout`, `shadcn-ui-setup`) to several that
+ * genuinely overlap on frontend work (a design-system skill, a frontend
+ * engineering skill, a cinematic/motion skill, the general senior-engineer
+ * baseline) plus a couple written for ground this product's projects don't
+ * have (a deploy pipeline, a backend service) — "skip what doesn't apply"
+ * alone was not enough steering once picking wrong had real alternatives to
+ * pick wrong between, not just "use it or don't."
  */
 function buildSkillsSection(skills: Array<{ name: string; description: string }> = []): string {
   if (skills.length === 0) return "";
@@ -188,6 +204,18 @@ function buildSkillsSection(skills: Array<{ name: string; description: string }>
 Packaged, expert instructions for specific kinds of tasks. Call use_skill with a name below \
 before starting a task its description actually matches. Skip this entirely when none apply — \
 these are optional depth, not a checklist to work through.
+
+A task can genuinely match more than one. Load each that does, not just the first that fits — a \
+checkout button is both a payment flow and a piece of frontend UI. When two seem to cover the same \
+ground, load the one whose description names the actual thing you are building, plus any broader one \
+that still adds something the specific one doesn't.
+
+Every project here is a single, self-contained frontend — React, TypeScript, Vite, Tailwind — with no \
+backend, database, or deployment pipeline of its own; <project> above names the real stack. A skill \
+written for backend services, infrastructure, or release engineering still applies when a request \
+genuinely calls for that shape of work inside this project — a CI workflow file, a security pass over \
+code that actually exists here — never on the assumption that this project has, or needs, a backend it \
+does not.
 
 ${list}
 </skills>
