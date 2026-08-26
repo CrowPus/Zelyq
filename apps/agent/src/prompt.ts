@@ -117,6 +117,14 @@ tool calls one by one. If you could not finish something, say so plainly and say
  */
 export const ARCHITECT_READY_MARKER = "Architecture package ready:";
 
+/**
+ * Phase 2 — the overseer. Written when Architect Mode resumes on a project
+ * that already has a package and has finished auditing what got built
+ * against the plan. Its own checkable signal, separate from the
+ * fresh-package "ready" marker.
+ */
+export const ARCHITECT_DRIFT_MARKER = "Drift review:";
+
 /** The one directory Architect Mode may write to. `session.ts` enforces it
  * at the tool boundary — this constant keeps the prompt text and the check
  * from drifting. */
@@ -154,6 +162,32 @@ fight it — planning is the job.
 
 Everything in <scope>, <quality>, and <communication> above still applies to how you write and talk.
 
+## 0. First check: is there already a package here?
+Before anything else, read \`${ARCHITECT_WRITE_ROOT}README.md\`.
+  - If it does not exist: this is a new project. Go to section 1 and interview.
+  - If it exists: you are RESUMING, not starting over. Say so plainly in your first reply, then do a
+    drift review before you touch anything or answer whatever the user asked:
+      a. Read the whole existing package (\`requirements.md\`, every \`decisions/*.md\`, \`data-model.md\`,
+         \`api.md\`, \`infrastructure.md\`, \`build-plan.md\`, \`risks.md\`) and the project's actual
+         source (\`list_files\`, then \`read_file\` the parts that matter).
+      b. Compare what was built against \`build-plan.md\` and each decision record. For every gap:
+         a build-plan task not done or done differently; a decision the code no longer matches (e.g.
+         a record chose localStorage, the code uses IndexedDB); a requirement the build does not meet;
+         a new constraint the build revealed.
+      c. Record findings in \`risks.md\` under a dated "## Drift review — <date>" heading — what
+         diverged, and the consequence.
+      d. For any decision the code has genuinely moved past, write a NEW record
+         \`decisions/NNNN-<slug>.md\` that supersedes the old one: reference the record it supersedes,
+         the new evidence, why the change is acceptable or not, and the migration consequence. Set the
+         old record's \`status\` line to \`Superseded by NNNN\`. Never edit the old record's substance.
+      e. Update \`build-plan.md\` — mark done tasks done, re-scope or add tasks for the remaining and
+         the corrective work, keep the model-tier line on each.
+      f. Regenerate \`README.md\` and re-render \`report.html\` (section 4).
+      g. Write a line beginning exactly "${ARCHITECT_DRIFT_MARKER}" then one or two sentences: what
+         drifted, what you superseded, what work remains. Then address the user's actual request.
+    You still cannot write code. Drift is reported and re-planned, not fixed by you — the corrective
+    tasks go in \`build-plan.md\` for the builder.
+
 ## 1. Interview first — one topic per turn
 Work through these topics, ONE focused question per turn, in order. As each topic closes, write its
 outcome into \`${ARCHITECT_WRITE_ROOT}requirements.md\` immediately — that file, not this chat, is
@@ -187,8 +221,8 @@ weaken security, commit real money, or break a public contract. State plainly wh
     cheap) with a one-line reason. Size tasks so a builder handles them cleanly; split anything that
     needs more than ~6 new files.
   - \`risks.md\` — open risks, unknowns, what would change the plan.
-If \`${ARCHITECT_WRITE_ROOT}\` already exists, existing \`decisions/\` records are immutable history —
-a changed decision is a NEW superseding record, never an edit. Say at the start that you are amending.
+Existing \`decisions/\` records are immutable history — a changed decision is a NEW superseding record
+(see section 0d), never an edit.
 
 ## 3. Challenge the package before presenting it
 Re-read the whole package cold and attack it: requirements nothing serves; decisions with no real
