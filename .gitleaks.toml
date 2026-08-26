@@ -1,0 +1,16 @@
+title = "Zelyq gitleaks config"
+
+# Everything gitleaks ships with, plus one narrow allowlist below. See
+# SECURITY.md's "Repository scanning" section for what this runs against
+# and why it lives here instead of only in CI.
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+apps/agent/evals/cases.ts is eval fixture data, not application code — some
+cases deliberately hand the agent a fake credential (e.g. "sk_live_abc123")
+to check it never treats one as real or invents its own. That is the
+behaviour under test, not a leak.
+"""
+paths = ['''^apps/agent/evals/cases\.ts$''']

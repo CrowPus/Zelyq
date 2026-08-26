@@ -175,3 +175,22 @@ On a server, prefer setting `ZELYQ_SECRET_KEY` from a secret manager. The genera
 laptop install working with no setup, but it puts the key on the same disk as the ciphertext it
 protects, which defends against a stolen database file and not against a stolen machine. Zelyq redacts values matching known key formats from log
 output, but that is defence in depth, not a guarantee: treat agent transcripts as sensitive.
+
+## Repository scanning
+
+Two layers, both required before a pull request can merge, neither a substitute for the other:
+
+- **[GitHub secret scanning and push protection](https://github.com/CrowPus/Zelyq/settings/security_analysis)**
+  are enabled at the repository level — GitHub rejects a `git push` containing a secret matching a
+  provider it recognises, before the commit ever lands.
+- **CI's "Secrets and vulnerabilities" job** runs [gitleaks](https://github.com/gitleaks/gitleaks)
+  against the full commit history on every pull request — broader than provider-specific push
+  protection, and the only one of the two that shows up as a visible, required check. Its config,
+  `.gitleaks.toml` at the repo root, allowlists exactly one file:
+  `apps/agent/evals/cases.ts`, an eval fixture that deliberately hands the agent a fake credential
+  to test it never treats one as real. The same job runs `pnpm audit --audit-level=high` for the
+  workspace and `npm audit --audit-level=high` for `plugins/` — an independent Node project with its
+  own lockfile, outside the pnpm workspace and outside what the first audit ever sees.
+
+A real finding from either layer blocks the merge. Widening `.gitleaks.toml`'s allowlist, or lowering
+either audit's severity threshold, needs the same scrutiny as any other change to this file.
