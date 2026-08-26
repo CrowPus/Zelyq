@@ -323,6 +323,17 @@ at from the browser itself, so this no longer has to be the *exact* right value 
 — a real, reachable address is still worth setting, though, since non-browser callers of the API still
 get this value back verbatim.
 
+**Set this before the first preview ever starts for a project, not after.** A running or previously-
+started preview does not pick up a changed `ZELYQ_PREVIEW_HOST` on its own — restarting the server and
+agent processes is not enough by itself. In `ZELYQ_RUNTIME=container`, Docker publishes a container's
+port at *creation* time; a container created under the old, loopback-only setting keeps that binding
+until it is actually removed, no matter what the setting says afterward. The symptom is exactly what
+it looks like a broken deployment would produce — "refused to connect" in the preview panel — even
+though the configuration is now correct. The fix: stop that project's preview (or, in container mode,
+remove its container so a fresh one gets created) so it restarts under the current setting. This is
+the single most common cause of "previews don't load" on a VM that's otherwise configured correctly,
+and it gets confusing precisely because the *setting* isn't wrong by the time someone goes looking.
+
 **A team, on one server**
 ```env
 ZELYQ_RUNTIME=remote
