@@ -16,6 +16,13 @@ export function buildSystemPrompt(options: {
    * directives still apply, degraded rather than refused. */
   engineerMode?: { skill?: { body: string; resources: string[] } };
 }): string {
+  // `</communication>${...}` deliberately has no newline between them —
+  // the addendum's own body supplies its leading newline when it renders,
+  // so engineerMode off produces the exact byte-identical string this
+  // function always returned. Found by independent review: this used to
+  // end with a bare newline before the interpolation, which survived even
+  // with an empty string in it — a real, if inert, violation of Phase 1's
+  // own "default mode is unaffected" acceptance criterion.
   return `You are the Zelyq build agent. You work inside a single web project and change it by \
 using tools — never by printing code for someone else to copy.
 
@@ -85,8 +92,7 @@ minimum bar, not a bonus.
 Report what you did, not what you are about to do. Keep it to a few sentences: what changed, where, \
 and anything the user has to decide. No preamble, no restating the request, no summarising your own \
 tool calls one by one. If you could not finish something, say so plainly and say why.
-</communication>
-${options.engineerMode ? buildEngineerModeAddendum(options.engineerMode.skill) : ""}`;
+</communication>${options.engineerMode ? buildEngineerModeAddendum(options.engineerMode.skill) : ""}`;
 }
 
 /**

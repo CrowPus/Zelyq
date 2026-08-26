@@ -49,6 +49,26 @@ test("engineer mode off (the default) adds nothing to the prompt", () => {
   assert.doesNotMatch(prompt, /<engineer_mode>/);
 });
 
+test("engineer mode off produces byte-identical output to omitting the option entirely", () => {
+  // Found by independent review: a stray newline before the addendum's
+  // interpolation slot survived even with an empty string in it, so the
+  // presence-only check above passed while the actual bytes still
+  // differed from what this function returned before Phase 1 existed. A
+  // genuinely unchanged default-mode prompt has to be checked as bytes,
+  // not just "the new section isn't there".
+  const withoutOption = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  const withOptionOff = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: undefined,
+  });
+  assert.equal(withOptionOff, withoutOption);
+  assert.ok(
+    withoutOption.endsWith("</communication>"),
+    "the prompt must end exactly at </communication> — no trailing newline from the addendum's conditional slot",
+  );
+});
+
 test("engineer mode on adds the addendum with all four directives", () => {
   const prompt = buildSystemPrompt({
     projectName: "p",
