@@ -7,6 +7,7 @@ import { createRuntimeDriver } from "@zelyq/runtime";
 import { loadAgentConfig } from "../src/config.js";
 import { buildSystemPrompt } from "../src/prompt.js";
 import { PROVIDERS, speaksOpenAIDialect } from "../src/providers/index.js";
+import { listResources, loadSkills } from "../src/skills.js";
 import { selectCases } from "./cases.js";
 import { runCase } from "./harness.js";
 import type { CaseResult, SuiteResult } from "./types.js";
@@ -25,6 +26,10 @@ const { values } = parseArgs({
     keep: { type: "boolean", default: false },
     compare: { type: "string" },
     help: { type: "boolean", default: false },
+    // ZED-0001's own pre-registered scope-discipline criterion, run for
+    // real: Engineer Mode on, same cases, same checks — the acceptance
+    // plan that existed before Phase 1 shipped, finally run against it.
+    "engineer-mode": { type: "boolean", default: false },
   },
 });
 
@@ -74,6 +79,33 @@ if (config.provider === "custom" && !config.model) {
   process.exit(1);
 }
 
+if (
+  values["engineer-mode"] &&
+  config.effort !== "high" &&
+  config.effort !== "xhigh" &&
+  config.effort !== "max"
+) {
+  console.error(
+    `--engineer-mode needs effort at "high" or above (see ZED-0001's effort floor) — this run is ` +
+      `configured for "${config.effort}". Set ZELYQ_EFFORT.`,
+  );
+  process.exit(1);
+}
+
+let engineerModeSkill: { body: string; resources: string[] } | undefined;
+if (values["engineer-mode"]) {
+  const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
+  const { skills } = await loadSkills(path.join(repoRoot, "skills"), undefined, undefined);
+  const skill = skills.find((entry) => entry.name === "senior-software-engineering");
+  if (!skill) {
+    console.error(
+      "--engineer-mode needs the senior-software-engineering skill, and it wasn't found at boot.",
+    );
+    process.exit(1);
+  }
+  engineerModeSkill = { body: skill.body, resources: await listResources(skill.dir) };
+}
+
 const cases = selectCases({
   only: values.only?.split(",").map((id) => id.trim()),
   tag: values.tag,
@@ -90,7 +122,7 @@ const log = (message: string): void => console.log(`  ${message}`);
 
 console.log(
   `\n${cases.length} case${cases.length === 1 ? "" : "s"} · ${config.provider}/${config.model} · effort ${config.effort}` +
-    `${config.baseUrl ? ` · ${config.baseUrl}` : ""}\n`,
+    `${config.baseUrl ? ` · ${config.baseUrl}` : ""}${values["engineer-mode"] ? " · engineer mode" : ""}\n`,
 );
 
 const baseRoot = await prepareBaseProject(runtime, values.template, log);
@@ -110,6 +142,8 @@ const results = await pool(cases, Number.parseInt(values.concurrency, 10), async
     timeoutMs: Number.parseInt(values.timeout, 10) * 1000,
     keep: values.keep,
     log,
+    ...(values["engineer-mode"] ? { engineerMode: true } : {}),
+    ...(engineerModeSkill ? { engineerModeSkill } : {}),
   });
   console.log(line(result));
   return result;
@@ -125,9 +159,16 @@ const suite: SuiteResult = {
   // "custom scored 41%" means nothing without saying which server answered.
   ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
   promptHash: createHash("sha256")
-    .update(buildSystemPrompt({ projectName: "x", template: values.template }))
+    .update(
+      buildSystemPrompt({
+        projectName: "x",
+        template: values.template,
+        ...(values["engineer-mode"] ? { engineerMode: { skill: engineerModeSkill } } : {}),
+      }),
+    )
     .digest("hex")
     .slice(0, 12),
+  ...(values["engineer-mode"] ? { engineerMode: true } : {}),
   cases: results,
 };
 
