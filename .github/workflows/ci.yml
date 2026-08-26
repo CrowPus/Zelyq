@@ -32,10 +32,16 @@ jobs:
       # depends on that changing under us.
       - name: Install gitleaks
         run: |
-          curl -sSL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          # sha256sum -c reads the filename off each checksums.txt line and
+          # opens that exact name — it has to match what curl saved to, not
+          # just refer to the same release asset. Found live: -o'ing this to
+          # a generic gitleaks.tar.gz passed the download and failed
+          # verification with "No such file or directory".
+          asset="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSL -o "$asset" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${asset}"
           curl -sSL -o checksums.txt "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-          grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" checksums.txt | sha256sum -c -
-          tar -xzf gitleaks.tar.gz gitleaks
+          grep "$asset" checksums.txt | sha256sum -c -
+          tar -xzf "$asset" gitleaks
           sudo install gitleaks /usr/local/bin/gitleaks
 
       # .gitleaks.toml at the repo root allowlists exactly one fixture file
