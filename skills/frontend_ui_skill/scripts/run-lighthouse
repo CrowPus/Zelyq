@@ -1,0 +1,22 @@
+#!/usr/bin/env node
+import { spawnSync } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
+import path from 'node:path'
+
+const url = process.argv[2]
+const outDir = process.argv[3] ?? 'artifacts/lighthouse'
+if (!url) {
+  console.error('Usage: run-lighthouse <url> [output-dir]')
+  process.exit(2)
+}
+
+mkdirSync(outDir, { recursive: true })
+const output = path.join(outDir, 'report.html')
+const result = spawnSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', [
+  '--yes', 'lighthouse', url, '--quiet', '--chrome-flags=--headless',
+  '--only-categories=performance,accessibility,best-practices,seo',
+  '--output=html', `--output-path=${output}`
+], { stdio: 'inherit' })
+
+if ((result.status ?? 1) === 0) console.log(`Lighthouse report: ${output}`)
+process.exit(result.status ?? 1)

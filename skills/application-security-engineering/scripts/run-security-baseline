@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -u
+
+ROOT="${1:-.}"
+OUT="${2:-artifacts/security-baseline}"
+mkdir -p "$OUT"
+
+echo "Security baseline for: $ROOT"
+echo "Output: $OUT"
+
+ran=0
+
+if command -v semgrep >/dev/null 2>&1; then
+  echo "[+] Running Semgrep"
+  # Uses Semgrep's configured/default registry behavior. Pin organizational configs in CI for stable policy.
+  semgrep scan --config auto --json "$ROOT" > "$OUT/semgrep.json" || true
+  ran=1
+else
+  echo "[-] semgrep not installed; skipping"
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "[+] Running gitleaks"
+  gitleaks detect --source "$ROOT" --report-format json --report-path "$OUT/gitleaks.json" --no-banner || true
+  ran=1
+else
+  echo "[-] gitleaks not installed; skipping"
+fi
+
+if command -v trivy >/dev/null 2>&1; then
+  echo "[+] Running Trivy filesystem scan"
+  trivy fs --format json --output "$OUT/trivy.json" "$ROOT" || true
+  ran=1
+else
+  echo "[-] trivy not installed; skipping"
+fi
+
+if [ "$ran" -eq 0 ]; then
+  echo "No supported baseline tools found. Install/configure tools appropriate to the project rather than treating this script as a requirement."
+fi
+
+echo "Baseline complete. Scanner output is triage, not a confirmed vulnerability report."

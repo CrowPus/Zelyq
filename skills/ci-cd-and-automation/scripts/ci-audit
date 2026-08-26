@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+import fs from 'node:fs'
+import path from 'node:path'
+
+const root = process.argv[2] ?? process.cwd()
+const workflowDir = path.join(root, '.github', 'workflows')
+
+if (!fs.existsSync(workflowDir)) {
+  console.log('No .github/workflows directory found.')
+  process.exit(0)
+}
+
+const files = fs.readdirSync(workflowDir)
+  .filter((name) => /\.ya?ml$/i.test(name))
+
+const findings = []
+
+function add(file, severity, message) {
+  findings.push({ file, severity, message })
+}
+
+for (const file of files) {
+  const full = path.join(workflowDir, file)
+  const text = fs.readFileSync(full, 'utf8')
+
+  if (!/^\s*permissions\s*:/m.test(text)) {
+    add(file, 'review', 'No explicit top-level permissions block detected.')
+  }
+
+  if (/\bpermissions\s*:\s*write-all\b/.test(text)) {
+    add(file, 'high', 'write-all token permissions detected.')
+  }
+
+  if (/pull_request_target\s*:/.test(text)) {
+    add(file, 'high', 'pull_request_target detected; review carefully for execution of untrusted PR code.')
+  }
+
+  if (/runs-on\s*:\s*self-hosted\b/.test(text) || /runs-on\s*:\s*\[[^\]]*self-hosted/.test(text)) {
+    add(file, 'review', 'Self-hosted runner detected; verify trust boundary and runner isolation.')
+  }
+
+  const actionRegex = /uses\s*:\s*([^\s#]+)\/([^\s#]+)@([^\s#]+)/g
+  let match
+  while ((match = actionRegex.exec(text))) {
+    const ref = match[3].replace(/["']/g, '')
+    const fullSha = /^[0-9a-f]{40}$/i.test(ref)
+    const local = match[1].startsWith('.')
+    if (!fullSha && !local) {
+      add(file, 'review', `Action reference "${match[0].trim()}" is not pinned to a full commit SHA.`)
+    }
+  }
+
+  if (/cache/.test(text) && /pull_request_target/.test(text)) {
+    add(file, 'review', 'Cache + privileged PR trigger detected; review cache poisoning boundary.')
+  }
+
+  if (/\$\{\{\s*github\.(event|head_ref|ref_name)[^}]*\}\}/.test(text) && /\brun\s*:\s*[>|]/.test(text)) {
+    add(file, 'review', 'GitHub context plus shell run block detected; review for script injection.')
+  }
+}
+
+if (!findings.length) {
+  console.log(`Reviewed ${files.length} workflow file(s); no heuristic findings.`)
+  process.exit(0)
+}
+
+const order = { high: 0, review: 1 }
+findings.sort((a,b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9))
+
+for (const f of findings) {
+  console.log(`[${f.severity.toUpperCase()}] ${f.file}: ${f.message}`)
+}
+
+console.log('\nHeuristic audit only. Absence of findings is not proof of workflow security.')
+process.exit(findings.some(f => f.severity === 'high') ? 1 : 0)
