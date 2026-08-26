@@ -19,7 +19,8 @@ live.
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.base.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](./CONTRIBUTING.md)
 
-[Quickstart](#quickstart) · [How it works](#how-it-works) · [Architecture](./docs/architecture.md) ·
+[Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
+[How it works](#how-it-works) · [Architecture](./docs/architecture.md) ·
 [Configuration](./docs/configuration.md) · [Self-hosting](./docs/self-hosting.md) ·
 [Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
 
