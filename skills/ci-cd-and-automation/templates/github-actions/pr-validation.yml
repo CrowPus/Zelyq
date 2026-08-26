@@ -1,0 +1,38 @@
+# Replace every <...> placeholder before use.
+# Resolve trusted Action releases to full commit SHAs.
+name: PR validation
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT>
+    steps:
+      - name: Checkout
+        uses: actions/checkout@<FULL_COMMIT_SHA> # <verified release>
+
+      - name: Setup runtime
+        uses: <OFFICIAL_SETUP_ACTION>@<FULL_COMMIT_SHA>
+        with:
+          <RUNTIME_VERSION_KEY>: <PROJECT_VERSION>
+
+      - name: Install
+        run: <LOCKFILE_INSTALL_COMMAND>
+
+      - name: Lint / static analysis
+        run: <LINT_COMMAND>
+
+      - name: Unit tests
+        run: <TEST_COMMAND>
+
+      - name: Build
+        run: <BUILD_COMMAND>

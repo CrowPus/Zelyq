@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildSystemPrompt, withPlugins, withSkills } from "../src/prompt.js";
+import {
+  buildSystemPrompt,
+  ENGINEER_MODE_PURPOSE_MARKER,
+  withPlugins,
+  withSkills,
+} from "../src/prompt.js";
 
 /** See `042` in the council notes — the catalog is the cheap, always-present
  * tier; these are the fast, direct checks the live-turn test in
@@ -9,6 +14,18 @@ import { buildSystemPrompt, withPlugins, withSkills } from "../src/prompt.js";
 test("no skills means no <skills> section at all — unchanged prompt for a checkout with none loaded", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
   assert.doesNotMatch(prompt, /<skills>/);
+});
+
+test("how_to_work tells the model a loaded plugin tool is not a reason to use it on its own", () => {
+  // A separate, much larger surface than skills — a plugin tool has no
+  // catalog entry of its own in the prompt at all, only its function
+  // definition, so this generic principle is the only place a decision
+  // rule about the whole category can live. Present even with no skills
+  // and no engineerMode, since plugin tools are loaded independently of
+  // both.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.match(prompt, /A tool being available is not a reason to reach for it/);
+  assert.match(prompt, /no backend or deployment pipeline of its own/);
 });
 
 test("an empty skills array behaves the same as omitting it entirely", () => {
@@ -30,6 +47,154 @@ test("loaded skills appear as a name: description catalog, not their full bodies
   assert.match(prompt, /- stripe-checkout: Wire a Stripe Checkout redirect flow\./);
   assert.match(prompt, /- shadcn-ui-setup: Install shadcn\/ui components correctly\./);
   assert.match(prompt, /use_skill/, "the prompt must tell the model how to actually load one");
+});
+
+test("the skills catalog tells the model a task can match more than one, and how to pick among overlapping ones", () => {
+  // The library grew past two obviously-distinct skills to several that
+  // genuinely overlap on frontend work — "skip what doesn't apply" alone
+  // stopped being enough once picking wrong had real alternatives to pick
+  // wrong between.
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    skills: [{ name: "x", description: "y" }],
+  });
+  assert.match(prompt, /can genuinely match more than one/);
+  assert.match(prompt, /Load each that does/);
+});
+
+test("the skills catalog states plainly that projects here have no backend of their own", () => {
+  // Found live: a skill written for backend services or release
+  // engineering, sitting in the same catalog as the frontend-only
+  // template's actual stack, with nothing in the prompt saying so —
+  // exactly the shape of thing that talks a model into inventing
+  // infrastructure this product does not have.
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    skills: [{ name: "x", description: "y" }],
+  });
+  assert.match(prompt, /no backend, database, or deployment pipeline of its own/);
+});
+
+// ---------------------------------------------------------------------------
+// Engineer Mode addendum — ZED-0001, Phase 1. Built once into the system
+// prompt itself, distinct from both the catalog and withSkills' per-message
+// weaving above — see the entry's Proposed decision for why that distinction
+// is load-bearing.
+// ---------------------------------------------------------------------------
+
+test("engineer mode off (the default) adds nothing to the prompt", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.doesNotMatch(prompt, /<engineer_mode>/);
+});
+
+test("engineer mode off produces byte-identical output to omitting the option entirely", () => {
+  // Found by independent review: a stray newline before the addendum's
+  // interpolation slot survived even with an empty string in it, so the
+  // presence-only check above passed while the actual bytes still
+  // differed from what this function returned before Phase 1 existed. A
+  // genuinely unchanged default-mode prompt has to be checked as bytes,
+  // not just "the new section isn't there".
+  const withoutOption = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  const withOptionOff = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: undefined,
+  });
+  assert.equal(withOptionOff, withoutOption);
+  assert.ok(
+    withoutOption.endsWith("</communication>"),
+    "the prompt must end exactly at </communication> — no trailing newline from the addendum's conditional slot",
+  );
+});
+
+test("engineer mode on adds the addendum with all four directives", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: {},
+  });
+  assert.match(prompt, /<engineer_mode>/);
+  assert.match(prompt, new RegExp(ENGINEER_MODE_PURPOSE_MARKER.replace(":", "\\:")));
+  assert.match(prompt, /Epistemic labeling/);
+  assert.match(prompt, /Decision responsibility/);
+  assert.match(prompt, /Stop-and-ask boundary/);
+  // The default prompt's own scope discipline must still be present and
+  // uncontradicted — Engineer Mode is additive, never a replacement. See
+  // ZED-0001, Implementation boundary → Excluded.
+  assert.match(prompt, /Build what was asked, then stop/);
+});
+
+test("engineer mode names an exploratory, scope-undecided request as its own stop-and-ask trigger", () => {
+  // Added after a live incident — see ZED-0001's incident addendum. A
+  // request that opens a conversation, not a spec, must be named
+  // explicitly, not left to be inferred from the generic shapeless-request
+  // rule that already failed to catch it once.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  assert.match(prompt, /opens a conversation rather than gives you a spec/);
+  assert.match(prompt, /talking to an engineer, not filing a ticket/);
+});
+
+test("engineer mode's addendum names the new-file checkpoint as a real backstop, not just a suggestion", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  assert.match(prompt, /nothing that.*changes the project runs for the rest of it/);
+  // A second live incident found the first version of this text implied
+  // reaching the checkpoint was itself a failure, which pushed the model
+  // toward cramming remaining work into whatever file it could still
+  // touch instead of actually stopping — this reassurance is the fix.
+  assert.match(prompt, /Reaching it is not a failure on real, larger work/);
+});
+
+test("a turn that touches nothing, or only answers a question, is exempted in the addendum's own text", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  assert.match(prompt, /exempt from all four/);
+});
+
+test("engineer mode with no skill found still gets the four directives, degraded rather than refused", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  assert.doesNotMatch(prompt, /<engineer_mode_skill>/);
+  assert.match(prompt, /Purpose framing/);
+});
+
+test("a resolved skill's body and resource listing both land in the addendum", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: {
+      skill: { body: "THE SENIOR ENGINEERING SKILL BODY", resources: ["references/security.md"] },
+    },
+  });
+  assert.match(prompt, /<engineer_mode_skill>/);
+  assert.match(prompt, /THE SENIOR ENGINEERING SKILL BODY/);
+  // This is the whole point of carrying the listing at all — see ZED-0001's
+  // third validation round: baking only the body in leaves the model with
+  // no way to know a deeper file like this one exists.
+  assert.match(prompt, /references\/security\.md/);
+  assert.match(prompt, /use_skill\("senior-software-engineering", path\)/);
+});
+
+test("the addendum lands after <scope>, <quality>, and <communication>, not before — its own 'above' claim depends on this", () => {
+  // Found by independent implementation review: the addendum used to sit
+  // above those sections while its own text said they were "above" it —
+  // backwards. This locks the actual position in, not just the wording.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
+  const communicationEnd = prompt.indexOf("</communication>");
+  const addendumStart = prompt.indexOf("<engineer_mode>");
+  assert.ok(communicationEnd > 0 && addendumStart > 0);
+  assert.ok(
+    addendumStart > communicationEnd,
+    'the addendum must come after <communication>, so its own "above" claim is actually true',
+  );
+});
+
+test("a resolved skill with no deeper files omits the (otherwise empty) listing line", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: { skill: { body: "JUST A BODY", resources: [] } },
+  });
+  assert.doesNotMatch(prompt, /Other files this skill has/);
 });
 
 // ---------------------------------------------------------------------------

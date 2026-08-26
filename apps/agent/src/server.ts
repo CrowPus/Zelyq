@@ -39,9 +39,18 @@ export interface AgentServerDeps {
    * and full body for `044`'s guaranteed `/`-selected weaving — a strict
    * superset of what used to be just the catalog, so the one existing
    * reader (`/health`'s badge list) needed no change beyond reading `.name`
-   * off each entry instead of treating it as a bare string. */
-  skills?: Array<{ name: string; description: string; body: string }>;
+   * off each entry instead of treating it as a bare string. `resources` is
+   * ZED-0001's addition — each skill's deeper-file listing, resolved once
+   * at boot in `index.ts` (the one place with legitimate access to a
+   * skill's directory), used only when Engineer Mode wires this skill's
+   * body straight into a system prompt instead of through a live
+   * `use_skill` call. */
+  skills?: Array<{ name: string; description: string; body: string; resources?: string[] }>;
 }
+
+/** The one skill ZED-0001 authorizes Engineer Mode to guarantee — not a
+ * generic "any skill" mechanism. See the entry's Implementation boundary. */
+const ENGINEER_MODE_SKILL_NAME = "senior-software-engineering";
 
 export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}): AgentServer {
   const app = Fastify({
@@ -188,6 +197,25 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       );
     }
 
+    // ZED-0001, Phase 1's effort floor: the mode's heavier reasoning
+    // (purpose framing, alternatives, epistemic labeling) is inconsistent
+    // with a low reasoning budget. The primary UX is client-side (the
+    // entry's own boundary), but the client is never the only enforcement
+    // point for a real constraint — a hand-crafted request must be refused
+    // here too, the same discipline every other authorization check in
+    // this route already holds.
+    const resolvedEffort = input.effort ?? config.effort;
+    if (input.engineerMode && (resolvedEffort === "low" || resolvedEffort === "medium")) {
+      throw new ZelyqError(
+        "bad_request",
+        `Engineer Mode needs reasoning effort at "high" or above — this session is set to ` +
+          `"${resolvedEffort}". Raise effort in Settings, or turn Engineer Mode off.`,
+      );
+    }
+    const engineerModeSkill = input.engineerMode
+      ? deps.skills?.find((skill) => skill.name === ENGINEER_MODE_SKILL_NAME)
+      : undefined;
+
     await runtime.ensureProject(input.projectId);
 
     const session = new AgentSession({
@@ -198,7 +226,16 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       provider,
       model:
         input.model ?? (provider === config.provider ? config.model : defaultModelFor(provider)),
-      effort: input.effort ?? config.effort,
+      effort: resolvedEffort,
+      engineerMode: input.engineerMode ?? false,
+      ...(engineerModeSkill
+        ? {
+            engineerModeSkill: {
+              body: engineerModeSkill.body,
+              resources: engineerModeSkill.resources ?? [],
+            },
+          }
+        : {}),
       apiKey: apiKey ?? "",
       ...(input.authMode ? { authMode: input.authMode } : {}),
       ...(baseUrl ? { baseUrl } : {}),

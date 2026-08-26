@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+import { chromium } from 'playwright'
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
+
+const url = process.argv[2]
+const outDir = process.argv[3] ?? 'artifacts/ui-review'
+if (!url) {
+  console.error('Usage: capture-ui <url> [output-dir]')
+  process.exit(2)
+}
+
+const viewports = [
+  ['mobile-320', 320, 720],
+  ['mobile-390', 390, 844],
+  ['tablet', 768, 900],
+  ['desktop', 1440, 1000],
+]
+
+await mkdir(outDir, { recursive: true })
+const browser = await chromium.launch({ headless: true })
+let hadError = false
+
+for (const [name, width, height] of viewports) {
+  const page = await browser.newPage({ viewport: { width, height } })
+  const errors = []
+  page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()) })
+  page.on('pageerror', err => errors.push(err.message))
+  await page.goto(url, { waitUntil: 'networkidle' })
+  await page.screenshot({ path: path.join(outDir, `${name}.png`), fullPage: true })
+  if (errors.length) {
+    hadError = true
+    console.error(`[${name}] browser errors:`)
+    for (const e of errors) console.error(`- ${e}`)
+  }
+  await page.close()
+}
+
+const reduced = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' })
+await reduced.goto(url, { waitUntil: 'networkidle' })
+await reduced.screenshot({ path: path.join(outDir, 'mobile-reduced-motion.png'), fullPage: true })
+await browser.close()
+
+console.log(`UI screenshots written to ${outDir}`)
+if (hadError) process.exitCode = 1

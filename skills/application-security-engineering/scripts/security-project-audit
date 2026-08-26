@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+import fs from 'node:fs'
+import path from 'node:path'
+
+const root = path.resolve(process.argv[2] ?? process.cwd())
+const maxFileSize = 2 * 1024 * 1024
+
+const ignored = new Set([
+  'node_modules', '.git', '.next', 'dist', 'build', 'coverage',
+  'vendor', '.venv', 'venv', 'target', 'out'
+])
+
+const patterns = [
+  ['HIGH', /dangerouslySetInnerHTML|innerHTML\s*=/, 'Raw HTML/DOM sink; verify trusted/sanitized input.'],
+  ['HIGH', /child_process\.(exec|execSync)|\bexec\s*\(|\bsystem\s*\(/, 'Process/command execution; trace untrusted input.'],
+  ['REVIEW', /\bfetch\s*\(|axios\.|requests\.(get|post|request)|httpx\./, 'Outbound network call; review user-influenced destinations and response trust.'],
+  ['REVIEW', /jwt\.(decode|verify)|jsonwebtoken|jose/, 'Token handling detected; review issuer/audience/algorithm/lifetime policy.'],
+  ['REVIEW', /multer|formidable|upload|FileUpload/i, 'File handling detected; review type/size/storage/serving/authorization.'],
+  ['REVIEW', /SELECT.+\+|INSERT.+\+|UPDATE.+\+|DELETE.+\+/i, 'Possible query string construction; inspect parameterization.'],
+  ['REVIEW', /console\.(log|error)|logger\.(debug|info|error)/, 'Logging detected; ensure secrets/tokens are not logged.'],
+  ['REVIEW', /process\.env|os\.environ|getenv\(/, 'Configuration/secrets boundary detected.'],
+  ['REVIEW', /role|permission|authorize|authorization|tenant/i, 'Authorization/tenant logic detected; review enforcement consistency.'],
+]
+
+const interestingNames = [
+  '.env', '.env.local', '.env.production',
+  'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
+  'requirements.txt', 'poetry.lock', 'pyproject.toml',
+  'go.mod', 'go.sum', 'Cargo.toml', 'Cargo.lock',
+  'Dockerfile'
+]
+
+const findings = []
+let scanned = 0
+
+function walk(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (ignored.has(entry.name)) continue
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      walk(full)
+      continue
+    }
+    if (!entry.isFile()) continue
+
+    let stat
+    try { stat = fs.statSync(full) } catch { continue }
+    if (stat.size > maxFileSize) continue
+
+    const rel = path.relative(root, full)
+    const ext = path.extname(entry.name).toLowerCase()
+    const textLike = ['.js','.jsx','.ts','.tsx','.py','.go','.rs','.java','.kt','.cs','.php','.rb','.vue','.svelte','.yml','.yaml','.json','.toml','.xml','.html','.md','.sh'].includes(ext)
+      || interestingNames.includes(entry.name)
+
+    if (!textLike) continue
+
+    let text
+    try { text = fs.readFileSync(full, 'utf8') } catch { continue }
+    scanned++
+
+    if (/-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text)) {
+      findings.push(['HIGH', rel, 'Private-key material marker detected. Rotate/revoke if real and use a secret manager.'])
+    }
+
+    for (const [severity, regex, message] of patterns) {
+      if (regex.test(text)) findings.push([severity, rel, message])
+    }
+  }
+}
+
+if (!fs.existsSync(root)) {
+  console.error(`Path not found: ${root}`)
+  process.exit(2)
+}
+
+walk(root)
+
+const envFiles = interestingNames.filter(n => n.startsWith('.env') && fs.existsSync(path.join(root, n)))
+for (const name of envFiles) {
+  findings.push(['REVIEW', name, 'Environment file present; verify it contains no committed production secrets.'])
+}
+
+console.log(`Scanned ${scanned} text/code files under ${root}`)
+if (!findings.length) {
+  console.log('No heuristic findings. This is not proof that the application is secure.')
+  process.exit(0)
+}
+
+const seen = new Set()
+for (const [severity, file, message] of findings) {
+  const key = `${severity}|${file}|${message}`
+  if (seen.has(key)) continue
+  seen.add(key)
+  console.log(`[${severity}] ${file}: ${message}`)
+}
+
+console.log('\nHeuristic review only. Validate every candidate in context.')

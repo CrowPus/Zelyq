@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Advisory repository discovery for the senior-software-engineering skill.
+
+This script intentionally does not claim compliance. It identifies common engineering
+signals so an agent can inspect the right parts of a repository before changing it.
+"""
+from pathlib import Path
+import json, os, sys
+
+root = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+if not root.exists() or not root.is_dir():
+    print(json.dumps({"error": f"not a directory: {root}"}, indent=2))
+    raise SystemExit(2)
+
+IGNORE = {".git", "node_modules", ".next", "dist", "build", "target", "vendor", ".venv", "venv", "__pycache__"}
+
+def exists_any(paths):
+    return [p for p in paths if (root / p).exists()]
+
+def find_names(names, limit=40):
+    found = []
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in IGNORE]
+        relbase = Path(base).relative_to(root)
+        for f in files:
+            if f in names:
+                found.append(str(relbase / f))
+                if len(found) >= limit:
+                    return found
+    return found
+
+manifests = exists_any([
+    "package.json", "pnpm-lock.yaml", "yarn.lock", "package-lock.json", "bun.lock", "bun.lockb",
+    "pyproject.toml", "requirements.txt", "poetry.lock", "uv.lock",
+    "go.mod", "Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts",
+    "composer.json", "Gemfile", ".csproj", "mix.exs"
+])
+
+ci = exists_any([
+    ".github/workflows", ".gitlab-ci.yml", "Jenkinsfile", "azure-pipelines.yml", ".circleci", "bitbucket-pipelines.yml"
+])
+
+containers = exists_any(["Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "k8s", "kubernetes", "helm"])
+
+docs = exists_any(["README.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "LICENSE", "docs"])
+
+config = exists_any([".env.example", ".env.sample", "config", "config.example.json"])
+
+web_signals = exists_any(["next.config.js", "next.config.mjs", "next.config.ts", "vite.config.js", "vite.config.ts", "astro.config.mjs", "nuxt.config.ts", "public/robots.txt", "public/sitemap.xml"])
+
+migrations = []
+for candidate in ["migrations", "db/migrations", "prisma/migrations", "alembic", "database/migrations"]:
+    if (root / candidate).exists(): migrations.append(candidate)
+
+contracts = exists_any(["openapi.yaml", "openapi.yml", "openapi.json", "swagger.yaml", "swagger.json", "asyncapi.yaml", "graphql.schema", "schema.graphql"])
+
+tests = find_names({"pytest.ini", "vitest.config.ts", "vitest.config.js", "jest.config.js", "jest.config.ts", "playwright.config.ts", "playwright.config.js", "cypress.config.ts", "cypress.config.js"})
+
+env_files = []
+for p in root.glob(".env*"):
+    if p.is_file(): env_files.append(p.name)
+
+result = {
+    "root": str(root),
+    "signals": {
+        "manifests_and_lockfiles": manifests,
+        "ci_cd": ci,
+        "containers_or_orchestration": containers,
+        "documentation": docs,
+        "configuration_examples": config,
+        "web": web_signals,
+        "database_migrations": migrations,
+        "api_contracts": contracts,
+        "test_configs": tests,
+        "environment_files_present": env_files,
+    },
+    "review_prompts": []
+}
+
+if not ci:
+    result["review_prompts"].append("No common CI configuration detected; verify how tests/builds are enforced.")
+if not tests:
+    result["review_prompts"].append("No common test configuration detected; inspect project-specific test commands before assuming tests are absent.")
+if migrations:
+    result["review_prompts"].append("Database migrations detected; activate stateful-data and migration review.")
+if contracts:
+    result["review_prompts"].append("API/event contract detected; review backward compatibility and contract tests.")
+if web_signals:
+    result["review_prompts"].append("Web project signals detected; determine whether public-web SEO/accessibility profile applies.")
+if any(x in env_files for x in [".env", ".env.production", ".env.local"]):
+    result["review_prompts"].append("Environment files exist; never print or commit secret values during analysis.")
+if not (root / "SECURITY.md").exists():
+    result["review_prompts"].append("No SECURITY.md detected. This is not automatically a defect; consider it for public/open-source projects.")
+
+print(json.dumps(result, indent=2))

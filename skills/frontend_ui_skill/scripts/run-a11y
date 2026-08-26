@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+import { chromium } from 'playwright'
+import AxeBuilder from '@axe-core/playwright'
+
+const url = process.argv[2]
+if (!url) {
+  console.error('Usage: run-a11y <url>')
+  console.error('Requires: npm install -D playwright @axe-core/playwright')
+  process.exit(2)
+}
+
+const browser = await chromium.launch({ headless: true })
+const page = await browser.newPage()
+await page.goto(url, { waitUntil: 'networkidle' })
+const result = await new AxeBuilder({ page }).analyze()
+
+if (result.violations.length) {
+  for (const violation of result.violations) {
+    console.error(`\n${violation.impact ?? 'unknown'}: ${violation.id} — ${violation.help}`)
+    for (const node of violation.nodes.slice(0, 5)) console.error(`  ${node.target.join(' ')}`)
+  }
+  await browser.close()
+  process.exit(1)
+}
+
+console.log('No axe-detectable accessibility violations found. Manual accessibility QA is still required.')
+await browser.close()

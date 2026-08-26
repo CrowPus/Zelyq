@@ -6,6 +6,7 @@ import {
   CircleAlert,
   Crosshair,
   GraduationCap,
+  HardHat,
   Paperclip,
   Puzzle,
   Square,
@@ -103,6 +104,11 @@ export function ChatPanel({
   /** Picked from the `/` menu's Plugins section — see `044`'s follow-up.
    * Names only; there's no body to hold onto the way a skill has one. */
   const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
+  // ZED-0001, Phase 1. Per-conversation like modelChoice above, not a
+  // Settings-page default — deliberately not persisted past a refresh, the
+  // same reason modelChoice isn't either, so a mode this consequential is
+  // never silently still on from a session someone forgot about.
+  const [engineerMode, setEngineerMode] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -246,6 +252,7 @@ export function ChatPanel({
       // Names only, too — agent-side this becomes an instruction naming the
       // tool, not real content the way a skill's body is. See `044`'s follow-up.
       ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
+      ...(engineerMode ? { engineerMode: true } : {}),
     });
     setDraft("");
     setCursor(0);
@@ -606,6 +613,20 @@ export function ChatPanel({
                 <Paperclip size={13} strokeWidth={2} />
               </IconButton>
               <ModelPicker value={modelChoice} onChange={setModelChoice} />
+              {/* ZED-0001, Phase 1. Per-conversation, not persisted — see
+                  the engineerMode state declaration above. */}
+              <IconButton
+                size="sm"
+                variant={engineerMode ? "primary" : "ghost"}
+                label={
+                  engineerMode ? "Engineer Mode is on — click to turn off" : "Turn on Engineer Mode"
+                }
+                aria-pressed={engineerMode}
+                onClick={() => setEngineerMode((value) => !value)}
+                className="shrink-0"
+              >
+                <HardHat size={13} strokeWidth={2} />
+              </IconButton>
               {/* Least essential piece of this row, so it's the one that
                   gives way first — min-w-0 here too, or being a flex
                   container itself makes it just as unshrinkable as its

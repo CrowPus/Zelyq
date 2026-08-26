@@ -44,6 +44,9 @@ export class AgentClient {
     provider?: string;
     model?: string;
     effort?: string;
+    /** See ZED-0001. Requires `effort` at `high` or above — the agent
+     * refuses otherwise. */
+    engineerMode?: boolean;
     apiKey?: string;
     /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
      * subscription token. */
@@ -99,6 +102,9 @@ export class AgentClient {
     provider?: string;
     model?: string;
     effort?: string;
+    /** See ZED-0001. Requires `effort` at `high` or above — the agent
+     * refuses otherwise. */
+    engineerMode?: boolean;
     apiKey?: string;
     /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
      * subscription token. */
@@ -115,7 +121,13 @@ export class AgentClient {
       const changed =
         (input.provider !== undefined && input.provider !== state.provider) ||
         (input.model !== undefined && input.model !== state.model) ||
-        (input.authMode !== undefined && input.authMode !== state.authMode);
+        (input.authMode !== undefined && input.authMode !== state.authMode) ||
+        // `effort` and `engineerMode` didn't used to matter here because
+        // `effort` was never actually forwarded by any caller — see
+        // ZED-0001's discovery of that gap. Both now behave like every
+        // other setting that already changes what a session is.
+        (input.effort !== undefined && input.effort !== state.effort) ||
+        (input.engineerMode !== undefined && input.engineerMode !== state.engineerMode);
       if (!changed || state.busy) return state;
       await this.destroySession(input.sessionId);
     }

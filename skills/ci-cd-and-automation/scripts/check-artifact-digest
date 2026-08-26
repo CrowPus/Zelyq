@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+import fs from 'node:fs'
+import crypto from 'node:crypto'
+
+const [file, expected] = process.argv.slice(2)
+
+if (!file || !expected) {
+  console.error('Usage: check-artifact-digest <file> <sha256-or-sha256:...>')
+  process.exit(2)
+}
+
+if (!fs.existsSync(file)) {
+  console.error(`File not found: ${file}`)
+  process.exit(2)
+}
+
+const digest = crypto.createHash('sha256')
+  .update(fs.readFileSync(file))
+  .digest('hex')
+
+const normalized = expected.replace(/^sha256:/, '').toLowerCase()
+
+console.log(`sha256:${digest}`)
+
+if (digest !== normalized) {
+  console.error('Digest mismatch.')
+  process.exit(1)
+}
+
+console.log('Digest verified.')

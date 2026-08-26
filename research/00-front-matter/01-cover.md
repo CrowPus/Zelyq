@@ -1,39 +1,37 @@
 # The Engineering Research Book
 
-## Building the Future of AI Software Engineering
+## Researching trustworthy AI-assisted software engineering
 
 ---
 
-### First Edition
+### First edition
 
-Version 0.1
+Version 1.0
 
----
+Status: Reviewed — Version 1 complete
 
-### Created By
-
-The Zelyq Community
+Publication date: 2026-08-25
 
 ---
 
-### Maintained By
+### Created by
 
-The Zelyq Research Council
+Dee Empire and the Zelyq contributors
 
----
+### Maintained by
 
-> **Great software is not built by writing more code.**
->
-> **It is built by making better engineering decisions.**
+The Zelyq open-source community
 
 ---
 
-*"Research before implementation."*
+> What would an AI system need to understand, do, and demonstrate to earn trust as a software engineering partner?
 
 ---
 
-© Zelyq Community
+Research before decisions. Accepted reasons before code.
 
-Open Research.
-Open Discussion.
-Open Engineering.
+---
+
+Copyright © 2026 Dee Empire
+
+Open research. Open review. Open contribution.

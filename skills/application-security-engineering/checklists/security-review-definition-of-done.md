@@ -1,0 +1,21 @@
+# Security Review Definition of Done
+
+- [ ] Scope and environment are explicit.
+- [ ] Assets, roles, tenants, and trust boundaries are mapped.
+- [ ] Important security invariants are documented.
+- [ ] Relevant ASVS/domain requirements are considered.
+- [ ] Authentication/authorization are reviewed where applicable.
+- [ ] Dangerous input/sink boundaries are reviewed.
+- [ ] Business logic/concurrency are considered.
+- [ ] File/outbound network risks are reviewed where applicable.
+- [ ] Exceptional conditions/resource limits are considered.
+- [ ] Dependencies/secrets/configuration are reviewed.
+- [ ] Automated findings are triaged rather than blindly accepted.
+- [ ] Confirmed findings have reproducible evidence.
+- [ ] Severity is based on demonstrated impact.
+- [ ] Root cause is documented.
+- [ ] Remediation addresses the weakness class.
+- [ ] Security regression coverage exists where practical.
+- [ ] Fixes are re-tested.
+- [ ] Logging/detection implications are reviewed.
+- [ ] Validation limitations/residual risks are stated.

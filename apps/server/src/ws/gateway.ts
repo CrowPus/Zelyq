@@ -140,6 +140,7 @@ export class ChatGateway {
       attachmentIds: message.attachments,
       skills: message.skills,
       plugins: message.plugins,
+      engineerMode: message.engineerMode,
     });
   }
 
@@ -155,6 +156,8 @@ export class ChatGateway {
       skills?: string[];
       /** Picked from the same `/` menu's Plugins section — see `044`'s follow-up. */
       plugins?: string[];
+      /** Engineer Mode toggle — see ZED-0001. */
+      engineerMode?: boolean;
     } = {},
   ): Promise<void> {
     if (room.turn) {
@@ -282,12 +285,20 @@ export class ChatGateway {
       const model =
         override.model ?? (pickedDifferentProvider ? "" : await this.settings.modelFor(provider));
       const baseUrl = pickedDifferentProvider ? "" : await this.settings.value("modelBaseUrl");
+      // Found while building ZED-0001's effort floor: this was never read
+      // here at all. The Settings page's "Reasoning effort" field looked
+      // live but had no effect on any session — every session silently ran
+      // on whatever ZELYQ_EFFORT the agent process happened to boot with.
+      // Read and forwarded now the same way model/provider already are.
+      const effort = await this.settings.value("effort");
 
       const state = await this.agent.ensureSession({
         sessionId: room.sessionId,
         projectId: room.projectId,
         provider,
         ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        engineerMode: override.engineerMode ?? false,
         ...(apiKey ? { apiKey } : {}),
         ...(authMode !== "api_key" ? { authMode } : {}),
         ...(baseUrl ? { baseUrl } : {}),

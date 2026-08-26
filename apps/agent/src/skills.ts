@@ -128,8 +128,12 @@ export async function loadSkills(
 
 /** Every file under a skill's directory besides `SKILL.md` itself, as
  * relative paths — what `use_skill` tells the model exists without it
- * having to guess a filename. */
-async function listResources(dir: string): Promise<string[]> {
+ * having to guess a filename. Exported for Engineer Mode's system-prompt
+ * addendum (see ZED-0001, `prompt.ts`): baking a skill's body directly into
+ * the system prompt bypasses the live `use_skill` call that would normally
+ * produce this listing, so the addendum has to compute and include it the
+ * same way, or the model has no way to know a skill's deeper files exist. */
+export async function listResources(dir: string): Promise<string[]> {
   const results: string[] = [];
   async function walk(current: string, prefix: string) {
     const entries = await fs.readdir(current, { withFileTypes: true });

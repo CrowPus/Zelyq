@@ -56,8 +56,25 @@ Setting a variable in your shell also works, but it must be **exported**:
 `export GEMINI_API_KEY=...`. Bash's `set NAME=value` does not create an environment variable — it
 assigns a positional parameter, and the process will never see it.
 
+**Nothing loads in the browser at all, on a VM or another remote machine** — check this first,
+before anything else here. `ZELYQ_SERVER_HOST` and `ZELYQ_WEB_HOST` default to `127.0.0.1`, so the
+server and the web dev server only accept connections from the machine they're running on — browsing
+to the VM's public address gets refused even though everything is actually working. Set
+`ZELYQ_SERVER_HOST=0.0.0.0` (and `ZELYQ_WEB_HOST=0.0.0.0` if you're running the web dev server
+separately, rather than the built UI the server can serve on its own in `NODE_ENV=production`) — see
+[Choosing a configuration](./configuration.md#choosing-a-configuration) for a full VM example.
+
 **The preview never becomes ready** — open the Logs panel. Nearly always a dependency install
 failure or a syntax error in generated code. Ask the agent to fix what the log says.
+
+**The preview says the page refused to connect, but the rest of the app loads fine** — the same
+cause as above, one level down: `ZELYQ_PREVIEW_HOST` also defaults to `127.0.0.1`, so project preview
+servers only accept connections from the machine they're running on too, separately from the setting
+above. Set it to your VM's address (or `0.0.0.0`). If a project's preview was already started before
+you set this, changing the variable alone will not fix it: stop that project's preview so a fresh one
+starts under the new setting (in `ZELYQ_RUNTIME=container`, Docker bakes a container's port binding
+in when it's created, so an existing container needs to be removed, not just restarted). This is the
+most common thing that looks like a broken deployment on a VM but is actually just this one setting.
 
 **Port already in use** — another Zelyq or dev server is holding it. Change `ZELYQ_SERVER_PORT`,
 `ZELYQ_AGENT_PORT`, or the `ZELYQ_PREVIEW_PORT_*` range in `.env`.

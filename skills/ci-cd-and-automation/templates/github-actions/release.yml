@@ -1,0 +1,67 @@
+# Architecture template — adapt to your platform.
+# Resolve every Action to a trusted full commit SHA.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+      packages: write
+    outputs:
+      artifact_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@<FULL_COMMIT_SHA>
+
+      - name: Build and publish immutable artifact
+        id: build
+        run: |
+          <BUILD_AND_PUBLISH_COMMAND>
+          echo "digest=<IMMUTABLE_DIGEST>" >> "$GITHUB_OUTPUT"
+
+      - name: Attest artifact
+        uses: actions/attest@<FULL_COMMIT_SHA>
+        with:
+          <ATTESTATION_SUBJECT_FIELDS>
+
+  deploy-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Deploy exact artifact
+        run: <DEPLOY_BY_DIGEST_COMMAND>
+
+      - name: Verify staging
+        run: <SMOKE_TEST_COMMAND>
+
+  deploy-production:
+    needs: [build, deploy-staging]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Deploy exact artifact progressively
+        run: <PROGRESSIVE_DEPLOY_COMMAND>
+
+      - name: Evaluate release health
+        run: <HEALTH_GATE_COMMAND>

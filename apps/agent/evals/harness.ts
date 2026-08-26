@@ -22,6 +22,11 @@ export interface RunOptions {
   /** Leave the project on disk afterwards so a failure can be inspected. */
   keep: boolean;
   log: (message: string) => void;
+  /** ZED-0001's own pre-registered scope-discipline criterion, run for
+   * real: the same cases, the same checks, Engineer Mode on instead of
+   * off. See `run.ts`'s `--engineer-mode` flag. */
+  engineerMode?: boolean;
+  engineerModeSkill?: { body: string; resources: string[] };
 }
 
 /**
@@ -81,6 +86,8 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
       effort: options.effort,
       apiKey: options.apiKey,
       ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+      ...(options.engineerMode ? { engineerMode: true } : {}),
+      ...(options.engineerModeSkill ? { engineerModeSkill: options.engineerModeSkill } : {}),
       runtime,
       maxIterations: evalCase.maxIterations ?? options.maxIterations,
     });
