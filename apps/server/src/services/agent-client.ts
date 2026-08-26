@@ -47,6 +47,8 @@ export class AgentClient {
     /** See ZED-0001. Requires `effort` at `high` or above — the agent
      * refuses otherwise. */
     engineerMode?: boolean;
+    /** See 048. Mutually exclusive with engineerMode. */
+    architectMode?: boolean;
     apiKey?: string;
     /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
      * subscription token. */
@@ -105,6 +107,8 @@ export class AgentClient {
     /** See ZED-0001. Requires `effort` at `high` or above — the agent
      * refuses otherwise. */
     engineerMode?: boolean;
+    /** See 048. Mutually exclusive with engineerMode. */
+    architectMode?: boolean;
     apiKey?: string;
     /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
      * subscription token. */
@@ -127,7 +131,8 @@ export class AgentClient {
         // ZED-0001's discovery of that gap. Both now behave like every
         // other setting that already changes what a session is.
         (input.effort !== undefined && input.effort !== state.effort) ||
-        (input.engineerMode !== undefined && input.engineerMode !== state.engineerMode);
+        (input.engineerMode !== undefined && input.engineerMode !== state.engineerMode) ||
+        (input.architectMode !== undefined && input.architectMode !== state.architectMode);
       if (!changed || state.busy) return state;
       await this.destroySession(input.sessionId);
     }

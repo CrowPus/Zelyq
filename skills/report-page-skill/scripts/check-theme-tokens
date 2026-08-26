@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+import fs from 'node:fs'
+
+const file = process.argv[2]
+if (!file) {
+  console.error('Usage: check-theme-tokens <report.html>')
+  process.exit(2)
+}
+const html = fs.readFileSync(file, 'utf8')
+const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i)
+if (!styleMatch) {
+  console.log('No inline <style> block found; inspect external stylesheet separately.')
+  process.exit(0)
+}
+const css = styleMatch[1]
+const rootMatch = css.match(/:root\s*\{([\s\S]*?)\}/)
+if (!rootMatch) {
+  console.error('No base :root token block found.')
+  process.exit(1)
+}
+const base = new Set([...rootMatch[1].matchAll(/(--[a-z0-9-]+)\s*:/gi)].map(m => m[1]))
+const all = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map(m => m[1]))
+const onlyElsewhere = [...all].filter(x => !base.has(x)).sort()
+
+console.log(`Base tokens: ${base.size}`)
+if (onlyElsewhere.length) {
+  console.error('Tokens defined outside but not in base :root:')
+  for (const token of onlyElsewhere) console.error(`- ${token}`)
+  process.exit(1)
+}
+console.log('All declared custom-property tokens have base :root definitions.')

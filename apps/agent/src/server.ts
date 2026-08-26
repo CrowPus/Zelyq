@@ -51,6 +51,7 @@ export interface AgentServerDeps {
 /** The one skill ZED-0001 authorizes Engineer Mode to guarantee — not a
  * generic "any skill" mechanism. See the entry's Implementation boundary. */
 const ENGINEER_MODE_SKILL_NAME = "senior-software-engineering";
+const ARCHITECT_MODE_SKILL_NAME = "report-page-design";
 
 export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}): AgentServer {
   const app = Fastify({
@@ -205,6 +206,12 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     // here too, the same discipline every other authorization check in
     // this route already holds.
     const resolvedEffort = input.effort ?? config.effort;
+    if (input.engineerMode && input.architectMode) {
+      throw new ZelyqError(
+        "bad_request",
+        "Engineer Mode and Architect Mode are mutually exclusive — turn one off.",
+      );
+    }
     if (input.engineerMode && (resolvedEffort === "low" || resolvedEffort === "medium")) {
       throw new ZelyqError(
         "bad_request",
@@ -214,6 +221,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     }
     const engineerModeSkill = input.engineerMode
       ? deps.skills?.find((skill) => skill.name === ENGINEER_MODE_SKILL_NAME)
+      : undefined;
+    const architectModeSkill = input.architectMode
+      ? deps.skills?.find((skill) => skill.name === ARCHITECT_MODE_SKILL_NAME)
       : undefined;
 
     await runtime.ensureProject(input.projectId);
@@ -233,6 +243,15 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
             engineerModeSkill: {
               body: engineerModeSkill.body,
               resources: engineerModeSkill.resources ?? [],
+            },
+          }
+        : {}),
+      architectMode: input.architectMode ?? false,
+      ...(architectModeSkill
+        ? {
+            architectModeSkill: {
+              body: architectModeSkill.body,
+              resources: architectModeSkill.resources ?? [],
             },
           }
         : {}),

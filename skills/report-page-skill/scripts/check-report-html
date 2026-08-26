@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+import fs from 'node:fs'
+
+const file = process.argv[2]
+if (!file) {
+  console.error('Usage: check-report-html <report.html>')
+  process.exit(2)
+}
+const html = fs.readFileSync(file, 'utf8')
+const findings = []
+
+if (!/<title>[^<]+<\/title>/i.test(html)) findings.push('Missing non-empty <title>.')
+if (!/<main[\s>]/i.test(html)) findings.push('Missing <main> landmark.')
+if (/style\s*=\s*["'][^"']*(#[0-9a-f]{3,8}|rgb\()/i.test(html)) {
+  findings.push('Inline raw color detected; review token consistency.')
+}
+if (/<table[\s>]/i.test(html) && !/<th[\s>]/i.test(html)) {
+  findings.push('Table detected without any <th> headers.')
+}
+if (/<table[\s>]/i.test(html) && !/<caption[\s>]/i.test(html)) {
+  findings.push('Table detected without <caption>; review whether a caption is appropriate.')
+}
+if (/🔴|🟠|🟢/.test(html)) {
+  findings.push('Traffic-light emoji detected; ensure status has textual/form semantics.')
+}
+if (/animation\s*:/i.test(html) && !/prefers-reduced-motion/i.test(html)) {
+  findings.push('Animation detected but no prefers-reduced-motion handling found.')
+}
+if (!/:focus-visible/i.test(html) && /<(a|button|input|select|textarea)[\s>]/i.test(html)) {
+  findings.push('Interactive elements detected but no :focus-visible rule found in file.')
+}
+
+if (!findings.length) {
+  console.log('No heuristic report-page findings.')
+  process.exit(0)
+}
+for (const f of findings) console.log(`[REVIEW] ${f}`)
+process.exitCode = 1

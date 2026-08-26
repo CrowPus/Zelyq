@@ -1,3 +1,4 @@
+import { posix as pathPosix } from "node:path";
 import {
   type AgentEvent,
   type Message,
@@ -9,6 +10,7 @@ import {
 import type { RuntimeDriver } from "@zelyq/runtime";
 import { executeTool, type ToolContext, toolDefinitions } from "@zelyq/tools";
 import {
+  ARCHITECT_WRITE_ROOT,
   buildSystemPrompt,
   ENGINEER_MODE_PURPOSE_MARKER,
   withPlugins,
@@ -33,6 +35,33 @@ import {
  * `search_files`, preview inspection) are deliberately absent — the model
  * can still look at what exists to write an accurate summary. */
 const MUTATING_TOOL_NAMES = new Set(["write_file", "edit_file", "delete_file", "run_command"]);
+
+// 048 — Architect Mode. It plans; it does not build. Writes are allowed only
+// under `architecture/`, and nothing executes.
+const ARCHITECT_WRITE_TOOLS = new Set(["write_file", "edit_file", "delete_file"]);
+const ARCHITECT_BLOCKED_TOOLS = new Set(["run_command", "start_preview"]);
+
+/** True when `toolCall` is not allowed in Architect Mode: an execution tool,
+ * or a write whose canonicalized path escapes `architecture/`. Path is
+ * normalized first so `architecture/../src/x` and `./architecture/../x`
+ * cannot slip through the prefix check. */
+function architectModeBlock(name: string, input: Record<string, unknown>): "exec" | "scope" | null {
+  if (ARCHITECT_BLOCKED_TOOLS.has(name)) return "exec";
+  if (ARCHITECT_WRITE_TOOLS.has(name)) {
+    const raw = typeof input.path === "string" ? input.path : "";
+    const norm = pathPosix.normalize(raw);
+    if (
+      raw === "" ||
+      pathPosix.isAbsolute(norm) ||
+      norm === ".." ||
+      norm.startsWith("../") ||
+      !(norm === "architecture" || norm.startsWith(ARCHITECT_WRITE_ROOT))
+    ) {
+      return "scope";
+    }
+  }
+  return null;
+}
 
 /** Lockfiles a package manager writes as a normal side effect of
  * `npm install` and its equivalents — found live: `run_command`'s
@@ -78,6 +107,13 @@ export interface SessionOptions {
    * boot, in which case the mode's four directives still apply on their own. */
   engineerMode?: boolean;
   engineerModeSkill?: { body: string; resources: string[] };
+  /** 048 — Architect Mode, Phase 1. Mutually exclusive with `engineerMode`
+   * (the server rejects both). When on, this session interviews and designs
+   * only: writes outside `architecture/` and every execution tool are
+   * refused at the tool boundary below. `architectModeSkill` is the
+   * `report-page-design` skill for the report render. */
+  architectMode?: boolean;
+  architectModeSkill?: { body: string; resources: string[] };
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
@@ -127,6 +163,7 @@ export class AgentSession {
         template: options.template,
         skills: options.skills,
         ...(options.engineerMode ? { engineerMode: { skill: options.engineerModeSkill } } : {}),
+        ...(options.architectMode ? { architectMode: { skill: options.architectModeSkill } } : {}),
       }),
       tools: toolDefinitions(),
       effort: options.effort,
@@ -151,6 +188,7 @@ export class AgentSession {
       model: this.options.model,
       effort: this.options.effort,
       engineerMode: this.options.engineerMode ?? false,
+      architectMode: this.options.architectMode ?? false,
       authMode: this.options.authMode ?? "api_key",
       busy: this.busy,
       turns: this.turns,
@@ -439,21 +477,39 @@ export class AgentSession {
               newFilesThisTurn.add(path);
             }
             const capped = blockedByCheckpoint || newFileCapped;
-            const outcome = capped
+            // 048 — Architect Mode plans only. Refuse execution tools and any
+            // write outside `architecture/`, at the boundary, before the real
+            // tool runs.
+            const architectBlock = this.options.architectMode
+              ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
+              : null;
+            const outcome = architectBlock
               ? {
-                  output: newFileCapped
-                    ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
-                      `create another new file ("${path}"). Nothing that changes the project will run for the ` +
-                      "rest of this turn, not just new files. Stop here: your final message should summarize " +
-                      "what exists so far, and if you're not certain this is actually what was asked, ask the " +
-                      "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
-                      "— the user's next message continues it, with a fresh checkpoint of its own."
-                    : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
-                      `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
-                      "now instead.",
+                  output:
+                    architectBlock === "exec"
+                      ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
+                        "disabled for this session. You are planning, not building. Write the design into " +
+                        `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
+                      : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
+                        `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
+                        `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
                   isError: true,
                 }
-              : await executeTool(toolContext, toolCall.name, toolCall.input);
+              : capped
+                ? {
+                    output: newFileCapped
+                      ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
+                        `create another new file ("${path}"). Nothing that changes the project will run for the ` +
+                        "rest of this turn, not just new files. Stop here: your final message should summarize " +
+                        "what exists so far, and if you're not certain this is actually what was asked, ask the " +
+                        "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
+                        "— the user's next message continues it, with a fresh checkpoint of its own."
+                      : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
+                        `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
+                        "now instead.",
+                    isError: true,
+                  }
+                : await executeTool(toolContext, toolCall.name, toolCall.input);
             const finished: ToolCall = {
               ...call,
               result: outcome.output.slice(0, 4000),

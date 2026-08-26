@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+import { chromium } from 'playwright'
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
+
+const url = process.argv[2]
+const out = process.argv[3] ?? 'artifacts/report-review'
+if (!url) {
+  console.error('Usage: capture-report <url> [output-directory]')
+  console.error('Requires Playwright.')
+  process.exit(2)
+}
+await mkdir(out, { recursive: true })
+const browser = await chromium.launch({ headless: true })
+
+const cases = [
+  ['mobile', 390, 844, 'no-preference'],
+  ['desktop', 1440, 1000, 'no-preference'],
+  ['desktop-reduced', 1440, 1000, 'reduce'],
+]
+for (const [name,width,height,reducedMotion] of cases) {
+  const page = await browser.newPage({ viewport:{width,height}, reducedMotion })
+  await page.goto(url, { waitUntil:'networkidle' })
+  await page.waitForTimeout(300)
+  await page.screenshot({ path:path.join(out, `${name}.png`), fullPage:true })
+  await page.close()
+}
+await browser.close()
+console.log(`Captured report QA in ${out}`)

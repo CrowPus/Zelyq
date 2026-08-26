@@ -141,6 +141,7 @@ export class ChatGateway {
       skills: message.skills,
       plugins: message.plugins,
       engineerMode: message.engineerMode,
+      architectMode: message.architectMode,
     });
   }
 
@@ -158,6 +159,8 @@ export class ChatGateway {
       plugins?: string[];
       /** Engineer Mode toggle — see ZED-0001. */
       engineerMode?: boolean;
+      /** Architect Mode toggle — see 048. */
+      architectMode?: boolean;
     } = {},
   ): Promise<void> {
     if (room.turn) {
@@ -299,6 +302,7 @@ export class ChatGateway {
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
         engineerMode: override.engineerMode ?? false,
+        architectMode: override.architectMode ?? false,
         ...(apiKey ? { apiKey } : {}),
         ...(authMode !== "api_key" ? { authMode } : {}),
         ...(baseUrl ? { baseUrl } : {}),
