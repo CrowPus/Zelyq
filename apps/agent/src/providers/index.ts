@@ -56,9 +56,21 @@ export interface ProviderInfo {
    * vendors below with no default) means there is nothing yet confirmed to
    * suggest — add to this list only once a name is verified, the same
    * standard the rest of this project holds evidence to.
+   *
+   * `tier` — 047 Phase 0.4. A coarse capability/cost band the Architect uses
+   * to *advise* a model per build-plan task ("write the docs: `cheap` is
+   * fine"). Advice only in Phase 1: nothing routes on it, a person still
+   * picks the model. Only set on names whose relative standing is actually
+   * confirmed against the vendor's own tiering — left absent otherwise, the
+   * same evidence bar as the list itself.
    */
-  models?: Array<{ value: string; label: string }>;
+  models?: Array<{ value: string; label: string; tier?: ModelTier }>;
 }
+
+/** 047 Phase 0.4. `strong` — hard design/security/data decisions. `standard`
+ * — most implementation. `cheap` — mechanical work: docs, boilerplate,
+ * formatting, obvious edits. */
+export type ModelTier = "strong" | "standard" | "cheap";
 
 /**
  * The registry is the single place that knows a provider exists. Adding one
@@ -73,9 +85,9 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     apiKeyEnv: ["ANTHROPIC_API_KEY"],
     docsUrl: "https://console.anthropic.com/settings/keys",
     models: [
-      { value: "claude-opus-5", label: "Claude Opus 5 — most capable" },
-      { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced" },
-      { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fastest" },
+      { value: "claude-opus-5", label: "Claude Opus 5 — most capable", tier: "strong" },
+      { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced", tier: "standard" },
+      { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fastest", tier: "cheap" },
     ],
   },
   google: {
@@ -84,7 +96,9 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     defaultModel: "gemini-3.7-flash",
     apiKeyEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     docsUrl: "https://aistudio.google.com/apikey",
-    models: [{ value: "gemini-3.7-flash", label: "Gemini 3.7 Flash" }],
+    // Flash is Gemini's fast/low-cost tier by the vendor's own naming. A
+    // `strong` Gemini (e.g. a Pro) is free-text, added by whoever wants it.
+    models: [{ value: "gemini-3.7-flash", label: "Gemini 3.7 Flash", tier: "cheap" }],
   },
   openai: {
     id: "openai",
@@ -94,7 +108,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://platform.openai.com/api-keys",
     baseUrl: "https://api.openai.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    models: [{ value: "gpt-5.1", label: "GPT-5.1" }],
+    models: [{ value: "gpt-5.1", label: "GPT-5.1", tier: "strong" }],
   },
   xai: {
     id: "xai",
@@ -217,6 +231,53 @@ export function apiKeyFromEnv(
     if (value) return value;
   }
   return undefined;
+}
+
+/**
+ * 047 Phase 0.4 — the availability probe, credential-free by construction.
+ *
+ * Reports which providers can be used right now and the tiered model
+ * suggestions for each. It reads *whether* a key or endpoint is configured;
+ * it never returns, logs, or derives the key itself. A caller that wants to
+ * surface this to a model (047 Phase 3f, not authorized yet) gets names and
+ * tiers only. `subscriptions` names any auth modes the server has told us are
+ * live (a CLI subscription session — see `045`); the tokens for those stay
+ * server-side, exactly as they do today.
+ */
+export function describeAvailableModels(
+  options: {
+    env?: NodeJS.ProcessEnv;
+    /** Provider ids the server has confirmed have a live CLI-subscription session. */
+    subscriptions?: ProviderId[];
+  } = {},
+): Array<{
+  provider: ProviderId;
+  label: string;
+  available: boolean;
+  via: "api_key" | "subscription" | "endpoint" | "none";
+  models: Array<{ value: string; label: string; tier?: ModelTier }>;
+}> {
+  const env = options.env ?? process.env;
+  const subs = new Set(options.subscriptions ?? []);
+  return (Object.keys(PROVIDERS) as ProviderId[]).map((id) => {
+    const info = PROVIDERS[id];
+    const hasKey = Boolean(apiKeyFromEnv(id, env));
+    const hasEndpoint = Boolean(baseUrlFor(id, undefined, env));
+    const via: "api_key" | "subscription" | "endpoint" | "none" = subs.has(id)
+      ? "subscription"
+      : hasKey
+        ? "api_key"
+        : info.apiKeyOptional && hasEndpoint
+          ? "endpoint"
+          : "none";
+    return {
+      provider: id,
+      label: info.label,
+      available: via !== "none",
+      via,
+      models: info.models ?? [],
+    };
+  });
 }
 
 export function createProvider(config: {

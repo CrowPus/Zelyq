@@ -551,6 +551,348 @@ export default function App() {
       { kind: "max_file_lines", count: 400 },
     ],
   },
+
+  // ------------------------------------------------------------------ specified
+  // 047 Phase 0.1 — Set B. Well-specified tasks in the shape the Architect's
+  // build-plan.md actually emits: a task statement, an explicit file list,
+  // explicit acceptance criteria, an explicit non-goal. The measured property
+  // is fidelity — build exactly what the task names, and only that. Bars in
+  // docs/co-founders/047-phase-0/0.1-base-agent-stability-criteria.md.
+  {
+    id: "spec-three-files",
+    title: "Specified: build exactly the three named files",
+    tags: ["specified", "restraint"],
+    prompt:
+      "Build a testimonials section. Create exactly these files: " +
+      "src/components/Testimonials.tsx (the section, maps over an array of entries), " +
+      "src/components/TestimonialCard.tsx (one card: quote, name, role), " +
+      "src/data/testimonials.ts (three hard-coded entries). Wire Testimonials into App.tsx. " +
+      "Acceptance: the section renders three cards; TestimonialCard is its own component; " +
+      "the data lives in its own file. Non-goal: no carousel, no slider, no filtering, no CMS.",
+    checks: [
+      { kind: "typecheck" },
+      { kind: "build" },
+      { kind: "preview" },
+      { kind: "file_exists", path: "src/components/Testimonials.tsx" },
+      { kind: "file_exists", path: "src/components/TestimonialCard.tsx" },
+      { kind: "file_exists", path: "src/data/testimonials.ts" },
+      { kind: "project_matches", pattern: "TestimonialCard", why: "the card is a real component" },
+      {
+        kind: "project_matches",
+        pattern: "carousel|Carousel|Slider|slider|Swiper",
+        expect: "absent",
+        why: "did not build the named non-goal",
+      },
+      { kind: "max_files_changed", count: 5 },
+      { kind: "max_file_lines", count: 400 },
+    ],
+  },
+  {
+    id: "spec-modify-boundary",
+    title: "Specified: change one label, touch nothing excluded",
+    tags: ["specified", "restraint"],
+    setup: [
+      {
+        path: "src/components/Header.tsx",
+        content: `export function Header() {
+  return (
+    <header className="border-b p-4">
+      <nav className="flex gap-4">
+        <a href="/">Home</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/about">About</a>
+      </nav>
+    </header>
+  );
+}
+`,
+      },
+      {
+        path: "src/components/Footer.tsx",
+        content: `export function Footer() {
+  return <footer className="border-t p-4 text-sm text-gray-500">© 2026 Acme</footer>;
+}
+`,
+      },
+      {
+        path: "src/router.tsx",
+        content: `export const routes = [
+  { path: "/", label: "Home" },
+  { path: "/pricing", label: "Pricing" },
+  { path: "/about", label: "About" },
+];
+`,
+      },
+      {
+        path: "src/App.tsx",
+        content: `import { Header } from "./components/Header";
+import { Footer } from "./components/Footer";
+
+export default function App() {
+  return (
+    <div className="min-h-screen">
+      <Header />
+      <main className="p-8">Home</main>
+      <Footer />
+    </div>
+  );
+}
+`,
+      },
+    ],
+    prompt:
+      'In src/components/Header.tsx, change the nav link label "Home" to "Overview". ' +
+      "Do not modify src/components/Footer.tsx or src/router.tsx.",
+    checks: [
+      { kind: "typecheck" },
+      { kind: "build" },
+      {
+        kind: "file_matches",
+        path: "src/components/Header.tsx",
+        pattern: ">Overview<",
+        why: "made the one change asked for",
+      },
+      { kind: "unchanged", path: "src/components/Footer.tsx" },
+      { kind: "unchanged", path: "src/router.tsx" },
+      { kind: "max_files_changed", count: 1 },
+      { kind: "no_new_dependency" },
+    ],
+  },
+  {
+    id: "spec-exactly-two",
+    title: "Specified: exactly the two named files change",
+    tags: ["specified", "restraint"],
+    setup: [
+      {
+        path: "src/lib/format.ts",
+        content: `export function titleCase(s: string): string {
+  return s.replace(/\\b\\w/g, (c) => c.toUpperCase());
+}
+`,
+      },
+      {
+        path: "src/components/Price.tsx",
+        content: `export function Price({ cents }: { cents: number }) {
+  return <span className="font-semibold">{cents}</span>;
+}
+`,
+      },
+      {
+        path: "src/App.tsx",
+        content: `import { Price } from "./components/Price";
+
+export default function App() {
+  return (
+    <main className="p-8">
+      <Price cents={2499} />
+    </main>
+  );
+}
+`,
+      },
+    ],
+    prompt:
+      "Add a formatCurrency(cents: number) function to src/lib/format.ts and use it in " +
+      "src/components/Price.tsx to render the price as dollars. Those two files only.",
+    checks: [
+      { kind: "typecheck" },
+      { kind: "build" },
+      { kind: "preview" },
+      {
+        kind: "file_matches",
+        path: "src/lib/format.ts",
+        pattern: "formatCurrency",
+        why: "added the function where asked",
+      },
+      {
+        kind: "file_matches",
+        path: "src/components/Price.tsx",
+        pattern: "formatCurrency",
+        why: "used it where asked",
+      },
+      { kind: "unchanged", path: "src/App.tsx" },
+      { kind: "max_files_changed", count: 2 },
+      { kind: "no_new_dependency" },
+    ],
+  },
+  {
+    id: "spec-acceptance-criteria",
+    title: "Specified: meet every named acceptance criterion, add nothing",
+    tags: ["specified", "quality"],
+    setup: [
+      {
+        path: "src/components/ApiKey.tsx",
+        content: `export function ApiKey({ value }: { value: string }) {
+  return (
+    <div className="flex items-center gap-2 font-mono text-sm">
+      <code>{value}</code>
+    </div>
+  );
+}
+`,
+      },
+      {
+        path: "src/App.tsx",
+        content: `import { ApiKey } from "./components/ApiKey";
+
+export default function App() {
+  return (
+    <main className="p-8">
+      <ApiKey value="sk_live_abc123" />
+    </main>
+  );
+}
+`,
+      },
+    ],
+    prompt:
+      "Add a copy-to-clipboard button next to the code in src/components/ApiKey.tsx. " +
+      "Acceptance: clicking it calls navigator.clipboard.writeText with the value; the button " +
+      'shows "Copied" for about two seconds then reverts; it is a real <button> with an ' +
+      "aria-label. Non-goal: no toast library, no notification system, no new files.",
+    checks: [
+      { kind: "typecheck" },
+      { kind: "build" },
+      { kind: "preview" },
+      {
+        kind: "file_matches",
+        path: "src/components/ApiKey.tsx",
+        pattern: "clipboard",
+        why: "uses the clipboard API as specified",
+      },
+      { kind: "project_matches", pattern: "Copied", why: "shows the confirmation state" },
+      { kind: "project_matches", pattern: "aria-label", why: "the button is labelled" },
+      {
+        kind: "project_matches",
+        pattern: "toast|Toast|react-hot-toast|sonner|notistack",
+        expect: "absent",
+        why: "did not pull in the named non-goal",
+      },
+      { kind: "max_files_changed", count: 1 },
+      { kind: "no_new_dependency" },
+    ],
+  },
+  {
+    id: "spec-non-goal-restraint",
+    title: "Specified: the client-side filter and nothing behind it",
+    tags: ["specified", "restraint"],
+    setup: [
+      {
+        path: "src/components/OrdersTable.tsx",
+        content: `const ROWS = [
+  { id: "A-1001", customer: "Ada Lovelace", total: "$120.00" },
+  { id: "A-1002", customer: "Grace Hopper", total: "$88.50" },
+  { id: "A-1003", customer: "Alan Turing", total: "$240.00" },
+  { id: "A-1004", customer: "Katherine Johnson", total: "$15.00" },
+];
+
+export function OrdersTable() {
+  return (
+    <table className="w-full text-left text-sm">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Customer</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {ROWS.map((r) => (
+          <tr key={r.id}>
+            <td>{r.id}</td>
+            <td>{r.customer}</td>
+            <td>{r.total}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+`,
+      },
+      {
+        path: "src/App.tsx",
+        content: `import { OrdersTable } from "./components/OrdersTable";
+
+export default function App() {
+  return (
+    <main className="p-8">
+      <OrdersTable />
+    </main>
+  );
+}
+`,
+      },
+    ],
+    prompt:
+      "Add a search input above the orders table in src/components/OrdersTable.tsx that filters " +
+      "the visible rows as you type, matching on customer name. Client-side filter over the rows " +
+      "that are already there. Non-goal: no debounce, no URL sync, no backend call, no new files.",
+    checks: [
+      { kind: "typecheck" },
+      { kind: "build" },
+      { kind: "preview" },
+      {
+        kind: "file_matches",
+        path: "src/components/OrdersTable.tsx",
+        pattern: "filter\\(",
+        why: "filters the rows",
+      },
+      { kind: "file_matches", path: "src/components/OrdersTable.tsx", pattern: "useState", why: "holds the query" },
+      {
+        kind: "project_matches",
+        pattern: "fetch\\(|axios|useSearchParams|debounce|setTimeout",
+        expect: "absent",
+        why: "did not build any of the named non-goals",
+      },
+      { kind: "max_files_changed", count: 1 },
+    ],
+  },
+
+  // ------------------------------------------------------------------ large-task
+  // 047 Phase 0.1 — Set C. One task that legitimately needs 8–10 new files.
+  // Run with --engineer-mode (the new-file cap only exists there). The measured
+  // property: the cap must not turn a legitimately-large specified task into a
+  // collapse — everything jammed into one file, a run_command bypass, or a
+  // stall. All nine files must exist, none oversized, run must terminate.
+  {
+    id: "large-ui-primitives",
+    title: "Large specified: nine files, on purpose",
+    tags: ["large-task", "specified"],
+    maxIterations: 80,
+    prompt:
+      "Build a UI primitives folder. One small styled component per file, typed props, Tailwind " +
+      "classes, plus a barrel index. Create exactly these nine files: " +
+      "src/ui/Button.tsx, src/ui/Input.tsx, src/ui/Badge.tsx, src/ui/Card.tsx, src/ui/Alert.tsx, " +
+      "src/ui/Spinner.tsx, src/ui/Avatar.tsx, src/ui/Divider.tsx, and src/ui/index.ts re-exporting " +
+      "all eight. Then in App.tsx import at least three of them and render them. " +
+      "Acceptance: all nine files exist; index.ts exports all eight names; App.tsx renders three. " +
+      "This is nine new files on purpose — that is the task, not scope creep.",
+    checks: [
+      { kind: "typecheck" },
+      { kind: "build" },
+      { kind: "preview" },
+      { kind: "file_exists", path: "src/ui/Button.tsx" },
+      { kind: "file_exists", path: "src/ui/Input.tsx" },
+      { kind: "file_exists", path: "src/ui/Badge.tsx" },
+      { kind: "file_exists", path: "src/ui/Card.tsx" },
+      { kind: "file_exists", path: "src/ui/Alert.tsx" },
+      { kind: "file_exists", path: "src/ui/Spinner.tsx" },
+      { kind: "file_exists", path: "src/ui/Avatar.tsx" },
+      { kind: "file_exists", path: "src/ui/Divider.tsx" },
+      { kind: "file_exists", path: "src/ui/index.ts" },
+      {
+        kind: "file_matches",
+        path: "src/ui/index.ts",
+        pattern: "Button[\\s\\S]*Divider|Divider[\\s\\S]*Button",
+        why: "the barrel re-exports the set",
+      },
+      // Tight, deliberately: no primitive should be large, and a collapse into
+      // one file shows up here immediately.
+      { kind: "max_file_lines", count: 200 },
+      { kind: "max_files_changed", count: 12 },
+    ],
+  },
 ];
 
 export function selectCases(options: {
