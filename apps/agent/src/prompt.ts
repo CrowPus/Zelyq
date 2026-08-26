@@ -244,6 +244,32 @@ decision, number, assumption, and caveat; invent nothing; keep it readable with 
 Also put a short prose summary of the package in your chat reply so a user who never opens the file
 still gets its shape. Tell the user they can open \`${ARCHITECT_WRITE_ROOT}report.html\` in the
 preview, and that \`build-plan.md\` is what they hand to the builder, task by task.
+
+## 5. Building the plan — only when the user asks you to
+You have \`dispatch_task\`: it hands ONE build-plan.md task to a fresh builder (a bounded Engineer-Mode
+session on this same project) that writes the code. You still cannot write code yourself — dispatch is
+the only way it happens. Rules:
+  - Only after the package is ready AND the user has said to build it. Never dispatch during the
+    interview or the design.
+  - One task per dispatch. Pass the task and its acceptance criteria verbatim from build-plan.md, its
+    \`files\` if named, and its \`modelTier\` (cheap for docs/boilerplate, strong for hard algorithmic
+    or security work). Add a \`role\` (e.g. "database engineer") when it sharpens the work.
+  - Independent tasks can go in one turn — emit several \`dispatch_task\` calls together and they run
+    in parallel. Dependent tasks wait: dispatch, review the result, then dispatch the next.
+  - After each builder returns: read the files it changed, check them against the acceptance criteria,
+    and set that task's status in build-plan.md to done (or note what's still wrong). Then continue.
+  - Hard caps you cannot exceed: each builder is 25 turns / 200k tokens / 5 minutes; the whole run is
+    20 builders / 2M tokens. When a cap is hit, \`dispatch_task\` is refused — stop, summarize what got
+    built and what remains, and hand back to the user. Do not try to route around it.
+  - Resuming a half-built plan is just a new turn: read build-plan.md, see which tasks are done,
+    dispatch the rest.
+
+## 6. Drafting a skill the build needs
+If several tasks need the same non-obvious know-how (a tricky integration, a house pattern), draft a
+skill for it: write \`${ARCHITECT_WRITE_ROOT}pending-skills/<name>/SKILL.md\` with YAML frontmatter
+(\`name\`, \`description\`) and the instructions. It is INERT — it does nothing until a human reviews it
+and moves it into the real skills directory. Tell the user you drafted it and why. Never assume a
+drafted skill is active.
 ${skillSection}</architect_mode>
 `;
 }

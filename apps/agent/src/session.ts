@@ -8,7 +8,14 @@ import {
   type ToolCall,
 } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
-import { executeTool, type ToolContext, toolDefinitions } from "@zelyq/tools";
+import {
+  ALL_TOOLS,
+  dispatchTaskTool,
+  executeTool,
+  type ToolContext,
+  type ToolResult,
+  toolDefinitions,
+} from "@zelyq/tools";
 import {
   ARCHITECT_WRITE_ROOT,
   buildSystemPrompt,
@@ -21,6 +28,7 @@ import {
   type Conversation,
   classifyProviderError,
   createProvider,
+  describeAvailableModels,
   describeProviderError,
   type Effort,
   type ProviderFactory,
@@ -61,6 +69,29 @@ function architectModeBlock(name: string, input: Record<string, unknown>): "exec
     }
   }
   return null;
+}
+
+// 047 Phase 3 — orchestration caps. Hard, enforced here, not in prose. Every
+// dispatched builder is bounded; the whole run is bounded on top of that.
+const SUBAGENT_MAX_TURNS = 25;
+const SUBAGENT_MAX_TOKENS = 200_000;
+const SUBAGENT_WALLCLOCK_MS = 5 * 60_000;
+const ORCH_MAX_SUBAGENTS = 20;
+const ORCH_MAX_TOKENS = 2_000_000;
+
+/** Pick a concrete model for a task's tier. Falls back to the session's own
+ * model when the tier is absent or no available model matches it — never
+ * silently down-routes to something that isn't there. */
+function modelForTier(
+  tier: "strong" | "standard" | "cheap" | undefined,
+  provider: ProviderId,
+  sessionModel: string,
+  available: ReturnType<typeof describeAvailableModels>,
+): string {
+  if (!tier) return sessionModel;
+  const here = available.find((p) => p.provider === provider && p.available);
+  const match = here?.models.find((m) => m.tier === tier);
+  return match?.value ?? sessionModel;
 }
 
 /** Lockfiles a package manager writes as a normal side effect of
@@ -144,6 +175,11 @@ export class AgentSession {
   private tokensIn = 0;
   private tokensOut = 0;
 
+  // 047 Phase 3 — orchestration run state. Session-scoped, so "build the plan"
+  // can span turns against one running total. `killed` is the kill switch;
+  // once set, no further builders dispatch and nothing resumes on its own.
+  private readonly orchestration = { subagents: 0, tokens: 0, killed: false };
+
   constructor(options: SessionOptions) {
     this.id = options.sessionId;
     this.projectId = options.projectId;
@@ -165,7 +201,9 @@ export class AgentSession {
         ...(options.engineerMode ? { engineerMode: { skill: options.engineerModeSkill } } : {}),
         ...(options.architectMode ? { architectMode: { skill: options.architectModeSkill } } : {}),
       }),
-      tools: toolDefinitions(),
+      // Architect Mode gets dispatch_task on top of the standard set — it is
+      // the only way that mode, which cannot write code, gets code written.
+      tools: toolDefinitions(options.architectMode ? [...ALL_TOOLS, dispatchTaskTool] : ALL_TOOLS),
       effort: options.effort,
       history: (options.history ?? [])
         .filter(
@@ -199,6 +237,165 @@ export class AgentSession {
 
   abort(): void {
     this.abortController?.abort();
+  }
+
+  /** 047 Phase 3 — the kill switch. Stops any further builder dispatch on this
+   * session; a stopped run does not resume on its own. Also aborts the current
+   * turn so a mid-orchestration stop takes effect now. */
+  stopOrchestration(): void {
+    this.orchestration.killed = true;
+    this.abortController?.abort();
+  }
+
+  get orchestrationState() {
+    return {
+      subagents: this.orchestration.subagents,
+      tokens: this.orchestration.tokens,
+      killed: this.orchestration.killed,
+      subagentCap: ORCH_MAX_SUBAGENTS,
+      tokenCap: ORCH_MAX_TOKENS,
+    };
+  }
+
+  /**
+   * 047 Phase 3a/3b/3e/3f — run one build-plan task in a fresh, bounded
+   * Engineer-Mode child session against this same project, and hand its
+   * result back to the Architect. Never recurses: a child is Engineer Mode,
+   * which has no `dispatch_task`. Hard caps: 25 turns, 200k tokens, 5 min per
+   * child; 20 children and 2M tokens per orchestration run.
+   */
+  private async dispatchBuildTask(
+    raw: Record<string, unknown>,
+    parentSignal: AbortSignal,
+    onFileChanged: (path: string) => void,
+  ): Promise<ToolResult> {
+    const parsed = dispatchTaskTool.schema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        output: `dispatch_task: invalid input — ${parsed.error.issues
+          .map((i) => `${i.path.join(".") || "(root)"} ${i.message}`)
+          .join("; ")}`,
+        isError: true,
+      };
+    }
+    const input = parsed.data;
+
+    if (!this.options.architectMode) {
+      return { output: "dispatch_task is only available in Architect Mode.", isError: true };
+    }
+    if (this.orchestration.killed || parentSignal.aborted) {
+      return {
+        output: "The orchestration run was stopped. No further builders will dispatch.",
+        isError: true,
+      };
+    }
+    if (this.orchestration.subagents >= ORCH_MAX_SUBAGENTS) {
+      return {
+        output: `Orchestration cap reached: ${ORCH_MAX_SUBAGENTS} builders already dispatched this run. Stop and report to the user — do not dispatch more.`,
+        isError: true,
+      };
+    }
+    if (this.orchestration.tokens >= ORCH_MAX_TOKENS) {
+      return {
+        output: `Orchestration token ceiling reached (~${(ORCH_MAX_TOKENS / 1e6).toFixed(1)}M). Stop and report to the user — do not dispatch more.`,
+        isError: true,
+      };
+    }
+
+    const n = ++this.orchestration.subagents;
+    const model = modelForTier(
+      input.modelTier,
+      this.options.provider,
+      this.options.model,
+      describeAvailableModels(),
+    );
+
+    const child = new AgentSession({
+      sessionId: `${this.id}#sub${n}`,
+      projectId: this.projectId,
+      projectName: this.options.projectName,
+      template: this.options.template,
+      provider: this.options.provider,
+      model,
+      effort: this.options.effort,
+      apiKey: this.options.apiKey,
+      ...(this.options.authMode ? { authMode: this.options.authMode } : {}),
+      ...(this.options.baseUrl ? { baseUrl: this.options.baseUrl } : {}),
+      runtime: this.options.runtime,
+      maxIterations: SUBAGENT_MAX_TURNS,
+      engineerMode: true,
+      ...(this.options.engineerModeSkill
+        ? { engineerModeSkill: this.options.engineerModeSkill }
+        : {}),
+      ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
+      ...(this.options.resolveSkillBody ? { resolveSkillBody: this.options.resolveSkillBody } : {}),
+      skills: this.options.skills,
+    });
+
+    const rolePrefix = input.role ? `You are the ${input.role} for this project. ` : "";
+    const filesLine = input.files?.length
+      ? `\n\nExpected files: ${input.files.join(", ")}. Do not create files beyond what this task needs.`
+      : "";
+    const prompt =
+      `${rolePrefix}Build exactly this one task and nothing else. Do not re-plan, do not expand scope.\n\n` +
+      `TASK:\n${input.task}\n\nDONE WHEN:\n${input.acceptanceCriteria}${filesLine}\n\n` +
+      "When finished, state briefly what you changed and whether the acceptance criteria are met.";
+
+    let reply = "";
+    let tokIn = 0;
+    let tokOut = 0;
+    let rounds = 0;
+    let hitTurnCap = false;
+    const changed = new Set<string>();
+    const wallclock = setTimeout(() => child.abort(), SUBAGENT_WALLCLOCK_MS);
+    const onParentAbort = () => child.abort();
+    parentSignal.addEventListener("abort", onParentAbort);
+    const startedAt = Date.now();
+    try {
+      await child.run(prompt, (e) => {
+        if (e.type === "text.delta") reply += e.text;
+        if (e.type === "usage") {
+          tokIn = e.tokensIn;
+          tokOut = e.tokensOut;
+          rounds += 1;
+          if (tokIn + tokOut > SUBAGENT_MAX_TOKENS) child.abort();
+        }
+        if (e.type === "files.changed") {
+          for (const p of e.paths) {
+            changed.add(p);
+            onFileChanged(p);
+          }
+        }
+        if (e.type === "turn.end" && e.stopReason === "end_turn" && rounds >= SUBAGENT_MAX_TURNS) {
+          hitTurnCap = true;
+        }
+      });
+    } finally {
+      clearTimeout(wallclock);
+      parentSignal.removeEventListener("abort", onParentAbort);
+    }
+
+    this.orchestration.tokens += tokIn + tokOut;
+    const secs = Math.round((Date.now() - startedAt) / 1000);
+    const capNote = hitTurnCap
+      ? " — HIT the 25-turn cap, result may be incomplete."
+      : tokIn + tokOut > SUBAGENT_MAX_TOKENS
+        ? " — HIT the 200k-token cap, result may be incomplete."
+        : secs >= SUBAGENT_WALLCLOCK_MS / 1000
+          ? " — HIT the 5-minute cap, result may be incomplete."
+          : "";
+    const filesChanged = [...changed];
+    return {
+      output:
+        `Builder #${n} finished${capNote}\n` +
+        `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
+        `files changed (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n` +
+        `run total so far: ${this.orchestration.subagents}/${ORCH_MAX_SUBAGENTS} builders, ` +
+        `${this.orchestration.tokens} tokens\n\n` +
+        `Builder's report:\n${reply.slice(0, 3000)}\n\n` +
+        "Review the changed files. Mark the task done in build-plan.md, then dispatch the next one — " +
+        "or stop and report if a cap was hit or the result is wrong.",
+    };
   }
 
   /**
@@ -483,33 +680,40 @@ export class AgentSession {
             const architectBlock = this.options.architectMode
               ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
               : null;
-            const outcome = architectBlock
-              ? {
-                  output:
-                    architectBlock === "exec"
-                      ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
-                        "disabled for this session. You are planning, not building. Write the design into " +
-                        `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
-                      : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
-                        `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
-                        `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
-                  isError: true,
-                }
-              : capped
-                ? {
-                    output: newFileCapped
-                      ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
-                        `create another new file ("${path}"). Nothing that changes the project will run for the ` +
-                        "rest of this turn, not just new files. Stop here: your final message should summarize " +
-                        "what exists so far, and if you're not certain this is actually what was asked, ask the " +
-                        "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
-                        "— the user's next message continues it, with a fresh checkpoint of its own."
-                      : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
-                        `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
-                        "now instead.",
-                    isError: true,
-                  }
-                : await executeTool(toolContext, toolCall.name, toolCall.input);
+            const outcome =
+              toolCall.name === "dispatch_task"
+                ? await this.dispatchBuildTask(
+                    toolCall.input as Record<string, unknown>,
+                    signal,
+                    toolContext.onFileChanged,
+                  )
+                : architectBlock
+                  ? {
+                      output:
+                        architectBlock === "exec"
+                          ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
+                            "disabled for this session. You are planning, not building. Write the design into " +
+                            `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
+                          : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
+                            `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
+                            `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
+                      isError: true,
+                    }
+                  : capped
+                    ? {
+                        output: newFileCapped
+                          ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
+                            `create another new file ("${path}"). Nothing that changes the project will run for the ` +
+                            "rest of this turn, not just new files. Stop here: your final message should summarize " +
+                            "what exists so far, and if you're not certain this is actually what was asked, ask the " +
+                            "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
+                            "— the user's next message continues it, with a fresh checkpoint of its own."
+                          : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
+                            `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
+                            "now instead.",
+                        isError: true,
+                      }
+                    : await executeTool(toolContext, toolCall.name, toolCall.input);
             const finished: ToolCall = {
               ...call,
               result: outcome.output.slice(0, 4000),

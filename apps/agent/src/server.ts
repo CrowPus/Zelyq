@@ -219,9 +219,13 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
           `"${resolvedEffort}". Raise effort in Settings, or turn Engineer Mode off.`,
       );
     }
-    const engineerModeSkill = input.engineerMode
-      ? deps.skills?.find((skill) => skill.name === ENGINEER_MODE_SKILL_NAME)
-      : undefined;
+    // 047 Phase 3: an Architect session also carries the senior-engineering
+    // skill, because the builders it dispatches (Engineer Mode child sessions)
+    // need it — even though the Architect itself never builds.
+    const engineerModeSkill =
+      input.engineerMode || input.architectMode
+        ? deps.skills?.find((skill) => skill.name === ENGINEER_MODE_SKILL_NAME)
+        : undefined;
     const architectModeSkill = input.architectMode
       ? deps.skills?.find((skill) => skill.name === ARCHITECT_MODE_SKILL_NAME)
       : undefined;
@@ -285,6 +289,19 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
   app.post<{ Params: { id: string } }>("/sessions/:id/abort", async (request) => {
     requireSession(sessions, request.params.id).abort();
     return { aborted: true };
+  });
+
+  // 047 Phase 3 — the orchestration kill switch. Stops any further builder
+  // dispatch on this session and aborts the current turn; a stopped run does
+  // not resume on its own.
+  app.post<{ Params: { id: string } }>("/sessions/:id/stop-orchestration", async (request) => {
+    const session = requireSession(sessions, request.params.id);
+    session.stopOrchestration();
+    return session.orchestrationState;
+  });
+
+  app.get<{ Params: { id: string } }>("/sessions/:id/orchestration", async (request) => {
+    return requireSession(sessions, request.params.id).orchestrationState;
   });
 
   /**
