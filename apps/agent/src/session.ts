@@ -187,11 +187,24 @@ export class AgentSession {
     // measured correct decomposition for a reasonably-scoped small feature
     // at 6-7 files; a vague prompt that turns into three imagined
     // subsystems blows past that by an order of magnitude before anything
-    // stops it. Distinct `write_file` paths, since `write_file` is what
-    // creates a file — the prompt already tells the model to prefer
-    // `edit_file` for anything that already exists.
+    // stops it. Distinct genuinely-new paths — a file that already existed
+    // before this turn started never counts, no matter which tool touches
+    // it, so a legitimate rewrite of App.tsx is never mistaken for
+    // invented scope. Found live, the hard way: an earlier version of this
+    // check counted every distinct `write_file` path regardless of
+    // whether the file was new, wrongly capped a rewrite of the template's
+    // own App.tsx, and the model — faced with a real, needed edit refused
+    // for no real reason — worked around it by writing the file through
+    // `run_command` and a raw `node -e` script instead, which this same
+    // cap didn't touch at all. Two fixes, not one: existing files are
+    // exempt regardless of tool, and any file that appears after a
+    // `run_command` call is now counted the same way a `write_file` call
+    // already was.
     const NEW_FILE_CHECKPOINT = 6;
     const newFilesThisTurn = new Set<string>();
+    const existingFilesAtTurnStart = this.options.engineerMode
+      ? await this.listAllFilePaths()
+      : new Set<string>();
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -335,11 +348,14 @@ export class AgentSession {
             // above. Checked before the real tool runs, not after: once
             // the cap is hit this turn, it stays hit — no reopening it by
             // waiting a round, and no relying on the model reading a
-            // warning and choosing to comply. `edit_file` on a file
-            // already created this turn is unaffected; only genuinely new
-            // paths trip it.
+            // warning and choosing to comply. `edit_file`, and `write_file`
+            // on a file that already existed before this turn (including
+            // one already created earlier this same turn), are both
+            // unaffected — only a path that is genuinely new trips it.
             const path =
-              toolCall.name === "write_file" && typeof toolCall.input.path === "string"
+              toolCall.name === "write_file" &&
+              typeof toolCall.input.path === "string" &&
+              !existingFilesAtTurnStart.has(toolCall.input.path)
                 ? toolCall.input.path
                 : undefined;
             const capped =
@@ -379,6 +395,42 @@ export class AgentSession {
         );
 
         this.conversation.addToolResults(results);
+
+        // Closes the bypass a live incident found: `run_command` can write
+        // a file through an arbitrary shell command just as well as
+        // `write_file` can, and nothing above touches it. Cannot refuse
+        // this ahead of time the way `write_file` is refused — the file
+        // already exists by the time a command finishes — so this is
+        // reactive: count whatever appeared, and if that pushes past the
+        // checkpoint, say so once. A single command that creates many
+        // files in one shot can still get past the checkpoint before this
+        // catches up; the checkpoint governing every write_file call
+        // afterward, and the message telling the model plainly what
+        // happened, is the honest limit of what a check run only after
+        // the fact can promise.
+        if (
+          this.options.engineerMode &&
+          result.toolCalls.some((call) => call.name === "run_command")
+        ) {
+          const currentFiles = await this.listAllFilePaths();
+          const newlyAppeared = [...currentFiles].filter(
+            (filePath) =>
+              !existingFilesAtTurnStart.has(filePath) && !newFilesThisTurn.has(filePath),
+          );
+          if (newlyAppeared.length > 0) {
+            const wasUnderCap = newFilesThisTurn.size < NEW_FILE_CHECKPOINT;
+            for (const filePath of newlyAppeared) newFilesThisTurn.add(filePath);
+            if (wasUnderCap && newFilesThisTurn.size >= NEW_FILE_CHECKPOINT) {
+              this.conversation.addUserMessage(
+                `A shell command just created ${newlyAppeared.length} new file(s), bringing this turn's ` +
+                  `total new files to ${newFilesThisTurn.size} — at or past the ${NEW_FILE_CHECKPOINT}-file ` +
+                  "checkpoint. Further new files, whether through write_file or a shell command, will be " +
+                  "refused. Stop here: summarize what exists so far, and if you're not certain this is what " +
+                  "was actually asked, ask the question that would tell you.",
+              );
+            }
+          }
+        }
 
         if (changedFiles.size > 0) {
           verificationNeeded = true;
@@ -430,6 +482,18 @@ export class AgentSession {
       this.busy = false;
       this.abortController = null;
     }
+  }
+
+  /**
+   * Every file path in the project, recursively — used only by Engineer
+   * Mode's new-file checkpoint, to tell a genuinely new file apart from a
+   * legitimate rewrite of something that was already there, no matter
+   * which tool touches it. `listFiles`'s own default already excludes
+   * `node_modules`, `.git`, and the rest of what the file tree hides.
+   */
+  private async listAllFilePaths(): Promise<Set<string>> {
+    const entries = await this.options.runtime.listFiles(this.projectId).catch(() => []);
+    return new Set(entries.filter((entry) => entry.type === "file").map((entry) => entry.path));
   }
 
   /**

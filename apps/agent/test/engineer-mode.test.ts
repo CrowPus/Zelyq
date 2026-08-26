@@ -53,7 +53,8 @@ async function setup(
   script: Array<{ events: ProviderEvent[]; result: TurnResult }>,
   engineerMode: boolean,
   maxIterations = 5,
-): Promise<{ base: string; close(): Promise<void> }> {
+  preExistingFiles: Record<string, string> = {},
+): Promise<{ base: string; workspaceDir: string; projectId: string; close(): Promise<void> }> {
   const workspaceDir = path.join(
     os.tmpdir(),
     `zelyq-engineer-mode-test-${Date.now()}-${Math.random()}`,
@@ -64,6 +65,14 @@ async function setup(
   // verification.test.ts. Both gates firing on the same scripted turn would
   // make it unclear which one produced a given hand-back.
   await fs.mkdir(path.join(workspaceDir, projectId), { recursive: true });
+  // Simulates a project that didn't start empty this turn — the exact
+  // shape of the false-positive a live incident found: a rewrite of a file
+  // that was already there must never count toward the new-file cap.
+  for (const [relativePath, content] of Object.entries(preExistingFiles)) {
+    const absolute = path.join(workspaceDir, projectId, relativePath);
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    await fs.writeFile(absolute, content);
+  }
 
   const config: AgentConfig = {
     host: "127.0.0.1",
@@ -98,7 +107,7 @@ async function setup(
   });
   assert.equal(created.status, 201, await created.text());
 
-  return { base, close: () => server.app.close() };
+  return { base, workspaceDir, projectId, close: () => server.app.close() };
 }
 
 const writesAFileNoMarker = {
@@ -373,6 +382,136 @@ test("engineer mode: editing an already-created file is never blocked by the che
     // It may still fail for its own reasons (the tool's own match logic),
     // but never with the checkpoint's specific refusal message.
     assert.doesNotMatch(editResult!.call.result, /refusing to create another/);
+  } finally {
+    await close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Two real gaps a live incident found in the checkpoint above, both fixed
+// in the same round: a rewrite of a file that already existed got wrongly
+// capped, and — once it did — the model routed around the refusal entirely
+// through `run_command`, which the cap never touched.
+// ---------------------------------------------------------------------------
+
+test("engineer mode: rewriting a file that already existed before this turn is never capped, even past the checkpoint", async () => {
+  const rewritesAppTsx = {
+    events: [{ type: "text" as const, text: "Wiring it up." }],
+    result: {
+      toolCalls: [
+        { id: "call_apptsx", name: "write_file", input: { path: "src/App.tsx", content: "y" } },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  const script = [1, 2, 3, 4, 5, 6].map(writesFile).concat([rewritesAppTsx, saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 12, {
+    "src/App.tsx": "original template content",
+  });
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const appTsxResult = toolEnds.find(
+      (event) => (event.call as { input: { path?: string } }).input.path === "src/App.tsx",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(appTsxResult, "the App.tsx rewrite must actually have been attempted");
+    assert.equal(
+      appTsxResult!.call.isError,
+      false,
+      "a file that already existed before the turn must never be capped, no matter how many new files preceded it",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: a shell command that creates new files is counted toward the same cap", async () => {
+  // A real command, run by the real LocalRuntimeDriver — this is exactly
+  // the bypass the incident found: files created through run_command
+  // never went through write_file's own check at all.
+  const shellCreatesSevenFiles = {
+    events: [{ type: "text" as const, text: "Scaffolding via a script." }],
+    result: {
+      toolCalls: [
+        {
+          id: "call_shell",
+          name: "run_command",
+          input: {
+            command:
+              "mkdir -p src/generated && for i in 1 2 3 4 5 6 7; do echo x > src/generated/f$i.ts; done",
+          },
+        },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  const attemptsAnEighthFile = {
+    events: [{ type: "text" as const, text: "One more." }],
+    result: {
+      toolCalls: [
+        { id: "call_8th", name: "write_file", input: { path: "src/one_more.ts", content: "x" } },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  const script = [shellCreatesSevenFiles, attemptsAnEighthFile, saysDoneWithMarker];
+  const { base, close } = await setup(script, true, 10);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    // The corrective message fires as a synthetic user message, not a
+    // tool result — visible here as an extra iteration's worth of text
+    // before the model's next reply, i.e. the turn takes the 3rd script
+    // step (attemptsAnEighthFile) and then a 4th (saysDoneWithMarker)
+    // rather than ending after the 2nd.
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const eighthFileResult = toolEnds.find(
+      (event) => (event.call as { input: { path?: string } }).input.path === "src/one_more.ts",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(eighthFileResult, "the 8th file's write_file attempt must actually have run");
+    assert.equal(
+      eighthFileResult!.call.isError,
+      true,
+      "write_file must be refused once files created via run_command already reached the checkpoint",
+    );
+    assert.match(eighthFileResult!.call.result, /refusing to create another/);
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: a shell command creating fewer files than the checkpoint does not falsely trip it", async () => {
+  const shellCreatesTwoFiles = {
+    events: [{ type: "text" as const, text: "Small script." }],
+    result: {
+      toolCalls: [
+        {
+          id: "call_shell_small",
+          name: "run_command",
+          input: { command: "mkdir -p src/g && echo x > src/g/one.ts && echo x > src/g/two.ts" },
+        },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  const script = [shellCreatesTwoFiles, saysDoneWithMarker];
+  const { base, close } = await setup(script, true, 10);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const errorEvents = events.filter((event) => event.type === "error");
+    assert.equal(errorEvents.length, 0);
+    const textDeltas = events
+      .filter((event) => event.type === "text.delta")
+      .map((event) => event.text)
+      .join("");
+    assert.doesNotMatch(
+      textDeltas,
+      /refusing to create another/,
+      "two new files from a shell command must not trip a 6-file checkpoint",
+    );
   } finally {
     await close();
   }
