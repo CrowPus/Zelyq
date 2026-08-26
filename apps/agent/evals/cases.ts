@@ -838,7 +838,12 @@ export default function App() {
         pattern: "filter\\(",
         why: "filters the rows",
       },
-      { kind: "file_matches", path: "src/components/OrdersTable.tsx", pattern: "useState", why: "holds the query" },
+      {
+        kind: "file_matches",
+        path: "src/components/OrdersTable.tsx",
+        pattern: "useState",
+        why: "holds the query",
+      },
       {
         kind: "project_matches",
         pattern: "fetch\\(|axios|useSearchParams|debounce|setTimeout",
