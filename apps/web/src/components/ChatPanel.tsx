@@ -4,6 +4,7 @@ import {
   ArrowUp,
   ChevronRight,
   CircleAlert,
+  Compass,
   Crosshair,
   GraduationCap,
   HardHat,
@@ -109,6 +110,10 @@ export function ChatPanel({
   // same reason modelChoice isn't either, so a mode this consequential is
   // never silently still on from a session someone forgot about.
   const [engineerMode, setEngineerMode] = useState(false);
+  // 048 — Architect Mode. Same per-conversation, not-persisted treatment as
+  // engineerMode; mutually exclusive with it in the UI (turning one on turns
+  // the other off), matching the agent's own rejection of both at once.
+  const [architectMode, setArchitectMode] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -253,6 +258,7 @@ export function ChatPanel({
       // tool, not real content the way a skill's body is. See `044`'s follow-up.
       ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
       ...(engineerMode ? { engineerMode: true } : {}),
+      ...(architectMode ? { architectMode: true } : {}),
     });
     setDraft("");
     setCursor(0);
@@ -622,10 +628,35 @@ export function ChatPanel({
                   engineerMode ? "Engineer Mode is on — click to turn off" : "Turn on Engineer Mode"
                 }
                 aria-pressed={engineerMode}
-                onClick={() => setEngineerMode((value) => !value)}
+                onClick={() =>
+                  setEngineerMode((value) => {
+                    if (!value) setArchitectMode(false);
+                    return !value;
+                  })
+                }
                 className="shrink-0"
               >
                 <HardHat size={13} strokeWidth={2} />
+              </IconButton>
+              {/* 048 — Architect Mode. Interviews and plans, writes no code. */}
+              <IconButton
+                size="sm"
+                variant={architectMode ? "primary" : "ghost"}
+                label={
+                  architectMode
+                    ? "Architect Mode is on — click to turn off"
+                    : "Turn on Architect Mode"
+                }
+                aria-pressed={architectMode}
+                onClick={() =>
+                  setArchitectMode((value) => {
+                    if (!value) setEngineerMode(false);
+                    return !value;
+                  })
+                }
+                className="shrink-0"
+              >
+                <Compass size={13} strokeWidth={2} />
               </IconButton>
               {/* Least essential piece of this row, so it's the one that
                   gives way first — min-w-0 here too, or being a flex

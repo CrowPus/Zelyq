@@ -75,6 +75,8 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
         plugins?: string[];
         /** Engineer Mode toggle — see ZED-0001. */
         engineerMode?: boolean;
+        /** Architect Mode toggle — see 048. */
+        architectMode?: boolean;
       },
     ) => {
       const socket = socketRef.current;
@@ -93,6 +95,7 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
           ...(override?.skills?.length ? { skills: override.skills } : {}),
           ...(override?.plugins?.length ? { plugins: override.plugins } : {}),
           ...(override?.engineerMode ? { engineerMode: true } : {}),
+          ...(override?.architectMode ? { architectMode: true } : {}),
         }),
       );
       setState((previous) => ({

@@ -1,0 +1,24 @@
+# Report Definition of Done
+
+- [ ] Full source read
+- [ ] Source Fidelity Contract extracted
+- [ ] One primary spine identified
+- [ ] Likely misreading/caveat surfaced
+- [ ] Section structure matches analysis
+- [ ] Visual direction is subject-specific
+- [ ] Semantic tokens complete
+- [ ] Status/severity separate from accent
+- [ ] Tables use semantic markup
+- [ ] Charts are analytically justified
+- [ ] Important chart information has text/data alternative
+- [ ] Numbers/units/precision preserved
+- [ ] Verdict/conclusion preserved
+- [ ] Evidence uncertainty preserved
+- [ ] Responsive data regions work
+- [ ] No body-level horizontal scroll
+- [ ] WCAG 2.2 concerns addressed
+- [ ] Reduced motion handled
+- [ ] Theme states checked where applicable
+- [ ] Provenance/context included where needed
+- [ ] Browser QA completed when tools exist
+- [ ] Rendered page compared against source
