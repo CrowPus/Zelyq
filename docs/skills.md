@@ -123,28 +123,32 @@ code, a different and larger question.
 
 ## What ships today
 
-Eight skills. Two are narrow and stack-specific: `stripe-checkout` and
-`shadcn-ui-setup`, both for the template's actual stack (React 19 +
-TypeScript + Vite + Tailwind). `shadcn-ui-setup` carries a `references/`
-file — a component-selection guide the agent only reads when it's
-actually deciding which component fits a request — as the working
-example of the deeper structure above.
+Four skills are committed: two narrow and stack-specific —
+`stripe-checkout` and `shadcn-ui-setup`, both for the template's actual
+stack (React 19 + TypeScript + Vite + Tailwind) — and two broader,
+senior-engineer-level bodies of practice, `senior-software-engineering`
+(the general baseline for any meaningful change) and `cinematic-web`
+(immersive, motion-heavy, 3D-flavored builds). `shadcn-ui-setup` carries
+a `references/` file — a component-selection guide the agent only reads
+when it's actually deciding which component fits a request — as the
+working example of the deeper structure above.
 
-The other six are broader, senior-engineer-level bodies of practice:
-`senior-software-engineering` (the general baseline for any meaningful
-change), `frontend-ui-engineering` and `ui-ux-design-intelligence`
+Four more exist in an active working tree as this is written, not yet
+committed: `frontend-ui-engineering` and `ui-ux-design-intelligence`
 (engineering and design/product depth for interface work),
-`cinematic-web` (immersive, motion-heavy, 3D-flavored builds),
-`application-security-engineering`, and `ci-cd-and-automation`. The last
-two are written for ground broader than any one project here has on its
-own — a request can still genuinely call for that shape of work (a CI
+`application-security-engineering`, and `ci-cd-and-automation`. Once
+committed, the library is eight skills, not four — the last two named
+are written for ground broader than any one project here has on its
+own (a request can still genuinely call for that shape of work: a CI
 workflow file, a security pass over code that exists in the project),
-which is why they stay in the catalog rather than being cut, but they
+which is why they belong in the catalog rather than being cut, but they
 should not fire on the assumption that a frontend-only project has a
 backend or a deploy pipeline it does not. See the decision guidance
 `buildSkillsSection` puts in the system prompt itself
 (`apps/agent/src/prompt.ts`) for how the model is told to pick among
-several that could plausibly apply to the same request.
+several that could plausibly apply to the same request — that guidance
+already accounts for all eight, committed or not, since it never names
+a skill by hand.
 
 The library grows the same way templates do: by adding files, not by
 touching code. There's no per-project or per-team skill authoring from
