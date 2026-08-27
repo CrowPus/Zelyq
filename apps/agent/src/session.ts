@@ -151,6 +151,12 @@ const ORCH_MAX_TOKENS = 2_000_000;
 const AUTO_MAX_PASSES = 6;
 const AUTO_MAX_TOKENS = 6_000_000;
 const AUTO_MAX_WALLCLOCK_MS = 30 * 60_000;
+
+// A transient model failure (provider overloaded / rate-limited / connection
+// dropped) is retried this many times, backing off 0.8s → 1.6s → 3.2s,
+// before it surfaces as a visible error.
+const MODEL_RETRY_MAX = 3;
+const MODEL_RETRY_BASE_MS = 800;
 // 049 Phase 1 — a builder takes at most this many named files. A task with
 // more is refused at dispatch, forcing the Architect to split it before a
 // bounded builder chokes on it.
@@ -941,21 +947,56 @@ export class AgentSession {
       for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
         if (signal.aborted) break;
 
-        const turn = this.conversation.stream(signal);
-        let next = await turn.next();
-        while (!next.done) {
-          const event = next.value;
-          if (event.type === "text") {
-            assistantText += event.text;
-            emit({ type: "text.delta", sessionId: this.id, messageId, text: event.text });
-          } else {
-            thinkingText += event.text;
-            emit({ type: "thinking.delta", sessionId: this.id, messageId, text: event.text });
+        // A model call that fails transiently — the provider is overloaded
+        // ("experiencing high demand"), rate-limited, or the connection
+        // dropped — is retried a few times with backoff before it becomes a
+        // visible error. Only while this iteration has streamed nothing yet,
+        // so a mid-stream failure never double-emits.
+        const result = await (async () => {
+          for (let attempt = 0; ; attempt++) {
+            let streamedThisAttempt = false;
+            try {
+              const turn = this.conversation.stream(signal);
+              let next = await turn.next();
+              while (!next.done) {
+                const event = next.value;
+                streamedThisAttempt = true;
+                if (event.type === "text") {
+                  assistantText += event.text;
+                  emit({ type: "text.delta", sessionId: this.id, messageId, text: event.text });
+                } else {
+                  thinkingText += event.text;
+                  emit({ type: "thinking.delta", sessionId: this.id, messageId, text: event.text });
+                }
+                next = await turn.next();
+              }
+              return next.value;
+            } catch (err) {
+              const code = classifyProviderError(this.options.provider, err);
+              const transient =
+                code === "model_error" || code === "rate_limited" || code === "connection";
+              if (
+                !transient ||
+                streamedThisAttempt ||
+                signal.aborted ||
+                attempt >= MODEL_RETRY_MAX
+              ) {
+                throw err;
+              }
+              const waitMs = MODEL_RETRY_BASE_MS * 2 ** attempt;
+              emit({
+                type: "error",
+                sessionId: this.id,
+                code: "retrying",
+                message:
+                  `${describeProviderError(this.options.provider, err)} — retrying ` +
+                  `(${attempt + 1}/${MODEL_RETRY_MAX}) in ${Math.round(waitMs / 1000)}s…`,
+                fatal: false,
+              });
+              await new Promise((r) => setTimeout(r, waitMs));
+            }
           }
-          next = await turn.next();
-        }
-
-        const result = next.value;
+        })();
         this.tokensIn += result.usage.inputTokens;
         this.tokensOut += result.usage.outputTokens;
         emit({

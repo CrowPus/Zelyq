@@ -241,9 +241,15 @@ test("the providers endpoint reports what this instance can use", async () => {
   assert.ok(anthropic.models?.length >= 3, "Claude's known tiers must be listed");
   assert.ok(anthropic.models.some((model: { value: string }) => model.value === "claude-opus-5"));
 
-  // A vendor with nothing confirmed yet must not invent a model list either.
+  // Hosted vendors now carry a curated model shortlist so the picker has
+  // real choices to offer.
   const xai = body.providers.find((provider: { id: string }) => provider.id === "xai");
-  assert.equal(xai.models, undefined);
+  assert.ok(xai.models?.some((model: { value: string }) => model.value === "grok-4"));
+
+  // `custom` still cannot — the model a user's own endpoint holds is that
+  // endpoint's business, and guessing produces a 404 that reads like a bug.
+  const custom = body.providers.find((provider: { id: string }) => provider.id === "custom");
+  assert.ok(!custom.models || custom.models.length === 0);
 });
 
 test("prompting an unknown session is a 404, not a crash", async () => {

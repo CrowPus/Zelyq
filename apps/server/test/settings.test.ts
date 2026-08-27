@@ -528,6 +528,7 @@ test("the model field suggests the current provider's known models, not a fixed 
     assert.deepEqual(modelField(anthropic)?.suggestions, [
       "claude-opus-5",
       "claude-sonnet-5",
+      "claude-sonnet-4-5",
       "claude-haiku-4-5-20251001",
     ]);
 
@@ -544,7 +545,13 @@ test("the model field suggests the current provider's known models, not a fixed 
         headers: { cookie: adminCookie },
       })
     ).json();
-    assert.deepEqual(modelField(openai)?.suggestions, ["gpt-5.1"]);
+    assert.deepEqual(modelField(openai)?.suggestions, [
+      "gpt-5.1",
+      "gpt-5.1-mini",
+      "gpt-5",
+      "o4-mini",
+      "gpt-4.1",
+    ]);
 
     await server.app.inject({
       method: "PUT",
@@ -559,9 +566,25 @@ test("the model field suggests the current provider's known models, not a fixed 
         headers: { cookie: adminCookie },
       })
     ).json();
-    // Nothing confirmed for Groq yet — the field must stay free text with no
-    // suggestions, not a guessed one.
-    assert.equal(modelField(groq)?.suggestions, undefined);
+    // Groq now carries a curated shortlist — still free text, but with
+    // real suggestions to start from.
+    assert.ok(modelField(groq)?.suggestions?.includes("llama-3.3-70b-versatile"));
+
+    await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+      payload: { provider: "custom" },
+    });
+    const custom = (
+      await server.app.inject({
+        method: "GET",
+        url: "/api/settings",
+        headers: { cookie: adminCookie },
+      })
+    ).json();
+    // A custom endpoint's catalogue is unknowable — no suggestions.
+    assert.equal(modelField(custom)?.suggestions, undefined);
   } finally {
     await server.app.inject({
       method: "PUT",

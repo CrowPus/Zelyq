@@ -87,6 +87,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     models: [
       { value: "claude-opus-5", label: "Claude Opus 5 — most capable", tier: "strong" },
       { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced", tier: "standard" },
+      { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", tier: "standard" },
       { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fastest", tier: "cheap" },
     ],
   },
@@ -96,9 +97,13 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     defaultModel: "gemini-3.7-flash",
     apiKeyEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     docsUrl: "https://aistudio.google.com/apikey",
-    // Flash is Gemini's fast/low-cost tier by the vendor's own naming. A
-    // `strong` Gemini (e.g. a Pro) is free-text, added by whoever wants it.
-    models: [{ value: "gemini-3.7-flash", label: "Gemini 3.7 Flash", tier: "cheap" }],
+    models: [
+      { value: "gemini-3.7-pro", label: "Gemini 3.7 Pro — most capable", tier: "strong" },
+      { value: "gemini-3.7-flash", label: "Gemini 3.7 Flash — balanced", tier: "standard" },
+      { value: "gemini-3.7-flash-lite", label: "Gemini 3.7 Flash-Lite — fastest", tier: "cheap" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: "strong" },
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", tier: "cheap" },
+    ],
   },
   openai: {
     id: "openai",
@@ -108,19 +113,27 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://platform.openai.com/api-keys",
     baseUrl: "https://api.openai.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    models: [{ value: "gpt-5.1", label: "GPT-5.1", tier: "strong" }],
+    models: [
+      { value: "gpt-5.1", label: "GPT-5.1 — most capable", tier: "strong" },
+      { value: "gpt-5.1-mini", label: "GPT-5.1 mini — fast", tier: "cheap" },
+      { value: "gpt-5", label: "GPT-5", tier: "strong" },
+      { value: "o4-mini", label: "o4-mini — reasoning, fast", tier: "standard" },
+      { value: "gpt-4.1", label: "GPT-4.1", tier: "standard" },
+    ],
   },
   xai: {
     id: "xai",
     label: "Grok (xAI)",
-    defaultModel: "",
+    defaultModel: "grok-4",
     apiKeyEnv: ["XAI_API_KEY"],
     docsUrl: "https://console.x.ai",
     baseUrl: "https://api.x.ai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // No default yet: no xAI model name confirmed against a real account.
-    // A hosted vendor guessing wrong here fails exactly like `custom` does
-    // when it has no model — same choice, same reason, not an oversight.
+    models: [
+      { value: "grok-4", label: "Grok 4 — most capable", tier: "strong" },
+      { value: "grok-4-fast", label: "Grok 4 Fast", tier: "cheap" },
+      { value: "grok-3", label: "Grok 3", tier: "standard" },
+    ],
   },
   deepseek: {
     id: "deepseek",
@@ -130,7 +143,10 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://platform.deepseek.com/api_keys",
     baseUrl: "https://api.deepseek.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    models: [{ value: "deepseek-chat", label: "DeepSeek Chat" }],
+    models: [
+      { value: "deepseek-chat", label: "DeepSeek Chat", tier: "standard" },
+      { value: "deepseek-reasoner", label: "DeepSeek Reasoner", tier: "strong" },
+    ],
   },
   mistral: {
     id: "mistral",
@@ -143,31 +159,63 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://console.mistral.ai/api-keys",
     baseUrl: "https://api.mistral.ai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    models: [{ value: "mistral-large-latest", label: "Mistral Large (latest)" }],
+    models: [
+      { value: "mistral-large-latest", label: "Mistral Large (latest)", tier: "strong" },
+      { value: "mistral-medium-latest", label: "Mistral Medium (latest)", tier: "standard" },
+      { value: "mistral-small-latest", label: "Mistral Small (latest)", tier: "cheap" },
+      { value: "codestral-latest", label: "Codestral (latest) — coding", tier: "standard" },
+    ],
   },
   groq: {
     id: "groq",
     label: "Groq",
-    defaultModel: "",
+    defaultModel: "llama-3.3-70b-versatile",
     apiKeyEnv: ["GROQ_API_KEY"],
     docsUrl: "https://console.groq.com/keys",
     baseUrl: "https://api.groq.com/openai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // No default: Groq hosts other vendors' open-weight models and rotates
-    // which one is fastest/flagship; a name confirmed today is likely to be
-    // wrong within the year. Pick explicitly instead of inheriting a guess.
+    // Groq hosts other vendors' open-weight models. These IDs move faster
+    // than a release cycle — treat the list as a starting point, not a
+    // guarantee, and set a specific one in Settings if a name has rotated.
+    models: [
+      { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", tier: "standard" },
+      { value: "llama-3.1-8b-instant", label: "Llama 3.1 8B — fastest", tier: "cheap" },
+      {
+        value: "deepseek-r1-distill-llama-70b",
+        label: "DeepSeek R1 Distill 70B — reasoning",
+        tier: "strong",
+      },
+    ],
   },
   openrouter: {
     id: "openrouter",
     label: "OpenRouter",
-    defaultModel: "",
+    defaultModel: "anthropic/claude-sonnet-4.5",
     apiKeyEnv: ["OPENROUTER_API_KEY"],
     docsUrl: "https://openrouter.ai/keys",
     baseUrl: "https://openrouter.ai/api/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // No default by design, not by omission: OpenRouter is an aggregator,
-    // not a lab — the entire point of it is choosing which vendor's model
-    // to route to, so there is no "its own" model to default to.
+    // OpenRouter is an aggregator with no model of its own; this default is
+    // just a sensible general-purpose pick. The list is a curated shortlist
+    // of vendor slugs — OpenRouter's catalogue is thousands deep; set a
+    // specific slug in Settings for anything not here.
+    models: [
+      { value: "anthropic/claude-opus-5", label: "Claude Opus 5", tier: "strong" },
+      { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5", tier: "standard" },
+      { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: "strong" },
+      { value: "openai/gpt-5.1", label: "GPT-5.1", tier: "strong" },
+      { value: "x-ai/grok-4", label: "Grok 4", tier: "strong" },
+      {
+        value: "deepseek/deepseek-chat",
+        label: "DeepSeek Chat",
+        tier: "cheap",
+      },
+      {
+        value: "meta-llama/llama-3.3-70b-instruct",
+        label: "Llama 3.3 70B",
+        tier: "cheap",
+      },
+    ],
   },
   custom: {
     id: "custom",

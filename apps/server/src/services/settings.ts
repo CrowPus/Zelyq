@@ -333,9 +333,24 @@ const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
  * separate cleanup, not required to ship this.
  */
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
-  google: ["gemini-3.7-flash"],
-  openai: ["gpt-5.1"],
+  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"],
+  google: [
+    "gemini-3.7-pro",
+    "gemini-3.7-flash",
+    "gemini-3.7-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+  ],
+  openai: ["gpt-5.1", "gpt-5.1-mini", "gpt-5", "o4-mini", "gpt-4.1"],
+  xai: ["grok-4", "grok-4-fast", "grok-3"],
+  deepseek: ["deepseek-chat", "deepseek-reasoner"],
+  mistral: [
+    "mistral-large-latest",
+    "mistral-medium-latest",
+    "mistral-small-latest",
+    "codestral-latest",
+  ],
+  groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b"],
 };
 
 /**
