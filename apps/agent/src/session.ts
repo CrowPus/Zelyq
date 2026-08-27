@@ -819,6 +819,10 @@ export class AgentSession {
     // than accepting one uncorrected turn.
     let anyFileChangedThisTurn = false;
     let purposeCheckDone = false;
+    // Architect Mode: whether the "your reply was empty — do the smaller
+    // thing" nudge has already been injected this turn. One-shot, so a model
+    // that stays empty even with guidance ends the turn instead of looping.
+    let emptyRecoveryDone = false;
     // Found live: a turn that keeps calling tools every single iteration
     // never reaches either check above, or the loop's own normal exit —
     // it just falls out when `iteration` reaches `maxIterations`, whatever
@@ -1096,6 +1100,31 @@ export class AgentSession {
             );
             continue;
           }
+
+          // The model produced nothing at all this turn — no text, no tools —
+          // even after the retry ceiling. In Architect Mode this is almost
+          // always a stall on the big report.html render. Nudge it ONCE with
+          // explicit un-stick guidance (do the smaller thing; the report is
+          // not a gate) rather than ending the turn dead.
+          if (
+            this.options.architectMode &&
+            !emptyRecoveryDone &&
+            assistantText.trim().length === 0 &&
+            toolCalls.length === 0
+          ) {
+            emptyRecoveryDone = true;
+            this.conversation.addUserMessage(
+              "Your last response was empty. Do not attempt the same large output again. If you were " +
+                "rendering architecture/report.html and it is too big for one response: write a SHORT " +
+                "version covering the key sections, or write it section by section — or skip it for now. " +
+                "The package under architecture/ is what matters, not the report. If the package is " +
+                'otherwise complete and you have not yet, write the "' +
+                ARCHITECT_READY_MARKER +
+                '" line now. Never reply with nothing — do the smaller thing.',
+            );
+            continue;
+          }
+
           stoppedByBreak = true;
           break;
         }
@@ -1445,6 +1474,17 @@ export class AgentSession {
       if (!refused && hitIterationCap) {
         const summary = this.synthesizeFallbackSummary(toolCalls, true);
         addition = hasRealText ? `\n\n${summary}` : summary;
+      } else if (!refused && !hasRealText && this.options.architectMode && emptyRecoveryDone) {
+        // Architect Mode: retries and the one-shot nudge both failed to get
+        // anything out of the model. Give the user a real way forward
+        // instead of "No changes were made".
+        addition =
+          "The model kept returning an empty response — usually the report render being too large " +
+          "for this model. The design package under architecture/ (requirements, decisions, " +
+          "data-model, api, infrastructure, build-plan, risks) is written and buildable; only " +
+          'architecture/report.html may be missing or short. You can: say "skip the report" to ' +
+          'proceed without it, switch to a stronger model in the composer and say "regenerate the ' +
+          'report", or say "build it" — the build does not need report.html.';
       } else if (!refused && !hasRealText) {
         addition = this.synthesizeFallbackSummary(toolCalls, false);
       }

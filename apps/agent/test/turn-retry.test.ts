@@ -122,6 +122,45 @@ test("an empty model response is retried, not surfaced as 'No changes were made'
   }
 });
 
+test("Architect Mode: a persistently empty turn hands back a real way forward, not 'No changes were made'", async () => {
+  const server = buildAgentServer(config, {
+    providerFactory: () =>
+      scripted([
+        {
+          events: [],
+          result: {
+            toolCalls: [],
+            stopReason: "end_turn",
+            usage: { inputTokens: 1, outputTokens: 0 },
+          },
+        },
+      ]),
+  });
+  await server.app.listen({ host: "127.0.0.1", port: 0 });
+  const addr = server.app.server.address();
+  const base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+  try {
+    await fetch(`${base}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "ses_arch_empty",
+        projectId: "prj_arch_empty",
+        architectMode: true,
+      }),
+    });
+    const events = await collectTurn(`${base}/sessions/ses_arch_empty/prompt`);
+    const text = events
+      .filter((e) => e.type === "text.delta")
+      .map((e) => (e as { text: string }).text)
+      .join("");
+    assert.match(text, /kept returning an empty response|skip the report|regenerate the report/i);
+    assert.doesNotMatch(text, /No changes were made/);
+  } finally {
+    await server.close();
+  }
+});
+
 test("a genuinely empty turn still resolves after the retry ceiling, not forever", async () => {
   const server = buildAgentServer(config, {
     providerFactory: () =>

@@ -325,42 +325,30 @@ to a decision AND a build task; every strong-tier decision names an alternative 
 no unresolved contradiction between the sub-documents; every assumption flagged; the challenge pass
 has run and its findings are closed or logged; every build-plan task has explicit acceptance criteria.
 When all of that holds, write a line beginning exactly "${ARCHITECT_READY_MARKER}" then one or two
-sentences naming what is being built. If you cannot make it hold, say what is missing and go back to
-the interview.
+sentences naming what is being built. **Do this before, and independent of, the report in section 4
+— the package (the \`.md\` files + build-plan) is what "ready" means; the report is a presentation
+of it, not a gate.** If you cannot make the package hold, say what is missing and go back to the
+interview.
 
-## 4. Render the report — the whole architecture, designed to be understood
-\`${ARCHITECT_WRITE_ROOT}report.html\` is the artifact the user actually reads, and they judge the
-whole design by it. It is NOT a summary — it is the complete architecture, laid out so someone can
-see the entire product before a line of code exists and feel that it is real and considered. Build
-it from the folder's own content using the report skill below. Include every section, in full:
+## 4. Render the report — a designed overview of the package
+After the package is ready, render \`${ARCHITECT_WRITE_ROOT}report.html\` — a clean, designed page
+the user reads instead of opening seven \`.md\` files. It is an OVERVIEW, not a re-transcription:
+the \`.md\` files hold the full detail; this makes the shape legible and credible.
 
-  - **Overview** — what is being built, for whom, and the shape of the solution in a short paragraph.
-  - **System architecture** — a labelled ASCII box diagram inside a \`<pre>\` block showing the real
-    runtime topology: every hosting layer, service, datastore and queue; the protocol on each edge
-    (HTTPS/TLS, WebSocket, SQL, etc.); and a line or two under each box saying what it does. Then a
-    second \`<pre>\` diagram tracing the request/data flow for the core user action end to end.
-  - **Key decisions** — every ADR rendered properly: the choice, the alternatives considered WITH
-    their consequences, the evidence, why this one won, and what would trigger reversing it. Full
-    paragraphs, not one-liners.
-  - **Data model** — every entity as its own table (field, type, constraints, notes); the
-    relationships between them; the invariants that must always hold; and a small state-machine
-    diagram (\`<pre>\` or a list) for anything with a lifecycle.
-  - **API surface** — every endpoint: method, path, auth requirement, request shape, success
-    response shape, error shapes, and idempotency/caching behaviour. A table per resource.
-  - **Infrastructure & CI/CD** — environments and how they differ; secrets handling; an ASCII
-    diagram of the delivery pipeline (commit → lint/typecheck/test → build → deploy → smoke →
-    rollback); backups, retention, and what is monitored.
-  - **Build sequence** — the ordered tasks from build-plan.md, each with its acceptance criteria,
-    its dependencies, and its model tier. Make Task 1's "runnable skeleton" nature visible.
-  - **Risks & open questions** — the full risk register: each risk, its consequence, its mitigation
-    or the trigger that would change the plan.
+Cover, concisely: what is being built and for whom; a labelled ASCII box diagram (in a \`<pre>\`
+block) of the runtime topology with the protocol on each edge; the key decisions as a short list
+with the one-line tradeoff each; the data model as a compact entity table; the API surface as one
+table; infrastructure and the CI/CD pipeline as a short \`<pre>\` diagram (commit → checks → build
+→ deploy → rollback); the build sequence from build-plan.md; and the open risks. Design it well —
+heading hierarchy, a table of contents, tables for structured facts, mono \`<pre>\` for the
+diagrams with their own horizontal scroll. Preserve every number and caveat; invent nothing.
 
-Design it like a real architecture document a strong team would circulate before a build: a clear
-heading hierarchy, a visible table of contents (sticky or at the top), generous whitespace, tables
-for every set of structured facts, and the ASCII diagrams in \`<pre>\` blocks styled with a mono
-font and their own horizontal scroll so long lines never break the page. It should feel complete
-and confident. Preserve every decision, number, assumption, and caveat from the package; invent
-nothing and add nothing that is not in \`${ARCHITECT_WRITE_ROOT}\`.
+**This step must never stall the package.** report.html is large — if one response cannot produce
+the whole thing, write a shorter version that still covers the sections above, or write it section
+by section across turns. If you still cannot produce it, say so plainly, tell the user the package
+under \`${ARCHITECT_WRITE_ROOT}\` is complete and buildable and the report can be regenerated later,
+and move on. Never end a turn with an empty reply because this step is hard — do the smaller thing
+instead.
 
 It must be a PASSIVE document. The viewer renders it in a locked-down sandbox with a strict
 Content-Security-Policy and strips anything active on the way in, so none of the following will work
