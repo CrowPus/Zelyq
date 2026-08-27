@@ -28,6 +28,16 @@ test("how_to_work tells the model a loaded plugin tool is not a reason to use it
   assert.match(prompt, /no backend or deployment pipeline of its own/);
 });
 
+test("how_to_work tells the model to read and build to an architecture/ package if one exists", () => {
+  // So a user who plans in Architect Mode and then switches to the Engineer
+  // (or default mode) to finish can point it at the folder and have it
+  // follow the design instead of treating it as scratch.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.match(prompt, /it is a design package the Architect wrote/);
+  assert.match(prompt, /architecture\/build-plan\.md/);
+  assert.match(prompt, /mark each one done/);
+});
+
 test("an empty skills array behaves the same as omitting it entirely", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", skills: [] });
   assert.doesNotMatch(prompt, /<skills>/);
