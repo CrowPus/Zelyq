@@ -12,12 +12,13 @@ import {
   Info,
   Paperclip,
   Puzzle,
+  Sparkles,
   Square,
   X,
 } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ChatState } from "../hooks/useChatSocket";
+import type { AgentActivity, ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
@@ -385,6 +386,7 @@ export function ChatPanel({
             {chat.streaming && (
               <MessageRow
                 streaming
+                activity={chat.streaming.activity}
                 nextSnapshotId={null}
                 projectId={projectId}
                 canEdit={canEdit}
@@ -801,6 +803,7 @@ export function ChatPanel({
 function MessageRow({
   message,
   streaming,
+  activity,
   nextSnapshotId,
   projectId,
   canEdit,
@@ -809,6 +812,7 @@ function MessageRow({
 }: {
   message: Message;
   streaming?: boolean;
+  activity?: AgentActivity[];
   nextSnapshotId: string | null;
   projectId: string;
   canEdit: boolean;
@@ -866,6 +870,7 @@ function MessageRow({
           active={message.toolCalls.length === 0 && !message.content}
         />
       )}
+      {activity && activity.length > 0 && <SpecialistActivity items={activity} />}
       {message.toolCalls.length > 0 && (
         <div className="mb-2.5 flex flex-col gap-px">
           {message.toolCalls.map((call) => (
@@ -1020,6 +1025,52 @@ function TurnFooter({
 
       {revert.isError && (
         <span className="shrink-0 text-danger">{(revert.error as Error).message}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 053 — a named specialist child agent (the Designer) working, shown as its
+ * own labelled sub-thread so it is obvious a different agent is on the job.
+ * Live only; the dispatch tool call and its full report persist on their own.
+ */
+const SPECIALIST_LABEL: Record<AgentActivity["agent"], string> = {
+  designer: "Designer agent",
+  verifier: "Verifier agent",
+  builder: "Builder agent",
+};
+
+function SpecialistActivity({ items }: { items: AgentActivity[] }) {
+  const agent = items[0]?.agent ?? "designer";
+  const ended = items.some((i) => i.phase === "end");
+  const steps = items.filter((i) => i.phase === "step");
+  const endLine = items.find((i) => i.phase === "end");
+  const startLine = items.find((i) => i.phase === "start");
+
+  return (
+    <div className="mb-2.5 rounded-md border border-border-default bg-surface-subtle px-2.5 py-2">
+      <div className="flex items-center gap-1.5 text-xs">
+        <Sparkles size={13} strokeWidth={2} className="shrink-0 text-fg-secondary" />
+        <span className="font-medium text-fg-secondary">{SPECIALIST_LABEL[agent]}</span>
+        {!ended && <StatusDot tone="warning" pulse />}
+        <span className="min-w-0 flex-1 truncate text-fg-muted">
+          {ended ? endLine?.title : (startLine?.title ?? "working")}
+        </span>
+      </div>
+      {steps.length > 0 && (
+        <ol className="mt-1.5 flex flex-col gap-0.5 border-l border-border-default pl-2.5">
+          {steps.map((step, index) => (
+            <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: the activity log is append-only and never reordered
+              key={`${index}-${step.title}`}
+              className="truncate text-2xs leading-relaxed text-fg-muted"
+            >
+              {step.title}
+              {step.detail ? <span className="text-fg-muted"> — {step.detail}</span> : null}
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );

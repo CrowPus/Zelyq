@@ -306,6 +306,7 @@ test("050 R2.1: the real package files are allowed", async () => {
     [
       step("write_file", { path: "architecture/data-model.md", content: "# data" }),
       step("write_file", { path: "architecture/decisions/0001-stack.md", content: "# adr" }),
+      step("write_file", { path: "architecture/DESIGN.md", content: "# Design System\n" }),
       done,
     ],
     true,
@@ -316,9 +317,10 @@ test("050 R2.1: the real package files are allowed", async () => {
     const ends = events.filter((e) => e.type === "tool.end") as Array<{
       call: { isError: boolean };
     }>;
-    assert.ok(ends.length >= 2 && ends.every((e) => !e.call.isError));
+    assert.ok(ends.length >= 3 && ends.every((e) => !e.call.isError));
     await fs.access(path.join(workspaceDir, projectId, "architecture/data-model.md"));
     await fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0001-stack.md"));
+    await fs.access(path.join(workspaceDir, projectId, "architecture/DESIGN.md"));
   } finally {
     await close();
   }

@@ -77,11 +77,63 @@ export const dispatchTaskTool = defineTool({
           "the finishing files (.env.example, root README, CI config), and returns a completion " +
           "checklist. Do not use it for building.",
       ),
+    design: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true for the ONE design pass, dispatched AFTER verification comes back clean. That " +
+          "child is the Designer: it gets the preview + page-inspection tools and the design/a11y " +
+          "plugin tools, may write ONLY client UI files, adds NO features or routes, and makes the " +
+          "working app look senior-designed. It returns a Design Definition-of-Done checklist you " +
+          "relay verbatim. Follow it with one more verify:true (renders / flows / typecheck) before " +
+          "you say done.",
+      ),
   }),
   async run() {
     return {
       output:
         "dispatch_task is handled by the orchestrator, not this path — this should never run.",
+      isError: true,
+    };
+  },
+});
+
+/**
+ * 053 — the narrow, user-triggered way to call the Designer agent from
+ * Engineer Mode (it also works in Architect Mode). Unlike `dispatch_task`
+ * this is single-purpose: it hands the current project to the Designer
+ * child — same bounded UI-only specialist — and returns its checklist.
+ * Engineer Mode gains a designer, not an orchestrator.
+ *
+ * Like `dispatch_task` this is intercepted by `AgentSession`, never run
+ * through `executeTool`; the `run` here only gives the tool a shape.
+ */
+export const designPassTool = defineTool({
+  name: "design_pass",
+  description:
+    "Hand the current project to the Designer agent — a bounded specialist that makes a working app " +
+    "look like a senior product designer built it (coherent design system, real hierarchy, every " +
+    "state styled, accessible, responsive, no generic-AI-look). It writes ONLY client UI files, adds " +
+    "no features, routes, or backend changes, and must leave the app rendering and typechecking. " +
+    "Use it ONLY when the user asks for professional visual design / to remove an AI-made look. It " +
+    "returns a Design Definition-of-Done checklist plus before/after notes; relay that verbatim and " +
+    "confirm the app still renders afterwards.",
+  schema: z.object({
+    scope: z
+      .string()
+      .optional()
+      .describe(
+        "What to polish, if not the whole app — e.g. 'the checkout flow', 'the dashboard', a route. " +
+          "Omit for the whole project.",
+      ),
+    notes: z
+      .string()
+      .optional()
+      .describe("Any direction from the user — brand words, references, things to avoid."),
+  }),
+  async run() {
+    return {
+      output: "design_pass is handled by the orchestrator, not this path — this should never run.",
       isError: true,
     };
   },
