@@ -680,6 +680,70 @@ test("a connected Codex session wins over OPENAI_API_KEY also being set in the e
   }
 });
 
+test("a connected Claude session follows Claude Code token rotation", async () => {
+  const credentialsPath = path.join(tmp, "claude-credentials.json");
+  const writeClaudeToken = async (accessToken: string) => {
+    await fs.writeFile(
+      credentialsPath,
+      JSON.stringify({
+        claudeAiOauth: { accessToken, expiresAt: Date.now() + 60_000 },
+      }),
+    );
+  };
+
+  try {
+    await writeClaudeToken("claude-access-token-before-refresh");
+    const use = await server.app.inject({
+      method: "POST",
+      url: "/api/settings/cli-sessions/anthropic/use",
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(use.statusCode, 200, use.body);
+
+    // Claude Code rotates its own short-lived OAuth access token. A copied
+    // snapshot goes stale here; the turn must resolve the current credential.
+    await writeClaudeToken("claude-access-token-after-refresh");
+
+    const { cookie } = await register("claude-token-rotation@example.com");
+    const project = (
+      await server.app.inject({
+        method: "POST",
+        url: "/api/projects",
+        headers: { cookie },
+        payload: { name: "Claude token rotation test" },
+      })
+    ).json().project;
+
+    agent.created.length = 0;
+    const address = server.app.server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+      headers: { cookie },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("error", reject);
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "connected") ws.send(JSON.stringify({ type: "prompt", message: "hi" }));
+        if (msg.type === "turn.end") {
+          ws.close();
+          resolve();
+        }
+      });
+    });
+
+    assert.equal(agent.created[0]?.provider, "anthropic");
+    assert.equal(agent.created[0]?.authMode, "subscription");
+    assert.equal(agent.created[0]?.apiKey, "claude-access-token-after-refresh");
+  } finally {
+    await fs.rm(credentialsPath, { force: true });
+    await server.store.settings.set("provider", "google");
+    await server.store.settings.remove("anthropicAuthMode");
+    await server.store.settings.remove("anthropicApiKey");
+  }
+});
+
 test("connecting a subscription doesn't carry over an env-pinned model meant for the previous provider", async () => {
   // Found live, a second time: a model an operator's own ZELYQ_MODEL pins
   // for whatever provider was configured at deploy time rode straight

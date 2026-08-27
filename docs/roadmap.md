@@ -31,6 +31,15 @@ something a team can adopt.** Quality first, then the change record, then the de
 - [x] Carry tool context across an agent restart. Each provider reconstructs its own native
       tool_use/tool_result shape from what a past turn actually did, the same construction it
       already uses for a live turn
+- [x] **Architect Mode** — interview, a full `architecture/` design package (decisions, data model,
+      API, `DESIGN.md`, a task build plan), reviewable before any code exists; then bounded builder
+      dispatch, a separate verification session, and a checklist relayed verbatim. See
+      [modes.md](./modes.md)
+- [x] **Auto Mode** — the Architect runs the build passes itself to a hard ceiling (tokens / passes
+      / wall-clock), with stuck detection and an always-live Stop
+- [x] **Named specialist agents** — the first is the **Designer**: it owns `DESIGN.md`, surveys the
+      project, authors or deepens the design system, implements it, and its work streams to the chat
+      as a labelled sub-thread. Callable from Engineer Mode with `design_pass`
 
 ## Next — a change record you can trust
 

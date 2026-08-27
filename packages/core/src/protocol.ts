@@ -94,6 +94,25 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     messageId: z.string().optional(),
   }),
 
+  /**
+   * 053 — a named specialist child agent (the Designer, the verifier, a
+   * builder) doing something worth showing the user as a distinct,
+   * labelled sub-thread. Forwarded from the child's own run up to the
+   * parent's event stream. `messageId` is the parent assistant message the
+   * dispatch belongs to; `agent` names which specialist; `phase` is
+   * "start" once, "step" many times, "end" once with the outcome in
+   * `title`. Additive: a client that does not know this type ignores it.
+   */
+  z.object({
+    type: z.literal("agent.activity"),
+    sessionId: z.string(),
+    messageId: z.string(),
+    agent: z.enum(["designer", "verifier", "builder"]),
+    phase: z.enum(["start", "step", "end"]),
+    title: z.string(),
+    detail: z.string().optional(),
+  }),
+
   /** The turn failed. The session stays usable unless `fatal` is set. */
   z.object({
     type: z.literal("error"),

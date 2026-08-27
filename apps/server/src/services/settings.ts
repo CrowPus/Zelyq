@@ -332,10 +332,17 @@ const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
  * hand today; unifying the two into one shared registry is real but
  * separate cleanup, not required to ship this.
  */
+// Kept in sync with apps/agent/src/providers/index.ts by hand. Only models
+// that do the full job this agent needs — multi-step tool calling,
+// streaming, big context, and thinking where the provider supports it.
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
-  google: ["gemini-3.7-flash"],
-  openai: ["gpt-5.1"],
+  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"],
+  google: ["gemini-3.7-pro", "gemini-2.5-pro", "gemini-3.7-flash", "gemini-2.5-flash"],
+  openai: ["gpt-5.1", "gpt-5", "gpt-5.1-mini", "o4-mini"],
+  xai: ["grok-4", "grok-4-fast"],
+  deepseek: ["deepseek-chat"],
+  mistral: ["mistral-large-latest", "mistral-medium-latest"],
+  groq: ["llama-3.3-70b-versatile"],
 };
 
 /**
@@ -416,6 +423,12 @@ export class SettingsService {
   async apiKeyFor(provider: string): Promise<string> {
     const key = KEY_SETTING_BY_PROVIDER[provider] ?? "anthropicApiKey";
     if ((await this.authModeFor(provider)) === "subscription") {
+      if (provider === "anthropic") {
+        const session = await readClaudeCodeSession(this.claudeCredentialsPath);
+        if (session && (!session.expiresAt || session.expiresAt > Date.now())) {
+          return session.accessToken;
+        }
+      }
       return await this.storedSecretValue(key);
     }
     return await this.value(key);

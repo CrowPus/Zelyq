@@ -10,6 +10,7 @@ import {
 import type { RuntimeDriver } from "@zelyq/runtime";
 import {
   ALL_TOOLS,
+  designPassTool,
   dispatchTaskTool,
   executeTool,
   type ToolContext,
@@ -76,7 +77,15 @@ const ARCHITECT_PACKAGE_FILES = new Set([
   "architecture/build-plan.md",
   "architecture/build-context.md",
   "architecture/risks.md",
+  // 054 — the design system spec. A living document (NOT a decisions/*
+  // record): the Architect seeds a first draft, the Designer owns and
+  // deepens it. In the mutable package set on purpose.
+  "architecture/DESIGN.md",
 ]);
+// 054 — the design guide's canonical paths. `architecture/DESIGN.md` for a
+// project that has an Architect package; root `DESIGN.md` otherwise (an
+// Engineer-only project must not sprout an architecture/ folder).
+const DESIGN_MD_PATHS = new Set(["architecture/DESIGN.md", "DESIGN.md"]);
 const ARCHITECT_DECISION_RE = /^architecture\/decisions\/\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
 const ARCHITECT_REPORT_PATH = "architecture/report.html";
 
@@ -151,6 +160,12 @@ const ORCH_MAX_TOKENS = 2_000_000;
 const AUTO_MAX_PASSES = 6;
 const AUTO_MAX_TOKENS = 6_000_000;
 const AUTO_MAX_WALLCLOCK_MS = 30 * 60_000;
+
+// A transient model failure (provider overloaded / rate-limited / connection
+// dropped) is retried this many times, backing off 0.8s → 1.6s → 3.2s,
+// before it surfaces as a visible error.
+const MODEL_RETRY_MAX = 3;
+const MODEL_RETRY_BASE_MS = 800;
 // 049 Phase 1 — a builder takes at most this many named files. A task with
 // more is refused at dispatch, forcing the Architect to split it before a
 // bounded builder chokes on it.
@@ -230,6 +245,12 @@ export interface SessionOptions {
    * per-turn overhead so a whole build fits in the run budget. */
   systemPrompt?: string;
   toolNames?: string[];
+  /** 053 — a structural write scope for a specialist child. When set, every
+   * write_file / edit_file / delete_file whose normalized path fails this
+   * predicate is refused at the tool boundary, and a shell command that
+   * creates an out-of-scope file trips the turn's checkpoint. The Designer
+   * child runs with `designerPathAllowed`. */
+  writeAllowlist?: (normPath: string) => boolean;
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
@@ -247,9 +268,20 @@ const BUILDER_TOOL_NAMES = [
   "run_command",
 ];
 
-// 051 Part A — the verifier dispatch gets the preview tools back on top of
-// the builder set, plus whatever plugin tools the plan named for the checks.
-const VERIFIER_EXTRA_TOOL_NAMES = ["start_preview", "preview_logs", "view_preview"];
+// 051 Part A — the verifier dispatch gets the preview and page-inspection
+// tools back on top of the builder set (so it can actually see whether the
+// app runs, the way Engineer Mode does), plus whatever extra plugin tools
+// the plan named for design / a11y / security checks.
+const VERIFIER_EXTRA_TOOL_NAMES = [
+  "start_preview",
+  "preview_logs",
+  "view_preview",
+  "check_console_errors",
+  "check_network_failures",
+  "inspect_page",
+  "typecheck_project",
+  "lint_project",
+];
 
 // 049 Phase 1 — the builder's whole system prompt. It gets ONE specified task
 // with acceptance criteria, a project brief, and a file map; it does not need
@@ -267,24 +299,261 @@ Do exactly that task:
 When done, state in two or three sentences what you changed and whether each acceptance criterion is met. If you could not finish, say exactly what remains.`;
 
 // 051 Part A — the verifier's whole system prompt. It runs AFTER the last
-// build task: it does not build features, it checks the project is a
-// complete, running, documented whole and writes the finishing files.
-const VERIFIER_SYSTEM_PROMPT = `You are the verifier for a project a team of builders just finished. You do NOT build features. Your job is to confirm the project is a complete, running, documented whole — and to write the small set of project-level files a finished project needs.
+// build task. It verifies the project ACTUALLY WORKS the way a senior
+// engineer would before signing off — and fixes the loose ends the build
+// left. Modelled on what Engineer Mode does when a user asks it to finish a
+// half-built app: preview, inspect the running page, typecheck/build, then
+// read and fix component by component until it runs.
+const VERIFIER_SYSTEM_PROMPT = `You are the verifier. A team of builders just finished a project from an approved plan. Your job is to make sure it ACTUALLY WORKS end to end — the way a senior engineer checks their own work before signing off — and to write the few project-level files a finished project needs. You may fix what is broken; you do not add new features.
 
-Work through the Definition of Done you are given. For each item, actually check it:
-- Run the build/typecheck/lint command the project declares. Record pass/fail with the real output.
-- Start the preview and confirm it serves the actual app, not the starter template. Read preview_logs if it does not come up.
-- Run each verification tool you were given (security scan, accessibility/design checks). Do not fix what they find — record each finding.
-- Confirm the finishing files exist and are accurate against what was actually built, and create or correct them:
-  - .env.example: every environment variable the project's code and the design need, one per line with a short comment, and NO real secret values.
-  - README.md at the project root: what it is, how to run it, the env vars, the scripts, one paragraph on the architecture with a link to architecture/report.html. Replace any starter-template README.
-  - the CI config the design calls for, only for a stack you have a safe template for, with a header comment saying it was generated from the design and is unverified on a real runner.
-  - .gitignore additions for anything the build introduced that should not be committed.
-- Triage every security-scan and design/a11y finding into architecture/risks.md under a dated "## Verification findings" heading — each with a one-line consequence and a decision (accept / must-fix / deferred).
+Verify it for real, in this order:
+1. Run the project's typecheck and build commands (npm run typecheck, npm run build, or what the project declares). Read the real output. A non-zero exit is a FAIL.
+2. start_preview. Then check_console_errors and inspect_page against the RUNNING app. Confirm it renders the real application — not the starter template, not a blank page, not an error overlay. Read preview_logs if it does not come up.
+3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
+4. Run any design / accessibility / security tool you were given. Note each finding.
 
-Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item, each marked PASS, FAIL, or N/A, with a one-line reason. Be honest: a FAIL is a FAIL. End with the preview URL if the app is running, or "preview not running: <reason>".`;
+When you find something broken:
+- If it is small — a broken or missing import, a type error, a missing prop, an unwired route, a component that never mounts, a name that does not match — FIX it, then re-run the checks. This is expected: a real verification pass ties off the loose ends the build left. Read the file first, make the smallest change, move on.
+- If it is large, or you are running out of budget, stop fixing and mark that item FAIL with the exact error.
+
+Then create or correct the finishing files: .env.example (every env var the code and design need, one per line with a comment, NO real values); a real root README.md replacing the template's (what it is, how to run it, env vars, scripts, one paragraph of architecture linking architecture/report.html); the CI config for a known stack, with an "unverified, generated from the design" header; .gitignore additions. Triage design/security findings into architecture/risks.md under a dated "## Verification findings" heading, each with a consequence and a decision.
+
+Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item, PASS / FAIL / N/A, each with a one-line reason that names what you ACTUALLY OBSERVED (the command output, what the page showed), never what should be true. Do not mark PASS anything you did not run and see pass. If the app does not render, or the build fails, the overall result is NOT VERIFIED — say that plainly at the top. End with the live preview URL, or "preview not running: <reason>".`;
+
+// 053 — the Designer specialist. Dispatched AFTER a clean verification (or, in
+// Engineer Mode, on the user's explicit ask via design_pass). Same mechanism
+// as the verifier; different mandate: make a WORKING app look senior-designed.
+// It adds no features, no routes, no backend changes — a structural write
+// allowlist (designerPathAllowed) limits it to client UI files, and a fixed
+// dependency allowlist limits what it may install.
+// 054 — raised from 30 / 400k / 12m: the pass now surveys the project,
+// authors or deepens DESIGN.md, AND implements it. A pass that hits a
+// ceiling returns partial with honest NOT DONE lines; "keep going" or a
+// second design_pass continues against the now-written DESIGN.md (cheaper).
+const DESIGNER_MAX_TURNS = 40;
+const DESIGNER_MAX_TOKENS = 600_000;
+const DESIGNER_WALLCLOCK_MS = 18 * 60_000;
+
+// The builder's file/shell set minus delete_file (a polish pass does not
+// remove files), plus the preview + page-inspection tools so it can SEE the
+// rendered UI, plus typecheck/lint so it can keep the app green. Any design /
+// a11y plugin tools the caller names come on top via input.tools.
+const DESIGNER_TOOL_NAMES = [
+  "list_files",
+  "read_file",
+  "search_files",
+  "write_file",
+  "edit_file",
+  "run_command",
+  "start_preview",
+  "preview_logs",
+  "view_preview",
+  "inspect_page",
+  "check_console_errors",
+  "check_network_failures",
+  "typecheck_project",
+  "lint_project",
+];
+
+// The only extra dependencies the Designer may install — styling utilities and
+// icon/animation helpers, never a framework or a component mega-library the
+// project did not choose. Anything else is refused at the run_command
+// boundary; package.json itself is outside the write allowlist, so the
+// Designer cannot hand-edit deps around this either.
+const DESIGNER_DEP_ALLOW = new Set([
+  "clsx",
+  "tailwind-merge",
+  "class-variance-authority",
+  "tailwindcss-animate",
+  "lucide-react",
+  "@radix-ui/react-icons",
+  "@heroicons/react",
+]);
+
+// A package-install shell command: `npm i pkg`, `npm install pkg`, `pnpm add
+// pkg`, `yarn add pkg`, `bun add pkg`. Captures the argument list after the
+// verb so it can be checked against DESIGNER_DEP_ALLOW.
+const INSTALL_CMD_RE =
+  /\b(?:npm(?:\s+install|\s+i|\s+add)|pnpm\s+(?:install|i|add)|yarn\s+add|bun\s+add)\b([^\n&|;]*)/i;
+
+/** 053 — the Designer's structural write scope: client UI files only. Anything
+ * that does not match is refused at the tool boundary in the child session, so
+ * a "make it pretty" pass can never touch the server, the schema, config, CI,
+ * or secrets. Path is normalized by the caller. */
+function designerPathAllowed(norm: string): boolean {
+  if (norm === "" || pathPosix.isAbsolute(norm) || norm === ".." || norm.startsWith("../")) {
+    return false;
+  }
+  // 054 — the Designer owns the design guide. This is the ONLY doc it may
+  // write; every other architecture/* path stays refused below.
+  if (DESIGN_MD_PATHS.has(norm)) return true;
+  // Never server/data/build-tooling code, even when it lives under src/.
+  if (/^src\/(server|api|backend|db|database|prisma|lib\/server|trpc|routes\/api)\b/.test(norm)) {
+    return false;
+  }
+  if (
+    /^(server|api|backend|prisma|migrations|db|scripts|\.github)\//.test(norm) ||
+    /\.(prisma|sql)$/.test(norm) ||
+    /^(package\.json|tsconfig.*\.json|vite\.config\.[a-z]+|\.env.*)$/.test(norm)
+  ) {
+    return false;
+  }
+  // Allowed: client UI source, stylesheets, the entry HTML, styling config,
+  // and design assets.
+  if (/^src\/.*\.(tsx|jsx|ts|js|css|scss|sass)$/.test(norm)) return true;
+  if (/^src\/(assets|styles|theme|design|ui)\//.test(norm)) return true;
+  if (norm === "index.html" || norm === "src/index.css" || norm === "src/App.css") return true;
+  if (/\.css$/.test(norm)) return true;
+  if (/^(tailwind|postcss)\.config\.(js|cjs|mjs|ts)$/.test(norm)) return true;
+  return false;
+}
+
+/** What the Designer's review must COVER — passed as the acceptance criteria
+ * when it is called through `design_pass` (Engineer Mode has no build-plan to
+ * draw them from). This is a coverage list, NOT a template to hand back: the
+ * deliverable is the changed files; the review is evidence of them. */
+const DESIGN_DOD = [
+  "the design system (colour ROLES, type scale, spacing rhythm, radius, elevation) — coherent and applied;",
+  "visual hierarchy on each primary screen — the main message and action obvious;",
+  "state coverage — empty, loading, error, success actually styled, not just the happy path;",
+  "accessibility — AA contrast, a visible focus style, non-colour state cues, target sizes;",
+  "responsiveness — intentional at a narrow and a wide viewport;",
+  "the generic-AI-look removed on the main user journeys;",
+  "the app still renders and typechecks after the changes.",
+].join(" ");
+
+// 054 — the shape of DESIGN.md. Given to the child so an authored guide is
+// complete and uniformly structured. The Designer fills it with REAL values
+// (hex, a type scale, spacing steps), never placeholders.
+const DESIGN_MD_TEMPLATE = `# Design System — <project name>
+
+## Product & feel
+One paragraph: what it is, who it's for, the intended personality (e.g. "precise, calm, trustworthy"), the density (compact / comfortable / spacious).
+
+## Principles
+3–5 lines specific to this product. Not generic.
+
+## Colour
+Semantic ROLES with real values (hex or HSL), light and dark where the product has both:
+- bg, surface, surface-raised, border
+- fg, fg-muted
+- primary, primary-fg
+- accent
+- success, warning, danger
+- focus-ring
+Say which roles carry meaning (status) vs. decoration.
+
+## Typography
+- Families: display / body / mono, each with a fallback stack.
+- Scale: each step — size · line-height · weight — and where it's used.
+- Tabular figures where numbers are compared.
+
+## Spacing & layout
+The spacing scale, container widths, the grid, section rhythm.
+
+## Radius & elevation
+The radius steps; the border/shadow elevation language.
+
+## Components
+buttons (variants, sizes, states) · inputs · cards · nav · tables · badges/chips · dialogs — each in terms of the tokens above.
+
+## States
+How empty / loading / skeleton / error / success / disabled look.
+
+## Motion
+Durations, easings, what animates and what doesn't, reduced-motion behaviour.
+
+## Accessibility
+Contrast targets, the focus style, target sizes, non-colour state cues.
+
+## Iconography
+The set, sizes, stroke.
+
+## Do / Don't
+The generic-AI-look tells to avoid, named for THIS product.
+
+## Implementation
+Where the tokens live in code (src/index.css @theme / Tailwind config / a theme.ts) and how components consume them.
+`;
+
+const DESIGNER_SYSTEM_PROMPT = `You are the Designer — a senior product/UI designer. Design is your project: you own the design system, you write it down, and you make the app match it. The app already runs; your job is to CHANGE FILES so it looks and feels like a senior design team shipped it, and to leave it still running.
+
+The deliverable is the diff (DESIGN.md + the code that implements it). A pass that changes no files at all is a FAILURE. A pass that writes only DESIGN.md has written the guide but NOT implemented it — say so plainly, do not call that done.
+
+Hard boundaries (the tool layer enforces them):
+- Write ONLY client UI files — components, styles, theme/tokens, the entry HTML, Tailwind/PostCSS config, design assets — PLUS the design guide (architecture/DESIGN.md, or DESIGN.md at the repo root if there is no architecture/ folder). Writes to the server, the database/schema, build config, package.json, .env, or any other architecture/* file are refused.
+- Add NO features, NO routes, NO data-flow changes, NO new screens.
+- Install a dependency only from this set if you genuinely need it: clsx, tailwind-merge, class-variance-authority, tailwindcss-animate, lucide-react, @radix-ui/react-icons, @heroicons/react. Prefer what is installed.
+- A problem that is NOT visual/UI — a broken API call, a data bug, a server error — you REPORT in the review, you do not fix it. Stay in your lane.
+
+Work in this order:
+
+1. SURVEY. list_files; read the entry points, components, and current styles; start_preview; view_preview + inspect_page on EVERY primary screen; run any design/accessibility plugin tool you were given. Write yourself a short list: what exists, what is generic / inconsistent / unstyled / broken. Make no claims before this.
+
+2. OWN THE GUIDE — write architecture/DESIGN.md (or DESIGN.md at the repo root if there is no architecture/ folder) BEFORE you edit a single component or style file. A pass that edits code before DESIGN.md exists is rejected as an ungoverned restyle — the guide comes first, always.
+   - If it exists: read it. Critique it against what this project actually needs — you are the design authority, a thin or wrong draft is expected to be deepened. Fill in real tokens (hex, a type scale, spacing steps), fix choices that don't fit the product, add missing component/state coverage. If a human has hand-edited it, RESPECT those edits — refine around them, do not overwrite blind. Write the improved file back.
+   - If it does NOT exist: author it from the project — derive a coherent system from the product, the existing UI (however messy), any brand hints, and the real content. Use this structure, with REAL values, no placeholders:
+${DESIGN_MD_TEMPLATE}
+   Either way, DESIGN.md after this step is the contract the rest of the pass implements and is judged against. Write it fully before step 3.
+
+3. IMPLEMENT DESIGN.md. Put the tokens in the real place (src/index.css @theme / Tailwind config / a theme file). Then bring the app onto the system, screen by screen: hierarchy → density → state coverage (empty / loading / error / success) → responsiveness → motion. Write the changes.
+
+4. FIX the UI issues you found in the survey: broken layouts, console errors, unstyled default controls, contrast failures, missing states. Non-UI issues go in the review, not the diff.
+
+5. KEEP IT GREEN. After each meaningful change: typecheck/build, reload the preview, check_console_errors. A blank screen, a console error, or a red typecheck is something you broke — fix or revert it before moving on.
+
+When done, re-check the running preview, then return a DESIGN REVIEW:
+- FIRST line: "DESIGN.md <created|refined> — <one-line summary: the palette, the type choice, the key moves>".
+- Then, for EACH area below, one line — PASS (naming the screen/file you changed and what the screenshot showed) / FAIL / NOT DONE. Never PASS something you did not change or did not see rendered. If you implemented nothing, every area is NOT DONE and the top line is NOT VERIFIED.
+- Areas: ${DESIGN_DOD}
+- Then 2–4 concrete before/after notes naming actual screens.
+- Then any non-UI issues you found, for the Engineer.
+- End with the live preview URL (or "preview not running: <reason>").`;
 
 type Emit = (event: AgentEvent) => void;
+
+/** 053 — a short, human title for one of the Designer's steps, shown in the
+ * chat as it works. Derived from the child's tool calls. */
+function designerActivityTitle(call: { name: string; input: Record<string, unknown> }): string {
+  const path = typeof call.input.path === "string" ? call.input.path : "";
+  const cmd = typeof call.input.command === "string" ? call.input.command : "";
+  switch (call.name) {
+    case "start_preview":
+      return "Opening the preview to look at the current design";
+    case "view_preview":
+      return "Looking at the rendered page";
+    case "inspect_page":
+      return "Inspecting the page structure and styles";
+    case "check_console_errors":
+      return "Checking the running app for console errors";
+    case "check_network_failures":
+      return "Checking the running app for failed requests";
+    case "typecheck_project":
+    case "lint_project":
+      return `Re-checking: ${call.name === "typecheck_project" ? "typecheck" : "lint"}`;
+    case "run_command":
+      return cmd ? `Running: ${cmd.slice(0, 80)}` : "Running a command";
+    case "write_file":
+    case "edit_file":
+      return DESIGN_MD_PATHS.has(pathPosix.normalize(path))
+        ? "Writing the design guide (DESIGN.md)"
+        : path
+          ? `Restyling ${path}`
+          : "Restyling a component";
+    case "read_file":
+      return DESIGN_MD_PATHS.has(pathPosix.normalize(path))
+        ? "Reading the design guide"
+        : path
+          ? `Reading ${path}`
+          : "Reading a file";
+    case "search_files":
+      return "Surveying the project";
+    case "list_files":
+      return "Surveying the project";
+    default:
+      return call.name.replace(/_/g, " ");
+  }
+}
 
 /**
  * One conversation about one project.
@@ -375,9 +644,14 @@ export class AgentSession {
     const leanBuilder = Boolean(options.systemPrompt && options.toolNames);
     const toolPool = leanBuilder
       ? ALL_TOOLS.filter((t) => options.toolNames?.includes(t.name))
-      : options.architectMode
-        ? [...ALL_TOOLS, dispatchTaskTool]
-        : ALL_TOOLS;
+      : [
+          ...ALL_TOOLS,
+          // 047 — the Architect orchestrates builders.
+          ...(options.architectMode ? [dispatchTaskTool] : []),
+          // 053 — the Designer specialist is callable from Engineer Mode
+          // (on the user's ask) and Architect Mode (after verification).
+          ...(options.architectMode || options.engineerMode ? [designPassTool] : []),
+        ];
 
     this.conversation = provider.createConversation({
       systemPrompt:
@@ -484,6 +758,8 @@ export class AgentSession {
     raw: Record<string, unknown>,
     parentSignal: AbortSignal,
     onFileChanged: (path: string) => void,
+    emit: Emit,
+    messageId: string,
   ): Promise<ToolResult> {
     const parsed = dispatchTaskTool.schema.safeParse(raw);
     if (!parsed.success) {
@@ -495,42 +771,58 @@ export class AgentSession {
       };
     }
     const input = parsed.data;
+    // 053 — free-text direction, only sent by design_pass; not part of the
+    // dispatch_task schema, so read it off the raw input before Zod strips it.
+    const designNotes = typeof raw.notes === "string" ? raw.notes : "";
 
-    if (!this.options.architectMode) {
+    // 051 Part A — the final verification & finishing dispatch.
+    // 053 — the design pass, dispatched after a clean verify (Architect) or on
+    // the user's ask (Engineer, via design_pass which normalizes to this
+    // shape). Both are exempt from the build-only gates below.
+    const isVerify = input.verify === true;
+    const isDesign = input.design === true;
+
+    // dispatch_task (build / verify) is Architect Mode only. The Designer is
+    // also reachable from Engineer Mode — there it skips the package/ready
+    // gates (there is no build-plan to be ready), and its own boundaries (the
+    // write allowlist, the caps) still apply.
+    if (!this.options.architectMode && !isDesign) {
       return { output: "dispatch_task is only available in Architect Mode.", isError: true };
     }
 
-    // The real gate: the user must have seen a finished plan and come back to
-    // approve it. That means (1) the Architect declared the package ready in
-    // an earlier turn, AND (2) at least one user turn has happened since. The
-    // Architect writing the whole package and "build it" in one breath fails
-    // both. A resumed session with a ready/drift declaration in its history
-    // starts at readyDeclaredAtTurn = 0, so the user's first "build it" there
-    // passes. A filesystem sanity check on top: build-plan.md must exist.
-    if (this.readyDeclaredAtTurn === null) {
-      return {
-        output:
-          "Cannot dispatch — you have not declared the package ready yet. Finish the interview, write " +
-          `the full package (decisions, data-model, api, infrastructure, build-plan, risks), run the ` +
-          `challenge pass, and write the "${ARCHITECT_READY_MARKER}" line. Then the user reviews it and ` +
-          "tells you to build.",
-        isError: true,
-      };
-    }
-    if (this.turns <= this.readyDeclaredAtTurn) {
-      return {
-        output:
-          "Cannot dispatch in the same turn you declared the package ready. Stop here, present the plan, " +
-          "and wait for the user to review it and say to build. Building is never automatic.",
-        isError: true,
-      };
-    }
-    const packageState = await this.architecturePackageState();
-    if (!packageState.ready) {
-      return {
-        output: `Cannot dispatch — ${packageState.reason} Finish the package first.`,
-        isError: true,
-      };
+    if (this.options.architectMode) {
+      // The real gate: the user must have seen a finished plan and come back to
+      // approve it. That means (1) the Architect declared the package ready in
+      // an earlier turn, AND (2) at least one user turn has happened since. The
+      // Architect writing the whole package and "build it" in one breath fails
+      // both. A resumed session with a ready/drift declaration in its history
+      // starts at readyDeclaredAtTurn = 0, so the user's first "build it" there
+      // passes. A filesystem sanity check on top: build-plan.md must exist.
+      if (this.readyDeclaredAtTurn === null) {
+        return {
+          output:
+            "Cannot dispatch — you have not declared the package ready yet. Finish the interview, write " +
+            `the full package (decisions, data-model, api, infrastructure, build-plan, risks), run the ` +
+            `challenge pass, and write the "${ARCHITECT_READY_MARKER}" line. Then the user reviews it and ` +
+            "tells you to build.",
+          isError: true,
+        };
+      }
+      if (this.turns <= this.readyDeclaredAtTurn) {
+        return {
+          output:
+            "Cannot dispatch in the same turn you declared the package ready. Stop here, present the plan, " +
+            "and wait for the user to review it and say to build. Building is never automatic.",
+          isError: true,
+        };
+      }
+      const packageState = await this.architecturePackageState();
+      if (!packageState.ready) {
+        return {
+          output: `Cannot dispatch — ${packageState.reason} Finish the package first.`,
+          isError: true,
+        };
+      }
     }
 
     if (this.orchestration.killed || parentSignal.aborted) {
@@ -540,14 +832,9 @@ export class AgentSession {
       };
     }
 
-    // 051 Part A — the final verification & finishing dispatch. Exempt from
-    // the runnable-first and file-count gates (it touches many project files
-    // by design); gets the preview tools and the named plugin tools.
-    const isVerify = input.verify === true;
-
     // 049 Phase 1 — task-size ceiling. A bounded builder cannot land a task
     // with a dozen files; refuse and make the Architect split it.
-    if (!isVerify && input.files && input.files.length > BUILDER_FILES_MAX) {
+    if (!isVerify && !isDesign && input.files && input.files.length > BUILDER_FILES_MAX) {
       return {
         output:
           `This task names ${input.files.length} files — a builder takes at most ${BUILDER_FILES_MAX}. ` +
@@ -561,7 +848,7 @@ export class AgentSession {
     // skeleton: the app's entry point renders something and the build/dev
     // command passes. Keyed to that outcome in the acceptance criteria, not
     // to a hardcoded filename (a Node API or a CLI has no App.tsx).
-    if (!isVerify && !this.orchestration.firstDispatchDone) {
+    if (!isVerify && !isDesign && !this.orchestration.firstDispatchDone) {
       const ac = input.acceptanceCriteria.toLowerCase();
       const looksRunnable =
         /\b(build|dev server|typecheck|npm run|preview|start)\b/.test(ac) &&
@@ -607,8 +894,11 @@ export class AgentSession {
 
     const n = ++this.orchestration.subagents;
     this.orchestration.firstDispatchDone = true;
+    // 054 — a design pass authors a spec and reconciles a whole app's UI; it
+    // wants the strong model. `modelForTier` falls back to the session model
+    // when no strong model is configured, so this is safe on any provider.
     const model = modelForTier(
-      input.modelTier,
+      isDesign ? (input.modelTier ?? "strong") : input.modelTier,
       this.options.provider,
       this.options.model,
       describeAvailableModels(),
@@ -628,10 +918,19 @@ export class AgentSession {
           .join("\n")}`
       : "\n\nThe project has no source files yet — you are laying the first ones.";
 
-    // 051 Part A — inject the bodies of the skills the plan named for this
-    // task. The lean builder has no use_skill tool, so it gets the text.
+    // 051 Part A — inject the bodies of the skills the task named. The lean
+    // child has no use_skill tool, so it gets the text. 053 — the Designer
+    // always gets the two design skills, whatever else was named.
     const skillsBlock = (() => {
-      const names = input.skills ?? [];
+      const names = isDesign
+        ? [
+            ...new Set([
+              "ui-ux-design-intelligence",
+              "frontend-ui-engineering",
+              ...(input.skills ?? []),
+            ]),
+          ]
+        : (input.skills ?? []);
       if (!names.length || !this.options.resolveSkillBody) return "";
       const bodies = names
         .map((name) => {
@@ -643,13 +942,31 @@ export class AgentSession {
       return bodies ? `\n\nGUIDANCE FROM SKILLS THIS TASK NEEDS:\n${bodies.slice(0, 14000)}` : "";
     })();
 
-    // 051 Part A — the verifier gets the preview tools and the plan's named
-    // plugin tools on top of the builder set, and a longer wall-clock (build
-    // + preview + several scans).
-    const toolNames = isVerify
-      ? [...BUILDER_TOOL_NAMES, ...VERIFIER_EXTRA_TOOL_NAMES, ...(input.tools ?? [])]
-      : BUILDER_TOOL_NAMES;
-    const wallclockMs = isVerify ? 10 * 60_000 : SUBAGENT_WALLCLOCK_MS;
+    // 051 Part A — the verifier gets the preview tools and the named plugin
+    // tools on top of the builder set, and a longer wall-clock.
+    // 053 — the Designer gets its own tool set (preview + inspection +
+    // typecheck/lint, no delete_file), a 12-minute wall-clock, a 400k budget,
+    // and a structural write scope (client UI only).
+    const toolNames = isDesign
+      ? [...DESIGNER_TOOL_NAMES, ...(input.tools ?? [])]
+      : isVerify
+        ? [...BUILDER_TOOL_NAMES, ...VERIFIER_EXTRA_TOOL_NAMES, ...(input.tools ?? [])]
+        : BUILDER_TOOL_NAMES;
+    const wallclockMs = isDesign
+      ? DESIGNER_WALLCLOCK_MS
+      : isVerify
+        ? 10 * 60_000
+        : SUBAGENT_WALLCLOCK_MS;
+    const tokenCap = isDesign
+      ? DESIGNER_MAX_TOKENS
+      : isVerify
+        ? SUBAGENT_MAX_TOKENS * 3
+        : SUBAGENT_MAX_TOKENS;
+    const childTurnCap = isDesign
+      ? DESIGNER_MAX_TURNS
+      : isVerify
+        ? SUBAGENT_MAX_TURNS * 2
+        : SUBAGENT_MAX_TURNS;
 
     const child = new AgentSession({
       sessionId: `${this.id}#sub${n}`,
@@ -663,30 +980,66 @@ export class AgentSession {
       ...(this.options.authMode ? { authMode: this.options.authMode } : {}),
       ...(this.options.baseUrl ? { baseUrl: this.options.baseUrl } : {}),
       runtime: this.options.runtime,
-      maxIterations: SUBAGENT_MAX_TURNS,
+      maxIterations: childTurnCap,
       engineerMode: true,
-      // 049 Phase 1 — lean profile: hand-written prompt, file/shell tools only.
-      systemPrompt: isVerify ? VERIFIER_SYSTEM_PROMPT : BUILDER_SYSTEM_PROMPT,
+      // 049 Phase 1 — lean profile: hand-written prompt, curated tools.
+      systemPrompt: isDesign
+        ? DESIGNER_SYSTEM_PROMPT
+        : isVerify
+          ? VERIFIER_SYSTEM_PROMPT
+          : BUILDER_SYSTEM_PROMPT,
       toolNames,
+      // 053 — the Designer may write client UI only, enforced in the child.
+      ...(isDesign ? { writeAllowlist: designerPathAllowed } : {}),
       ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
     });
 
     const rolePrefix = input.role ? `You are the ${input.role} for this task. ` : "";
     const filesLine = input.files?.length
-      ? `\n\n${isVerify ? "Files to check/write" : "Expected files (do not create others)"}: ${input.files.join(", ")}`
+      ? `\n\n${isVerify || isDesign ? "Files to check/write" : "Expected files (do not create others)"}: ${input.files.join(", ")}`
       : "";
     const briefBlock = buildContext
       ? `\n\nPROJECT BRIEF (stack, conventions, the shape of the design):\n${buildContext.slice(0, 8000)}`
       : "";
-    const prompt = isVerify
-      ? `${rolePrefix}Verify this project and write its finishing files. Do not build features.\n\n` +
-        `DEFINITION OF DONE (check each item):\n${input.acceptanceCriteria}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
-        "Return the completion checklist as instructed."
-      : `${rolePrefix}Build exactly this one task and nothing else. Do not re-plan or expand scope. ` +
-        "Keep the app building after your change.\n\n" +
-        `TASK:\n${input.task}\n\nDONE WHEN:\n${input.acceptanceCriteria}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
-        "When finished, state in two or three sentences what you changed and whether the acceptance " +
-        "criteria are met.";
+    const notesBlock = designNotes.trim()
+      ? `\n\nDIRECTION FROM THE USER:\n${designNotes.slice(0, 2000)}`
+      : "";
+    const prompt = isDesign
+      ? `${rolePrefix}Design is your project here. Survey it, own DESIGN.md, implement it, fix the UI issues, then review. CHANGE FILES — the deliverable is DESIGN.md plus the code that implements it. Add no features, no routes, no backend changes.\n\n` +
+        `SCOPE: ${input.task}\n\nYOUR DESIGN REVIEW MUST COVER:\n${input.acceptanceCriteria}${notesBlock}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
+        "Follow the five steps in order: survey (preview + inspect every screen) → OWN DESIGN.md (write it in full BEFORE your first code edit — deepen the existing one or author it from the project) → implement it in the real token place and screen by screen → fix UI issues → keep it green (build + typecheck must pass when you stop). Return the DESIGN REVIEW as instructed, leading with whether DESIGN.md was created or refined."
+      : isVerify
+        ? `${rolePrefix}Verify this project and write its finishing files. Do not build features.\n\n` +
+          `DEFINITION OF DONE (check each item):\n${input.acceptanceCriteria}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
+          "Return the completion checklist as instructed."
+        : `${rolePrefix}Build exactly this one task and nothing else. Do not re-plan or expand scope. ` +
+          "Keep the app building after your change.\n\n" +
+          `TASK:\n${input.task}\n\nDONE WHEN:\n${input.acceptanceCriteria}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
+          "When finished, state in two or three sentences what you changed and whether the acceptance " +
+          "criteria are met.";
+
+    // 053 — stream the specialist's work up to the user as a labelled
+    // sub-thread. Scoped to the Designer for now (the verifier/builders keep
+    // their single tool-call view); the event is generic so they can be added.
+    const specialist: "designer" | "verifier" | "builder" = isDesign
+      ? "designer"
+      : isVerify
+        ? "verifier"
+        : "builder";
+    const streamActivity = isDesign;
+    if (streamActivity) {
+      emit({
+        type: "agent.activity",
+        sessionId: this.id,
+        messageId,
+        agent: specialist,
+        phase: "start",
+        title:
+          specialist === "designer"
+            ? `Designer called — polishing ${input.task}`
+            : `${specialist} started`,
+      });
+    }
 
     let reply = "";
     let tokIn = 0;
@@ -705,7 +1058,7 @@ export class AgentSession {
           tokIn = e.tokensIn;
           tokOut = e.tokensOut;
           rounds += 1;
-          if (tokIn + tokOut > SUBAGENT_MAX_TOKENS) child.abort();
+          if (tokIn + tokOut > tokenCap) child.abort();
         }
         if (e.type === "files.changed") {
           for (const p of e.paths) {
@@ -714,7 +1067,20 @@ export class AgentSession {
             onFileChanged(p);
           }
         }
-        if (e.type === "turn.end" && e.stopReason === "end_turn" && rounds >= SUBAGENT_MAX_TURNS) {
+        // 053 — forward the specialist's meaningful moments to the user.
+        if (streamActivity && e.type === "tool.start") {
+          emit({
+            type: "agent.activity",
+            sessionId: this.id,
+            messageId,
+            agent: specialist,
+            phase: "step",
+            title: designerActivityTitle(
+              e.call as { name: string; input: Record<string, unknown> },
+            ),
+          });
+        }
+        if (e.type === "turn.end" && e.stopReason === "end_turn" && rounds >= childTurnCap) {
           hitTurnCap = true;
         }
       });
@@ -727,24 +1093,133 @@ export class AgentSession {
     this.orchestration.autoTokens += tokIn + tokOut;
     const secs = Math.round((Date.now() - startedAt) / 1000);
     const capNote = hitTurnCap
-      ? " — HIT the 25-turn cap, result may be incomplete."
-      : tokIn + tokOut > SUBAGENT_MAX_TOKENS
-        ? " — HIT the 200k-token cap, result may be incomplete."
+      ? ` — HIT the ${childTurnCap}-turn cap, result may be incomplete.`
+      : tokIn + tokOut > tokenCap
+        ? ` — HIT the ${Math.round(tokenCap / 1000)}k-token cap, result may be incomplete.`
         : secs >= wallclockMs / 1000
           ? ` — HIT the ${Math.round(wallclockMs / 60_000)}-minute cap, result may be incomplete.`
           : "";
     const filesChanged = [...changed];
+    const codeFilesChanged = filesChanged.filter(
+      (p) => !DESIGN_MD_PATHS.has(pathPosix.normalize(p)),
+    );
+    const designNoChanges = isDesign && filesChanged.length === 0;
+    // 054 — wrote the guide but implemented nothing.
+    const designGuideOnly = isDesign && !designNoChanges && codeFilesChanged.length === 0;
+    if (streamActivity) {
+      emit({
+        type: "agent.activity",
+        sessionId: this.id,
+        messageId,
+        agent: specialist,
+        phase: "end",
+        title: capNote
+          ? `Design pass stopped${capNote}`
+          : designNoChanges
+            ? "Designer made no changes"
+            : designGuideOnly
+              ? "Wrote DESIGN.md — not yet implemented"
+              : `Design pass complete — ${codeFilesChanged.length} file(s) restyled`,
+      });
+    }
+    if (isDesign) {
+      // A design pass that changed nothing is a no-op, not a result. Do NOT
+      // let the parent relay a review/checklist as if work happened — that is
+      // exactly how "declared done when it wasn't" gets back in.
+      if (designNoChanges && !capNote) {
+        return {
+          output:
+            `Design pass changed NOTHING — 0 files, ${secs}s, ${rounds} rounds.\n` +
+            `model: ${model} · tokens: ${tokIn + tokOut}\n\n` +
+            "This is NOT a completed design pass. The Designer either could not run or produced only " +
+            "text. Do NOT relay a design review or checklist as if the app was redesigned, and do NOT " +
+            'say anything was "applied" or "restyled". Tell the user plainly: the Designer made no ' +
+            "changes. Show what it reported below, and offer to point it at a specific screen or run " +
+            "it again.\n\n" +
+            `Designer's report:\n${reply.slice(0, 3000)}`,
+          isError: true,
+        };
+      }
+      // 054 — wrote/updated DESIGN.md but did not implement it in the code.
+      if (designGuideOnly && !capNote) {
+        return {
+          output:
+            `Design pass wrote the design guide but did NOT implement it — DESIGN.md changed, 0 code ` +
+            `files. ${secs}s, ${rounds} rounds.\n\n` +
+            "The app does NOT yet match DESIGN.md. Do NOT call this done or say the app was redesigned. " +
+            "Tell the user: the Designer produced/updated the design guide, and the next design pass " +
+            '(or "keep going") will implement it against the code — which is cheaper now that the ' +
+            "guide exists. Relay the review below verbatim; it should already say NOT DONE on the " +
+            "implementation areas.\n\n" +
+            `Designer's report:\n${reply.slice(0, 5000)}`,
+          isError: true,
+        };
+      }
+      // 054 — the design pass restyled code but never established DESIGN.md.
+      // The visual changes have no written system behind them — the exact
+      // ad-hoc restyle DESIGN.md exists to replace. Only a hard error when
+      // NO guide exists anywhere (a later pass on an existing DESIGN.md may
+      // legitimately not touch it).
+      if (!capNote && codeFilesChanged.length > 0) {
+        const designMdExists = Boolean(
+          (await this.readFileOrNull("architecture/DESIGN.md")) ??
+            (await this.readFileOrNull("DESIGN.md")),
+        );
+        if (!designMdExists) {
+          return {
+            output:
+              `Design pass changed ${codeFilesChanged.length} code file(s) but NEVER wrote DESIGN.md, ` +
+              "and no design guide exists in the project. These visual changes have no written " +
+              "system behind them — that is the ad-hoc restyle DESIGN.md is meant to replace, and " +
+              "writing DESIGN.md is the FIRST thing a design pass must do.\n\n" +
+              "Do NOT call this done. Tell the user plainly: the Designer restyled without " +
+              'establishing the design guide. Run the design pass again (or "keep going") — it must ' +
+              "write DESIGN.md first, then implement it. Relay the review below verbatim.\n\n" +
+              `Designer's report:\n${reply.slice(0, 4000)}`,
+            isError: true,
+          };
+        }
+      }
+      const handBack = this.options.architectMode
+        ? "Now dispatch ONE more dispatch_task with verify:true and acceptanceCriteria set to " +
+          '"the app still renders, the core flows still work, typecheck and build pass" — a fresh ' +
+          "session confirms the design pass broke nothing. Only if that re-verify comes back clean " +
+          "may you say the build is done. A FAIL there means the design pass regressed something: " +
+          'say so and offer "keep going" or Engineer Mode. Do not declare done on the design pass alone.'
+        : "Confirm the app still renders (start_preview, then check the page and the console). Then " +
+          "give the user the review above and the preview URL. Report ONLY what the Designer actually " +
+          `changed this pass (${codeFilesChanged.length} code file(s)` +
+          `${filesChanged.length > codeFilesChanged.length ? " + DESIGN.md" : ""}) — do not claim ` +
+          'anything was "applied" that is not in that list. If anything regressed, say what and fix ' +
+          "it before you call it done.";
+      return {
+        output:
+          `Design pass finished${capNote}\n` +
+          `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
+          `files changed (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
+          "This is the Designer's own report. Relay its DESIGN REVIEW to the user VERBATIM — do not " +
+          'write your own, do not turn a FAIL or NOT DONE into a PASS, do not add the word "done". ' +
+          "If it starts with NOT VERIFIED, the design pass did not properly run — say so plainly and " +
+          "do not dress it up.\n\n" +
+          `${reply.slice(0, 6000)}\n\n` +
+          handBack,
+      };
+    }
     if (isVerify) {
       return {
         output:
           `Verification finished${capNote}\n` +
           `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
           `files written (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
-          `COMPLETION CHECKLIST (relay this to the user verbatim — do not summarise it into ` +
-          `"all good"):\n${reply.slice(0, 4000)}\n\n` +
-          "If any line is FAIL, the project is 'built, not cleared' on that point — say so plainly " +
-          "and point the user at architecture/risks.md. Only claim 'done' for what the checklist " +
-          "marked PASS.",
+          "This is the verifier's own report. Your final message to the user is THIS CHECKLIST, " +
+          "verbatim — do not write a checklist of your own, do not change a FAIL to a PASS, do not " +
+          'add "verified" or "all done".\n\n' +
+          `${reply.slice(0, 6000)}\n\n` +
+          "Then, based only on what it says: if it starts with NOT VERIFIED, or any line is FAIL, or " +
+          "it hit a cap — the build is NOT working. Say plainly what failed, and that the user can " +
+          'reply "keep going" (the build continues and re-verifies) or switch to Engineer Mode to ' +
+          "finish it. Do NOT declare the project done or ready. Only if every line is PASS may you " +
+          "say the build is verified and running, and give the preview URL.",
       };
     }
     return {
@@ -813,6 +1288,10 @@ export class AgentSession {
     // than accepting one uncorrected turn.
     let anyFileChangedThisTurn = false;
     let purposeCheckDone = false;
+    // Architect Mode: whether the "your reply was empty — do the smaller
+    // thing" nudge has already been injected this turn. One-shot, so a model
+    // that stays empty even with guidance ends the turn instead of looping.
+    let emptyRecoveryDone = false;
     // Found live: a turn that keeps calling tools every single iteration
     // never reaches either check above, or the loop's own normal exit —
     // it just falls out when `iteration` reaches `maxIterations`, whatever
@@ -941,21 +1420,75 @@ export class AgentSession {
       for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
         if (signal.aborted) break;
 
-        const turn = this.conversation.stream(signal);
-        let next = await turn.next();
-        while (!next.done) {
-          const event = next.value;
-          if (event.type === "text") {
-            assistantText += event.text;
-            emit({ type: "text.delta", sessionId: this.id, messageId, text: event.text });
-          } else {
-            thinkingText += event.text;
-            emit({ type: "thinking.delta", sessionId: this.id, messageId, text: event.text });
+        // A model call that comes back wrong transiently is retried a few
+        // times with backoff before it becomes a visible error or a wasted
+        // turn. Two shapes count as transient here:
+        //   - it THREW: the provider is overloaded ("experiencing high
+        //     demand"), rate-limited, or the connection dropped;
+        //   - it returned NOTHING: no text, no tool calls, not a refusal —
+        //     an empty completion, which is almost always a provider hiccup
+        //     and otherwise leaves the user staring at "No changes were
+        //     made" with no way forward (found live: the Architect stalled
+        //     mid-package, every "proceed" producing an empty turn).
+        // Only retried while this attempt has streamed nothing, so a
+        // mid-stream failure or a real prose answer is never re-run.
+        const result = await (async () => {
+          for (let attempt = 0; ; attempt++) {
+            let streamedThisAttempt = false;
+            const backoff = async (why: string): Promise<void> => {
+              const waitMs = MODEL_RETRY_BASE_MS * 2 ** attempt;
+              emit({
+                type: "error",
+                sessionId: this.id,
+                code: "retrying",
+                message: `${why} — retrying (${attempt + 1}/${MODEL_RETRY_MAX}) in ${Math.round(
+                  waitMs / 1000,
+                )}s…`,
+                fatal: false,
+              });
+              await new Promise((r) => setTimeout(r, waitMs));
+            };
+            try {
+              const turn = this.conversation.stream(signal);
+              let next = await turn.next();
+              while (!next.done) {
+                const event = next.value;
+                streamedThisAttempt = true;
+                if (event.type === "text") {
+                  assistantText += event.text;
+                  emit({ type: "text.delta", sessionId: this.id, messageId, text: event.text });
+                } else {
+                  thinkingText += event.text;
+                  emit({ type: "thinking.delta", sessionId: this.id, messageId, text: event.text });
+                }
+                next = await turn.next();
+              }
+              const value = next.value;
+              const emptyCompletion =
+                !streamedThisAttempt &&
+                value.toolCalls.length === 0 &&
+                value.stopReason !== "refusal";
+              if (emptyCompletion && !signal.aborted && attempt < MODEL_RETRY_MAX) {
+                await backoff("The model returned an empty response");
+                continue;
+              }
+              return value;
+            } catch (err) {
+              const code = classifyProviderError(this.options.provider, err);
+              const transient =
+                code === "model_error" || code === "rate_limited" || code === "connection";
+              if (
+                !transient ||
+                streamedThisAttempt ||
+                signal.aborted ||
+                attempt >= MODEL_RETRY_MAX
+              ) {
+                throw err;
+              }
+              await backoff(describeProviderError(this.options.provider, err));
+            }
           }
-          next = await turn.next();
-        }
-
-        const result = next.value;
+        })();
         this.tokensIn += result.usage.inputTokens;
         this.tokensOut += result.usage.outputTokens;
         emit({
@@ -1036,6 +1569,31 @@ export class AgentSession {
             );
             continue;
           }
+
+          // The model produced nothing at all this turn — no text, no tools —
+          // even after the retry ceiling. In Architect Mode this is almost
+          // always a stall on the big report.html render. Nudge it ONCE with
+          // explicit un-stick guidance (do the smaller thing; the report is
+          // not a gate) rather than ending the turn dead.
+          if (
+            this.options.architectMode &&
+            !emptyRecoveryDone &&
+            assistantText.trim().length === 0 &&
+            toolCalls.length === 0
+          ) {
+            emptyRecoveryDone = true;
+            this.conversation.addUserMessage(
+              "Your last response was empty. Do not attempt the same large output again. If you were " +
+                "rendering architecture/report.html and it is too big for one response: write a SHORT " +
+                "version covering the key sections, or write it section by section — or skip it for now. " +
+                "The package under architecture/ is what matters, not the report. If the package is " +
+                'otherwise complete and you have not yet, write the "' +
+                ARCHITECT_READY_MARKER +
+                '" line now. Never reply with nothing — do the smaller thing.',
+            );
+            continue;
+          }
+
           stoppedByBreak = true;
           break;
         }
@@ -1147,6 +1705,41 @@ export class AgentSession {
             const architectBlock = this.options.architectMode
               ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
               : null;
+            // 053 — a specialist child with a structural write scope (the
+            // Designer). Refuse a write/edit/delete outside the allowlist, and
+            // refuse a package install of anything off the dependency
+            // allowlist — before the real tool runs.
+            const scopeBlock: "path" | "dep" | null = (() => {
+              const allow = this.options.writeAllowlist;
+              if (!allow) return null;
+              if (
+                toolCall.name === "write_file" ||
+                toolCall.name === "edit_file" ||
+                toolCall.name === "delete_file"
+              ) {
+                const raw =
+                  typeof (toolCall.input as { path?: unknown }).path === "string"
+                    ? (toolCall.input as { path: string }).path
+                    : "";
+                return allow(pathPosix.normalize(raw)) ? null : "path";
+              }
+              if (toolCall.name === "run_command") {
+                const cmd =
+                  typeof (toolCall.input as { command?: unknown }).command === "string"
+                    ? (toolCall.input as { command: string }).command
+                    : "";
+                const m = INSTALL_CMD_RE.exec(cmd);
+                if (!m) return null;
+                const pkgs = (m[1] ?? "")
+                  .split(/\s+/)
+                  .map((s) => s.trim())
+                  .filter((s) => s && !s.startsWith("-") && s !== "install" && s !== "add");
+                return pkgs.every((p) => DESIGNER_DEP_ALLOW.has(p.replace(/@[\d^~].*$/, "")))
+                  ? null
+                  : "dep";
+              }
+              return null;
+            })();
             // 050 R2.2 — a write/edit to architecture/report.html is checked
             // on the COMPLETE resulting file, not the tool input, so active
             // content cannot be assembled across edit_file calls or survive
@@ -1165,7 +1758,9 @@ export class AgentSession {
             // The user opened this turn telling the Architect to stop — do
             // not spawn a builder, whatever the model asked for. Writes are
             // left alone (see the isHaltRequest comment).
-            const haltBlocked = isHaltRequest && toolCall.name === "dispatch_task";
+            const haltBlocked =
+              isHaltRequest &&
+              (toolCall.name === "dispatch_task" || toolCall.name === "design_pass");
             // Interview not closed yet: the only package files that may be
             // written are requirements.md and README.md.
             const archInterviewPath =
@@ -1218,39 +1813,76 @@ export class AgentSession {
                         toolCall.input as Record<string, unknown>,
                         signal,
                         toolContext.onFileChanged,
+                        emit,
+                        messageId,
                       )
-                    : architectBlock
-                      ? {
-                          output:
-                            architectBlock === "exec"
-                              ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
-                                "disabled for this session. You are planning, not building. Write the design into " +
-                                `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
-                              : architectBlock === "artifact"
-                                ? `Architect Mode writes only the design package under ${ARCHITECT_WRITE_ROOT} — refusing ` +
-                                  `"${String((toolCall.input as { path?: unknown }).path ?? "")}". Allowed: README.md, ` +
-                                  "requirements.md, data-model.md, api.md, infrastructure.md, build-plan.md, risks.md, " +
-                                  "decisions/NNNN-<slug>.md, and report.html. Nothing else — no config, no code, no scripts."
-                                : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
-                                  `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
-                                  `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
-                          isError: true,
-                        }
-                      : capped
+                    : toolCall.name === "design_pass"
+                      ? await this.dispatchBuildTask(
+                          {
+                            task:
+                              typeof (toolCall.input as { scope?: unknown }).scope === "string" &&
+                              (toolCall.input as { scope: string }).scope.trim()
+                                ? (toolCall.input as { scope: string }).scope
+                                : "the whole application",
+                            acceptanceCriteria: DESIGN_DOD,
+                            ...(typeof (toolCall.input as { notes?: unknown }).notes === "string"
+                              ? { notes: (toolCall.input as { notes: string }).notes }
+                              : {}),
+                            design: true,
+                          },
+                          signal,
+                          toolContext.onFileChanged,
+                          emit,
+                          messageId,
+                        )
+                      : architectBlock
                         ? {
-                            output: newFileCapped
-                              ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
-                                `create another new file ("${path}"). Nothing that changes the project will run for the ` +
-                                "rest of this turn, not just new files. Stop here: your final message should summarize " +
-                                "what exists so far, and if you're not certain this is actually what was asked, ask the " +
-                                "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
-                                "— the user's next message continues it, with a fresh checkpoint of its own."
-                              : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
-                                `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
-                                "now instead.",
+                            output:
+                              architectBlock === "exec"
+                                ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
+                                  "disabled for this session. You are planning, not building. Write the design into " +
+                                  `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
+                                : architectBlock === "artifact"
+                                  ? `Architect Mode writes only the design package under ${ARCHITECT_WRITE_ROOT} — refusing ` +
+                                    `"${String((toolCall.input as { path?: unknown }).path ?? "")}". Allowed: README.md, ` +
+                                    "requirements.md, data-model.md, api.md, infrastructure.md, build-plan.md, risks.md, " +
+                                    "decisions/NNNN-<slug>.md, and report.html. Nothing else — no config, no code, no scripts."
+                                  : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
+                                    `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
+                                    `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
                             isError: true,
                           }
-                        : await executeTool(toolContext, toolCall.name, toolCall.input);
+                        : scopeBlock
+                          ? {
+                              output:
+                                scopeBlock === "path"
+                                  ? `The Designer may write only client UI files — refusing "${toolCall.name}" on ` +
+                                    `"${String((toolCall.input as { path?: unknown }).path ?? "")}". You can touch ` +
+                                    "components, styles, the theme/tokens, index.html, and Tailwind/PostCSS config — " +
+                                    "not the server, the schema, build config, CI, package.json, or .env. Restyle " +
+                                    "within scope; if the design needs a structural change, say so in your report " +
+                                    "instead of making it."
+                                  : "The Designer may install only styling and icon utilities (clsx, tailwind-merge, " +
+                                    "class-variance-authority, tailwindcss-animate, lucide-react, @radix-ui/react-icons, " +
+                                    "@heroicons/react). Refusing this install — a framework or component library the " +
+                                    "project did not choose is out of scope. Use what is already in package.json.",
+                              isError: true,
+                            }
+                          : capped
+                            ? {
+                                output: newFileCapped
+                                  ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
+                                    `create another new file ("${path}"). Nothing that changes the project will run for the ` +
+                                    "rest of this turn, not just new files. Stop here: your final message should summarize " +
+                                    "what exists so far, and if you're not certain this is actually what was asked, ask the " +
+                                    "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
+                                    "— the user's next message continues it, with a fresh checkpoint of its own."
+                                  : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
+                                    `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
+                                    "now instead.",
+                                isError: true,
+                              }
+                            : await executeTool(toolContext, toolCall.name, toolCall.input);
             // 050 R2.2/R2.3 — validate the whole report.html after the write.
             // This is a fail-fast advisory (the render-time sanitiser in
             // PlanPanel is the authoritative control); on a trip it rolls the
@@ -1307,6 +1939,25 @@ export class AgentSession {
               !newFilesThisTurn.has(filePath) &&
               !GENERATED_LOCKFILE_NAMES.has(filePath),
           );
+          // 053 — a specialist with a write scope (the Designer) must not
+          // create out-of-scope files through the shell either. This is
+          // reactive — the file exists by the time the command returns — so
+          // it trips the checkpoint and says plainly what happened.
+          const allow = this.options.writeAllowlist;
+          if (allow) {
+            const outOfScope = newlyAppeared.filter(
+              (p) => !allow(pathPosix.normalize(p)) && !GENERATED_LOCKFILE_NAMES.has(p),
+            );
+            if (outOfScope.length > 0 && !checkpointReached) {
+              checkpointReached = true;
+              this.conversation.addUserMessage(
+                `A shell command just created ${outOfScope.length} file(s) outside the Designer's write ` +
+                  `scope (${outOfScope.slice(0, 5).join(", ")}). The Designer polishes client UI only. ` +
+                  "Nothing further will run this turn. Revert those files and return your checklist with " +
+                  "the structural change noted, not made.",
+              );
+            }
+          }
           if (newlyAppeared.length > 0) {
             const wasUnderCap = newFilesThisTurn.size < NEW_FILE_CHECKPOINT;
             for (const filePath of newlyAppeared) newFilesThisTurn.add(filePath);
@@ -1383,8 +2034,41 @@ export class AgentSession {
       const hasRealText = assistantText.trim().length > 0;
       let addition = "";
       if (!refused && hitIterationCap) {
-        const summary = this.synthesizeFallbackSummary(toolCalls, true);
+        // A turn that ran out of steps while still calling tools never
+        // reached the end-of-turn verification path — so if it was editing
+        // code, it may have left the build broken (a half-finished refactor,
+        // a bad edit it was mid-way through fixing). Check now, and lead the
+        // fallback with the breakage instead of a reassuring "more to do".
+        let brokenNote = "";
+        if (!this.options.architectMode && anyFileChangedThisTurn) {
+          try {
+            const check = await this.needsVerification(toolContext);
+            if (check) {
+              const outcome = await this.runVerification(toolContext, check);
+              if (outcome.failed) {
+                brokenNote =
+                  "⚠️ The app is BROKEN right now — this turn ran out of steps before it finished. " +
+                  'Reply "keep going" to continue the fix, or use "Undo this turn" to revert.\n\n' +
+                  `${outcome.output.slice(0, 2000)}\n\n`;
+              }
+            }
+          } catch {
+            // A best-effort check; never let it throw out of the fallback.
+          }
+        }
+        const summary = brokenNote + this.synthesizeFallbackSummary(toolCalls, true);
         addition = hasRealText ? `\n\n${summary}` : summary;
+      } else if (!refused && !hasRealText && this.options.architectMode && emptyRecoveryDone) {
+        // Architect Mode: retries and the one-shot nudge both failed to get
+        // anything out of the model. Give the user a real way forward
+        // instead of "No changes were made".
+        addition =
+          "The model kept returning an empty response — usually the report render being too large " +
+          "for this model. The design package under architecture/ (requirements, decisions, " +
+          "data-model, api, infrastructure, build-plan, risks) is written and buildable; only " +
+          'architecture/report.html may be missing or short. You can: say "skip the report" to ' +
+          'proceed without it, switch to a stronger model in the composer and say "regenerate the ' +
+          'report", or say "build it" — the build does not need report.html.';
       } else if (!refused && !hasRealText) {
         addition = this.synthesizeFallbackSummary(toolCalls, false);
       }

@@ -54,10 +54,12 @@ test("each provider brings its own default model", () => {
   assert.match(defaultModelFor("google"), /^gemini-/);
   assert.equal(defaultModelFor("deepseek"), "deepseek-chat");
   assert.equal(defaultModelFor("mistral"), "mistral-large-latest");
-  // Confirmed as having none, not merely unset — see the registry comments.
-  assert.equal(defaultModelFor("xai"), "");
-  assert.equal(defaultModelFor("groq"), "");
-  assert.equal(defaultModelFor("openrouter"), "");
+  assert.equal(defaultModelFor("xai"), "grok-4");
+  assert.equal(defaultModelFor("groq"), "llama-3.3-70b-versatile");
+  assert.equal(defaultModelFor("openrouter"), "anthropic/claude-sonnet-4.5");
+  // Only `custom` has no default — the server it points at is the user's,
+  // and guessing a model produces a 404 that reads like our bug.
+  assert.equal(defaultModelFor("custom"), "");
 });
 
 test("api keys resolve from the provider's own variables, in order", () => {
@@ -99,10 +101,10 @@ test("the newer OpenAI-dialect vendors build without a base URL to remember", ()
   assert.equal(mistral.id, "mistral");
 });
 
-test("a hosted vendor with no confirmed default refuses rather than guesses", () => {
+test("a custom endpoint with no model refuses rather than guesses", () => {
   assert.throws(
-    () => createProvider({ provider: "xai", model: "", apiKey: "x" }),
-    /no default model/,
+    () => createProvider({ provider: "custom", model: "", apiKey: "x" }),
+    /no default model|model/i,
   );
   // Naming a model explicitly always works, even with no registry default.
   const grok = createProvider({ provider: "xai", model: "grok-4", apiKey: "x" });

@@ -20,7 +20,7 @@ live.
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](./CONTRIBUTING.md)
 
 [Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
-[How it works](#how-it-works) · [Architecture](./docs/architecture.md) ·
+[How it works](#how-it-works) · [Modes](./docs/modes.md) · [Architecture](./docs/architecture.md) ·
 [Configuration](./docs/configuration.md) · [Self-hosting](./docs/self-hosting.md) ·
 [Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
 
@@ -58,8 +58,16 @@ responsibly. Zelyq's agent is built toward the second one:
   and why, in a sentence or two, not silently.
 - **It plans before it builds, when the ask is big enough to need one.** **Architect Mode** turns a
   vague request into a real design package first — requirements, decisions with the alternative named
-  and why it lost, a build plan broken into review-sized tasks — and waits for you to say "build it"
-  before writing any code.
+  and why it lost, a data model and API, a `DESIGN.md` design system, a build plan broken into
+  review-sized tasks — and waits for you to say "build it" before writing any code. Then it
+  dispatches each task to a bounded builder, has a separate session verify the running app, and
+  claims "done" only against a checklist it can show you. Turn on **Auto Mode** and it runs the
+  passes itself, to a hard ceiling, instead of you typing "keep going".
+- **It has specialists.** After a build verifies, the **Designer agent** takes the working app,
+  writes or deepens its `DESIGN.md`, and applies it — a coherent design system, real hierarchy,
+  every state styled, no generic-AI look — then a fresh session re-verifies nothing broke. In
+  Engineer Mode you can call it yourself: *"make it look professionally designed."* Its work
+  streams into the chat as a labelled sub-thread. See [docs/modes.md](./docs/modes.md).
 - **It builds what was asked, then stops.** No invented navbars, no sample-data toggles nobody
   requested, no filling a vague ask with guesses. A request too shapeless to build responsibly gets one
   clarifying question instead of eight files you didn't want.

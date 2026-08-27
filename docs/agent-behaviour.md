@@ -65,6 +65,35 @@ The same system prompt and tools are used for every provider. If a model behaves
 prefer fixing the prompt or a tool description over branching on the provider — a per-vendor prompt
 fork doubles the surface that has to be tuned and tested.
 
+## Modes and specialists
+
+The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
+
+- **Engineer / Architect Mode** — addenda built into the system prompt
+  (`buildEngineerModeAddendum` / `buildArchitectModeAddendum` in
+  `prompt.ts`), with structural gates at the tool boundary in
+  `session.ts` (`architectModeBlock`, the interview and dispatch gates,
+  the per-turn new-file caps). The server rejects both modes at once.
+- **Auto Mode** — `session.autoNextPass(emit)` decides between passes
+  (kill switch → stuck detection → three ceilings: `AUTO_MAX_PASSES` /
+  `AUTO_MAX_TOKENS` / `AUTO_MAX_WALLCLOCK_MS`). The agent's prompt route
+  loops `while (autoNextPass) run("keep going")`, streaming each pass.
+- **Dispatched children** — `dispatchBuildTask` runs a bounded
+  Engineer-Mode `AgentSession` for one of three roles: a **builder**
+  (one build-plan task, lean tool set), the **verifier** (`verify: true`
+  — preview + inspection tools, builds and walks the running app, returns
+  a checklist), or the **Designer** (`design: true` / the `design_pass`
+  tool — `DESIGNER_SYSTEM_PROMPT`, a client-UI + `DESIGN.md` write
+  allowlist enforced in the child via `SessionOptions.writeAllowlist`,
+  the two design skill bodies injected). A child's notable steps are
+  forwarded to the parent's stream as `agent.activity` events; the web
+  renders them as a labelled sub-thread.
+- **Honesty gates** on a design pass (in the `isDesign` return branch):
+  0 files, or only `DESIGN.md`, or code-changed-but-no-guide-exists each
+  come back `isError: true` with what actually happened, not a review.
+  A turn that hits its iteration cap having edited files runs the
+  verification check and leads the fallback with the breakage.
+
 ## Why tool errors are not exceptions
 
 Every failure inside `executeTool` comes back as `{ isError: true, output }`. A file that does not

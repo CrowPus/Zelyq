@@ -1,0 +1,21 @@
+# Replica Definition of Done
+
+- [ ] Replica Contract exists
+- [ ] Asset rights/provenance known
+- [ ] Golden reference matrix captured
+- [ ] Reference environment recorded
+- [ ] Fonts settled before captures
+- [ ] Page/component inventory complete
+- [ ] Typography fingerprint complete
+- [ ] Asset/crop fingerprint complete
+- [ ] Major geometry measured
+- [ ] Interaction state matrix covered
+- [ ] Scroll/sticky behavior checked
+- [ ] Responsive transitions observed
+- [ ] Intermediate widths tested
+- [ ] Replica captures produced
+- [ ] Visual diffs reviewed
+- [ ] Major mismatches resolved
+- [ ] Semantics/keyboard behavior production-safe
+- [ ] Remaining gaps documented
+- [ ] Evaluation rubric passes

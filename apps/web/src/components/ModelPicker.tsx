@@ -44,17 +44,21 @@ export function ModelPicker({ value, onChange }: Props) {
   if (groups.length === 0) return null;
 
   return (
-    <div className="relative">
+    // shrink-0 + a fixed-width trigger: the button row must not move when the
+    // model name is long. The name truncates inside a constant box; the full
+    // label is on hover and in the menu.
+    <div className="relative shrink-0">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Choose a model for this conversation"
-        className="flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
+        title={value?.label ?? "Default"}
+        className="flex w-[7.5rem] items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
       >
-        <span className="max-w-[12rem] truncate">{value?.label ?? "Default"}</span>
-        <ChevronDown size={11} strokeWidth={2} />
+        <span className="min-w-0 flex-1 truncate text-left">{value?.label ?? "Default"}</span>
+        <ChevronDown size={11} strokeWidth={2} className="shrink-0" />
       </button>
 
       {open && (

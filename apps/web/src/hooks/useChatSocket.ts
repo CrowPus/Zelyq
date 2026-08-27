@@ -1,11 +1,26 @@
 import type { AgentEvent, AttachmentRef, Message, ServerMessage, ToolCall } from "@zelyq/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+/** 053 — one line of a specialist child agent's live activity (the Designer,
+ * the verifier). Shown as a labelled sub-thread under the streaming turn. */
+export interface AgentActivity {
+  agent: "designer" | "verifier" | "builder";
+  phase: "start" | "step" | "end";
+  title: string;
+  detail?: string;
+}
+
 export interface ChatState {
   status: "connecting" | "open" | "closed";
   messages: Message[];
   /** The assistant turn currently streaming, if any. */
-  streaming: { messageId: string; text: string; thinking: string; toolCalls: ToolCall[] } | null;
+  streaming: {
+    messageId: string;
+    text: string;
+    thinking: string;
+    toolCalls: ToolCall[];
+    activity: AgentActivity[];
+  } | null;
   busy: boolean;
   error: string | null;
   tokensIn: number;
@@ -149,8 +164,33 @@ function reduce(
         ...state,
         busy: true,
         error: null,
-        streaming: { messageId: message.messageId, text: "", thinking: "", toolCalls: [] },
+        streaming: {
+          messageId: message.messageId,
+          text: "",
+          thinking: "",
+          toolCalls: [],
+          activity: [],
+        },
       };
+
+    case "agent.activity":
+      return state.streaming
+        ? {
+            ...state,
+            streaming: {
+              ...state.streaming,
+              activity: [
+                ...state.streaming.activity,
+                {
+                  agent: message.agent,
+                  phase: message.phase,
+                  title: message.title,
+                  ...(message.detail ? { detail: message.detail } : {}),
+                },
+              ],
+            },
+          }
+        : state;
 
     case "text.delta":
       return state.streaming

@@ -14,9 +14,17 @@ import { createProvider } from "../src/providers/index.js";
 function clientOf(provider: AnthropicProvider): {
   apiKey: string | null;
   authToken: string | null;
+  _options: { defaultHeaders?: Record<string, string> };
 } {
-  return (provider as unknown as { client: { apiKey: string | null; authToken: string | null } })
-    .client;
+  return (
+    provider as unknown as {
+      client: {
+        apiKey: string | null;
+        authToken: string | null;
+        _options: { defaultHeaders?: Record<string, string> };
+      };
+    }
+  ).client;
 }
 
 test("default auth mode sends the value as a classic API key", () => {
@@ -38,6 +46,10 @@ test("subscription mode sends the value as a bearer token, never as an api key",
   const client = clientOf(provider);
   assert.equal(client.authToken, "cli-issued-oauth-token");
   assert.equal(client.apiKey, null);
+  assert.equal(
+    client._options.defaultHeaders?.["anthropic-beta"],
+    "claude-code-20250219,oauth-2025-04-20",
+  );
 });
 
 test("createProvider threads authMode through to AnthropicProvider", () => {
