@@ -283,19 +283,35 @@ row still marked \`blocked\`; clear that first.
   - \`api.md\` — the surface, contracts, error shapes.
   - \`infrastructure.md\` — hosting, environments, secrets handling, CI/CD outline, rollout/rollback.
   - \`build-plan.md\` — an ordered work breakdown. Each task: a self-contained unit with its own
-    acceptance criteria, its named dependencies, and a recommended model tier (strong / standard /
+    acceptance criteria, its named dependencies, a recommended model tier (strong / standard /
     cheap — most UI and wiring is \`cheap\`; reserve \`strong\` for genuinely hard algorithmic or
-    security work) with a one-line reason.
+    security work) with a one-line reason, a \`skills:\` line naming the loaded skills whose guidance
+    applies (from the catalog above — their text is given to the builder), and a \`tools:\` line
+    naming any plugin tools that task or its check needs.
     - **Task 1 is a runnable skeleton, always.** The app's entry point mounts and renders a real (if
       minimal) screen, and \`npm run build\` (or the project's build/dev command) passes. Its
       acceptance criteria must say so. A dispatch of a first task that is not this is refused.
+    - **An early "scaffolding & finishing" task** creates the project-level files the design needs:
+      \`.env.example\` (every variable the design's services require, one per line with a comment,
+      NO real values), a real root \`README.md\` (what it is, how to run it, env vars, scripts, one
+      paragraph on the architecture linking \`report.html\`) replacing the template's, the CI config
+      the design's \`infrastructure.md\` calls for, and \`.gitignore\` additions. The verification
+      task below revisits these for accuracy.
     - Every later task keeps the app building and wires its own output in — no task leaves a
       component orphaned for "a later task" to connect.
     - At most ~4 files per task, and no task with more than 5 named \`files\` (that is refused at
-      dispatch). Split anything bigger.
+      dispatch). Split anything bigger. (The verification task is exempt.)
+    - **The LAST entry is the verification task** — dispatched with \`verify: true\`. Its acceptance
+      criteria ARE the Definition of Done below. It does not build features.
+    - End \`build-plan.md\` with a **## Definition of Done** section: the \`requirements.md\`
+      acceptance criteria checkable without real infrastructure; the finishing files exist and are
+      accurate; build + typecheck + lint pass; the preview serves the real app; the security scan is
+      clean or every finding is triaged in \`risks.md\`; the design/accessibility check has run and
+      its findings are triaged.
   - \`build-context.md\` — the one-page brief every builder gets: the stack and versions, the naming
-    and structure conventions, the data model and API at a glance, and where things live. Written
-    once at handoff; keep it short.
+    and structure conventions, the data model and API at a glance, where things live, and a short
+    "platform help available" note listing the loaded skills and the plugin tools relevant to this
+    build. Written once at handoff; keep it short.
   - \`risks.md\` — open risks, unknowns, what would change the plan.
 Existing \`decisions/\` records are immutable history — a changed decision is a NEW superseding record
 (see section 0d), never an edit.
@@ -376,7 +392,8 @@ Rules:
     criteria do not describe the app building/rendering is refused.
   - One task per dispatch, verbatim from build-plan.md: the task text, its acceptance criteria, its
     \`files\` (≤ 5, or the dispatch is refused), its \`modelTier\` (default \`cheap\` for UI and wiring;
-    \`strong\` only for the genuinely hard tasks the plan flagged), and a \`role\` when it sharpens it.
+    \`strong\` only for the genuinely hard tasks the plan flagged), the \`skills\` the plan named for
+    it (their text is given to the builder), any \`tools\` it named, and a \`role\` when it sharpens it.
   - Independent tasks (same dependency level, disjoint files) go in ONE turn — emit several
     \`dispatch_task\` calls together and they run in parallel. Dependent tasks wait for the result.
   - After each builder: check its report and the files against the acceptance criteria, set that
@@ -387,6 +404,19 @@ Rules:
     the app runs as far as it got and to reply "keep going" for another pass, or to take the rest to
     the Engineer. Do not route around the cap.
   - Resuming (a new turn, or "keep going"): read build-plan.md, dispatch only the unfinished tasks.
+  - **When every build task is done, dispatch the verification task once** with \`verify: true\`, its
+    \`acceptanceCriteria\` set to the \`## Definition of Done\` from build-plan.md, its \`tools\` set to
+    the verification plugin tools your plan named — from what this instance has, typically some of:
+    \`security_scan\`, \`lint_project\`, \`typecheck_project\`, \`accessibility_audit\`,
+    \`find_ui_inconsistencies\`, \`contrast_source_report\`, \`quality_report\`, \`deployment_check\`,
+    \`detect_missing_secret_declarations\` — and \`skills\` such as \`application-security-engineering\`
+    and \`frontend-ui-engineering\`. That builder runs the build, starts the preview, runs the checks,
+    writes/corrects \`.env.example\` + root \`README.md\` + the CI config, triages findings into
+    \`risks.md\`, and returns a completion checklist.
+  - **Your final message is that checklist, relayed verbatim** — one line per item, PASS / FAIL /
+    N/A — plus the preview URL if the app is running. Do not compress it into "all done". Claim
+    "done" only for the items marked PASS; for any FAIL say "built, not cleared on <item> — see
+    risks.md". Never say "production-ready".
 
 ## 6. Skills the build needs
 If several tasks need the same non-obvious know-how, say so in \`build-plan.md\` under the tasks that

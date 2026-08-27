@@ -239,6 +239,10 @@ const BUILDER_TOOL_NAMES = [
   "run_command",
 ];
 
+// 051 Part A — the verifier dispatch gets the preview tools back on top of
+// the builder set, plus whatever plugin tools the plan named for the checks.
+const VERIFIER_EXTRA_TOOL_NAMES = ["start_preview", "preview_logs", "view_preview"];
+
 // 049 Phase 1 — the builder's whole system prompt. It gets ONE specified task
 // with acceptance criteria, a project brief, and a file map; it does not need
 // the interview/scope-negotiation machinery of the full agent prompt.
@@ -253,6 +257,24 @@ Do exactly that task:
 - Never invent API keys, secrets, or backend URLs. Build against clearly-marked placeholder data and note what the user must supply.
 
 When done, state in two or three sentences what you changed and whether each acceptance criterion is met. If you could not finish, say exactly what remains.`;
+
+// 051 Part A — the verifier's whole system prompt. It runs AFTER the last
+// build task: it does not build features, it checks the project is a
+// complete, running, documented whole and writes the finishing files.
+const VERIFIER_SYSTEM_PROMPT = `You are the verifier for a project a team of builders just finished. You do NOT build features. Your job is to confirm the project is a complete, running, documented whole — and to write the small set of project-level files a finished project needs.
+
+Work through the Definition of Done you are given. For each item, actually check it:
+- Run the build/typecheck/lint command the project declares. Record pass/fail with the real output.
+- Start the preview and confirm it serves the actual app, not the starter template. Read preview_logs if it does not come up.
+- Run each verification tool you were given (security scan, accessibility/design checks). Do not fix what they find — record each finding.
+- Confirm the finishing files exist and are accurate against what was actually built, and create or correct them:
+  - .env.example: every environment variable the project's code and the design need, one per line with a short comment, and NO real secret values.
+  - README.md at the project root: what it is, how to run it, the env vars, the scripts, one paragraph on the architecture with a link to architecture/report.html. Replace any starter-template README.
+  - the CI config the design calls for, only for a stack you have a safe template for, with a header comment saying it was generated from the design and is unverified on a real runner.
+  - .gitignore additions for anything the build introduced that should not be committed.
+- Triage every security-scan and design/a11y finding into architecture/risks.md under a dated "## Verification findings" heading — each with a one-line consequence and a decision (accept / must-fix / deferred).
+
+Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item, each marked PASS, FAIL, or N/A, with a one-line reason. Be honest: a FAIL is a FAIL. End with the preview URL if the app is running, or "preview not running: <reason>".`;
 
 type Emit = (event: AgentEvent) => void;
 
@@ -500,9 +522,14 @@ export class AgentSession {
       };
     }
 
+    // 051 Part A — the final verification & finishing dispatch. Exempt from
+    // the runnable-first and file-count gates (it touches many project files
+    // by design); gets the preview tools and the named plugin tools.
+    const isVerify = input.verify === true;
+
     // 049 Phase 1 — task-size ceiling. A bounded builder cannot land a task
     // with a dozen files; refuse and make the Architect split it.
-    if (input.files && input.files.length > BUILDER_FILES_MAX) {
+    if (!isVerify && input.files && input.files.length > BUILDER_FILES_MAX) {
       return {
         output:
           `This task names ${input.files.length} files — a builder takes at most ${BUILDER_FILES_MAX}. ` +
@@ -516,7 +543,7 @@ export class AgentSession {
     // skeleton: the app's entry point renders something and the build/dev
     // command passes. Keyed to that outcome in the acceptance criteria, not
     // to a hardcoded filename (a Node API or a CLI has no App.tsx).
-    if (!this.orchestration.firstDispatchDone) {
+    if (!isVerify && !this.orchestration.firstDispatchDone) {
       const ac = input.acceptanceCriteria.toLowerCase();
       const looksRunnable =
         /\b(build|dev server|typecheck|npm run|preview|start)\b/.test(ac) &&
@@ -581,6 +608,29 @@ export class AgentSession {
           .join("\n")}`
       : "\n\nThe project has no source files yet — you are laying the first ones.";
 
+    // 051 Part A — inject the bodies of the skills the plan named for this
+    // task. The lean builder has no use_skill tool, so it gets the text.
+    const skillsBlock = (() => {
+      const names = input.skills ?? [];
+      if (!names.length || !this.options.resolveSkillBody) return "";
+      const bodies = names
+        .map((name) => {
+          const body = this.options.resolveSkillBody?.(name)?.body;
+          return body ? `### Skill: ${name}\n${body}` : "";
+        })
+        .filter(Boolean)
+        .join("\n\n");
+      return bodies ? `\n\nGUIDANCE FROM SKILLS THIS TASK NEEDS:\n${bodies.slice(0, 14000)}` : "";
+    })();
+
+    // 051 Part A — the verifier gets the preview tools and the plan's named
+    // plugin tools on top of the builder set, and a longer wall-clock (build
+    // + preview + several scans).
+    const toolNames = isVerify
+      ? [...BUILDER_TOOL_NAMES, ...VERIFIER_EXTRA_TOOL_NAMES, ...(input.tools ?? [])]
+      : BUILDER_TOOL_NAMES;
+    const wallclockMs = isVerify ? 10 * 60_000 : SUBAGENT_WALLCLOCK_MS;
+
     const child = new AgentSession({
       sessionId: `${this.id}#sub${n}`,
       projectId: this.projectId,
@@ -596,24 +646,27 @@ export class AgentSession {
       maxIterations: SUBAGENT_MAX_TURNS,
       engineerMode: true,
       // 049 Phase 1 — lean profile: hand-written prompt, file/shell tools only.
-      systemPrompt: BUILDER_SYSTEM_PROMPT,
-      toolNames: BUILDER_TOOL_NAMES,
+      systemPrompt: isVerify ? VERIFIER_SYSTEM_PROMPT : BUILDER_SYSTEM_PROMPT,
+      toolNames,
       ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
     });
 
     const rolePrefix = input.role ? `You are the ${input.role} for this task. ` : "";
     const filesLine = input.files?.length
-      ? `\n\nExpected files (do not create others): ${input.files.join(", ")}`
+      ? `\n\n${isVerify ? "Files to check/write" : "Expected files (do not create others)"}: ${input.files.join(", ")}`
       : "";
     const briefBlock = buildContext
       ? `\n\nPROJECT BRIEF (stack, conventions, the shape of the design):\n${buildContext.slice(0, 8000)}`
       : "";
-    const prompt =
-      `${rolePrefix}Build exactly this one task and nothing else. Do not re-plan or expand scope. ` +
-      "Keep the app building after your change.\n\n" +
-      `TASK:\n${input.task}\n\nDONE WHEN:\n${input.acceptanceCriteria}${filesLine}${briefBlock}${existingBlock}\n\n` +
-      "When finished, state in two or three sentences what you changed and whether the acceptance " +
-      "criteria are met.";
+    const prompt = isVerify
+      ? `${rolePrefix}Verify this project and write its finishing files. Do not build features.\n\n` +
+        `DEFINITION OF DONE (check each item):\n${input.acceptanceCriteria}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
+        "Return the completion checklist as instructed."
+      : `${rolePrefix}Build exactly this one task and nothing else. Do not re-plan or expand scope. ` +
+        "Keep the app building after your change.\n\n" +
+        `TASK:\n${input.task}\n\nDONE WHEN:\n${input.acceptanceCriteria}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
+        "When finished, state in two or three sentences what you changed and whether the acceptance " +
+        "criteria are met.";
 
     let reply = "";
     let tokIn = 0;
@@ -621,7 +674,7 @@ export class AgentSession {
     let rounds = 0;
     let hitTurnCap = false;
     const changed = new Set<string>();
-    const wallclock = setTimeout(() => child.abort(), SUBAGENT_WALLCLOCK_MS);
+    const wallclock = setTimeout(() => child.abort(), wallclockMs);
     const onParentAbort = () => child.abort();
     parentSignal.addEventListener("abort", onParentAbort);
     const startedAt = Date.now();
@@ -655,10 +708,23 @@ export class AgentSession {
       ? " — HIT the 25-turn cap, result may be incomplete."
       : tokIn + tokOut > SUBAGENT_MAX_TOKENS
         ? " — HIT the 200k-token cap, result may be incomplete."
-        : secs >= SUBAGENT_WALLCLOCK_MS / 1000
-          ? " — HIT the 5-minute cap, result may be incomplete."
+        : secs >= wallclockMs / 1000
+          ? ` — HIT the ${Math.round(wallclockMs / 60_000)}-minute cap, result may be incomplete.`
           : "";
     const filesChanged = [...changed];
+    if (isVerify) {
+      return {
+        output:
+          `Verification finished${capNote}\n` +
+          `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
+          `files written (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
+          `COMPLETION CHECKLIST (relay this to the user verbatim — do not summarise it into ` +
+          `"all good"):\n${reply.slice(0, 4000)}\n\n` +
+          "If any line is FAIL, the project is 'built, not cleared' on that point — say so plainly " +
+          "and point the user at architecture/risks.md. Only claim 'done' for what the checklist " +
+          "marked PASS.",
+      };
+    }
     return {
       output:
         `Builder #${n} finished${capNote}\n` +

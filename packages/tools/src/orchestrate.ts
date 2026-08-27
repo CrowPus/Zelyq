@@ -51,6 +51,32 @@ export const dispatchTaskTool = defineTool({
         "An optional one-line role for the builder, e.g. 'database engineer' or 'frontend " +
           "engineer' — prepended to its instructions to focus it.",
       ),
+    skills: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Names of loaded skills whose guidance applies to this task — from the skills catalog. " +
+          "Their full text is injected into the builder's instructions (the builder has no " +
+          "use_skill tool).",
+      ),
+    tools: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Names of plugin tools this task or its verification needs (e.g. security_scan, " +
+          "accessibility_audit). Only meaningful together with verify; a normal builder gets the " +
+          "core file/shell tools regardless.",
+      ),
+    verify: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true for the ONE final verification dispatch after the last build task. That builder " +
+          "additionally gets the preview tools and the named plugin tools, is exempt from the " +
+          "runnable-first and file-count gates, runs the build + preview + the named checks, writes " +
+          "the finishing files (.env.example, root README, CI config), and returns a completion " +
+          "checklist. Do not use it for building.",
+      ),
   }),
   async run() {
     return {

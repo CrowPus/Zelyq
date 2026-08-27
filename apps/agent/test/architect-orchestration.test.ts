@@ -406,3 +406,50 @@ test("049: a task naming more than five files is refused at dispatch", async () 
     await close();
   }
 });
+
+test("051: the verify dispatch is exempt from the runnable-first and file-count gates and returns a checklist", async () => {
+  const parent = [
+    call("dispatch_task", {
+      task: "verify and finish the project",
+      acceptanceCriteria:
+        "build passes; preview serves the app; .env.example present; README correct",
+      files: [
+        "README.md",
+        ".env.example",
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "vercel.json",
+        "src/x",
+      ],
+      verify: true,
+      tools: ["security_scan", "lint_project"],
+      skills: ["application-security-engineering"],
+    }),
+    say("here is the checklist"),
+  ];
+  const verifier = [
+    call("write_file", { path: ".env.example", content: "VITE_SUPABASE_URL=\n" }),
+    say(
+      "COMPLETION CHECKLIST\n- Build: PASS\n- Preview serves app: PASS\n- .env.example present: PASS\n- Security scan: FAIL — 1 medium finding, triaged in risks.md\npreview: http://127.0.0.1:4975",
+    ),
+  ];
+  const { base, workspaceDir, projectId, close } = await setup([parent, verifier], "architect");
+  try {
+    const events = await turn(base);
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "dispatch_task",
+    ) as { call: { isError: boolean; result: string } };
+    assert.ok(end, "a dispatch_task tool.end");
+    assert.equal(
+      end.call.isError,
+      false,
+      "the verify dispatch is not refused for 6 files / no skeleton",
+    );
+    assert.match(end.call.result, /Verification finished/);
+    assert.match(end.call.result, /COMPLETION CHECKLIST/);
+    assert.match(end.call.result, /verbatim/i);
+    await fs.access(path.join(workspaceDir, projectId, ".env.example"));
+  } finally {
+    await close();
+  }
+});
