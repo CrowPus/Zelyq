@@ -8,6 +8,7 @@ import {
   Crosshair,
   GraduationCap,
   HardHat,
+  Info,
   Paperclip,
   Puzzle,
   Square,
@@ -114,6 +115,7 @@ export function ChatPanel({
   // engineerMode; mutually exclusive with it in the UI (turning one on turns
   // the other off), matching the agent's own rejection of both at once.
   const [architectMode, setArchitectMode] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -658,18 +660,54 @@ export function ChatPanel({
               >
                 <Compass size={13} strokeWidth={2} />
               </IconButton>
-              {/* Least essential piece of this row, so it's the one that
-                  gives way first — min-w-0 here too, or being a flex
-                  container itself makes it just as unshrinkable as its
-                  parent was without this same fix. */}
-              <span className="flex min-w-0 shrink items-center gap-1 overflow-hidden text-2xs whitespace-nowrap text-fg-muted">
-                <Kbd>↵</Kbd>
-                to send
-                <span className="mx-0.5 text-fg-muted/60">·</span>
-                <Kbd>⇧</Kbd>
-                <Kbd>↵</Kbd>
-                new line
-              </span>
+              {/* The keyboard hints used to sit inline here and ate the
+                  row's width. This button row is for controls; the hints
+                  live behind an info popover now. */}
+              <div className="relative shrink-0">
+                <IconButton
+                  size="sm"
+                  variant={shortcutsOpen ? "primary" : "ghost"}
+                  label="Keyboard shortcuts"
+                  aria-expanded={shortcutsOpen}
+                  onClick={() => setShortcutsOpen((v) => !v)}
+                >
+                  <Info size={13} strokeWidth={2} />
+                </IconButton>
+                {shortcutsOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Close shortcuts"
+                      className="fixed inset-0 z-40 cursor-default"
+                      onClick={() => setShortcutsOpen(false)}
+                    />
+                    <div className="absolute bottom-full left-0 z-50 mb-1.5 w-60 rounded-lg border border-border-default bg-surface p-2.5 text-2xs shadow-lg">
+                      <p className="mb-1.5 font-medium text-fg">Keyboard</p>
+                      <ul className="space-y-1 text-fg-muted">
+                        <li className="flex items-center justify-between gap-2">
+                          <span>Send message</span>
+                          <span className="flex items-center gap-0.5">
+                            <Kbd>↵</Kbd>
+                          </span>
+                        </li>
+                        <li className="flex items-center justify-between gap-2">
+                          <span>New line</span>
+                          <span className="flex items-center gap-0.5">
+                            <Kbd>⇧</Kbd>
+                            <Kbd>↵</Kbd>
+                          </span>
+                        </li>
+                        <li className="flex items-center justify-between gap-2">
+                          <span>Commands, skills, plugins</span>
+                          <span className="flex items-center gap-0.5">
+                            <Kbd>/</Kbd>
+                          </span>
+                        </li>
+                      </ul>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
             {chat.busy ? (
               <IconButton
