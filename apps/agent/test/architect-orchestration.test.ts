@@ -453,3 +453,84 @@ test("051: the verify dispatch is exempt from the runnable-first and file-count 
     await close();
   }
 });
+
+test("051 Part B: autoMode without architectMode is rejected", async () => {
+  const { base, close } = await setup([[say("n/a")]], "none");
+  try {
+    const res = await fetch(`${base}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: "s_auto_bad", projectId: "prj_orch", autoMode: true }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error.message, /only runs with Architect Mode/i);
+  } finally {
+    await close();
+  }
+});
+
+test("051 Part B: an architect+auto session reports autoMode and does not auto-loop a normal turn", async () => {
+  // A build turn that finishes without hitting a pass cap: the SSE response
+  // ends after that one turn — Auto Mode does not spuriously start another.
+  const parent = [
+    dispatch("build the runnable skeleton", ["src/App.tsx"], "npm run build passes; App renders"),
+    say("skeleton built — nothing left this pass"),
+  ];
+  const child = builderWrites("src/App.tsx");
+  const { base, close } = await setup([parent, child], "architect");
+  try {
+    const created = await fetch(`${base}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "s_auto",
+        projectId: "prj_orch",
+        architectMode: true,
+        autoMode: true,
+        history: [
+          {
+            id: "m0",
+            sessionId: "s_auto",
+            role: "user",
+            content: "approved",
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: "m1",
+            sessionId: "s_auto",
+            role: "assistant",
+            content: "Architecture package ready: x.",
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+    const createdBody = await created.json();
+    assert.equal(created.status, 201, JSON.stringify(createdBody));
+    assert.equal(createdBody.autoMode, true);
+
+    const res = await fetch(`${base}/sessions/s_auto/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "build it" }),
+    });
+    const events = (await res.text())
+      .split("\n\n")
+      .map((f) => f.split("\n").find((l) => l.startsWith("data: ")))
+      .filter((l): l is string => Boolean(l))
+      .map((l) => JSON.parse(l.slice(6))) as Array<{ type: string; [k: string]: unknown }>;
+    assert.equal(
+      events.filter((e) => e.type === "turn.end").length,
+      1,
+      "exactly one turn — no automatic second pass when the first didn't hit a cap",
+    );
+    assert.ok(
+      !events.some(
+        (e) => e.type === "error" && String((e as { code?: string }).code).startsWith("auto_"),
+      ),
+      "no auto stop/ceiling notice on a clean single-pass turn",
+    );
+  } finally {
+    await close();
+  }
+});

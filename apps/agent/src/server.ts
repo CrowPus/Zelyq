@@ -212,6 +212,12 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
         "Engineer Mode and Architect Mode are mutually exclusive — turn one off.",
       );
     }
+    if (input.autoMode && !input.architectMode) {
+      throw new ZelyqError(
+        "bad_request",
+        "Auto Mode only runs with Architect Mode — turn Architect Mode on too.",
+      );
+    }
     if (input.engineerMode && (resolvedEffort === "low" || resolvedEffort === "medium")) {
       throw new ZelyqError(
         "bad_request",
@@ -251,6 +257,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
           }
         : {}),
       architectMode: input.architectMode ?? false,
+      autoMode: input.autoMode ?? false,
       ...(architectModeSkill
         ? {
             architectModeSkill: {
@@ -339,6 +346,13 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     });
 
     await session.run(input.message, emit, input.attachments, input.skills, input.plugins);
+    // 051 Part B — Auto Mode: after the build turn, keep running passes on
+    // our own until the plan is done, it gets stuck, the user stops it, or a
+    // ceiling is hit. `autoNextPass` emits the stop reason and returns false
+    // when the run is over. Each pass streams its own turn to the client.
+    while (!reply.raw.writableEnded && session.autoNextPass(emit)) {
+      await session.run("keep going", emit, undefined, input.skills, input.plugins);
+    }
     reply.raw.end();
   });
 

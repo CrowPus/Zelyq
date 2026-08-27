@@ -49,6 +49,8 @@ export class AgentClient {
     engineerMode?: boolean;
     /** See 048. Mutually exclusive with engineerMode. */
     architectMode?: boolean;
+    /** See 051 Part B. Only with architectMode. */
+    autoMode?: boolean;
     apiKey?: string;
     /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
      * subscription token. */
@@ -109,6 +111,8 @@ export class AgentClient {
     engineerMode?: boolean;
     /** See 048. Mutually exclusive with engineerMode. */
     architectMode?: boolean;
+    /** See 051 Part B. Only with architectMode. */
+    autoMode?: boolean;
     apiKey?: string;
     /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
      * subscription token. */
@@ -132,7 +136,8 @@ export class AgentClient {
         // other setting that already changes what a session is.
         (input.effort !== undefined && input.effort !== state.effort) ||
         (input.engineerMode !== undefined && input.engineerMode !== state.engineerMode) ||
-        (input.architectMode !== undefined && input.architectMode !== state.architectMode);
+        (input.architectMode !== undefined && input.architectMode !== state.architectMode) ||
+        (input.autoMode !== undefined && input.autoMode !== state.autoMode);
       if (!changed || state.busy) return state;
       await this.destroySession(input.sessionId);
     }

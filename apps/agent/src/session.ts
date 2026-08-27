@@ -145,6 +145,12 @@ const SUBAGENT_MAX_TOKENS = 200_000;
 const SUBAGENT_WALLCLOCK_MS = 5 * 60_000;
 const ORCH_MAX_SUBAGENTS = 20;
 const ORCH_MAX_TOKENS = 2_000_000;
+// 051 Part B — Auto Mode's hard ceiling for ONE auto run. Any one hit stops
+// the run; it hands back exactly like a manual pass-cap stop, with the
+// actual totals. Deliberately low so a bad plan is a manageable bill.
+const AUTO_MAX_PASSES = 6;
+const AUTO_MAX_TOKENS = 6_000_000;
+const AUTO_MAX_WALLCLOCK_MS = 30 * 60_000;
 // 049 Phase 1 — a builder takes at most this many named files. A task with
 // more is refused at dispatch, forcing the Architect to split it before a
 // bounded builder chokes on it.
@@ -216,6 +222,8 @@ export interface SessionOptions {
    * `report-page-design` skill for the report render. */
   architectMode?: boolean;
   architectModeSkill?: { body: string; resources: string[] };
+  /** 051 Part B — Auto Mode. Only honoured with `architectMode`. */
+  autoMode?: boolean;
   /** 049 Phase 1 — the lean builder profile. A dispatched builder runs with
    * a compact hand-written system prompt (this field) instead of the full
    * `buildSystemPrompt` weave, and only the tools named in `toolNames`. Cuts
@@ -338,12 +346,21 @@ export class AgentSession {
     // Cleared by a "keep going" user turn so the next pass gets a fresh
     // budget instead of dead-ending at the cap.
     pass: 1,
+    // 051 Part B — Auto Mode run state.
+    auto: false, // this session was created with autoMode + architectMode
+    autoStartedAt: null as number | null,
+    autoTokens: 0, // cumulative builder tokens across the whole auto run
+    passCapHitThisTurn: false, // set when dispatch_task refuses at a pass cap
+    changedEver: new Set<string>(), // every builder-changed path, for stuck-detection
+    changedAtPassStart: 0,
+    zeroProgressPasses: 0,
   };
 
   constructor(options: SessionOptions) {
     this.id = options.sessionId;
     this.projectId = options.projectId;
     this.options = options;
+    this.orchestration.auto = Boolean(options.autoMode && options.architectMode);
 
     const provider = (options.providerFactory ?? createProvider)({
       provider: options.provider,
@@ -425,6 +442,7 @@ export class AgentSession {
       effort: this.options.effort,
       engineerMode: this.options.engineerMode ?? false,
       architectMode: this.options.architectMode ?? false,
+      autoMode: this.orchestration.auto,
       authMode: this.options.authMode ?? "api_key",
       busy: this.busy,
       turns: this.turns,
@@ -565,6 +583,7 @@ export class AgentSession {
     }
 
     if (this.orchestration.subagents >= ORCH_MAX_SUBAGENTS) {
+      this.orchestration.passCapHitThisTurn = true;
       return {
         output:
           `This build pass has dispatched ${ORCH_MAX_SUBAGENTS} builders. Stop here: in build-plan.md ` +
@@ -575,6 +594,7 @@ export class AgentSession {
       };
     }
     if (this.orchestration.tokens >= ORCH_MAX_TOKENS) {
+      this.orchestration.passCapHitThisTurn = true;
       return {
         output:
           `This build pass hit its ~${(ORCH_MAX_TOKENS / 1e6).toFixed(1)}M-token budget. Stop here: in ` +
@@ -690,6 +710,7 @@ export class AgentSession {
         if (e.type === "files.changed") {
           for (const p of e.paths) {
             changed.add(p);
+            this.orchestration.changedEver.add(p);
             onFileChanged(p);
           }
         }
@@ -703,6 +724,7 @@ export class AgentSession {
     }
 
     this.orchestration.tokens += tokIn + tokOut;
+    this.orchestration.autoTokens += tokIn + tokOut;
     const secs = Math.round((Date.now() - startedAt) / 1000);
     const capNote = hitTurnCap
       ? " — HIT the 25-turn cap, result may be incomplete."
@@ -765,6 +787,16 @@ export class AgentSession {
     this.turns += 1;
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
+    // 051 Part B — this flag reflects only the turn about to run; Auto Mode
+    // reads it after the turn to decide whether to start another pass.
+    this.orchestration.passCapHitThisTurn = false;
+    if (
+      this.orchestration.auto &&
+      this.orchestration.autoStartedAt === null &&
+      this.readyDeclaredAtTurn !== null
+    ) {
+      this.orchestration.autoStartedAt = Date.now();
+    }
 
     const messageId = newId("message");
     const changedFiles = new Set<string>();
@@ -1429,6 +1461,70 @@ export class AgentSession {
       this.busy = false;
       this.abortController = null;
     }
+  }
+
+  /**
+   * 051 Part B — Auto Mode's between-pass decision. The server calls this
+   * after each build turn: it returns `true` when another build pass should
+   * run on its own (the caller then does `run("keep going", …)`), and
+   * `false` — after emitting the stop reason as a non-fatal `error` event —
+   * when the auto run is over. Only meaningful on a session created with
+   * Auto Mode; a no-op otherwise.
+   */
+  autoNextPass(emit: Emit): boolean {
+    const o = this.orchestration;
+    if (!o.auto) return false;
+    // The run only auto-continues if the last turn actually hit a pass cap
+    // with work still queued. Any other ending — the build finished, the
+    // model stopped, a different refusal — ends the auto run.
+    if (!o.passCapHitThisTurn) return false;
+    o.passCapHitThisTurn = false;
+
+    const totals =
+      `(${o.pass} pass${o.pass === 1 ? "" : "es"}, ~${(o.autoTokens / 1e6).toFixed(1)}M builder tokens` +
+      `${o.autoStartedAt ? `, ${Math.round((Date.now() - o.autoStartedAt) / 60_000)} min` : ""})`;
+    const stop = (code: string, message: string): boolean => {
+      emit({ type: "error", sessionId: this.id, code, message, fatal: false });
+      return false;
+    };
+
+    if (o.killed) return stop("auto_stopped", `Auto Mode stopped by the user ${totals}.`);
+
+    // Stuck-detection: two passes running with no new builder-changed file.
+    if (o.changedEver.size <= o.changedAtPassStart) o.zeroProgressPasses += 1;
+    else o.zeroProgressPasses = 0;
+    if (o.zeroProgressPasses >= 2) {
+      return stop(
+        "auto_stuck",
+        `Auto Mode stopped — two passes made no progress ${totals}. The build plan may be stuck; ` +
+          "check architecture/build-plan.md, then continue manually or take it to the Engineer.",
+      );
+    }
+
+    if (o.pass >= AUTO_MAX_PASSES) {
+      return stop(
+        "auto_ceiling",
+        `Auto Mode reached the ${AUTO_MAX_PASSES}-pass ceiling ${totals}. The app runs as far as it ` +
+          'got — reply "keep going" for another pass, or take the rest to the Engineer.',
+      );
+    }
+    if (o.autoTokens >= AUTO_MAX_TOKENS) {
+      return stop(
+        "auto_ceiling",
+        `Auto Mode reached its ~${(AUTO_MAX_TOKENS / 1e6).toFixed(0)}M-token ceiling ${totals}. ` +
+          'Reply "keep going" for another pass, or take the rest to the Engineer.',
+      );
+    }
+    if (o.autoStartedAt && Date.now() - o.autoStartedAt >= AUTO_MAX_WALLCLOCK_MS) {
+      return stop(
+        "auto_ceiling",
+        `Auto Mode reached its ${Math.round(AUTO_MAX_WALLCLOCK_MS / 60_000)}-minute ceiling ${totals}. ` +
+          'Reply "keep going" for another pass, or take the rest to the Engineer.',
+      );
+    }
+
+    o.changedAtPassStart = o.changedEver.size;
+    return true;
   }
 
   /**

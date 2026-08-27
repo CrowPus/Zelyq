@@ -142,6 +142,7 @@ export class ChatGateway {
       plugins: message.plugins,
       engineerMode: message.engineerMode,
       architectMode: message.architectMode,
+      autoMode: message.autoMode,
     });
   }
 
@@ -161,6 +162,8 @@ export class ChatGateway {
       engineerMode?: boolean;
       /** Architect Mode toggle — see 048. */
       architectMode?: boolean;
+      /** Auto Mode toggle — see 051 Part B. Only with architectMode. */
+      autoMode?: boolean;
     } = {},
   ): Promise<void> {
     if (room.turn) {
@@ -303,6 +306,7 @@ export class ChatGateway {
         ...(effort ? { effort } : {}),
         engineerMode: override.engineerMode ?? false,
         architectMode: override.architectMode ?? false,
+        autoMode: override.autoMode ?? false,
         ...(apiKey ? { apiKey } : {}),
         ...(authMode !== "api_key" ? { authMode } : {}),
         ...(baseUrl ? { baseUrl } : {}),

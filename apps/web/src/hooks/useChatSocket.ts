@@ -77,6 +77,8 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
         engineerMode?: boolean;
         /** Architect Mode toggle — see 048. */
         architectMode?: boolean;
+        /** Auto Mode toggle — see 051 Part B. Only with architectMode. */
+        autoMode?: boolean;
       },
     ) => {
       const socket = socketRef.current;
@@ -96,6 +98,7 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
           ...(override?.plugins?.length ? { plugins: override.plugins } : {}),
           ...(override?.engineerMode ? { engineerMode: true } : {}),
           ...(override?.architectMode ? { architectMode: true } : {}),
+          ...(override?.autoMode ? { autoMode: true } : {}),
         }),
       );
       setState((previous) => ({

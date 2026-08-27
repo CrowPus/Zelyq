@@ -8,6 +8,7 @@ import {
   Crosshair,
   GraduationCap,
   HardHat,
+  Infinity as InfinityIcon,
   Info,
   Paperclip,
   Puzzle,
@@ -116,6 +117,9 @@ export function ChatPanel({
   // engineerMode; mutually exclusive with it in the UI (turning one on turns
   // the other off), matching the agent's own rejection of both at once.
   const [architectMode, setArchitectMode] = useState(false);
+  // 051 Part B — Auto Mode. Only meaningful with Architect Mode; turning it
+  // on turns Architect on, turning Architect off turns it off.
+  const [autoMode, setAutoMode] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Anchored to the info button, but rendered in a portal so the composer's
   // `overflow-hidden` ancestors cannot clip it.
@@ -280,6 +284,7 @@ export function ChatPanel({
       ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
       ...(engineerMode ? { engineerMode: true } : {}),
       ...(architectMode ? { architectMode: true } : {}),
+      ...(architectMode && autoMode ? { autoMode: true } : {}),
     });
     setDraft("");
     setCursor(0);
@@ -672,12 +677,38 @@ export function ChatPanel({
                 onClick={() =>
                   setArchitectMode((value) => {
                     if (!value) setEngineerMode(false);
+                    else setAutoMode(false);
                     return !value;
                   })
                 }
                 className="shrink-0"
               >
                 <Compass size={13} strokeWidth={2} />
+              </IconButton>
+              {/* 051 Part B — Auto Mode. Runs build passes back to back on
+                  its own until the plan is done or a ceiling is hit. Only
+                  with Architect Mode. */}
+              <IconButton
+                size="sm"
+                variant={autoMode ? "primary" : "ghost"}
+                label={
+                  autoMode
+                    ? "Auto Mode is on — the build runs itself; click to turn off"
+                    : "Turn on Auto Mode (Architect builds the whole plan without stopping)"
+                }
+                aria-pressed={autoMode}
+                onClick={() =>
+                  setAutoMode((value) => {
+                    if (!value) {
+                      setArchitectMode(true);
+                      setEngineerMode(false);
+                    }
+                    return !value;
+                  })
+                }
+                className="shrink-0"
+              >
+                <InfinityIcon size={13} strokeWidth={2} />
               </IconButton>
               {/* The keyboard hints used to sit inline here and ate the
                   row's width. This button row is for controls; the hints

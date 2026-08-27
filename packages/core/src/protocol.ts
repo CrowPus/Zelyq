@@ -124,6 +124,11 @@ export const createAgentSessionSchema = z.object({
    * `architecture/`; writes nothing outside it and runs no commands.
    * Mutually exclusive with `engineerMode` — the agent rejects both. */
   architectMode: z.boolean().optional(),
+  /** 051 Part B — Auto Mode. Only with `architectMode`. After the user says
+   * to build, the Architect runs build passes back to back on its own until
+   * the plan is done, it gets stuck, the user stops it, or a hard ceiling
+   * (6M tokens / 6 passes / 30 min) is hit. */
+  autoMode: z.boolean().optional(),
   /** Per-session key. Falls back to the agent process environment when absent. */
   apiKey: z.string().optional(),
   /**
@@ -182,6 +187,8 @@ export const agentSessionStateSchema = z.object({
   engineerMode: z.boolean(),
   /** See 048. `ensureSession` recreates the session when this changes. */
   architectMode: z.boolean(),
+  /** See 051 Part B. `ensureSession` recreates the session when this changes. */
+  autoMode: z.boolean(),
   /** See `045` — whether this session is authenticated with a classic key
    * or a CLI-sourced subscription token. `ensureSession` recreates the
    * session when this changes, the same as a changed provider already does. */
@@ -218,6 +225,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     engineerMode: z.boolean().optional(),
     /** Architect Mode toggle — see 048. Mutually exclusive with engineerMode. */
     architectMode: z.boolean().optional(),
+    /** Auto Mode toggle — see 051 Part B. Only with architectMode. */
+    autoMode: z.boolean().optional(),
   }),
   z.object({ type: z.literal("abort") }),
   z.object({ type: z.literal("ping") }),
