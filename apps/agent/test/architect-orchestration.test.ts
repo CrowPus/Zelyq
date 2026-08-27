@@ -75,10 +75,24 @@ const builderWrites = (p: string) => [
 async function setup(
   scripts: Array<Array<{ events: ProviderEvent[]; result: TurnResult }>>,
   mode: "architect" | "engineer" | "none",
+  { readyPackage = true }: { readyPackage?: boolean } = {},
 ) {
   const workspaceDir = path.join(os.tmpdir(), `zelyq-orch-${Date.now()}-${Math.random()}`);
   const projectId = "prj_orch";
-  await fs.mkdir(path.join(workspaceDir, projectId), { recursive: true });
+  await fs.mkdir(path.join(workspaceDir, projectId, "architecture", "decisions"), {
+    recursive: true,
+  });
+  if (readyPackage) {
+    // A finished-enough package so the dispatch gate lets a build through.
+    await fs.writeFile(
+      path.join(workspaceDir, projectId, "architecture", "build-plan.md"),
+      "# Build plan\n\n## Task 1 — the widget\n- Files: src/widget.ts\n- Do: export a const.\n- Acceptance: the file exists and exports x.\n- Status: not started\n\n## Task 2 — the other widget\n- Files: src/other.ts\n- Do: export a const.\n- Acceptance: the file exists.\n- Status: not started\n",
+    );
+    await fs.writeFile(
+      path.join(workspaceDir, projectId, "architecture", "decisions", "0001-stack.md"),
+      "# 0001 — stack\nContext: x. Alternatives: a, b. Chosen: a. Consequence: y. Status: accepted.\n",
+    );
+  }
   const config: AgentConfig = {
     host: "127.0.0.1",
     port: 0,
@@ -218,6 +232,34 @@ test("the kill switch refuses further dispatch, on this turn and after", async (
       "every dispatch after a stop is refused",
     );
     await assert.rejects(fs.access(path.join(workspaceDir, projectId, "src/a.ts")));
+  } finally {
+    await close();
+  }
+});
+
+test("dispatch_task is refused when the design is not finished (no build-plan)", async () => {
+  // The Architect (or an impatient user) tries to build during the interview —
+  // no architecture/build-plan.md, no decisions/. Must refuse, spawn nothing.
+  const parent = [
+    dispatch("start building now", ["src/x.ts"]),
+    say("understood, finishing the design"),
+  ];
+  const { base, workspaceDir, projectId, close } = await setup(
+    [parent, builderWrites("src/x.ts")],
+    "architect",
+    { readyPackage: false },
+  );
+  try {
+    const events = await turn(base);
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "dispatch_task",
+    ) as { call: { isError: boolean; result: string } };
+    assert.ok(end, "a dispatch_task tool.end");
+    assert.equal(end.call.isError, true);
+    assert.match(end.call.result, /design is not finished|no architecture\/build-plan/i);
+    await assert.rejects(fs.access(path.join(workspaceDir, projectId, "src/x.ts")));
+    const orch = await (await fetch(`${base}/sessions/s_orch/orchestration`)).json();
+    assert.equal(orch.subagents, 0, "no builder was spawned");
   } finally {
     await close();
   }

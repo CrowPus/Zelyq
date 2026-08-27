@@ -17,6 +17,7 @@ import {
   toolDefinitions,
 } from "@zelyq/tools";
 import {
+  ARCHITECT_READY_MARKER,
   ARCHITECT_WRITE_ROOT,
   buildSystemPrompt,
   ENGINEER_MODE_PURPOSE_MARKER,
@@ -283,6 +284,24 @@ export class AgentSession {
     if (!this.options.architectMode) {
       return { output: "dispatch_task is only available in Architect Mode.", isError: true };
     }
+
+    // Structural gate: never dispatch from a plan that does not exist yet. The
+    // package is only dispatchable once the design phase has produced a real
+    // build-plan.md and at least one decision record — an interview alone does
+    // not. The prose gate ("only after the package is ready") is not enough on
+    // its own; this makes "build before the plan is done" impossible.
+    const packageState = await this.architecturePackageState();
+    if (!packageState.ready) {
+      return {
+        output:
+          `Cannot dispatch — the design is not finished. ${packageState.reason}\n` +
+          "Finish the interview, write the full package (decisions, data-model, api, infrastructure, " +
+          `build-plan, risks), run the challenge pass, and write the "${ARCHITECT_READY_MARKER}" line. ` +
+          "Only then can a task be handed to a builder.",
+        isError: true,
+      };
+    }
+
     if (this.orchestration.killed || parentSignal.aborted) {
       return {
         output: "The orchestration run was stopped. No further builders will dispatch.",
@@ -945,6 +964,35 @@ export class AgentSession {
       .listFiles(this.projectId, { depth: 32 })
       .catch(() => []);
     return new Set(entries.filter((entry) => entry.type === "file").map((entry) => entry.path));
+  }
+
+  /**
+   * 047 Phase 3 — whether the architecture package is far enough along that a
+   * task may be handed to a builder. A design that is still an interview has
+   * no build-plan and no decision records; dispatching from it is the failure
+   * this gate exists to stop. Checked against the filesystem, so it holds on a
+   * fresh session and a resumed one alike.
+   */
+  private async architecturePackageState(): Promise<{ ready: boolean; reason: string }> {
+    const files = await this.listAllFilePaths();
+    if (!files.has(`${ARCHITECT_WRITE_ROOT}build-plan.md`)) {
+      return { ready: false, reason: "There is no architecture/build-plan.md yet." };
+    }
+    const hasDecision = [...files].some(
+      (p) => p.startsWith(`${ARCHITECT_WRITE_ROOT}decisions/`) && p.endsWith(".md"),
+    );
+    if (!hasDecision) {
+      return { ready: false, reason: "architecture/decisions/ has no records yet." };
+    }
+    const plan = await this.options.runtime
+      .readFile(this.projectId, `${ARCHITECT_WRITE_ROOT}build-plan.md`)
+      .then((f) => f.content)
+      .catch(() => "");
+    // A stub or a heading with nothing under it is not a plan.
+    if (plan.replace(/\s+/g, "").length < 120 || !/\bTask\b|\btask\b|^- /m.test(plan)) {
+      return { ready: false, reason: "architecture/build-plan.md has no real tasks yet." };
+    }
+    return { ready: true, reason: "" };
   }
 
   /**

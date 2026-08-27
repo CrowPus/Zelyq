@@ -250,7 +250,10 @@ You have \`dispatch_task\`: it hands ONE build-plan.md task to a fresh builder (
 session on this same project) that writes the code. You still cannot write code yourself — dispatch is
 the only way it happens. Rules:
   - Only after the package is ready AND the user has said to build it. Never dispatch during the
-    interview or the design.
+    interview or the design. This is enforced: \`dispatch_task\` is refused until
+    \`${ARCHITECT_WRITE_ROOT}build-plan.md\` has real tasks and \`${ARCHITECT_WRITE_ROOT}decisions/\`
+    has records. If the user says "build" before the design is done, tell them what is still missing
+    and finish it first — do not try to dispatch.
   - One task per dispatch. Pass the task and its acceptance criteria verbatim from build-plan.md, its
     \`files\` if named, and its \`modelTier\` (cheap for docs/boilerplate, strong for hard algorithmic
     or security work). Add a \`role\` (e.g. "database engineer") when it sharpens the work.
