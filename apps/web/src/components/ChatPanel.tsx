@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { fileToBase64 } from "../lib/files";
@@ -116,6 +117,24 @@ export function ChatPanel({
   // the other off), matching the agent's own rejection of both at once.
   const [architectMode, setArchitectMode] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Anchored to the info button, but rendered in a portal so the composer's
+  // `overflow-hidden` ancestors cannot clip it.
+  const shortcutsBtnRef = useRef<HTMLDivElement>(null);
+  const [shortcutsPos, setShortcutsPos] = useState<{ left: number; bottom: number } | null>(null);
+  useEffect(() => {
+    if (!shortcutsOpen) return;
+    const place = () => {
+      const r = shortcutsBtnRef.current?.getBoundingClientRect();
+      if (r) setShortcutsPos({ left: r.left, bottom: window.innerHeight - r.top + 6 });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [shortcutsOpen]);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -662,8 +681,9 @@ export function ChatPanel({
               </IconButton>
               {/* The keyboard hints used to sit inline here and ate the
                   row's width. This button row is for controls; the hints
-                  live behind an info popover now. */}
-              <div className="relative shrink-0">
+                  live behind an info popover, rendered in a portal so no
+                  `overflow-hidden` ancestor can clip it. */}
+              <div className="shrink-0" ref={shortcutsBtnRef}>
                 <IconButton
                   size="sm"
                   variant={shortcutsOpen ? "primary" : "ghost"}
@@ -673,40 +693,6 @@ export function ChatPanel({
                 >
                   <Info size={13} strokeWidth={2} />
                 </IconButton>
-                {shortcutsOpen && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Close shortcuts"
-                      className="fixed inset-0 z-40 cursor-default"
-                      onClick={() => setShortcutsOpen(false)}
-                    />
-                    <div className="absolute bottom-full left-0 z-50 mb-1.5 w-60 rounded-lg border border-border-default bg-surface p-2.5 text-2xs shadow-lg">
-                      <p className="mb-1.5 font-medium text-fg">Keyboard</p>
-                      <ul className="space-y-1 text-fg-muted">
-                        <li className="flex items-center justify-between gap-2">
-                          <span>Send message</span>
-                          <span className="flex items-center gap-0.5">
-                            <Kbd>↵</Kbd>
-                          </span>
-                        </li>
-                        <li className="flex items-center justify-between gap-2">
-                          <span>New line</span>
-                          <span className="flex items-center gap-0.5">
-                            <Kbd>⇧</Kbd>
-                            <Kbd>↵</Kbd>
-                          </span>
-                        </li>
-                        <li className="flex items-center justify-between gap-2">
-                          <span>Commands, skills, plugins</span>
-                          <span className="flex items-center gap-0.5">
-                            <Kbd>/</Kbd>
-                          </span>
-                        </li>
-                      </ul>
-                    </div>
-                  </>
-                )}
               </div>
             </div>
             {chat.busy ? (
@@ -734,6 +720,49 @@ export function ChatPanel({
           </div>
         </div>
       </form>
+
+      {shortcutsOpen &&
+        shortcutsPos &&
+        createPortal(
+          <>
+            <button
+              type="button"
+              aria-label="Close shortcuts"
+              className="fixed inset-0 z-[100] cursor-default"
+              onClick={() => setShortcutsOpen(false)}
+            />
+            <div
+              role="dialog"
+              aria-label="Keyboard shortcuts"
+              style={{ left: shortcutsPos.left, bottom: shortcutsPos.bottom }}
+              className="fixed z-[101] w-60 rounded-lg border border-border-default bg-surface p-2.5 text-2xs shadow-lg"
+            >
+              <p className="mb-1.5 font-medium text-fg">Keyboard</p>
+              <ul className="space-y-1 text-fg-muted">
+                <li className="flex items-center justify-between gap-2">
+                  <span>Send message</span>
+                  <span className="flex items-center gap-0.5">
+                    <Kbd>↵</Kbd>
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>New line</span>
+                  <span className="flex items-center gap-0.5">
+                    <Kbd>⇧</Kbd>
+                    <Kbd>↵</Kbd>
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>Commands, skills, plugins</span>
+                  <span className="flex items-center gap-0.5">
+                    <Kbd>/</Kbd>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </>,
+          document.body,
+        )}
     </section>
   );
 }
