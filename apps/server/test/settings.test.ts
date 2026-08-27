@@ -545,13 +545,15 @@ test("the model field suggests the current provider's known models, not a fixed 
         headers: { cookie: adminCookie },
       })
     ).json();
+    // Only reasoning-capable models — a gpt-4.x here would 400 on every
+    // turn because the agent sends `reasoning_effort`.
     assert.deepEqual(modelField(openai)?.suggestions, [
       "gpt-5.1",
-      "gpt-5.1-mini",
       "gpt-5",
+      "gpt-5.1-mini",
       "o4-mini",
-      "gpt-4.1",
     ]);
+    assert.ok(!modelField(openai)?.suggestions?.some((m) => m.startsWith("gpt-4")));
 
     await server.app.inject({
       method: "PUT",

@@ -77,6 +77,12 @@ export type ModelTier = "strong" | "standard" | "cheap";
  * means an entry here plus a `ModelProvider` implementation — nothing in the
  * server, the UI, or the tools changes.
  */
+// Zelyq's agent loop is demanding: multi-step tool calling, streaming, a
+// large context, and — where the provider supports it — extended thinking
+// that `effort` drives. A model that misses any of those stalls or returns
+// empty turns. The lists below are deliberately short: only models known to
+// do all of it. The `model` field stays free text, so anything else can
+// still be typed in Settings — this is the curated set the picker offers.
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   anthropic: {
     id: "anthropic",
@@ -84,6 +90,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     defaultModel: "claude-opus-5",
     apiKeyEnv: ["ANTHROPIC_API_KEY"],
     docsUrl: "https://console.anthropic.com/settings/keys",
+    // All current Claude models do native extended thinking + tools + streaming.
     models: [
       { value: "claude-opus-5", label: "Claude Opus 5 — most capable", tier: "strong" },
       { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced", tier: "standard" },
@@ -94,15 +101,17 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   google: {
     id: "google",
     label: "Gemini",
-    defaultModel: "gemini-3.7-flash",
+    defaultModel: "gemini-2.5-pro",
     apiKeyEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     docsUrl: "https://aistudio.google.com/apikey",
+    // Only the "thinking"-capable line (2.5 and up). Flash-Lite and the 2.0
+    // and earlier models do not think and are prone to empty turns on the
+    // large outputs this agent asks for.
     models: [
       { value: "gemini-3.7-pro", label: "Gemini 3.7 Pro — most capable", tier: "strong" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro — most capable", tier: "strong" },
       { value: "gemini-3.7-flash", label: "Gemini 3.7 Flash — balanced", tier: "standard" },
-      { value: "gemini-3.7-flash-lite", label: "Gemini 3.7 Flash-Lite — fastest", tier: "cheap" },
-      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: "strong" },
-      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", tier: "cheap" },
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash — fast", tier: "cheap" },
     ],
   },
   openai: {
@@ -113,12 +122,13 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://platform.openai.com/api-keys",
     baseUrl: "https://api.openai.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    // Only models that accept `reasoning_effort` — the GPT-5 family and the
+    // o-series. Sending it to a gpt-4.x model is a hard 400 every turn.
     models: [
       { value: "gpt-5.1", label: "GPT-5.1 — most capable", tier: "strong" },
-      { value: "gpt-5.1-mini", label: "GPT-5.1 mini — fast", tier: "cheap" },
       { value: "gpt-5", label: "GPT-5", tier: "strong" },
+      { value: "gpt-5.1-mini", label: "GPT-5.1 mini — fast", tier: "cheap" },
       { value: "o4-mini", label: "o4-mini — reasoning, fast", tier: "standard" },
-      { value: "gpt-4.1", label: "GPT-4.1", tier: "standard" },
     ],
   },
   xai: {
@@ -129,10 +139,11 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://console.x.ai",
     baseUrl: "https://api.x.ai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    // grok-4 reasons natively and tool-calls reliably; grok-4-fast is the
+    // cheaper sibling. Older grok models are weaker at multi-step tool loops.
     models: [
       { value: "grok-4", label: "Grok 4 — most capable", tier: "strong" },
       { value: "grok-4-fast", label: "Grok 4 Fast", tier: "cheap" },
-      { value: "grok-3", label: "Grok 3", tier: "standard" },
     ],
   },
   deepseek: {
@@ -143,10 +154,10 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://platform.deepseek.com/api_keys",
     baseUrl: "https://api.deepseek.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    models: [
-      { value: "deepseek-chat", label: "DeepSeek Chat", tier: "standard" },
-      { value: "deepseek-reasoner", label: "DeepSeek Reasoner", tier: "strong" },
-    ],
+    // `deepseek-chat` (V3) does tool calling. `deepseek-reasoner` (R1) is
+    // omitted: its function-calling support is unreliable and it forces very
+    // long reasoning output that stalls this loop.
+    models: [{ value: "deepseek-chat", label: "DeepSeek Chat", tier: "standard" }],
   },
   mistral: {
     id: "mistral",
@@ -159,11 +170,11 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://console.mistral.ai/api-keys",
     baseUrl: "https://api.mistral.ai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
+    // Large and Medium tool-call well. Small is weaker at it, and Codestral
+    // is a code-completion model, not an agentic one — both omitted.
     models: [
       { value: "mistral-large-latest", label: "Mistral Large (latest)", tier: "strong" },
       { value: "mistral-medium-latest", label: "Mistral Medium (latest)", tier: "standard" },
-      { value: "mistral-small-latest", label: "Mistral Small (latest)", tier: "cheap" },
-      { value: "codestral-latest", label: "Codestral (latest) — coding", tier: "standard" },
     ],
   },
   groq: {
@@ -174,18 +185,11 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://console.groq.com/keys",
     baseUrl: "https://api.groq.com/openai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // Groq hosts other vendors' open-weight models. These IDs move faster
-    // than a release cycle — treat the list as a starting point, not a
-    // guarantee, and set a specific one in Settings if a name has rotated.
-    models: [
-      { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", tier: "standard" },
-      { value: "llama-3.1-8b-instant", label: "Llama 3.1 8B — fastest", tier: "cheap" },
-      {
-        value: "deepseek-r1-distill-llama-70b",
-        label: "DeepSeek R1 Distill 70B — reasoning",
-        tier: "strong",
-      },
-    ],
+    // Groq hosts open-weight models and rotates IDs faster than a release
+    // cycle. Only the largest Llama does multi-step tool calling with any
+    // reliability; the small/instant and distill models are prone to empty
+    // or malformed turns here. Set a specific id in Settings if this rotates.
+    models: [{ value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", tier: "standard" }],
   },
   openrouter: {
     id: "openrouter",
@@ -195,26 +199,15 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://openrouter.ai/keys",
     baseUrl: "https://openrouter.ai/api/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // OpenRouter is an aggregator with no model of its own; this default is
-    // just a sensible general-purpose pick. The list is a curated shortlist
-    // of vendor slugs — OpenRouter's catalogue is thousands deep; set a
-    // specific slug in Settings for anything not here.
+    // An aggregator — the default is just a sensible pick. The shortlist is
+    // only slugs that route to strong tool + reasoning models; OpenRouter's
+    // catalogue is thousands deep, so type a specific slug for anything else.
     models: [
       { value: "anthropic/claude-opus-5", label: "Claude Opus 5", tier: "strong" },
       { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5", tier: "standard" },
       { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: "strong" },
       { value: "openai/gpt-5.1", label: "GPT-5.1", tier: "strong" },
       { value: "x-ai/grok-4", label: "Grok 4", tier: "strong" },
-      {
-        value: "deepseek/deepseek-chat",
-        label: "DeepSeek Chat",
-        tier: "cheap",
-      },
-      {
-        value: "meta-llama/llama-3.3-70b-instruct",
-        label: "Llama 3.3 70B",
-        tier: "cheap",
-      },
     ],
   },
   custom: {
@@ -403,9 +396,12 @@ function buildOpenAICompatibleProvider(config: {
     model: config.model,
     apiKey: config.apiKey,
     baseUrl,
-    // Only where the dialect's reasoning field is known to be understood.
-    // An unknown server that rejects it would fail every turn.
-    supportsReasoningEffort: config.provider === "openai",
+    // `reasoning_effort` is only valid for OpenAI's reasoning models — the
+    // GPT-5 family and the o-series. Sent to a gpt-4.x (or any other
+    // dialect server), it is a hard 400 on every turn. Gated on the model
+    // name so a free-text non-reasoning model still works instead of
+    // failing outright.
+    supportsReasoningEffort: config.provider === "openai" && /^(o\d|gpt-5)/i.test(config.model),
   });
 }
 
