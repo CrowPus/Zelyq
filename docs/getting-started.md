@@ -43,6 +43,22 @@ Open the web URL and create a project.
 4. **Watch it work.** Tool calls appear as they run — expand one to see its output. Files the agent
    touches refresh in the file tree.
 
+## Modes
+
+Under the composer is a row of buttons. The default (no mode) is fine for a bounded change.
+For anything bigger:
+
+- **Engineer Mode** (👷) — for a feature or refactor you want to review: it states its purpose,
+  separates what it verified from what it assumed, and names the alternative it didn't pick.
+- **Architect Mode** (🧭) — for a whole app or subsystem: it interviews you, writes a full design
+  package to `architecture/` (including a `DESIGN.md` design system), waits for "build it", then
+  builds, verifies, and runs the **Designer agent** to apply the design.
+- **Auto Mode** (∞, with Architect on) — runs the build passes on its own to a ceiling.
+- In Engineer Mode, ask *"make it look professionally designed"* to call the Designer agent on an
+  existing app.
+
+Full detail: [modes.md](./modes.md).
+
 ## Troubleshooting
 
 **"No … API key configured"** — the key for the selected provider is not reaching the agent
