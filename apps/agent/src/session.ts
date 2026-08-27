@@ -74,6 +74,7 @@ const ARCHITECT_PACKAGE_FILES = new Set([
   "architecture/api.md",
   "architecture/infrastructure.md",
   "architecture/build-plan.md",
+  "architecture/build-context.md",
   "architecture/risks.md",
 ]);
 const ARCHITECT_DECISION_RE = /^architecture\/decisions\/\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
@@ -144,6 +145,10 @@ const SUBAGENT_MAX_TOKENS = 200_000;
 const SUBAGENT_WALLCLOCK_MS = 5 * 60_000;
 const ORCH_MAX_SUBAGENTS = 20;
 const ORCH_MAX_TOKENS = 2_000_000;
+// 049 Phase 1 — a builder takes at most this many named files. A task with
+// more is refused at dispatch, forcing the Architect to split it before a
+// bounded builder chokes on it.
+const BUILDER_FILES_MAX = 5;
 
 /** Pick a concrete model for a task's tier. Falls back to the session's own
  * model when the tier is absent or no available model matches it — never
@@ -211,9 +216,43 @@ export interface SessionOptions {
    * `report-page-design` skill for the report render. */
   architectMode?: boolean;
   architectModeSkill?: { body: string; resources: string[] };
+  /** 049 Phase 1 — the lean builder profile. A dispatched builder runs with
+   * a compact hand-written system prompt (this field) instead of the full
+   * `buildSystemPrompt` weave, and only the tools named in `toolNames`. Cuts
+   * per-turn overhead so a whole build fits in the run budget. */
+  systemPrompt?: string;
+  toolNames?: string[];
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
+
+// 049 Phase 1 — the only tools a dispatched builder gets. No plugin
+// catalogue, no use_skill, no preview tools (the Architect owns the preview).
+// Just enough to read the project, write code, and run a command.
+const BUILDER_TOOL_NAMES = [
+  "list_files",
+  "read_file",
+  "search_files",
+  "write_file",
+  "edit_file",
+  "delete_file",
+  "run_command",
+];
+
+// 049 Phase 1 — the builder's whole system prompt. It gets ONE specified task
+// with acceptance criteria, a project brief, and a file map; it does not need
+// the interview/scope-negotiation machinery of the full agent prompt.
+const BUILDER_SYSTEM_PROMPT = `You are a builder on a software team. You are given ONE task from an approved build plan, with acceptance criteria, a project brief, and a list of files that already exist.
+
+Do exactly that task:
+- Read the brief and the relevant existing files before you write anything.
+- Match the stack and conventions already in the project. Do not introduce a new framework, state library, or build tool.
+- Write the code for this task and only this task. Do not build features the task does not name. Do not refactor unrelated code.
+- Keep the project building. If there is a typecheck or build script, run it after your changes and fix what you broke. Install a dependency only if the task genuinely needs it.
+- Wire your work in: if you add a component or module the app is meant to use, connect it to the entry point or the place the plan says it belongs — do not leave it orphaned.
+- Never invent API keys, secrets, or backend URLs. Build against clearly-marked placeholder data and note what the user must supply.
+
+When done, state in two or three sentences what you changed and whether each acceptance criterion is met. If you could not finish, say exactly what remains.`;
 
 type Emit = (event: AgentEvent) => void;
 
@@ -266,7 +305,18 @@ export class AgentSession {
   // 047 Phase 3 — orchestration run state. Session-scoped, so "build the plan"
   // can span turns against one running total. `killed` is the kill switch;
   // once set, no further builders dispatch and nothing resumes on its own.
-  private readonly orchestration = { subagents: 0, tokens: 0, killed: false };
+  private readonly orchestration = {
+    subagents: 0,
+    tokens: 0,
+    killed: false,
+    // 049 Phase 1 — the first task of a build pass must produce a runnable
+    // skeleton (app entry renders, build command passes). Enforced on the
+    // first dispatch only.
+    firstDispatchDone: false,
+    // Cleared by a "keep going" user turn so the next pass gets a fresh
+    // budget instead of dead-ending at the cap.
+    pass: 1,
+  };
 
   constructor(options: SessionOptions) {
     this.id = options.sessionId;
@@ -281,17 +331,28 @@ export class AgentSession {
       ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
     });
 
+    // 049 Phase 1 — a builder runs lean: its own compact prompt, and only
+    // the file/shell tools. Everything else keeps the full weave.
+    const leanBuilder = Boolean(options.systemPrompt && options.toolNames);
+    const toolPool = leanBuilder
+      ? ALL_TOOLS.filter((t) => options.toolNames?.includes(t.name))
+      : options.architectMode
+        ? [...ALL_TOOLS, dispatchTaskTool]
+        : ALL_TOOLS;
+
     this.conversation = provider.createConversation({
-      systemPrompt: buildSystemPrompt({
-        projectName: options.projectName,
-        template: options.template,
-        skills: options.skills,
-        ...(options.engineerMode ? { engineerMode: { skill: options.engineerModeSkill } } : {}),
-        ...(options.architectMode ? { architectMode: { skill: options.architectModeSkill } } : {}),
-      }),
-      // Architect Mode gets dispatch_task on top of the standard set — it is
-      // the only way that mode, which cannot write code, gets code written.
-      tools: toolDefinitions(options.architectMode ? [...ALL_TOOLS, dispatchTaskTool] : ALL_TOOLS),
+      systemPrompt:
+        options.systemPrompt ??
+        buildSystemPrompt({
+          projectName: options.projectName,
+          template: options.template,
+          skills: options.skills,
+          ...(options.engineerMode ? { engineerMode: { skill: options.engineerModeSkill } } : {}),
+          ...(options.architectMode
+            ? { architectMode: { skill: options.architectModeSkill } }
+            : {}),
+        }),
+      tools: toolDefinitions(toolPool),
       effort: options.effort,
       history: (options.history ?? [])
         .filter(
@@ -438,26 +499,87 @@ export class AgentSession {
         isError: true,
       };
     }
+
+    // 049 Phase 1 — task-size ceiling. A bounded builder cannot land a task
+    // with a dozen files; refuse and make the Architect split it.
+    if (input.files && input.files.length > BUILDER_FILES_MAX) {
+      return {
+        output:
+          `This task names ${input.files.length} files — a builder takes at most ${BUILDER_FILES_MAX}. ` +
+          "Split it in build-plan.md into smaller tasks (each self-contained, each with its own " +
+          "acceptance criteria) and dispatch those.",
+        isError: true,
+      };
+    }
+
+    // 049 Phase 1 — the first task of a build pass must produce a runnable
+    // skeleton: the app's entry point renders something and the build/dev
+    // command passes. Keyed to that outcome in the acceptance criteria, not
+    // to a hardcoded filename (a Node API or a CLI has no App.tsx).
+    if (!this.orchestration.firstDispatchDone) {
+      const ac = input.acceptanceCriteria.toLowerCase();
+      const looksRunnable =
+        /\b(build|dev server|typecheck|npm run|preview|start)\b/.test(ac) &&
+        /\b(pass|passes|succeed|runs?|compiles?|renders?|no errors?|boots?|starts?)\b/.test(ac);
+      const looksSkeleton =
+        /\b(skeleton|walking skeleton|scaffold|app shell|entry point|renders)\b/.test(
+          `${input.task} ${ac}`.toLowerCase(),
+        );
+      if (!looksRunnable && !looksSkeleton) {
+        return {
+          output:
+            "The first build task must produce a RUNNABLE skeleton — the app's entry point mounts and " +
+            "renders a real (if minimal) screen, and the build/dev command passes. Re-scope " +
+            "build-plan.md so Task 1 is that walking skeleton (say so in its acceptance criteria), " +
+            "then dispatch it. Every later task keeps the app running.",
+          isError: true,
+        };
+      }
+    }
+
     if (this.orchestration.subagents >= ORCH_MAX_SUBAGENTS) {
       return {
-        output: `Orchestration cap reached: ${ORCH_MAX_SUBAGENTS} builders already dispatched this run. Stop and report to the user — do not dispatch more.`,
+        output:
+          `This build pass has dispatched ${ORCH_MAX_SUBAGENTS} builders. Stop here: in build-plan.md ` +
+          "mark what is done, list the tasks left, and tell the user the app runs as far as it got and " +
+          'to reply "keep going" for another pass (fresh budget) — or to take the remaining tasks to ' +
+          "the Engineer themselves, one at a time.",
         isError: true,
       };
     }
     if (this.orchestration.tokens >= ORCH_MAX_TOKENS) {
       return {
-        output: `Orchestration token ceiling reached (~${(ORCH_MAX_TOKENS / 1e6).toFixed(1)}M). Stop and report to the user — do not dispatch more.`,
+        output:
+          `This build pass hit its ~${(ORCH_MAX_TOKENS / 1e6).toFixed(1)}M-token budget. Stop here: in ` +
+          "build-plan.md mark what is done and list the tasks left. Tell the user the app runs as far as " +
+          'it got, and that replying "keep going" starts another pass with a fresh budget — or they can ' +
+          "hand the remaining build-plan.md tasks to the Engineer, one at a time.",
         isError: true,
       };
     }
 
     const n = ++this.orchestration.subagents;
+    this.orchestration.firstDispatchDone = true;
     const model = modelForTier(
       input.modelTier,
       this.options.provider,
       this.options.model,
       describeAvailableModels(),
     );
+
+    // 049 Phase 1 — the shared build brief (written once by the Architect at
+    // handoff) plus a compact map of what already exists, so the builder does
+    // not spend its budget rediscovering the project every time.
+    const buildContext = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}build-context.md`);
+    const existing = [...(await this.listAllFilePaths())]
+      .filter((p) => !p.startsWith(ARCHITECT_WRITE_ROOT))
+      .sort();
+    const existingBlock = existing.length
+      ? `\n\nFILES THAT ALREADY EXIST (do not recreate; read before you edit):\n${existing
+          .slice(0, 200)
+          .map((p) => `  ${p}`)
+          .join("\n")}`
+      : "\n\nThe project has no source files yet — you are laying the first ones.";
 
     const child = new AgentSession({
       sessionId: `${this.id}#sub${n}`,
@@ -473,22 +595,25 @@ export class AgentSession {
       runtime: this.options.runtime,
       maxIterations: SUBAGENT_MAX_TURNS,
       engineerMode: true,
-      ...(this.options.engineerModeSkill
-        ? { engineerModeSkill: this.options.engineerModeSkill }
-        : {}),
+      // 049 Phase 1 — lean profile: hand-written prompt, file/shell tools only.
+      systemPrompt: BUILDER_SYSTEM_PROMPT,
+      toolNames: BUILDER_TOOL_NAMES,
       ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
-      ...(this.options.resolveSkillBody ? { resolveSkillBody: this.options.resolveSkillBody } : {}),
-      skills: this.options.skills,
     });
 
-    const rolePrefix = input.role ? `You are the ${input.role} for this project. ` : "";
+    const rolePrefix = input.role ? `You are the ${input.role} for this task. ` : "";
     const filesLine = input.files?.length
-      ? `\n\nExpected files: ${input.files.join(", ")}. Do not create files beyond what this task needs.`
+      ? `\n\nExpected files (do not create others): ${input.files.join(", ")}`
+      : "";
+    const briefBlock = buildContext
+      ? `\n\nPROJECT BRIEF (stack, conventions, the shape of the design):\n${buildContext.slice(0, 8000)}`
       : "";
     const prompt =
-      `${rolePrefix}Build exactly this one task and nothing else. Do not re-plan, do not expand scope.\n\n` +
-      `TASK:\n${input.task}\n\nDONE WHEN:\n${input.acceptanceCriteria}${filesLine}\n\n` +
-      "When finished, state briefly what you changed and whether the acceptance criteria are met.";
+      `${rolePrefix}Build exactly this one task and nothing else. Do not re-plan or expand scope. ` +
+      "Keep the app building after your change.\n\n" +
+      `TASK:\n${input.task}\n\nDONE WHEN:\n${input.acceptanceCriteria}${filesLine}${briefBlock}${existingBlock}\n\n` +
+      "When finished, state in two or three sentences what you changed and whether the acceptance " +
+      "criteria are met.";
 
     let reply = "";
     let tokIn = 0;
@@ -668,6 +793,21 @@ export class AgentSession {
       /^\s*(?:stop|wait|hold on|hold up|pause|halt|don'?t\b|no,?\s*(?:stop|wait|don'?t))\b/i.test(
         userMessage,
       );
+    // 049 Phase 1 — "keep going" starts a fresh build pass: reset the run
+    // budget so a build that stopped at the token cap can continue instead of
+    // dead-ending. The kill switch is not reset by this.
+    if (
+      this.options.architectMode &&
+      !this.orchestration.killed &&
+      this.readyDeclaredAtTurn !== null &&
+      /\b(keep going|carry on|continue building|next (build )?pass|finish the build|another pass)\b/i.test(
+        userMessage,
+      )
+    ) {
+      this.orchestration.tokens = 0;
+      this.orchestration.subagents = 0;
+      this.orchestration.pass += 1;
+    }
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -781,6 +921,10 @@ export class AgentSession {
           // need new bookkeeping to earn.
           if (
             this.options.engineerMode &&
+            // 049 Phase 1 — a lean builder already has one specified task; the
+            // "state the purpose" hand-back is Engineer-Mode-for-a-human noise
+            // here.
+            !this.options.systemPrompt &&
             anyFileChangedThisTurn &&
             !purposeCheckDone &&
             !assistantText.includes(ENGINEER_MODE_PURPOSE_MARKER)

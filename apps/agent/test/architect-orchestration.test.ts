@@ -61,10 +61,14 @@ const call = (name: string, input: Record<string, unknown>, id = `c_${name}_${Ma
     usage: { inputTokens: 5, outputTokens: 5 },
   },
 });
-const dispatch = (task: string, files: string[]) =>
+const dispatch = (
+  task: string,
+  files: string[],
+  acceptanceCriteria = "npm run build passes and the widget renders",
+) =>
   call("dispatch_task", {
     task,
-    acceptanceCriteria: "the file exists",
+    acceptanceCriteria,
     files,
   });
 const builderWrites = (p: string) => [
@@ -197,12 +201,20 @@ test("two dispatch_task calls in one turn run in parallel; the run counts both",
           {
             id: "d1",
             name: "dispatch_task",
-            input: { task: "a", acceptanceCriteria: "x", files: ["src/a.ts"] },
+            input: {
+              task: "a",
+              acceptanceCriteria: "npm run build passes; a renders",
+              files: ["src/a.ts"],
+            },
           },
           {
             id: "d2",
             name: "dispatch_task",
-            input: { task: "b", acceptanceCriteria: "x", files: ["src/b.ts"] },
+            input: {
+              task: "b",
+              acceptanceCriteria: "npm run build passes; b renders",
+              files: ["src/b.ts"],
+            },
           },
         ],
         stopReason: "tool_use" as const,
@@ -347,6 +359,49 @@ test("dispatch_task is refused outside Architect Mode", async () => {
       assert.equal(end.call.isError, true);
       assert.match(end.call.result, /only available in Architect Mode/);
     }
+  } finally {
+    await close();
+  }
+});
+
+test("049: the first dispatch of a pass must be a runnable skeleton", async () => {
+  const parent = [
+    dispatch("build the auth modal", ["src/AuthModal.tsx"], "the modal opens and closes"),
+    say("understood, re-scoping"),
+  ];
+  const { base, close } = await setup([parent, builderWrites("src/AuthModal.tsx")], "architect");
+  try {
+    const events = await turn(base);
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "dispatch_task",
+    ) as { call: { isError: boolean; result: string } };
+    assert.ok(end, "a dispatch_task tool.end");
+    assert.equal(end.call.isError, true);
+    assert.match(end.call.result, /first build task must produce a RUNNABLE skeleton/i);
+    const orch = await (await fetch(`${base}/sessions/s_orch/orchestration`)).json();
+    assert.equal(orch.subagents, 0, "no builder spawned for a non-skeleton first task");
+  } finally {
+    await close();
+  }
+});
+
+test("049: a task naming more than five files is refused at dispatch", async () => {
+  const parent = [
+    dispatch(
+      "build the whole dashboard",
+      ["a.tsx", "b.tsx", "c.tsx", "d.tsx", "e.tsx", "f.tsx"],
+      "npm run build passes and the dashboard renders",
+    ),
+    say("splitting it"),
+  ];
+  const { base, close } = await setup([parent, builderWrites("a.tsx")], "architect");
+  try {
+    const events = await turn(base);
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "dispatch_task",
+    ) as { call: { isError: boolean; result: string } };
+    assert.equal(end.call.isError, true);
+    assert.match(end.call.result, /at most 5|Split it/i);
   } finally {
     await close();
   }
