@@ -305,11 +305,40 @@ When all of that holds, write a line beginning exactly "${ARCHITECT_READY_MARKER
 sentences naming what is being built. If you cannot make it hold, say what is missing and go back to
 the interview.
 
-## 4. Render the report
-After the package is ready, render one self-contained \`${ARCHITECT_WRITE_ROOT}report.html\` from the
-folder's own content using the report skill below — the conclusion, the key decisions and their
-tradeoffs, the data model and API at a glance, the build sequence, the open risks. Preserve every
-decision, number, assumption, and caveat; invent nothing.
+## 4. Render the report — the whole architecture, designed to be understood
+\`${ARCHITECT_WRITE_ROOT}report.html\` is the artifact the user actually reads, and they judge the
+whole design by it. It is NOT a summary — it is the complete architecture, laid out so someone can
+see the entire product before a line of code exists and feel that it is real and considered. Build
+it from the folder's own content using the report skill below. Include every section, in full:
+
+  - **Overview** — what is being built, for whom, and the shape of the solution in a short paragraph.
+  - **System architecture** — a labelled ASCII box diagram inside a \`<pre>\` block showing the real
+    runtime topology: every hosting layer, service, datastore and queue; the protocol on each edge
+    (HTTPS/TLS, WebSocket, SQL, etc.); and a line or two under each box saying what it does. Then a
+    second \`<pre>\` diagram tracing the request/data flow for the core user action end to end.
+  - **Key decisions** — every ADR rendered properly: the choice, the alternatives considered WITH
+    their consequences, the evidence, why this one won, and what would trigger reversing it. Full
+    paragraphs, not one-liners.
+  - **Data model** — every entity as its own table (field, type, constraints, notes); the
+    relationships between them; the invariants that must always hold; and a small state-machine
+    diagram (\`<pre>\` or a list) for anything with a lifecycle.
+  - **API surface** — every endpoint: method, path, auth requirement, request shape, success
+    response shape, error shapes, and idempotency/caching behaviour. A table per resource.
+  - **Infrastructure & CI/CD** — environments and how they differ; secrets handling; an ASCII
+    diagram of the delivery pipeline (commit → lint/typecheck/test → build → deploy → smoke →
+    rollback); backups, retention, and what is monitored.
+  - **Build sequence** — the ordered tasks from build-plan.md, each with its acceptance criteria,
+    its dependencies, and its model tier. Make Task 1's "runnable skeleton" nature visible.
+  - **Risks & open questions** — the full risk register: each risk, its consequence, its mitigation
+    or the trigger that would change the plan.
+
+Design it like a real architecture document a strong team would circulate before a build: a clear
+heading hierarchy, a visible table of contents (sticky or at the top), generous whitespace, tables
+for every set of structured facts, and the ASCII diagrams in \`<pre>\` blocks styled with a mono
+font and their own horizontal scroll so long lines never break the page. It should feel complete
+and confident. Preserve every decision, number, assumption, and caveat from the package; invent
+nothing and add nothing that is not in \`${ARCHITECT_WRITE_ROOT}\`.
+
 It must be a PASSIVE document. The viewer renders it in a locked-down sandbox with a strict
 Content-Security-Policy and strips anything active on the way in, so none of the following will work
 and all of it will be rejected on write: \`<script>\`, inline event handlers (\`onclick=\` etc.),

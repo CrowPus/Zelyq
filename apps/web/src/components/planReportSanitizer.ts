@@ -209,8 +209,35 @@ function walk(node: Node): void {
   }
 }
 
-/** Assemble the trusted skeleton: CSP first, then scrubbed styles, then the
- * sanitised body markup. Exported for tests — pure string work, no DOM. */
+// A small readable baseline so an under-styled report still holds together,
+// and so the ASCII architecture diagrams in <pre> scroll instead of blowing
+// out the page. The model's own <style> comes AFTER this and wins.
+const REPORT_BASE_CSS = `
+*,*::before,*::after{box-sizing:border-box}
+html{color-scheme:light dark}
+body{margin:0;padding:2rem clamp(1rem,4vw,3rem);max-width:64rem;margin-inline:auto;
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  color:#1a1a1a;background:#fff}
+@media (prefers-color-scheme:dark){body{color:#e6e6e6;background:#0f1115}}
+h1,h2,h3,h4{line-height:1.25;margin:2rem 0 .75rem}
+h1{font-size:1.9rem}h2{font-size:1.45rem;border-bottom:1px solid #8884;padding-bottom:.3rem}
+h3{font-size:1.15rem}
+p,li{margin:.5rem 0}
+a{color:#2563eb}@media (prefers-color-scheme:dark){a{color:#7ab7ff}}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.92rem;display:block;overflow-x:auto}
+th,td{border:1px solid #8884;padding:.45rem .6rem;text-align:left;vertical-align:top}
+th{background:#8881}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em;
+  background:#8881;padding:.1em .35em;border-radius:3px}
+pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.82rem;line-height:1.4;
+  background:#8881;border:1px solid #8883;border-radius:6px;padding:1rem;overflow-x:auto;white-space:pre}
+pre code{background:none;padding:0}
+blockquote{margin:1rem 0;padding:.25rem 1rem;border-left:3px solid #8886;color:inherit}
+`;
+
+/** Assemble the trusted skeleton: CSP first, then a readable base, then the
+ * report's own scrubbed styles, then the sanitised body markup. Exported for
+ * tests — pure string work, no DOM. */
 export function wrapReportDoc(styleCss: string, bodyHtml: string): string {
   const style = styleCss.trim() ? `<style>${styleCss}</style>` : "";
   return (
@@ -218,6 +245,7 @@ export function wrapReportDoc(styleCss: string, bodyHtml: string): string {
     `<meta http-equiv="Content-Security-Policy" content="${REPORT_CSP}">` +
     '<meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    `<style>${REPORT_BASE_CSS}</style>` +
     style +
     `</head><body>${bodyHtml}</body></html>`
   );
