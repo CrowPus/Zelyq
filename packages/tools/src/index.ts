@@ -7,6 +7,7 @@ import {
   searchFilesTool,
   writeFileTool,
 } from "./files.js";
+import { dispatchTaskTool } from "./orchestrate.js";
 import { previewLogsTool, startPreviewTool, viewPreviewTool } from "./preview.js";
 import { runCommandTool } from "./shell.js";
 import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
@@ -14,6 +15,7 @@ import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
 export * from "./types.js";
 export {
   deleteFileTool,
+  dispatchTaskTool,
   editFileTool,
   listFilesTool,
   previewLogsTool,

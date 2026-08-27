@@ -8,12 +8,15 @@ import {
   Crosshair,
   GraduationCap,
   HardHat,
+  Infinity as InfinityIcon,
+  Info,
   Paperclip,
   Puzzle,
   Square,
   X,
 } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { fileToBase64 } from "../lib/files";
@@ -114,6 +117,28 @@ export function ChatPanel({
   // engineerMode; mutually exclusive with it in the UI (turning one on turns
   // the other off), matching the agent's own rejection of both at once.
   const [architectMode, setArchitectMode] = useState(false);
+  // 051 Part B — Auto Mode. Only meaningful with Architect Mode; turning it
+  // on turns Architect on, turning Architect off turns it off.
+  const [autoMode, setAutoMode] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Anchored to the info button, but rendered in a portal so the composer's
+  // `overflow-hidden` ancestors cannot clip it.
+  const shortcutsBtnRef = useRef<HTMLDivElement>(null);
+  const [shortcutsPos, setShortcutsPos] = useState<{ left: number; bottom: number } | null>(null);
+  useEffect(() => {
+    if (!shortcutsOpen) return;
+    const place = () => {
+      const r = shortcutsBtnRef.current?.getBoundingClientRect();
+      if (r) setShortcutsPos({ left: r.left, bottom: window.innerHeight - r.top + 6 });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [shortcutsOpen]);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -259,6 +284,7 @@ export function ChatPanel({
       ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
       ...(engineerMode ? { engineerMode: true } : {}),
       ...(architectMode ? { architectMode: true } : {}),
+      ...(architectMode && autoMode ? { autoMode: true } : {}),
     });
     setDraft("");
     setCursor(0);
@@ -651,6 +677,7 @@ export function ChatPanel({
                 onClick={() =>
                   setArchitectMode((value) => {
                     if (!value) setEngineerMode(false);
+                    else setAutoMode(false);
                     return !value;
                   })
                 }
@@ -658,18 +685,46 @@ export function ChatPanel({
               >
                 <Compass size={13} strokeWidth={2} />
               </IconButton>
-              {/* Least essential piece of this row, so it's the one that
-                  gives way first — min-w-0 here too, or being a flex
-                  container itself makes it just as unshrinkable as its
-                  parent was without this same fix. */}
-              <span className="flex min-w-0 shrink items-center gap-1 overflow-hidden text-2xs whitespace-nowrap text-fg-muted">
-                <Kbd>↵</Kbd>
-                to send
-                <span className="mx-0.5 text-fg-muted/60">·</span>
-                <Kbd>⇧</Kbd>
-                <Kbd>↵</Kbd>
-                new line
-              </span>
+              {/* 051 Part B — Auto Mode. Runs build passes back to back on
+                  its own until the plan is done or a ceiling is hit. Only
+                  with Architect Mode. */}
+              <IconButton
+                size="sm"
+                variant={autoMode ? "primary" : "ghost"}
+                label={
+                  autoMode
+                    ? "Auto Mode is on — the build runs itself; click to turn off"
+                    : "Turn on Auto Mode (Architect builds the whole plan without stopping)"
+                }
+                aria-pressed={autoMode}
+                onClick={() =>
+                  setAutoMode((value) => {
+                    if (!value) {
+                      setArchitectMode(true);
+                      setEngineerMode(false);
+                    }
+                    return !value;
+                  })
+                }
+                className="shrink-0"
+              >
+                <InfinityIcon size={13} strokeWidth={2} />
+              </IconButton>
+              {/* The keyboard hints used to sit inline here and ate the
+                  row's width. This button row is for controls; the hints
+                  live behind an info popover, rendered in a portal so no
+                  `overflow-hidden` ancestor can clip it. */}
+              <div className="shrink-0" ref={shortcutsBtnRef}>
+                <IconButton
+                  size="sm"
+                  variant={shortcutsOpen ? "primary" : "ghost"}
+                  label="Keyboard shortcuts"
+                  aria-expanded={shortcutsOpen}
+                  onClick={() => setShortcutsOpen((v) => !v)}
+                >
+                  <Info size={13} strokeWidth={2} />
+                </IconButton>
+              </div>
             </div>
             {chat.busy ? (
               <IconButton
@@ -696,6 +751,49 @@ export function ChatPanel({
           </div>
         </div>
       </form>
+
+      {shortcutsOpen &&
+        shortcutsPos &&
+        createPortal(
+          <>
+            <button
+              type="button"
+              aria-label="Close shortcuts"
+              className="fixed inset-0 z-[100] cursor-default"
+              onClick={() => setShortcutsOpen(false)}
+            />
+            <div
+              role="dialog"
+              aria-label="Keyboard shortcuts"
+              style={{ left: shortcutsPos.left, bottom: shortcutsPos.bottom }}
+              className="fixed z-[101] w-60 rounded-lg border border-border-default bg-surface p-2.5 text-2xs shadow-lg"
+            >
+              <p className="mb-1.5 font-medium text-fg">Keyboard</p>
+              <ul className="space-y-1 text-fg-muted">
+                <li className="flex items-center justify-between gap-2">
+                  <span>Send message</span>
+                  <span className="flex items-center gap-0.5">
+                    <Kbd>↵</Kbd>
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>New line</span>
+                  <span className="flex items-center gap-0.5">
+                    <Kbd>⇧</Kbd>
+                    <Kbd>↵</Kbd>
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>Commands, skills, plugins</span>
+                  <span className="flex items-center gap-0.5">
+                    <Kbd>/</Kbd>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </>,
+          document.body,
+        )}
     </section>
   );
 }

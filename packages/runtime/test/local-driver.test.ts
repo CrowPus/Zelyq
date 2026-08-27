@@ -114,6 +114,38 @@ test("operations on an unknown project report not_found", async () => {
   await assert.rejects(() => driver.listFiles("prj_missing"), /not found/);
 });
 
+test("050 R2.6: a write through a symlinked destination is refused", async () => {
+  await driver.ensureProject("prj_sym");
+  await driver.scaffold("prj_sym", [
+    { path: "src/App.tsx", content: "export default function App(){return null}" },
+    { path: "architecture/.keep", content: "" },
+  ]);
+  const root = path.join(workspaceDir, "prj_sym");
+  // A planted link under architecture/ that points back INSIDE the project
+  // root — the kind that resolves fine against the root but escapes the
+  // architecture/ subtree.
+  await fs.symlink(path.join(root, "src/App.tsx"), path.join(root, "architecture", "README.md"));
+  await assert.rejects(
+    () => driver.writeFile("prj_sym", "architecture/README.md", "# not the app"),
+    /through a symlink/,
+  );
+  const app = await driver.readFile("prj_sym", "src/App.tsx");
+  assert.match(app.content, /export default function App/, "the real file is untouched");
+});
+
+test("050 R2.6: writes are atomic — no leftover temp files", async () => {
+  await driver.ensureProject("prj_atomic");
+  await driver.writeFile("prj_atomic", "architecture/README.md", "# v1");
+  await driver.writeFile("prj_atomic", "architecture/README.md", "# v2");
+  const entries = await driver.listFiles("prj_atomic", { path: "architecture" });
+  assert.ok(
+    entries.every((e) => !e.path.includes(".tmp-")),
+    "no .tmp- files left behind",
+  );
+  const f = await driver.readFile("prj_atomic", "architecture/README.md");
+  assert.equal(f.content, "# v2");
+});
+
 test("snapshots capture and restore project files", async () => {
   await driver.ensureProject("prj_e");
   await driver.scaffold("prj_e", [{ path: "note.txt", content: "version one" }]);

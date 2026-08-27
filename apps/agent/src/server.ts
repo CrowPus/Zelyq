@@ -212,6 +212,12 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
         "Engineer Mode and Architect Mode are mutually exclusive — turn one off.",
       );
     }
+    if (input.autoMode && !input.architectMode) {
+      throw new ZelyqError(
+        "bad_request",
+        "Auto Mode only runs with Architect Mode — turn Architect Mode on too.",
+      );
+    }
     if (input.engineerMode && (resolvedEffort === "low" || resolvedEffort === "medium")) {
       throw new ZelyqError(
         "bad_request",
@@ -219,9 +225,13 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
           `"${resolvedEffort}". Raise effort in Settings, or turn Engineer Mode off.`,
       );
     }
-    const engineerModeSkill = input.engineerMode
-      ? deps.skills?.find((skill) => skill.name === ENGINEER_MODE_SKILL_NAME)
-      : undefined;
+    // 047 Phase 3: an Architect session also carries the senior-engineering
+    // skill, because the builders it dispatches (Engineer Mode child sessions)
+    // need it — even though the Architect itself never builds.
+    const engineerModeSkill =
+      input.engineerMode || input.architectMode
+        ? deps.skills?.find((skill) => skill.name === ENGINEER_MODE_SKILL_NAME)
+        : undefined;
     const architectModeSkill = input.architectMode
       ? deps.skills?.find((skill) => skill.name === ARCHITECT_MODE_SKILL_NAME)
       : undefined;
@@ -247,6 +257,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
           }
         : {}),
       architectMode: input.architectMode ?? false,
+      autoMode: input.autoMode ?? false,
       ...(architectModeSkill
         ? {
             architectModeSkill: {
@@ -287,6 +298,19 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     return { aborted: true };
   });
 
+  // 047 Phase 3 — the orchestration kill switch. Stops any further builder
+  // dispatch on this session and aborts the current turn; a stopped run does
+  // not resume on its own.
+  app.post<{ Params: { id: string } }>("/sessions/:id/stop-orchestration", async (request) => {
+    const session = requireSession(sessions, request.params.id);
+    session.stopOrchestration();
+    return session.orchestrationState;
+  });
+
+  app.get<{ Params: { id: string } }>("/sessions/:id/orchestration", async (request) => {
+    return requireSession(sessions, request.params.id).orchestrationState;
+  });
+
   /**
    * One turn, streamed as Server-Sent Events. The connection stays open until
    * the turn ends; the caller (the server app) relays each frame to the browser
@@ -322,6 +346,13 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     });
 
     await session.run(input.message, emit, input.attachments, input.skills, input.plugins);
+    // 051 Part B — Auto Mode: after the build turn, keep running passes on
+    // our own until the plan is done, it gets stuck, the user stops it, or a
+    // ceiling is hit. `autoNextPass` emits the stop reason and returns false
+    // when the run is over. Each pass streams its own turn to the client.
+    while (!reply.raw.writableEnded && session.autoNextPass(emit)) {
+      await session.run("keep going", emit, undefined, input.skills, input.plugins);
+    }
     reply.raw.end();
   });
 

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ARCHITECT_READY_MARKER, ARCHITECT_WRITE_ROOT, buildSystemPrompt } from "../src/prompt.js";
+import {
+  ARCHITECT_DRIFT_MARKER,
+  ARCHITECT_READY_MARKER,
+  ARCHITECT_WRITE_ROOT,
+  buildSystemPrompt,
+} from "../src/prompt.js";
 
 // ---------------------------------------------------------------------------
 // 048 — Architect Mode, Phase 1. The mode is a prompt addendum plus a
@@ -34,6 +39,19 @@ test("architect mode on adds the addendum with the interview, the package, the c
   // The base scope/quality/communication discipline is still there and pointed at.
   assert.match(prompt, /Build what was asked, then stop/);
   assert.match(prompt, /Everything in <scope>, <quality>, and <communication> above still applies/);
+});
+
+test("architect mode has the Phase 2 resume/drift-review path — read README first, supersede, don't fix", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", architectMode: {} });
+  assert.match(prompt, /is there already a package here\?/i);
+  assert.match(prompt, new RegExp(`read \\\`${ARCHITECT_WRITE_ROOT}README\\.md\\\``));
+  assert.match(prompt, /you are RESUMING, not starting over/);
+  assert.match(prompt, /Compare what was built against .*build-plan\.md/);
+  assert.match(prompt, /NEW record[\s\S]*supersedes the old one/);
+  assert.match(prompt, /Superseded by NNNN/);
+  assert.match(prompt, new RegExp(ARCHITECT_DRIFT_MARKER.replace(/[:]/g, "\\$&")));
+  // The overseer still cannot code — corrective work goes to the builder.
+  assert.match(prompt, /Drift is reported and re-planned, not fixed by you/);
 });
 
 test("architect mode names the write root and the fact that execution is off", () => {

@@ -1,6 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
-import { Camera, Code2, Compass, MessageSquare, Monitor } from "lucide-react";
+import {
+  Camera,
+  Code2,
+  Columns2,
+  Compass,
+  MessageSquare,
+  Monitor,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
@@ -10,7 +19,7 @@ import { FileExplorer } from "../components/FileExplorer";
 import { PlanPanel } from "../components/PlanPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
 import { PushControl } from "../components/PushControl";
-import { Badge, Button, Spinner } from "../components/ui";
+import { Badge, Button, IconButton, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import type { SelectedElement } from "../lib/inspector";
@@ -38,6 +47,11 @@ export function ProjectEditorPage() {
   const [starting, setStarting] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [logs, setLogs] = useState("");
+  // Desktop layout: collapse the chat column, or the file tree inside the Code
+  // pane, so the preview / code / plan takes the full width. Phones use the
+  // bottom PaneBar instead, so these are md-only.
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [treeCollapsed, setTreeCollapsed] = useState(false);
   /** Clicked in the preview with the inspector on — see `038`. */
   const [pointedElement, setPointedElement] = useState<SelectedElement | null>(null);
 
@@ -144,6 +158,33 @@ export function ProjectEditorPage() {
       ]}
       actions={
         <>
+          {/* Desktop-only layout toggles: hide the chat, hide the file tree. */}
+          <div className="mr-1 hidden items-center gap-0.5 md:flex">
+            <IconButton
+              size="sm"
+              variant={chatCollapsed ? "primary" : "ghost"}
+              label={chatCollapsed ? "Show chat" : "Hide chat"}
+              aria-pressed={chatCollapsed}
+              onClick={() => setChatCollapsed((v) => !v)}
+            >
+              {chatCollapsed ? (
+                <PanelLeftOpen size={14} strokeWidth={1.75} />
+              ) : (
+                <PanelLeftClose size={14} strokeWidth={1.75} />
+              )}
+            </IconButton>
+            {rightPane === "code" && (
+              <IconButton
+                size="sm"
+                variant={treeCollapsed ? "primary" : "ghost"}
+                label={treeCollapsed ? "Show file tree" : "Hide file tree"}
+                aria-pressed={treeCollapsed}
+                onClick={() => setTreeCollapsed((v) => !v)}
+              >
+                <Columns2 size={14} strokeWidth={1.75} />
+              </IconButton>
+            )}
+          </div>
           {/* The bottom bar handles pane switching on phones. */}
           <div className="mr-1 hidden items-center gap-0.5 rounded-md border border-border-default bg-surface-subtle p-0.5 md:flex">
             <TabButton
@@ -184,7 +225,13 @@ export function ProjectEditorPage() {
       }
     >
       <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] md:grid-rows-[minmax(0,1fr)]">
-        <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] md:grid-cols-[minmax(300px,24rem)_minmax(0,1fr)]">
+        <div
+          className={`grid min-h-0 grid-cols-[minmax(0,1fr)] ${
+            chatCollapsed
+              ? "md:grid-cols-[minmax(0,1fr)]"
+              : "md:grid-cols-[minmax(300px,24rem)_minmax(0,1fr)]"
+          }`}
+        >
           {/*
             Panes are hidden, not unmounted. The chat holds a live WebSocket and
             a scroll position; tearing it down whenever the user glances at the
@@ -194,7 +241,11 @@ export function ProjectEditorPage() {
             from a template string — Tailwind extracts class names statically,
             so an interpolated `md:${x}` produces no CSS at all.
           */}
-          <div className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 min-w-0 md:grid`}>
+          <div
+            className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 min-w-0 ${
+              chatCollapsed ? "md:hidden" : "md:grid"
+            }`}
+          >
             <ChatPanel
               chat={chat}
               model={health.data?.agent.model}
@@ -243,11 +294,17 @@ export function ProjectEditorPage() {
           </div>
 
           <div
-            className={`${pane === "code" ? "grid" : "hidden"} min-h-0 grid-cols-[9rem_minmax(0,1fr)] sm:grid-cols-[15rem_minmax(0,1fr)] ${
-              rightPane === "code" ? "md:grid" : "md:hidden"
-            }`}
+            className={`${pane === "code" ? "grid" : "hidden"} min-h-0 ${
+              treeCollapsed
+                ? "grid-cols-[minmax(0,1fr)]"
+                : "grid-cols-[9rem_minmax(0,1fr)] sm:grid-cols-[15rem_minmax(0,1fr)]"
+            } ${rightPane === "code" ? "md:grid" : "md:hidden"}`}
           >
-            <div className="min-h-0 overflow-hidden border-r border-border-default bg-surface">
+            <div
+              className={`${
+                treeCollapsed ? "hidden" : ""
+              } min-h-0 overflow-hidden border-r border-border-default bg-surface`}
+            >
               <FileExplorer
                 entries={files.data?.entries ?? []}
                 selected={selectedPath}

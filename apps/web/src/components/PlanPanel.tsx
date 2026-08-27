@@ -1,79 +1,57 @@
 import { useQuery } from "@tanstack/react-query";
-import { Compass, ExternalLink, RotateCw } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { Compass, RotateCw } from "lucide-react";
+import { useMemo } from "react";
 import { api } from "../lib/api";
+import { buildSafeReportDoc } from "./planReportSanitizer";
 import { IconButton } from "./ui";
 
 const REPORT_PATH = "architecture/report.html";
 
 /**
- * 048 — Architect Mode's output. `architecture/report.html` is a self-contained
- * page (no external assets) the Architect renders from the design package. It
- * is not a running app, so it does not belong behind the Preview button, which
- * starts the project's dev server. This shows it directly from the file, in a
- * sandboxed frame.
+ * 048 — Architect Mode's output. `architecture/report.html` is written by the
+ * model from the design package. 050 — it is untrusted input: rendered in a
+ * fully locked-down `sandbox=""` iframe, behind a `default-src 'none'` CSP that
+ * trusted code puts first in `<head>`, and run through an allow-policy
+ * sanitiser (`buildSafeReportDoc`) that strips every active or network-capable
+ * construct before it ever reaches the frame. Three independent layers; the
+ * model's file is never trusted because it "looked fine".
  */
 export function PlanPanel({ projectId }: { projectId: string }) {
   const report = useQuery({
     queryKey: ["plan", projectId],
     queryFn: () => api.readFile(projectId, REPORT_PATH),
-    // The Architect rewrites the report at the end of a run; the editor page
-    // invalidates this key when files change, so no polling is needed.
     retry: false,
   });
 
-  const html = report.data?.encoding === "utf8" ? report.data.content : null;
-  const missing = report.isError;
+  const rawHtml = report.data?.encoding === "utf8" ? report.data.content : null;
 
-  // A blob URL so "open in a new tab" works for a document that only exists
-  // in the project workspace, not at any server route.
-  const blobUrl = useMemo(() => {
-    if (!html) return null;
-    return URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  }, [html]);
-  const prevBlob = useRef<string | null>(null);
-  useEffect(() => {
-    if (prevBlob.current) URL.revokeObjectURL(prevBlob.current);
-    prevBlob.current = blobUrl;
-    return () => {
-      if (prevBlob.current) URL.revokeObjectURL(prevBlob.current);
-    };
-  }, [blobUrl]);
+  // Sanitised, self-contained document: CSP <meta> as the first child of
+  // <head>, then the report's own (scrubbed) styles, then its sanitised body.
+  const srcDoc = useMemo(() => (rawHtml ? buildSafeReportDoc(rawHtml) : null), [rawHtml]);
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas">
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border-default bg-surface px-2.5">
         <Compass size={13} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
         <span className="truncate font-mono text-2xs text-fg-muted">
-          {missing ? "no plan yet" : REPORT_PATH}
+          {report.isError ? "no plan yet" : REPORT_PATH}
         </span>
         <div className="ml-auto flex items-center gap-0.5">
           <IconButton size="sm" label="Refresh plan" onClick={() => report.refetch()}>
             <RotateCw size={13} strokeWidth={1.75} />
           </IconButton>
-          {blobUrl && (
-            <a
-              href={blobUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open the plan in a new tab"
-              title="Open in a new tab"
-              className="grid size-6 place-items-center rounded-md text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
-            >
-              <ExternalLink size={13} strokeWidth={1.75} />
-            </a>
-          )}
         </div>
       </header>
 
       <div className="min-h-0 flex-1">
-        {html ? (
+        {srcDoc ? (
           <iframe
-            // A model-authored document — sandboxed to a null origin, scripts
-            // allowed (the report may toggle its own theme) but with no access
-            // to this page, its storage, or navigation.
-            sandbox="allow-scripts"
-            srcDoc={html}
+            // 050 — no `allow-scripts`. `sandbox=""` is the maximally
+            // restrictive value: no scripts, no forms, no popups, no
+            // same-origin, no top navigation. Paired with the CSP inside
+            // `srcDoc` and the sanitiser that produced it.
+            sandbox=""
+            srcDoc={srcDoc}
             title="Architecture plan"
             className="h-full w-full border-0 bg-white"
           />
