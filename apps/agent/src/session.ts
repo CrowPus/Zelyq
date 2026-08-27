@@ -947,14 +947,34 @@ export class AgentSession {
       for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
         if (signal.aborted) break;
 
-        // A model call that fails transiently — the provider is overloaded
-        // ("experiencing high demand"), rate-limited, or the connection
-        // dropped — is retried a few times with backoff before it becomes a
-        // visible error. Only while this iteration has streamed nothing yet,
-        // so a mid-stream failure never double-emits.
+        // A model call that comes back wrong transiently is retried a few
+        // times with backoff before it becomes a visible error or a wasted
+        // turn. Two shapes count as transient here:
+        //   - it THREW: the provider is overloaded ("experiencing high
+        //     demand"), rate-limited, or the connection dropped;
+        //   - it returned NOTHING: no text, no tool calls, not a refusal —
+        //     an empty completion, which is almost always a provider hiccup
+        //     and otherwise leaves the user staring at "No changes were
+        //     made" with no way forward (found live: the Architect stalled
+        //     mid-package, every "proceed" producing an empty turn).
+        // Only retried while this attempt has streamed nothing, so a
+        // mid-stream failure or a real prose answer is never re-run.
         const result = await (async () => {
           for (let attempt = 0; ; attempt++) {
             let streamedThisAttempt = false;
+            const backoff = async (why: string): Promise<void> => {
+              const waitMs = MODEL_RETRY_BASE_MS * 2 ** attempt;
+              emit({
+                type: "error",
+                sessionId: this.id,
+                code: "retrying",
+                message: `${why} — retrying (${attempt + 1}/${MODEL_RETRY_MAX}) in ${Math.round(
+                  waitMs / 1000,
+                )}s…`,
+                fatal: false,
+              });
+              await new Promise((r) => setTimeout(r, waitMs));
+            };
             try {
               const turn = this.conversation.stream(signal);
               let next = await turn.next();
@@ -970,7 +990,16 @@ export class AgentSession {
                 }
                 next = await turn.next();
               }
-              return next.value;
+              const value = next.value;
+              const emptyCompletion =
+                !streamedThisAttempt &&
+                value.toolCalls.length === 0 &&
+                value.stopReason !== "refusal";
+              if (emptyCompletion && !signal.aborted && attempt < MODEL_RETRY_MAX) {
+                await backoff("The model returned an empty response");
+                continue;
+              }
+              return value;
             } catch (err) {
               const code = classifyProviderError(this.options.provider, err);
               const transient =
@@ -983,17 +1012,7 @@ export class AgentSession {
               ) {
                 throw err;
               }
-              const waitMs = MODEL_RETRY_BASE_MS * 2 ** attempt;
-              emit({
-                type: "error",
-                sessionId: this.id,
-                code: "retrying",
-                message:
-                  `${describeProviderError(this.options.provider, err)} — retrying ` +
-                  `(${attempt + 1}/${MODEL_RETRY_MAX}) in ${Math.round(waitMs / 1000)}s…`,
-                fatal: false,
-              });
-              await new Promise((r) => setTimeout(r, waitMs));
+              await backoff(describeProviderError(this.options.provider, err));
             }
           }
         })();
