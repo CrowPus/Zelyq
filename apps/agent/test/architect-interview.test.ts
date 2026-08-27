@@ -169,16 +169,39 @@ test("during the interview, only requirements.md and README.md may be written", 
   }
 });
 
+// 050 R2.5 — an 8-row status block, every topic answered, so the completion
+// line is honoured.
+const STATUS_BLOCK = [
+  "| Topic | Status | Source | Note |",
+  "| --- | --- | --- | --- |",
+  "| Purpose and users | answered | user | ok |",
+  "| Core functional requirements | answered | user | ok |",
+  "| Explicit non-goals | answered | user | ok |",
+  "| Constraints | answered | user | ok |",
+  "| Data | answered | user | ok |",
+  "| External dependencies | answered | user | ok |",
+  "| Failure expectations | answered | user | ok |",
+  "| Acceptance criteria | answered | user | ok |",
+  "",
+].join("\n");
+
 test("after 'Interview complete:' the design files open up", async () => {
   const { base, workspaceDir, projectId, close } = await setup([
     {
-      events: [text("Interview complete: proceeding to the design.")],
+      events: [text("recording the interview state")],
       result: {
-        toolCalls: [],
-        stopReason: "end_turn" as const,
-        usage: { inputTokens: 2, outputTokens: 2 },
+        toolCalls: [
+          {
+            id: "wr",
+            name: "write_file",
+            input: { path: "architecture/requirements.md", content: STATUS_BLOCK },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
       },
     },
+    say("Interview complete: proceeding to the design."),
     {
       events: [text("writing the first ADR")],
       result: {
@@ -201,6 +224,60 @@ test("after 'Interview complete:' the design files open up", async () => {
     const ends = writeEnds(events);
     assert.ok(ends.length >= 1 && ends.every((e) => !e.call.isError), "the ADR write goes through");
     await fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0001-stack.md"));
+  } finally {
+    await close();
+  }
+});
+
+test("a 'blocked' status row keeps 'Interview complete:' from taking effect", async () => {
+  const blockedBlock = STATUS_BLOCK.replace(
+    "| Data | answered | user | ok |",
+    "| Data | blocked | | need the retention policy |",
+  );
+  const { base, workspaceDir, projectId, close } = await setup([
+    {
+      events: [text("recording state")],
+      result: {
+        toolCalls: [
+          {
+            id: "wr",
+            name: "write_file",
+            input: { path: "architecture/requirements.md", content: blockedBlock },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("Interview complete: proceeding."),
+    {
+      events: [text("trying to write an ADR")],
+      result: {
+        toolCalls: [
+          {
+            id: "w1",
+            name: "write_file",
+            input: { path: "architecture/decisions/0001-stack.md", content: "# adr\n" },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("done"),
+  ]);
+  try {
+    await turn(base, "design what you have");
+    const events = await turn(base, "go on");
+    const ends = writeEnds(events);
+    assert.ok(
+      ends.length >= 1 && ends.every((e) => e.call.isError),
+      "the ADR write is still refused",
+    );
+    assert.ok(ends.every((e) => /interview is not closed/i.test(e.call.result)));
+    await assert.rejects(
+      fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0001-stack.md")),
+    );
   } finally {
     await close();
   }

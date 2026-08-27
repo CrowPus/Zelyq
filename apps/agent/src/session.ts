@@ -61,11 +61,71 @@ const ARCHITECT_INTERVIEW_WRITABLE = new Set([
   "architecture/README.md",
 ]);
 
-/** True when `toolCall` is not allowed in Architect Mode: an execution tool,
- * or a write whose canonicalized path escapes `architecture/`. Path is
- * normalized first so `architecture/../src/x` and `./architecture/../x`
- * cannot slip through the prefix check. */
-function architectModeBlock(name: string, input: Record<string, unknown>): "exec" | "scope" | null {
+// 050 R2.1 — the exact set of paths the Architect may write, derived from the
+// 048 package contract. NOT "any .md under architecture/": arbitrary Markdown
+// there is not inert everywhere (MDX compilation, raw-markdown imports, doc
+// generators that glob `architecture/**/*.md`). `pending-skills/` is
+// deliberately absent — self-authored capability is 047 Phase 3d, gated
+// separately.
+const ARCHITECT_PACKAGE_FILES = new Set([
+  "architecture/README.md",
+  "architecture/requirements.md",
+  "architecture/data-model.md",
+  "architecture/api.md",
+  "architecture/infrastructure.md",
+  "architecture/build-plan.md",
+  "architecture/risks.md",
+]);
+const ARCHITECT_DECISION_RE = /^architecture\/decisions\/\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
+const ARCHITECT_REPORT_PATH = "architecture/report.html";
+// 050 R2.5 — a user turn that hands the Architect the go-ahead to design with
+// what it has. Loose on purpose; the cost of a false positive is only that an
+// `assumed`/`skipped` row is honoured a turn early.
+const ARCHITECT_PROCEED_RE =
+  /\b(that'?s enough|design what you have|design it|just design|go ahead and design|proceed with|build it|start building|start to build)\b/i;
+// The interview-close status words the Architect writes into requirements.md.
+const ARCHITECT_STATUS_LINE_RE = /\b(answered|assumed|skipped|blocked|not\s+asked)\b/i;
+
+/** True when a canonicalized Architect write path is one of the allowed
+ * package artifacts. */
+function isArchitectPackagePath(norm: string): boolean {
+  return (
+    ARCHITECT_PACKAGE_FILES.has(norm) ||
+    norm === ARCHITECT_REPORT_PATH ||
+    ARCHITECT_DECISION_RE.test(norm)
+  );
+}
+
+/** 050 R2.3 — a fail-fast advisory scan of a complete report.html for active
+ * or network-capable content. NOT a security boundary (a substring scan
+ * cannot be one — see the proposal); the render-time sanitiser in PlanPanel
+ * is the control. This just catches the obvious cases early so the Architect
+ * gets told, and so a scripted file does not linger in the workspace.
+ * Returns a short description of the first problem, or null if clean. */
+function reportHtmlAdvisory(html: string): string | null {
+  const s = html.toLowerCase();
+  if (/<script[\s/>]/.test(s)) return "a <script> tag";
+  if (/\son[a-z]+\s*=/.test(s)) return "an inline event handler (on…=)";
+  if (/javascript:/.test(s)) return "a javascript: URL";
+  if (/<(?:iframe|object|embed|form|base|link|meta[^>]+http-equiv)\b/.test(s))
+    return "an active or embedding element";
+  if (/(?:src|href|srcset|data|action|poster|xlink:href)\s*=\s*["']?\s*(?:https?:|\/\/)/.test(s))
+    return "a remote resource URL";
+  if (/(?:@import|url\(\s*["']?\s*(?:https?:|\/\/))/.test(s)) return "a remote CSS import or url()";
+  return null;
+}
+
+/** Why `toolCall` is not allowed in Architect Mode, or null if it is:
+ *  - "exec"     — an execution tool (run_command, start_preview)
+ *  - "scope"    — a write whose canonicalized path is outside `architecture/`
+ *  - "artifact" — a write under `architecture/` that is not an allowed
+ *                 package file (050 R2.1)
+ * Path is normalized first so `architecture/../src/x` and `./architecture/../x`
+ * cannot slip through. */
+function architectModeBlock(
+  name: string,
+  input: Record<string, unknown>,
+): "exec" | "scope" | "artifact" | null {
   if (ARCHITECT_BLOCKED_TOOLS.has(name)) return "exec";
   if (ARCHITECT_WRITE_TOOLS.has(name)) {
     const raw = typeof input.path === "string" ? input.path : "";
@@ -79,6 +139,7 @@ function architectModeBlock(name: string, input: Record<string, unknown>): "exec
     ) {
       return "scope";
     }
+    if (!isArchitectPackagePath(norm)) return "artifact";
   }
   return null;
 }
@@ -203,6 +264,13 @@ export class AgentSession {
   // one turn".
   private interviewDoneDeclared = false;
 
+  // 050 R2.5 — set when a user turn has explicitly told the Architect to
+  // proceed with what it has ("that's enough, design what you have" and
+  // kin). `assumed` / `skipped` status rows are only honoured once this is
+  // true, so the Architect cannot mark its own gaps done and close the
+  // interview on itself.
+  private userSaidProceed = false;
+
   // 047 Phase 3 — orchestration run state. Session-scoped, so "build the plan"
   // can span turns against one running total. `killed` is the kill switch;
   // once set, no further builders dispatch and nothing resumes on its own.
@@ -270,6 +338,13 @@ export class AgentSession {
         this.readyDeclaredAtTurn === 0)
     ) {
       this.interviewDoneDeclared = true;
+    }
+
+    if (
+      options.architectMode &&
+      (options.history ?? []).some((m) => m.role === "user" && ARCHITECT_PROCEED_RE.test(m.content))
+    ) {
+      this.userSaidProceed = true;
     }
   }
 
@@ -608,6 +683,11 @@ export class AgentSession {
       /^\s*(?:stop|wait|hold on|hold up|pause|halt|don'?t\b|no,?\s*(?:stop|wait|don'?t))\b/i.test(
         userMessage,
       );
+    // 050 R2.5 — once the user has said "design what you have", `assumed` /
+    // `skipped` status rows become acceptable. Latches on.
+    if (this.options.architectMode && !isHaltRequest && ARCHITECT_PROCEED_RE.test(userMessage)) {
+      this.userSaidProceed = true;
+    }
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -825,6 +905,21 @@ export class AgentSession {
             const architectBlock = this.options.architectMode
               ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
               : null;
+            // 050 R2.2 — a write/edit to architecture/report.html is checked
+            // on the COMPLETE resulting file, not the tool input, so active
+            // content cannot be assembled across edit_file calls or survive
+            // from a prior version. Snapshot the current file first so a
+            // failed check rolls back.
+            const isReportWrite =
+              this.options.architectMode &&
+              architectBlock === null &&
+              (toolCall.name === "write_file" || toolCall.name === "edit_file") &&
+              typeof (toolCall.input as { path?: unknown }).path === "string" &&
+              pathPosix.normalize((toolCall.input as { path: string }).path) ===
+                ARCHITECT_REPORT_PATH;
+            const reportPriorContent = isReportWrite
+              ? await this.readFileOrNull(ARCHITECT_REPORT_PATH)
+              : null;
             // The user opened this turn telling the Architect to stop — do
             // not spawn a builder, whatever the model asked for. Writes are
             // left alone (see the isHaltRequest comment).
@@ -841,7 +936,7 @@ export class AgentSession {
               (toolCall.name === "write_file" || toolCall.name === "edit_file") &&
               archInterviewPath.startsWith(ARCHITECT_WRITE_ROOT) &&
               !ARCHITECT_INTERVIEW_WRITABLE.has(archInterviewPath);
-            const outcome = haltBlocked
+            const preOutcome = haltBlocked
               ? {
                   output:
                     "The user asked you to stop, so no builder is being dispatched. Talk to them: say " +
@@ -889,9 +984,14 @@ export class AgentSession {
                               ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
                                 "disabled for this session. You are planning, not building. Write the design into " +
                                 `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
-                              : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
-                                `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
-                                `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
+                              : architectBlock === "artifact"
+                                ? `Architect Mode writes only the design package under ${ARCHITECT_WRITE_ROOT} — refusing ` +
+                                  `"${String((toolCall.input as { path?: unknown }).path ?? "")}". Allowed: README.md, ` +
+                                  "requirements.md, data-model.md, api.md, infrastructure.md, build-plan.md, risks.md, " +
+                                  "decisions/NNNN-<slug>.md, and report.html. Nothing else — no config, no code, no scripts."
+                                : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
+                                  `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
+                                  `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
                           isError: true,
                         }
                       : capped
@@ -909,6 +1009,14 @@ export class AgentSession {
                             isError: true,
                           }
                         : await executeTool(toolContext, toolCall.name, toolCall.input);
+            // 050 R2.2/R2.3 — validate the whole report.html after the write.
+            // This is a fail-fast advisory (the render-time sanitiser in
+            // PlanPanel is the authoritative control); on a trip it rolls the
+            // file back and tells the model why.
+            const outcome =
+              isReportWrite && !preOutcome.isError
+                ? await this.validateReportAfterWrite(preOutcome, reportPriorContent)
+                : preOutcome;
             const finished: ToolCall = {
               ...call,
               result: outcome.output.slice(0, 4000),
@@ -1054,13 +1162,24 @@ export class AgentSession {
       }
 
       // Once the Architect closes the interview, the design files unlock for
-      // every following turn.
+      // every following turn — but only if requirements.md's status block
+      // backs it up (050 R2.5). A bare marker over a block with a `blocked`
+      // row, or self-assumed gaps the user never approved, is not honoured;
+      // the model is told why and the files stay locked.
       if (
         this.options.architectMode &&
         !this.interviewDoneDeclared &&
         assistantText.includes(ARCHITECT_INTERVIEW_DONE_MARKER)
       ) {
-        this.interviewDoneDeclared = true;
+        const close = await this.validateInterviewClose();
+        if (close.ok) {
+          this.interviewDoneDeclared = true;
+        } else {
+          this.conversation.addUserMessage(
+            `The "${ARCHITECT_INTERVIEW_DONE_MARKER}" line was not accepted: ${close.reason} ` +
+              "The design files stay locked until that is fixed.",
+          );
+        }
       }
 
       emit({
@@ -1166,6 +1285,90 @@ export class AgentSession {
       .listFiles(this.projectId, { depth: 32 })
       .catch(() => []);
     return new Set(entries.filter((entry) => entry.type === "file").map((entry) => entry.path));
+  }
+
+  /** Read a project file, or null if it does not exist / cannot be read. */
+  private async readFileOrNull(filePath: string): Promise<string | null> {
+    return this.options.runtime
+      .readFile(this.projectId, filePath)
+      .then((f) => f.content)
+      .catch(() => null);
+  }
+
+  /**
+   * 050 R2.2/R2.3 — after a write/edit to architecture/report.html, read the
+   * whole resulting file and run `reportHtmlAdvisory` on it. If it trips, roll
+   * the file back to `prior` (or delete it if there was none) and return a
+   * refusal for the model. This is a fail-fast advisory only — the render-time
+   * sanitiser in PlanPanel is the authoritative control — but it stops an
+   * obviously-scripted report from sitting in the workspace and catches
+   * content assembled across multiple edit_file calls.
+   */
+  private async validateReportAfterWrite(
+    passOutcome: ToolResult,
+    prior: string | null,
+  ): Promise<ToolResult> {
+    const now = await this.readFileOrNull(ARCHITECT_REPORT_PATH);
+    if (now === null) return passOutcome;
+    const bad = reportHtmlAdvisory(now);
+    if (!bad) return passOutcome;
+    try {
+      if (prior === null) {
+        await this.options.runtime.deleteFile(this.projectId, ARCHITECT_REPORT_PATH);
+      } else {
+        await this.options.runtime.writeFile(this.projectId, ARCHITECT_REPORT_PATH, prior);
+      }
+    } catch {
+      // Best effort — even if rollback fails, PlanPanel sanitises on render.
+    }
+    return {
+      output:
+        `report.html was rejected and rolled back: it contains ${bad}. The report must be a ` +
+        "passive document — no <script>, event handlers, remote URLs, embedding elements, or remote " +
+        "CSS. The design's own inline CSS and data: images are fine. Rewrite it without that.",
+      isError: true,
+    };
+  }
+
+  /**
+   * 050 R2.5 — whether an "Interview complete:" line may be honoured. Reads
+   * requirements.md's status block: there must be a row per topic, none
+   * `blocked`, and no `assumed`/`skipped` row unless the user has said to
+   * proceed. Gates *content*, not just the presence of the marker.
+   */
+  private async validateInterviewClose(): Promise<{ ok: boolean; reason: string }> {
+    const reqs = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}requirements.md`);
+    if (reqs === null) {
+      return { ok: false, reason: "architecture/requirements.md does not exist yet." };
+    }
+    const rows = reqs
+      .split("\n")
+      .filter((l) => ARCHITECT_STATUS_LINE_RE.test(l) && (l.includes("|") || /:\s*\w/.test(l)));
+    if (rows.length < 8) {
+      return {
+        ok: false,
+        reason:
+          "requirements.md needs a status block with a row for each of the 8 interview topics " +
+          "(status: answered | assumed | skipped | blocked | not asked).",
+      };
+    }
+    if (rows.some((l) => /\bblocked\b/i.test(l))) {
+      return {
+        ok: false,
+        reason:
+          "a topic is still 'blocked' in the requirements.md status block — resolve it or raise it " +
+          "with the user before writing the completion line.",
+      };
+    }
+    if (!this.userSaidProceed && rows.some((l) => /\b(assumed|skipped)\b/i.test(l))) {
+      return {
+        ok: false,
+        reason:
+          "the status block has 'assumed' or 'skipped' topics but the user has not said to proceed " +
+          "with what you have — ask those topics, or get the user's go-ahead first.",
+      };
+    }
+    return { ok: true, reason: "" };
   }
 
   /**

@@ -286,7 +286,24 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     const absolute = resolveInside(root, filePath);
     await fs.mkdir(path.dirname(absolute), { recursive: true });
     await assertRealPathInside(root, absolute);
-    await fs.writeFile(absolute, Buffer.from(content, encoding));
+    // 050 R2.6 — never write *through* a symlink at the destination, and
+    // replace atomically. `lstat` catches a planted link that resolves back
+    // inside the root (which `assertRealPathInside` alone would allow); the
+    // temp-write + `rename` makes the swap atomic and, because `rename`
+    // operates on the link entry rather than its target, also symlink-safe
+    // by construction.
+    const existing = await fs.lstat(absolute).catch(() => null);
+    if (existing?.isSymbolicLink()) {
+      throw ZelyqError.badRequest(`Refusing to write through a symlink: ${filePath}`);
+    }
+    const tmp = `${absolute}.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      await fs.writeFile(tmp, Buffer.from(content, encoding), { flag: "wx" });
+      await fs.rename(tmp, absolute);
+    } catch (error) {
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async deleteFile(projectId: string, filePath: string): Promise<void> {

@@ -292,9 +292,13 @@ test("dispatch_task is refused when the design is not finished (no build-plan)",
 test("architect mode caps new files under architecture/ per turn — no whole-package dump", async () => {
   // Six write_file calls to new architecture/ paths in one turn. Only the
   // first four land; 5 and 6 are refused. The design has to be built up over
-  // turns, not dumped at once.
+  // turns, not dumped at once. (Decision records — 050 R2.1's allowlist only
+  // accepts real package files under architecture/.)
   const writes = [1, 2, 3, 4, 5, 6].map((i) =>
-    call("write_file", { path: `architecture/doc${i}.md`, content: `# doc ${i}\n` }),
+    call("write_file", {
+      path: `architecture/decisions/000${i}-choice-${i}.md`,
+      content: `# ADR ${i}\n`,
+    }),
   );
   // readyPackage seeds a prior "package ready" turn, which also unlocks the
   // design files past the interview gate — so this test exercises the
@@ -316,9 +320,13 @@ test("architect mode caps new files under architecture/ per turn — no whole-pa
       refused.length >= 1 && refused.every((e) => /created 4 new files/i.test(e.call.result)),
     );
     for (const i of [1, 2, 3, 4]) {
-      await fs.access(path.join(workspaceDir, projectId, `architecture/doc${i}.md`));
+      await fs.access(
+        path.join(workspaceDir, projectId, `architecture/decisions/000${i}-choice-${i}.md`),
+      );
     }
-    await assert.rejects(fs.access(path.join(workspaceDir, projectId, "architecture/doc5.md")));
+    await assert.rejects(
+      fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0005-choice-5.md")),
+    );
   } finally {
     await close();
   }
