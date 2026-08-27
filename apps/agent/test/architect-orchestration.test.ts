@@ -123,6 +123,27 @@ async function setup(
   const body: Record<string, unknown> = { sessionId: "s_orch", projectId };
   if (mode === "architect") body.architectMode = true;
   if (mode === "engineer") body.engineerMode = true;
+  if (readyPackage && mode === "architect") {
+    // A prior turn declared the package ready — so this session's first
+    // "build it" turn is a legitimate, user-approved dispatch.
+    const now = new Date().toISOString();
+    body.history = [
+      {
+        id: "m0",
+        sessionId: "s_orch",
+        role: "user",
+        content: "the plan is approved",
+        createdAt: now,
+      },
+      {
+        id: "m1",
+        sessionId: "s_orch",
+        role: "assistant",
+        content: "Architecture package ready: the widget suite.",
+        createdAt: now,
+      },
+    ];
+  }
   const created = await fetch(`${base}/sessions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -256,10 +277,45 @@ test("dispatch_task is refused when the design is not finished (no build-plan)",
     ) as { call: { isError: boolean; result: string } };
     assert.ok(end, "a dispatch_task tool.end");
     assert.equal(end.call.isError, true);
-    assert.match(end.call.result, /design is not finished|no architecture\/build-plan/i);
+    assert.match(
+      end.call.result,
+      /have not declared the package ready|design is not finished|no architecture\/build-plan/i,
+    );
     await assert.rejects(fs.access(path.join(workspaceDir, projectId, "src/x.ts")));
     const orch = await (await fetch(`${base}/sessions/s_orch/orchestration`)).json();
     assert.equal(orch.subagents, 0, "no builder was spawned");
+  } finally {
+    await close();
+  }
+});
+
+test("architect mode caps new files under architecture/ per turn — no whole-package dump", async () => {
+  // Six write_file calls to new architecture/ paths in one turn. Only the
+  // first four land; 5 and 6 are refused. The design has to be built up over
+  // turns, not dumped at once.
+  const writes = [1, 2, 3, 4, 5, 6].map((i) =>
+    call("write_file", { path: `architecture/doc${i}.md`, content: `# doc ${i}\n` }),
+  );
+  const { base, workspaceDir, projectId, close } = await setup(
+    [[...writes, say("wrote the package")]],
+    "architect",
+    { readyPackage: false },
+  );
+  try {
+    const events = await turn(base);
+    const ends = events.filter(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "write_file",
+    ) as Array<{ call: { isError: boolean; result: string } }>;
+    const ok = ends.filter((e) => !e.call.isError).length;
+    const refused = ends.filter((e) => e.call.isError);
+    assert.equal(ok, 4, "exactly four new files land");
+    assert.ok(
+      refused.length >= 1 && refused.every((e) => /created 4 new files/i.test(e.call.result)),
+    );
+    for (const i of [1, 2, 3, 4]) {
+      await fs.access(path.join(workspaceDir, projectId, `architecture/doc${i}.md`));
+    }
+    await assert.rejects(fs.access(path.join(workspaceDir, projectId, "architecture/doc5.md")));
   } finally {
     await close();
   }

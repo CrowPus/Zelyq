@@ -17,6 +17,7 @@ import {
   toolDefinitions,
 } from "@zelyq/tools";
 import {
+  ARCHITECT_DRIFT_MARKER,
   ARCHITECT_READY_MARKER,
   ARCHITECT_WRITE_ROOT,
   buildSystemPrompt,
@@ -176,6 +177,14 @@ export class AgentSession {
   private tokensIn = 0;
   private tokensOut = 0;
 
+  // 048/047 — the turn number on which the Architect first declared the
+  // package ready (or 0 if a resumed session's history already contains that
+  // declaration). dispatch_task is refused until this is set AND at least one
+  // user turn has happened since — i.e. the user has seen the finished plan
+  // and come back to say build it. Prevents "wrote the whole plan itself,
+  // then started building" in one breath.
+  private readyDeclaredAtTurn: number | null = null;
+
   // 047 Phase 3 — orchestration run state. Session-scoped, so "build the plan"
   // can span turns against one running total. `killed` is the kill switch;
   // once set, no further builders dispatch and nothing resumes on its own.
@@ -217,6 +226,21 @@ export class AgentSession {
           toolCalls: message.toolCalls,
         })),
     });
+
+    // A resumed Architect session whose history already contains a
+    // package-ready or drift-review declaration is treated as "ready" from
+    // turn 0 — the user's first message in the new session can be "build it".
+    if (
+      options.architectMode &&
+      (options.history ?? []).some(
+        (m) =>
+          m.role === "assistant" &&
+          (m.content.includes(ARCHITECT_READY_MARKER) ||
+            m.content.includes(ARCHITECT_DRIFT_MARKER)),
+      )
+    ) {
+      this.readyDeclaredAtTurn = 0;
+    }
   }
 
   get state() {
@@ -285,19 +309,35 @@ export class AgentSession {
       return { output: "dispatch_task is only available in Architect Mode.", isError: true };
     }
 
-    // Structural gate: never dispatch from a plan that does not exist yet. The
-    // package is only dispatchable once the design phase has produced a real
-    // build-plan.md and at least one decision record — an interview alone does
-    // not. The prose gate ("only after the package is ready") is not enough on
-    // its own; this makes "build before the plan is done" impossible.
+    // The real gate: the user must have seen a finished plan and come back to
+    // approve it. That means (1) the Architect declared the package ready in
+    // an earlier turn, AND (2) at least one user turn has happened since. The
+    // Architect writing the whole package and "build it" in one breath fails
+    // both. A resumed session with a ready/drift declaration in its history
+    // starts at readyDeclaredAtTurn = 0, so the user's first "build it" there
+    // passes. A filesystem sanity check on top: build-plan.md must exist.
+    if (this.readyDeclaredAtTurn === null) {
+      return {
+        output:
+          "Cannot dispatch — you have not declared the package ready yet. Finish the interview, write " +
+          `the full package (decisions, data-model, api, infrastructure, build-plan, risks), run the ` +
+          `challenge pass, and write the "${ARCHITECT_READY_MARKER}" line. Then the user reviews it and ` +
+          "tells you to build.",
+        isError: true,
+      };
+    }
+    if (this.turns <= this.readyDeclaredAtTurn) {
+      return {
+        output:
+          "Cannot dispatch in the same turn you declared the package ready. Stop here, present the plan, " +
+          "and wait for the user to review it and say to build. Building is never automatic.",
+        isError: true,
+      };
+    }
     const packageState = await this.architecturePackageState();
     if (!packageState.ready) {
       return {
-        output:
-          `Cannot dispatch — the design is not finished. ${packageState.reason}\n` +
-          "Finish the interview, write the full package (decisions, data-model, api, infrastructure, " +
-          `build-plan, risks), run the challenge pass, and write the "${ARCHITECT_READY_MARKER}" line. ` +
-          "Only then can a task be handed to a builder.",
+        output: `Cannot dispatch — ${packageState.reason} Finish the package first.`,
         isError: true,
       };
     }
@@ -511,9 +551,17 @@ export class AgentSession {
     const NEW_FILE_CHECKPOINT = 6;
     const newFilesThisTurn = new Set<string>();
     let checkpointReached = false;
-    const existingFilesAtTurnStart = this.options.engineerMode
-      ? await this.listAllFilePaths()
-      : new Set<string>();
+    const existingFilesAtTurnStart =
+      this.options.engineerMode || this.options.architectMode
+        ? await this.listAllFilePaths()
+        : new Set<string>();
+    // Architect Mode: at most this many genuinely-new files under
+    // `architecture/` per turn. The design and the interview are meant to be
+    // incremental — a whole package produced in one turn is the "built it all
+    // by itself" failure. New paths only; editing what already exists is
+    // unlimited.
+    const ARCHITECT_NEW_FILES_PER_TURN = 4;
+    const newArchFilesThisTurn = new Set<string>();
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -653,6 +701,18 @@ export class AgentSession {
               name: toolCall.name,
               input: toolCall.input,
             };
+            // The user hit stop while this batch was being prepared — do not
+            // start any tool that has not already begun. The loop's own
+            // top-of-iteration check would only catch this a round later.
+            if (signal.aborted) {
+              return {
+                id: toolCall.id,
+                name: toolCall.name,
+                output: "Stopped by the user before this tool ran.",
+                isError: true,
+                images: undefined,
+              };
+            }
             emit({ type: "tool.start", sessionId: this.id, messageId, call });
 
             const startedAt = Date.now();
@@ -693,14 +753,43 @@ export class AgentSession {
               newFilesThisTurn.add(path);
             }
             const capped = blockedByCheckpoint || newFileCapped;
+            // Architect Mode per-turn new-file cap: at most
+            // ARCHITECT_NEW_FILES_PER_TURN genuinely-new files under
+            // `architecture/`. Forces the interview and the design to be
+            // incremental instead of a one-turn package dump. Editing files
+            // that already exist is not capped.
+            const archNewPath =
+              this.options.architectMode &&
+              toolCall.name === "write_file" &&
+              typeof toolCall.input.path === "string" &&
+              toolCall.input.path.startsWith(ARCHITECT_WRITE_ROOT) &&
+              !existingFilesAtTurnStart.has(toolCall.input.path) &&
+              !newArchFilesThisTurn.has(toolCall.input.path)
+                ? toolCall.input.path
+                : undefined;
+            const architectFileCapped =
+              archNewPath !== undefined &&
+              newArchFilesThisTurn.size >= ARCHITECT_NEW_FILES_PER_TURN;
+            if (archNewPath !== undefined && !architectFileCapped) {
+              newArchFilesThisTurn.add(archNewPath);
+            }
             // 048 — Architect Mode plans only. Refuse execution tools and any
             // write outside `architecture/`, at the boundary, before the real
             // tool runs.
             const architectBlock = this.options.architectMode
               ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
               : null;
-            const outcome =
-              toolCall.name === "dispatch_task"
+            const outcome = architectFileCapped
+              ? {
+                  output:
+                    `Architect Mode created ${ARCHITECT_NEW_FILES_PER_TURN} new files under ` +
+                    `${ARCHITECT_WRITE_ROOT} this turn — refusing another ("${archNewPath}"). ` +
+                    "Stop here. Summarize what you wrote and, if you are still in the interview, ask " +
+                    "the next question. The user's next message continues it with a fresh budget. The " +
+                    "design is meant to be built up over several turns, not dumped in one.",
+                  isError: true,
+                }
+              : toolCall.name === "dispatch_task"
                 ? await this.dispatchBuildTask(
                     toolCall.input as Record<string, unknown>,
                     signal,
@@ -859,6 +948,16 @@ export class AgentSession {
       if (addition) {
         emit({ type: "text.delta", sessionId: this.id, messageId, text: addition });
         assistantText += addition;
+      }
+
+      // Record the turn on which the Architect first declared the package
+      // ready. dispatch_task then needs a *later* user turn before it fires.
+      if (
+        this.options.architectMode &&
+        this.readyDeclaredAtTurn === null &&
+        assistantText.includes(ARCHITECT_READY_MARKER)
+      ) {
+        this.readyDeclaredAtTurn = this.turns;
       }
 
       emit({
