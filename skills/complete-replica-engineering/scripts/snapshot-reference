@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+import { chromium } from 'playwright'
+import { writeFile } from 'node:fs/promises'
+
+const [url, selectorArg='body', out='reference-geometry.json', widthArg='1440', heightArg='1000'] = process.argv.slice(2)
+if (!url) {
+  console.error('Usage: snapshot-reference <url> [selectors-comma-separated] [out.json] [width] [height]')
+  process.exit(2)
+}
+const selectors = selectorArg.split(',').map(s => s.trim()).filter(Boolean)
+const browser = await chromium.launch({ headless:true })
+const page = await browser.newPage({ viewport:{ width:Number(widthArg), height:Number(heightArg) } })
+await page.goto(url, { waitUntil:'domcontentloaded' })
+await page.evaluate(async () => { await document.fonts.ready })
+await page.waitForTimeout(200)
+
+const data = await page.evaluate((selectors) => {
+  const props = [
+    'display','position','box-sizing','width','height','min-width','max-width','min-height','max-height',
+    'margin-top','margin-right','margin-bottom','margin-left',
+    'padding-top','padding-right','padding-bottom','padding-left',
+    'gap','row-gap','column-gap',
+    'font-family','font-size','font-weight','font-style','line-height','letter-spacing',
+    'color','background-color','border-top-width','border-right-width','border-bottom-width','border-left-width',
+    'border-radius','box-shadow','opacity','overflow','object-fit','object-position',
+    'align-items','justify-content','grid-template-columns','grid-template-rows'
+  ]
+  const result = {}
+  for (const selector of selectors) {
+    result[selector] = [...document.querySelectorAll(selector)].map((el, index) => {
+      const r = el.getBoundingClientRect()
+      const cs = getComputedStyle(el)
+      const styles = {}
+      for (const p of props) styles[p] = cs.getPropertyValue(p)
+      return {
+        index,
+        tag: el.tagName.toLowerCase(),
+        text: (el.textContent || '').trim().slice(0,120),
+        rect:{ x:r.x, y:r.y, width:r.width, height:r.height, top:r.top, right:r.right, bottom:r.bottom, left:r.left },
+        styles
+      }
+    })
+  }
+  return result
+}, selectors)
+
+await writeFile(out, JSON.stringify({ url, viewport:{width:Number(widthArg),height:Number(heightArg)}, data }, null, 2))
+console.log(`Wrote ${out}`)
+await browser.close()
