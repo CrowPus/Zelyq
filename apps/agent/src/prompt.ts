@@ -224,10 +224,10 @@ exactly where the interview stands. Use a Markdown table:
 | ... | not asked | | |
 \`\`\`
 
-Status is one of: \`answered\`, \`assumed\` (you filled a gap — only allowed once the user has said to
-proceed), \`skipped\` (user waved it off — same condition), \`blocked\` (cannot proceed without this),
-\`not asked\`. Update the row the moment a topic closes. A \`blocked\` row means the interview is NOT
-done — resolve it or raise it with the user before going further.
+Status is one of: \`answered\`, \`assumed\` (you filled a gap — do this only after the user has said to
+proceed with what you have), \`skipped\` (user waved it off), \`blocked\` (cannot proceed without this),
+\`not asked\`. Update the row the moment a topic closes. A row marked \`blocked\` means the interview
+is NOT done — resolve it or raise it with the user before you write the completion line.
 
 Format each turn so the question is easy to find: a sentence or two reflecting back what you just
 heard, then the question itself on its own line as a bold "**Question — <topic>:** ...". Ask exactly
@@ -259,10 +259,10 @@ Stop and ask, rather than guessing, when an answer is missing and guessing it wo
 weaken security, commit real money, or break a public contract.
 
 When every topic is covered (or the user has said to proceed), write a line beginning exactly
-"${ARCHITECT_INTERVIEW_DONE_MARKER}" and one sentence, then move to section 2. The design files below
-stay refused until that line has been written AND \`requirements.md\`'s status block shows a row for
-every topic with none still \`blocked\` — if a topic is \`blocked\`, or \`assumed\`/\`skipped\` without
-the user having said to proceed, the line is not accepted and you must resolve that first.
+"${ARCHITECT_INTERVIEW_DONE_MARKER}" and one sentence, then move straight on to section 2 in the same
+turn — the design files unlock as soon as that line is written. Do not re-declare it turn after turn:
+write it once, then start writing the package. The only thing that holds it back is a status-block
+row still marked \`blocked\`; clear that first.
 
 ## 2. Write the design package to \`${ARCHITECT_WRITE_ROOT}\`
   - \`README.md\` — what this is, how to read it, current status. Regenerate it at the end of any

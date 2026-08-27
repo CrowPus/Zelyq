@@ -283,6 +283,110 @@ test("a 'blocked' status row keeps 'Interview complete:' from taking effect", as
   }
 });
 
+test("the word 'blocked' in unrelated prose does not stop the interview closing", async () => {
+  // Regression: the check was matching any line containing "blocked" plus a
+  // colon — e.g. "Analytics: silent no-op if blocked or unavailable" — and
+  // wedging the session in a re-declare loop.
+  const reqs = `${STATUS_BLOCK}\n\n## External dependencies\n- Analytics: non-essential. Failure mode: silent no-op if blocked or unavailable.\n`;
+  const { base, workspaceDir, projectId, close } = await setup([
+    {
+      events: [text("recording state")],
+      result: {
+        toolCalls: [
+          {
+            id: "wr",
+            name: "write_file",
+            input: { path: "architecture/requirements.md", content: reqs },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("Interview complete: moving on."),
+    {
+      events: [text("writing the data model")],
+      result: {
+        toolCalls: [
+          {
+            id: "w1",
+            name: "write_file",
+            input: { path: "architecture/data-model.md", content: "# data model\n" },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("done"),
+  ]);
+  try {
+    await turn(base, "go on");
+    const events = await turn(base, "continue");
+    const ends = writeEnds(events);
+    assert.ok(
+      ends.length >= 1 && ends.every((e) => !e.call.isError),
+      "the design write goes through",
+    );
+    await fs.access(path.join(workspaceDir, projectId, "architecture/data-model.md"));
+  } finally {
+    await close();
+  }
+});
+
+test("a real 'blocked' row refuses the marker only once, then lets it through", async () => {
+  const blockedBlock = STATUS_BLOCK.replace(
+    "| Data | answered | user | ok |",
+    "| Data | blocked | | need retention policy |",
+  );
+  const { base, workspaceDir, projectId, close } = await setup([
+    {
+      events: [text("state, still blocked")],
+      result: {
+        toolCalls: [
+          {
+            id: "wr",
+            name: "write_file",
+            input: { path: "architecture/requirements.md", content: blockedBlock },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("Interview complete: first try."),
+    say("Interview complete: second try — proceeding regardless."),
+    {
+      events: [text("writing the data model")],
+      result: {
+        toolCalls: [
+          {
+            id: "w1",
+            name: "write_file",
+            input: { path: "architecture/data-model.md", content: "# data model\n" },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("done"),
+  ]);
+  try {
+    await turn(base, "go on"); // writes blocked block + first marker → refused once
+    await turn(base, "the retention policy is 2 years, keep going"); // second marker → honoured
+    const events = await turn(base, "continue"); // design write
+    const ends = writeEnds(events);
+    assert.ok(
+      ends.length >= 1 && ends.every((e) => !e.call.isError),
+      "the design write goes through",
+    );
+    await fs.access(path.join(workspaceDir, projectId, "architecture/data-model.md"));
+  } finally {
+    await close();
+  }
+});
+
 test("a resumed session whose history closed the interview can write design files at once", async () => {
   const now = new Date().toISOString();
   const { base, workspaceDir, projectId, close } = await setup(

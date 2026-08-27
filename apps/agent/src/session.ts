@@ -78,13 +78,6 @@ const ARCHITECT_PACKAGE_FILES = new Set([
 ]);
 const ARCHITECT_DECISION_RE = /^architecture\/decisions\/\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
 const ARCHITECT_REPORT_PATH = "architecture/report.html";
-// 050 R2.5 — a user turn that hands the Architect the go-ahead to design with
-// what it has. Loose on purpose; the cost of a false positive is only that an
-// `assumed`/`skipped` row is honoured a turn early.
-const ARCHITECT_PROCEED_RE =
-  /\b(that'?s enough|design what you have|design it|just design|go ahead and design|proceed with|build it|start building|start to build)\b/i;
-// The interview-close status words the Architect writes into requirements.md.
-const ARCHITECT_STATUS_LINE_RE = /\b(answered|assumed|skipped|blocked|not\s+asked)\b/i;
 
 /** True when a canonicalized Architect write path is one of the allowed
  * package artifacts. */
@@ -264,12 +257,11 @@ export class AgentSession {
   // one turn".
   private interviewDoneDeclared = false;
 
-  // 050 R2.5 — set when a user turn has explicitly told the Architect to
-  // proceed with what it has ("that's enough, design what you have" and
-  // kin). `assumed` / `skipped` status rows are only honoured once this is
-  // true, so the Architect cannot mark its own gaps done and close the
-  // interview on itself.
-  private userSaidProceed = false;
+  // 050 R2.5 — the "Interview complete:" content check (a `blocked` status
+  // row blocks the marker) fires at most once per session. After it has
+  // refused and told the model why, a re-declared marker is honoured, so a
+  // misformatted status table can never trap the user in a loop.
+  private interviewCloseRefusedOnce = false;
 
   // 047 Phase 3 — orchestration run state. Session-scoped, so "build the plan"
   // can span turns against one running total. `killed` is the kill switch;
@@ -338,13 +330,6 @@ export class AgentSession {
         this.readyDeclaredAtTurn === 0)
     ) {
       this.interviewDoneDeclared = true;
-    }
-
-    if (
-      options.architectMode &&
-      (options.history ?? []).some((m) => m.role === "user" && ARCHITECT_PROCEED_RE.test(m.content))
-    ) {
-      this.userSaidProceed = true;
     }
   }
 
@@ -683,11 +668,6 @@ export class AgentSession {
       /^\s*(?:stop|wait|hold on|hold up|pause|halt|don'?t\b|no,?\s*(?:stop|wait|don'?t))\b/i.test(
         userMessage,
       );
-    // 050 R2.5 — once the user has said "design what you have", `assumed` /
-    // `skipped` status rows become acceptable. Latches on.
-    if (this.options.architectMode && !isHaltRequest && ARCHITECT_PROCEED_RE.test(userMessage)) {
-      this.userSaidProceed = true;
-    }
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -816,6 +796,26 @@ export class AgentSession {
           }
           stoppedByBreak = true;
           break;
+        }
+
+        // 050 R2.5 — if the Architect declared the interview complete earlier
+        // in THIS turn, unlock the design files now so it can start the
+        // package in the same turn instead of needing another round.
+        if (
+          this.options.architectMode &&
+          !this.interviewDoneDeclared &&
+          assistantText.includes(ARCHITECT_INTERVIEW_DONE_MARKER)
+        ) {
+          const close = await this.validateInterviewClose();
+          if (close.ok) {
+            this.interviewDoneDeclared = true;
+          } else if (!this.interviewCloseRefusedOnce) {
+            this.interviewCloseRefusedOnce = true;
+            this.conversation.addUserMessage(
+              `The "${ARCHITECT_INTERVIEW_DONE_MARKER}" line was not accepted: ${close.reason} ` +
+                "The design files stay locked until that is fixed.",
+            );
+          }
         }
 
         // Tool calls in one assistant turn are independent: run them
@@ -1162,10 +1162,9 @@ export class AgentSession {
       }
 
       // Once the Architect closes the interview, the design files unlock for
-      // every following turn — but only if requirements.md's status block
-      // backs it up (050 R2.5). A bare marker over a block with a `blocked`
-      // row, or self-assumed gaps the user never approved, is not honoured;
-      // the model is told why and the files stay locked.
+      // every following turn. 050 R2.5: a marker over a status block that
+      // still has a `blocked` row is refused ONCE, with a reason — after
+      // that, or if the block is fine, it is honoured. Never wedges.
       if (
         this.options.architectMode &&
         !this.interviewDoneDeclared &&
@@ -1175,6 +1174,7 @@ export class AgentSession {
         if (close.ok) {
           this.interviewDoneDeclared = true;
         } else {
+          this.interviewCloseRefusedOnce = true;
           this.conversation.addUserMessage(
             `The "${ARCHITECT_INTERVIEW_DONE_MARKER}" line was not accepted: ${close.reason} ` +
               "The design files stay locked until that is fixed.",
@@ -1331,41 +1331,42 @@ export class AgentSession {
   }
 
   /**
-   * 050 R2.5 — whether an "Interview complete:" line may be honoured. Reads
-   * requirements.md's status block: there must be a row per topic, none
-   * `blocked`, and no `assumed`/`skipped` row unless the user has said to
-   * proceed. Gates *content*, not just the presence of the marker.
+   * 050 R2.5 — whether an "Interview complete:" line may be honoured. The one
+   * genuinely load-bearing check: a status-block table ROW whose status cell
+   * is exactly `blocked` means the interview is not done. Everything else
+   * about the block ("a row per topic", "assumed needs the user's go-ahead")
+   * is prompt guidance, not a code gate — parsing a model-authored table
+   * strictly enough to enforce that reliably is not worth wedging a session
+   * over. And this check is ONE-SHOT: after it has refused once and told the
+   * model why, a re-declared marker is honoured regardless, so a
+   * misformatted table can never trap the user in a loop.
    */
   private async validateInterviewClose(): Promise<{ ok: boolean; reason: string }> {
+    if (this.interviewCloseRefusedOnce) return { ok: true, reason: "" };
     const reqs = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}requirements.md`);
     if (reqs === null) {
-      return { ok: false, reason: "architecture/requirements.md does not exist yet." };
+      return {
+        ok: false,
+        reason:
+          "architecture/requirements.md does not exist yet — write it (with the per-topic status " +
+          "block at the top) before declaring the interview complete.",
+      };
     }
-    const rows = reqs
+    // Only real Markdown table rows: "| cell | cell | ... |". A topic is
+    // blocked only when one of its cells is exactly the word "blocked" — not
+    // when some prose sentence elsewhere in the file happens to contain it.
+    const blockedRow = reqs
       .split("\n")
-      .filter((l) => ARCHITECT_STATUS_LINE_RE.test(l) && (l.includes("|") || /:\s*\w/.test(l)));
-    if (rows.length < 8) {
+      .filter((l) => /^\s*\|.*\|\s*$/.test(l))
+      .map((l) => l.split("|").map((c) => c.trim()))
+      .find((cells) => cells.some((c) => /^blocked$/i.test(c)));
+    if (blockedRow) {
+      const topic = blockedRow.find((c) => c && !/^blocked$/i.test(c)) ?? "a topic";
       return {
         ok: false,
         reason:
-          "requirements.md needs a status block with a row for each of the 8 interview topics " +
-          "(status: answered | assumed | skipped | blocked | not asked).",
-      };
-    }
-    if (rows.some((l) => /\bblocked\b/i.test(l))) {
-      return {
-        ok: false,
-        reason:
-          "a topic is still 'blocked' in the requirements.md status block — resolve it or raise it " +
-          "with the user before writing the completion line.",
-      };
-    }
-    if (!this.userSaidProceed && rows.some((l) => /\b(assumed|skipped)\b/i.test(l))) {
-      return {
-        ok: false,
-        reason:
-          "the status block has 'assumed' or 'skipped' topics but the user has not said to proceed " +
-          "with what you have — ask those topics, or get the user's go-ahead first.",
+          `the status block still marks "${topic}" as blocked. Resolve it or raise it with the ` +
+          "user, then re-declare — this check will not stop you a second time.",
       };
     }
     return { ok: true, reason: "" };
