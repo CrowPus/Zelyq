@@ -191,6 +191,51 @@ test("architect mode off: writes and commands are unaffected — default behavio
   }
 });
 
+test("architect mode: editing architecture/ never triggers the verify step", async () => {
+  // The project has a typecheck script, but Architect Mode only touches
+  // markdown and `tsc` is not installed — verify would fail every turn and
+  // pull the model into explaining a non-problem. It must not run.
+  const { base, workspaceDir, projectId, close } = await setup(
+    [step("write_file", { path: "architecture/requirements.md", content: "# reqs\n" }), done],
+    true,
+  );
+  await fs.writeFile(
+    path.join(workspaceDir, projectId, "package.json"),
+    JSON.stringify({ name: "p", scripts: { typecheck: "tsc --noEmit" } }),
+  );
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_am/prompt`);
+    const verifyEvents = events.filter(
+      (e) =>
+        (e.type === "tool.start" || e.type === "tool.end") &&
+        (e.call as { name: string }).name === "verify",
+    );
+    assert.equal(verifyEvents.length, 0, "no verify tool events in Architect Mode");
+  } finally {
+    await close();
+  }
+});
+
+test("default mode: editing files does still trigger verify (contrast)", async () => {
+  const { base, workspaceDir, projectId, close } = await setup(
+    [step("write_file", { path: "src/x.ts", content: "export const x = 1;\n" }), done],
+    false,
+  );
+  await fs.writeFile(
+    path.join(workspaceDir, projectId, "package.json"),
+    JSON.stringify({ name: "p", scripts: { typecheck: 'node -e "process.exit(0)"' } }),
+  );
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_am/prompt`);
+    const verifyStart = events.find(
+      (e) => e.type === "tool.start" && (e.call as { name: string }).name === "verify",
+    );
+    assert.ok(verifyStart, "verify runs when neither Architect nor Engineer gating suppresses it");
+  } finally {
+    await close();
+  }
+});
+
 test("server rejects engineerMode + architectMode set together", async () => {
   const { base, close } = await setup([done], false);
   try {

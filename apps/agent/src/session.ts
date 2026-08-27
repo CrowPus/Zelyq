@@ -976,7 +976,13 @@ export class AgentSession {
         }
 
         if (changedFiles.size > 0) {
-          verificationNeeded = true;
+          // Architect Mode only ever edits markdown under `architecture/` —
+          // there is nothing to typecheck, and `tsc` is not even installed
+          // (no `npm install` in this mode). Running the verify step here
+          // just fails every turn and drags the model into explaining a
+          // non-problem in its reply. The `files.changed` event still fires
+          // so the UI and the Plan panel refresh.
+          if (!this.options.architectMode) verificationNeeded = true;
           anyFileChangedThisTurn = true;
           emit({ type: "files.changed", sessionId: this.id, paths: [...changedFiles] });
           changedFiles.clear();
