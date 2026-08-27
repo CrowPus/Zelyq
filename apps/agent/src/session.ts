@@ -253,9 +253,20 @@ const BUILDER_TOOL_NAMES = [
   "run_command",
 ];
 
-// 051 Part A — the verifier dispatch gets the preview tools back on top of
-// the builder set, plus whatever plugin tools the plan named for the checks.
-const VERIFIER_EXTRA_TOOL_NAMES = ["start_preview", "preview_logs", "view_preview"];
+// 051 Part A — the verifier dispatch gets the preview and page-inspection
+// tools back on top of the builder set (so it can actually see whether the
+// app runs, the way Engineer Mode does), plus whatever extra plugin tools
+// the plan named for design / a11y / security checks.
+const VERIFIER_EXTRA_TOOL_NAMES = [
+  "start_preview",
+  "preview_logs",
+  "view_preview",
+  "check_console_errors",
+  "check_network_failures",
+  "inspect_page",
+  "typecheck_project",
+  "lint_project",
+];
 
 // 049 Phase 1 — the builder's whole system prompt. It gets ONE specified task
 // with acceptance criteria, a project brief, and a file map; it does not need
@@ -273,22 +284,26 @@ Do exactly that task:
 When done, state in two or three sentences what you changed and whether each acceptance criterion is met. If you could not finish, say exactly what remains.`;
 
 // 051 Part A — the verifier's whole system prompt. It runs AFTER the last
-// build task: it does not build features, it checks the project is a
-// complete, running, documented whole and writes the finishing files.
-const VERIFIER_SYSTEM_PROMPT = `You are the verifier for a project a team of builders just finished. You do NOT build features. Your job is to confirm the project is a complete, running, documented whole — and to write the small set of project-level files a finished project needs.
+// build task. It verifies the project ACTUALLY WORKS the way a senior
+// engineer would before signing off — and fixes the loose ends the build
+// left. Modelled on what Engineer Mode does when a user asks it to finish a
+// half-built app: preview, inspect the running page, typecheck/build, then
+// read and fix component by component until it runs.
+const VERIFIER_SYSTEM_PROMPT = `You are the verifier. A team of builders just finished a project from an approved plan. Your job is to make sure it ACTUALLY WORKS end to end — the way a senior engineer checks their own work before signing off — and to write the few project-level files a finished project needs. You may fix what is broken; you do not add new features.
 
-Work through the Definition of Done you are given. For each item, actually check it:
-- Run the build/typecheck/lint command the project declares. Record pass/fail with the real output.
-- Start the preview and confirm it serves the actual app, not the starter template. Read preview_logs if it does not come up.
-- Run each verification tool you were given (security scan, accessibility/design checks). Do not fix what they find — record each finding.
-- Confirm the finishing files exist and are accurate against what was actually built, and create or correct them:
-  - .env.example: every environment variable the project's code and the design need, one per line with a short comment, and NO real secret values.
-  - README.md at the project root: what it is, how to run it, the env vars, the scripts, one paragraph on the architecture with a link to architecture/report.html. Replace any starter-template README.
-  - the CI config the design calls for, only for a stack you have a safe template for, with a header comment saying it was generated from the design and is unverified on a real runner.
-  - .gitignore additions for anything the build introduced that should not be committed.
-- Triage every security-scan and design/a11y finding into architecture/risks.md under a dated "## Verification findings" heading — each with a one-line consequence and a decision (accept / must-fix / deferred).
+Verify it for real, in this order:
+1. Run the project's typecheck and build commands (npm run typecheck, npm run build, or what the project declares). Read the real output. A non-zero exit is a FAIL.
+2. start_preview. Then check_console_errors and inspect_page against the RUNNING app. Confirm it renders the real application — not the starter template, not a blank page, not an error overlay. Read preview_logs if it does not come up.
+3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
+4. Run any design / accessibility / security tool you were given. Note each finding.
 
-Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item, each marked PASS, FAIL, or N/A, with a one-line reason. Be honest: a FAIL is a FAIL. End with the preview URL if the app is running, or "preview not running: <reason>".`;
+When you find something broken:
+- If it is small — a broken or missing import, a type error, a missing prop, an unwired route, a component that never mounts, a name that does not match — FIX it, then re-run the checks. This is expected: a real verification pass ties off the loose ends the build left. Read the file first, make the smallest change, move on.
+- If it is large, or you are running out of budget, stop fixing and mark that item FAIL with the exact error.
+
+Then create or correct the finishing files: .env.example (every env var the code and design need, one per line with a comment, NO real values); a real root README.md replacing the template's (what it is, how to run it, env vars, scripts, one paragraph of architecture linking architecture/report.html); the CI config for a known stack, with an "unverified, generated from the design" header; .gitignore additions. Triage design/security findings into architecture/risks.md under a dated "## Verification findings" heading, each with a consequence and a decision.
+
+Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item, PASS / FAIL / N/A, each with a one-line reason that names what you ACTUALLY OBSERVED (the command output, what the page showed), never what should be true. Do not mark PASS anything you did not run and see pass. If the app does not render, or the build fails, the overall result is NOT VERIFIED — say that plainly at the top. End with the live preview URL, or "preview not running: <reason>".`;
 
 type Emit = (event: AgentEvent) => void;
 
@@ -656,6 +671,7 @@ export class AgentSession {
       ? [...BUILDER_TOOL_NAMES, ...VERIFIER_EXTRA_TOOL_NAMES, ...(input.tools ?? [])]
       : BUILDER_TOOL_NAMES;
     const wallclockMs = isVerify ? 10 * 60_000 : SUBAGENT_WALLCLOCK_MS;
+    const tokenCap = isVerify ? SUBAGENT_MAX_TOKENS * 3 : SUBAGENT_MAX_TOKENS;
 
     const child = new AgentSession({
       sessionId: `${this.id}#sub${n}`,
@@ -669,7 +685,9 @@ export class AgentSession {
       ...(this.options.authMode ? { authMode: this.options.authMode } : {}),
       ...(this.options.baseUrl ? { baseUrl: this.options.baseUrl } : {}),
       runtime: this.options.runtime,
-      maxIterations: SUBAGENT_MAX_TURNS,
+      // The verifier reads and fixes across many files to get the app
+      // running — it needs more room than a single-task builder.
+      maxIterations: isVerify ? SUBAGENT_MAX_TURNS * 2 : SUBAGENT_MAX_TURNS,
       engineerMode: true,
       // 049 Phase 1 — lean profile: hand-written prompt, file/shell tools only.
       systemPrompt: isVerify ? VERIFIER_SYSTEM_PROMPT : BUILDER_SYSTEM_PROMPT,
@@ -711,7 +729,7 @@ export class AgentSession {
           tokIn = e.tokensIn;
           tokOut = e.tokensOut;
           rounds += 1;
-          if (tokIn + tokOut > SUBAGENT_MAX_TOKENS) child.abort();
+          if (tokIn + tokOut > tokenCap) child.abort();
         }
         if (e.type === "files.changed") {
           for (const p of e.paths) {
@@ -720,7 +738,11 @@ export class AgentSession {
             onFileChanged(p);
           }
         }
-        if (e.type === "turn.end" && e.stopReason === "end_turn" && rounds >= SUBAGENT_MAX_TURNS) {
+        if (
+          e.type === "turn.end" &&
+          e.stopReason === "end_turn" &&
+          rounds >= (isVerify ? SUBAGENT_MAX_TURNS * 2 : SUBAGENT_MAX_TURNS)
+        ) {
           hitTurnCap = true;
         }
       });
@@ -733,9 +755,9 @@ export class AgentSession {
     this.orchestration.autoTokens += tokIn + tokOut;
     const secs = Math.round((Date.now() - startedAt) / 1000);
     const capNote = hitTurnCap
-      ? " — HIT the 25-turn cap, result may be incomplete."
-      : tokIn + tokOut > SUBAGENT_MAX_TOKENS
-        ? " — HIT the 200k-token cap, result may be incomplete."
+      ? ` — HIT the ${isVerify ? SUBAGENT_MAX_TURNS * 2 : SUBAGENT_MAX_TURNS}-turn cap, result may be incomplete.`
+      : tokIn + tokOut > tokenCap
+        ? ` — HIT the ${Math.round(tokenCap / 1000)}k-token cap, result may be incomplete.`
         : secs >= wallclockMs / 1000
           ? ` — HIT the ${Math.round(wallclockMs / 60_000)}-minute cap, result may be incomplete.`
           : "";
@@ -746,11 +768,15 @@ export class AgentSession {
           `Verification finished${capNote}\n` +
           `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
           `files written (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
-          `COMPLETION CHECKLIST (relay this to the user verbatim — do not summarise it into ` +
-          `"all good"):\n${reply.slice(0, 4000)}\n\n` +
-          "If any line is FAIL, the project is 'built, not cleared' on that point — say so plainly " +
-          "and point the user at architecture/risks.md. Only claim 'done' for what the checklist " +
-          "marked PASS.",
+          "This is the verifier's own report. Your final message to the user is THIS CHECKLIST, " +
+          "verbatim — do not write a checklist of your own, do not change a FAIL to a PASS, do not " +
+          'add "verified" or "all done".\n\n' +
+          `${reply.slice(0, 6000)}\n\n` +
+          "Then, based only on what it says: if it starts with NOT VERIFIED, or any line is FAIL, or " +
+          "it hit a cap — the build is NOT working. Say plainly what failed, and that the user can " +
+          'reply "keep going" (the build continues and re-verifies) or switch to Engineer Mode to ' +
+          "finish it. Do NOT declare the project done or ready. Only if every line is PASS may you " +
+          "say the build is verified and running, and give the preview URL.",
       };
     }
     return {

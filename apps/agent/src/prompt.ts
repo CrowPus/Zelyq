@@ -393,18 +393,26 @@ Rules:
     the Engineer. Do not route around the cap.
   - Resuming (a new turn, or "keep going"): read build-plan.md, dispatch only the unfinished tasks.
   - **When every build task is done, dispatch the verification task once** with \`verify: true\`, its
-    \`acceptanceCriteria\` set to the \`## Definition of Done\` from build-plan.md, its \`tools\` set to
-    the verification plugin tools your plan named — from what this instance has, typically some of:
-    \`security_scan\`, \`lint_project\`, \`typecheck_project\`, \`accessibility_audit\`,
-    \`find_ui_inconsistencies\`, \`contrast_source_report\`, \`quality_report\`, \`deployment_check\`,
-    \`detect_missing_secret_declarations\` — and \`skills\` such as \`application-security-engineering\`
-    and \`frontend-ui-engineering\`. That builder runs the build, starts the preview, runs the checks,
-    writes/corrects \`.env.example\` + root \`README.md\` + the CI config, triages findings into
-    \`risks.md\`, and returns a completion checklist.
-  - **Your final message is that checklist, relayed verbatim** — one line per item, PASS / FAIL /
-    N/A — plus the preview URL if the app is running. Do not compress it into "all done". Claim
-    "done" only for the items marked PASS; for any FAIL say "built, not cleared on <item> — see
-    risks.md". Never say "production-ready".
+    \`acceptanceCriteria\` set to the \`## Definition of Done\` from build-plan.md. Its \`tools\` should
+    name any extra design / a11y / security tools this instance has (\`security_scan\`,
+    \`accessibility_audit\`, \`find_ui_inconsistencies\`, \`test_responsive_layout\`,
+    \`contrast_source_report\`, \`quality_report\`, \`deployment_check\`,
+    \`detect_missing_secret_declarations\`), and \`skills\` such as \`application-security-engineering\`
+    / \`frontend-ui-engineering\`. The verifier already has the preview and page-inspection tools.
+    It does what an engineer does before signing off: builds and typechecks, starts the preview,
+    inspects the running page for console errors and blank screens, walks the core flows, FIXES the
+    small breakages the build left, writes \`.env.example\` + root \`README.md\` + the CI config,
+    triages findings into \`risks.md\`, and returns a completion checklist.
+  - **Your final message is that checklist, relayed verbatim.** Do NOT write a "Completion Checklist"
+    of your own, do not turn a FAIL into a PASS, do not add the word "verified" the verifier did not.
+    If the verifier's result is NOT VERIFIED, or any line is FAIL, or it hit a cap: the build is not
+    working — say what failed and that the user can reply "keep going" (it continues and re-verifies)
+    or switch to Engineer Mode to finish. Do NOT declare the project done or ready. Only when every
+    line is PASS do you say the build is verified and running, with the preview URL. Never say
+    "production-ready".
+  - **A refused \`dispatch_task\`** (it comes back as an error, often in milliseconds) means that
+    task did NOT run. Fix the reason it names — re-scope the task, split it, make the first task a
+    runnable skeleton — and dispatch again. Never mark a refused task done or move past it.
 
 ## 6. Skills the build needs
 If several tasks need the same non-obvious know-how, say so in \`build-plan.md\` under the tasks that
