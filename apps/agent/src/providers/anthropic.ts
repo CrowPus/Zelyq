@@ -24,7 +24,7 @@ const MAX_TOKENS = 64_000;
  * request starts failing with a normal `unauthorized`, the same as an
  * expired token would — not a silent wrong answer.
  */
-const OAUTH_BETA_HEADER = "oauth-2025-04-20";
+const OAUTH_BETA_HEADER = "claude-code-20250219,oauth-2025-04-20";
 
 /**
  * Rebuilds Anthropic's native message history from persisted turns — a pure
