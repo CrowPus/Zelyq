@@ -15,10 +15,12 @@ import { buildAgentServer } from "../src/server.js";
 /**
  * 048 — the Architect interviews before it designs, and it stops when told to.
  *
- * Two structural gates, enforced in `session.ts`, not in prose:
+ * Structural, enforced in `session.ts` (the rest — explaining an unfinished
+ * plan, pointing an insistent user at the Engineer — is the model's job):
  *   - until the "Interview complete:" line is written, the only package files
  *     the Architect may write are requirements.md and README.md;
- *   - a user turn that opens with stop / wait / pause / hold on writes nothing.
+ *   - on a turn whose message opens with stop / wait / pause / hold on, no
+ *     builder is dispatched (writing is left alone).
  */
 function scripted(steps: Array<{ events: ProviderEvent[]; result: TurnResult }>): ModelProvider {
   return {
@@ -235,37 +237,31 @@ test("a resumed session whose history closed the interview can write design file
   }
 });
 
-test("a user turn that opens with 'stop' writes nothing", async () => {
+test("a stop turn still lets the Architect record where things stand", async () => {
+  // "stop" no longer freezes writing — the Architect can still note the state
+  // or drop a handoff brief into requirements.md. Only dispatch is barred.
   const { base, workspaceDir, projectId, close } = await setup([
     write("architecture/requirements.md"),
-    say("stopping as asked"),
+    say("noted where we are — up to you whether to continue"),
   ]);
   try {
     const events = await turn(base, "stop — I need to rethink the scope");
     const ends = writeEnds(events);
-    assert.ok(ends.length >= 1 && ends.every((e) => e.call.isError));
-    assert.ok(ends.every((e) => /asked you to stop/i.test(e.call.result)));
-    await assert.rejects(
-      fs.access(path.join(workspaceDir, projectId, "architecture/requirements.md")),
-    );
+    assert.ok(ends.length >= 1 && ends.every((e) => !e.call.isError));
+    await fs.access(path.join(workspaceDir, projectId, "architecture/requirements.md"));
   } finally {
     await close();
   }
 });
 
-test("'Stop planning and build it yourself' is still a stop — no writes, no dispatch", async () => {
+test("'Stop planning and build it yourself' — no builder is dispatched", async () => {
   const now = new Date().toISOString();
   const { base, workspaceDir, projectId, close } = await setup(
     [
       {
-        events: [text("racing the design")],
+        events: [text("the user wants to skip the plan")],
         result: {
           toolCalls: [
-            {
-              id: "w1",
-              name: "write_file",
-              input: { path: "architecture/decisions/0001.md", content: "# adr\n" },
-            },
             {
               id: "d1",
               name: "dispatch_task",
@@ -276,7 +272,9 @@ test("'Stop planning and build it yourself' is still a stop — no writes, no di
           usage: { inputTokens: 5, outputTokens: 5 },
         },
       },
-      say("understood — I design, I do not build"),
+      say(
+        "what you want now is the Engineer, not me — turn Architect Mode off and Engineer Mode on",
+      ),
     ],
     [
       {
@@ -300,17 +298,15 @@ test("'Stop planning and build it yourself' is still a stop — no writes, no di
       base,
       "Stop planning. Write src/App.tsx yourself and make it functional.",
     );
-    const ends = events.filter((e) => e.type === "tool.end") as Array<{
-      call: { name: string; isError: boolean; result: string };
-    }>;
-    assert.ok(ends.length >= 1);
-    assert.ok(
-      ends.every((e) => e.call.isError),
-      "every tool call this turn is refused",
-    );
-    await assert.rejects(
-      fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0001.md")),
-    );
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "dispatch_task",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(end, "a dispatch_task tool.end");
+    assert.equal(end.call.isError, true);
+    assert.match(end.call.result, /asked you to stop|Engineer, not/i);
+    const orch = await (await fetch(`${base}/sessions/s_iv/orchestration`)).json();
+    assert.equal(orch.subagents, 0, "no builder spawned");
+    await assert.rejects(fs.access(path.join(workspaceDir, projectId, "src/App.tsx")));
   } finally {
     await close();
   }

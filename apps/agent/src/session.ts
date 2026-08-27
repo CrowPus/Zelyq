@@ -593,12 +593,16 @@ export class AgentSession {
     const ARCHITECT_NEW_FILES_PER_TURN = 4;
     const newArchFilesThisTurn = new Set<string>();
     // Architect Mode: when the user opens their message by telling the
-    // Architect to stop, wait, hold on, or pause, that turn writes nothing
-    // and dispatches nothing — it is a text-only reply. "Stop planning and
-    // build it yourself" is still a stop: the Architect does not write code,
-    // so the honest response is to stop and say so, not to race the whole
-    // design out. Matched at the start of the message only, so "don't forget
-    // the auth flow" mid-sentence is not a halt.
+    // Architect to stop, wait, pause, or hold on, no builder is dispatched
+    // that turn — dispatch is expensive and hard to undo, so "stop" always
+    // wins over it. Writing is NOT frozen: the Architect should still be able
+    // to record where things stand or drop a handoff brief into
+    // requirements.md. Everything else about a stop — explaining that the
+    // plan is unfinished, and, if the user insists on skipping it, telling
+    // them plainly they want the Engineer not the Architect and how to switch
+    // — is the model's job, guided by the prompt, not a code-level refusal.
+    // Matched at the start of the message only, so "don't forget the auth
+    // flow" mid-sentence is not a halt.
     const isHaltRequest =
       !!this.options.architectMode &&
       /^\s*(?:stop|wait|hold on|hold up|pause|halt|don'?t\b|no,?\s*(?:stop|wait|don'?t))\b/i.test(
@@ -821,11 +825,10 @@ export class AgentSession {
             const architectBlock = this.options.architectMode
               ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
               : null;
-            // The user opened this turn telling the Architect to stop — no
-            // write and no dispatch runs, whatever the model asked for.
-            const haltBlocked =
-              isHaltRequest &&
-              (ARCHITECT_WRITE_TOOLS.has(toolCall.name) || toolCall.name === "dispatch_task");
+            // The user opened this turn telling the Architect to stop — do
+            // not spawn a builder, whatever the model asked for. Writes are
+            // left alone (see the isHaltRequest comment).
+            const haltBlocked = isHaltRequest && toolCall.name === "dispatch_task";
             // Interview not closed yet: the only package files that may be
             // written are requirements.md and README.md.
             const archInterviewPath =
@@ -841,10 +844,13 @@ export class AgentSession {
             const outcome = haltBlocked
               ? {
                   output:
-                    `The user asked you to stop. "${toolCall.name}" will not run this turn. Reply in one ` +
-                    "or two sentences acknowledging it and wait for their next message. If they told you to " +
-                    "build the app yourself, say plainly that you design and do not write application code, " +
-                    "and that the build starts from build-plan.md once the package is ready.",
+                    "The user asked you to stop, so no builder is being dispatched. Talk to them: say " +
+                    "where the plan stands and what is still unfinished. If they are insisting you build " +
+                    "it anyway, tell them plainly that what they want now is the Engineer, not the " +
+                    "Architect — you design and do not write application code — and walk them through the " +
+                    "switch (turn Architect Mode off with the compass button, turn Engineer Mode on with " +
+                    "the hard-hat button, describe what they want built). Do not keep interviewing or " +
+                    "designing after that; the decision is theirs to act on.",
                   isError: true,
                 }
               : architectInterviewGated
@@ -852,9 +858,12 @@ export class AgentSession {
                     output:
                       `The interview is not closed yet, so "${archInterviewPath}" is refused. During the ` +
                       "interview you may write only architecture/requirements.md and architecture/README.md. " +
-                      "Keep asking one topic per turn. When every topic is covered (or the user says to " +
-                      `proceed), write a line beginning exactly "${ARCHITECT_INTERVIEW_DONE_MARKER}" — after ` +
-                      "that the decisions, data model, API, and build plan open up.",
+                      "Do not just retry — talk to the user: tell them which topics are still open and that " +
+                      "finishing them is what keeps the build from guessing wrong. If they want to skip the " +
+                      "plan entirely, point them to the Engineer (compass button off, hard-hat button on). " +
+                      "Otherwise keep asking one topic per turn, and when every topic is covered (or they " +
+                      `say to proceed) write a line beginning exactly "${ARCHITECT_INTERVIEW_DONE_MARKER}" — ` +
+                      "after that the decisions, data model, API, and build plan open up.",
                     isError: true,
                   }
                 : architectFileCapped
