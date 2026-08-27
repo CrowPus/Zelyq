@@ -56,6 +56,10 @@ responsibly. Zelyq's agent is built toward the second one:
 - **It names the alternative it didn't pick.** When a real choice existed — an architecture, a
   library, a tradeoff with no obviously-better answer — Engineer Mode has it say what it didn't choose
   and why, in a sentence or two, not silently.
+- **It plans before it builds, when the ask is big enough to need one.** **Architect Mode** turns a
+  vague request into a real design package first — requirements, decisions with the alternative named
+  and why it lost, a build plan broken into review-sized tasks — and waits for you to say "build it"
+  before writing any code.
 - **It builds what was asked, then stops.** No invented navbars, no sample-data toggles nobody
   requested, no filling a vague ask with guesses. A request too shapeless to build responsibly gets one
   clarifying question instead of eight files you didn't want.
@@ -71,6 +75,23 @@ None of this is a black box promise — every mechanism above is real code, not 
 verification gate and Engineer Mode both live in [`apps/agent/src/session.ts`](./apps/agent/src/session.ts)
 and [`apps/agent/src/prompt.ts`](./apps/agent/src/prompt.ts), and [docs/agent-behaviour.md](./docs/agent-behaviour.md)
 documents exactly how the turn loop decides what to do.
+
+<div align="center">
+<br />
+
+<img src="assets/screenshots/editor.png" alt="Architect Mode's output for a habit tracker: a full architecture package — decisions, a data model, an API spec, risks, a build plan broken into review-sized tasks — open in the code view, with the agent explaining it's ready for 'build it' before writing a line of application code" width="900" />
+
+<sub>Architect Mode on a real request: a full design package, reviewable before any code exists —
+not just this one file, the whole <code>architecture/</code> package on the left.</sub>
+
+<br /><br />
+
+<img src="assets/screenshots/resturant.png" alt="A restaurant table-booking system built by the Zelyq agent: guest mobile ordering menu with dietary filters and allergen labels, plus separate kitchen display, floor dispatch, and manager admin views, all running live" width="900" />
+
+<sub>Built the same way, a different domain entirely: guest ordering, a kitchen display, floor
+dispatch, and manager admin, as one restaurant system with real allergen and dietary data.</sub>
+
+</div>
 
 ## What it is
 
