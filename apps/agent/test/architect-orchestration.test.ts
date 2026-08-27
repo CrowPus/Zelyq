@@ -296,10 +296,13 @@ test("architect mode caps new files under architecture/ per turn — no whole-pa
   const writes = [1, 2, 3, 4, 5, 6].map((i) =>
     call("write_file", { path: `architecture/doc${i}.md`, content: `# doc ${i}\n` }),
   );
+  // readyPackage seeds a prior "package ready" turn, which also unlocks the
+  // design files past the interview gate — so this test exercises the
+  // per-turn new-file cap in isolation.
   const { base, workspaceDir, projectId, close } = await setup(
     [[...writes, say("wrote the package")]],
     "architect",
-    { readyPackage: false },
+    { readyPackage: true },
   );
   try {
     const events = await turn(base);

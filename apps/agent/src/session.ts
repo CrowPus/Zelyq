@@ -18,6 +18,7 @@ import {
 } from "@zelyq/tools";
 import {
   ARCHITECT_DRIFT_MARKER,
+  ARCHITECT_INTERVIEW_DONE_MARKER,
   ARCHITECT_READY_MARKER,
   ARCHITECT_WRITE_ROOT,
   buildSystemPrompt,
@@ -50,6 +51,15 @@ const MUTATING_TOOL_NAMES = new Set(["write_file", "edit_file", "delete_file", "
 // under `architecture/`, and nothing executes.
 const ARCHITECT_WRITE_TOOLS = new Set(["write_file", "edit_file", "delete_file"]);
 const ARCHITECT_BLOCKED_TOOLS = new Set(["run_command", "start_preview"]);
+// The only package files the Architect may touch before it has written the
+// "Interview complete:" line. Everything else under `architecture/` — the
+// decisions, the data model, the API surface, the build plan — stays refused
+// until the interview is closed, so the interview cannot be skipped by
+// dumping the whole design in one turn.
+const ARCHITECT_INTERVIEW_WRITABLE = new Set([
+  "architecture/requirements.md",
+  "architecture/README.md",
+]);
 
 /** True when `toolCall` is not allowed in Architect Mode: an execution tool,
  * or a write whose canonicalized path escapes `architecture/`. Path is
@@ -185,6 +195,14 @@ export class AgentSession {
   // then started building" in one breath.
   private readyDeclaredAtTurn: number | null = null;
 
+  // 048/047 — set once the Architect has written the "Interview complete:"
+  // line. Until then the only package files it may write are
+  // architecture/requirements.md and architecture/README.md; every other
+  // design file (decisions/*, data-model.md, api.md, ...) is refused. Stops
+  // "raced through three interview topics, then dumped the whole package in
+  // one turn".
+  private interviewDoneDeclared = false;
+
   // 047 Phase 3 — orchestration run state. Session-scoped, so "build the plan"
   // can span turns against one running total. `killed` is the kill switch;
   // once set, no further builders dispatch and nothing resumes on its own.
@@ -240,6 +258,18 @@ export class AgentSession {
       )
     ) {
       this.readyDeclaredAtTurn = 0;
+    }
+
+    // A resumed Architect session whose history shows the interview was
+    // already closed keeps the design files unlocked.
+    if (
+      options.architectMode &&
+      ((options.history ?? []).some(
+        (m) => m.role === "assistant" && m.content.includes(ARCHITECT_INTERVIEW_DONE_MARKER),
+      ) ||
+        this.readyDeclaredAtTurn === 0)
+    ) {
+      this.interviewDoneDeclared = true;
     }
   }
 
@@ -562,6 +592,18 @@ export class AgentSession {
     // unlimited.
     const ARCHITECT_NEW_FILES_PER_TURN = 4;
     const newArchFilesThisTurn = new Set<string>();
+    // Architect Mode: when the user opens their message by telling the
+    // Architect to stop, wait, hold on, or pause, that turn writes nothing
+    // and dispatches nothing — it is a text-only reply. "Stop planning and
+    // build it yourself" is still a stop: the Architect does not write code,
+    // so the honest response is to stop and say so, not to race the whole
+    // design out. Matched at the start of the message only, so "don't forget
+    // the auth flow" mid-sentence is not a halt.
+    const isHaltRequest =
+      !!this.options.architectMode &&
+      /^\s*(?:stop|wait|hold on|hold up|pause|halt|don'?t\b|no,?\s*(?:stop|wait|don'?t))\b/i.test(
+        userMessage,
+      );
     const toolCalls: ToolCall[] = [];
     let assistantText = "";
     let thinkingText = "";
@@ -779,49 +821,85 @@ export class AgentSession {
             const architectBlock = this.options.architectMode
               ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
               : null;
-            const outcome = architectFileCapped
+            // The user opened this turn telling the Architect to stop — no
+            // write and no dispatch runs, whatever the model asked for.
+            const haltBlocked =
+              isHaltRequest &&
+              (ARCHITECT_WRITE_TOOLS.has(toolCall.name) || toolCall.name === "dispatch_task");
+            // Interview not closed yet: the only package files that may be
+            // written are requirements.md and README.md.
+            const archInterviewPath =
+              typeof (toolCall.input as { path?: unknown }).path === "string"
+                ? (toolCall.input as { path: string }).path
+                : "";
+            const architectInterviewGated =
+              !!this.options.architectMode &&
+              !this.interviewDoneDeclared &&
+              (toolCall.name === "write_file" || toolCall.name === "edit_file") &&
+              archInterviewPath.startsWith(ARCHITECT_WRITE_ROOT) &&
+              !ARCHITECT_INTERVIEW_WRITABLE.has(archInterviewPath);
+            const outcome = haltBlocked
               ? {
                   output:
-                    `Architect Mode created ${ARCHITECT_NEW_FILES_PER_TURN} new files under ` +
-                    `${ARCHITECT_WRITE_ROOT} this turn — refusing another ("${archNewPath}"). ` +
-                    "Stop here. Summarize what you wrote and, if you are still in the interview, ask " +
-                    "the next question. The user's next message continues it with a fresh budget. The " +
-                    "design is meant to be built up over several turns, not dumped in one.",
+                    `The user asked you to stop. "${toolCall.name}" will not run this turn. Reply in one ` +
+                    "or two sentences acknowledging it and wait for their next message. If they told you to " +
+                    "build the app yourself, say plainly that you design and do not write application code, " +
+                    "and that the build starts from build-plan.md once the package is ready.",
                   isError: true,
                 }
-              : toolCall.name === "dispatch_task"
-                ? await this.dispatchBuildTask(
-                    toolCall.input as Record<string, unknown>,
-                    signal,
-                    toolContext.onFileChanged,
-                  )
-                : architectBlock
+              : architectInterviewGated
+                ? {
+                    output:
+                      `The interview is not closed yet, so "${archInterviewPath}" is refused. During the ` +
+                      "interview you may write only architecture/requirements.md and architecture/README.md. " +
+                      "Keep asking one topic per turn. When every topic is covered (or the user says to " +
+                      `proceed), write a line beginning exactly "${ARCHITECT_INTERVIEW_DONE_MARKER}" — after ` +
+                      "that the decisions, data model, API, and build plan open up.",
+                    isError: true,
+                  }
+                : architectFileCapped
                   ? {
                       output:
-                        architectBlock === "exec"
-                          ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
-                            "disabled for this session. You are planning, not building. Write the design into " +
-                            `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
-                          : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
-                            `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
-                            `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
+                        `Architect Mode created ${ARCHITECT_NEW_FILES_PER_TURN} new files under ` +
+                        `${ARCHITECT_WRITE_ROOT} this turn — refusing another ("${archNewPath}"). ` +
+                        "Stop here. Summarize what you wrote and, if you are still in the interview, ask " +
+                        "the next question. The user's next message continues it with a fresh budget. The " +
+                        "design is meant to be built up over several turns, not dumped in one.",
                       isError: true,
                     }
-                  : capped
-                    ? {
-                        output: newFileCapped
-                          ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
-                            `create another new file ("${path}"). Nothing that changes the project will run for the ` +
-                            "rest of this turn, not just new files. Stop here: your final message should summarize " +
-                            "what exists so far, and if you're not certain this is actually what was asked, ask the " +
-                            "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
-                            "— the user's next message continues it, with a fresh checkpoint of its own."
-                          : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
-                            `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
-                            "now instead.",
-                        isError: true,
-                      }
-                    : await executeTool(toolContext, toolCall.name, toolCall.input);
+                  : toolCall.name === "dispatch_task"
+                    ? await this.dispatchBuildTask(
+                        toolCall.input as Record<string, unknown>,
+                        signal,
+                        toolContext.onFileChanged,
+                      )
+                    : architectBlock
+                      ? {
+                          output:
+                            architectBlock === "exec"
+                              ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
+                                "disabled for this session. You are planning, not building. Write the design into " +
+                                `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
+                              : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
+                                `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
+                                `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
+                          isError: true,
+                        }
+                      : capped
+                        ? {
+                            output: newFileCapped
+                              ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
+                                `create another new file ("${path}"). Nothing that changes the project will run for the ` +
+                                "rest of this turn, not just new files. Stop here: your final message should summarize " +
+                                "what exists so far, and if you're not certain this is actually what was asked, ask the " +
+                                "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
+                                "— the user's next message continues it, with a fresh checkpoint of its own."
+                              : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
+                                `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
+                                "now instead.",
+                            isError: true,
+                          }
+                        : await executeTool(toolContext, toolCall.name, toolCall.input);
             const finished: ToolCall = {
               ...call,
               result: outcome.output.slice(0, 4000),
@@ -958,6 +1036,16 @@ export class AgentSession {
         assistantText.includes(ARCHITECT_READY_MARKER)
       ) {
         this.readyDeclaredAtTurn = this.turns;
+      }
+
+      // Once the Architect closes the interview, the design files unlock for
+      // every following turn.
+      if (
+        this.options.architectMode &&
+        !this.interviewDoneDeclared &&
+        assistantText.includes(ARCHITECT_INTERVIEW_DONE_MARKER)
+      ) {
+        this.interviewDoneDeclared = true;
       }
 
       emit({

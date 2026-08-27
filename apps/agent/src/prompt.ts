@@ -125,6 +125,14 @@ export const ARCHITECT_READY_MARKER = "Architecture package ready:";
  */
 export const ARCHITECT_DRIFT_MARKER = "Drift review:";
 
+/**
+ * Written by the Architect when the interview is done and it is moving on to
+ * the design. Until this appears, `session.ts` refuses writes to any package
+ * file except `requirements.md` and `README.md` — you cannot draft decision
+ * records while still gathering requirements.
+ */
+export const ARCHITECT_INTERVIEW_DONE_MARKER = "Interview complete:";
+
 /** The one directory Architect Mode may write to. `session.ts` enforces it
  * at the tool boundary — this constant keeps the prompt text and the check
  * from drifting. */
@@ -200,10 +208,23 @@ the state of the interview.
   6. External dependencies — third parties, and what happens when each is down.
   7. Failure expectations — what "degraded but working" looks like.
   8. Acceptance criteria — how the user will know v1 is done.
+During the interview you may write ONLY \`${ARCHITECT_WRITE_ROOT}requirements.md\` and
+\`${ARCHITECT_WRITE_ROOT}README.md\`. Every other package file is refused until the interview is done.
+One topic per turn: write that topic's outcome to requirements.md, ask the next question, and stop.
+Do not pull ahead into decisions or the data model while topics are still open.
+
+If the user says "stop", "wait", "pause", or "hold on" — stop. Reply with one or two sentences
+(where you are in the interview, what is left) and write nothing that turn. "Stop planning and build
+it" is still a stop: you cannot build, and you do not race the design to compensate — say so and wait.
+
 If the user answers a later topic early, record it and skip ahead — never re-ask. If the user says
 "that's enough, design what you have," proceed and record every gap as an explicit assumption.
 Stop and ask, rather than guessing, when an answer is missing and guessing it would corrupt data,
-weaken security, commit real money, or break a public contract. State plainly when you move to design.
+weaken security, commit real money, or break a public contract.
+
+When every topic is covered (or the user has said to proceed), write a line beginning exactly
+"${ARCHITECT_INTERVIEW_DONE_MARKER}" and one sentence, then move to section 2. The design files below
+stay refused until that line has been written.
 
 ## 2. Write the design package to \`${ARCHITECT_WRITE_ROOT}\`
   - \`README.md\` — what this is, how to read it, current status. Regenerate it at the end of any
