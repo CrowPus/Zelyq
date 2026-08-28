@@ -76,9 +76,9 @@ test("asking for a provider with no key names that provider, not the default", a
 
 // ---------------------------------------------------------------------------
 // A Codex subscription session speaks a different backend, with its own
-// model names — see `045`'s OpenAI follow-up. Found live: silently falling
-// back to defaultModelFor("openai") ("gpt-5.1", confirmed only for the
-// ordinary public API) sent a model the Codex backend never recognised.
+// model names. Silently falling back to defaultModelFor("openai")
+// ("gpt-5.1", confirmed only for the ordinary public API) would send a
+// model the Codex backend never recognises.
 // ---------------------------------------------------------------------------
 
 test("a Codex session with no model given is refused clearly, not defaulted wrong", async () => {
@@ -129,8 +129,8 @@ test("an ordinary OpenAI session (no subscription mode) still gets its usual def
 });
 
 // ---------------------------------------------------------------------------
-// Engineer Mode's effort floor — ZED-0001, Phase 1. The client-side check is
-// the primary UX (see the entry's Proposed decision), but a real constraint
+// Engineer Mode's effort floor. The client-side check is the primary UX,
+// but a real constraint
 // needs server-side enforcement too, the same discipline the Codex checks
 // above already hold — a hand-crafted request must not bypass it.
 // ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ test("the providers endpoint reports what this instance can use", async () => {
     assert.equal(typeof provider.configured, "boolean");
   }
 
-  // The picker (`033`) needs a specific model to pick, not just a vendor —
+  // The picker needs a specific model to pick, not just a vendor —
   // Opus, Sonnet, and Haiku are three choices, not one "Claude" choice.
   const anthropic = body.providers.find((provider: { id: string }) => provider.id === "anthropic");
   assert.ok(anthropic.models?.length >= 3, "Claude's known tiers must be listed");

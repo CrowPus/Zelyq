@@ -14,7 +14,7 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * 048 — Architect Mode's tool boundary. Same scripted-provider shape as
+ * Architect Mode's tool boundary. Same scripted-provider shape as
  * engineer-mode.test.ts. Architect Mode may write only under `architecture/`
  * and may run nothing; both are enforced in `session.ts` before the real
  * tool runs.
@@ -251,10 +251,10 @@ test("default mode: editing files does still trigger verify (contrast)", async (
 });
 
 // ---------------------------------------------------------------------------
-// 050 — the write allowlist and the report.html full-document check.
+// The write allowlist and the report.html full-document check.
 // ---------------------------------------------------------------------------
 
-test("050 R2.1: a non-package file under architecture/ is refused", async () => {
+test("a non-package file under architecture/ is refused", async () => {
   const { base, workspaceDir, projectId, close } = await setup(
     [
       step("write_file", { path: "architecture/mkdocs.yml", content: "site_name: x" }),
@@ -283,7 +283,7 @@ test("050 R2.1: a non-package file under architecture/ is refused", async () => 
   }
 });
 
-test("050 R2.1: a project that consumes architecture/**/*.md cannot be changed via an Architect write", async () => {
+test("a project that consumes architecture/**/*.md cannot be changed via an Architect write", async () => {
   // A doc-site build globs architecture/**/*.md. The Architect must not be
   // able to add a page to it — architecture/guide.md is not a package file.
   const { base, workspaceDir, projectId, close } = await setup(
@@ -301,7 +301,7 @@ test("050 R2.1: a project that consumes architecture/**/*.md cannot be changed v
   }
 });
 
-test("050 R2.1: the real package files are allowed", async () => {
+test("the real package files are allowed", async () => {
   const { base, workspaceDir, projectId, close } = await setup(
     [
       step("write_file", { path: "architecture/data-model.md", content: "# data" }),
@@ -326,7 +326,7 @@ test("050 R2.1: the real package files are allowed", async () => {
   }
 });
 
-test("050 R2.2: a scripted report.html is rejected and rolled back", async () => {
+test("a scripted report.html is rejected and rolled back", async () => {
   const { base, workspaceDir, projectId, close } = await setup(
     [
       step("write_file", {
@@ -352,7 +352,7 @@ test("050 R2.2: a scripted report.html is rejected and rolled back", async () =>
   }
 });
 
-test("050 R2.2: <script> cannot be assembled across two edit_file calls", async () => {
+test("<script> cannot be assembled across two edit_file calls", async () => {
   const clean = "<!doctype html><html><body><p>hi</p><!--X--></body></html>";
   const { base, workspaceDir, projectId, close } = await setup(
     [

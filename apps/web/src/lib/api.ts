@@ -102,19 +102,18 @@ export const api = {
   updateSettings: (changes: UpdateSettingsInput) =>
     request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),
 
-  /** Instance administrator only. See `043` — takes effect on the agent's next restart. */
+  /** Instance administrator only. Takes effect on the agent's next restart. */
   uploadSkill: (input: UploadSkillInput) =>
     request<{ skill: { name: string; description: string; fileCount: number } }>("/skills", {
       method: "POST",
       body: JSON.stringify(input),
     }),
 
-  /** Existence only — see `045` (Claude) and its OpenAI follow-up (Codex).
-   * Safe to call whenever Settings renders. */
+  /** Existence only. Safe to call whenever Settings renders. */
   detectCliSession: (provider: "anthropic" | "openai") =>
     request<{ found: boolean }>(`/settings/cli-sessions/${provider}`),
 
-  /** The actual read, triggered only by an explicit click. See `045`. Named
+  /** The actual read, triggered only by an explicit click. Named
    * "connect", not "use…" — a plain fetch wrapper, not a hook, and the
    * `use` prefix reads as one to lint tooling and to a skimming eye alike. */
   connectCliSession: (provider: "anthropic" | "openai") =>
@@ -158,11 +157,11 @@ export const api = {
         status: string;
         provider?: string;
         model?: string;
-        /** Tool names loaded from `ZELYQ_PLUGIN_DIR` at the agent's last boot. See `037`. */
+        /** Tool names loaded from `ZELYQ_PLUGIN_DIR` at the agent's last boot. */
         plugins?: string[];
         /** Skills loaded at the agent's last boot, built-in and `ZELYQ_SKILLS_DIR` — name and
-         * description, enough for the composer's `/` picker (`044`) to be worth choosing from.
-         * Bodies stay agent-side, never sent here. See `042`. */
+         * description, enough for the composer's `/` picker to be worth choosing from.
+         * Bodies stay agent-side, never sent here. */
         skills?: Array<{ name: string; description: string }>;
       };
     }>("/health"),
@@ -222,19 +221,25 @@ export const api = {
       body: JSON.stringify({ label }),
     }),
 
-  /** Manual, on-demand — see `035`. `gitUrl` only matters the first time, before a remote exists. */
+  /** Manual, on-demand. `gitUrl` only matters the first time, before a remote exists. */
   pushToRemote: (id: string, input: PushToRemoteInput) =>
     request<{ pushed: boolean }>(`/projects/${id}/git/push`, {
       method: "POST",
       body: JSON.stringify(input),
     }),
 
-  /** `data` is base64. See `037` — 8MB cap, enforced again server-side. */
+  /** `data` is base64. 8MB cap, enforced again server-side. */
   uploadAttachment: (
     projectId: string,
     input: { filename: string; mimeType: string; data: string },
   ) =>
     request<{ attachment: AttachmentRef }>(`/projects/${projectId}/attachments`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  transcribeVoice: (projectId: string, input: { mimeType: string; data: string }) =>
+    request<{ text: string }>(`/projects/${projectId}/voice/transcriptions`, {
       method: "POST",
       body: JSON.stringify(input),
     }),

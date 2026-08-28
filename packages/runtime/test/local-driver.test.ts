@@ -114,7 +114,7 @@ test("operations on an unknown project report not_found", async () => {
   await assert.rejects(() => driver.listFiles("prj_missing"), /not found/);
 });
 
-test("050 R2.6: a write through a symlinked destination is refused", async () => {
+test("a write through a symlinked destination is refused", async () => {
   await driver.ensureProject("prj_sym");
   await driver.scaffold("prj_sym", [
     { path: "src/App.tsx", content: "export default function App(){return null}" },
@@ -133,7 +133,7 @@ test("050 R2.6: a write through a symlinked destination is refused", async () =>
   assert.match(app.content, /export default function App/, "the real file is untouched");
 });
 
-test("050 R2.6: writes are atomic — no leftover temp files", async () => {
+test("writes are atomic — no leftover temp files", async () => {
   await driver.ensureProject("prj_atomic");
   await driver.writeFile("prj_atomic", "architecture/README.md", "# v1");
   await driver.writeFile("prj_atomic", "architecture/README.md", "# v2");

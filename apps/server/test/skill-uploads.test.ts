@@ -9,7 +9,7 @@ import type { ServerConfig } from "../src/config.js";
 import { SkillUploadService } from "../src/services/skill-uploads.js";
 
 /**
- * Uploading a skill through Settings — see `043` in the council notes.
+ * Uploading a skill through Settings.
  * Against a real filesystem and a real server, the same standard
  * `attachments.test.ts` already holds — a skill upload is a smaller,
  * text-scoped version of the same "someone sent us bytes" problem.

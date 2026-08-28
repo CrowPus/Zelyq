@@ -28,29 +28,29 @@ export interface ServerConfig {
   secretKeyFile: string;
   /**
    * Where uploaded prompt attachments live — beside the database, never
-   * inside a project's own workspace. See `037` in the council notes: an
-   * uploaded image is conversation data, not project data, and `035` now
-   * commits a project's own files to git automatically — an attachment
-   * landing in that history by accident is not this feature's call to make.
+   * inside a project's own workspace. An uploaded image is conversation
+   * data, not project data, and a project's own files are committed to git
+   * automatically — an attachment landing in that history by accident is not
+   * this feature's call to make.
    */
   attachmentsDir: string;
   /**
-   * Where a skill uploaded through Settings is written — see `043` in the
-   * council notes. The agent reads this same directory as its own
+   * Where a skill uploaded through Settings is written. The agent reads this
+   * same directory as its own
    * "uploaded" skills source; the default here and the agent's own default
    * are the same relative shape `ZELYQ_WORKSPACE_DIR` already establishes
    * for a directory both processes need to agree on.
    */
   uploadedSkillsDir: string;
   /**
-   * Where Claude Code's own CLI stores its session — see `045` in the
-   * council notes. Always the server process's own `$HOME` in a real
+   * Where Claude Code's own CLI stores its session. Always the server
+   * process's own `$HOME` in a real
    * deployment, which is why nothing here reads an environment variable
    * for it; a test constructs `ServerConfig` directly and points this at a
    * fixture instead.
    */
   claudeCredentialsPath?: string;
-  /** Same, for Codex's session — see `045`'s OpenAI follow-up. */
+  /** Same, for Codex's session. */
   codexCredentialsPath?: string;
   /** Built web assets to serve. Absent in development, where Vite serves them. */
   webDir: string | null;
@@ -95,8 +95,7 @@ function containerOptionsFromEnv() {
       ? { blockMetadataEndpoint: false }
       : {}),
     // Defaults off inside the driver itself, and stays off unless an operator
-    // names hosts here — there is no Zelyq-maintained default list. See
-    // `028` in the council notes for why.
+    // names hosts here — there is no Zelyq-maintained default list.
     ...(process.env.ZELYQ_CONTAINER_EGRESS_ALLOWLIST
       ? {
           egressAllowlist: process.env.ZELYQ_CONTAINER_EGRESS_ALLOWLIST.split(",")

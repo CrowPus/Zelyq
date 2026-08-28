@@ -53,7 +53,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --from=build /app /app
 
-# The agent's `view_preview` tool (`040`) needs a real headless Chromium —
+# The agent's `view_preview` tool needs a real headless Chromium —
 # installed here, as root, so `--with-deps` can also install the system
 # libraries it needs. `PLAYWRIGHT_BROWSERS_PATH` above keeps the download
 # inside /app rather than root's own home directory, so the chown just below

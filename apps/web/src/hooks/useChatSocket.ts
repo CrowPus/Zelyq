@@ -1,10 +1,10 @@
 import type { AgentEvent, AttachmentRef, Message, ServerMessage, ToolCall } from "@zelyq/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-/** 053 — one line of a specialist child agent's live activity (the Designer,
- * the verifier). Shown as a labelled sub-thread under the streaming turn. */
+/** One line of a specialist child agent's live activity (the Designer, the
+ * verifier). Shown as a labelled sub-thread under the streaming turn. */
 export interface AgentActivity {
-  agent: "designer" | "verifier" | "builder";
+  agent: "designer" | "devops" | "security" | "verifier" | "builder";
   phase: "start" | "step" | "end";
   title: string;
   detail?: string;
@@ -84,15 +84,15 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
         provider?: string;
         model?: string;
         attachments?: AttachmentRef[];
-        /** Picked from the composer's `/` picker — see `044`. Names only. */
+        /** Picked from the composer's `/` picker. Names only. */
         skills?: string[];
-        /** Picked from the same `/` menu's Plugins section — see `044`'s follow-up. */
+        /** Picked from the same `/` menu's Plugins section. */
         plugins?: string[];
-        /** Engineer Mode toggle — see ZED-0001. */
+        /** Engineer Mode toggle. */
         engineerMode?: boolean;
-        /** Architect Mode toggle — see 048. */
+        /** Architect Mode toggle. */
         architectMode?: boolean;
-        /** Auto Mode toggle — see 051 Part B. Only with architectMode. */
+        /** Auto Mode toggle. Only with architectMode. */
         autoMode?: boolean;
       },
     ) => {

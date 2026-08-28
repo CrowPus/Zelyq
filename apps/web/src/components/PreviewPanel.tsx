@@ -18,7 +18,7 @@ interface Props {
   onStop(): void;
   onRefreshLogs(): void;
   reloadToken: number;
-  /** Clicked in select mode — see `038`. */
+  /** Clicked in select mode. */
   onElementSelected(element: SelectedElement): void;
 }
 

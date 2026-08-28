@@ -1,13 +1,12 @@
 /**
  * A `File`'s bytes as base64 — shared between the chat composer's
- * attachments (`037`) and the Settings page's skill upload (`043`), rather
- * than kept as ChatPanel's own local helper once a second real caller
- * needed it.
+ * attachments and the Settings page's skill upload, rather than kept as
+ * ChatPanel's own local helper once a second real caller needed it.
  *
  * Chunked rather than one `String.fromCharCode(...bytes)` call: spreading
  * every byte of a large file into that call at once blows the call stack.
  */
-export async function fileToBase64(file: File): Promise<string> {
+export async function fileToBase64(file: Blob): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   const chunkSize = 0x8000;
@@ -19,8 +18,8 @@ export async function fileToBase64(file: File): Promise<string> {
 
 /**
  * Turns a folder's picked files into the `{ path, data }[]` a skill upload
- * sends — see `043` in the council notes. A pure function, extracted out of
- * `SkillUploadControl` so the path-stripping logic is testable without
+ * sends. A pure function, extracted out of `SkillUploadControl` so the
+ * path-stripping logic is testable without
  * rendering a component: `webkitRelativePath` looks like
  * "my-skill/SKILL.md", and every file gets that same top-level folder name
  * stripped, so the server sees paths rooted at the skill's own content —
@@ -31,9 +30,9 @@ export async function fileToBase64(file: File): Promise<string> {
  * view onto an `<input>`'s current selection, and resetting that input
  * (needed so the same folder can be picked twice in a row) clears it
  * immediately. Passed across an async boundary, a `FileList` can be read
- * back empty by the time this actually runs — the real bug this shape
- * exists to make impossible, found live: every upload silently sent zero
- * files and failed schema validation with no indication why.
+ * back empty by the time this actually runs — the bug this shape exists to
+ * make impossible, where every upload silently sends zero files and fails
+ * schema validation with no indication why.
  */
 export async function buildSkillUploadFiles(
   files: File[],

@@ -12,9 +12,9 @@ import type { Conversation, ProviderEvent, TurnResult } from "../src/providers/t
 /**
  * The provider that lets a team keep its code on its own network.
  *
- * `015` bound the council: a feature touching somebody's real environment needs
- * a test against something shaped like their environment, not like ours. The
- * equivalent here is a **real HTTP server speaking the dialect** — not a stubbed
+ * A feature touching somebody's real environment needs a test against
+ * something shaped like their environment, not like ours. The equivalent
+ * here is a **real HTTP server speaking the dialect** — not a stubbed
  * client object. A mock would agree with whatever this implementation happens to
  * send, which is exactly the failure being guarded against: the dialect is the
  * part we do not control.

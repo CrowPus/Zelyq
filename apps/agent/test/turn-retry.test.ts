@@ -16,8 +16,8 @@ import { buildAgentServer } from "../src/server.js";
  * A model call that comes back empty — no text, no tool calls, not a
  * refusal — is a transient provider hiccup, not a finished turn. The run
  * retries it a few times with backoff instead of leaving the user with
- * "No changes were made" and no way forward (found live: the Architect
- * stalled mid-package, every "proceed" an empty turn).
+ * "No changes were made" and no way forward (observed: the Architect
+ * stalling mid-package, every "proceed" an empty turn).
  */
 function scripted(script: Array<{ events: ProviderEvent[]; result: TurnResult }>): ModelProvider {
   let i = 0;

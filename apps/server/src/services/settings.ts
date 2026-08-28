@@ -22,8 +22,8 @@ import { maskSecret } from "./secrets.js";
  * secret an operator pinned on purpose, or an access-control field like open
  * registration.
  *
- * `provider`, `model`, and `effort` are the exception — see `041`. They are
- * pure model-choice, not a security posture, and every path that can read or
+ * `provider`, `model`, and `effort` are the exception. They are pure
+ * model-choice, not a security posture, and every path that can read or
  * write them already requires an instance admin — the same person who could
  * have set the environment variable in the first place. Locking them meant
  * the only way to change which model Zelyq uses, once `.env` names one, was
@@ -52,6 +52,11 @@ const GROUPS: Array<{ name: string; description: string }> = [
     name: "Model",
     description:
       "Which model builds your projects, and the key it uses. Only the selected provider's key is needed.",
+  },
+  {
+    name: "Voice input",
+    description:
+      "Speech-to-text for the chat microphone. It uses the selected provider's API key from Model settings.",
   },
   {
     name: "Access",
@@ -106,7 +111,7 @@ const DEFINITIONS: Definition[] = [
     // Set automatically by useAnthropicCliSession() below, and reset the
     // moment a real key is pasted — editable here too, as a plain way to
     // stop using a detected session without having to paste a throwaway
-    // key just to flip it back. See `045`.
+    // key just to flip it back.
     key: "anthropicAuthMode",
     label: "Claude auth mode",
     description: "Whether the key above is an API key or a Claude Code session.",
@@ -143,7 +148,7 @@ const DEFINITIONS: Definition[] = [
   },
   {
     // Same shape as anthropicAuthMode above, for a Codex "sign in with
-    // ChatGPT" session — see `045`'s OpenAI follow-up.
+    // ChatGPT" session.
     key: "openaiAuthMode",
     label: "OpenAI auth mode",
     description: "Whether the key above is an API key or a Codex session.",
@@ -261,6 +266,28 @@ const DEFINITIONS: Definition[] = [
     options: ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value, label: value })),
   },
   {
+    key: "speechProvider",
+    label: "Voice provider",
+    description:
+      "The speech-to-text service used by the chat microphone. OpenAI is available now; the provider boundary allows others to be added without changing the composer.",
+    kind: "select",
+    group: "Voice input",
+    envVar: "ZELYQ_SPEECH_PROVIDER",
+    fallback: "openai",
+    options: [{ value: "openai", label: "OpenAI" }],
+  },
+  {
+    key: "speechModel",
+    label: "Voice model",
+    description:
+      "The transcription model sent to the selected provider. OpenAI Whisper uses whisper-1.",
+    kind: "text",
+    group: "Voice input",
+    envVar: "ZELYQ_SPEECH_MODEL",
+    fallback: "whisper-1",
+    placeholder: "whisper-1",
+  },
+  {
     key: "allowRegistration",
     label: "Open registration",
     description:
@@ -348,8 +375,8 @@ const MODEL_SUGGESTIONS: Record<string, string[]> = {
 /**
  * Names people have actually reported typing for a Codex "sign in with
  * ChatGPT" session — not confirmed the way `MODEL_SUGGESTIONS` above is.
- * Found live: OpenAI's own Codex CLI, App, and VS Code extension all
- * reject various names here too ("The '<model>' model is not supported
+ * OpenAI's own Codex CLI, App, and VS Code extension all reject various
+ * names here too ("The '<model>' model is not supported
  * when using Codex with a ChatGPT account"), for different people, on
  * different plans — a real OpenAI issue about it was closed "not planned",
  * meaning this looks like a deliberate, account/plan-dependent
@@ -368,9 +395,9 @@ export class SettingsService {
     private readonly store: Store,
     private readonly secrets: SecretBox,
     private readonly env: NodeJS.ProcessEnv = process.env,
-    /** Overridable so tests point this at a fixture — see `045`. */
+    /** Overridable so tests point this at a fixture. */
     private readonly claudeCredentialsPath: string = DEFAULT_CLAUDE_CREDENTIALS_PATH,
-    /** Same, for Codex's session — see `045`'s OpenAI follow-up. */
+    /** Same, for Codex's session. */
     private readonly codexCredentialsPath: string = DEFAULT_CODEX_CREDENTIALS_PATH,
   ) {}
 
@@ -410,8 +437,8 @@ export class SettingsService {
   }
 
   /**
-   * The API key for whichever provider is selected. Found live: when the
-   * provider's key env var also happens to be set (a real deployment may
+   * The API key for whichever provider is selected. When the provider's key
+   * env var also happens to be set (a real deployment may
    * well have `OPENAI_API_KEY` pinned for the ordinary path), `value()`'s
    * own env-wins-first rule silently returned that key instead of a
    * connected subscription's stored credential — same setting name, wrong
@@ -434,6 +461,15 @@ export class SettingsService {
     return await this.value(key);
   }
 
+  /** Speech credentials deliberately ignore chat auth mode. A Codex
+   * subscription token is not an OpenAI API key and cannot call the audio
+   * transcription endpoint. */
+  async speechApiKeyFor(provider: string): Promise<string> {
+    const key = KEY_SETTING_BY_PROVIDER[provider];
+    if (!key) return "";
+    return await this.value(key);
+  }
+
   /** A secret's stored, decrypted value only — never the environment
    * variable that would normally win for it. See `apiKeyFor` above. */
   private async storedSecretValue(key: string): Promise<string> {
@@ -445,14 +481,12 @@ export class SettingsService {
   }
 
   /**
-   * The model for whichever provider is actually active. Found live, and
-   * fixed wrong the first time: a model an operator's `ZELYQ_MODEL` pins,
-   * or one typed in earlier for a different provider, must never leak into
-   * a newly-connected subscription — that was the original bug. But the
-   * first fix went too far the other way and blocked a model actually,
-   * deliberately typed *for* the connected provider from ever being used
-   * at all, because it forced empty unconditionally whenever subscription
-   * mode was active — nothing genuinely explicit could ever override that.
+   * The model for whichever provider is actually active. A model an
+   * operator's `ZELYQ_MODEL` pins, or one typed in earlier for a different
+   * provider, must never leak into a newly-connected subscription. But
+   * forcing empty unconditionally whenever subscription mode is active would
+   * also block a model deliberately typed *for* the connected provider from
+   * ever being used at all — nothing genuinely explicit could override it.
    * The real distinction is whether a model is truly *stored*, not which
    * mode is active: a stored value is a person's own deliberate choice,
    * regardless of provider or mode, and always wins; only the case where
@@ -469,7 +503,7 @@ export class SettingsService {
     return await this.value("model");
   }
 
-  /** See `045` — whether the key above is a classic API key or a CLI-sourced
+  /** Whether the key above is a classic API key or a CLI-sourced
    * subscription token. Only Anthropic and OpenAI have a mode to read yet. */
   async authModeFor(provider: string): Promise<"api_key" | "subscription"> {
     const settingKey =
@@ -514,27 +548,24 @@ export class SettingsService {
     // the very thing this method is setting.
     await this.store.settings.set("anthropicApiKey", this.secrets.encrypt(session.accessToken));
     await this.store.settings.set("anthropicAuthMode", "subscription");
-    // "Use this instead" has to mean what it says — found live: connecting
-    // the session did nothing to the separate `provider` setting, so a turn
-    // kept running on whatever was already selected and the click appeared
-    // to do nothing. `provider` is one of the three settings a stored value
-    // always wins for regardless of the environment (see `041`), so this is
-    // safe to set unconditionally the same way picking it from the
-    // dropdown already would be.
+    // "Use this instead" has to mean what it says. If connecting the session
+    // did nothing to the separate `provider` setting, a turn would keep
+    // running on whatever was already selected and the click would appear to
+    // do nothing. `provider` is one of the three settings a stored value
+    // always wins for regardless of the environment, so this is safe to set
+    // unconditionally the same way picking it from the dropdown already
+    // would be.
     await this.store.settings.set("provider", "anthropic");
-    // A stale model rode into the wrong provider's request here once —
-    // see `modelFor` below for the actual, lasting fix. An earlier attempt
-    // at this same problem cleared `model` right here on connect instead,
-    // which is what `modelFor` now handles correctly on every read — this
-    // used to also silently wipe out a model someone had *already* typed
-    // in before clicking "Use this instead," found live immediately after
-    // that first fix shipped.
+    // A stale model must not ride into the wrong provider's request here —
+    // see `modelFor` below for the lasting fix. Clearing `model` right here
+    // on connect instead would also silently wipe out a model someone had
+    // *already* typed in before clicking "Use this instead."
 
     return { subscriptionType: session.subscriptionType };
   }
 
   /** Whether a Codex "sign in with ChatGPT" session exists on this machine
-   * — existence only. See `045`'s OpenAI follow-up. */
+   * — existence only. */
   async detectOpenaiCliSession(): Promise<boolean> {
     return await detectCodexSession(this.codexCredentialsPath);
   }
@@ -543,9 +574,8 @@ export class SettingsService {
    * Reads Codex's own already-consented session and starts using it in
    * place of an API key. Unlike Claude's, this is genuinely unverified
    * against a live account — the request shape it will be used with is
-   * researched, not confirmed working, and the caller (the founder,
-   * testing this for real) should know that going in, which is why the
-   * council notes and docs say so plainly rather than presenting this the
+   * researched, not confirmed working, and the caller should know that going
+   * in, which is why the docs say so plainly rather than presenting this the
    * same way as Claude's already-proven path.
    */
   async useOpenaiCliSession(): Promise<{ accountId: string }> {
@@ -603,7 +633,12 @@ export class SettingsService {
             : hasStored
               ? "database"
               : "default";
-        const suggestions = definition.key === "model" ? modelSuggestions : undefined;
+        const suggestions =
+          definition.key === "model"
+            ? modelSuggestions
+            : definition.key === "speechModel" && (await this.value("speechProvider")) === "openai"
+              ? ["whisper-1"]
+              : undefined;
 
         const base = {
           key: definition.key,
@@ -684,7 +719,7 @@ export class SettingsService {
       }
 
       // A real key pasted here — through this path, by a person typing —
-      // always wins back from a detected subscription session. See `045`:
+      // always wins back from a detected subscription session.
       // useAnthropicCliSession()/useOpenaiCliSession() set the matching
       // *ApiKey too, but bypass this method entirely for exactly this
       // reason.

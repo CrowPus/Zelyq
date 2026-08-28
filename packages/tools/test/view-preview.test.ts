@@ -6,7 +6,7 @@ import { executeTool } from "../src/index.js";
 import type { ToolContext } from "../src/types.js";
 
 /**
- * `view_preview` — see `040` in the council notes. The page here is served
+ * `view_preview`. The page here is served
  * over a real HTTP server and captured by a real headless Chromium, the same
  * standard `apps/agent/test/renders-check.test.ts` already holds for
  * `renderReport`: what's under test is whether a real browser produces a

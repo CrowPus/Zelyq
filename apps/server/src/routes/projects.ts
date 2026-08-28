@@ -59,7 +59,7 @@ export function registerProjectRoutes(
     return { project };
   });
 
-  // Manual, on-demand — see `035`. Editor, the same role sending a prompt
+  // Manual, on-demand. Editor, the same role sending a prompt
   // already needs; push is a real, externally-visible action, so it's
   // recorded in the audit log the same as any other mutating one.
   app.post<{ Params: { id: string } }>("/api/projects/:id/git/push", async (request) => {

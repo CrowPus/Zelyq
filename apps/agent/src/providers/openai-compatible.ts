@@ -15,8 +15,8 @@ import type {
 /**
  * The OpenAI chat-completions dialect, spoken over a base URL you choose.
  *
- * This is the provider that makes `001`'s buyer reachable: a team that cannot
- * send its code to a vendor can point Zelyq at a model on its own network —
+ * This is the provider for a team that cannot send its code to a vendor: it
+ * can point Zelyq at a model on its own network —
  * Ollama, vLLM, LM Studio, an in-house gateway — and the file contents never
  * leave. The same implementation also serves hosted vendors that speak this
  * dialect, which is most of them.
@@ -102,7 +102,7 @@ type ChatContentPart =
  * attachments (the dialect accepts a bare string there), or the multi-part
  * form when there are. A pure function so it is testable without a live
  * client or the non-exported `OpenAICompatibleConversation` class it lives
- * inside. See `037` in the council notes.
+ * inside.
  */
 export function buildOpenAIUserContent(
   text: string,
@@ -168,8 +168,7 @@ class OpenAICompatibleConversation implements Conversation {
       // — no image-carrying variant of it exists. An image rides instead as
       // an ordinary user turn immediately after, built with the exact same
       // image-part shape `addUserMessage` already uses, labelled so the
-      // model understands why a user turn appeared that it never sent. See
-      // `040` in the council notes.
+      // model understands why a user turn appeared that it never sent.
       if (result.images?.length) {
         this.messages.push({
           role: "user",

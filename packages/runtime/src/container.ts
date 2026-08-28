@@ -43,10 +43,9 @@ import type {
  * Reimplementing the filesystem across a container boundary would have been
  * weeks of work and a new class of bug for no benefit.
  *
- * Composition rather than inheritance, which is a change from what `023`
- * proposed. Reading the code showed inheritance would need six private fields
- * made protected and a `readonly kind` widened on the base class, to save a
- * dozen one-line delegations. The delegations are also honest: what is
+ * Composition rather than inheritance. Inheritance would need six private
+ * fields made protected and a `readonly kind` widened on the base class, to
+ * save a dozen one-line delegations. The delegations are also honest: what is
  * isolated, and what is not, is visible in this file rather than implied by
  * what a subclass forgot to override.
  *
@@ -65,21 +64,20 @@ import type {
  * communication disabled, rather than Docker's default bridge. Verified live
  * before this was written, not assumed: on the default bridge, one project's
  * container can reach another's — connect to its internal IP and port
- * directly, no publishing required — which is a cross-*tenant* leak on the
- * exact deployment `023` exists for. `enable_icc=false` closes it while
- * leaving each container's own route to the real internet untouched.
+ * directly, no publishing required — which is a cross-*tenant* leak on a
+ * multi-project deployment. `enable_icc=false` closes it while leaving each
+ * container's own route to the real internet untouched.
  *
  * The cloud metadata endpoint (169.254.169.254) is blocked by default, the
- * same way and for the same reason — see `installMetadataBlock` and `025`.
+ * same way and for the same reason — see `installMetadataBlock`.
  *
  * ## What this does not do by default
  *
  * **General egress is not filtered.** A container can still reach anything
  * else on the internet and the host's own network. An operator who wants
- * that closed can opt into `egressAllowlist` (`028` in the council notes) —
- * a default-deny rule with an `ipset`-backed allow list the *operator*
- * supplies and maintains. Zelyq does not ship or maintain a default list of
- * "what a project needs": verified live before that proposal was written,
+ * that closed can opt into `egressAllowlist` — a default-deny rule with an
+ * `ipset`-backed allow list the *operator* supplies and maintains. Zelyq
+ * does not ship or maintain a default list of "what a project needs":
  * `registry.npmjs.org` alone resolves to a dozen Cloudflare addresses that
  * are not a fixed fact Zelyq could promise to keep current. Off by default;
  * on is a deliberate, narrower choice than it sounds.
@@ -150,9 +148,9 @@ export interface ContainerOptions {
   network?: string;
   /**
    * Whether to block containers from reaching the cloud metadata endpoint.
-   * On by default. See the class doc and `025` in the council notes for why
-   * this exists and what it does and does not do — it is the one thing this
-   * driver does that reaches past objects Zelyq itself creates and destroys,
+   * On by default. See the class doc for why this exists and what it does
+   * and does not do — it is the one thing this driver does that reaches past
+   * objects Zelyq itself creates and destroys,
    * and disabling it is a legitimate choice for an operator who manages their
    * own firewall and does not want an out-of-band tool touching it.
    */
@@ -161,8 +159,8 @@ export interface ContainerOptions {
    * Hostnames project containers are allowed to reach; everything else on
    * the internet is default-denied. Unset or empty (the default): nothing
    * changes, egress is unfiltered as it always has been. There is no
-   * Zelyq-maintained default list — see the class doc and `028` for why:
-   * a list Zelyq owns is a promise about addresses it does not control and
+   * Zelyq-maintained default list — see the class doc for why: a list Zelyq
+   * owns is a promise about addresses it does not control and
    * cannot keep current, and getting it wrong breaks a real install rather
    * than failing safely. This is the operator's list, for the operator's
    * deployment.
@@ -795,7 +793,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       } else {
         // A driver that starts up with no allowlist must not silently
         // inherit whatever a *previous* run's allowlist left installed on
-        // the host — see `034` in the council notes, found live.
+        // the host.
         await this.teardownEgressAllowlist().catch((error: unknown) => {
           this.egressAllowlistFailure = error instanceof Error ? error.message : String(error);
         });
@@ -879,8 +877,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
 
   /**
    * Blocks project containers from reaching the cloud instance metadata
-   * endpoint — see `025` in the council notes for the reasoning and the
-   * scope this was deliberately kept to.
+   * endpoint. See the class doc for the reasoning and the scope this was
+   * deliberately kept to.
    *
    * The one thing this driver does that reaches past objects Zelyq itself
    * creates and destroys: a rule written into the *host's* `DOCKER-USER`
@@ -1040,13 +1038,13 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
 
   /**
    * Blocks project containers from reaching anything not named in
-   * `egressAllowlist` — see the class doc and `028` in the council notes for
-   * why this ships as a mechanism, opt-in, with no default list.
+   * `egressAllowlist` — see the class doc for why this ships as a mechanism,
+   * opt-in, with no default list.
    *
    * Three rules, installed once each: two default-deny `REJECT`s scoped to
    * this driver's own network subnet, one per protocol (same reasoning as
    * `installMetadataBlock` — source-scoped, `REJECT` not `DROP`; split by
-   * protocol for the same nf_tables reason `installMetadataBlock` needed
+   * protocol for the same nf_tables reason `installMetadataBlock` needs
    * `-p tcp` — see `rejectRules` below), and an `ACCEPT` for anything in
    * `EGRESS_ALLOW_SET`, inserted *after* the deny rules so it lands above
    * them — iptables is first-match-wins. All three are permanent once
@@ -1065,10 +1063,6 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * showed once these rules were active — `dns.resolve4` succeeded
    * throughout — but that is DNS resolution surviving *in practice*, not a
    * packet-level confirmation that a query never reaches this chain at all.
-   * That stronger check would need a live default-deny rule on a host purely
-   * to watch DNS traffic against it, and the permission system correctly
-   * declined that same class of request for `025`'s rule. Recorded as what
-   * was actually checked, not blurred with a claim stronger than that.
    */
   private ensureEgressAllowlist(): Promise<void> {
     if (!this.egressAllowlistReady) {
@@ -1082,15 +1076,14 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
 
   /**
    * Removes whatever `installEgressAllowlist` above installed, for a driver
-   * that starts up with no allowlist configured — see `034` in the council
-   * notes for why this exists at all: `installEgressAllowlist`'s own doc
-   * calls its rules "permanent once installed," which was true only as long
-   * as an allowlist, once turned on, was never turned off again. That
-   * assumption held until the allowlist became a Settings field an operator
-   * can flip off — found live: a driver restarted with the allowlist
-   * removed left the previous run's `DOCKER-USER` rules in place, rejecting
-   * everything they didn't cover, indistinguishable from "still configured"
-   * to anyone who did not know to check `iptables` directly.
+   * that starts up with no allowlist configured. `installEgressAllowlist`'s
+   * own doc calls its rules "permanent once installed," which holds only as
+   * long as an allowlist, once turned on, is never turned off again — but
+   * the allowlist is a Settings field an operator can flip off, and a driver
+   * restarted with it removed would otherwise leave the previous run's
+   * `DOCKER-USER` rules in place, rejecting everything they didn't cover,
+   * indistinguishable from "still configured" to anyone who did not know to
+   * check `iptables` directly.
    *
    * Best-effort and tolerant of nothing being there to remove — the common
    * case, an instance that has never enabled this, must not pay for a
@@ -1140,14 +1133,13 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * Creates `EGRESS_ALLOW_SET` with the timeout extension it needs, tolerant
    * of it already existing *without* one.
    *
-   * `-exist` only reconciles a set created with the exact same options —
-   * found live, not assumed, when this driver's own earlier revision (before
-   * the timeout redesign above) left a plain, non-timeout set behind on this
-   * host, with a live `ACCEPT` rule still pointing at it by name. That
-   * combination took two attempts to get right: destroying and recreating
-   * looked sufficient until it turned out `ipset destroy` itself refuses a
-   * set an iptables rule still references — found live, the same way. The
-   * accept rule has to be removed *first*. Safe either way: for the instant
+   * `-exist` only reconciles a set created with the exact same options. An
+   * earlier revision of this driver (before the timeout redesign above)
+   * could leave a plain, non-timeout set behind on the host with a live
+   * `ACCEPT` rule still pointing at it by name. Destroying and recreating
+   * looks sufficient, but `ipset destroy` itself refuses a set an iptables
+   * rule still references, so the accept rule has to be removed *first*.
+   * Safe either way: for the instant
    * the set is absent, the accept rule that is about to be reinstalled by
    * the caller matches nothing, so traffic fails closed onto the `REJECT`
    * rules rather than open.
@@ -1295,10 +1287,10 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         const resolved = await execIn(["dig", "+short", "A", hostname]);
         if (resolved.exitCode !== 0) continue;
 
-        // IPv4 only: project containers have no IPv6 route on this network
-        // (verified live for `025`'s round two), so an IPv6-only result is
-        // not reachable regardless, and `hash:ip family inet` would reject
-        // it. The filter also drops a CNAME line `+short` can print ahead of
+        // IPv4 only: project containers have no IPv6 route on this network,
+        // so an IPv6-only result is not reachable regardless, and
+        // `hash:ip family inet` would reject it. The filter also drops a
+        // CNAME line `+short` can print ahead of
         // the final A records for a name that is itself an alias.
         const ips = new Set(
           resolved.stdout

@@ -10,11 +10,11 @@ import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 
 /**
- * The model picker's "configured" and "default" — see `045`'s follow-up.
- * Found live: connecting a Claude Code session never made Anthropic show up
- * in the composer's `/` menu or the model picker, because `/api/providers`
- * only ever relayed the agent's own env-only check, never anything Settings
- * actually knows about. A minimal stand-in agent server here, not a real
+ * The model picker's "configured" and "default". Connecting a Claude Code
+ * session must make Anthropic show up in the composer's `/` menu or the
+ * model picker; `/api/providers` used to only relay the agent's own
+ * env-only check, never anything Settings actually knows about. A minimal
+ * stand-in agent server here, not a real
  * one, so this proves the *merge* logic — the agent's own response reports
  * nothing configured for any provider, on purpose, so a pass here can only
  * mean the server-side settings check is what's actually doing the work.
@@ -167,7 +167,7 @@ test("the picker's default follows the live setting, not whatever the agent boot
 });
 
 test("a connected Codex session swaps the composer's model list, not just the Settings-page suggestions", async () => {
-  // Found live, twice: fixing Settings' own suggestions and missing the
+  // Fixing Settings' own suggestions alone misses the
   // *other* place a model gets picked from — the composer's own `/`
   // model picker, the one actually used daily — left it looking
   // completely unchanged, still offering the ordinary API's "gpt-5.1"

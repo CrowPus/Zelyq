@@ -4,7 +4,7 @@ import type { AgentClient } from "../services/agent-client.js";
 import { CODEX_MODEL_CANDIDATES, type SettingsService } from "../services/settings.js";
 
 /**
- * What the chat's model picker needs — see `033`. Unlike `/api/settings`,
+ * What the chat's model picker needs. Unlike `/api/settings`,
  * open to anyone signed in: which providers have a usable key is not
  * sensitive on its own, and gating it to instance admins would mean only an
  * admin could ever see the picker's options.
@@ -19,9 +19,9 @@ export function registerProviderRoutes(
     // The agent's own `configured` only ever checked its own process
     // environment — true before Settings could hold a key at all, wrong
     // the moment one is stored there instead (a pasted key, or a detected
-    // Claude Code session — see `045`). Found live: connecting a
-    // subscription session never made the provider it belongs to show up
-    // here, because this never asked the one place that actually knows.
+    // Claude Code session). Connecting a subscription session would
+    // otherwise never make the provider it belongs to show up here, because
+    // this never asked the one place that actually knows.
     // `apiKeyFor` already resolves the same env → database precedence a
     // real turn uses, so this is the exact same answer, not an
     // approximation of it.
@@ -29,8 +29,8 @@ export function registerProviderRoutes(
       listed.providers.map(async (provider) => ({
         ...provider,
         configured: Boolean(await deps.settings.apiKeyFor(provider.id)),
-        // Found live, in the composer's own model picker this time, not
-        // just Settings' suggestions: a Codex session's real model names
+        // In the composer's own model picker, not just Settings'
+        // suggestions: a Codex session's real model names
         // are a different, unconfirmed set from the ordinary API's single
         // "gpt-5.1" — fixing the suggestions in Settings and missing this,
         // the picker a person actually uses daily, left it looking like

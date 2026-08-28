@@ -37,9 +37,12 @@ something a team can adopt.** Quality first, then the change record, then the de
       [modes.md](./modes.md)
 - [x] **Auto Mode** — the Architect runs the build passes itself to a hard ceiling (tokens / passes
       / wall-clock), with stuck detection and an always-live Stop
-- [x] **Named specialist agents** — the first is the **Designer**: it owns `DESIGN.md`, surveys the
-      project, authors or deepens the design system, implements it, and its work streams to the chat
-      as a labelled sub-thread. Callable from Engineer Mode with `design_pass`
+- [x] **Named specialist agents** — bounded dispatched children, each owning a spec file it surveys,
+      authors or deepens, then implements; each streams to the chat as a labelled sub-thread.
+      **Designer** (`DESIGN.md`, `design_pass`), **DevOps** (`OPERATIONS.md`, `ops_pass` — CI,
+      containers, env, deploy config), **Security/QA** (`QA.md`, `qa_pass` — writes and runs the
+      test suite, runs the security scan). The Architect pipeline ends
+      build → verify → DevOps → design → re-verify → Security/QA → done
 
 ## Next — a change record you can trust
 

@@ -4,13 +4,13 @@ import type { RuntimeDriver } from "@zelyq/runtime";
 
 const START = "<!-- zelyq:inspector:start -->";
 const END = "<!-- zelyq:inspector:end -->";
-/** What marks a project as already having the script — see `038`/`039`. */
+/** What marks a project as already having the script. */
 const MARKER = "zelyq:inspector:activate";
 
 /**
  * The element-inspector bridge script, read out of the template file
- * itself rather than duplicated as a second, hand-maintained copy here —
- * see `039` in the council notes. One source of truth: the block in
+ * itself rather than duplicated as a second, hand-maintained copy here.
+ * One source of truth: the block in
  * `templates/vite-react/index.html`, between its own sentinel comments.
  * Re-read each call rather than cached — this only runs once per preview
  * start, not a hot path, and not worth the test-isolation cost a
@@ -30,7 +30,7 @@ export async function extractInspectorScript(templatesDir: string): Promise<stri
 
 /**
  * Patches a project's `index.html` with the inspector bridge script if it
- * doesn't already have one — see `039`. Covers every project regardless of
+ * doesn't already have one. Covers every project regardless of
  * how it came to exist: made from an older template, `git clone`d in, or
  * hand-edited since. Best-effort by design: any failure here — no
  * `index.html`, no `</body>` to inject before, a read/write error — is

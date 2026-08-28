@@ -27,7 +27,7 @@ export class AgentClient {
     return (await response.json()) as { status: string };
   }
 
-  /** What the chat's model picker offers — see `033`. */
+  /** What the chat's model picker offers. */
   async listProviders(): Promise<AvailableProviders> {
     const response = await fetch(`${this.baseUrl}/providers`, {
       signal: AbortSignal.timeout(5000),
@@ -44,16 +44,16 @@ export class AgentClient {
     provider?: string;
     model?: string;
     effort?: string;
-    /** See ZED-0001. Requires `effort` at `high` or above — the agent
-     * refuses otherwise. */
+    /** Requires `effort` at `high` or above — the agent refuses
+     * otherwise. */
     engineerMode?: boolean;
-    /** See 048. Mutually exclusive with engineerMode. */
+    /** Mutually exclusive with engineerMode. */
     architectMode?: boolean;
-    /** See 051 Part B. Only with architectMode. */
+    /** Only with architectMode. */
     autoMode?: boolean;
     apiKey?: string;
-    /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
-     * subscription token. */
+    /** Whether `apiKey` is a classic key or a CLI-sourced subscription
+     * token. */
     authMode?: string;
     baseUrl?: string;
     history?: Message[];
@@ -89,16 +89,15 @@ export class AgentClient {
    * cached session's provider or model is only trustworthy while it matches
    * what is currently configured — settings can change without a restart,
    * and reusing a stale session unconditionally is exactly how a changed
-   * provider silently never took effect (found live, not assumed: every
-   * real session on a real instance stayed pinned to whatever provider it
-   * was first created with, forever).
+   * provider silently never took effect — leaving every session pinned to
+   * whatever provider it was first created with, forever.
    *
    * A session mid-turn is left alone regardless — evicting it to switch
    * providers underneath an in-flight turn would abort it, a worse failure
    * than finishing on the provider it started with and picking up the
    * change on the next prompt. Recreating reuses the same history-from-
-   * persisted-messages path a restart already goes through — see `029` —
-   * so nothing new has to be built to reconstruct it.
+   * persisted-messages path a restart already goes through, so nothing new
+   * has to be built to reconstruct it.
    */
   async ensureSession(input: {
     sessionId: string;
@@ -106,16 +105,16 @@ export class AgentClient {
     provider?: string;
     model?: string;
     effort?: string;
-    /** See ZED-0001. Requires `effort` at `high` or above — the agent
-     * refuses otherwise. */
+    /** Requires `effort` at `high` or above — the agent refuses
+     * otherwise. */
     engineerMode?: boolean;
-    /** See 048. Mutually exclusive with engineerMode. */
+    /** Mutually exclusive with engineerMode. */
     architectMode?: boolean;
-    /** See 051 Part B. Only with architectMode. */
+    /** Only with architectMode. */
     autoMode?: boolean;
     apiKey?: string;
-    /** See `045` — whether `apiKey` is a classic key or a CLI-sourced
-     * subscription token. */
+    /** Whether `apiKey` is a classic key or a CLI-sourced subscription
+     * token. */
     authMode?: string;
     baseUrl?: string;
     history?: Message[];
@@ -131,9 +130,9 @@ export class AgentClient {
         (input.model !== undefined && input.model !== state.model) ||
         (input.authMode !== undefined && input.authMode !== state.authMode) ||
         // `effort` and `engineerMode` didn't used to matter here because
-        // `effort` was never actually forwarded by any caller — see
-        // ZED-0001's discovery of that gap. Both now behave like every
-        // other setting that already changes what a session is.
+        // `effort` was never actually forwarded by any caller. Both now
+        // behave like every other setting that already changes what a
+        // session is.
         (input.effort !== undefined && input.effort !== state.effort) ||
         (input.engineerMode !== undefined && input.engineerMode !== state.engineerMode) ||
         (input.architectMode !== undefined && input.architectMode !== state.architectMode) ||
@@ -163,9 +162,9 @@ export class AgentClient {
     message: string,
     signal?: AbortSignal,
     attachments?: PromptAttachment[],
-    /** Names only, from the composer's `/` picker — see `044`. */
+    /** Names only, from the composer's `/` picker. */
     skills?: string[],
-    /** Names only, from the same `/` picker's Plugins section — see `044`'s follow-up. */
+    /** Names only, from the same `/` picker's Plugins section. */
     plugins?: string[],
   ): AsyncGenerator<AgentEvent> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/prompt`, {

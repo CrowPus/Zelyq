@@ -88,8 +88,8 @@ that's the expected way to swap in your own house version of a built-in.
 
 An instance administrator can add a skill from **Settings** — pick a
 skill's folder, `SKILL.md` and all, and it's uploaded and validated the
-same way a skill loaded from disk already is. See `043` in the council
-notes. It still takes a restart of the agent to actually activate, the
+same way a skill loaded from disk already is. It still takes a restart of
+the agent to actually activate, the
 same as a plugin change already does — uploading writes the files, it
 doesn't reach into a process already running. Precedence, most manual
 override last: an upload can replace a built-in skill's name, and
@@ -106,7 +106,7 @@ full body is woven directly into the message the model reads on turn one,
 before the turn even starts, rather than left for the model to decide
 whether `use_skill` is worth calling. It rides in the one message a model
 cannot fail to read, the same reason attachments and a pointed preview
-element already work this way. See `044` in the council notes.
+element already work this way.
 
 ## The trust model, stated plainly
 

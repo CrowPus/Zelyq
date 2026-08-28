@@ -13,7 +13,7 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * 047 Phase 3 — the Architect dispatches bounded builder sub-agents.
+ * The Architect dispatches bounded builder sub-agents.
  *
  * One scripted provider serves both the parent (Architect) and every child
  * (builder): `createConversation` is called once per `AgentSession`, so a
@@ -304,7 +304,7 @@ test("dispatch_task is refused when the design is not finished (no build-plan)",
 test("architect mode caps new files under architecture/ per turn — no whole-package dump", async () => {
   // Six write_file calls to new architecture/ paths in one turn. Only the
   // first four land; 5 and 6 are refused. The design has to be built up over
-  // turns, not dumped at once. (Decision records — 050 R2.1's allowlist only
+  // turns, not dumped at once. (Decision records — the allowlist only
   // accepts real package files under architecture/.)
   const writes = [1, 2, 3, 4, 5, 6].map((i) =>
     call("write_file", {
@@ -454,7 +454,7 @@ test("051: the verify dispatch is exempt from the runnable-first and file-count 
   }
 });
 
-test("051 Part B: autoMode without architectMode is rejected", async () => {
+test("autoMode without architectMode is rejected", async () => {
   const { base, close } = await setup([[say("n/a")]], "none");
   try {
     const res = await fetch(`${base}/sessions`, {
@@ -469,7 +469,7 @@ test("051 Part B: autoMode without architectMode is rejected", async () => {
   }
 });
 
-test("051 Part B: an architect+auto session reports autoMode and does not auto-loop a normal turn", async () => {
+test("an architect+auto session reports autoMode and does not auto-loop a normal turn", async () => {
   // A build turn that finishes without hitting a pass cap: the SSE response
   // ends after that one turn — Auto Mode does not spuriously start another.
   const parent = [

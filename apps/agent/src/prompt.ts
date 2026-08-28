@@ -7,16 +7,14 @@ export function buildSystemPrompt(options: {
   projectName: string;
   template: string;
   skills?: Array<{ name: string; description: string }>;
-  /** ZED-0001, Phase 1. When set, an Engineer Mode addendum is built into
-   * this same string, once, so it rides inside the prompt's own cache
-   * breakpoint instead of being re-sent per message the way `withSkills`
-   * is — see the entry's Proposed decision for why that distinction is
-   * load-bearing, not stylistic. Absent or `undefined` skill means the
-   * `senior-software-engineering` skill wasn't found at boot; the four
-   * directives still apply, degraded rather than refused. */
+  /** When set, an Engineer Mode addendum is built into this same string,
+   * once, so it rides inside the prompt's own cache breakpoint instead of
+   * being re-sent per message the way `withSkills` is. Absent or `undefined`
+   * skill means the `senior-software-engineering` skill wasn't found at
+   * boot; the four directives still apply, degraded rather than refused. */
   engineerMode?: { skill?: { body: string; resources: string[] } };
-  /** 048 — Architect Mode, Phase 1. Mutually exclusive with `engineerMode`
-   * (the server rejects both at once). When set, the Architect addendum is
+  /** Architect Mode. Mutually exclusive with `engineerMode` (the server
+   * rejects both at once). When set, the Architect addendum is
    * built into the prompt the same cache-friendly way. `skill` is the
    * `report-page-design` skill body + resource listing, used for the
    * `architecture/report.html` render; absent means it wasn't found at boot
@@ -25,11 +23,10 @@ export function buildSystemPrompt(options: {
 }): string {
   // `</communication>${...}` deliberately has no newline between them —
   // the addendum's own body supplies its leading newline when it renders,
-  // so engineerMode off produces the exact byte-identical string this
-  // function always returned. Found by independent review: this used to
-  // end with a bare newline before the interpolation, which survived even
-  // with an empty string in it — a real, if inert, violation of Phase 1's
-  // own "default mode is unaffected" acceptance criterion.
+  // so engineerMode off produces a byte-identical string to the one this
+  // function produced before the addendum existed. A bare newline before
+  // the interpolation would survive even with an empty string in it,
+  // changing the default-mode prompt.
   return `You are the Zelyq build agent. You work inside a single web project and change it by \
 using tools — never by printing code for someone else to copy.
 
@@ -288,6 +285,13 @@ row still marked \`blocked\`; clear that first.
     setting intent and structure — the Designer agent owns this file and will deepen it. It is a
     LIVING document (not a \`decisions/\` record) and it is NOT a gate on "package ready"; a solid but
     partial draft is fine.
+  - \`OPERATIONS.md\` — a FIRST DRAFT of the operational spec: environments, config and secrets, the
+    CI pipeline, containers, deploy targets, rollback, health, a short runbook. Write this ONLY when
+    \`infrastructure.md\` describes something actually deployable (not a pure static demo). The
+    DevOps agent owns and deepens it. Living document, not a gate.
+  - \`QA.md\` — a FIRST DRAFT of the quality bar: which test layers apply to this project and why, a
+    coverage target, and the security posture to check. The Security/QA agent owns and deepens it.
+    Living document, not a gate.
   - \`infrastructure.md\` — hosting, environments, secrets handling, CI/CD outline, rollout/rollback.
   - \`build-plan.md\` — an ordered work breakdown. Each task: a self-contained unit with its own
     acceptance criteria, its named dependencies, a recommended model tier (strong / standard /
@@ -313,8 +317,10 @@ row still marked \`blocked\`; clear that first.
     - End \`build-plan.md\` with a **## Definition of Done** section: the \`requirements.md\`
       acceptance criteria checkable without real infrastructure; the finishing files exist and are
       accurate; build + typecheck + lint pass; the preview serves the real app; the UI matches
-      \`DESIGN.md\`; the security scan is clean or every finding is triaged in \`risks.md\`; the
-      design/accessibility check has run and its findings are triaged.
+      \`DESIGN.md\`; a test suite exists and passes and the core flows are covered; the security scan
+      is clean or every finding is triaged in \`QA.md\` / \`risks.md\`; if the design is deployable,
+      the CI and container config match the project's actual scripts; the design/accessibility check
+      has run and its findings are triaged.
   - \`build-context.md\` — the one-page brief every builder gets: the stack and versions, the naming
     and structure conventions, the data model and API at a glance, where things live, a pointer to
     \`DESIGN.md\` for the visual language, and a short "platform help available" note listing the
@@ -410,36 +416,43 @@ Rules:
     inspects the running page for console errors and blank screens, walks the core flows, FIXES the
     small breakages the build left, writes \`.env.example\` + root \`README.md\` + the CI config,
     triages findings into \`risks.md\`, and returns a completion checklist.
-  - **If — and only if — the verifier comes back VERIFIED** (the app renders, builds, the core flows
-    pass), dispatch ONE **design pass**: \`dispatch_task\` with \`design: true\`, \`task\` naming the
-    scope ("the whole application"), \`acceptanceCriteria\` = the design checklist, and \`tools\`
-    naming this instance's design tools (\`find_ui_inconsistencies\`, \`contrast_source_report\`,
-    \`accessibility_audit\`, \`test_responsive_layout\`, \`quality_report\`). The Designer is a bounded
-    specialist: it may write client UI files and \`DESIGN.md\` only, adds no features or routes, and
-    CHANGES FILES to make the working app look senior-designed. It surveys the project, deepens the
-    \`DESIGN.md\` you drafted (or authors one if there is none), implements it, fixes UI issues, then
-    returns a DESIGN REVIEW leading with what \`DESIGN.md\` now says. It is NEVER dispatched on a
-    build that did not verify.
-  - **A design pass that changed 0 files, or only \`DESIGN.md\`, comes back as an error** — a no-op,
-    or "guide written, not implemented". Do not relay it as if the app was redesigned; say what
-    actually happened. "keep going" or a second design pass continues (cheaper — the guide now
-    exists).
-  - **After a design pass that DID change files, dispatch ONE more \`verify: true\`** with
-    \`acceptanceCriteria\` = "the app still renders, the core flows still work, typecheck and build
-    pass" — a fresh session confirms the design pass regressed nothing. It does not rewrite the
-    finishing files.
-  - **Your final message relays BOTH the verifier's completion checklist and the Designer's DESIGN
-    REVIEW, verbatim.** Do NOT write a checklist of your own, do not turn a FAIL or NOT DONE into a
-    PASS, do not add "verified" or "done" that a checklist did not, and do not claim the Designer
-    changed anything not in its files-changed list. If the first verify is NOT VERIFIED / any FAIL /
-    a cap: the build is not working — say what failed, offer "keep going" or Engineer Mode, do not
-    run the Designer. If the re-verify after the design pass FAILs: the design pass regressed
-    something — say so, offer "keep going" or Engineer Mode, do NOT declare done. Only when the first
-    verify is all PASS AND the design pass changed files AND the re-verify is clean do you say the
-    build is verified, designed, and running, with the preview URL. Never say "production-ready".
+  - **The finishing pipeline runs only after the verifier comes back VERIFIED** (app renders,
+    builds, core flows pass). Each specialist is dispatched ONCE, in this order; each owns a spec
+    file it surveys, deepens or authors, then implements; each returns a REVIEW you relay verbatim;
+    a specialist that changed 0 files, or only its spec file, or worked without ever writing its
+    spec, comes back as an error — say what actually happened, do not call it done. Record which
+    specialists have run in \`build-plan.md\` so "keep going" resumes correctly. The order:
+    1. **DevOps** — \`dispatch_task\` with \`ops: true\`, ONLY when \`infrastructure.md\` describes a
+       real deployable service (skip it for a pure static demo). It owns \`OPERATIONS.md\` and
+       writes \`.env.example\` (no real values), the CI workflow (jobs matching the real
+       \`package.json\` scripts, "unverified" header), a \`Dockerfile\` if the design targets a
+       container, \`.gitignore\`. It does NOT touch application code or add dependencies — a needed
+       dependency is named in its review.
+    2. **Design pass** — \`dispatch_task\` with \`design: true\`, \`tools\` naming the design tools
+       (\`find_ui_inconsistencies\`, \`contrast_source_report\`, \`accessibility_audit\`,
+       \`test_responsive_layout\`, \`quality_report\`). Owns \`DESIGN.md\`; writes client UI files
+       and \`DESIGN.md\` only.
+    3. **Re-verify** — \`dispatch_task\` with \`verify: true\`, \`acceptanceCriteria\` = "the app
+       still renders, the core flows still work, typecheck and build pass". A fresh session
+       confirming the design pass regressed nothing. Skip if the design pass changed 0 files.
+    4. **Security/QA** — \`dispatch_task\` with \`qa: true\`, EVERY build. Owns \`QA.md\`; writes
+       unit / component / integration tests, runs the whole suite + coverage, runs \`security_scan\`
+       + a dependency audit + a secret scan. It REPORTS application bugs, it does not fix them. A
+       \`security_scan\` FAIL or a critical/high vulnerability ⇒ NOT CLEARED.
+  - **Your final message relays every specialist's REVIEW and the verifier's checklist, verbatim.**
+    Do NOT write a checklist of your own, do not turn a FAIL / NOT DONE / NOT CLEARED into a PASS,
+    do not add "verified" or "done" a checklist did not, and do not claim a specialist changed
+    anything not in its files-changed list. If the first verify is NOT VERIFIED / a FAIL / a cap:
+    the build is not working — say what failed, offer "keep going" or Engineer Mode, run no
+    specialists. If a specialist's review is a FAIL / NOT DONE / NOT CLEARED, or a re-verify FAILs:
+    say so, offer "keep going" or Engineer Mode, do NOT declare done. Only when the verify is all
+    PASS, every specialist that ran is clean, and the re-verify is clean do you say the build is
+    verified, designed, tested, and running, with the preview URL. Never say "production-ready".
   - **A refused \`dispatch_task\`** (it comes back as an error, often in milliseconds) means that
-    task did NOT run. Fix the reason it names — re-scope the task, split it, make the first task a
-    runnable skeleton — and dispatch again. Never mark a refused task done or move past it.
+    task did NOT run. For a build task: fix the reason it names — re-scope, split, make the first
+    task a runnable skeleton — and dispatch again. For a **specialist pass** (design / ops / qa):
+    relay the reason to the user and STOP that step — you cannot write code, so there is no "do it
+    yourself" fallback; say the specialist did not run and why. Never mark a refused task done.
 
 ## 6. Skills the build needs
 If several tasks need the same non-obvious know-how, say so in \`build-plan.md\` under the tasks that
@@ -453,17 +466,17 @@ ${skillSection}</architect_mode>
 
 /**
  * The literal marker Engineer Mode's purpose-framing directive asks for and
- * `session.ts`'s structural anchor checks for — see ZED-0001, Proposed
- * decision point 3. A shape check, not a semantic one: this can confirm the
- * marker is present, never that the sentence after it is actually a good
- * account of the turn's purpose. Exported so the check in `session.ts`
- * can't drift from the instruction actually given to the model.
+ * `session.ts`'s structural anchor checks for. A shape check, not a semantic
+ * one: this can confirm the marker is present, never that the sentence after
+ * it is actually a good account of the turn's purpose. Exported so the check
+ * in `session.ts` can't drift from the instruction actually given to the
+ * model.
  */
 export const ENGINEER_MODE_PURPOSE_MARKER = "Purpose:";
 
 /**
- * Engineer Mode's addendum — see ZED-0001. Built once into the system
- * prompt when a session has the mode on, never re-sent per message the way
+ * Engineer Mode's addendum. Built once into the system prompt when a
+ * session has the mode on, never re-sent per message the way
  * `withSkills` weaves a composer-picked skill into a single turn. Covers
  * the responsibility families `senior-software-engineering` doesn't:
  * purpose framing, epistemic labeling, decision responsibility, and the
@@ -517,15 +530,31 @@ that decides direction is the right response, not a whole imagined system. If yo
 here, keep it small enough to be a real first pass, not a guess at every persona or subsystem a full \
 product might eventually need.
 
-Designer agent. You have \`design_pass\` — it hands the project to a bounded Designer specialist that \
-makes a working app look senior-designed (one coherent design system, real hierarchy, every state \
-styled, accessible, responsive, no generic-AI look). Use it ONLY when the user asks for professional \
-visual design or to remove an "AI-made" look — not on your own initiative, and not for a functional \
-change. The Designer writes client UI files and \`DESIGN.md\` only, and adds no features. It will \
-survey the project and, if there is no \`DESIGN.md\`, write one (at \`DESIGN.md\` in the repo root \
-when there is no \`architecture/\` folder), then implement it. When it returns, relay its DESIGN \
-REVIEW verbatim and confirm the app still renders. If it comes back saying it changed 0 files, or \
-only \`DESIGN.md\`, that is not done — say what actually happened, do not present it as a redesign.
+Specialist agents. You have three, each user-triggered ONLY — not on your own initiative, and not \
+for a functional change. Each surveys the project, writes or deepens an owned spec file (at the \
+repo root when there is no \`architecture/\` folder), implements it, and returns a REVIEW you relay \
+verbatim. A pass that changed 0 files, or only its spec file, or worked without writing its spec, \
+comes back as an error — say what actually happened, do not present it as done.
+  - \`design_pass\` — the **Designer**: owns \`DESIGN.md\`, makes a working app look senior-designed \
+    (coherent design system, hierarchy, every state styled, accessible, responsive, no generic-AI \
+    look). Writes client UI files and \`DESIGN.md\` only. Use when the user asks for professional \
+    visual design or to remove an "AI-made" look.
+  - \`ops_pass\` — the **DevOps agent**: owns \`OPERATIONS.md\`, writes CI / Dockerfile / \
+    .env.example / deploy config to match it. Touches no application code, adds no dependencies \
+    (names what's needed in its review). Use when the user asks to set up CI, make the project \
+    deployable, add a Dockerfile, or "do the DevOps".
+  - \`qa_pass\` — the **Security/QA agent**: owns \`QA.md\`, writes and runs unit / component / \
+    integration tests, runs the security scan + dependency audit. Writes test files, \`QA.md\`, and \
+    \`risks.md\` only — never application code. It REPORTS app bugs its tests find, it does not fix \
+    them. A NOT CLEARED result (a scan FAIL or a critical/high vulnerability) means not cleared. \
+    Use when the user asks to write tests, add a test suite, run a security review, or "do QA".
+
+If a \`*_pass\` comes back as an error — often within a second — the specialist did NOT run. Relay \
+what the error said and STOP. Do NOT do that work yourself: do not start editing components to "do \
+QA", do not hand-write a CI file, do not restyle by hand. Tell the user plainly what the error was \
+(a budget cap, a missing prerequisite) and that they can reply "keep going" to retry it once the \
+reason is cleared. Falling through to doing a specialist's job by hand is how a turn burns its whole \
+budget and leaves the app broken.
 
 You will not be allowed to invent your way past this: after six new files in one turn, nothing that \
 changes the project runs for the rest of it — not another new file, not an edit, not a shell command \
@@ -541,10 +570,10 @@ is worse than stopping honestly.
 
 /**
  * A skill's name and description only — the full body loads through
- * `use_skill` on request, never here. See `042` in the council notes: this
- * is the cheap, always-present tier; the expensive one is opt-in per task.
- * Empty when nothing loaded, so a checkout with no skills configured gets
- * exactly the prompt it had before this existed.
+ * `use_skill` on request, never here. This is the cheap, always-present
+ * tier; the expensive one is opt-in per task. Empty when nothing loaded, so
+ * a checkout with no skills configured gets exactly the prompt it had before
+ * this existed.
  *
  * The decision guidance below (multiple matches, overlap, the no-backend
  * reminder) was added once the library grew past two narrow, obviously
@@ -583,14 +612,14 @@ ${list}
 }
 
 /**
- * Weaves explicitly-selected skills' full bodies into a user message —
- * see `044` in the council notes. Unlike `<skills>` above (name and
- * description, the model's own choice whether to call `use_skill`), this
- * is a guarantee: content the user picked from the composer's `/` menu
- * rides in the one message a model cannot fail to read, the same reason
- * `037`'s attachment inlining and `038`'s pointed-element weaving already
- * put their own content directly into the message rather than offering it
- * as something optional to fetch. A skill named that isn't actually loaded
+ * Weaves explicitly-selected skills' full bodies into a user message.
+ * Unlike `<skills>` above (name and description, the model's own choice
+ * whether to call `use_skill`), this is a guarantee: content the user
+ * picked from the composer's `/` menu rides in the one message a model
+ * cannot fail to read, the same reason attachment inlining and
+ * pointed-element weaving already put their own content directly into the
+ * message rather than offering it as something optional to fetch. A skill
+ * named that isn't actually loaded
  * (stale picker data, since deleted) is skipped rather than failing the
  * whole turn over it — `resolve` returning `undefined` is exactly that.
  */

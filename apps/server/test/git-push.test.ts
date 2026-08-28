@@ -22,8 +22,7 @@ import { ProjectService } from "../src/services/projects.js";
 const execFileAsync = promisify(execFile);
 
 /**
- * Git integration Part B — push to a remote. See `035` in the council
- * notes.
+ * Git integration, part B — push to a remote.
  *
  * Push needs the *smart* HTTP protocol (`git-receive-pack`), unlike clone,
  * which `clone.test.ts` already tests over git's "dumb" HTTP by serving

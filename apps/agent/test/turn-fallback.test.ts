@@ -13,9 +13,9 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * Found live: a real 56-tool-call turn ended with a stored message of
- * length zero. Every one of its round-trips called a tool and never once
- * came back with `toolCalls.length === 0` — the loop's only path to its
+ * A long tool-heavy turn can end with a stored message of length zero.
+ * Every one of its round-trips called a tool and never once came back with
+ * `toolCalls.length === 0` — the loop's only path to its
  * normal exit — so it just fell out when `iteration` reached
  * `maxTurnIterations`, taking whatever `assistantText` happened to hold
  * (nothing) straight into `turn.end`. These tests force that same shape
@@ -131,7 +131,7 @@ test("a turn that never stops calling tools still ends with a non-empty, honest 
     assert.equal(end.type, "turn.end");
     assert.equal(end.stopReason, "max_iterations");
     const content = end.message?.content ?? "";
-    assert.notEqual(content.length, 0, "the founder's exact complaint: 26 files, zero explanation");
+    assert.notEqual(content.length, 0, "26 files changed, zero explanation");
     assert.match(content, /step limit/);
     // Only 3 iterations ran (the budget), so only 3 files were actually
     // written — the summary must name exactly those, not the 4th the
@@ -147,7 +147,7 @@ test("a turn that never stops calling tools still ends with a non-empty, honest 
     // own `message` — see the comment above where this is emitted in
     // session.ts. A fix that only patched `turn.end`'s payload would pass
     // every assertion above and still leave that gateway's reconstruction
-    // empty, exactly the shape of the founder's original report.
+    // empty, the exact shape of the original bug report.
     const textDeltas = events
       .filter((event) => event.type === "text.delta")
       .map((event) => event.text)
@@ -242,8 +242,8 @@ test("a turn that writes real closing text keeps exactly that text — the fallb
   }
 });
 
-test("a stray sentence early in a turn does not disable the checkpoint backstop — independent review found this", async () => {
-  // The exact near-miss independent review found: one line of real text
+test("a stray sentence early in a turn does not disable the checkpoint backstop", async () => {
+  // The near-miss: one line of real text
   // on the way in, then heads-down tool calls until the budget runs out.
   // Checking only "is the text empty" would let this slip through with
   // just "Working on it." as the entire account of a turn that actually

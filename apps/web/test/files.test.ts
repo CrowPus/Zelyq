@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { buildSkillUploadFiles } from "../src/lib/files.js";
 
 /**
- * `buildSkillUploadFiles` — see `043` in the council notes. Extracted out
+ * `buildSkillUploadFiles`. Extracted out
  * of `SkillUploadControl` specifically because of a real live bug: passing
  * a *live* `FileList` across the async boundary into a mutation function
  * meant it could be read back empty, since the input's own reset (right

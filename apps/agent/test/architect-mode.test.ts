@@ -8,7 +8,7 @@ import {
 } from "../src/prompt.js";
 
 // ---------------------------------------------------------------------------
-// 048 — Architect Mode, Phase 1. The mode is a prompt addendum plus a
+// Architect Mode. The mode is a prompt addendum plus a
 // tool-boundary restriction in session.ts. These lock the prompt half; the
 // tool-boundary half is exercised in server.test.ts / a live run.
 // ---------------------------------------------------------------------------

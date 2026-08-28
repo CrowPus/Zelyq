@@ -8,7 +8,7 @@ import { resolveSetting } from "../src/settings-resolver.js";
 
 /**
  * Against a real, migrated database — not a mock. The bug this exists to
- * catch (`034`) was "the real database is never even consulted," which a
+ * catch was "the real database is never even consulted," which a
  * mocked reader would hide exactly the way the original bug was hidden.
  */
 const tmp = path.join(os.tmpdir(), `zelyq-settings-resolver-${Date.now()}`);

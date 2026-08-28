@@ -95,8 +95,8 @@ export const agentEventSchema = z.discriminatedUnion("type", [
   }),
 
   /**
-   * 053 — a named specialist child agent (the Designer, the verifier, a
-   * builder) doing something worth showing the user as a distinct,
+   * A named specialist child agent (the Designer, the verifier, a builder)
+   * doing something worth showing the user as a distinct,
    * labelled sub-thread. Forwarded from the child's own run up to the
    * parent's event stream. `messageId` is the parent assistant message the
    * dispatch belongs to; `agent` names which specialist; `phase` is
@@ -107,7 +107,7 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     type: z.literal("agent.activity"),
     sessionId: z.string(),
     messageId: z.string(),
-    agent: z.enum(["designer", "verifier", "builder"]),
+    agent: z.enum(["designer", "devops", "security", "verifier", "builder"]),
     phase: z.enum(["start", "step", "end"]),
     title: z.string(),
     detail: z.string().optional(),
@@ -135,16 +135,16 @@ export const createAgentSessionSchema = z.object({
   provider: providerIdSchema.optional(),
   model: z.string().optional(),
   effort: effortSchema.optional(),
-  /** ZED-0001, Phase 1: guarantees the senior-engineering behavior profile
-   * for this session instead of the default fast-implementer prompt.
+  /** Guarantees the senior-engineering behavior profile for this session
+   * instead of the default fast-implementer prompt.
    * Requires `effort` at `high` or above — the agent refuses otherwise. */
   engineerMode: z.boolean().optional(),
-  /** 048 — Architect Mode, Phase 1. Interview + design + a package under
-   * `architecture/`; writes nothing outside it and runs no commands.
+  /** Architect Mode. Interview + design + a package under `architecture/`;
+   * writes nothing outside it and runs no commands.
    * Mutually exclusive with `engineerMode` — the agent rejects both. */
   architectMode: z.boolean().optional(),
-  /** 051 Part B — Auto Mode. Only with `architectMode`. After the user says
-   * to build, the Architect runs build passes back to back on its own until
+  /** Auto Mode. Only with `architectMode`. After the user says to build, the
+   * Architect runs build passes back to back on its own until
    * the plan is done, it gets stuck, the user stops it, or a hard ceiling
    * (6M tokens / 6 passes / 30 min) is hit. */
   autoMode: z.boolean().optional(),
@@ -153,8 +153,8 @@ export const createAgentSessionSchema = z.object({
   /**
    * `"subscription"` means `apiKey` above actually holds an OAuth token read
    * from a locally-installed CLI's own session (Claude Code today), not a
-   * classic API key — see `045` in the council notes. Absent, or
-   * `"api_key"`, is the ordinary path and needs no change anywhere it
+   * classic API key. Absent, or `"api_key"`, is the ordinary path and needs
+   * no change anywhere it
    * already worked.
    */
   authMode: z.enum(["api_key", "subscription"]).optional(),
@@ -170,7 +170,7 @@ export type CreateAgentSessionInput = z.infer<typeof createAgentSessionSchema>;
  * ID the agent would have to look up itself. The agent has no access to the
  * server's attachment storage (a different process, possibly a different
  * machine for a remote runtime); the server resolves an ID to these bytes
- * before this ever reaches here. See `037` in the council notes.
+ * before this ever reaches here.
  */
 export const promptAttachmentSchema = z.object({
   filename: z.string(),
@@ -180,15 +180,23 @@ export const promptAttachmentSchema = z.object({
 });
 export type PromptAttachment = z.infer<typeof promptAttachmentSchema>;
 
+/** A browser recording sent to the configured speech provider. */
+export const voiceTranscriptionSchema = z.object({
+  mimeType: z.string().min(1).max(100),
+  /** Base64-encoded audio bytes. The server enforces the decoded-byte limit. */
+  data: z.string().min(1).max(14_000_000),
+});
+export type VoiceTranscriptionInput = z.infer<typeof voiceTranscriptionSchema>;
+
 export const promptSchema = z.object({
   message: z.string().min(1).max(100_000),
   attachments: z.array(promptAttachmentSchema).optional(),
-  /** Names only — the agent already has every skill's full body loaded
-   * (`042`) and weaves the selected ones into the message itself before the
-   * turn starts. See `044` in the council notes. */
+  /** Names only — the agent already has every skill's full body loaded and
+   * weaves the selected ones into the message itself before the turn
+   * starts. */
   skills: z.array(z.string()).optional(),
-  /** Names of any plugin tools picked from the same `/` menu — see `044`'s
-   * follow-up. A plugin has no body to guarantee the way a skill's does; a
+  /** Names of any plugin tools picked from the same `/` menu. A plugin has
+   * no body to guarantee the way a skill's does; a
    * name here becomes a clear instruction to use that tool, woven into the
    * message the same way, but honestly not the same kind of promise. */
   plugins: z.array(z.string()).optional(),
@@ -201,15 +209,15 @@ export const agentSessionStateSchema = z.object({
   provider: providerIdSchema,
   model: z.string(),
   effort: z.string(),
-  /** See ZED-0001. `ensureSession` recreates the session when this changes,
-   * the same as a changed provider already does. */
+  /** `ensureSession` recreates the session when this changes, the same as a
+   * changed provider already does. */
   engineerMode: z.boolean(),
   /** See 048. `ensureSession` recreates the session when this changes. */
   architectMode: z.boolean(),
-  /** See 051 Part B. `ensureSession` recreates the session when this changes. */
+  /** `ensureSession` recreates the session when this changes. */
   autoMode: z.boolean(),
-  /** See `045` — whether this session is authenticated with a classic key
-   * or a CLI-sourced subscription token. `ensureSession` recreates the
+  /** Whether this session is authenticated with a classic key or a
+   * CLI-sourced subscription token. `ensureSession` recreates the
    * session when this changes, the same as a changed provider already does. */
   authMode: z.enum(["api_key", "subscription"]),
   busy: z.boolean(),
@@ -229,22 +237,22 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     message: z.string().min(1),
     attachments: z.array(z.string()).optional(),
     /**
-     * Picked from the chat's own model control — see `033`. Omitted means
-     * the live-configured default, exactly as before this existed. Present
-     * without `model` means "this provider's default model."
+     * Picked from the chat's own model control. Omitted means the
+     * live-configured default. Present without `model` means "this
+     * provider's default model."
      */
     provider: providerIdSchema.optional(),
     model: z.string().optional(),
-    /** Picked from the composer's `/` skill picker — see `044`. Names only. */
+    /** Picked from the composer's `/` skill picker. Names only. */
     skills: z.array(z.string()).optional(),
     /** Picked from the same `/` menu's Plugins section — names only. */
     plugins: z.array(z.string()).optional(),
-    /** Engineer Mode toggle — see ZED-0001. Omitted or false means the
-     * default fast-implementer behavior, unchanged. */
+    /** Engineer Mode toggle. Omitted or false means the default
+     * fast-implementer behavior, unchanged. */
     engineerMode: z.boolean().optional(),
-    /** Architect Mode toggle — see 048. Mutually exclusive with engineerMode. */
+    /** Architect Mode toggle. Mutually exclusive with engineerMode. */
     architectMode: z.boolean().optional(),
-    /** Auto Mode toggle — see 051 Part B. Only with architectMode. */
+    /** Auto Mode toggle. Only with architectMode. */
     autoMode: z.boolean().optional(),
   }),
   z.object({ type: z.literal("abort") }),
@@ -271,7 +279,7 @@ export function encodeSse(event: AgentEvent): string {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/providers (browser ← server) — see `033`
+// GET /api/providers (browser ← server)
 // ---------------------------------------------------------------------------
 
 /**

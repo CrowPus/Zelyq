@@ -19,8 +19,8 @@ import type { ToolDefinition } from "@zelyq/tools";
  */
 export interface Conversation {
   /**
-   * `attachments` are images only — see `037` in the council notes. A
-   * non-image attachment is inlined into `text` by the caller before this
+   * `attachments` are images only. A non-image attachment is inlined into
+   * `text` by the caller before this
    * is ever reached, so every implementation only has one native shape
    * (text plus optional images) to build, not two.
    */
@@ -58,7 +58,7 @@ export interface ToolResult {
   name: string;
   output: string;
   isError: boolean;
-  /** See `040` in the council notes — same shape `@zelyq/tools`' own `ToolResult.images` uses. */
+  /** Same shape `@zelyq/tools`' own `ToolResult.images` uses. */
   images?: Array<{ mimeType: string; data: string }>;
 }
 
@@ -104,9 +104,9 @@ export interface ProviderConfig {
   apiKey: string;
   /**
    * `"subscription"` means `apiKey` is actually an OAuth token read from a
-   * locally-installed CLI's own session, not a classic API key — see `045`
-   * in the council notes. A provider that doesn't support this mode simply
-   * ignores it and treats `apiKey` as it always has.
+   * locally-installed CLI's own session, not a classic API key. A provider
+   * that doesn't support this mode simply ignores it and treats `apiKey` as
+   * it always has.
    */
   authMode?: AuthMode;
   /**

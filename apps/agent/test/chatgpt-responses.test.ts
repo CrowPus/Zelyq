@@ -14,7 +14,7 @@ import {
 import { createProvider } from "../src/providers/index.js";
 
 /**
- * `045`'s OpenAI follow-up — a Codex "sign in with ChatGPT" session. Unlike
+ * A Codex "sign in with ChatGPT" session. Unlike
  * Claude's, this is genuinely unverified against a live account: it speaks
  * a private endpoint OpenAI never published, researched from real
  * third-party implementations (opencodex, codex-proxy) rather than

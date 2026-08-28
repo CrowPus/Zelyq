@@ -12,7 +12,7 @@ import { ZodError, z } from "zod";
  * implementation of the *interface* is what proves the interface holds. Where
  * that execution then happens, and what limits surround it, is a deployment
  * concern layered on top: one container per project, resource limits, restricted
- * egress. Those are out of scope by decision (`008`) and need their own vote.
+ * egress. Those are out of scope here and handled by the deployment layer.
  *
  * So this host is honest about what it is: correct, complete, and unisolated.
  * Running it as-is buys nothing over `ZELYQ_RUNTIME=local`. Running it inside a

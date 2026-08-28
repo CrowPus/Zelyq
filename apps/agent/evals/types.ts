@@ -170,9 +170,9 @@ export interface SuiteResult {
   baseUrl?: string;
   /** Hash of the system prompt, so two runs can be compared meaningfully. */
   promptHash: string;
-  /** See `--engineer-mode` in `run.ts`, and ZED-0001's scope-discipline
-   * criterion this exists to measure. Absent means off, same as before
-   * this field existed. */
+  /** See `--engineer-mode` in `run.ts`, and the scope-discipline criterion
+   * this exists to measure. Absent means off, same as before this field
+   * existed. */
   engineerMode?: boolean;
   cases: CaseResult[];
 }

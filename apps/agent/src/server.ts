@@ -31,25 +31,22 @@ export interface AgentServer {
 export interface AgentServerDeps {
   /** Overridable so tests can exercise the full turn without a network. */
   providerFactory?: ProviderFactory;
-  /** Names of any tools loaded from `ZELYQ_PLUGIN_DIR` — see `037`. Surfaced
-   * on `/health` so an instance admin can confirm a plugin actually loaded
-   * from the UI instead of reading the agent's own boot log. */
+  /** Names of any tools loaded from `ZELYQ_PLUGIN_DIR`. Surfaced on `/health`
+   * so an instance admin can confirm a plugin actually loaded from the UI
+   * instead of reading the agent's own boot log. */
   pluginNames?: string[];
-  /** Every loaded skill, name/description for the prompt catalog (`042`)
-   * and full body for `044`'s guaranteed `/`-selected weaving — a strict
-   * superset of what used to be just the catalog, so the one existing
-   * reader (`/health`'s badge list) needed no change beyond reading `.name`
-   * off each entry instead of treating it as a bare string. `resources` is
-   * ZED-0001's addition — each skill's deeper-file listing, resolved once
-   * at boot in `index.ts` (the one place with legitimate access to a
-   * skill's directory), used only when Engineer Mode wires this skill's
-   * body straight into a system prompt instead of through a live
-   * `use_skill` call. */
+  /** Every loaded skill, name/description for the prompt catalog and full
+   * body for the guaranteed `/`-selected weaving. The one existing reader
+   * (`/health`'s badge list) reads `.name` off each entry. `resources` is
+   * each skill's deeper-file listing, resolved once at boot in `index.ts`
+   * (the one place with legitimate access to a skill's directory), used only
+   * when Engineer Mode wires this skill's body straight into a system prompt
+   * instead of through a live `use_skill` call. */
   skills?: Array<{ name: string; description: string; body: string; resources?: string[] }>;
 }
 
-/** The one skill ZED-0001 authorizes Engineer Mode to guarantee — not a
- * generic "any skill" mechanism. See the entry's Implementation boundary. */
+/** The one skill Engineer Mode is allowed to guarantee — not a generic
+ * "any skill" mechanism. */
 const ENGINEER_MODE_SKILL_NAME = "senior-software-engineering";
 const ARCHITECT_MODE_SKILL_NAME = "report-page-design";
 
@@ -64,12 +61,11 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     // Turns can run for many minutes; the default socket timeout would cut the
     // SSE stream mid-answer.
     connectionTimeout: 0,
-    // Fastify's own default is 1MB — far under `037`'s 8MB attachment cap
-    // once an image is base64-encoded (~33% larger) and sitting inside the
-    // rest of the prompt payload the server forwards here. Matches the
-    // server's own bodyLimit (`app.ts`), which exists for the same reason.
-    // Found live: an attached screenshot 500'd with no useful message
-    // because this was still the framework default.
+    // Fastify's own default is 1MB — far under the 8MB attachment cap once
+    // an image is base64-encoded (~33% larger) and sitting inside the rest
+    // of the prompt payload the server forwards here. Matches the server's
+    // own bodyLimit (`app.ts`), which exists for the same reason. Left at
+    // the default, an attached screenshot 500s with no useful message.
     bodyLimit: 16 * 1024 * 1024,
     // The UI polls preview status on a timer, and Fastify's per-request logging
     // turns that into ~20 lines every few seconds — enough to bury a real
@@ -81,8 +77,8 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
 
   const runtime = createRuntimeDriver(config.runtime);
   const sessions = new Map<string, AgentSession>();
-  // Built once — skills load only at boot (`042`), never re-scanned while
-  // running, so this never goes stale for the life of the process.
+  // Built once — skills load only at boot, never re-scanned while running,
+  // so this never goes stale for the life of the process.
   const skillsByName = new Map((deps.skills ?? []).map((skill) => [skill.name, skill]));
 
   app.register(cors, { origin: config.corsOrigin, methods: ["GET", "POST", "DELETE"] });
@@ -113,9 +109,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       model: config.model,
       modelConfigured: Boolean(config.apiKey),
       plugins: deps.pluginNames ?? [],
-      // Descriptions too, not just names — the composer's `/` picker (`044`)
-      // needs enough to be worth choosing from; the body stays agent-side,
-      // never sent here.
+      // Descriptions too, not just names — the composer's `/` picker needs
+      // enough to be worth choosing from; the body stays agent-side, never
+      // sent here.
       skills: (deps.skills ?? []).map((skill) => ({
         name: skill.name,
         description: skill.description,
@@ -138,8 +134,8 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       apiKeyEnv: provider.apiKeyEnv,
       docsUrl: provider.docsUrl,
       configured: Boolean(apiKeyFromEnv(provider.id)),
-      // What the chat's model picker actually needs (`033`) — every known
-      // model, not just the default, so switching means choosing a tier
+      // What the chat's model picker needs — every known model, not just the
+      // default, so switching means choosing a tier
       // (Opus, Sonnet, Haiku…), not just a vendor. Absent for a provider
       // with nothing confirmed yet — see the registry's own comment on why.
       ...(provider.models ? { models: provider.models } : {}),
@@ -186,8 +182,8 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     // ("gpt-5.1") is the *other* path's default, confirmed against the
     // public API, never checked against this one. Silently sending it here
     // would fail the same way a mismatched model from any other provider
-    // already did — see `045`'s OpenAI follow-up — so this asks for an
-    // explicit model instead of guessing one that was never verified for
+    // already does, so this asks for an explicit model instead of guessing
+    // one that was never verified for
     // this endpoint, the same restraint the registry already holds every
     // vendor with no confirmed default to (xai, groq, openrouter).
     if (provider === "openai" && input.authMode === "subscription" && !input.model) {
@@ -198,13 +194,12 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       );
     }
 
-    // ZED-0001, Phase 1's effort floor: the mode's heavier reasoning
-    // (purpose framing, alternatives, epistemic labeling) is inconsistent
-    // with a low reasoning budget. The primary UX is client-side (the
-    // entry's own boundary), but the client is never the only enforcement
-    // point for a real constraint — a hand-crafted request must be refused
-    // here too, the same discipline every other authorization check in
-    // this route already holds.
+    // Engineer Mode's effort floor: the mode's heavier reasoning (purpose
+    // framing, alternatives, epistemic labeling) is inconsistent with a low
+    // reasoning budget. The primary UX is client-side, but the client is
+    // never the only enforcement point for a real constraint — a
+    // hand-crafted request must be refused here too, the same discipline
+    // every other authorization check in this route already holds.
     const resolvedEffort = input.effort ?? config.effort;
     if (input.engineerMode && input.architectMode) {
       throw new ZelyqError(
@@ -225,9 +220,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
           `"${resolvedEffort}". Raise effort in Settings, or turn Engineer Mode off.`,
       );
     }
-    // 047 Phase 3: an Architect session also carries the senior-engineering
-    // skill, because the builders it dispatches (Engineer Mode child sessions)
-    // need it — even though the Architect itself never builds.
+    // An Architect session also carries the senior-engineering skill,
+    // because the builders it dispatches (Engineer Mode child sessions) need
+    // it — even though the Architect itself never builds.
     const engineerModeSkill =
       input.engineerMode || input.architectMode
         ? deps.skills?.find((skill) => skill.name === ENGINEER_MODE_SKILL_NAME)
@@ -298,9 +293,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     return { aborted: true };
   });
 
-  // 047 Phase 3 — the orchestration kill switch. Stops any further builder
-  // dispatch on this session and aborts the current turn; a stopped run does
-  // not resume on its own.
+  // The orchestration kill switch. Stops any further builder dispatch on
+  // this session and aborts the current turn; a stopped run does not resume
+  // on its own.
   app.post<{ Params: { id: string } }>("/sessions/:id/stop-orchestration", async (request) => {
     const session = requireSession(sessions, request.params.id);
     session.stopOrchestration();
@@ -346,8 +341,8 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     });
 
     await session.run(input.message, emit, input.attachments, input.skills, input.plugins);
-    // 051 Part B — Auto Mode: after the build turn, keep running passes on
-    // our own until the plan is done, it gets stuck, the user stops it, or a
+    // Auto Mode: after the build turn, keep running passes on our own until
+    // the plan is done, it gets stuck, the user stops it, or a
     // ceiling is hit. `autoNextPass` emits the stop reason and returns false
     // when the run is over. Each pass streams its own turn to the client.
     while (!reply.raw.writableEnded && session.autoNextPass(emit)) {

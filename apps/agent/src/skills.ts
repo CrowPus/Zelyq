@@ -28,9 +28,7 @@ interface SkillLogger {
 const SKILL_FILE = "SKILL.md";
 
 /**
- * Skills — see `042` in the council notes, corrected after a first version
- * shipped as a single flat file per skill and was rightly rejected: a real
- * skill is a directory. `SKILL.md` is the short entry point — the one thing
+ * A skill is a directory. `SKILL.md` is the short entry point — the one thing
  * always loaded when the skill is used — and everything else underneath it
  * (a `references/` doc, a `recipes/` example, a `templates/` starting file,
  * a `scripts/` source file) loads only when the agent actually asks for
@@ -55,13 +53,12 @@ const SKILL_FILE = "SKILL.md";
  *
  * Three sources, in the order later wins: `builtInDir` (the repo's own
  * `skills/`), `uploadedDir` (written by an instance admin through the
- * Settings page — see `043`), and `operatorDir` (`ZELYQ_SKILLS_DIR`, the
- * most manual, most explicit override). All three are still read once at
- * boot, never re-scanned while running — an upload takes effect on the
- * next restart, the same as a plugin already does, and the same reasoning
- * `037` already gave still holds: a skill being text rather than code is
- * why *loading* one can reach the UI at all, not a reason to also let it
- * take effect without a restart an admin can see coming.
+ * Settings page), and `operatorDir` (`ZELYQ_SKILLS_DIR`, the most manual,
+ * most explicit override). All three are read once at boot, never re-scanned
+ * while running — an upload takes effect on the next restart, the same as a
+ * plugin already does. A skill being text rather than code is why *loading*
+ * one can reach the UI at all, not a reason to also let it take effect
+ * without a restart an admin can see coming.
  */
 export async function loadSkills(
   builtInDir: string | undefined,
@@ -116,9 +113,9 @@ export async function loadSkills(
   };
 
   // Later wins on a name collision — see the doc comment above. Built-in
-  // first (the box's own defaults), then uploaded (chosen through the
-  // Settings page — see `043`), then the operator's own directory last,
-  // still the most explicit, most manual override available.
+  // first (the default set), then uploaded (chosen through the Settings
+  // page), then the operator's own directory last, still the most explicit,
+  // most manual override available.
   await load(builtInDir, "built-in");
   await load(uploadedDir, "uploaded");
   await load(operatorDir, "operator");
@@ -129,8 +126,8 @@ export async function loadSkills(
 /** Every file under a skill's directory besides `SKILL.md` itself, as
  * relative paths — what `use_skill` tells the model exists without it
  * having to guess a filename. Exported for Engineer Mode's system-prompt
- * addendum (see ZED-0001, `prompt.ts`): baking a skill's body directly into
- * the system prompt bypasses the live `use_skill` call that would normally
+ * addendum (see `prompt.ts`): baking a skill's body directly into the
+ * system prompt bypasses the live `use_skill` call that would normally
  * produce this listing, so the addendum has to compute and include it the
  * same way, or the model has no way to know a skill's deeper files exist. */
 export async function listResources(dir: string): Promise<string[]> {

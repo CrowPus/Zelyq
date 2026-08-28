@@ -7,11 +7,10 @@ import { createStore, runMigrations } from "@zelyq/db";
 import { loadAgentConfig } from "../src/config.js";
 
 /**
- * `previewHost` is the field `034` in the council notes fixes end to end:
- * stored in the database, and actually reaching the agent's own config —
- * not just claimed to, the way it did before this existed. Against a real,
- * migrated database, not a mock, for the same reason `034` itself gives:
- * the bug was "the real database is never even consulted."
+ * `previewHost` must reach the agent's own config, not just be stored in
+ * the database. Tested against a real, migrated database, not a mock,
+ * because the bug this covers was "the real database is never even
+ * consulted."
  */
 const tmp = path.join(os.tmpdir(), `zelyq-agent-config-${Date.now()}`);
 const dbUrl = `file:${path.join(tmp, "config.db")}`;

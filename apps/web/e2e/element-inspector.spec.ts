@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 /**
  * Click something in the running preview, and the agent finds out what you
- * clicked — see `038` in the council notes. The unit tests already cover
+ * clicked. The unit tests already cover
  * the pure message-parsing and text-rendering logic
  * (`apps/web/test/inspector.test.ts`); what only a real browser can prove
  * is the actual cross-origin bridge — the bit that broke silently would be

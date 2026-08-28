@@ -1,10 +1,8 @@
 /**
- * The composer's `/` menu — see `044` in the council notes, corrected
- * after the first version only triggered at the very start of the draft.
- * A slash command has to work anywhere in the message, the same way it
- * does in the reference the founder pointed at — someone typing "design
- * my website /shadcn" needs the menu to open right where they typed it,
- * not force them to delete back to the start of the line.
+ * The composer's `/` menu. A slash command has to work anywhere in the
+ * message, not just at the very start of the draft — someone typing
+ * "design my website /shadcn" needs the menu to open right where they
+ * typed it, not force them to delete back to the start of the line.
  */
 
 export interface SlashCommand {

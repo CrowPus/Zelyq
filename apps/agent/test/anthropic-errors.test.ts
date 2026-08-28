@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { describeAnthropicError } from "../src/providers/anthropic.js";
 
 /**
- * Found live: a real 429 from a Claude Code subscription session reached
+ * A real 429 from a Claude Code subscription session can reach
  * the chat as `429 {"type":"error","error":{"type":"rate_limit_error",
  * "message":"Error"}}` — the SDK's own raw HTTP body, verbatim, since its
  * `.message` for that error is just the wire response repeated back. Built

@@ -87,12 +87,18 @@ code is written**, then builds to it.
 5. **Verify.** A separate session builds the project, starts the preview,
    walks the core flows on the running app, fixes small breakages, and
    returns a completion checklist — relayed to you verbatim.
-6. **Design.** If — and only if — verification passed, the **Designer
-   agent** is dispatched to apply `DESIGN.md` (see below), followed by a
-   re-verify.
-7. **Done** is claimed only when the verify checklist is clean, the design
-   pass changed files, and the re-verify is clean. Never "production-ready"
-   — only what was actually checked.
+6. **The finishing pipeline** — only after a clean verify, each dispatched
+   once, each owning a spec file, each review relayed verbatim:
+   - **DevOps agent** — if the design describes something deployable:
+     writes `OPERATIONS.md`, CI, a Dockerfile, `.env.example`.
+   - **Designer agent** — applies `DESIGN.md` (see below).
+   - **Re-verify** — a fresh session confirms the design pass broke
+     nothing.
+   - **Security/QA agent** — every build: writes `QA.md`, writes and runs
+     the test suite, runs the security scan.
+7. **Done** is claimed only when the verify is clean, every specialist
+   that ran is clean (no FAIL / NOT DONE / NOT CLEARED), and the re-verify
+   is clean. Never "production-ready" — only what was actually checked.
 
 If you'd rather build it yourself: turn Architect Mode off, Engineer Mode
 on, and hand `build-plan.md` to the Engineer one task at a time. That path
@@ -171,6 +177,58 @@ happened — never dressed up as a redesign.
 palette or the type, edit it, and the next design pass builds to your
 version.
 
+### The DevOps agent
+
+Makes the project deployable, and owns its operational spec.
+
+**When it runs:**
+- **Architect Mode** — automatically, after a clean verify, **only if**
+  the design describes a real deployable service (a static demo is
+  skipped).
+- **Engineer Mode** — when you ask: *"set up CI"*, *"make this
+  deployable"*, *"add a Dockerfile"*, *"do the DevOps"*. Calls `ops_pass`.
+
+**What it does:** surveys the project (scripts, build output, existing
+config), writes or deepens **`OPERATIONS.md`** (environments, config and
+secrets, CI pipeline, containers, deploy targets, rollback, health, a
+runbook), then implements it — `.env.example` (never a real value), a CI
+workflow whose jobs match your actual `package.json` scripts (with an
+"unverified — generated" header), a `Dockerfile` + `.dockerignore` if the
+design targets a container, `.gitignore` additions. Runs `deployment_check`
+and the build. Returns an **OPS REVIEW**.
+
+**What it will not touch.** Application code, the data model, a real
+`.env`, or any `package.json` key other than `scripts`. It does not add
+dependencies (it names what's needed in the review) and it does not run a
+deployment.
+
+### The Security/QA agent
+
+Tests and scans the project, and owns its quality bar.
+
+**When it runs:**
+- **Architect Mode** — automatically, near the end of **every** build.
+- **Engineer Mode** — when you ask: *"write tests"*, *"add a test suite"*,
+  *"run a security review"*, *"do QA"*. Calls `qa_pass`.
+
+**What it does:** surveys the code and the flows, writes or deepens
+**`QA.md`** (the test plan — which layers apply and why, the coverage
+target, how to run the suite — and the security posture), then writes
+**unit / component / integration tests** (e2e only if the project
+warrants it), runs the whole suite plus coverage, and runs
+`security_scan` + a dependency audit + a secret scan. Findings are triaged
+into `QA.md` and `risks.md` with a severity and a decision. Returns a
+**QA REVIEW** — test counts, coverage, the security findings, and a
+**NOT CLEARED** line if a scan failed or a critical/high vulnerability
+was found.
+
+**What it will not touch.** Application code — a bug its tests reveal is
+**reported** for the Engineer, not fixed. It does not install a test
+dependency (it names it in the review).
+
+**`OPERATIONS.md` and `QA.md` are yours to steer**, the same as
+`DESIGN.md` — edit them and the next pass respects your version.
+
 ---
 
 ## Which to use
@@ -182,4 +240,6 @@ version.
 | A whole app or subsystem, planned first | Architect Mode |
 | …and you don't want to babysit the passes | Architect + Auto Mode |
 | The existing app to look professionally designed | Engineer Mode → *"make it look professionally designed"* |
+| CI / a Dockerfile / to make it deployable | Engineer Mode → *"set up CI"* / *"make this deployable"* |
+| A test suite and a security review | Engineer Mode → *"write tests"* / *"do QA"* |
 | To build it yourself from a plan | Architect Mode to plan, then Engineer Mode task by task |

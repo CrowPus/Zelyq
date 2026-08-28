@@ -244,7 +244,7 @@ test("only top-level .mjs files are considered — anything else is silently ign
 });
 
 test("none of a throwing, colliding, fake-schema, or malformed plugin ever prevents the scan from completing", async () => {
-  // The direct claim from `037`'s testing section: every failure mode
+  // Every failure mode
   // together, in one directory, must still leave boot able to proceed.
   const dir = await fs.mkdtemp(path.join(tmp, "combined-"));
   await fs.writeFile(path.join(dir, "a_throws.mjs"), `throw new Error("nope");`);

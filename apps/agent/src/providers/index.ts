@@ -57,8 +57,8 @@ export interface ProviderInfo {
    * suggest — add to this list only once a name is verified, the same
    * standard the rest of this project holds evidence to.
    *
-   * `tier` — 047 Phase 0.4. A coarse capability/cost band the Architect uses
-   * to *advise* a model per build-plan task ("write the docs: `cheap` is
+   * `tier` — a coarse capability/cost band the Architect uses to *advise* a
+   * model per build-plan task ("write the docs: `cheap` is
    * fine"). Advice only in Phase 1: nothing routes on it, a person still
    * picks the model. Only set on names whose relative standing is actually
    * confirmed against the vendor's own tiering — left absent otherwise, the
@@ -67,9 +67,9 @@ export interface ProviderInfo {
   models?: Array<{ value: string; label: string; tier?: ModelTier }>;
 }
 
-/** 047 Phase 0.4. `strong` — hard design/security/data decisions. `standard`
- * — most implementation. `cheap` — mechanical work: docs, boilerplate,
- * formatting, obvious edits. */
+/** `strong` — hard design/security/data decisions. `standard` — most
+ * implementation. `cheap` — mechanical work: docs, boilerplate, formatting,
+ * obvious edits. */
 export type ModelTier = "strong" | "standard" | "cheap";
 
 /**
@@ -275,15 +275,14 @@ export function apiKeyFromEnv(
 }
 
 /**
- * 047 Phase 0.4 — the availability probe, credential-free by construction.
+ * The availability probe, credential-free by construction.
  *
  * Reports which providers can be used right now and the tiered model
  * suggestions for each. It reads *whether* a key or endpoint is configured;
  * it never returns, logs, or derives the key itself. A caller that wants to
- * surface this to a model (047 Phase 3f, not authorized yet) gets names and
- * tiers only. `subscriptions` names any auth modes the server has told us are
- * live (a CLI subscription session — see `045`); the tokens for those stay
- * server-side, exactly as they do today.
+ * surface this to a model gets names and tiers only. `subscriptions` names
+ * any auth modes the server has told us are live (a CLI subscription
+ * session); the tokens for those stay server-side, exactly as they do today.
  */
 export function describeAvailableModels(
   options: {
@@ -334,8 +333,8 @@ export function createProvider(config: {
     case "google":
       return new GoogleProvider(config.model, config.apiKey);
     case "openai": {
-      // See `045`'s OpenAI follow-up: a Codex "sign in with ChatGPT"
-      // session speaks an entirely different, private API, not just a
+      // A Codex "sign in with ChatGPT" session speaks an entirely
+      // different, private API, not just a
       // different header on the same public one the way Claude's does —
       // so subscription mode gets its own provider class here rather than
       // a header change to OpenAICompatibleProvider below.
@@ -409,7 +408,7 @@ export function classifyProviderError(provider: ProviderId, error: unknown): Pro
   // Checked by the error's own type, not the provider id — a Codex session
   // error is never an OpenAICompatibleError even though `provider` says
   // "openai" here, the same reason `apiKey` alone couldn't tell the two
-  // apart either. See `045`'s OpenAI follow-up.
+  // apart either.
   if (error instanceof ChatGptResponsesError) return classifyChatGptResponsesError(error);
   if (speaksOpenAIDialect(provider)) return classifyOpenAICompatibleError(error);
   return provider === "google" ? classifyGoogleError(error) : classifyAnthropicError(error);

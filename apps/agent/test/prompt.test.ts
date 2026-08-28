@@ -7,9 +7,9 @@ import {
   withSkills,
 } from "../src/prompt.js";
 
-/** See `042` in the council notes — the catalog is the cheap, always-present
- * tier; these are the fast, direct checks the live-turn test in
- * `skills.test.ts` doesn't need to re-prove at HTTP-server cost. */
+/** The catalog is the cheap, always-present tier; these are the fast,
+ * direct checks the live-turn test in `skills.test.ts` doesn't need to
+ * re-prove at HTTP-server cost. */
 
 test("no skills means no <skills> section at all — unchanged prompt for a checkout with none loaded", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
@@ -74,7 +74,7 @@ test("the skills catalog tells the model a task can match more than one, and how
 });
 
 test("the skills catalog states plainly that projects here have no backend of their own", () => {
-  // Found live: a skill written for backend services or release
+  // A skill written for backend services or release
   // engineering, sitting in the same catalog as the frontend-only
   // template's actual stack, with nothing in the prompt saying so —
   // exactly the shape of thing that talks a model into inventing
@@ -88,10 +88,8 @@ test("the skills catalog states plainly that projects here have no backend of th
 });
 
 // ---------------------------------------------------------------------------
-// Engineer Mode addendum — ZED-0001, Phase 1. Built once into the system
-// prompt itself, distinct from both the catalog and withSkills' per-message
-// weaving above — see the entry's Proposed decision for why that distinction
-// is load-bearing.
+// Engineer Mode addendum. Built once into the system prompt itself,
+// distinct from both the catalog and withSkills' per-message weaving above.
 // ---------------------------------------------------------------------------
 
 test("engineer mode off (the default) adds nothing to the prompt", () => {
@@ -100,12 +98,12 @@ test("engineer mode off (the default) adds nothing to the prompt", () => {
 });
 
 test("engineer mode off produces byte-identical output to omitting the option entirely", () => {
-  // Found by independent review: a stray newline before the addendum's
-  // interpolation slot survived even with an empty string in it, so the
-  // presence-only check above passed while the actual bytes still
-  // differed from what this function returned before Phase 1 existed. A
-  // genuinely unchanged default-mode prompt has to be checked as bytes,
-  // not just "the new section isn't there".
+  // A stray newline before the addendum's interpolation slot would survive
+  // even with an empty string in it, so the presence-only check above would
+  // pass while the actual bytes still differed from what this function
+  // produced before the addendum existed. A genuinely unchanged
+  // default-mode prompt has to be checked as bytes, not just "the new
+  // section isn't there".
   const withoutOption = buildSystemPrompt({ projectName: "p", template: "vite-react" });
   const withOptionOff = buildSystemPrompt({
     projectName: "p",
@@ -131,14 +129,12 @@ test("engineer mode on adds the addendum with all four directives", () => {
   assert.match(prompt, /Decision responsibility/);
   assert.match(prompt, /Stop-and-ask boundary/);
   // The default prompt's own scope discipline must still be present and
-  // uncontradicted — Engineer Mode is additive, never a replacement. See
-  // ZED-0001, Implementation boundary → Excluded.
+  // uncontradicted — Engineer Mode is additive, never a replacement.
   assert.match(prompt, /Build what was asked, then stop/);
 });
 
 test("engineer mode names an exploratory, scope-undecided request as its own stop-and-ask trigger", () => {
-  // Added after a live incident — see ZED-0001's incident addendum. A
-  // request that opens a conversation, not a spec, must be named
+  // A request that opens a conversation, not a spec, must be named
   // explicitly, not left to be inferred from the generic shapeless-request
   // rule that already failed to catch it once.
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
@@ -149,10 +145,10 @@ test("engineer mode names an exploratory, scope-undecided request as its own sto
 test("engineer mode's addendum names the new-file checkpoint as a real backstop, not just a suggestion", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
   assert.match(prompt, /nothing that.*changes the project runs for the rest of it/);
-  // A second live incident found the first version of this text implied
-  // reaching the checkpoint was itself a failure, which pushed the model
-  // toward cramming remaining work into whatever file it could still
-  // touch instead of actually stopping — this reassurance is the fix.
+  // An earlier version of this text implied reaching the checkpoint was
+  // itself a failure, which pushed the model toward cramming remaining
+  // work into whatever file it could still touch instead of actually
+  // stopping — this reassurance is the fix.
   assert.match(prompt, /Reaching it is not a failure on real, larger work/);
 });
 
@@ -177,8 +173,8 @@ test("a resolved skill's body and resource listing both land in the addendum", (
   });
   assert.match(prompt, /<engineer_mode_skill>/);
   assert.match(prompt, /THE SENIOR ENGINEERING SKILL BODY/);
-  // This is the whole point of carrying the listing at all — see ZED-0001's
-  // third validation round: baking only the body in leaves the model with
+  // This is the whole point of carrying the listing at all: baking only
+  // the body in leaves the model with
   // no way to know a deeper file like this one exists.
   assert.match(prompt, /references\/security\.md/);
   assert.match(prompt, /use_skill\("senior-software-engineering", path\)/);
@@ -208,7 +204,7 @@ test("a resolved skill with no deeper files omits the (otherwise empty) listing 
 });
 
 // ---------------------------------------------------------------------------
-// withSkills — 044's guaranteed weaving, distinct from the catalog above:
+// withSkills — the guaranteed weaving, distinct from the catalog above:
 // this is content, not a description the model might act on.
 // ---------------------------------------------------------------------------
 
@@ -250,7 +246,7 @@ test("one resolving and one not still weaves the one that does", () => {
 });
 
 // ---------------------------------------------------------------------------
-// withPlugins — 044's follow-up: an instruction naming a tool, honestly
+// withPlugins — an instruction naming a tool, honestly
 // weaker than withSkills' guarantee since a plugin has no body to weave.
 // ---------------------------------------------------------------------------
 

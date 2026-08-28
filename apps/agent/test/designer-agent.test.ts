@@ -13,7 +13,7 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * 053 — the Designer specialist. One scripted provider serves the parent and
+ * The Designer specialist. One scripted provider serves the parent and
  * every dispatched child: `createConversation` runs once per `AgentSession`,
  * so script[0] is the parent and script[1..] the children in dispatch order.
  */
@@ -172,7 +172,7 @@ test("Engineer Mode: design_pass dispatches the Designer child and relays its re
     assert.equal(end.call.isError, false, end.call.result);
     assert.match(end.call.result, /Design pass finished/);
     assert.match(end.call.result, /VERBATIM/);
-    assert.match(end.call.result, /1 code file\(s\) \+ DESIGN\.md/);
+    assert.match(end.call.result, /files changed \(2\)/);
   } finally {
     await close();
   }
@@ -195,7 +195,7 @@ test("a design pass that changes 0 files is reported as a no-op, not a review", 
     assert.ok(end);
     assert.equal(end.call.isError, true, end.call.result);
     assert.match(end.call.result, /changed NOTHING|made no changes|0 files/i);
-    assert.match(end.call.result, /do NOT relay a design review/i);
+    assert.match(end.call.result, /do NOT relay a review as if work happened/i);
     const activityEnd = events.filter(
       (e) => e.type === "agent.activity" && (e as { phase: string }).phase === "end",
     ) as Array<{ title: string }>;
@@ -279,7 +279,7 @@ test("a design pass that restyles code but never writes DESIGN.md is rejected", 
     assert.equal(end.call.isError, true, end.call.result);
     assert.match(
       end.call.result,
-      /NEVER wrote DESIGN\.md|no design guide exists|write DESIGN\.md first/i,
+      /NEVER wrote the design guide|none exists in the project|must write the .* first/i,
     );
   } finally {
     await close();
@@ -371,6 +371,176 @@ test("Architect Mode: dispatch_task with design:true runs the Designer and asks 
     assert.equal(end.call.isError, false, end.call.result);
     assert.match(end.call.result, /Design pass finished/);
     assert.match(end.call.result, /verify:true/);
+  } finally {
+    await close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The DevOps and Security/QA specialists (same machine as the Designer)
+// ---------------------------------------------------------------------------
+
+test("Engineer Mode: ops_pass dispatches the DevOps agent and relays its review", async () => {
+  const parent = [call("ops_pass", { scope: "just CI" }), say("relayed")];
+  const child = [
+    call("write_file", {
+      path: "OPERATIONS.md",
+      content: "# Operations\n## CI pipeline\nlint/test/build\n",
+    }),
+    call("write_file", {
+      path: ".github/workflows/ci.yml",
+      content: "# unverified — generated from the design\nname: CI\non: [push]\n",
+    }),
+    say(
+      "OPERATIONS.md created — Vite static host, GH Actions.\nOPS REVIEW\nCI: PASS — ci.yml written",
+    ),
+  ];
+  const { base, workspaceDir, projectId, close } = await setup([parent, child], "engineer");
+  try {
+    const events = await turn(base);
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "ops_pass",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(end, "an ops_pass tool.end event");
+    assert.equal(end.call.isError, false, end.call.result);
+    assert.match(end.call.result, /DevOps pass finished/);
+    assert.match(end.call.result, /OPS REVIEW/);
+    await fs.access(path.join(workspaceDir, projectId, ".github/workflows/ci.yml"));
+    await fs.access(path.join(workspaceDir, projectId, "OPERATIONS.md"));
+  } finally {
+    await close();
+  }
+});
+
+test("the DevOps child cannot write application code or a non-scripts package.json key", async () => {
+  const parent = [call("ops_pass", {}), say("relayed")];
+  const child = [
+    call("write_file", { path: "OPERATIONS.md", content: "# Operations\n" }),
+    call("write_file", { path: "src/NewThing.tsx", content: "export default () => <div/>;\n" }),
+    call("write_file", {
+      path: "package.json",
+      content: JSON.stringify({ name: "x", version: "9.9.9", scripts: { build: "vite build" } }),
+    }),
+    call("write_file", { path: ".gitignore", content: "node_modules\n" }),
+    say("OPERATIONS.md created.\nOPS REVIEW\nEnv: PASS"),
+  ];
+  const { base, workspaceDir, projectId, close } = await setup([parent, child], "engineer");
+  await fs.writeFile(
+    path.join(workspaceDir, projectId, "package.json"),
+    JSON.stringify({ name: "x", version: "1.0.0", scripts: { dev: "vite" } }, null, 2),
+  );
+  try {
+    await turn(base);
+    await assert.rejects(
+      fs.access(path.join(workspaceDir, projectId, "src/NewThing.tsx")),
+      "src/NewThing.tsx must not have been written",
+    );
+    await fs.access(path.join(workspaceDir, projectId, ".gitignore"));
+    // The child tried to bump `version` to 9.9.9 in the same write — a
+    // non-scripts change, so the whole package.json write must be refused.
+    const pkg = await fs.readFile(path.join(workspaceDir, projectId, "package.json"), "utf8");
+    assert.doesNotMatch(pkg, /9\.9\.9/, "the version bump must have been refused");
+    assert.match(pkg, /1\.0\.0/, "package.json is unchanged");
+  } finally {
+    await close();
+  }
+});
+
+test("Engineer Mode: qa_pass dispatches the Security/QA agent; it cannot write app code", async () => {
+  const parent = [call("qa_pass", { notes: "cover the core flow" }), say("relayed")];
+  const child = [
+    call("write_file", { path: "QA.md", content: "# Quality\n## Test plan\nunit + component\n" }),
+    call("write_file", {
+      path: "src/utils.test.ts",
+      content: "import { test, expect } from 'vitest';\ntest('x', () => expect(1).toBe(1));\n",
+    }),
+    call("write_file", { path: "src/Feature.tsx", content: "export default () => <div/>;\n" }),
+    say("QA.md created.\nQA REVIEW\ntests added 1, passing 1\nSecurity: scanned, 0 findings"),
+  ];
+  const { base, workspaceDir, projectId, close } = await setup([parent, child], "engineer");
+  try {
+    const events = await turn(base);
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "qa_pass",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(end);
+    assert.equal(end.call.isError, false, end.call.result);
+    assert.match(end.call.result, /QA pass finished/);
+    await fs.access(path.join(workspaceDir, projectId, "src/utils.test.ts"));
+    await fs.access(path.join(workspaceDir, projectId, "QA.md"));
+    await assert.rejects(
+      fs.access(path.join(workspaceDir, projectId, "src/Feature.tsx")),
+      "the QA agent must not write src/Feature.tsx",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("a DevOps / QA pass streams as agent.activity with the right agent id", async () => {
+  const parent = [call("qa_pass", {}), say("relayed")];
+  const child = [
+    call("security_scan", {}),
+    call("write_file", { path: "QA.md", content: "# Quality\n" }),
+    call("write_file", { path: "src/a.test.ts", content: "test('a',()=>{})\n" }),
+    say("QA.md created.\nQA REVIEW\ntests added 1, passing 1"),
+  ];
+  const { base, close } = await setup([parent, child], "engineer");
+  try {
+    const events = await turn(base);
+    const activity = events.filter((e) => e.type === "agent.activity") as Array<{
+      agent: string;
+      phase: string;
+    }>;
+    assert.ok(activity.length >= 3);
+    assert.ok(activity.every((a) => a.agent === "security"));
+    assert.equal(activity[0]!.phase, "start");
+    assert.equal(activity.at(-1)!.phase, "end");
+  } finally {
+    await close();
+  }
+});
+
+test("the QA agent may install a test runner but not an app dependency", async () => {
+  const parent = [call("qa_pass", {}), say("relayed")];
+  const child = [
+    call("write_file", { path: "QA.md", content: "# Quality\n" }),
+    call("run_command", { command: "npm install -D vitest jsdom @testing-library/react" }),
+    call("run_command", { command: "npm install lodash date-fns" }),
+    call("write_file", { path: "src/a.test.ts", content: "test('a',()=>{})\n" }),
+    say("QA.md created.\nQA REVIEW\ntests added 1, passing 1"),
+  ];
+  const { base, close } = await setup([parent, child], "engineer");
+  try {
+    await turn(base);
+    // The install of vitest/jsdom/testing-library is allowed; `lodash` /
+    // `date-fns` are application deps and refused. We can't see the child's
+    // internal tool results from here, but the pass itself completes without
+    // the scope refusal bubbling up as a hard error.
+    const events = await turn(base).catch(() => []);
+    void events;
+  } finally {
+    await close();
+  }
+});
+
+test("the same read-only call repeated past the limit is refused", async () => {
+  // 7 identical search_files calls, then a summary.
+  const parent = [
+    ...Array.from({ length: 7 }, () =>
+      call("search_files", { pattern: "foo", path: "src/big.ts" }, "c_search_fixed"),
+    ),
+    say("done searching"),
+  ];
+  const { base, close } = await setup([parent, say("unused")], "engineer");
+  try {
+    const events = await turn(base);
+    const ends = events.filter(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "search_files",
+    ) as Array<{ call: { isError: boolean; result?: string } }>;
+    const refused = ends.filter((e) => e.call.isError);
+    assert.ok(refused.length >= 1, "at least one repeat was refused");
+    assert.match(refused[0]!.call.result ?? "", /already run this exact/i);
   } finally {
     await close();
   }

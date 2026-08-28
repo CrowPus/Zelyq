@@ -12,9 +12,9 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * `/`-selected skills — see `044` in the council notes. Unlike `042`'s
- * catalog (the model's own choice whether to call `use_skill`), a name
- * explicitly picked from the composer is a guarantee: its body must
+ * `/`-selected skills. Unlike the always-present catalog (the model's own
+ * choice whether to call `use_skill`), a name explicitly picked from the
+ * composer is a guarantee: its body must
  * already be in the message the model sees on turn one, with no tool
  * call required. This is exercised against a real HTTP server and a real
  * `AgentSession`, capturing exactly what the conversation's own
@@ -141,7 +141,7 @@ test("a skill name the picker sent that no longer exists is skipped, not a faile
 });
 
 // ---------------------------------------------------------------------------
-// `/`-selected plugins — 044's follow-up. Honestly weaker than a skill's
+// `/`-selected plugins. Honestly weaker than a skill's
 // guarantee: no body to weave, only a name that becomes an instruction. This
 // still has to actually reach the model on turn one, the same boundary.
 // ---------------------------------------------------------------------------

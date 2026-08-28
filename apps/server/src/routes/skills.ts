@@ -4,10 +4,9 @@ import type { AccessControl } from "../services/access.js";
 import type { SkillUploadService } from "../services/skill-uploads.js";
 
 /**
- * Uploading a skill through Settings — see `043` in the council notes.
- * Instance-admin only, the same gate `037` already put on writing a
- * plugin-carrying environment variable, and for the same underlying
- * reason: this is instance-wide, not team-scoped, and only the person who
+ * Uploading a skill through Settings. Instance-admin only, the same gate
+ * plugin loading already sits behind, and for the same underlying reason:
+ * this is instance-wide, not team-scoped, and only the person who
  * could already reach the filesystem directly should be able to add one
  * this way either.
  */

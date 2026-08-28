@@ -1,0 +1,4 @@
+interface:
+  display_name: "Debugging and Recovery"
+  short_description: "Reproduce failures and repair their root cause"
+  default_prompt: "Use $debugging-and-recovery to diagnose and fix this failure."

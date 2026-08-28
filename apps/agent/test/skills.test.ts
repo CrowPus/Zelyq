@@ -16,14 +16,12 @@ import { buildAgentServer } from "../src/server.js";
 import { buildUseSkillTool, loadSkills } from "../src/skills.js";
 
 /**
- * Skills — see `042` in the council notes. A skill is a *directory*,
- * `SKILL.md` as its short entry point plus whatever deeper files it
- * chooses to carry — the shape got corrected mid-session after shipping
- * as one flat file per skill the first time, which wasn't a real skill,
- * just a longer tool description. `loadSkills` is exercised against a
- * real filesystem, real malformed directories included, the same standard
- * `plugins.test.ts` already holds for `037`. The live-turn test at the
- * bottom goes further: a real HTTP server, real tool execution, and two
+ * A skill is a *directory*, `SKILL.md` as its short entry point plus
+ * whatever deeper files it chooses to carry (one flat file per skill would
+ * be just a longer tool description, not a real skill). `loadSkills` is
+ * exercised against a real filesystem, real malformed directories included,
+ * the same standard `plugins.test.ts` already holds. The live-turn test at
+ * the bottom goes further: a real HTTP server, real tool execution, and two
  * separate `use_skill` calls in the same turn — the first for the catalog
  * entry, the second for a specific deeper file — proving progressive
  * disclosure actually works round-trip, not just that the loader produces

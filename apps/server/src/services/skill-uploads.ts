@@ -19,18 +19,17 @@ export interface SkillUploadResult {
 }
 
 /**
- * Where a skill uploaded through Settings actually lands — see `043` in
- * the council notes. Text only, same 2MB-scale ceiling class `037`
- * already uses for a prompt attachment, because that is what a skill is
- * supposed to be: instructions and small reference material, not a
+ * Where a skill uploaded through Settings actually lands. Text only, same
+ * 2MB-scale ceiling class a prompt attachment uses, because that is what a
+ * skill is supposed to be: instructions and small reference material, not a
  * general file-storage backdoor wearing a skill's name.
  *
  * The one thing this deliberately does *not* do is take effect live. It
  * writes the files and returns — the agent picks them up as a third
  * `loadSkills` source on its own next boot, the same "boot-time only,
- * never re-scanned while running" rule `037` already holds for a plugin.
- * See `apps/agent/src/skills.ts` for why that stays true even though a
- * skill is text, not code.
+ * never re-scanned while running" rule a plugin already follows. See
+ * `apps/agent/src/skills.ts` for why that stays true even though a skill is
+ * text, not code.
  */
 export class SkillUploadService {
   constructor(private readonly baseDir: string) {}

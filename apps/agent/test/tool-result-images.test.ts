@@ -5,9 +5,9 @@ import { buildGoogleToolResultParts } from "../src/providers/google.js";
 import type { ToolResult } from "../src/providers/types.js";
 
 /**
- * `view_preview` (`040`) is the first tool whose result can carry an image.
+ * `view_preview` is the first tool whose result can carry an image.
  * Anthropic and Google each attach it differently — this is the actual
- * per-provider surface `040` named up front. See
+ * per-provider surface named up front. See
  * `apps/agent/test/openai-compatible.test.ts` for the third: the dialect
  * that dialect targets has no image-carrying tool-message variant at all, so
  * that case is proven against a real HTTP server instead of a pure function.
