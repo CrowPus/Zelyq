@@ -343,10 +343,18 @@ export function createProvider(config: {
   apiKey: string;
   authMode?: AuthMode;
   baseUrl?: string;
+  /** Anthropic only — the `anthropic-workspace-id` header for an
+   * identity-linked API key. Ignored by every other provider. */
+  anthropicWorkspaceId?: string;
 }): ModelProvider {
   switch (config.provider) {
     case "anthropic":
-      return new AnthropicProvider(config.model, config.apiKey, config.authMode);
+      return new AnthropicProvider(
+        config.model,
+        config.apiKey,
+        config.authMode,
+        config.anthropicWorkspaceId,
+      );
     case "google":
       return new GoogleProvider(config.model, config.apiKey);
     case "openai": {
@@ -448,4 +456,6 @@ export type ProviderFactory = (config: {
   model: string;
   apiKey: string;
   authMode?: AuthMode;
+  baseUrl?: string;
+  anthropicWorkspaceId?: string;
 }) => ModelProvider;

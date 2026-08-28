@@ -125,6 +125,18 @@ const DEFINITIONS: Definition[] = [
     ],
   },
   {
+    key: "anthropicWorkspaceId",
+    label: "Claude workspace ID",
+    description:
+      "Only for an identity-linked (workspace-scoped) Claude API key — the console shows one on " +
+      "the key. Sent as the anthropic-workspace-id header; leave empty for an ordinary key.",
+    kind: "text",
+    group: "Model",
+    envVar: "ANTHROPIC_WORKSPACE_ID",
+    fallback: "",
+    placeholder: "wrkspc_…",
+  },
+  {
     key: "geminiApiKey",
     label: "Gemini API key",
     description: "From aistudio.google.com. Stored encrypted; never shown again.",

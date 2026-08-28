@@ -287,6 +287,10 @@ export class ChatGateway {
       const model =
         override.model ?? (pickedDifferentProvider ? "" : await this.settings.modelFor(provider));
       const baseUrl = pickedDifferentProvider ? "" : await this.settings.value("modelBaseUrl");
+      // An identity-linked Claude key is rejected without its workspace id.
+      // Only meaningful when the turn actually runs on Anthropic.
+      const anthropicWorkspaceId =
+        provider === "anthropic" ? await this.settings.value("anthropicWorkspaceId") : "";
       // The Settings page's "Reasoning effort" field used to have no effect
       // on any session — every session silently ran on whatever ZELYQ_EFFORT
       // the agent process happened to boot with. Read and forwarded now the
@@ -305,6 +309,7 @@ export class ChatGateway {
         ...(apiKey ? { apiKey } : {}),
         ...(authMode !== "api_key" ? { authMode } : {}),
         ...(baseUrl ? { baseUrl } : {}),
+        ...(anthropicWorkspaceId ? { anthropicWorkspaceId } : {}),
         // Everything except the message we just stored — that is the prompt.
         history: history.slice(0, -1),
       });

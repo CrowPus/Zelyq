@@ -274,6 +274,11 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       apiKey: apiKey ?? "",
       ...(input.authMode ? { authMode: input.authMode } : {}),
       ...(baseUrl ? { baseUrl } : {}),
+      // Anthropic identity-linked keys need their workspace id on every
+      // request. A value on the request wins; otherwise the agent's own env.
+      ...(input.anthropicWorkspaceId || config.anthropicWorkspaceId
+        ? { anthropicWorkspaceId: input.anthropicWorkspaceId || config.anthropicWorkspaceId }
+        : {}),
       runtime,
       maxIterations: config.maxTurnIterations,
       history: input.history,

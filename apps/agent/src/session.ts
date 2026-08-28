@@ -215,6 +215,9 @@ export interface SessionOptions {
   authMode?: AuthMode;
   /** Endpoint for a provider speaking the OpenAI dialect. */
   baseUrl?: string;
+  /** Anthropic only — the `anthropic-workspace-id` header for an
+   * identity-linked API key. Inherited by dispatched child sessions. */
+  anthropicWorkspaceId?: string;
   runtime: RuntimeDriver;
   maxIterations: number;
   history?: Message[];
@@ -976,6 +979,9 @@ export class AgentSession {
       apiKey: options.apiKey,
       ...(options.authMode ? { authMode: options.authMode } : {}),
       ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+      ...(options.anthropicWorkspaceId
+        ? { anthropicWorkspaceId: options.anthropicWorkspaceId }
+        : {}),
     });
 
     // A builder runs lean: its own compact prompt, and only the file/shell
@@ -1345,6 +1351,9 @@ export class AgentSession {
       apiKey: this.options.apiKey,
       ...(this.options.authMode ? { authMode: this.options.authMode } : {}),
       ...(this.options.baseUrl ? { baseUrl: this.options.baseUrl } : {}),
+      ...(this.options.anthropicWorkspaceId
+        ? { anthropicWorkspaceId: this.options.anthropicWorkspaceId }
+        : {}),
       runtime: this.options.runtime,
       maxIterations: childTurnCap,
       engineerMode: true,

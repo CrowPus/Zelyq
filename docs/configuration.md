@@ -42,6 +42,7 @@ expect. Values are read once at startup: after editing `.env`, restart.
 | --- | --- | --- |
 | `ZELYQ_PROVIDER` | `anthropic` | `anthropic`, `google`, `openai`, `deepseek`, `mistral`, `xai`, `groq`, `openrouter`, or `custom`. |
 | `ANTHROPIC_API_KEY` | — | Required when the provider is `anthropic`. |
+| `ANTHROPIC_WORKSPACE_ID` | — | Only for an identity-linked (workspace-scoped) Claude key — the Messages API 400s such a key without it. Sent as the `anthropic-workspace-id` header. Leave unset for an ordinary key. |
 | `GEMINI_API_KEY` | — | Required when the provider is `google`. `GOOGLE_API_KEY` is accepted as a fallback. |
 | `OPENAI_API_KEY` | — | Required when the provider is `openai`. |
 | `DEEPSEEK_API_KEY` | — | Required when the provider is `deepseek`. |

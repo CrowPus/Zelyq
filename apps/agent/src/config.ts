@@ -25,6 +25,9 @@ export interface AgentConfig {
   apiKey: string | undefined;
   /** Endpoint for providers speaking the OpenAI dialect; required for `custom`. */
   baseUrl: string | undefined;
+  /** Anthropic only — `anthropic-workspace-id` for an identity-linked key.
+   * A session may supply its own. */
+  anthropicWorkspaceId: string | undefined;
   maxTurnIterations: number;
   runtime: RuntimeConfig;
 }
@@ -128,6 +131,7 @@ export async function loadAgentConfig(): Promise<AgentConfig> {
     effort,
     apiKey: apiKeyFromEnv(provider),
     baseUrl,
+    anthropicWorkspaceId: process.env.ANTHROPIC_WORKSPACE_ID || undefined,
     maxTurnIterations: intFromEnv("ZELYQ_MAX_TURN_ITERATIONS", 50),
     runtime: {
       kind: runtimeKind,
