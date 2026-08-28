@@ -43,6 +43,14 @@ export interface AgentServerDeps {
    * when Engineer Mode wires this skill's body straight into a system prompt
    * instead of through a live `use_skill` call. */
   skills?: Array<{ name: string; description: string; body: string; resources?: string[] }>;
+  /** 056 — the design reference catalog (slug + one-liner each), injected
+   * into the Architect's DESIGN.md step and given to the Designer child.
+   * `designRefCatalogText` is the pre-rendered list; `agentMd` is the
+   * brand-neutral UI-craft checklist inlined into the Architect and Engineer
+   * prompts and enforced by the verifier / Designer. */
+  designRefCatalog?: Array<{ slug: string; description: string }>;
+  designRefCatalogText?: string;
+  agentMd?: string | null;
 }
 
 /** The one skill Engineer Mode is allowed to guarantee — not a generic
@@ -116,6 +124,8 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
         name: skill.name,
         description: skill.description,
       })),
+      designRefs: (deps.designRefCatalog ?? []).map((r) => r.slug),
+      uiGuidelines: Boolean(deps.agentMd),
       timestamp: new Date().toISOString(),
     };
   });
@@ -269,6 +279,11 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       history: input.history,
       skills: deps.skills,
       resolveSkillBody: (name) => skillsByName.get(name),
+      // 056 — the design reference catalog + the UI-craft checklist. Only
+      // meaningful in Architect/Engineer Mode (where the prompt renders
+      // them), but threaded unconditionally — the constructor decides.
+      ...(deps.designRefCatalogText ? { designRefCatalogText: deps.designRefCatalogText } : {}),
+      ...(deps.agentMd ? { agentMd: deps.agentMd } : {}),
       ...(deps.providerFactory ? { providerFactory: deps.providerFactory } : {}),
     });
 

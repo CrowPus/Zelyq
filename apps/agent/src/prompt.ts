@@ -20,6 +20,13 @@ export function buildSystemPrompt(options: {
    * `architecture/report.html` render; absent means it wasn't found at boot
    * and the mode still runs, degraded on the report step only. */
   architectMode?: { skill?: { body: string; resources: string[] } };
+  /** 056 — the design reference catalog (one line per reference, already
+   * rendered) and the `Agent.md` UI-craft checklist. The catalog is listed
+   * under the Architect's DESIGN.md step; `agentMd` is inlined as
+   * `<ui_guidelines>` in the Architect and Engineer addenda. Both sit inside
+   * the prompt's cache breakpoint — paid once per session. */
+  designRefCatalogText?: string;
+  agentMd?: string;
 }): string {
   // `</communication>${...}` deliberately has no newline between them —
   // the addendum's own body supplies its leading newline when it renders,
@@ -109,8 +116,18 @@ minimum bar, not a bonus.
 Report what you did, not what you are about to do. Keep it to a few sentences: what changed, where, \
 and anything the user has to decide. No preamble, no restating the request, no summarising your own \
 tool calls one by one. If you could not finish something, say so plainly and say why.
-</communication>${options.engineerMode ? buildEngineerModeAddendum(options.engineerMode.skill) : ""}${
-    options.architectMode ? buildArchitectModeAddendum(options.architectMode.skill) : ""
+</communication>${
+    options.engineerMode
+      ? buildEngineerModeAddendum(options.engineerMode.skill, options.agentMd)
+      : ""
+  }${
+    options.architectMode
+      ? buildArchitectModeAddendum(
+          options.architectMode.skill,
+          options.designRefCatalogText,
+          options.agentMd,
+        )
+      : ""
   }`;
 }
 
@@ -150,7 +167,11 @@ export const ARCHITECT_WRITE_ROOT = "architecture/";
  * text tells the model what it is doing and why the tool boundary will stop
  * it if it tries to build.
  */
-function buildArchitectModeAddendum(skill?: { body: string; resources: string[] }): string {
+function buildArchitectModeAddendum(
+  skill?: { body: string; resources: string[] },
+  designRefCatalogText?: string,
+  agentMd?: string,
+): string {
   const skillSection = skill
     ? `
 <architect_mode_report_skill>
@@ -164,8 +185,30 @@ ${
 `
     : "";
 
+  const designRefsSection = designRefCatalogText
+    ? `
+<design_references>
+Real product design languages you can start DESIGN.md from. Each entry is a slug and a one-line summary; call use_design_ref("<slug>") to read the full analysis (colour roles, a type scale with an open-source font substitute, spacing, radius, elevation, component conventions).
+
+When you write DESIGN.md (section 2), pick the reference closest to this project's product category FIRST, personality second. Read it, then ADAPT it: rename tokens to this project's domain, drop what does not apply, recolour to the product's own identity. The reference informs roles and rhythm, not identity — never skin the app as that brand, never use its logo or wordmark. If nothing fits, design from first principles and say so.
+
+${designRefCatalogText}
+</design_references>
+`
+    : "";
+
+  const uiGuidelinesSection = agentMd
+    ? `
+<ui_guidelines>
+The UI-quality bar for everything built from this plan. Its MUST/SHOULD/NEVER rules are non-negotiable for a UI to be "done". Reference them in build-plan.md's Definition of Done, and the verification and design passes check the observable ones against the running app — a failing MUST blocks "done".
+
+${agentMd}
+</ui_guidelines>
+`
+    : "";
+
   return `
-<architect_mode>
+<architect_mode>${designRefsSection}${uiGuidelinesSection}
 Architect Mode is on. You are the software architect on this project, not the builder. You do the
 complete plan — requirements, design, decisions, the build sequence — and you do NOT write
 application code. The tool layer enforces this: every write outside \`${ARCHITECT_WRITE_ROOT}\` is
@@ -281,10 +324,14 @@ row still marked \`blocked\`; clear that first.
   - \`DESIGN.md\` — a FIRST DRAFT of the design system: the product feel and 3–5 principles, the
     colour ROLES with a starter palette (real values, light/dark if both), the type direction and
     scale, spacing/radius/elevation direction, and the component + state lists the build will need.
-    Shape it like the \`ui-ux-design-intelligence\` skill's "Design System Output Contract". You are
-    setting intent and structure — the Designer agent owns this file and will deepen it. It is a
-    LIVING document (not a \`decisions/\` record) and it is NOT a gate on "package ready"; a solid but
-    partial draft is fine.
+    **If you have a \`<design_references>\` list**: pick the reference closest to this product's
+    category and personality, \`use_design_ref("<slug>")\` to read it, and base the draft on it —
+    ADAPTED to this project (renamed, trimmed, recoloured to its own identity), never skinned as
+    that brand. Open \`DESIGN.md\` with \`Adapted from the "<slug>" reference — <kept / changed>\`,
+    or \`Designed from first principles — no reference fit\`. Otherwise shape it like the
+    \`ui-ux-design-intelligence\` skill's "Design System Output Contract". You are setting intent
+    and structure — the Designer agent owns this file and will deepen it. LIVING document (not a
+    \`decisions/\` record), NOT a gate on "package ready"; a solid but partial draft is fine.
   - \`OPERATIONS.md\` — a FIRST DRAFT of the operational spec: environments, config and secrets, the
     CI pipeline, containers, deploy targets, rollback, health, a short runbook. Write this ONLY when
     \`infrastructure.md\` describes something actually deployable (not a pure static demo). The
@@ -317,7 +364,9 @@ row still marked \`blocked\`; clear that first.
     - End \`build-plan.md\` with a **## Definition of Done** section: the \`requirements.md\`
       acceptance criteria checkable without real infrastructure; the finishing files exist and are
       accurate; build + typecheck + lint pass; the preview serves the real app; the UI matches
-      \`DESIGN.md\`; a test suite exists and passes and the core flows are covered; the security scan
+      \`DESIGN.md\` and passes the observable \`<ui_guidelines>\` MUSTs (focus, hydration, semantics,
+      reduced-motion, CLS, empty/error states, …); a test suite exists and passes and the core flows
+      are covered; the security scan
       is clean or every finding is triaged in \`QA.md\` / \`risks.md\`; if the design is deployable,
       the CI and container config match the project's actual scripts; the design/accessibility check
       has run and its findings are triaged.
@@ -487,7 +536,10 @@ export const ENGINEER_MODE_PURPOSE_MARKER = "Purpose:";
  * boot — the four directives below still apply on their own rather than
  * refusing the whole mode over one missing skill directory.
  */
-function buildEngineerModeAddendum(skill?: { body: string; resources: string[] }): string {
+function buildEngineerModeAddendum(
+  skill?: { body: string; resources: string[] },
+  agentMd?: string,
+): string {
   const skillSection = skill
     ? `
 <engineer_mode_skill>
@@ -501,8 +553,20 @@ ${
 `
     : "";
 
+  const uiGuidelinesSection = agentMd
+    ? `
+<ui_guidelines>
+The UI-quality bar. Every turn that builds or changes a user-facing interface follows these
+MUST/SHOULD/NEVER rules; the automatic verification checks the observable ones (focus, hydration,
+semantics, reduced-motion, CLS, empty/error states) against the running preview.
+
+${agentMd}
+</ui_guidelines>
+`
+    : "";
+
   return `
-<engineer_mode>
+<engineer_mode>${uiGuidelinesSection}
 Engineer Mode is on for this session. Everything in <scope>, <quality>, and <communication> above \
 still applies — this adds discipline on top, it does not replace the fast-implementer defaults. The \
 structure below extends <communication>'s brevity rule for a turn that acts, it doesn't override it: \
