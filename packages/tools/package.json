@@ -2,7 +2,7 @@
   "name": "@zelyq/tools",
   "version": "0.1.0",
   "description": "The tools the Zelyq agent uses to read, edit, and run a project.",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

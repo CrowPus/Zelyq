@@ -1,16 +1,22 @@
 Zelyq
-Copyright 2026 The Zelyq Authors
+Copyright © 2026 Dee Empire — https://dee-empire.com
 
-This product includes software developed by The Zelyq Authors.
+This software is source-available, not open source.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Except where noted, it is licensed under the Sustainable Use License; see the
+LICENSE file. In short: you may run and modify it for free for your own internal
+business use and for personal or non-commercial use, but you may not sell it to
+third parties as a hosted or managed service. See LICENSING.md for a
+plain-language summary.
 
-    http://www.apache.org/licenses/LICENSE-2.0
+Content designated as "Zelyq Enterprise" — anything under an `ee` / `.ee`
+directory or repository, or in a file whose name contains `.ee.` — is licensed
+separately under the Zelyq Enterprise License and requires a paid subscription;
+see LICENSE_EE.md.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+"Zelyq" and the Zelyq logo are trademarks of Dee Empire. The licenses covering
+this software do not grant any right to use the licensor's name, logo, or
+trademarks except as needed for accurate attribution.
+
+This product includes third-party software components, each licensed by its owner
+under its own terms.
