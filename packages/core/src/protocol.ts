@@ -160,6 +160,14 @@ export const createAgentSessionSchema = z.object({
   authMode: z.enum(["api_key", "subscription"]).optional(),
   /** Endpoint for a provider speaking the OpenAI dialect; required for `custom`. */
   baseUrl: z.string().optional(),
+  /**
+   * Anthropic only. An identity-linked (workspace-scoped) API key is
+   * rejected by the Messages API unless the request also names the
+   * workspace it acts in — this is that id, sent as the
+   * `anthropic-workspace-id` header. Not a secret; absent for an ordinary
+   * account-level key, which needs nothing here.
+   */
+  anthropicWorkspaceId: z.string().optional(),
   /** Prior turns, so a restarted agent can resume a conversation. */
   history: z.array(messageSchema).optional(),
 });

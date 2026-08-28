@@ -50,6 +50,30 @@ import {
  * can still look at what exists to write an accurate summary. */
 const MUTATING_TOOL_NAMES = new Set(["write_file", "edit_file", "delete_file", "run_command"]);
 
+/** Running any of these in a turn flips Engineer Mode from its "build"
+ * phase into its "finish" phase. The distinction matters only once the
+ * new-file checkpoint is reached: in build phase the checkpoint freezes
+ * every mutating tool (the model is still inventing scope); in finish
+ * phase it has stopped writing new files, started looking at the running
+ * app, and is now typechecking and tuning what it built — so `edit_file`
+ * and `run_command` on files that already exist are allowed back, while a
+ * genuinely-new `write_file` and `delete_file` stay refused. You cannot
+ * reach finish phase without first stopping to verify, which is the whole
+ * point — see the `finishPhase` handling in `run()`. */
+const VERIFICATION_TOOL_NAMES = new Set([
+  "start_preview",
+  "view_preview",
+  "preview_logs",
+  "inspect_page",
+  "check_console_errors",
+  "check_network_failures",
+  "accessibility_audit",
+  "test_responsive_layout",
+  "typecheck_project",
+  "lint_project",
+  "verify",
+]);
+
 // Architect Mode plans but does not build. Writes are allowed only under
 // `architecture/`, and nothing executes.
 const ARCHITECT_WRITE_TOOLS = new Set(["write_file", "edit_file", "delete_file"]);
@@ -215,6 +239,9 @@ export interface SessionOptions {
   authMode?: AuthMode;
   /** Endpoint for a provider speaking the OpenAI dialect. */
   baseUrl?: string;
+  /** Anthropic only — the `anthropic-workspace-id` header for an
+   * identity-linked API key. Inherited by dispatched child sessions. */
+  anthropicWorkspaceId?: string;
   runtime: RuntimeDriver;
   maxIterations: number;
   history?: Message[];
@@ -320,8 +347,8 @@ const VERIFIER_SYSTEM_PROMPT = `You are the verifier. A team of builders just fi
 Verify it for real, in this order:
 1. Run the project's typecheck and build commands (npm run typecheck, npm run build, or what the project declares). Read the real output. A non-zero exit is a FAIL.
 2. start_preview. Then check_console_errors and inspect_page against the RUNNING app. Confirm it renders the real application — not the starter template, not a blank page, not an error overlay. Read preview_logs if it does not come up.
-3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
-4. Run any design / accessibility / security tool you were given. Note each finding.
+3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. Use view_preview / inspect_page with a \`path\` to reach a screen that is not the landing route; never edit routing to see one. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
+4. Run any design / accessibility / security tool you were given. Note each finding. If any visible text names a specific real place, product, or person, confirm the adjacent image plausibly depicts it — a caption-to-image mismatch is a FAIL, reported with the screen and what you saw.
 
 When you find something broken:
 - If it is small — a broken or missing import, a type error, a missing prop, an unwired route, a component that never mounts, a name that does not match — FIX it, then re-run the checks. This is expected: a real verification pass ties off the loose ends the build left. Read the file first, make the smallest change, move on.
@@ -369,6 +396,11 @@ const DESIGNER_TOOL_NAMES = [
   // 056 — so the Designer can read the reference the Architect chose (or
   // pick one, when it authors DESIGN.md from scratch).
   "use_design_ref",
+  // 057 — real imagery without guessing: a searched, downloaded, and
+  // shown-back photo, or a labelled placeholder. Only present when the
+  // image-assets plugin is loaded; harmless in the filter when it is not.
+  "fetch_reference_image",
+  "generate_placeholder_asset",
 ];
 
 // The only extra dependencies the Designer may install — styling utilities and
@@ -976,6 +1008,9 @@ export class AgentSession {
       apiKey: options.apiKey,
       ...(options.authMode ? { authMode: options.authMode } : {}),
       ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+      ...(options.anthropicWorkspaceId
+        ? { anthropicWorkspaceId: options.anthropicWorkspaceId }
+        : {}),
     });
 
     // A builder runs lean: its own compact prompt, and only the file/shell
@@ -1345,6 +1380,9 @@ export class AgentSession {
       apiKey: this.options.apiKey,
       ...(this.options.authMode ? { authMode: this.options.authMode } : {}),
       ...(this.options.baseUrl ? { baseUrl: this.options.baseUrl } : {}),
+      ...(this.options.anthropicWorkspaceId
+        ? { anthropicWorkspaceId: this.options.anthropicWorkspaceId }
+        : {}),
       runtime: this.options.runtime,
       maxIterations: childTurnCap,
       engineerMode: true,
@@ -1688,6 +1726,14 @@ export class AgentSession {
     const NEW_FILE_CHECKPOINT = 6;
     const newFilesThisTurn = new Set<string>();
     let checkpointReached = false;
+    // Once the checkpoint is reached, this decides whether the freeze is
+    // total (build phase — still inventing files) or partial (finish phase
+    // — a verification tool has run this turn, so `edit_file` and
+    // `run_command` on existing files come back for typecheck-and-tune
+    // work; a new-path `write_file` and `delete_file` stay refused). Set
+    // after a batch that ran a VERIFICATION_TOOL_NAMES tool; revoked if a
+    // shell command then creates new files (scope through the back door).
+    let finishPhase = false;
     const existingFilesAtTurnStart =
       this.options.engineerMode || this.options.architectMode
         ? await this.listAllFilePaths()
@@ -2018,10 +2064,30 @@ export class AgentSession {
             // whether it did. Read-only tools (`read_file`, `list_files`,
             // `search_files`, preview inspection) stay available so the
             // model can still write an accurate summary of what exists.
+            //
+            // The one exception: in the finish phase (a verification tool
+            // has run this turn — see `finishPhase`), `edit_file`,
+            // `run_command`, and a `write_file` onto a file that already
+            // exists come back, so a correctly-scoped pass can typecheck
+            // and tune what it built in the same turn instead of handing
+            // back work it could not verify. A genuinely-new `write_file`
+            // (`path !== undefined`) and `delete_file` stay refused — that
+            // is the actual anti-invented-scope control, and it is
+            // untouched. The regression in the checkpointReached comment
+            // happened because the hatch was open *during build*; gating
+            // it behind "stopped to verify first" closes that path.
+            const finishPhaseException =
+              this.options.engineerMode &&
+              checkpointReached &&
+              finishPhase &&
+              (toolCall.name === "edit_file" ||
+                toolCall.name === "run_command" ||
+                (toolCall.name === "write_file" && path === undefined));
             const blockedByCheckpoint =
               this.options.engineerMode &&
               checkpointReached &&
-              MUTATING_TOOL_NAMES.has(toolCall.name);
+              MUTATING_TOOL_NAMES.has(toolCall.name) &&
+              !finishPhaseException;
             const newFileCapped =
               this.options.engineerMode &&
               !blockedByCheckpoint &&
@@ -2319,9 +2385,16 @@ export class AgentSession {
                                         "what exists so far, and if you're not certain this is actually what was asked, ask the " +
                                         "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
                                         "— the user's next message continues it, with a fresh checkpoint of its own."
-                                      : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
-                                        `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
-                                        "now instead.",
+                                      : finishPhase
+                                        ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint holds for NEW files and deletes — ` +
+                                          `refusing "${toolCall.name}"${path ? ` on "${path}"` : ""}. You're past the checkpoint and ` +
+                                          "into the finish phase: edit_file and run_command on files that already exist still work, " +
+                                          "so use them to typecheck, build, preview, and tune what you built. A new file here means " +
+                                          "this is bigger than one turn — stop, summarize what exists, and let the next message " +
+                                          "continue it with a fresh checkpoint."
+                                        : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
+                                          `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
+                                          "now instead.",
                                     isError: true,
                                   }
                                 : await executeTool(toolContext, toolCall.name, toolCall.input);
@@ -2353,6 +2426,21 @@ export class AgentSession {
         );
 
         this.conversation.addToolResults(results);
+
+        // Enter the finish phase once a verification tool has run this turn.
+        // From here on, if the checkpoint is (or becomes) reached, the freeze
+        // is partial rather than total — see `finishPhase` and
+        // `finishPhaseException` above. Detected after the batch, so a
+        // verification tool and an `edit_file` in the *same* batch still see
+        // the pre-checkpoint state; the model gets its edit through on the
+        // next batch. Only meaningful in Engineer Mode.
+        if (
+          this.options.engineerMode &&
+          !finishPhase &&
+          result.toolCalls.some((call) => VERIFICATION_TOOL_NAMES.has(call.name))
+        ) {
+          finishPhase = true;
+        }
 
         // `run_command` can write a file through an arbitrary shell command
         // just as well as `write_file` can, and the pre-flight checks above
@@ -2398,6 +2486,7 @@ export class AgentSession {
           }
           if (newlyAppeared.length > 0) {
             const wasUnderCap = newFilesThisTurn.size < NEW_FILE_CHECKPOINT;
+            const wasFinishPhase = finishPhase;
             for (const filePath of newlyAppeared) newFilesThisTurn.add(filePath);
             if (wasUnderCap && newFilesThisTurn.size >= NEW_FILE_CHECKPOINT) {
               checkpointReached = true;
@@ -2409,6 +2498,18 @@ export class AgentSession {
                   "was actually asked, ask the question that would tell you. If this is genuinely larger, " +
                   "ongoing work, say so plainly — the user's next message continues it, with a fresh " +
                   "checkpoint of its own.",
+              );
+            } else if (checkpointReached && wasFinishPhase) {
+              // The finish phase is for verifying and tuning what already
+              // exists — not for adding scope through the shell. New files
+              // appeared past the checkpoint, so close the finish phase: the
+              // freeze is total again for the rest of this turn.
+              finishPhase = false;
+              this.conversation.addUserMessage(
+                `A shell command created ${newlyAppeared.length} new file(s) after the ` +
+                  `${NEW_FILE_CHECKPOINT}-file checkpoint. The finish phase is for typechecking and tuning ` +
+                  "what already exists, not creating files — it is now closed for this turn. Nothing that " +
+                  "changes the project will run for the rest of the turn. Summarize what exists and stop.",
               );
             }
           }

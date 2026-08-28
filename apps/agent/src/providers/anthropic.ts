@@ -123,19 +123,30 @@ export class AnthropicProvider implements ModelProvider {
     readonly model: string,
     apiKey: string,
     authMode: AuthMode = "api_key",
+    /**
+     * Set only for an identity-linked (workspace-scoped) API key: the
+     * Messages API 400s such a key unless the request also names its
+     * workspace. Sent as the `anthropic-workspace-id` header. Harmless to
+     * omit for an ordinary account-level key.
+     */
+    workspaceId?: string,
   ) {
     // A subscription token is Bearer auth, not `x-api-key` — the SDK already
     // has a first-class option for that (`authToken`), same client either
     // way. The beta header is the part unique to a Claude Code-issued token;
     // sending it with an ordinary API key would be harmless but is left off
     // to keep a normal request looking exactly like it always has.
+    const workspaceHeader = workspaceId ? { "anthropic-workspace-id": workspaceId } : {};
     this.client =
       authMode === "subscription"
         ? new Anthropic({
             authToken: apiKey,
-            defaultHeaders: { "anthropic-beta": OAUTH_BETA_HEADER },
+            defaultHeaders: { "anthropic-beta": OAUTH_BETA_HEADER, ...workspaceHeader },
           })
-        : new Anthropic({ apiKey });
+        : new Anthropic({
+            apiKey,
+            ...(workspaceId ? { defaultHeaders: workspaceHeader } : {}),
+          });
   }
 
   createConversation(options: ConversationOptions): Conversation {

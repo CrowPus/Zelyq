@@ -42,6 +42,7 @@ expect. Values are read once at startup: after editing `.env`, restart.
 | --- | --- | --- |
 | `ZELYQ_PROVIDER` | `anthropic` | `anthropic`, `google`, `openai`, `deepseek`, `mistral`, `xai`, `groq`, `openrouter`, or `custom`. |
 | `ANTHROPIC_API_KEY` | — | Required when the provider is `anthropic`. |
+| `ANTHROPIC_WORKSPACE_ID` | — | Only for an identity-linked (workspace-scoped) Claude key — the Messages API 400s such a key without it. Sent as the `anthropic-workspace-id` header. Leave unset for an ordinary key. |
 | `GEMINI_API_KEY` | — | Required when the provider is `google`. `GOOGLE_API_KEY` is accepted as a fallback. |
 | `OPENAI_API_KEY` | — | Required when the provider is `openai`. |
 | `DEEPSEEK_API_KEY` | — | Required when the provider is `deepseek`. |
@@ -76,20 +77,20 @@ server-side. Microphone access requires a secure browser context (`https` or loc
 | Provider | Default model | Endpoint | Key from |
 | --- | --- | --- | --- |
 | `anthropic` | `claude-opus-5` | vendor | <https://console.anthropic.com/settings/keys> |
-| `google` | `gemini-3.7-flash` | vendor | <https://aistudio.google.com/apikey> |
-| `openai` | `gpt-5.1` | `https://api.openai.com/v1` | <https://platform.openai.com/api-keys> |
-| `deepseek` | `deepseek-chat` | `https://api.deepseek.com/v1` | <https://platform.deepseek.com/api_keys> |
+| `google` | `gemini-2.5-pro` | vendor | <https://aistudio.google.com/apikey> |
+| `openai` | `gpt-5.2` | `https://api.openai.com/v1` | <https://platform.openai.com/api-keys> |
+| `deepseek` | `deepseek-v4-flash` | `https://api.deepseek.com/v1` | <https://platform.deepseek.com/api_keys> |
 | `mistral` | `mistral-large-latest` | `https://api.mistral.ai/v1` | <https://console.mistral.ai/api-keys> |
-| `xai` | none — set `ZELYQ_MODEL` | `https://api.x.ai/v1` | <https://console.x.ai> |
-| `groq` | none — set `ZELYQ_MODEL` | `https://api.groq.com/openai/v1` | <https://console.groq.com/keys> |
-| `openrouter` | none — set `ZELYQ_MODEL` | `https://openrouter.ai/api/v1` | <https://openrouter.ai/keys> |
+| `xai` | `grok-4.6` | `https://api.x.ai/v1` | <https://console.x.ai> |
+| `openrouter` | `anthropic/claude-sonnet-4.6` | `https://openrouter.ai/api/v1` | <https://openrouter.ai/keys> |
+| `groq` | `llama-3.3-70b-versatile` | `https://api.groq.com/openai/v1` | <https://console.groq.com/keys> |
 | `custom` | none — set `ZELYQ_MODEL` | you supply it | usually none |
 
-`xai`, `groq`, and `openrouter` have no default model yet — not an oversight: a hosted vendor's model
-name is only worth defaulting to once it has actually been confirmed against a real account, and
-none of these three has been yet (Groq and OpenRouter also both rotate or aggregate models by
-nature, so a fixed default would go stale fast even once one is picked). Set `ZELYQ_MODEL` to the
-exact name the vendor reports.
+Only `custom` has no default model — the endpoint's catalogue is the operator's own, and guessing a
+name produces a 404 that reads like a Zelyq bug. The other defaults were verified live (`openai`,
+`google`) or against the vendor's own 2026 docs; Groq rotates its IDs often, so treat its default as
+a starting point. `model` is always free text, so a newer name can be typed in Settings the day it
+ships.
 
 Only the selected provider's key is needed. `GET /api/health` reports the active provider and
 model, and the agent's `GET /providers` lists every provider with a `configured` flag saying whether
@@ -233,6 +234,8 @@ Migrations run automatically when the server boots.
 | `ZELYQ_PLUGIN_DIR` | — | A local directory of extra tools for the agent, loaded once at boot. See [plugins.md](./plugins.md). |
 | `ZELYQ_SKILLS_DIR` | — | A local directory of extra skills — packaged instructions for a specific kind of task, loaded once at boot. See [skills.md](./skills.md). |
 | `ZELYQ_DESIGN_REFS_DIR` | — | A local directory of design references — one subdirectory per reference, each with a `DESIGN.md` (a real product's design language: tokens + prose), plus an optional `Agent.md` UI-craft checklist. The Architect picks the closest one to base a project's `DESIGN.md` on. Merged over the bundled `design-md/` (this dir wins on a slug collision), loaded once at boot. |
+| `ZELYQ_IMAGE_PROVIDER` | `openverse` | Stock-photo service for `fetch_reference_image`: `openverse` (keyless, Creative-Commons), `unsplash`, or `pexels`. `unsplash`/`pexels` need `ZELYQ_IMAGE_PROVIDER_KEY`. With no provider reachable the tool writes a labelled placeholder instead of guessing. |
+| `ZELYQ_IMAGE_PROVIDER_KEY` | — | API key for `ZELYQ_IMAGE_PROVIDER` when it is `unsplash` (its "Access Key") or `pexels`. Passed only to the download command, never logged. With `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` set, also allow the provider's hosts (`api.openverse.org`; `api.unsplash.com`,`images.unsplash.com`; `api.pexels.com`,`images.pexels.com`). |
 | `ZELYQ_SKILLS_UPLOAD_DIR` | `<data dir>/skills` | Where a skill uploaded through Settings is written. Resolved independently by the server and the agent — must be the same directory for both, same requirement `ZELYQ_WORKSPACE_DIR` already has. See [skills.md](./skills.md). |
 
 ### Running agent commands and the preview in a container

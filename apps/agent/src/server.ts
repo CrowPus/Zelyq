@@ -189,7 +189,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
 
     // A Codex session speaks a different backend from the ordinary OpenAI
     // API key path, with its own model names — `defaultModelFor("openai")`
-    // ("gpt-5.1") is the *other* path's default, confirmed against the
+    // ("gpt-5.2") is the *other* path's default, confirmed against the
     // public API, never checked against this one. Silently sending it here
     // would fail the same way a mismatched model from any other provider
     // already does, so this asks for an explicit model instead of guessing
@@ -274,6 +274,11 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       apiKey: apiKey ?? "",
       ...(input.authMode ? { authMode: input.authMode } : {}),
       ...(baseUrl ? { baseUrl } : {}),
+      // Anthropic identity-linked keys need their workspace id on every
+      // request. A value on the request wins; otherwise the agent's own env.
+      ...(input.anthropicWorkspaceId || config.anthropicWorkspaceId
+        ? { anthropicWorkspaceId: input.anthropicWorkspaceId || config.anthropicWorkspaceId }
+        : {}),
       runtime,
       maxIterations: config.maxTurnIterations,
       history: input.history,

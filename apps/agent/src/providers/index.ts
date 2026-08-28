@@ -90,12 +90,17 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     defaultModel: "claude-opus-5",
     apiKeyEnv: ["ANTHROPIC_API_KEY"],
     docsUrl: "https://console.anthropic.com/settings/keys",
-    // All current Claude models do native extended thinking + tools + streaming.
+    // Current Claude IDs (Anthropic model list, 2026-06). Every one does
+    // native adaptive thinking + tools + streaming. No date suffixes — the
+    // bare IDs are complete. `claude-fable-5` is the fifth-gen model tuned
+    // for creative/character writing — same loop capabilities, sideways on
+    // the capability ladder rather than a rung on it, so no `tier`.
     models: [
       { value: "claude-opus-5", label: "Claude Opus 5 — most capable", tier: "strong" },
       { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced", tier: "standard" },
-      { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", tier: "standard" },
-      { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fastest", tier: "cheap" },
+      { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", tier: "standard" },
+      { value: "claude-fable-5", label: "Claude Fable 5 — creative writing" },
+      { value: "claude-haiku-4-5", label: "Claude Haiku 4.5 — fastest", tier: "cheap" },
     ],
   },
   google: {
@@ -104,60 +109,70 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     defaultModel: "gemini-2.5-pro",
     apiKeyEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     docsUrl: "https://aistudio.google.com/apikey",
-    // Only the "thinking"-capable line (2.5 and up). Flash-Lite and the 2.0
-    // and earlier models do not think and are prone to empty turns on the
-    // large outputs this agent asks for.
+    // Verified live against generativelanguage.googleapis.com/v1beta
+    // (:generateContent). `*-latest` are Google's own stable aliases; the
+    // 2.5 line and the 3.x flash line are the thinking-capable ones this
+    // loop needs. (`gemini-3.7-pro` does NOT exist — the pro line is on
+    // `gemini-pro-latest` / `gemini-3.1-pro-preview`.)
     models: [
-      { value: "gemini-3.7-pro", label: "Gemini 3.7 Pro — most capable", tier: "strong" },
-      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro — most capable", tier: "strong" },
-      { value: "gemini-3.7-flash", label: "Gemini 3.7 Flash — balanced", tier: "standard" },
+      { value: "gemini-pro-latest", label: "Gemini Pro (latest)", tier: "strong" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: "strong" },
+      { value: "gemini-3.7-flash", label: "Gemini 3.7 Flash", tier: "standard" },
+      { value: "gemini-flash-latest", label: "Gemini Flash (latest)", tier: "standard" },
       { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash — fast", tier: "cheap" },
     ],
   },
   openai: {
     id: "openai",
     label: "OpenAI",
-    defaultModel: "gpt-5.1",
+    defaultModel: "gpt-5.2",
     apiKeyEnv: ["OPENAI_API_KEY"],
     docsUrl: "https://platform.openai.com/api-keys",
     baseUrl: "https://api.openai.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // Only models that accept `reasoning_effort` — the GPT-5 family and the
-    // o-series. Sending it to a gpt-4.x model is a hard 400 every turn.
+    // Verified live against /v1/chat/completions with streaming + function
+    // tools + `reasoning_effort` — the exact request this agent sends.
+    // gpt-5.5 / gpt-5.6-* are NOT here: on chat-completions they reject
+    // `reasoning_effort` together with tools (they want the Responses API).
+    // gpt-5.5-pro / *-codex are Responses-API-only. gpt-5.1-mini 404s.
     models: [
-      { value: "gpt-5.1", label: "GPT-5.1 — most capable", tier: "strong" },
-      { value: "gpt-5", label: "GPT-5", tier: "strong" },
-      { value: "gpt-5.1-mini", label: "GPT-5.1 mini — fast", tier: "cheap" },
-      { value: "o4-mini", label: "o4-mini — reasoning, fast", tier: "standard" },
+      { value: "gpt-5.2", label: "GPT-5.2 — most capable", tier: "strong" },
+      { value: "gpt-5.1", label: "GPT-5.1", tier: "strong" },
+      { value: "gpt-5-mini", label: "GPT-5 mini — fast", tier: "standard" },
+      { value: "gpt-5-nano", label: "GPT-5 nano — fastest", tier: "cheap" },
+      { value: "o4-mini", label: "o4-mini — reasoning", tier: "standard" },
     ],
   },
   xai: {
     id: "xai",
     label: "Grok (xAI)",
-    defaultModel: "grok-4",
+    defaultModel: "grok-4.6",
     apiKeyEnv: ["XAI_API_KEY"],
     docsUrl: "https://console.x.ai",
     baseUrl: "https://api.x.ai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // grok-4 reasons natively and tool-calls reliably; grok-4-fast is the
-    // cheaper sibling. Older grok models are weaker at multi-step tool loops.
+    // xAI docs (2026-08): grok-4.6 is the flagship, grok-4.5 the tier below.
+    // The old grok-4 / grok-4-fast IDs were retired 2026-05 and redirect.
     models: [
-      { value: "grok-4", label: "Grok 4 — most capable", tier: "strong" },
-      { value: "grok-4-fast", label: "Grok 4 Fast", tier: "cheap" },
+      { value: "grok-4.6", label: "Grok 4.6 — most capable", tier: "strong" },
+      { value: "grok-4.5", label: "Grok 4.5", tier: "standard" },
     ],
   },
   deepseek: {
     id: "deepseek",
     label: "DeepSeek",
-    defaultModel: "deepseek-chat",
+    defaultModel: "deepseek-v4-flash",
     apiKeyEnv: ["DEEPSEEK_API_KEY"],
     docsUrl: "https://platform.deepseek.com/api_keys",
     baseUrl: "https://api.deepseek.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // `deepseek-chat` (V3) does tool calling. `deepseek-reasoner` (R1) is
-    // omitted: its function-calling support is unreliable and it forces very
-    // long reasoning output that stalls this loop.
-    models: [{ value: "deepseek-chat", label: "DeepSeek Chat", tier: "standard" }],
+    // DeepSeek API docs (2026-08): `deepseek-chat` / `deepseek-reasoner`
+    // retired 2026-07-24. The V4 line replaced them — flash is the default,
+    // pro is 3× for hard reasoning.
+    models: [
+      { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro", tier: "strong" },
+      { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash", tier: "standard" },
+    ],
   },
   mistral: {
     id: "mistral",
@@ -170,44 +185,46 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://console.mistral.ai/api-keys",
     baseUrl: "https://api.mistral.ai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // Large and Medium tool-call well. Small is weaker at it, and Codestral
-    // is a code-completion model, not an agentic one — both omitted.
+    // 2026-08: large-latest → Large 3, medium-latest → Medium 3.5,
+    // small-latest → Small 4 (merged reasoning + vision + coding).
     models: [
       { value: "mistral-large-latest", label: "Mistral Large (latest)", tier: "strong" },
       { value: "mistral-medium-latest", label: "Mistral Medium (latest)", tier: "standard" },
+      { value: "mistral-small-latest", label: "Mistral Small (latest)", tier: "cheap" },
     ],
   },
   groq: {
     id: "groq",
     label: "Groq",
+    // Groq hosts open-weight models and rotates IDs faster than a release
+    // cycle. `llama-3.3-70b-versatile` is the one that has stayed put and
+    // does multi-step tool calling reliably; the small/instant and distill
+    // models are prone to empty or malformed turns here. Free text — set a
+    // specific id in Settings if this rotates.
     defaultModel: "llama-3.3-70b-versatile",
     apiKeyEnv: ["GROQ_API_KEY"],
     docsUrl: "https://console.groq.com/keys",
     baseUrl: "https://api.groq.com/openai/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // Groq hosts open-weight models and rotates IDs faster than a release
-    // cycle. Only the largest Llama does multi-step tool calling with any
-    // reliability; the small/instant and distill models are prone to empty
-    // or malformed turns here. Set a specific id in Settings if this rotates.
     models: [{ value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", tier: "standard" }],
   },
   openrouter: {
     id: "openrouter",
     label: "OpenRouter",
-    defaultModel: "anthropic/claude-sonnet-4.5",
+    // An aggregator with thousands of slugs — the shortlist is just a few
+    // that route to strong tool + reasoning models. Type a specific slug in
+    // Settings for anything else.
+    defaultModel: "anthropic/claude-sonnet-4.6",
     apiKeyEnv: ["OPENROUTER_API_KEY"],
     docsUrl: "https://openrouter.ai/keys",
     baseUrl: "https://openrouter.ai/api/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // An aggregator — the default is just a sensible pick. The shortlist is
-    // only slugs that route to strong tool + reasoning models; OpenRouter's
-    // catalogue is thousands deep, so type a specific slug for anything else.
     models: [
       { value: "anthropic/claude-opus-5", label: "Claude Opus 5", tier: "strong" },
-      { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5", tier: "standard" },
-      { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: "strong" },
+      { value: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet 4.6", tier: "standard" },
       { value: "openai/gpt-5.1", label: "GPT-5.1", tier: "strong" },
-      { value: "x-ai/grok-4", label: "Grok 4", tier: "strong" },
+      { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: "strong" },
+      { value: "x-ai/grok-4.6", label: "Grok 4.6", tier: "strong" },
     ],
   },
   custom: {
@@ -326,10 +343,18 @@ export function createProvider(config: {
   apiKey: string;
   authMode?: AuthMode;
   baseUrl?: string;
+  /** Anthropic only — the `anthropic-workspace-id` header for an
+   * identity-linked API key. Ignored by every other provider. */
+  anthropicWorkspaceId?: string;
 }): ModelProvider {
   switch (config.provider) {
     case "anthropic":
-      return new AnthropicProvider(config.model, config.apiKey, config.authMode);
+      return new AnthropicProvider(
+        config.model,
+        config.apiKey,
+        config.authMode,
+        config.anthropicWorkspaceId,
+      );
     case "google":
       return new GoogleProvider(config.model, config.apiKey);
     case "openai": {
@@ -431,4 +456,6 @@ export type ProviderFactory = (config: {
   model: string;
   apiKey: string;
   authMode?: AuthMode;
+  baseUrl?: string;
+  anthropicWorkspaceId?: string;
 }) => ModelProvider;

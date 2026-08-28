@@ -47,9 +47,24 @@ export const viewPreviewTool = defineTool({
     "not what the code implies. Use it after a change that could affect what's rendered: a new " +
     "component, a layout or styling change. Skip it for a change that's obviously text- or " +
     "logic-only — this costs real image tokens, so reach for it deliberately, not on every turn. " +
-    "Fails cleanly if the preview isn't running; call start_preview first.",
-  schema: z.object({}),
-  async run(context): Promise<ToolResult> {
+    'Pass `path` to view a route other than the app\'s landing page (e.g. "/#/destination/kyoto" ' +
+    'for a hash route, "/settings" for a real one) — never edit routing just to screenshot a ' +
+    "screen. Fails cleanly if the preview isn't running; call start_preview first.",
+  schema: z.object({
+    path: z
+      .string()
+      .optional()
+      .describe('Route to load, relative to the preview root. Default "/". Accepts a hash route.'),
+    width: z.number().int().min(320).max(2560).optional().describe("Viewport width (default 1024)"),
+    height: z
+      .number()
+      .int()
+      .min(320)
+      .max(2000)
+      .optional()
+      .describe("Viewport height (default 768)"),
+  }),
+  async run(context, input): Promise<ToolResult> {
     const preview = await context.runtime.previewStatus(context.projectId);
     if (preview.status !== "running" || !preview.url) {
       return {
@@ -58,16 +73,25 @@ export const viewPreviewTool = defineTool({
       };
     }
 
+    let target: string;
+    try {
+      target = input.path ? new URL(input.path, preview.url).href : preview.url;
+    } catch {
+      return { output: `Not a valid path: "${input.path}".`, isError: true };
+    }
+
     const browser = await chromium.launch();
     try {
       // A fixed viewport bounds the screenshot's resolution directly — no
       // separate resize step needed once JPEG re-encoding already keeps the
       // bytes themselves small.
-      const page = await browser.newPage({ viewport: { width: 1024, height: 768 } });
-      await page.goto(preview.url, { waitUntil: "load", timeout: 30_000 });
+      const page = await browser.newPage({
+        viewport: { width: input.width ?? 1024, height: input.height ?? 768 },
+      });
+      await page.goto(target, { waitUntil: "load", timeout: 30_000 });
       const screenshot = await page.screenshot({ type: "jpeg", quality: 70 });
       return {
-        output: "Screenshot of the running preview.",
+        output: `Screenshot of the running preview at ${target}.`,
         images: [{ mimeType: "image/jpeg", data: screenshot.toString("base64") }],
       };
     } catch (error) {

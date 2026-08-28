@@ -15,9 +15,11 @@ import type { ToolContext } from "../src/types.js";
 
 let server: http.Server;
 let base: string;
+const requestedPaths: string[] = [];
 
 before(async () => {
-  server = http.createServer((_request, response) => {
+  server = http.createServer((request, response) => {
+    requestedPaths.push(request.url ?? "");
     response.writeHead(200, { "content-type": "text/html" }).end(
       `<!doctype html><html><body style="margin:0;background:#1a2b3c">
          <h1 style="color:#fff">hello from the preview</h1>
@@ -71,6 +73,29 @@ test("view_preview returns a real JPEG screenshot of a running preview", async (
   assert.equal(bytes[0], 0xff);
   assert.equal(bytes[1], 0xd8);
   assert.ok(bytes.length > 500, "a real screenshot is more than a few hundred bytes");
+});
+
+test("view_preview loads the given path, not just the preview root", async () => {
+  requestedPaths.length = 0;
+  const result = await executeTool(stubContext({ status: "running", url: base }), "view_preview", {
+    path: "/#/destination/kyoto",
+  });
+
+  assert.notEqual(result.isError, true, result.output);
+  assert.equal(result.images?.length, 1);
+  // The server records what the browser actually asked for. The hash is
+  // client-side so the HTTP path is "/", but the full navigated URL is
+  // echoed back in the tool output.
+  assert.match(result.output, /#\/destination\/kyoto/);
+});
+
+test("view_preview rejects a malformed path instead of navigating to the root", async () => {
+  const result = await executeTool(stubContext({ status: "running", url: base }), "view_preview", {
+    path: "http://example.com:99999999999/x",
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.output, /Not a valid path/);
 });
 
 test("view_preview fails cleanly, without touching a browser, when nothing is running", async () => {

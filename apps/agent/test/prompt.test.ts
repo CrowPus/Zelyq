@@ -144,12 +144,20 @@ test("engineer mode names an exploratory, scope-undecided request as its own sto
 
 test("engineer mode's addendum names the new-file checkpoint as a real backstop, not just a suggestion", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} });
-  assert.match(prompt, /nothing that.*changes the project runs for the rest of it/);
+  assert.match(
+    prompt,
+    /after six new files in one turn, no NEW file and no delete runs for the rest of it/,
+  );
   // An earlier version of this text implied reaching the checkpoint was
   // itself a failure, which pushed the model toward cramming remaining
   // work into whatever file it could still touch instead of actually
   // stopping — this reassurance is the fix.
   assert.match(prompt, /Reaching it is not a failure on real, larger work/);
+  // The finish-phase opening: once a verification tool has run, edits and
+  // run_command on existing files come back so a scoped pass can be
+  // finished and verified in the same turn — new files stay refused.
+  assert.match(prompt, /There is one deliberate opening/);
+  assert.match(prompt, /finish phase/);
 });
 
 test("a turn that touches nothing, or only answers a question, is exempted in the addendum's own text", () => {

@@ -74,6 +74,32 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   `prompt.ts`), with structural gates at the tool boundary in
   `session.ts` (`architectModeBlock`, the interview and dispatch gates,
   the per-turn new-file caps). The server rejects both modes at once.
+- **The Engineer new-file checkpoint** (`NEW_FILE_CHECKPOINT = 6` in
+  `session.ts`) has two phases. *Build phase* (the default): after six
+  genuinely-new files in one turn, every mutating tool is frozen — the
+  model is still inventing scope, so it must stop and summarise. *Finish
+  phase*: once a verification tool has run this turn (`view_preview`,
+  `start_preview`, `inspect_page`, `typecheck_project`, `lint_project`,
+  … — `VERIFICATION_TOOL_NAMES`), `edit_file` and `run_command` on files
+  that already exist come back, so a correctly-scoped pass can typecheck,
+  preview, and tune what it built in the same turn. A genuinely-new
+  `write_file` and `delete_file` stay refused in both phases — that is the
+  anti-invented-scope control. A shell command that births new files in
+  the finish phase revokes it (scope through the back door).
+- **Per-route preview** — `view_preview` and the `browser-qa` tools
+  (`inspect_page`, `check_console_errors`, `check_network_failures`,
+  `accessibility_audit`, `test_responsive_layout`) take an optional
+  `path` (and `view_preview` a `width`/`height`); they navigate to
+  `new URL(path, previewUrl)`, so a hash route (`/#/x`) or a real path
+  both work. The prompt forbids editing routing to make a screen
+  reachable for a screenshot.
+- **Reference images** — `fetch_reference_image` (image-assets plugin)
+  searches a stock-photo service (`ZELYQ_IMAGE_PROVIDER`: keyless
+  `openverse` by default, or `unsplash`/`pexels` with
+  `ZELYQ_IMAGE_PROVIDER_KEY`), downloads the top hit into the project,
+  and returns it so the model confirms the subject before captioning it.
+  No provider or no network ⇒ a labelled SVG placeholder. The prompt
+  bans hardcoding a remote photo ID from memory.
 - **Auto Mode** — `session.autoNextPass(emit)` decides between passes
   (kill switch → stuck detection → three ceilings: `AUTO_MAX_PASSES` /
   `AUTO_MAX_TOKENS` / `AUTO_MAX_WALLCLOCK_MS`). The agent's prompt route

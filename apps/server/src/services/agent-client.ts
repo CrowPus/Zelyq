@@ -56,6 +56,8 @@ export class AgentClient {
      * token. */
     authMode?: string;
     baseUrl?: string;
+    /** Anthropic only — the workspace id for an identity-linked key. */
+    anthropicWorkspaceId?: string;
     history?: Message[];
   }): Promise<AgentSessionState> {
     const response = await fetch(`${this.baseUrl}/sessions`, {
@@ -117,6 +119,8 @@ export class AgentClient {
      * token. */
     authMode?: string;
     baseUrl?: string;
+    /** Anthropic only — the workspace id for an identity-linked key. */
+    anthropicWorkspaceId?: string;
     history?: Message[];
   }): Promise<AgentSessionState> {
     const existing = await fetch(`${this.baseUrl}/sessions/${input.sessionId}/state`, {

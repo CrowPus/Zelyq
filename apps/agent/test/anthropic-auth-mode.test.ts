@@ -73,3 +73,43 @@ test("createProvider without authMode behaves exactly as before this existed", (
   assert.equal(client.apiKey, "sk-ant-test");
   assert.equal(client.authToken, null);
 });
+
+test("a workspace id is sent as the anthropic-workspace-id header", () => {
+  const provider = new AnthropicProvider("claude-opus-5", "sk-ant-test", "api_key", "wrkspc_123");
+  const client = clientOf(provider);
+  assert.equal(client.apiKey, "sk-ant-test");
+  assert.equal(client._options.defaultHeaders?.["anthropic-workspace-id"], "wrkspc_123");
+});
+
+test("no workspace id means no such header — an ordinary key is untouched", () => {
+  const provider = new AnthropicProvider("claude-opus-5", "sk-ant-test");
+  const client = clientOf(provider);
+  assert.equal(client._options.defaultHeaders?.["anthropic-workspace-id"], undefined);
+});
+
+test("a workspace id rides alongside a subscription token's beta header", () => {
+  const provider = new AnthropicProvider(
+    "claude-opus-5",
+    "oauth-token",
+    "subscription",
+    "wrkspc_9",
+  );
+  const client = clientOf(provider);
+  assert.equal(client.authToken, "oauth-token");
+  assert.equal(
+    client._options.defaultHeaders?.["anthropic-beta"],
+    "claude-code-20250219,oauth-2025-04-20",
+  );
+  assert.equal(client._options.defaultHeaders?.["anthropic-workspace-id"], "wrkspc_9");
+});
+
+test("createProvider threads anthropicWorkspaceId through to AnthropicProvider", () => {
+  const provider = createProvider({
+    provider: "anthropic",
+    model: "claude-opus-5",
+    apiKey: "sk-ant-test",
+    anthropicWorkspaceId: "wrkspc_abc",
+  }) as AnthropicProvider;
+  const client = clientOf(provider);
+  assert.equal(client._options.defaultHeaders?.["anthropic-workspace-id"], "wrkspc_abc");
+});

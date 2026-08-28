@@ -32,7 +32,7 @@ export function registerProviderRoutes(
         // In the composer's own model picker, not just Settings'
         // suggestions: a Codex session's real model names
         // are a different, unconfirmed set from the ordinary API's single
-        // "gpt-5.1" — fixing the suggestions in Settings and missing this,
+        // "gpt-5.2" — fixing the suggestions in Settings and missing this,
         // the picker a person actually uses daily, left it looking like
         // nothing had changed at all.
         ...(provider.id === "openai" &&

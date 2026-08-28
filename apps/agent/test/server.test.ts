@@ -77,7 +77,7 @@ test("asking for a provider with no key names that provider, not the default", a
 // ---------------------------------------------------------------------------
 // A Codex subscription session speaks a different backend, with its own
 // model names. Silently falling back to defaultModelFor("openai")
-// ("gpt-5.1", confirmed only for the ordinary public API) would send a
+// ("gpt-5.2", confirmed only for the ordinary public API) would send a
 // model the Codex backend never recognises.
 // ---------------------------------------------------------------------------
 
@@ -125,7 +125,7 @@ test("an ordinary OpenAI session (no subscription mode) still gets its usual def
     },
   });
   assert.equal(response.statusCode, 201, response.body);
-  assert.equal(response.json().model, "gpt-5.1");
+  assert.equal(response.json().model, "gpt-5.2");
 });
 
 // ---------------------------------------------------------------------------
@@ -244,7 +244,7 @@ test("the providers endpoint reports what this instance can use", async () => {
   // Hosted vendors now carry a curated model shortlist so the picker has
   // real choices to offer.
   const xai = body.providers.find((provider: { id: string }) => provider.id === "xai");
-  assert.ok(xai.models?.some((model: { value: string }) => model.value === "grok-4"));
+  assert.ok(xai.models?.some((model: { value: string }) => model.value === "grok-4.6"));
 
   // `custom` still cannot — the model a user's own endpoint holds is that
   // endpoint's business, and guessing produces a 404 that reads like a bug.
