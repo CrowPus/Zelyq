@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "@zelyq/core/node";
 import { ALL_TOOLS } from "@zelyq/tools";
 import { loadAgentConfig } from "./config.js";
+import { buildUseDesignRefTool, designRefCatalogText, loadDesignRefs } from "./design-refs.js";
 import { loadPlugins } from "./plugins.js";
 import { PROVIDERS } from "./providers/index.js";
 import { buildAgentServer } from "./server.js";
@@ -53,9 +54,20 @@ const skillsWithResources = await Promise.all(
   })),
 );
 
+// 056 — the design reference library. `design-md/` sits beside `skills/` in
+// the repo; an operator can point ZELYQ_DESIGN_REFS_DIR at their own set.
+const designRefs = await loadDesignRefs(
+  path.join(repoRoot, "design-md"),
+  process.env.ZELYQ_DESIGN_REFS_DIR,
+);
+if (designRefs.refs.length > 0) ALL_TOOLS.push(buildUseDesignRefTool(designRefs.refs));
+
 const server = buildAgentServer(config, {
   pluginNames: plugins.loaded,
   skills: skillsWithResources,
+  designRefCatalog: designRefs.refs.map((r) => ({ slug: r.slug, description: r.description })),
+  designRefCatalogText: designRefCatalogText(designRefs.refs),
+  agentMd: designRefs.agentMd,
 });
 if (plugins.loaded.length > 0) {
   server.app.log.info(
@@ -65,6 +77,11 @@ if (plugins.loaded.length > 0) {
 if (skillsResult.skills.length > 0) {
   server.app.log.info(
     `${skillsResult.skills.length} skill(s) loaded: ${skillsResult.skills.map((s) => s.name).join(", ")}`,
+  );
+}
+if (designRefs.refs.length > 0 || designRefs.agentMd) {
+  server.app.log.info(
+    `${designRefs.refs.length} design reference(s) loaded${designRefs.agentMd ? " + Agent.md UI guidelines" : ""}`,
   );
 }
 

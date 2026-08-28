@@ -53,6 +53,10 @@ trust and review:
 - **Stops and asks** on anything irreversible (deleting data, an action
   with no undo) or on a request that's really a conversation ("I want to
   test you", "how would you build X") rather than a spec.
+- **Holds the UI to a bar.** A brand-neutral checklist (`design-md/Agent.md`
+  — focus, keyboard, hydration, semantics, reduced-motion, layout shift,
+  empty/error states, …) is built into the prompt, and the automatic
+  verification checks the observable rules against the running preview.
 
 Use it for multi-file features, refactors, anything with a decision in it.
 
@@ -73,8 +77,11 @@ code is written**, then builds to it.
      is a new superseding record).
    - `data-model.md`, `api.md`, `infrastructure.md`
    - **`DESIGN.md`** — the design system: the product feel, colour roles,
-     type scale, spacing, components, states. A first draft here; the
-     Designer agent (below) owns and deepens it.
+     type scale, spacing, components, states. The Architect picks the
+     closest match from the `design-md/` reference library (real product
+     design languages) and bases the draft on it — **adapted** to this
+     project, not skinned as the brand — recording which one and what
+     changed. The Designer agent (below) owns and deepens it.
    - `build-plan.md` — an ordered work breakdown, each task review-sized
      with its own acceptance criteria, and a `## Definition of Done`.
    - `report.html` — a designed one-page overview you read in the **Plan**

@@ -265,3 +265,47 @@ test("multiple plugin names are named together in one instruction line", () => {
   const result = withPlugins("go", ["roll_dice", "flip_coin"]);
   assert.match(result, /Use these tools for this task: roll_dice, flip_coin\./);
 });
+
+test("056: the design reference catalog is listed in the Architect prompt and told to adapt, not skin", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    architectMode: {},
+    designRefCatalogText:
+      "- linear-like: a near-black developer tool canvas\n- editorial: ink on paper",
+  });
+  assert.match(prompt, /<design_references>/);
+  assert.match(prompt, /- linear-like: a near-black developer tool canvas/);
+  assert.match(prompt, /use_design_ref\("<slug>"\)/);
+  assert.match(prompt, /never skin the app as that brand/i);
+});
+
+test("056: Agent.md is inlined as <ui_guidelines> in both the Architect and Engineer prompts", () => {
+  const agentMd = "MUST: visible focus rings\nNEVER: outline: none without a visible replacement";
+  const arch = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    architectMode: {},
+    agentMd,
+  });
+  const eng = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    engineerMode: {},
+    agentMd,
+  });
+  for (const prompt of [arch, eng]) {
+    assert.match(prompt, /<ui_guidelines>/);
+    assert.match(prompt, /MUST: visible focus rings/);
+  }
+});
+
+test("056: no catalog and no agentMd leaves the Architect/Engineer prompts unchanged", () => {
+  const withArgs = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    architectMode: {},
+  });
+  assert.doesNotMatch(withArgs, /\n<design_references>\nReal product/);
+  assert.doesNotMatch(withArgs, /\n<ui_guidelines>\nThe UI-quality bar/);
+});

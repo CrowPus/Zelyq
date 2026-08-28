@@ -237,6 +237,13 @@ export interface SessionOptions {
    * for the report render. */
   architectMode?: boolean;
   architectModeSkill?: { body: string; resources: string[] };
+  /** 056 — the rendered design reference catalog (one line per reference)
+   * and the `Agent.md` UI-craft checklist. The Architect prompt lists the
+   * catalog under its DESIGN.md step and inlines `agentMd`; the Engineer
+   * prompt inlines `agentMd`; the verifier and Designer children get
+   * `agentMd` appended to their system prompt as a gate. */
+  designRefCatalogText?: string;
+  agentMd?: string;
   /** Auto Mode. Only honoured with `architectMode`. */
   autoMode?: boolean;
   /** The lean builder profile. A dispatched builder runs with a compact
@@ -322,7 +329,9 @@ When you find something broken:
 
 Then create or correct the finishing files: .env.example (every env var the code and design need, one per line with a comment, NO real values); a real root README.md replacing the template's (what it is, how to run it, env vars, scripts, one paragraph of architecture linking architecture/report.html); the CI config for a known stack, with an "unverified, generated from the design" header; .gitignore additions. Triage design/security findings into architecture/risks.md under a dated "## Verification findings" heading, each with a consequence and a decision.
 
-Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item, PASS / FAIL / N/A, each with a one-line reason that names what you ACTUALLY OBSERVED (the command output, what the page showed), never what should be true. Do not mark PASS anything you did not run and see pass. If the app does not render, or the build fails, the overall result is NOT VERIFIED — say that plainly at the top. End with the live preview URL, or "preview not running: <reason>".`;
+If you were given <ui_guidelines>, run its OBSERVABLE rules against the running app and the source: a visible :focus-visible style (no bare outline:none); inputs with a value have an onChange; navigation uses <a>/<Link> not <div onClick>; prefers-reduced-motion honoured; no transitions on layout props and no "transition: all"; images have explicit width/height (no layout shift); icon-only buttons have an aria-label; native semantics before ARIA; <title> matches the page; empty and error states are designed; truncating flex children have min-w-0; numbers that compare use tabular-nums; a dark theme sets color-scheme. Fix a small failure in scope; a real failure you cannot fix is a checklist FAIL.
+
+Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item AND one line per UI-guidelines rule you checked, PASS / FAIL / N/A, each with a one-line reason that names what you ACTUALLY OBSERVED (the command output, what the page showed), never what should be true. Do not mark PASS anything you did not run and see pass. If the app does not render, the build fails, or a UI-guidelines rule FAILs and you could not fix it, the overall result is NOT VERIFIED — say that plainly at the top. End with the live preview URL, or "preview not running: <reason>".`;
 
 // The Designer specialist. Dispatched AFTER a clean verification (or, in
 // Engineer Mode, on the user's explicit ask via design_pass). Same mechanism
@@ -357,6 +366,9 @@ const DESIGNER_TOOL_NAMES = [
   "check_network_failures",
   "typecheck_project",
   "lint_project",
+  // 056 — so the Designer can read the reference the Architect chose (or
+  // pick one, when it authors DESIGN.md from scratch).
+  "use_design_ref",
 ];
 
 // The only extra dependencies the Designer may install — styling utilities and
@@ -515,7 +527,7 @@ Work in this order:
 
 2. OWN THE GUIDE — write architecture/DESIGN.md (or DESIGN.md at the repo root if there is no architecture/ folder) BEFORE you edit a single component or style file. A pass that edits code before DESIGN.md exists is rejected as an ungoverned restyle — the guide comes first, always.
    - If it exists: read it. Critique it against what this project actually needs — you are the design authority, a thin or wrong draft is expected to be deepened. Fill in real tokens (hex, a type scale, spacing steps), fix choices that don't fit the product, add missing component/state coverage. If a human has hand-edited it, RESPECT those edits — refine around them, do not overwrite blind. Write the improved file back.
-   - If it does NOT exist: author it from the project — derive a coherent system from the product, the existing UI (however messy), any brand hints, and the real content. Use this structure, with REAL values, no placeholders:
+   - If it does NOT exist: author it from the project. First, if you have a <design_references> list and use_design_ref, pick the reference closest to this product's category and personality, read it, and base the system on it — ADAPTED (rename to this domain, drop what does not apply, recolour to the product's own identity), never skinned as that brand, never its logo. Record at the top of DESIGN.md: 'Adapted from the "<slug>" reference — <what was kept / changed>', or 'Designed from first principles — no reference fit'. Use this structure, REAL values, no placeholders:
 ${DESIGN_MD_TEMPLATE}
    Either way, DESIGN.md after this step is the contract the rest of the pass implements and is judged against. Write it fully before step 3.
 
@@ -526,9 +538,10 @@ ${DESIGN_MD_TEMPLATE}
 5. KEEP IT GREEN. After each meaningful change: typecheck/build, reload the preview, check_console_errors. A blank screen, a console error, or a red typecheck is something you broke — fix or revert it before moving on.
 
 When done, re-check the running preview, then return a DESIGN REVIEW:
-- FIRST line: "DESIGN.md <created|refined> — <one-line summary: the palette, the type choice, the key moves>".
+- FIRST line: "DESIGN.md <created|refined> — <one-line summary: the palette, the type choice, the key moves>". If you used a reference, name it and what you adapted.
 - Then, for EACH area below, one line — PASS (naming the screen/file you changed and what the screenshot showed) / FAIL / NOT DONE. Never PASS something you did not change or did not see rendered. If you implemented nothing, every area is NOT DONE and the top line is NOT VERIFIED.
 - Areas: ${DESIGN_DOD}
+- Then a UI GUIDELINES block: if you were given <ui_guidelines>, one line per observable rule you can check from the running preview or the source — PASS / FAIL / N-A with what you saw. A FAIL you can fix in scope, fix it; otherwise it is a FAIL that blocks "done" (or a recorded exception with a reason).
 - Then 2–4 concrete before/after notes naming actual screens.
 - Then any non-UI issues you found, for the Engineer.
 - End with the live preview URL (or "preview not running: <reason>").`;
@@ -983,16 +996,28 @@ export class AgentSession {
 
     this.conversation = provider.createConversation({
       systemPrompt:
-        options.systemPrompt ??
-        buildSystemPrompt({
-          projectName: options.projectName,
-          template: options.template,
-          skills: options.skills,
-          ...(options.engineerMode ? { engineerMode: { skill: options.engineerModeSkill } } : {}),
-          ...(options.architectMode
-            ? { architectMode: { skill: options.architectModeSkill } }
-            : {}),
-        }),
+        // 056 — a lean specialist child (systemPrompt + toolNames) gets
+        // `Agent.md` appended as a gate; the full prompt for a top-level
+        // session gets the catalog + `agentMd` woven in by buildSystemPrompt.
+        options.systemPrompt
+          ? options.agentMd
+            ? `${options.systemPrompt}\n\n<ui_guidelines>\nThese MUST/SHOULD/NEVER rules are the UI-quality bar. Check the observable ones against the running preview and fix or report any failure.\n\n${options.agentMd}\n</ui_guidelines>`
+            : options.systemPrompt
+          : buildSystemPrompt({
+              projectName: options.projectName,
+              template: options.template,
+              skills: options.skills,
+              ...(options.agentMd ? { agentMd: options.agentMd } : {}),
+              ...(options.designRefCatalogText
+                ? { designRefCatalogText: options.designRefCatalogText }
+                : {}),
+              ...(options.engineerMode
+                ? { engineerMode: { skill: options.engineerModeSkill } }
+                : {}),
+              ...(options.architectMode
+                ? { architectMode: { skill: options.architectModeSkill } }
+                : {}),
+            }),
       tools: toolDefinitions(toolPool),
       effort: options.effort,
       history: (options.history ?? [])
@@ -1333,6 +1358,10 @@ export class AgentSession {
       // A specialist has a structural write scope, enforced in the child, and
       // an install allowlist (empty ⇒ no installs).
       ...(spec ? { writeAllowlist: spec.allow, installAllowlist: spec.installAllow } : {}),
+      // 056 — the verifier and the Designer check the UI against Agent.md.
+      ...(this.options.agentMd && (isVerify || specialistKind === "designer")
+        ? { agentMd: this.options.agentMd }
+        : {}),
       ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
     });
 

@@ -101,6 +101,14 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
 - **Pipeline** (Architect Mode §5): build → verify → DevOps (if the design
   is deployable) → design → re-verify → Security/QA → done. A FAIL /
   NOT DONE / NOT CLEARED from any of them blocks "done".
+- **Design references** (`apps/agent/src/design-refs.ts`) — `design-md/`
+  loads like `skills/` (bundled + `ZELYQ_DESIGN_REFS_DIR`, operator wins).
+  A slug+description catalog goes into the Architect's `DESIGN.md` step;
+  `use_design_ref(slug)` returns one reference's full body (path-guarded,
+  capped on inject). `design-md/Agent.md` is inlined as `<ui_guidelines>`
+  in the Architect and Engineer prompts; its observable MUSTs are a gate
+  block in the verifier and Designer checklists and in Engineer Mode's
+  auto-verification. `/health` reports the loaded slugs.
 
 ## Why tool errors are not exceptions
 

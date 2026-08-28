@@ -45,6 +45,7 @@ __pycache__/
 
 # Private working notes — not part of the open-source project
 docs/co-founders/
+multi-agents/
 
 # Eval harness output
 apps/agent/evals/results/
