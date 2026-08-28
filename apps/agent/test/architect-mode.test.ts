@@ -31,7 +31,10 @@ test("architect mode off is byte-identical to omitting the option", () => {
 test("architect mode on adds the addendum with the interview, the package, the challenge, the report", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", architectMode: {} });
   assert.match(prompt, /<architect_mode>/);
-  assert.match(prompt, /Interview first/);
+  assert.match(prompt, /## 1\. Interview —/);
+  assert.match(prompt, /No script, no fixed checklist/);
+  assert.match(prompt, /at least \*\*five substantial questions\*\*/);
+  assert.match(prompt, /Never decide a load-bearing question for the user/);
   assert.match(prompt, /decisions\/NNNN/);
   assert.match(prompt, /Challenge the package before presenting/);
   assert.match(prompt, /report\.html/);
@@ -39,6 +42,25 @@ test("architect mode on adds the addendum with the interview, the package, the c
   // The base scope/quality/communication discipline is still there and pointed at.
   assert.match(prompt, /Build what was asked, then stop/);
   assert.match(prompt, /Everything in <scope>, <quality>, and <communication> above still applies/);
+});
+
+test("architect mode teaches the Supabase backend path — interview topic, backend.md, backend DoD (058 Phase B)", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", architectMode: {} });
+  // The interview asks whether a backend is needed, and names Supabase as the only one.
+  assert.match(prompt, /saved data, user accounts, or any backend/i);
+  assert.match(prompt, /Supabase.*Postgres.*Row-Level-Security/s);
+  // backend.md is a conditional package artifact with grants + per-operation RLS.
+  assert.match(prompt, /backend\.md/);
+  assert.match(prompt, /policy per operation/i);
+  assert.match(prompt, /publishable\*{0,2}\s+key\s+only/i);
+  assert.match(prompt, /sb_secret_\*|service_role/);
+  // Two end states, neither of which blocks design on a credential.
+  assert.match(prompt, /designed, not wired/);
+  assert.match(prompt, /designed and buildable/);
+  // The build plan gets backend tasks and the DoD gets the three-identity RLS line.
+  assert.match(prompt, /migration task/);
+  assert.match(prompt, /client-wiring\s+task/);
+  assert.match(prompt, /SECOND non-owning user/);
 });
 
 test("architect mode has the Phase 2 resume/drift-review path — read README first, supersede, don't fix", () => {

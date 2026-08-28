@@ -13,12 +13,11 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * The Architect interviews before it designs, and it stops when told to.
- *
- * Structural, enforced in `session.ts` (the rest — explaining an unfinished
- * plan, pointing an insistent user at the Engineer — is the model's job):
- *   - until the "Interview complete:" line is written, the only package files
- *     the Architect may write are requirements.md and README.md;
+ * The Architect interviews on its own judgement — there is no scripted topic
+ * list, no status-block schema, and no "Interview complete:" marker that
+ * unlocks the package. What is still enforced in `session.ts`:
+ *   - the Architect may write any package file whenever it decides it is
+ *     ready to — the design files are never locked behind a gate;
  *   - on a turn whose message opens with stop / wait / pause / hold on, no
  *     builder is dispatched (writing is left alone).
  */
@@ -122,10 +121,10 @@ const writeEnds = (events: Array<{ type: string; [k: string]: unknown }>) =>
     (e) => e.type === "tool.end" && (e.call as { name: string }).name === "write_file",
   ) as Array<{ call: { isError: boolean; result: string } }>;
 
-test("during the interview, only requirements.md and README.md may be written", async () => {
+test("the design files are not gated — the Architect writes them when it decides it is ready", async () => {
   const { base, workspaceDir, projectId, close } = await setup([
     {
-      events: [text("recording and drafting")],
+      events: [text("recording and drafting in one turn")],
       result: {
         toolCalls: [
           {
@@ -143,283 +142,51 @@ test("during the interview, only requirements.md and README.md may be written", 
             name: "write_file",
             input: { path: "architecture/data-model.md", content: "# data\n" },
           },
+          {
+            id: "w4",
+            name: "write_file",
+            input: { path: "architecture/DESIGN.md", content: "# design\n" },
+          },
         ],
         stopReason: "tool_use" as const,
         usage: { inputTokens: 5, outputTokens: 5 },
       },
     },
-    say("asked the next question"),
+    say("first pass of the package written"),
   ]);
   try {
-    const events = await turn(base, "here is the purpose and the users");
+    const events = await turn(base, "here is what I want to build, go ahead");
     const ends = writeEnds(events);
-    // requirements.md lands; the two design files are refused with the interview message.
-    await fs.access(path.join(workspaceDir, projectId, "architecture/requirements.md"));
-    await assert.rejects(
-      fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0001-stack.md")),
-    );
-    await assert.rejects(
-      fs.access(path.join(workspaceDir, projectId, "architecture/data-model.md")),
-    );
-    const refused = ends.filter((e) => e.call.isError);
-    assert.equal(refused.length, 2);
-    assert.ok(refused.every((e) => /interview is not closed/i.test(e.call.result)));
-  } finally {
-    await close();
-  }
-});
-
-// An 8-row status block, every topic answered, so the completion
-// line is honoured.
-const STATUS_BLOCK = [
-  "| Topic | Status | Source | Note |",
-  "| --- | --- | --- | --- |",
-  "| Purpose and users | answered | user | ok |",
-  "| Core functional requirements | answered | user | ok |",
-  "| Explicit non-goals | answered | user | ok |",
-  "| Constraints | answered | user | ok |",
-  "| Data | answered | user | ok |",
-  "| External dependencies | answered | user | ok |",
-  "| Failure expectations | answered | user | ok |",
-  "| Acceptance criteria | answered | user | ok |",
-  "",
-].join("\n");
-
-test("after 'Interview complete:' the design files open up", async () => {
-  const { base, workspaceDir, projectId, close } = await setup([
-    {
-      events: [text("recording the interview state")],
-      result: {
-        toolCalls: [
-          {
-            id: "wr",
-            name: "write_file",
-            input: { path: "architecture/requirements.md", content: STATUS_BLOCK },
-          },
-        ],
-        stopReason: "tool_use" as const,
-        usage: { inputTokens: 5, outputTokens: 5 },
-      },
-    },
-    say("Interview complete: proceeding to the design."),
-    {
-      events: [text("writing the first ADR")],
-      result: {
-        toolCalls: [
-          {
-            id: "w1",
-            name: "write_file",
-            input: { path: "architecture/decisions/0001-stack.md", content: "# adr\n" },
-          },
-        ],
-        stopReason: "tool_use" as const,
-        usage: { inputTokens: 5, outputTokens: 5 },
-      },
-    },
-    say("ADR written"),
-  ]);
-  try {
-    await turn(base, "that's enough, design what you have");
-    const events = await turn(base, "go on");
-    const ends = writeEnds(events);
-    assert.ok(ends.length >= 1 && ends.every((e) => !e.call.isError), "the ADR write goes through");
-    await fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0001-stack.md"));
-  } finally {
-    await close();
-  }
-});
-
-test("a 'blocked' status row keeps 'Interview complete:' from taking effect", async () => {
-  const blockedBlock = STATUS_BLOCK.replace(
-    "| Data | answered | user | ok |",
-    "| Data | blocked | | need the retention policy |",
-  );
-  const { base, workspaceDir, projectId, close } = await setup([
-    {
-      events: [text("recording state")],
-      result: {
-        toolCalls: [
-          {
-            id: "wr",
-            name: "write_file",
-            input: { path: "architecture/requirements.md", content: blockedBlock },
-          },
-        ],
-        stopReason: "tool_use" as const,
-        usage: { inputTokens: 5, outputTokens: 5 },
-      },
-    },
-    say("Interview complete: proceeding."),
-    {
-      events: [text("trying to write an ADR")],
-      result: {
-        toolCalls: [
-          {
-            id: "w1",
-            name: "write_file",
-            input: { path: "architecture/decisions/0001-stack.md", content: "# adr\n" },
-          },
-        ],
-        stopReason: "tool_use" as const,
-        usage: { inputTokens: 5, outputTokens: 5 },
-      },
-    },
-    say("done"),
-  ]);
-  try {
-    await turn(base, "design what you have");
-    const events = await turn(base, "go on");
-    const ends = writeEnds(events);
+    assert.equal(ends.length, 4);
     assert.ok(
-      ends.length >= 1 && ends.every((e) => e.call.isError),
-      "the ADR write is still refused",
+      ends.every((e) => !e.call.isError),
+      "no interview gate — every write lands",
     );
-    assert.ok(ends.every((e) => /interview is not closed/i.test(e.call.result)));
-    await assert.rejects(
-      fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0001-stack.md")),
-    );
+    for (const f of ["requirements.md", "decisions/0001-stack.md", "data-model.md", "DESIGN.md"]) {
+      await fs.access(path.join(workspaceDir, projectId, "architecture", f));
+    }
   } finally {
     await close();
   }
 });
 
-test("the word 'blocked' in unrelated prose does not stop the interview closing", async () => {
-  // Regression: the check was matching any line containing "blocked" plus a
-  // colon — e.g. "Analytics: silent no-op if blocked or unavailable" — and
-  // wedging the session in a re-declare loop.
-  const reqs = `${STATUS_BLOCK}\n\n## External dependencies\n- Analytics: non-essential. Failure mode: silent no-op if blocked or unavailable.\n`;
+test("a write outside the package is still refused", async () => {
   const { base, workspaceDir, projectId, close } = await setup([
-    {
-      events: [text("recording state")],
-      result: {
-        toolCalls: [
-          {
-            id: "wr",
-            name: "write_file",
-            input: { path: "architecture/requirements.md", content: reqs },
-          },
-        ],
-        stopReason: "tool_use" as const,
-        usage: { inputTokens: 5, outputTokens: 5 },
-      },
-    },
-    say("Interview complete: moving on."),
-    {
-      events: [text("writing the data model")],
-      result: {
-        toolCalls: [
-          {
-            id: "w1",
-            name: "write_file",
-            input: { path: "architecture/data-model.md", content: "# data model\n" },
-          },
-        ],
-        stopReason: "tool_use" as const,
-        usage: { inputTokens: 5, outputTokens: 5 },
-      },
-    },
-    say("done"),
+    call("write_file", { path: "src/App.tsx", content: "export const App = () => null;\n" }),
+    say("tried to write code"),
   ]);
   try {
-    await turn(base, "go on");
-    const events = await turn(base, "continue");
+    const events = await turn(base, "just build it yourself");
     const ends = writeEnds(events);
-    assert.ok(
-      ends.length >= 1 && ends.every((e) => !e.call.isError),
-      "the design write goes through",
-    );
-    await fs.access(path.join(workspaceDir, projectId, "architecture/data-model.md"));
-  } finally {
-    await close();
-  }
-});
-
-test("a real 'blocked' row refuses the marker only once, then lets it through", async () => {
-  const blockedBlock = STATUS_BLOCK.replace(
-    "| Data | answered | user | ok |",
-    "| Data | blocked | | need retention policy |",
-  );
-  const { base, workspaceDir, projectId, close } = await setup([
-    {
-      events: [text("state, still blocked")],
-      result: {
-        toolCalls: [
-          {
-            id: "wr",
-            name: "write_file",
-            input: { path: "architecture/requirements.md", content: blockedBlock },
-          },
-        ],
-        stopReason: "tool_use" as const,
-        usage: { inputTokens: 5, outputTokens: 5 },
-      },
-    },
-    say("Interview complete: first try."),
-    say("Interview complete: second try — proceeding regardless."),
-    {
-      events: [text("writing the data model")],
-      result: {
-        toolCalls: [
-          {
-            id: "w1",
-            name: "write_file",
-            input: { path: "architecture/data-model.md", content: "# data model\n" },
-          },
-        ],
-        stopReason: "tool_use" as const,
-        usage: { inputTokens: 5, outputTokens: 5 },
-      },
-    },
-    say("done"),
-  ]);
-  try {
-    await turn(base, "go on"); // writes blocked block + first marker → refused once
-    await turn(base, "the retention policy is 2 years, keep going"); // second marker → honoured
-    const events = await turn(base, "continue"); // design write
-    const ends = writeEnds(events);
-    assert.ok(
-      ends.length >= 1 && ends.every((e) => !e.call.isError),
-      "the design write goes through",
-    );
-    await fs.access(path.join(workspaceDir, projectId, "architecture/data-model.md"));
-  } finally {
-    await close();
-  }
-});
-
-test("a resumed session whose history closed the interview can write design files at once", async () => {
-  const now = new Date().toISOString();
-  const { base, workspaceDir, projectId, close } = await setup(
-    [write("architecture/data-model.md"), say("wrote the data model")],
-    [
-      {
-        id: "m0",
-        sessionId: "s_iv",
-        role: "user",
-        content: "design what you have",
-        createdAt: now,
-      },
-      {
-        id: "m1",
-        sessionId: "s_iv",
-        role: "assistant",
-        content: "Interview complete: moving on.",
-        createdAt: now,
-      },
-    ],
-  );
-  try {
-    const events = await turn(base, "continue");
-    const ends = writeEnds(events);
-    assert.ok(ends.length >= 1 && ends.every((e) => !e.call.isError));
-    await fs.access(path.join(workspaceDir, projectId, "architecture/data-model.md"));
+    assert.ok(ends.length >= 1 && ends.every((e) => e.call.isError));
+    await assert.rejects(fs.access(path.join(workspaceDir, projectId, "src/App.tsx")));
   } finally {
     await close();
   }
 });
 
 test("a stop turn still lets the Architect record where things stand", async () => {
-  // "stop" no longer freezes writing — the Architect can still note the state
+  // "stop" does not freeze writing — the Architect can still note the state
   // or drop a handoff brief into requirements.md. Only dispatch is barred.
   const { base, workspaceDir, projectId, close } = await setup([
     write("architecture/requirements.md"),

@@ -72,8 +72,13 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
 - **Engineer / Architect Mode** — addenda built into the system prompt
   (`buildEngineerModeAddendum` / `buildArchitectModeAddendum` in
   `prompt.ts`), with structural gates at the tool boundary in
-  `session.ts` (`architectModeBlock`, the interview and dispatch gates,
-  the per-turn new-file caps). The server rejects both modes at once.
+  `session.ts` (`architectModeBlock` for the write scope, and the
+  dispatch gate — `readyDeclaredAtTurn` + a later user turn +
+  `architecturePackageState`, which requires every package file incl.
+  `DESIGN.md` and `build-context.md`, and `backend.md` for a Supabase
+  design). There is no scripted interview and no per-turn file cap: the
+  Architect decides on its own judgement when the interview is done and
+  when the package is complete. The server rejects both modes at once.
 - **The Engineer new-file checkpoint** (`NEW_FILE_CHECKPOINT = 6` in
   `session.ts`) has two phases. *Build phase* (the default): after six
   genuinely-new files in one turn, every mutating tool is frozen — the

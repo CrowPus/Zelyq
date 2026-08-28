@@ -5,6 +5,7 @@ import {
   newId,
   type Preview,
   type PromptAttachment,
+  parseTopology,
   type ToolCall,
 } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
@@ -21,7 +22,6 @@ import {
 } from "@zelyq/tools";
 import {
   ARCHITECT_DRIFT_MARKER,
-  ARCHITECT_INTERVIEW_DONE_MARKER,
   ARCHITECT_READY_MARKER,
   ARCHITECT_WRITE_ROOT,
   buildSystemPrompt,
@@ -78,34 +78,33 @@ const VERIFICATION_TOOL_NAMES = new Set([
 // `architecture/`, and nothing executes.
 const ARCHITECT_WRITE_TOOLS = new Set(["write_file", "edit_file", "delete_file"]);
 const ARCHITECT_BLOCKED_TOOLS = new Set(["run_command", "start_preview"]);
-// The only package files the Architect may touch before it has written the
-// "Interview complete:" line. Everything else under `architecture/` — the
-// decisions, the data model, the API surface, the build plan — stays refused
-// until the interview is closed, so the interview cannot be skipped by
-// dumping the whole design in one turn.
-const ARCHITECT_INTERVIEW_WRITABLE = new Set([
-  "architecture/requirements.md",
-  "architecture/README.md",
-]);
 
-// The exact set of paths the Architect may write. NOT "any .md under
+// The exact set of paths the Architect may write. NOT "any file under
 // architecture/": arbitrary Markdown there is not inert everywhere (MDX
 // compilation, raw-markdown imports, doc generators that glob
-// `architecture/**/*.md`). `pending-skills/` is deliberately absent —
-// self-authored capability is gated separately.
+// `architecture/**/*.md`), and only `topology.json` is a known-safe data file.
+// `pending-skills/` is deliberately absent — self-authored capability is gated
+// separately. The interview does not gate this set — the Architect decides
+// when it has enough and moves on; writing a decision record while a question
+// is still open is its call, not a refusal.
 const ARCHITECT_PACKAGE_FILES = new Set([
   "architecture/README.md",
   "architecture/requirements.md",
   "architecture/data-model.md",
   "architecture/api.md",
   "architecture/infrastructure.md",
+  "architecture/backend.md",
   "architecture/build-plan.md",
   "architecture/build-context.md",
   "architecture/risks.md",
-  // The design system spec. A living document (NOT a decisions/* record):
-  // the Architect seeds a first draft, the Designer owns and deepens it.
-  // Intentionally in the mutable package set.
+  // The design system spec. The Architect seeds a real first draft; the
+  // Designer agent owns and deepens it. Required for a package to be ready.
   "architecture/DESIGN.md",
+  // The system design as structured data — rendered as the live diagram.
+  "architecture/topology.json",
+  // Specialist-owned specs the Architect first-drafts when they apply.
+  "architecture/OPERATIONS.md",
+  "architecture/QA.md",
 ]);
 // The design guide's canonical paths. `architecture/DESIGN.md` for a
 // project that has an Architect package; root `DESIGN.md` otherwise (an
@@ -242,6 +241,19 @@ export interface SessionOptions {
   /** Anthropic only — the `anthropic-workspace-id` header for an
    * identity-linked API key. Inherited by dispatched child sessions. */
   anthropicWorkspaceId?: string;
+  /**
+   * 058 · Phase C — a capability to apply Supabase migrations and verify the
+   * backend *through the server* (the agent never holds the Management
+   * credential). Present only when a Supabase resource is linked to this
+   * project. Inherited by dispatched builders/verifiers.
+   */
+  supabaseBridge?: { url: string; token: string };
+  /**
+   * The linked project's public Supabase config (URL + publishable key) —
+   * merged into the preview env so the built app connects to the real
+   * backend. Both values are public; no secret here.
+   */
+  supabasePreviewEnv?: Record<string, string>;
   runtime: RuntimeDriver;
   maxIterations: number;
   history?: Message[];
@@ -304,6 +316,10 @@ const BUILDER_TOOL_NAMES = [
   "edit_file",
   "delete_file",
   "run_command",
+  // 058 · Phase C — no-ops (they refuse) unless a Supabase resource is linked;
+  // when it is, the backend builder applies its migration itself.
+  "supabase_apply_migration",
+  "supabase_verify_backend",
 ];
 
 // The verifier dispatch gets the preview and page-inspection tools back on
@@ -319,6 +335,7 @@ const VERIFIER_EXTRA_TOOL_NAMES = [
   "inspect_page",
   "typecheck_project",
   "lint_project",
+  "supabase_verify_backend",
 ];
 
 // The builder's whole system prompt. It gets ONE specified task with
@@ -333,6 +350,7 @@ Do exactly that task:
 - Keep the project building. If there is a typecheck or build script, run it after your changes and fix what you broke. Install a dependency only if the task genuinely needs it.
 - Wire your work in: if you add a component or module the app is meant to use, connect it to the entry point or the place the plan says it belongs — do not leave it orphaned.
 - Never invent API keys, secrets, or backend URLs. Build against clearly-marked placeholder data and note what the user must supply.
+- If the task is a Supabase backend task (from backend.md): write \`supabase/migrations/0001_init.sql\` to backend.md (RLS on every table, grants revoked and re-granted, one policy per operation), then apply it with \`supabase_apply_migration({ name, path })\` and check it with \`supabase_verify_backend\`; fix any FAIL in the SQL and re-apply. Wire \`@supabase/supabase-js\` from \`src/lib/supabase.ts\` reading \`import.meta.env.VITE_SUPABASE_URL\` / \`VITE_SUPABASE_PUBLISHABLE_KEY\`. The publishable key is the only Supabase key the browser gets — never put an \`sb_secret_*\` or \`service_role\` key in \`src/\`, \`.env.example\`, or anywhere committed. Do not add a server, a \`dev\`/\`start\` script for one, or a backend framework. If \`supabase_apply_migration\` is not available, no backend is linked — say so and stop; do not tell the user to run SQL by hand.
 
 When done, state in two or three sentences what you changed and whether each acceptance criterion is met. If you could not finish, say exactly what remains.`;
 
@@ -349,6 +367,7 @@ Verify it for real, in this order:
 2. start_preview. Then check_console_errors and inspect_page against the RUNNING app. Confirm it renders the real application — not the starter template, not a blank page, not an error overlay. Read preview_logs if it does not come up.
 3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. Use view_preview / inspect_page with a \`path\` to reach a screen that is not the landing route; never edit routing to see one. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
 4. Run any design / accessibility / security tool you were given. Note each finding. If any visible text names a specific real place, product, or person, confirm the adjacent image plausibly depicts it — a caption-to-image mismatch is a FAIL, reported with the screen and what you saw.
+   If the project has a \`supabase/migrations/\` folder, run \`supabase_verify_backend\` and record each check; any FAIL there is a FAIL here. (If the tool is unavailable, no Supabase backend is linked — note that and move on.)
 
 When you find something broken:
 - If it is small — a broken or missing import, a type error, a missing prop, an unwired route, a component that never mounts, a name that does not match — FIX it, then re-run the checks. This is expected: a real verification pass ties off the loose ends the build left. Read the file first, make the smallest change, move on.
@@ -953,19 +972,6 @@ export class AgentSession {
   // building" in one breath.
   private readyDeclaredAtTurn: number | null = null;
 
-  // Set once the Architect has written the "Interview complete:" line. Until
-  // then the only package files it may write are architecture/requirements.md
-  // and architecture/README.md; every other design file (decisions/*,
-  // data-model.md, api.md, ...) is refused. Stops "raced through three
-  // interview topics, then dumped the whole package in one turn".
-  private interviewDoneDeclared = false;
-
-  // The "Interview complete:" content check (a `blocked` status row blocks
-  // the marker) fires at most once per session. After it has refused and told
-  // the model why, a re-declared marker is honoured, so a misformatted status
-  // table can never trap the user in a loop.
-  private interviewCloseRefusedOnce = false;
-
   // How many turns in a row have ended having hit the iteration cap with the
   // build broken. After the second, "keep going" is no longer the recommended
   // action — the turn is not converging and the token spend is not buying
@@ -1016,18 +1022,24 @@ export class AgentSession {
     // A builder runs lean: its own compact prompt, and only the file/shell
     // tools. Everything else keeps the full weave.
     const leanBuilder = Boolean(options.systemPrompt && options.toolNames);
-    const toolPool = leanBuilder
-      ? ALL_TOOLS.filter((t) => options.toolNames?.includes(t.name))
-      : [
-          ...ALL_TOOLS,
-          // The Architect orchestrates builders.
-          ...(options.architectMode ? [dispatchTaskTool] : []),
-          // The specialists are callable from Engineer Mode (on the user's
-          // ask) and Architect Mode (in the pipeline).
-          ...(options.architectMode || options.engineerMode
-            ? [designPassTool, opsPassTool, qaPassTool]
-            : []),
-        ];
+    // 058 · Phase C — the Supabase migration tools only make sense when a
+    // resource is linked (they refuse otherwise). Hide them when it is not.
+    const SUPABASE_TOOL_NAMES = new Set(["supabase_apply_migration", "supabase_verify_backend"]);
+    const supabaseLinked = Boolean(options.supabaseBridge);
+    const toolPool = (
+      leanBuilder
+        ? ALL_TOOLS.filter((t) => options.toolNames?.includes(t.name))
+        : [
+            ...ALL_TOOLS,
+            // The Architect orchestrates builders.
+            ...(options.architectMode ? [dispatchTaskTool] : []),
+            // The specialists are callable from Engineer Mode (on the user's
+            // ask) and Architect Mode (in the pipeline).
+            ...(options.architectMode || options.engineerMode
+              ? [designPassTool, opsPassTool, qaPassTool]
+              : []),
+          ]
+    ).filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name));
 
     this.conversation = provider.createConversation({
       systemPrompt:
@@ -1080,18 +1092,6 @@ export class AgentSession {
       )
     ) {
       this.readyDeclaredAtTurn = 0;
-    }
-
-    // A resumed Architect session whose history shows the interview was
-    // already closed keeps the design files unlocked.
-    if (
-      options.architectMode &&
-      ((options.history ?? []).some(
-        (m) => m.role === "assistant" && m.content.includes(ARCHITECT_INTERVIEW_DONE_MARKER),
-      ) ||
-        this.readyDeclaredAtTurn === 0)
-    ) {
-      this.interviewDoneDeclared = true;
     }
   }
 
@@ -1197,14 +1197,14 @@ export class AgentSession {
       // Architect writing the whole package and "build it" in one breath fails
       // both. A resumed session with a ready/drift declaration in its history
       // starts at readyDeclaredAtTurn = 0, so the user's first "build it" there
-      // passes. A filesystem sanity check on top: build-plan.md must exist.
+      // passes. A filesystem completeness check on top (architecturePackageState).
       if (this.readyDeclaredAtTurn === null) {
         return {
           output:
-            "Cannot dispatch — you have not declared the package ready yet. Finish the interview, write " +
-            `the full package (decisions, data-model, api, infrastructure, build-plan, risks), run the ` +
-            `challenge pass, and write the "${ARCHITECT_READY_MARKER}" line. Then the user reviews it and ` +
-            "tells you to build.",
+            "Cannot dispatch — you have not declared the package ready yet. Finish the full package " +
+            "(decisions, data-model, api, DESIGN, infrastructure, build-plan, build-context, risks; " +
+            "backend when it uses Supabase), run the challenge pass, and write the " +
+            `"${ARCHITECT_READY_MARKER}" line. Then the user reviews it and tells you to build.`,
           isError: true,
         };
       }
@@ -1382,6 +1382,13 @@ export class AgentSession {
       ...(this.options.baseUrl ? { baseUrl: this.options.baseUrl } : {}),
       ...(this.options.anthropicWorkspaceId
         ? { anthropicWorkspaceId: this.options.anthropicWorkspaceId }
+        : {}),
+      // 058 · Phase C — dispatched builders and the verifier inherit the
+      // Supabase bridge and the preview config, so a backend build task can
+      // apply its migration and the verifier can check it.
+      ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
+      ...(this.options.supabasePreviewEnv
+        ? { supabasePreviewEnv: this.options.supabasePreviewEnv }
         : {}),
       runtime: this.options.runtime,
       maxIterations: childTurnCap,
@@ -1738,13 +1745,6 @@ export class AgentSession {
       this.options.engineerMode || this.options.architectMode
         ? await this.listAllFilePaths()
         : new Set<string>();
-    // Architect Mode: at most this many genuinely-new files under
-    // `architecture/` per turn. The design and the interview are meant to be
-    // incremental — a whole package produced in one turn is the "built it all
-    // by itself" failure. New paths only; editing what already exists is
-    // unlimited.
-    const ARCHITECT_NEW_FILES_PER_TURN = 4;
-    const newArchFilesThisTurn = new Set<string>();
     // Architect Mode: when the user opens their message by telling the
     // Architect to stop, wait, pause, or hold on, no builder is dispatched
     // that turn — dispatch is expensive and hard to undo, so "stop" always
@@ -1818,6 +1818,10 @@ export class AgentSession {
       signal,
       onFileChanged: (path) => changedFiles.add(path),
       log: () => undefined,
+      ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
+      ...(this.options.supabasePreviewEnv
+        ? { supabasePreviewEnv: this.options.supabasePreviewEnv }
+        : {}),
     };
 
     try {
@@ -1998,26 +2002,6 @@ export class AgentSession {
           break;
         }
 
-        // If the Architect declared the interview complete earlier in THIS
-        // turn, unlock the design files now so it can start the package in
-        // the same turn instead of needing another round.
-        if (
-          this.options.architectMode &&
-          !this.interviewDoneDeclared &&
-          assistantText.includes(ARCHITECT_INTERVIEW_DONE_MARKER)
-        ) {
-          const close = await this.validateInterviewClose();
-          if (close.ok) {
-            this.interviewDoneDeclared = true;
-          } else if (!this.interviewCloseRefusedOnce) {
-            this.interviewCloseRefusedOnce = true;
-            this.conversation.addUserMessage(
-              `The "${ARCHITECT_INTERVIEW_DONE_MARKER}" line was not accepted: ${close.reason} ` +
-                "The design files stay locked until that is fixed.",
-            );
-          }
-        }
-
         // Tool calls in one assistant turn are independent: run them
         // concurrently and return every result together.
         const results = await Promise.all(
@@ -2099,26 +2083,6 @@ export class AgentSession {
               newFilesThisTurn.add(path);
             }
             const capped = blockedByCheckpoint || newFileCapped;
-            // Architect Mode per-turn new-file cap: at most
-            // ARCHITECT_NEW_FILES_PER_TURN genuinely-new files under
-            // `architecture/`. Forces the interview and the design to be
-            // incremental instead of a one-turn package dump. Editing files
-            // that already exist is not capped.
-            const archNewPath =
-              this.options.architectMode &&
-              toolCall.name === "write_file" &&
-              typeof toolCall.input.path === "string" &&
-              toolCall.input.path.startsWith(ARCHITECT_WRITE_ROOT) &&
-              !existingFilesAtTurnStart.has(toolCall.input.path) &&
-              !newArchFilesThisTurn.has(toolCall.input.path)
-                ? toolCall.input.path
-                : undefined;
-            const architectFileCapped =
-              archNewPath !== undefined &&
-              newArchFilesThisTurn.size >= ARCHITECT_NEW_FILES_PER_TURN;
-            if (archNewPath !== undefined && !architectFileCapped) {
-              newArchFilesThisTurn.add(archNewPath);
-            }
             // Architect Mode plans only. Refuse execution tools and any write
             // outside `architecture/`, at the boundary, before the real tool
             // runs.
@@ -2212,18 +2176,6 @@ export class AgentSession {
                 toolCall.name === "design_pass" ||
                 toolCall.name === "ops_pass" ||
                 toolCall.name === "qa_pass");
-            // Interview not closed yet: the only package files that may be
-            // written are requirements.md and README.md.
-            const archInterviewPath =
-              typeof (toolCall.input as { path?: unknown }).path === "string"
-                ? (toolCall.input as { path: string }).path
-                : "";
-            const architectInterviewGated =
-              !!this.options.architectMode &&
-              !this.interviewDoneDeclared &&
-              (toolCall.name === "write_file" || toolCall.name === "edit_file") &&
-              archInterviewPath.startsWith(ARCHITECT_WRITE_ROOT) &&
-              !ARCHITECT_INTERVIEW_WRITABLE.has(archInterviewPath);
             // 055 follow-up — refuse the same exact call repeated past the
             // limit. Read-only tools only: a repeated write/edit/dispatch has
             // its own gates, and this must never block a legitimate retry of
@@ -2279,125 +2231,100 @@ export class AgentSession {
                         "designing after that; the decision is theirs to act on.",
                       isError: true,
                     }
-                  : architectInterviewGated
-                    ? {
-                        output:
-                          `The interview is not closed yet, so "${archInterviewPath}" is refused. During the ` +
-                          "interview you may write only architecture/requirements.md and architecture/README.md. " +
-                          "Do not just retry — talk to the user: tell them which topics are still open and that " +
-                          "finishing them is what keeps the build from guessing wrong. If they want to skip the " +
-                          "plan entirely, point them to the Engineer (compass button off, hard-hat button on). " +
-                          "Otherwise keep asking one topic per turn, and when every topic is covered (or they " +
-                          `say to proceed) write a line beginning exactly "${ARCHITECT_INTERVIEW_DONE_MARKER}" — ` +
-                          "after that the decisions, data model, API, and build plan open up.",
-                        isError: true,
-                      }
-                    : architectFileCapped
-                      ? {
-                          output:
-                            `Architect Mode created ${ARCHITECT_NEW_FILES_PER_TURN} new files under ` +
-                            `${ARCHITECT_WRITE_ROOT} this turn — refusing another ("${archNewPath}"). ` +
-                            "Stop here. Summarize what you wrote and, if you are still in the interview, ask " +
-                            "the next question. The user's next message continues it with a fresh budget. The " +
-                            "design is meant to be built up over several turns, not dumped in one.",
-                          isError: true,
-                        }
-                      : toolCall.name === "dispatch_task"
-                        ? await this.dispatchBuildTask(
-                            toolCall.input as Record<string, unknown>,
-                            signal,
-                            toolContext.onFileChanged,
-                            emit,
-                            messageId,
-                          )
-                        : toolCall.name === "design_pass" ||
-                            toolCall.name === "ops_pass" ||
-                            toolCall.name === "qa_pass"
-                          ? await this.dispatchBuildTask(
-                              (() => {
-                                const kind: SpecialistKind =
-                                  toolCall.name === "design_pass"
-                                    ? "designer"
-                                    : toolCall.name === "ops_pass"
-                                      ? "devops"
-                                      : "security";
-                                const inp = toolCall.input as { scope?: unknown; notes?: unknown };
-                                return {
-                                  task:
-                                    typeof inp.scope === "string" && inp.scope.trim()
-                                      ? inp.scope
-                                      : "the whole project",
-                                  acceptanceCriteria: SPECIALISTS[kind].dod,
-                                  ...(typeof inp.notes === "string" ? { notes: inp.notes } : {}),
-                                  [kind === "designer"
-                                    ? "design"
-                                    : kind === "devops"
-                                      ? "ops"
-                                      : "qa"]: true,
-                                };
-                              })(),
-                              signal,
-                              toolContext.onFileChanged,
-                              emit,
-                              messageId,
-                            )
-                          : architectBlock
+                  : toolCall.name === "dispatch_task"
+                    ? await this.dispatchBuildTask(
+                        toolCall.input as Record<string, unknown>,
+                        signal,
+                        toolContext.onFileChanged,
+                        emit,
+                        messageId,
+                      )
+                    : toolCall.name === "design_pass" ||
+                        toolCall.name === "ops_pass" ||
+                        toolCall.name === "qa_pass"
+                      ? await this.dispatchBuildTask(
+                          (() => {
+                            const kind: SpecialistKind =
+                              toolCall.name === "design_pass"
+                                ? "designer"
+                                : toolCall.name === "ops_pass"
+                                  ? "devops"
+                                  : "security";
+                            const inp = toolCall.input as { scope?: unknown; notes?: unknown };
+                            return {
+                              task:
+                                typeof inp.scope === "string" && inp.scope.trim()
+                                  ? inp.scope
+                                  : "the whole project",
+                              acceptanceCriteria: SPECIALISTS[kind].dod,
+                              ...(typeof inp.notes === "string" ? { notes: inp.notes } : {}),
+                              [kind === "designer" ? "design" : kind === "devops" ? "ops" : "qa"]:
+                                true,
+                            };
+                          })(),
+                          signal,
+                          toolContext.onFileChanged,
+                          emit,
+                          messageId,
+                        )
+                      : architectBlock
+                        ? {
+                            output:
+                              architectBlock === "exec"
+                                ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
+                                  "disabled for this session. You are planning, not building. Write the design into " +
+                                  `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
+                                : architectBlock === "artifact"
+                                  ? `Architect Mode writes only the design package under ${ARCHITECT_WRITE_ROOT} — refusing ` +
+                                    `"${String((toolCall.input as { path?: unknown }).path ?? "")}". Allowed: README.md, ` +
+                                    "requirements.md, data-model.md, api.md, DESIGN.md, infrastructure.md, backend.md, " +
+                                    "build-plan.md, build-context.md, risks.md, OPERATIONS.md, QA.md, " +
+                                    "decisions/NNNN-<slug>.md, and report.html. Nothing else — no config, no code, no scripts."
+                                  : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
+                                    `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
+                                    `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
+                            isError: true,
+                          }
+                        : scopeBlock
+                          ? {
+                              output:
+                                scopeBlock === "path"
+                                  ? `This specialist has a fixed write scope — refusing "${toolCall.name}" on ` +
+                                    `"${String((toolCall.input as { path?: unknown }).path ?? "")}". It writes only its ` +
+                                    "own spec file and the files it is allowed to implement (see your instructions) — " +
+                                    "not application code, the data model, the server, or other architecture/* files. " +
+                                    "A change outside that scope goes in your review as a report, not the diff."
+                                  : scopeBlock === "pkgjson"
+                                    ? "Refusing this package.json write — a specialist may change the `scripts` block " +
+                                      "only, nothing else (no dependencies, no config). Name what you need in your review " +
+                                      "for the Engineer to add."
+                                    : "Refusing this install — this specialist does not add dependencies. Name the " +
+                                      "package you need in your review for the Engineer to add, and work with what is " +
+                                      "already in package.json.",
+                              isError: true,
+                            }
+                          : capped
                             ? {
-                                output:
-                                  architectBlock === "exec"
-                                    ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
-                                      "disabled for this session. You are planning, not building. Write the design into " +
-                                      `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
-                                    : architectBlock === "artifact"
-                                      ? `Architect Mode writes only the design package under ${ARCHITECT_WRITE_ROOT} — refusing ` +
-                                        `"${String((toolCall.input as { path?: unknown }).path ?? "")}". Allowed: README.md, ` +
-                                        "requirements.md, data-model.md, api.md, infrastructure.md, build-plan.md, risks.md, " +
-                                        "decisions/NNNN-<slug>.md, and report.html. Nothing else — no config, no code, no scripts."
-                                      : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
-                                        `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
-                                        `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
+                                output: newFileCapped
+                                  ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
+                                    `create another new file ("${path}"). Nothing that changes the project will run for the ` +
+                                    "rest of this turn, not just new files. Stop here: your final message should summarize " +
+                                    "what exists so far, and if you're not certain this is actually what was asked, ask the " +
+                                    "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
+                                    "— the user's next message continues it, with a fresh checkpoint of its own."
+                                  : finishPhase
+                                    ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint holds for NEW files and deletes — ` +
+                                      `refusing "${toolCall.name}"${path ? ` on "${path}"` : ""}. You're past the checkpoint and ` +
+                                      "into the finish phase: edit_file and run_command on files that already exist still work, " +
+                                      "so use them to typecheck, build, preview, and tune what you built. A new file here means " +
+                                      "this is bigger than one turn — stop, summarize what exists, and let the next message " +
+                                      "continue it with a fresh checkpoint."
+                                    : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
+                                      `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
+                                      "now instead.",
                                 isError: true,
                               }
-                            : scopeBlock
-                              ? {
-                                  output:
-                                    scopeBlock === "path"
-                                      ? `This specialist has a fixed write scope — refusing "${toolCall.name}" on ` +
-                                        `"${String((toolCall.input as { path?: unknown }).path ?? "")}". It writes only its ` +
-                                        "own spec file and the files it is allowed to implement (see your instructions) — " +
-                                        "not application code, the data model, the server, or other architecture/* files. " +
-                                        "A change outside that scope goes in your review as a report, not the diff."
-                                      : scopeBlock === "pkgjson"
-                                        ? "Refusing this package.json write — a specialist may change the `scripts` block " +
-                                          "only, nothing else (no dependencies, no config). Name what you need in your review " +
-                                          "for the Engineer to add."
-                                        : "Refusing this install — this specialist does not add dependencies. Name the " +
-                                          "package you need in your review for the Engineer to add, and work with what is " +
-                                          "already in package.json.",
-                                  isError: true,
-                                }
-                              : capped
-                                ? {
-                                    output: newFileCapped
-                                      ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
-                                        `create another new file ("${path}"). Nothing that changes the project will run for the ` +
-                                        "rest of this turn, not just new files. Stop here: your final message should summarize " +
-                                        "what exists so far, and if you're not certain this is actually what was asked, ask the " +
-                                        "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
-                                        "— the user's next message continues it, with a fresh checkpoint of its own."
-                                      : finishPhase
-                                        ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint holds for NEW files and deletes — ` +
-                                          `refusing "${toolCall.name}"${path ? ` on "${path}"` : ""}. You're past the checkpoint and ` +
-                                          "into the finish phase: edit_file and run_command on files that already exist still work, " +
-                                          "so use them to typecheck, build, preview, and tune what you built. A new file here means " +
-                                          "this is bigger than one turn — stop, summarize what exists, and let the next message " +
-                                          "continue it with a fresh checkpoint."
-                                        : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
-                                          `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
-                                          "now instead.",
-                                    isError: true,
-                                  }
-                                : await executeTool(toolContext, toolCall.name, toolCall.input);
+                            : await executeTool(toolContext, toolCall.name, toolCall.input);
             // Validate the whole report.html after the write. This is a
             // fail-fast advisory (the render-time sanitiser in PlanPanel is
             // the authoritative control); on a trip it rolls the file back
@@ -2638,27 +2565,6 @@ export class AgentSession {
         this.readyDeclaredAtTurn = this.turns;
       }
 
-      // Once the Architect closes the interview, the design files unlock for
-      // every following turn. A marker over a status block that still has a
-      // `blocked` row is refused ONCE, with a reason — after that, or if the
-      // block is fine, it is honoured. Never wedges.
-      if (
-        this.options.architectMode &&
-        !this.interviewDoneDeclared &&
-        assistantText.includes(ARCHITECT_INTERVIEW_DONE_MARKER)
-      ) {
-        const close = await this.validateInterviewClose();
-        if (close.ok) {
-          this.interviewDoneDeclared = true;
-        } else {
-          this.interviewCloseRefusedOnce = true;
-          this.conversation.addUserMessage(
-            `The "${ARCHITECT_INTERVIEW_DONE_MARKER}" line was not accepted: ${close.reason} ` +
-              "The design files stay locked until that is fixed.",
-          );
-        }
-      }
-
       emit({
         type: "turn.end",
         sessionId: this.id,
@@ -2872,58 +2778,34 @@ export class AgentSession {
   }
 
   /**
-   * Whether an "Interview complete:" line may be honoured. The one genuinely
-   * load-bearing check: a status-block table ROW whose status cell
-   * is exactly `blocked` means the interview is not done. Everything else
-   * about the block ("a row per topic", "assumed needs the user's go-ahead")
-   * is prompt guidance, not a code gate — parsing a model-authored table
-   * strictly enough to enforce that reliably is not worth wedging a session
-   * over. And this check is ONE-SHOT: after it has refused once and told the
-   * model why, a re-declared marker is honoured regardless, so a
-   * misformatted table can never trap the user in a loop.
-   */
-  private async validateInterviewClose(): Promise<{ ok: boolean; reason: string }> {
-    if (this.interviewCloseRefusedOnce) return { ok: true, reason: "" };
-    const reqs = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}requirements.md`);
-    if (reqs === null) {
-      return {
-        ok: false,
-        reason:
-          "architecture/requirements.md does not exist yet — write it (with the per-topic status " +
-          "block at the top) before declaring the interview complete.",
-      };
-    }
-    // Only real Markdown table rows: "| cell | cell | ... |". A topic is
-    // blocked only when one of its cells is exactly the word "blocked" — not
-    // when some prose sentence elsewhere in the file happens to contain it.
-    const blockedRow = reqs
-      .split("\n")
-      .filter((l) => /^\s*\|.*\|\s*$/.test(l))
-      .map((l) => l.split("|").map((c) => c.trim()))
-      .find((cells) => cells.some((c) => /^blocked$/i.test(c)));
-    if (blockedRow) {
-      const topic = blockedRow.find((c) => c && !/^blocked$/i.test(c)) ?? "a topic";
-      return {
-        ok: false,
-        reason:
-          `the status block still marks "${topic}" as blocked. Resolve it or raise it with the ` +
-          "user, then re-declare — this check will not stop you a second time.",
-      };
-    }
-    return { ok: true, reason: "" };
-  }
-
-  /**
-   * Whether the architecture package is far enough along that a task may be
-   * handed to a builder. A design that is still an interview has
-   * no build-plan and no decision records; dispatching from it is the failure
-   * this gate exists to stop. Checked against the filesystem, so it holds on a
-   * fresh session and a resumed one alike.
+   * Whether the architecture package is complete enough to hand a task to a
+   * builder. There is no interview gate any more — the Architect decides when
+   * it has enough and moves on — so this is the one structural check that the
+   * package is actually finished: every required file exists and is real, the
+   * build plan has tasks, and a Supabase design has its `backend.md`. Checked
+   * against the filesystem, so it holds on a fresh session and a resumed one
+   * alike. DESIGN.md and build-context.md are in the list on purpose: a weak
+   * model that narrates them without writing them is caught here.
    */
   private async architecturePackageState(): Promise<{ ready: boolean; reason: string }> {
     const files = await this.listAllFilePaths();
-    if (!files.has(`${ARCHITECT_WRITE_ROOT}build-plan.md`)) {
-      return { ready: false, reason: "There is no architecture/build-plan.md yet." };
+    const required = [
+      "requirements.md",
+      "data-model.md",
+      "api.md",
+      "DESIGN.md",
+      "topology.json",
+      "infrastructure.md",
+      "build-plan.md",
+      "build-context.md",
+      "risks.md",
+    ];
+    const missing = required.filter((f) => !files.has(`${ARCHITECT_WRITE_ROOT}${f}`));
+    if (missing.length > 0) {
+      return {
+        ready: false,
+        reason: `The package is missing ${missing.map((f) => `architecture/${f}`).join(", ")}.`,
+      };
     }
     const hasDecision = [...files].some(
       (p) => p.startsWith(`${ARCHITECT_WRITE_ROOT}decisions/`) && p.endsWith(".md"),
@@ -2931,13 +2813,48 @@ export class AgentSession {
     if (!hasDecision) {
       return { ready: false, reason: "architecture/decisions/ has no records yet." };
     }
-    const plan = await this.options.runtime
-      .readFile(this.projectId, `${ARCHITECT_WRITE_ROOT}build-plan.md`)
-      .then((f) => f.content)
-      .catch(() => "");
+    const plan = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}build-plan.md`);
     // A stub or a heading with nothing under it is not a plan.
-    if (plan.replace(/\s+/g, "").length < 120 || !/\bTask\b|\btask\b|^- /m.test(plan)) {
+    if (
+      (plan ?? "").replace(/\s+/g, "").length < 120 ||
+      !/\bTask\b|\btask\b|^- /m.test(plan ?? "")
+    ) {
       return { ready: false, reason: "architecture/build-plan.md has no real tasks yet." };
+    }
+    // DESIGN.md must be a real first draft, not a stub the model left to
+    // "deepen later".
+    const design = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}DESIGN.md`);
+    if ((design ?? "").replace(/\s+/g, "").length < 400) {
+      return {
+        ready: false,
+        reason:
+          "architecture/DESIGN.md is a stub — write the real design system before dispatching.",
+      };
+    }
+    // topology.json must parse and describe a real runtime, not `{}`.
+    const topoRaw = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}topology.json`);
+    const topo = topoRaw ? parseTopology(topoRaw) : null;
+    if (!topo || topo.nodes.length < 2) {
+      return {
+        ready: false,
+        reason:
+          "architecture/topology.json is missing, malformed, or has fewer than two nodes — " +
+          "model the real runtime (layers, nodes, edges) before dispatching.",
+      };
+    }
+    // A Supabase design needs its backend spec. If the package talks about
+    // Supabase anywhere load-bearing and there is no backend.md, it is not done.
+    if (!files.has(`${ARCHITECT_WRITE_ROOT}backend.md`)) {
+      const reqs = (await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}requirements.md`)) ?? "";
+      const dataModel = (await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}data-model.md`)) ?? "";
+      if (/\bsupabase\b/i.test(reqs) || /\bsupabase\b/i.test(dataModel)) {
+        return {
+          ready: false,
+          reason:
+            "The design uses Supabase but there is no architecture/backend.md — write the backend spec " +
+            "(schema, grants, RLS, auth, key map, migration plan) before dispatching.",
+        };
+      }
     }
     return { ready: true, reason: "" };
   }

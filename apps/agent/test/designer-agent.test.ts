@@ -82,6 +82,35 @@ async function setup(
       path.join(workspaceDir, projectId, "architecture", "decisions", "0001-stack.md"),
       "# 0001 — stack\nContext: x. Alternatives: a, b. Chosen: a. Consequence: y. Status: accepted.\n",
     );
+    // The rest of the required package set so architecturePackageState() passes.
+    for (const [name, body] of [
+      ["requirements.md", "# Requirements\nA small app. No accounts.\n"],
+      ["data-model.md", "# Data model\nNo persisted entities.\n"],
+      ["api.md", "# API\nNo network API.\n"],
+      [
+        "topology.json",
+        JSON.stringify({
+          layers: [
+            { id: "client", label: "Client" },
+            { id: "host", label: "Host" },
+          ],
+          nodes: [
+            { id: "app", label: "SPA", layer: "client" },
+            { id: "cdn", label: "CDN", layer: "host" },
+          ],
+          edges: [{ from: "app", to: "cdn" }],
+        }),
+      ],
+      ["infrastructure.md", "# Infrastructure\nStatic host.\n"],
+      ["build-context.md", "# Build context\nReact + Vite + TS. See DESIGN.md.\n"],
+      ["risks.md", "# Risks\nNone.\n"],
+      [
+        "DESIGN.md",
+        `Designed from first principles — no reference fit\n\n# Design system\n\n## Principles\n- Calm, dense, fast. Nothing decorative gets in the way of the content.\n- One accent colour, used sparingly and only where an action lives.\n- Motion is used only to explain a change of state, never for delight alone.\n- Every interactive element has a visible focus state and a real disabled state.\n- Density over whitespace: this is a tool for people who use it all day.\n\n## Colour roles\n- surface: #ffffff / #0b0b0c\n- surface-raised: #f7f7f8 / #16161a\n- text: #14151a / #f4f4f5\n- text-muted: #5b5b66 / #a1a1aa\n- accent: #3b5bfd\n- accent-text: #ffffff\n- border: #e4e4e7 / #26262b\n- danger: #dc2626\n\n## Type\n- UI: Inter, system-ui fallback. Scale 12 / 14 / 16 / 20 / 28 / 36.\n- Line height 1.5 for body, 1.2 for headings. Weight 400 / 500 / 600.\n\n## Spacing / radius / elevation\n- 4px base step; the scale is 4 / 8 / 12 / 16 / 24 / 32 / 48.\n- Radius 6px on controls, 10px on cards, 999px on pills.\n- One shadow token for popovers and dialogs; nothing else is raised.\n\n## Components\n- Button (primary / secondary / ghost / danger), Input, Select, Checkbox, Card,\n  Dialog, Toast, Tabs, Table. Each with hover / focus / active / disabled /\n  loading / empty / error states fully specified.\n`,
+      ],
+    ] as const) {
+      await fs.writeFile(path.join(workspaceDir, projectId, "architecture", name), body);
+    }
   }
   const config: AgentConfig = {
     host: "127.0.0.1",
