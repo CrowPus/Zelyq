@@ -32,7 +32,9 @@ test("architect mode on adds the addendum with the interview, the package, the c
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", architectMode: {} });
   assert.match(prompt, /<architect_mode>/);
   assert.match(prompt, /## 1\. Interview —/);
-  assert.match(prompt, /There is no script and no fixed list/);
+  assert.match(prompt, /No script, no fixed checklist/);
+  assert.match(prompt, /at least \*\*five substantial questions\*\*/);
+  assert.match(prompt, /Never decide a load-bearing question for the user/);
   assert.match(prompt, /decisions\/NNNN/);
   assert.match(prompt, /Challenge the package before presenting/);
   assert.match(prompt, /report\.html/);
