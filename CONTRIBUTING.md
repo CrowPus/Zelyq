@@ -134,5 +134,13 @@ Do not open a public issue for a vulnerability. Follow [SECURITY.md](./SECURITY.
 
 ## Licence
 
-By contributing you agree that your contributions are licensed under the
-[Apache License 2.0](./LICENSE).
+Zelyq is source-available under the [Sustainable Use License](./LICENSE), with
+"Zelyq Enterprise" components under the [Zelyq Enterprise License](./LICENSE_EE.md).
+See [LICENSING.md](./LICENSING.md).
+
+Contributions are accepted under a [Contributor License Agreement](./CLA.md). It
+keeps your copyright with you while letting the project offer Zelyq under both the
+Sustainable Use License and a commercial license. You accept it by signing off
+your commits (`git commit -s` adds a `Signed-off-by` line) and confirming when
+prompted on your first pull request. Contributions to `research/` are instead
+covered by CC BY 4.0, per [research/00-front-matter/02-copyright.md](./research/00-front-matter/02-copyright.md).

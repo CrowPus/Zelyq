@@ -2,7 +2,7 @@
   "name": "@zelyq/core",
   "version": "0.1.0",
   "description": "Shared domain types and wire protocol for Zelyq.",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

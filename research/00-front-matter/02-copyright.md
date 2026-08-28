@@ -46,9 +46,9 @@ The inclusion of third-party material does not transfer ownership of that materi
 
 ## Software and research artifacts
 
-The Zelyq software repository is licensed separately under the [Apache License 2.0](../../LICENSE).
+The Zelyq software repository is licensed separately under the [Sustainable Use License](../../LICENSE), with "Zelyq Enterprise" components under the [Zelyq Enterprise License](../../LICENSE_EE.md). Releases up to and including `v0.1.0` remain available under Apache-2.0.
 
-Source code or executable software included within the research may be marked as Apache-2.0 or another compatible open-source license. Data, figures, and research artifacts may require their own notices. When a specific notice is present, that notice governs the identified material.
+Source code or executable software included within the research may be marked with its own license. Data, figures, and research artifacts may require their own notices. When a specific notice is present, that notice governs the identified material.
 
 ## Trademarks
 

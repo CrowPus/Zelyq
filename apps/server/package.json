@@ -2,7 +2,7 @@
   "name": "@zelyq/server",
   "version": "0.1.0",
   "description": "Zelyq API server — projects, files, previews, and the browser WebSocket gateway.",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

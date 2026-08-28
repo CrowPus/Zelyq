@@ -2,7 +2,7 @@
   "name": "@zelyq/web",
   "version": "0.1.0",
   "description": "Zelyq web client — project list, chat, file explorer, and live preview.",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "type": "module",
   "scripts": {
