@@ -52,11 +52,11 @@ test("provider ids are validated, not trusted", () => {
 test("each provider brings its own default model", () => {
   assert.equal(defaultModelFor("anthropic"), "claude-opus-5");
   assert.match(defaultModelFor("google"), /^gemini-/);
-  assert.equal(defaultModelFor("deepseek"), "deepseek-chat");
+  assert.equal(defaultModelFor("deepseek"), "deepseek-v4-flash");
   assert.equal(defaultModelFor("mistral"), "mistral-large-latest");
-  assert.equal(defaultModelFor("xai"), "grok-4");
+  assert.equal(defaultModelFor("xai"), "grok-4.6");
   assert.equal(defaultModelFor("groq"), "llama-3.3-70b-versatile");
-  assert.equal(defaultModelFor("openrouter"), "anthropic/claude-sonnet-4.5");
+  assert.equal(defaultModelFor("openrouter"), "anthropic/claude-sonnet-4.6");
   // Only `custom` has no default — the server it points at is the user's,
   // and guessing a model produces a 404 that reads like our bug.
   assert.equal(defaultModelFor("custom"), "");
@@ -107,7 +107,7 @@ test("a custom endpoint with no model refuses rather than guesses", () => {
     /no default model|model/i,
   );
   // Naming a model explicitly always works, even with no registry default.
-  const grok = createProvider({ provider: "xai", model: "grok-4", apiKey: "x" });
+  const grok = createProvider({ provider: "xai", model: "grok-4.6", apiKey: "x" });
   assert.equal(grok.id, "xai");
 });
 

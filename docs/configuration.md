@@ -76,20 +76,20 @@ server-side. Microphone access requires a secure browser context (`https` or loc
 | Provider | Default model | Endpoint | Key from |
 | --- | --- | --- | --- |
 | `anthropic` | `claude-opus-5` | vendor | <https://console.anthropic.com/settings/keys> |
-| `google` | `gemini-3.7-flash` | vendor | <https://aistudio.google.com/apikey> |
-| `openai` | `gpt-5.1` | `https://api.openai.com/v1` | <https://platform.openai.com/api-keys> |
-| `deepseek` | `deepseek-chat` | `https://api.deepseek.com/v1` | <https://platform.deepseek.com/api_keys> |
+| `google` | `gemini-2.5-pro` | vendor | <https://aistudio.google.com/apikey> |
+| `openai` | `gpt-5.2` | `https://api.openai.com/v1` | <https://platform.openai.com/api-keys> |
+| `deepseek` | `deepseek-v4-flash` | `https://api.deepseek.com/v1` | <https://platform.deepseek.com/api_keys> |
 | `mistral` | `mistral-large-latest` | `https://api.mistral.ai/v1` | <https://console.mistral.ai/api-keys> |
-| `xai` | none — set `ZELYQ_MODEL` | `https://api.x.ai/v1` | <https://console.x.ai> |
-| `groq` | none — set `ZELYQ_MODEL` | `https://api.groq.com/openai/v1` | <https://console.groq.com/keys> |
-| `openrouter` | none — set `ZELYQ_MODEL` | `https://openrouter.ai/api/v1` | <https://openrouter.ai/keys> |
+| `xai` | `grok-4.6` | `https://api.x.ai/v1` | <https://console.x.ai> |
+| `openrouter` | `anthropic/claude-sonnet-4.6` | `https://openrouter.ai/api/v1` | <https://openrouter.ai/keys> |
+| `groq` | `llama-3.3-70b-versatile` | `https://api.groq.com/openai/v1` | <https://console.groq.com/keys> |
 | `custom` | none — set `ZELYQ_MODEL` | you supply it | usually none |
 
-`xai`, `groq`, and `openrouter` have no default model yet — not an oversight: a hosted vendor's model
-name is only worth defaulting to once it has actually been confirmed against a real account, and
-none of these three has been yet (Groq and OpenRouter also both rotate or aggregate models by
-nature, so a fixed default would go stale fast even once one is picked). Set `ZELYQ_MODEL` to the
-exact name the vendor reports.
+Only `custom` has no default model — the endpoint's catalogue is the operator's own, and guessing a
+name produces a 404 that reads like a Zelyq bug. The other defaults were verified live (`openai`,
+`google`) or against the vendor's own 2026 docs; Groq rotates its IDs often, so treat its default as
+a starting point. `model` is always free text, so a newer name can be typed in Settings the day it
+ships.
 
 Only the selected provider's key is needed. `GET /api/health` reports the active provider and
 model, and the agent's `GET /providers` lists every provider with a `configured` flag saying whether
