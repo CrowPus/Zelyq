@@ -925,6 +925,12 @@ export class AgentSession {
   // misformatted status table can never trap the user in a loop.
   private interviewCloseRefusedOnce = false;
 
+  // 055 follow-up #2 — how many turns in a row have ended having hit the
+  // iteration cap with the build broken. After the second, "keep going" is
+  // no longer the recommended action — the turn is not converging and the
+  // token spend is not buying progress. Reset to 0 by any clean turn end.
+  private cappedBrokenStreak = 0;
+
   // 047 Phase 3 — orchestration run state. Session-scoped, so "build the plan"
   // can span turns against one running total. `killed` is the kill switch;
   // once set, no further builders dispatch and nothing resumes on its own.
@@ -1720,6 +1726,13 @@ export class AgentSession {
     // model to change approach or stop.
     const IDENTICAL_CALL_LIMIT = 5;
     const identicalCallCounts = new Map<string, number>();
+    // 055 follow-up #2 — the loop above also happens with the pattern
+    // *varied*: read/search/edit the same big file over and over, never
+    // converging (seen live on a 1000-line store file with gemini-flash).
+    // Count every read/search/edit against the file's path; past the limit,
+    // refuse further work on THAT path this turn.
+    const PATH_CHURN_LIMIT = 8;
+    const pathChurnCounts = new Map<string, number>();
     let assistantText = "";
     let thinkingText = "";
 
@@ -2145,12 +2158,22 @@ export class AgentSession {
             const callSignature = `${toolCall.name}:${JSON.stringify(toolCall.input)}`;
             const priorIdentical = identicalCallCounts.get(callSignature) ?? 0;
             identicalCallCounts.set(callSignature, priorIdentical + 1);
-            const identicalCallCapped =
-              priorIdentical >= IDENTICAL_CALL_LIMIT &&
-              (toolCall.name === "read_file" ||
-                toolCall.name === "search_files" ||
-                toolCall.name === "list_files" ||
-                toolCall.name === "grep");
+            const isReadishTool =
+              toolCall.name === "read_file" ||
+              toolCall.name === "search_files" ||
+              toolCall.name === "list_files" ||
+              toolCall.name === "grep";
+            const identicalCallCapped = priorIdentical >= IDENTICAL_CALL_LIMIT && isReadishTool;
+            // Per-path churn: read/search/edit against one path, however the
+            // input varies. Past the limit, refuse further work on that path.
+            const churnPath =
+              typeof (toolCall.input as { path?: unknown }).path === "string" &&
+              (isReadishTool || toolCall.name === "edit_file" || toolCall.name === "write_file")
+                ? pathPosix.normalize((toolCall.input as { path: string }).path)
+                : null;
+            const priorChurn = churnPath ? (pathChurnCounts.get(churnPath) ?? 0) : 0;
+            if (churnPath) pathChurnCounts.set(churnPath, priorChurn + 1);
+            const pathChurnCapped = churnPath !== null && priorChurn >= PATH_CHURN_LIMIT;
             const preOutcome = identicalCallCapped
               ? {
                   output:
@@ -2161,127 +2184,140 @@ export class AgentSession {
                     "call is refused for the rest of the turn.",
                   isError: true,
                 }
-              : haltBlocked
+              : pathChurnCapped
                 ? {
                     output:
-                      "The user asked you to stop, so no builder is being dispatched. Talk to them: say " +
-                      "where the plan stands and what is still unfinished. If they are insisting you build " +
-                      "it anyway, tell them plainly that what they want now is the Engineer, not the " +
-                      "Architect — you design and do not write application code — and walk them through the " +
-                      "switch (turn Architect Mode off with the compass button, turn Engineer Mode on with " +
-                      "the hard-hat button, describe what they want built). Do not keep interviewing or " +
-                      "designing after that; the decision is theirs to act on.",
+                      `You have read / searched / edited "${churnPath}" ${priorChurn} times this ` +
+                      "turn without converging. Stop working this file: either the change is larger " +
+                      "than one turn — say so plainly and stop, the user's next message continues it " +
+                      "— or you are going in circles. Do NOT read, search, or edit this file again " +
+                      "this turn. Write your summary of what stands now.",
                     isError: true,
                   }
-                : architectInterviewGated
+                : haltBlocked
                   ? {
                       output:
-                        `The interview is not closed yet, so "${archInterviewPath}" is refused. During the ` +
-                        "interview you may write only architecture/requirements.md and architecture/README.md. " +
-                        "Do not just retry — talk to the user: tell them which topics are still open and that " +
-                        "finishing them is what keeps the build from guessing wrong. If they want to skip the " +
-                        "plan entirely, point them to the Engineer (compass button off, hard-hat button on). " +
-                        "Otherwise keep asking one topic per turn, and when every topic is covered (or they " +
-                        `say to proceed) write a line beginning exactly "${ARCHITECT_INTERVIEW_DONE_MARKER}" — ` +
-                        "after that the decisions, data model, API, and build plan open up.",
+                        "The user asked you to stop, so no builder is being dispatched. Talk to them: say " +
+                        "where the plan stands and what is still unfinished. If they are insisting you build " +
+                        "it anyway, tell them plainly that what they want now is the Engineer, not the " +
+                        "Architect — you design and do not write application code — and walk them through the " +
+                        "switch (turn Architect Mode off with the compass button, turn Engineer Mode on with " +
+                        "the hard-hat button, describe what they want built). Do not keep interviewing or " +
+                        "designing after that; the decision is theirs to act on.",
                       isError: true,
                     }
-                  : architectFileCapped
+                  : architectInterviewGated
                     ? {
                         output:
-                          `Architect Mode created ${ARCHITECT_NEW_FILES_PER_TURN} new files under ` +
-                          `${ARCHITECT_WRITE_ROOT} this turn — refusing another ("${archNewPath}"). ` +
-                          "Stop here. Summarize what you wrote and, if you are still in the interview, ask " +
-                          "the next question. The user's next message continues it with a fresh budget. The " +
-                          "design is meant to be built up over several turns, not dumped in one.",
+                          `The interview is not closed yet, so "${archInterviewPath}" is refused. During the ` +
+                          "interview you may write only architecture/requirements.md and architecture/README.md. " +
+                          "Do not just retry — talk to the user: tell them which topics are still open and that " +
+                          "finishing them is what keeps the build from guessing wrong. If they want to skip the " +
+                          "plan entirely, point them to the Engineer (compass button off, hard-hat button on). " +
+                          "Otherwise keep asking one topic per turn, and when every topic is covered (or they " +
+                          `say to proceed) write a line beginning exactly "${ARCHITECT_INTERVIEW_DONE_MARKER}" — ` +
+                          "after that the decisions, data model, API, and build plan open up.",
                         isError: true,
                       }
-                    : toolCall.name === "dispatch_task"
-                      ? await this.dispatchBuildTask(
-                          toolCall.input as Record<string, unknown>,
-                          signal,
-                          toolContext.onFileChanged,
-                          emit,
-                          messageId,
-                        )
-                      : toolCall.name === "design_pass" ||
-                          toolCall.name === "ops_pass" ||
-                          toolCall.name === "qa_pass"
+                    : architectFileCapped
+                      ? {
+                          output:
+                            `Architect Mode created ${ARCHITECT_NEW_FILES_PER_TURN} new files under ` +
+                            `${ARCHITECT_WRITE_ROOT} this turn — refusing another ("${archNewPath}"). ` +
+                            "Stop here. Summarize what you wrote and, if you are still in the interview, ask " +
+                            "the next question. The user's next message continues it with a fresh budget. The " +
+                            "design is meant to be built up over several turns, not dumped in one.",
+                          isError: true,
+                        }
+                      : toolCall.name === "dispatch_task"
                         ? await this.dispatchBuildTask(
-                            (() => {
-                              const kind: SpecialistKind =
-                                toolCall.name === "design_pass"
-                                  ? "designer"
-                                  : toolCall.name === "ops_pass"
-                                    ? "devops"
-                                    : "security";
-                              const inp = toolCall.input as { scope?: unknown; notes?: unknown };
-                              return {
-                                task:
-                                  typeof inp.scope === "string" && inp.scope.trim()
-                                    ? inp.scope
-                                    : "the whole project",
-                                acceptanceCriteria: SPECIALISTS[kind].dod,
-                                ...(typeof inp.notes === "string" ? { notes: inp.notes } : {}),
-                                [kind === "designer" ? "design" : kind === "devops" ? "ops" : "qa"]:
-                                  true,
-                              };
-                            })(),
+                            toolCall.input as Record<string, unknown>,
                             signal,
                             toolContext.onFileChanged,
                             emit,
                             messageId,
                           )
-                        : architectBlock
-                          ? {
-                              output:
-                                architectBlock === "exec"
-                                  ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
-                                    "disabled for this session. You are planning, not building. Write the design into " +
-                                    `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
-                                  : architectBlock === "artifact"
-                                    ? `Architect Mode writes only the design package under ${ARCHITECT_WRITE_ROOT} — refusing ` +
-                                      `"${String((toolCall.input as { path?: unknown }).path ?? "")}". Allowed: README.md, ` +
-                                      "requirements.md, data-model.md, api.md, infrastructure.md, build-plan.md, risks.md, " +
-                                      "decisions/NNNN-<slug>.md, and report.html. Nothing else — no config, no code, no scripts."
-                                    : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
-                                      `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
-                                      `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
-                              isError: true,
-                            }
-                          : scopeBlock
+                        : toolCall.name === "design_pass" ||
+                            toolCall.name === "ops_pass" ||
+                            toolCall.name === "qa_pass"
+                          ? await this.dispatchBuildTask(
+                              (() => {
+                                const kind: SpecialistKind =
+                                  toolCall.name === "design_pass"
+                                    ? "designer"
+                                    : toolCall.name === "ops_pass"
+                                      ? "devops"
+                                      : "security";
+                                const inp = toolCall.input as { scope?: unknown; notes?: unknown };
+                                return {
+                                  task:
+                                    typeof inp.scope === "string" && inp.scope.trim()
+                                      ? inp.scope
+                                      : "the whole project",
+                                  acceptanceCriteria: SPECIALISTS[kind].dod,
+                                  ...(typeof inp.notes === "string" ? { notes: inp.notes } : {}),
+                                  [kind === "designer"
+                                    ? "design"
+                                    : kind === "devops"
+                                      ? "ops"
+                                      : "qa"]: true,
+                                };
+                              })(),
+                              signal,
+                              toolContext.onFileChanged,
+                              emit,
+                              messageId,
+                            )
+                          : architectBlock
                             ? {
                                 output:
-                                  scopeBlock === "path"
-                                    ? `This specialist has a fixed write scope — refusing "${toolCall.name}" on ` +
-                                      `"${String((toolCall.input as { path?: unknown }).path ?? "")}". It writes only its ` +
-                                      "own spec file and the files it is allowed to implement (see your instructions) — " +
-                                      "not application code, the data model, the server, or other architecture/* files. " +
-                                      "A change outside that scope goes in your review as a report, not the diff."
-                                    : scopeBlock === "pkgjson"
-                                      ? "Refusing this package.json write — a specialist may change the `scripts` block " +
-                                        "only, nothing else (no dependencies, no config). Name what you need in your review " +
-                                        "for the Engineer to add."
-                                      : "Refusing this install — this specialist does not add dependencies. Name the " +
-                                        "package you need in your review for the Engineer to add, and work with what is " +
-                                        "already in package.json.",
+                                  architectBlock === "exec"
+                                    ? `Architect Mode does not run commands or start previews — "${toolCall.name}" is ` +
+                                      "disabled for this session. You are planning, not building. Write the design into " +
+                                      `${ARCHITECT_WRITE_ROOT} and hand build-plan.md to the builder.`
+                                    : architectBlock === "artifact"
+                                      ? `Architect Mode writes only the design package under ${ARCHITECT_WRITE_ROOT} — refusing ` +
+                                        `"${String((toolCall.input as { path?: unknown }).path ?? "")}". Allowed: README.md, ` +
+                                        "requirements.md, data-model.md, api.md, infrastructure.md, build-plan.md, risks.md, " +
+                                        "decisions/NNNN-<slug>.md, and report.html. Nothing else — no config, no code, no scripts."
+                                      : `Architect Mode may only write under ${ARCHITECT_WRITE_ROOT} — refusing "${toolCall.name}" ` +
+                                        `on "${String((toolCall.input as { path?: unknown }).path ?? "")}". Put the design in ` +
+                                        `${ARCHITECT_WRITE_ROOT}; the builder writes application code, not you.`,
                                 isError: true,
                               }
-                            : capped
+                            : scopeBlock
                               ? {
-                                  output: newFileCapped
-                                    ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
-                                      `create another new file ("${path}"). Nothing that changes the project will run for the ` +
-                                      "rest of this turn, not just new files. Stop here: your final message should summarize " +
-                                      "what exists so far, and if you're not certain this is actually what was asked, ask the " +
-                                      "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
-                                      "— the user's next message continues it, with a fresh checkpoint of its own."
-                                    : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
-                                      `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
-                                      "now instead.",
+                                  output:
+                                    scopeBlock === "path"
+                                      ? `This specialist has a fixed write scope — refusing "${toolCall.name}" on ` +
+                                        `"${String((toolCall.input as { path?: unknown }).path ?? "")}". It writes only its ` +
+                                        "own spec file and the files it is allowed to implement (see your instructions) — " +
+                                        "not application code, the data model, the server, or other architecture/* files. " +
+                                        "A change outside that scope goes in your review as a report, not the diff."
+                                      : scopeBlock === "pkgjson"
+                                        ? "Refusing this package.json write — a specialist may change the `scripts` block " +
+                                          "only, nothing else (no dependencies, no config). Name what you need in your review " +
+                                          "for the Engineer to add."
+                                        : "Refusing this install — this specialist does not add dependencies. Name the " +
+                                          "package you need in your review for the Engineer to add, and work with what is " +
+                                          "already in package.json.",
                                   isError: true,
                                 }
-                              : await executeTool(toolContext, toolCall.name, toolCall.input);
+                              : capped
+                                ? {
+                                    output: newFileCapped
+                                      ? `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was just reached — refusing to ` +
+                                        `create another new file ("${path}"). Nothing that changes the project will run for the ` +
+                                        "rest of this turn, not just new files. Stop here: your final message should summarize " +
+                                        "what exists so far, and if you're not certain this is actually what was asked, ask the " +
+                                        "question that would tell you. If this is genuinely larger, ongoing work, say so plainly " +
+                                        "— the user's next message continues it, with a fresh checkpoint of its own."
+                                      : `Engineer Mode's ${NEW_FILE_CHECKPOINT}-file checkpoint was already reached this turn — ` +
+                                        `refusing to run "${toolCall.name}". Nothing else will run this turn. Write your summary ` +
+                                        "now instead.",
+                                    isError: true,
+                                  }
+                                : await executeTool(toolContext, toolCall.name, toolCall.input);
             // 050 R2.2/R2.3 — validate the whole report.html after the write.
             // This is a fail-fast advisory (the render-time sanitiser in
             // PlanPanel is the authoritative control); on a trip it rolls the
@@ -2439,22 +2475,36 @@ export class AgentSession {
         // a bad edit it was mid-way through fixing). Check now, and lead the
         // fallback with the breakage instead of a reassuring "more to do".
         let brokenNote = "";
+        let brokenThisTurn = false;
         if (!this.options.architectMode && anyFileChangedThisTurn) {
           try {
             const check = await this.needsVerification(toolContext);
             if (check) {
               const outcome = await this.runVerification(toolContext, check);
               if (outcome.failed) {
+                brokenThisTurn = true;
+                this.cappedBrokenStreak += 1;
                 brokenNote =
-                  "⚠️ The app is BROKEN right now — this turn ran out of steps before it finished. " +
-                  'Reply "keep going" to continue the fix, or use "Undo this turn" to revert.\n\n' +
-                  `${outcome.output.slice(0, 2000)}\n\n`;
+                  this.cappedBrokenStreak >= 2
+                    ? `⚠️ The app is BROKEN, and this is the ${this.cappedBrokenStreak}${
+                        this.cappedBrokenStreak === 2 ? "nd" : "th"
+                      } turn in a row that has run out of steps without fixing it. It is not ` +
+                      'converging — "keep going" will likely keep spending tokens without getting ' +
+                      'there. The better move now is "Undo this turn" to get back to a working ' +
+                      "state, then make a smaller, more specific request (or switch to a stronger " +
+                      "model in the composer).\n\n" +
+                      `${outcome.output.slice(0, 2000)}\n\n`
+                    : "⚠️ The app is BROKEN right now — this turn ran out of steps before it " +
+                      'finished. Reply "keep going" to continue the fix, or use "Undo this turn" ' +
+                      "to revert.\n\n" +
+                      `${outcome.output.slice(0, 2000)}\n\n`;
               }
             }
           } catch {
             // A best-effort check; never let it throw out of the fallback.
           }
         }
+        if (!brokenThisTurn) this.cappedBrokenStreak = 0;
         const summary = brokenNote + this.synthesizeFallbackSummary(toolCalls, true);
         addition = hasRealText ? `\n\n${summary}` : summary;
       } else if (!refused && !hasRealText && this.options.architectMode && emptyRecoveryDone) {
@@ -2471,6 +2521,8 @@ export class AgentSession {
       } else if (!refused && !hasRealText) {
         addition = this.synthesizeFallbackSummary(toolCalls, false);
       }
+      // A turn that ended cleanly (did not hit the cap) resets the streak.
+      if (!hitIterationCap) this.cappedBrokenStreak = 0;
       if (addition) {
         emit({ type: "text.delta", sessionId: this.id, messageId, text: addition });
         assistantText += addition;
