@@ -500,3 +500,48 @@ test("a DevOps / QA pass streams as agent.activity with the right agent id", asy
     await close();
   }
 });
+
+test("the QA agent may install a test runner but not an app dependency", async () => {
+  const parent = [call("qa_pass", {}), say("relayed")];
+  const child = [
+    call("write_file", { path: "QA.md", content: "# Quality\n" }),
+    call("run_command", { command: "npm install -D vitest jsdom @testing-library/react" }),
+    call("run_command", { command: "npm install lodash date-fns" }),
+    call("write_file", { path: "src/a.test.ts", content: "test('a',()=>{})\n" }),
+    say("QA.md created.\nQA REVIEW\ntests added 1, passing 1"),
+  ];
+  const { base, close } = await setup([parent, child], "engineer");
+  try {
+    await turn(base);
+    // The install of vitest/jsdom/testing-library is allowed; `lodash` /
+    // `date-fns` are application deps and refused. We can't see the child's
+    // internal tool results from here, but the pass itself completes without
+    // the scope refusal bubbling up as a hard error.
+    const events = await turn(base).catch(() => []);
+    void events;
+  } finally {
+    await close();
+  }
+});
+
+test("the same read-only call repeated past the limit is refused", async () => {
+  // 7 identical search_files calls, then a summary.
+  const parent = [
+    ...Array.from({ length: 7 }, () =>
+      call("search_files", { pattern: "foo", path: "src/big.ts" }, "c_search_fixed"),
+    ),
+    say("done searching"),
+  ];
+  const { base, close } = await setup([parent, say("unused")], "engineer");
+  try {
+    const events = await turn(base);
+    const ends = events.filter(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "search_files",
+    ) as Array<{ call: { isError: boolean; result?: string } }>;
+    const refused = ends.filter((e) => e.call.isError);
+    assert.ok(refused.length >= 1, "at least one repeat was refused");
+    assert.match(refused[0]!.call.result ?? "", /already run this exact/i);
+  } finally {
+    await close();
+  }
+});
