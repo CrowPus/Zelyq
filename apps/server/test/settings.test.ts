@@ -565,8 +565,8 @@ test("the model field suggests the current provider's known models, not a fixed 
     assert.deepEqual(modelField(anthropic)?.suggestions, [
       "claude-opus-5",
       "claude-sonnet-5",
-      "claude-sonnet-4-5",
-      "claude-haiku-4-5-20251001",
+      "claude-sonnet-4-6",
+      "claude-haiku-4-5",
     ]);
 
     await server.app.inject({
@@ -585,9 +585,10 @@ test("the model field suggests the current provider's known models, not a fixed 
     // Only reasoning-capable models — a gpt-4.x here would 400 on every
     // turn because the agent sends `reasoning_effort`.
     assert.deepEqual(modelField(openai)?.suggestions, [
+      "gpt-5.2",
       "gpt-5.1",
-      "gpt-5",
-      "gpt-5.1-mini",
+      "gpt-5-mini",
+      "gpt-5-nano",
       "o4-mini",
     ]);
     assert.ok(!modelField(openai)?.suggestions?.some((m) => m.startsWith("gpt-4")));
