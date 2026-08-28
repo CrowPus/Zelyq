@@ -45,6 +45,16 @@ __pycache__/
 
 # Private working notes — not part of the open-source project
 docs/co-founders/
+multi-agents/
+
+# Design reference library (see proposal 056). The bundled, first-party
+# `design-md/_archetypes/` set and `design-md/Agent.md` are the only design
+# refs that ship; a dropped-in third-party library (getdesign.md etc.) is
+# operator-provided via ZELYQ_DESIGN_REFS_DIR and never committed.
+design-md/*
+!design-md/_archetypes/
+!design-md/Agent.md
+!design-md/README.md
 
 # Eval harness output
 apps/agent/evals/results/
