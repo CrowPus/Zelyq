@@ -87,15 +87,33 @@ async function setup(
     recursive: true,
   });
   if (readyPackage) {
-    // A finished-enough package so the dispatch gate lets a build through.
+    // A finished-enough package so the dispatch gate lets a build through:
+    // every file architecturePackageState() requires, each with real content.
     await fs.writeFile(
       path.join(workspaceDir, projectId, "architecture", "build-plan.md"),
-      "# Build plan\n\n## Task 1 — the widget\n- Files: src/widget.ts\n- Do: export a const.\n- Acceptance: the file exists and exports x.\n- Status: not started\n\n## Task 2 — the other widget\n- Files: src/other.ts\n- Do: export a const.\n- Acceptance: the file exists.\n- Status: not started\n",
+      "# Build plan\n\n## Task 1 — the widget\n- Files: src/widget.ts\n- Do: export a const.\n- Acceptance: the file exists and exports x.\n- Status: not started\n\n## Task 2 — the other widget\n- Files: src/other.ts\n- Do: export a const.\n- Acceptance: the file exists.\n- Status: not started\n\n## Definition of Done\n- build passes; the widgets render.\n",
     );
     await fs.writeFile(
       path.join(workspaceDir, projectId, "architecture", "decisions", "0001-stack.md"),
       "# 0001 — stack\nContext: x. Alternatives: a, b. Chosen: a. Consequence: y. Status: accepted.\n",
     );
+    for (const [name, body] of [
+      ["requirements.md", "# Requirements\nA widget board. Users: the team. No accounts.\n"],
+      ["data-model.md", "# Data model\nOne entity: Widget { id, label }. In memory only.\n"],
+      ["api.md", "# API\nNo network API — everything is local state.\n"],
+      ["infrastructure.md", "# Infrastructure\nStatic site on a CDN. No server.\n"],
+      [
+        "build-context.md",
+        "# Build context\nReact + Vite + TS. Components in src/. See DESIGN.md for the visual language.\n",
+      ],
+      ["risks.md", "# Risks\nNone open.\n"],
+      [
+        "DESIGN.md",
+        `Designed from first principles — no reference fit\n\n# Design system\n\n## Principles\n- Calm, dense, fast. Nothing decorative.\n- One accent colour, used sparingly.\n- Motion only to explain a change.\n\n## Colour roles\n- surface: #ffffff / #0b0b0c\n- text: #14151a / #f4f4f5\n- accent: #3b5bfd\n- border: #e4e4e7 / #26262b\n\n## Type\n- UI: Inter, system-ui fallback. Scale 12 / 14 / 16 / 20 / 28.\n\n## Spacing / radius / elevation\n- 4px base step; radius 6px; one shadow token for popovers.\n\n## Components\n- Button, Input, Card, Dialog, Toast. Each with hover / focus / disabled / loading / empty / error states.\n`,
+      ],
+    ] as const) {
+      await fs.writeFile(path.join(workspaceDir, projectId, "architecture", name), body);
+    }
   }
   const config: AgentConfig = {
     host: "127.0.0.1",
@@ -301,44 +319,96 @@ test("dispatch_task is refused when the design is not finished (no build-plan)",
   }
 });
 
-test("architect mode caps new files under architecture/ per turn — no whole-package dump", async () => {
-  // Six write_file calls to new architecture/ paths in one turn. Only the
-  // first four land; 5 and 6 are refused. The design has to be built up over
-  // turns, not dumped at once. (Decision records — the allowlist only
-  // accepts real package files under architecture/.)
+test("there is no per-turn cap on new architecture/ files — the whole package can land in one turn", async () => {
+  // The interview gate and the 4-file-per-turn cap are gone. A capable model
+  // that writes six decision records plus DESIGN.md in one turn is not fought.
   const writes = [1, 2, 3, 4, 5, 6].map((i) =>
     call("write_file", {
       path: `architecture/decisions/000${i}-choice-${i}.md`,
-      content: `# ADR ${i}\n`,
+      content: `# ADR ${i}\nContext, alternatives, choice, consequence.\n`,
     }),
   );
-  // readyPackage seeds a prior "package ready" turn, which also unlocks the
-  // design files past the interview gate — so this test exercises the
-  // per-turn new-file cap in isolation.
   const { base, workspaceDir, projectId, close } = await setup(
-    [[...writes, say("wrote the package")]],
+    [[...writes, say("wrote the decisions")]],
     "architect",
-    { readyPackage: true },
+    { readyPackage: false },
   );
   try {
     const events = await turn(base);
     const ends = events.filter(
       (e) => e.type === "tool.end" && (e.call as { name: string }).name === "write_file",
-    ) as Array<{ call: { isError: boolean; result: string } }>;
-    const ok = ends.filter((e) => !e.call.isError).length;
-    const refused = ends.filter((e) => e.call.isError);
-    assert.equal(ok, 4, "exactly four new files land");
+    ) as Array<{ call: { isError: boolean } }>;
+    assert.equal(ends.length, 6);
     assert.ok(
-      refused.length >= 1 && refused.every((e) => /created 4 new files/i.test(e.call.result)),
+      ends.every((e) => !e.call.isError),
+      "every write lands — no cap, no interview gate",
     );
-    for (const i of [1, 2, 3, 4]) {
+    for (const i of [1, 2, 3, 4, 5, 6]) {
       await fs.access(
         path.join(workspaceDir, projectId, `architecture/decisions/000${i}-choice-${i}.md`),
       );
     }
-    await assert.rejects(
-      fs.access(path.join(workspaceDir, projectId, "architecture/decisions/0005-choice-5.md")),
-    );
+  } finally {
+    await close();
+  }
+});
+
+test("dispatch is refused when the package is missing DESIGN.md, even after 'ready'", async () => {
+  // readyPackage stages the full required set; then we delete DESIGN.md so
+  // architecturePackageState() catches a package a weak model narrated but
+  // never actually finished.
+  const { base, workspaceDir, projectId, close } = await setup(
+    [[dispatch("build task 1", ["src/widget.ts"]), say("ok, finishing DESIGN.md")]],
+    "architect",
+    { readyPackage: true },
+  );
+  await fs.rm(path.join(workspaceDir, projectId, "architecture", "DESIGN.md"));
+  // A history that already declared the package ready, so the only thing
+  // standing between the model and a dispatch is the completeness check.
+  try {
+    const created = await fetch(`${base}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "s_orch2",
+        projectId,
+        architectMode: true,
+        history: [
+          {
+            id: "h0",
+            sessionId: "s_orch2",
+            role: "user",
+            content: "go",
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: "h1",
+            sessionId: "s_orch2",
+            role: "assistant",
+            content: "Architecture package ready: the widget board.",
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+    assert.equal(created.status, 201, await created.text());
+    const res = await fetch(`${base}/sessions/s_orch2/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "build it" }),
+    });
+    const events = (await res.text())
+      .split("\n\n")
+      .map((f) => f.split("\n").find((l) => l.startsWith("data: ")))
+      .filter((l): l is string => Boolean(l))
+      .map((l) => JSON.parse(l.slice(6))) as Array<{ type: string; [k: string]: unknown }>;
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "dispatch_task",
+    ) as { call: { isError: boolean; result: string } };
+    assert.ok(end, "a dispatch_task tool.end");
+    assert.equal(end.call.isError, true);
+    assert.match(end.call.result, /DESIGN\.md/);
+    await assert.rejects(fs.access(path.join(workspaceDir, projectId, "src/widget.ts")));
   } finally {
     await close();
   }
