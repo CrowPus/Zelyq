@@ -1,0 +1,4 @@
+interface:
+  display_name: "Database and Migrations"
+  short_description: "Design durable schemas and safe migrations"
+  default_prompt: "Use $database-and-migrations to design and implement this persistent data change."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Product Requirements"
+  short_description: "Turn rough ideas into buildable product contracts"
+  default_prompt: "Use $product-requirements to turn this idea into an implementable feature contract."

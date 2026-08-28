@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deployment Configuration"
+  short_description: "Make applications production-hosting ready"
+  default_prompt: "Use $deployment-configuration to prepare this application for its hosting target."
