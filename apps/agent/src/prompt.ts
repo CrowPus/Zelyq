@@ -363,6 +363,19 @@ appropriately", not "store the data securely".
   - \`api.md\` — every operation the client makes (REST path / RPC / table query), its inputs and
     output shape, the auth required, and every error it can return with the code and what the UI
     does with it. "The client reads its own rows" is not an API spec.
+  - \`topology.json\` — the system design as structured data, rendered as the live interactive
+    diagram the user sees under "System design". REQUIRED. Shape:
+    \`{ "title"?: string, "summary"?: string,
+       "layers": [{ "id": string, "label": string }],            // left→right = request / dependency flow
+       "nodes":  [{ "id": string, "label": string, "layer": <layer id>,
+                    "kind"?: "client"|"cdn"|"gateway"|"service"|"worker"|"function"|"datastore"|"cache"|"queue"|"storage"|"auth"|"external",
+                    "tech"?: string, "note"?: string }],
+       "edges":  [{ "from": <node id>, "to": <node id>, "protocol"?: string,
+                    "label"?: string, "kind"?: "sync"|"async"|"data" }] }\`.
+    Model the REAL runtime for THIS design — the browser app, Supabase (Auth, Postgres, Storage) when
+    the backend exists, any external service, and the edges between them with their protocol. Every
+    \`node.layer\` matches a \`layers[].id\`; every edge endpoint matches a \`nodes[].id\`. This is the
+    picture that has to look professional and alive — get it right, not generic.
   - \`DESIGN.md\` — the design system, and a REQUIRED part of the package — write it right after the
     first decision records, not last; it is the file most often skipped and the build cannot look
     designed without it. A real first draft: the product feel and 3–5 principles, the colour ROLES
@@ -434,15 +447,27 @@ appropriately", not "store the data securely".
       backend framework; neither writes a real \`.env\` or any secret key. Both tasks name
       \`tools: supabase_apply_migration, supabase_verify_backend\` where they apply.
     - At most ~4 files per task, and no task with more than 5 named \`files\` (that is refused at
-      dispatch). Split anything bigger. (The verification task is exempt.)
+      dispatch). Split anything bigger. (The design and verification tasks are exempt.)
+    - **The SECOND-TO-LAST entry is the design pass** — one task, described as "Designer:" and
+      dispatched with \`design: true\`. It runs after all feature tasks: bring every screen onto
+      \`DESIGN.md\` — hierarchy, density, every state (empty / loading / error / success),
+      responsiveness, motion — so the app looks senior-designed, not generic. Its acceptance
+      criteria: the running preview matches \`DESIGN.md\` and passes the observable \`<ui_guidelines>\`
+      MUSTs. This is not optional and not something the user has to ask for; a plan without it is
+      incomplete.
     - **The LAST entry is the verification task** — dispatched with \`verify: true\`. Its acceptance
-      criteria ARE the Definition of Done below. It does not build features.
+      criteria ARE the Definition of Done below. It does not build features. It MUST start the
+      preview and look at the running app on every core route; "the code looks right" is not a pass.
+      If the preview does not render the real app, or a core flow is broken, or the UI is still
+      generic, verification FAILS and says exactly what is wrong.
     - End \`build-plan.md\` with a **## Definition of Done** section: the \`requirements.md\`
       acceptance criteria checkable without real infrastructure; the finishing files exist and are
-      accurate; build + typecheck + lint pass; the preview serves the real app; the UI matches
-      \`DESIGN.md\` and passes the observable \`<ui_guidelines>\` MUSTs (focus, hydration, semantics,
-      reduced-motion, CLS, empty/error states, …); a test suite exists and passes and the core flows
-      are covered; the security scan
+      accurate; build + typecheck + lint pass; **the preview was started and serves the real
+      application on every core route** (not the template, not a blank page, not an error overlay);
+      the UI matches \`DESIGN.md\` and passes the observable \`<ui_guidelines>\` MUSTs (focus,
+      hydration, semantics, reduced-motion, CLS, empty/error states, …) and does not read as a
+      generic AI page; a test suite exists and passes and the core flows are covered; the security
+      scan
       is clean or every finding is triaged in \`QA.md\` / \`risks.md\`; if the design is deployable,
       the CI and container config match the project's actual scripts; the design/accessibility check
       has run and its findings are triaged.
@@ -469,9 +494,10 @@ be executed from what is written; assumptions not flagged; anything thin. Fix wh
 write it into \`risks.md\` as recorded open dissent — never drop it. The package is ready for
 handoff only when: every required file
 exists and is real — \`requirements.md\`, at least one \`decisions/\` record, \`data-model.md\`,
-\`api.md\`, \`DESIGN.md\`, \`infrastructure.md\`, \`build-plan.md\` (with a \`## Definition of Done\`),
-\`build-context.md\`, \`risks.md\`, and \`backend.md\` whenever the design needs persistence or
-accounts; every requirement traces to a decision AND a build task; every strong-tier decision names
+\`api.md\`, \`DESIGN.md\`, \`topology.json\`, \`infrastructure.md\`, \`build-plan.md\` (with a
+\`## Definition of Done\`), \`build-context.md\`, \`risks.md\`, and \`backend.md\` whenever the design
+needs persistence or accounts; every requirement traces to a decision AND a build task; every
+strong-tier decision names
 an alternative and its consequences; no unresolved contradiction between the sub-documents; every
 assumption flagged; the challenge pass has run and its findings are closed or logged; every
 build-plan task has explicit acceptance criteria.
@@ -486,8 +512,9 @@ After the package is ready, render \`${ARCHITECT_WRITE_ROOT}report.html\` — a 
 the user reads instead of opening seven \`.md\` files. It is an OVERVIEW, not a re-transcription:
 the \`.md\` files hold the full detail; this makes the shape legible and credible.
 
-Cover, concisely: what is being built and for whom; a labelled ASCII box diagram (in a \`<pre>\`
-block) of the runtime topology with the protocol on each edge; the key decisions as a short list
+Cover, concisely: what is being built and for whom (the live system-design diagram is rendered from
+\`topology.json\`, so the report does not need to redraw it — a one-paragraph description of the
+runtime is enough); the key decisions as a short list
 with the one-line tradeoff each; the data model as a compact entity table; the API surface as one
 table; infrastructure and the CI/CD pipeline as a short \`<pre>\` diagram (commit → checks → build
 → deploy → rollback); the build sequence from build-plan.md; and the open risks. Design it well —

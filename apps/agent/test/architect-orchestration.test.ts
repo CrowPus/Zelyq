@@ -101,6 +101,21 @@ async function setup(
       ["requirements.md", "# Requirements\nA widget board. Users: the team. No accounts.\n"],
       ["data-model.md", "# Data model\nOne entity: Widget { id, label }. In memory only.\n"],
       ["api.md", "# API\nNo network API — everything is local state.\n"],
+      [
+        "topology.json",
+        JSON.stringify({
+          title: "Widget board",
+          layers: [
+            { id: "client", label: "Client" },
+            { id: "host", label: "Host" },
+          ],
+          nodes: [
+            { id: "app", label: "SPA", layer: "client", kind: "client" },
+            { id: "cdn", label: "CDN", layer: "host", kind: "cdn" },
+          ],
+          edges: [{ from: "app", to: "cdn", protocol: "HTTPS" }],
+        }),
+      ],
       ["infrastructure.md", "# Infrastructure\nStatic site on a CDN. No server.\n"],
       [
         "build-context.md",

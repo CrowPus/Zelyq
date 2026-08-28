@@ -273,3 +273,21 @@ h3 {
 *::-webkit-scrollbar-thumb:hover {
   background-color: var(--text-muted);
 }
+
+/* TopologyDiagram: a slow dash-flow on a lit connector, so a traced path
+   reads as moving data. Off entirely under reduced-motion. */
+.td-flow {
+  stroke-dasharray: 4 6;
+  animation: td-dash 900ms linear infinite;
+}
+@keyframes td-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .td-flow {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}

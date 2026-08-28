@@ -5,6 +5,7 @@ import {
   newId,
   type Preview,
   type PromptAttachment,
+  parseTopology,
   type ToolCall,
 } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
@@ -78,14 +79,14 @@ const VERIFICATION_TOOL_NAMES = new Set([
 const ARCHITECT_WRITE_TOOLS = new Set(["write_file", "edit_file", "delete_file"]);
 const ARCHITECT_BLOCKED_TOOLS = new Set(["run_command", "start_preview"]);
 
-// The exact set of paths the Architect may write. NOT "any .md under
+// The exact set of paths the Architect may write. NOT "any file under
 // architecture/": arbitrary Markdown there is not inert everywhere (MDX
 // compilation, raw-markdown imports, doc generators that glob
-// `architecture/**/*.md`). `pending-skills/` is deliberately absent —
-// self-authored capability is gated separately. The interview does not gate
-// this set — the Architect decides when it has enough and moves on; writing
-// a decision record while a question is still open is its call, not a
-// refusal.
+// `architecture/**/*.md`), and only `topology.json` is a known-safe data file.
+// `pending-skills/` is deliberately absent — self-authored capability is gated
+// separately. The interview does not gate this set — the Architect decides
+// when it has enough and moves on; writing a decision record while a question
+// is still open is its call, not a refusal.
 const ARCHITECT_PACKAGE_FILES = new Set([
   "architecture/README.md",
   "architecture/requirements.md",
@@ -99,6 +100,8 @@ const ARCHITECT_PACKAGE_FILES = new Set([
   // The design system spec. The Architect seeds a real first draft; the
   // Designer agent owns and deepens it. Required for a package to be ready.
   "architecture/DESIGN.md",
+  // The system design as structured data — rendered as the live diagram.
+  "architecture/topology.json",
   // Specialist-owned specs the Architect first-drafts when they apply.
   "architecture/OPERATIONS.md",
   "architecture/QA.md",
@@ -2791,6 +2794,7 @@ export class AgentSession {
       "data-model.md",
       "api.md",
       "DESIGN.md",
+      "topology.json",
       "infrastructure.md",
       "build-plan.md",
       "build-context.md",
@@ -2825,6 +2829,17 @@ export class AgentSession {
         ready: false,
         reason:
           "architecture/DESIGN.md is a stub — write the real design system before dispatching.",
+      };
+    }
+    // topology.json must parse and describe a real runtime, not `{}`.
+    const topoRaw = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}topology.json`);
+    const topo = topoRaw ? parseTopology(topoRaw) : null;
+    if (!topo || topo.nodes.length < 2) {
+      return {
+        ready: false,
+        reason:
+          "architecture/topology.json is missing, malformed, or has fewer than two nodes — " +
+          "model the real runtime (layers, nodes, edges) before dispatching.",
       };
     }
     // A Supabase design needs its backend spec. If the package talks about

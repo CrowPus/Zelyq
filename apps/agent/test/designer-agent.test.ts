@@ -87,6 +87,20 @@ async function setup(
       ["requirements.md", "# Requirements\nA small app. No accounts.\n"],
       ["data-model.md", "# Data model\nNo persisted entities.\n"],
       ["api.md", "# API\nNo network API.\n"],
+      [
+        "topology.json",
+        JSON.stringify({
+          layers: [
+            { id: "client", label: "Client" },
+            { id: "host", label: "Host" },
+          ],
+          nodes: [
+            { id: "app", label: "SPA", layer: "client" },
+            { id: "cdn", label: "CDN", layer: "host" },
+          ],
+          edges: [{ from: "app", to: "cdn" }],
+        }),
+      ],
       ["infrastructure.md", "# Infrastructure\nStatic host.\n"],
       ["build-context.md", "# Build context\nReact + Vite + TS. See DESIGN.md.\n"],
       ["risks.md", "# Risks\nNone.\n"],
