@@ -643,6 +643,134 @@ test("engineer mode: once the checkpoint is reached, a further run_command is re
   }
 });
 
+// ---------------------------------------------------------------------------
+// The finish phase. The total freeze above is correct while the model is
+// still inventing files. But a correctly-scoped 6-file pass then needs to
+// typecheck, preview, and tune what it built — and freezing edit_file and
+// run_command stranded that work for a whole extra turn. Once a
+// verification tool has run this turn, edit_file and run_command on files
+// that already exist come back; a genuinely-new write and a delete stay
+// refused. You cannot reach the finish phase without stopping to verify.
+// ---------------------------------------------------------------------------
+
+const viewsPreviewAfterCheckpoint = {
+  events: [{ type: "text" as const, text: "Looking at what I built." }],
+  result: {
+    toolCalls: [{ id: "call_view", name: "view_preview", input: {} }],
+    stopReason: "tool_use" as const,
+    usage: { inputTokens: 5, outputTokens: 5 },
+  },
+};
+
+test("engineer mode: after a verification tool runs, edit_file on an existing file works again past the checkpoint", async () => {
+  const editsExisting = {
+    events: [{ type: "text" as const, text: "Tuning App.tsx." }],
+    result: {
+      toolCalls: [
+        {
+          id: "call_tune",
+          name: "edit_file",
+          input: { path: "src/App.tsx", old_text: "x", new_text: "y" },
+        },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  // 7 writes trips the checkpoint; view_preview flips the turn into the
+  // finish phase (it errors — nothing is running — but that is irrelevant,
+  // running it is what counts); the edit that follows must go through.
+  const script = [1, 2, 3, 4, 5, 6, 7]
+    .map(writesFile)
+    .concat([viewsPreviewAfterCheckpoint, editsExisting, saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 15, { "src/App.tsx": "x" });
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const editResult = toolEnds.find(
+      (event) => (event.call as { name: string }).name === "edit_file",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(editResult, "the edit_file attempt must actually have run");
+    assert.equal(
+      editResult!.call.isError,
+      false,
+      "edit_file on an existing file must be allowed once the finish phase is entered — this is the fix for a scoped pass being stranded a whole turn",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: the finish phase still refuses a genuinely-new file", async () => {
+  const writesNewInFinishPhase = {
+    events: [{ type: "text" as const, text: "One more component." }],
+    result: {
+      toolCalls: [
+        { id: "call_new", name: "write_file", input: { path: "src/Extra.tsx", content: "z" } },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  const script = [1, 2, 3, 4, 5, 6, 7]
+    .map(writesFile)
+    .concat([viewsPreviewAfterCheckpoint, writesNewInFinishPhase, saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 15);
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const newWrite = toolEnds.find(
+      (event) =>
+        (event.call as { name: string; input: { path?: string } }).name === "write_file" &&
+        (event.call as { input: { path?: string } }).input.path === "src/Extra.tsx",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(newWrite, "the new-file write attempt must actually have run");
+    assert.equal(
+      newWrite!.call.isError,
+      true,
+      "a genuinely-new file stays refused in the finish phase",
+    );
+    assert.match(newWrite!.call.result, /holds for NEW files and deletes/);
+  } finally {
+    await close();
+  }
+});
+
+test("engineer mode: without a verification tool, edit_file stays frozen after the checkpoint (build phase unchanged)", async () => {
+  const editsExisting = {
+    events: [{ type: "text" as const, text: "Cramming instead." }],
+    result: {
+      toolCalls: [
+        {
+          id: "call_cram2",
+          name: "edit_file",
+          input: { path: "src/App.tsx", old_text: "x", new_text: "y" },
+        },
+      ],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 5, outputTokens: 5 },
+    },
+  };
+  const script = [1, 2, 3, 4, 5, 6, 7].map(writesFile).concat([editsExisting, saysDoneWithMarker]);
+  const { base, close } = await setup(script, true, 15, { "src/App.tsx": "x" });
+  try {
+    const events = await collectTurn(`${base}/sessions/ses_em/prompt`);
+    const toolEnds = events.filter((event) => event.type === "tool.end");
+    const editResult = toolEnds.find(
+      (event) => (event.call as { name: string }).name === "edit_file",
+    ) as { call: { isError: boolean; result: string } } | undefined;
+    assert.ok(editResult, "the edit_file attempt must actually have run");
+    assert.equal(
+      editResult!.call.isError,
+      true,
+      "no verification tool ran, so the freeze is still total",
+    );
+    assert.match(editResult!.call.result, /checkpoint was already reached/);
+  } finally {
+    await close();
+  }
+});
+
 test("engineer mode: read-only tools still work after the checkpoint is reached", async () => {
   const readsAfterCheckpoint = {
     events: [{ type: "text" as const, text: "Checking what exists." }],

@@ -52,6 +52,8 @@ Before editing:
 
 If a 3D asset is supplied, read `references/asset-pipeline.md`. Run `scripts/inspect-glb` for non-trivial GLB/glTF files when tooling is available.
 
+Never hardcode a remote image URL or photo ID from memory. A recalled Unsplash ID or CDN hash returns HTTP 200 for a file whose subject you cannot know; under a real place name that is a defect the user has to find. Use `fetch_reference_image` (it searches, downloads into the project, and returns the picture so you can confirm the subject), `generate_placeholder_asset` for a labelled placeholder, or assets the user supplies. If any caption names a specific real place, confirm the image — in the tool result or via `view_preview` with its `path` — before shipping the copy.
+
 ### 2. Establish creative intent
 State or infer:
 - audience;

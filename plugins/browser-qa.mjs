@@ -1,10 +1,30 @@
 import { z } from "zod";
 import { jsonOutput } from "./lib/shared.mjs";
 
-async function withPage(context, viewport, action) {
+// Every browser-QA tool can target a route other than the app root. Default
+// is the root, so existing behaviour is unchanged when `path` is omitted.
+const pathField = {
+  path: z
+    .string()
+    .optional()
+    .describe('Route to inspect, relative to the preview root. Default "/". Accepts a hash route.'),
+};
+
+// `options` is `{ viewport?, path? }`. `path` selects a route other than the
+// app root — composed against the preview URL the same way view_preview does,
+// so a hash route ("/#/x") or a real path ("/settings") both work. Callers
+// that pass `null` get the root at the default viewport, unchanged.
+async function withPage(context, options, action) {
+  const { viewport, path } = options ?? {};
   const preview = await context.runtime.previewStatus(context.projectId);
   if (preview.status !== "running" || !preview.url)
     return { output: `Preview is not running (${preview.status}).`, isError: true };
+  let target;
+  try {
+    target = path ? new URL(path, preview.url).href : preview.url;
+  } catch {
+    return { output: `Not a valid path: "${path}".`, isError: true };
+  }
   // Load the heavy browser dependency only when a browser tool is actually used.
   // This also lets the other Phase 1 bundles operate when Chromium is unavailable.
   const { chromium } = await import("playwright");
@@ -19,8 +39,8 @@ async function withPage(context, viewport, action) {
     page.on("requestfailed", (request) =>
       failedRequests.push({ url: request.url(), error: request.failure()?.errorText }),
     );
-    await page.goto(preview.url, { waitUntil: "networkidle", timeout: 30000 });
-    return await action(page, { consoleErrors, failedRequests, url: preview.url });
+    await page.goto(target, { waitUntil: "networkidle", timeout: 30000 });
+    return await action(page, { consoleErrors, failedRequests, url: target });
   } catch (error) {
     return {
       output: `Browser QA failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -35,10 +55,10 @@ export default [
   {
     name: "inspect_page",
     description:
-      "Inspect the running preview's title, headings, landmarks, links, controls, and visible text as structured data.",
-    schema: z.object({}),
-    async run(context) {
-      return withPage(context, null, async (page, telemetry) =>
+      "Inspect the running preview's title, headings, landmarks, links, controls, and visible text as structured data. Pass `path` for a route other than the app root.",
+    schema: z.object({ ...pathField }),
+    async run(context, input) {
+      return withPage(context, { path: input.path }, async (page, telemetry) =>
         jsonOutput({
           ...telemetry,
           title: await page.title(),
@@ -61,10 +81,10 @@ export default [
   {
     name: "check_console_errors",
     description:
-      "Load the running preview and return browser console errors and uncaught page errors.",
-    schema: z.object({}),
-    async run(context) {
-      return withPage(context, null, async (page, telemetry) => {
+      "Load the running preview and return browser console errors and uncaught page errors. Pass `path` for a route other than the app root.",
+    schema: z.object({ ...pathField }),
+    async run(context, input) {
+      return withPage(context, { path: input.path }, async (page, telemetry) => {
         const pageErrors = [];
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.waitForTimeout(500);
@@ -74,10 +94,11 @@ export default [
   },
   {
     name: "check_network_failures",
-    description: "Load the running preview and report failed browser network requests.",
-    schema: z.object({}),
-    async run(context) {
-      return withPage(context, null, async (_page, telemetry) =>
+    description:
+      "Load the running preview and report failed browser network requests. Pass `path` for a route other than the app root.",
+    schema: z.object({ ...pathField }),
+    async run(context, input) {
+      return withPage(context, { path: input.path }, async (_page, telemetry) =>
         jsonOutput({ failedRequests: telemetry.failedRequests }),
       );
     },
@@ -85,10 +106,10 @@ export default [
   {
     name: "accessibility_audit",
     description:
-      "Run a lightweight accessibility audit of the preview for missing labels, alt text, document language, heading structure, and unnamed links/buttons.",
-    schema: z.object({}),
-    async run(context) {
-      return withPage(context, null, async (page) =>
+      "Run a lightweight accessibility audit of the preview for missing labels, alt text, document language, heading structure, and unnamed links/buttons. Pass `path` for a route other than the app root.",
+    schema: z.object({ ...pathField }),
+    async run(context, input) {
+      return withPage(context, { path: input.path }, async (page) =>
         jsonOutput(
           await page.evaluate(() => {
             const issues = [];
@@ -124,25 +145,29 @@ export default [
   {
     name: "test_responsive_layout",
     description:
-      "Check the running preview at common viewport sizes for horizontal overflow and elements extending beyond the viewport.",
+      "Check the running preview at common viewport sizes for horizontal overflow and elements extending beyond the viewport. Pass `path` for a route other than the app root.",
     schema: z.object({
       widths: z.array(z.number().int().min(240).max(2560)).max(8).default([375, 768, 1280]),
+      ...pathField,
     }),
     async run(context, input) {
       const results = [];
       for (const width of input.widths) {
-        const result = await withPage(context, { width, height: 800 }, async (page) =>
-          jsonOutput(
-            await page.evaluate(() => ({
-              viewport: innerWidth,
-              documentWidth: document.documentElement.scrollWidth,
-              horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-              overflowingElements: [...document.querySelectorAll("body *")]
-                .filter((el) => el.getBoundingClientRect().right > innerWidth + 1)
-                .slice(0, 30)
-                .map((el) => ({ tag: el.tagName.toLowerCase(), id: el.id, class: el.className })),
-            })),
-          ),
+        const result = await withPage(
+          context,
+          { viewport: { width, height: 800 }, path: input.path },
+          async (page) =>
+            jsonOutput(
+              await page.evaluate(() => ({
+                viewport: innerWidth,
+                documentWidth: document.documentElement.scrollWidth,
+                horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
+                overflowingElements: [...document.querySelectorAll("body *")]
+                  .filter((el) => el.getBoundingClientRect().right > innerWidth + 1)
+                  .slice(0, 30)
+                  .map((el) => ({ tag: el.tagName.toLowerCase(), id: el.id, class: el.className })),
+              })),
+            ),
         );
         results.push({ width, result: JSON.parse(result.output), isError: result.isError });
       }

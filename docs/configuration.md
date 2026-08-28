@@ -234,6 +234,8 @@ Migrations run automatically when the server boots.
 | `ZELYQ_PLUGIN_DIR` | — | A local directory of extra tools for the agent, loaded once at boot. See [plugins.md](./plugins.md). |
 | `ZELYQ_SKILLS_DIR` | — | A local directory of extra skills — packaged instructions for a specific kind of task, loaded once at boot. See [skills.md](./skills.md). |
 | `ZELYQ_DESIGN_REFS_DIR` | — | A local directory of design references — one subdirectory per reference, each with a `DESIGN.md` (a real product's design language: tokens + prose), plus an optional `Agent.md` UI-craft checklist. The Architect picks the closest one to base a project's `DESIGN.md` on. Merged over the bundled `design-md/` (this dir wins on a slug collision), loaded once at boot. |
+| `ZELYQ_IMAGE_PROVIDER` | `openverse` | Stock-photo service for `fetch_reference_image`: `openverse` (keyless, Creative-Commons), `unsplash`, or `pexels`. `unsplash`/`pexels` need `ZELYQ_IMAGE_PROVIDER_KEY`. With no provider reachable the tool writes a labelled placeholder instead of guessing. |
+| `ZELYQ_IMAGE_PROVIDER_KEY` | — | API key for `ZELYQ_IMAGE_PROVIDER` when it is `unsplash` (its "Access Key") or `pexels`. Passed only to the download command, never logged. With `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` set, also allow the provider's hosts (`api.openverse.org`; `api.unsplash.com`,`images.unsplash.com`; `api.pexels.com`,`images.pexels.com`). |
 | `ZELYQ_SKILLS_UPLOAD_DIR` | `<data dir>/skills` | Where a skill uploaded through Settings is written. Resolved independently by the server and the agent — must be the same directory for both, same requirement `ZELYQ_WORKSPACE_DIR` already has. See [skills.md](./skills.md). |
 
 ### Running agent commands and the preview in a container
