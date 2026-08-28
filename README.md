@@ -96,10 +96,19 @@ not just this one file, the whole <code>architecture/</code> package on the left
 
 <br /><br />
 
-<img src="assets/screenshots/resturant.png" alt="A restaurant table-booking system built by the Zelyq agent: guest mobile ordering menu with dietary filters and allergen labels, plus separate kitchen display, floor dispatch, and manager admin views, all running live" width="900" />
-
-<sub>Built the same way, a different domain entirely: guest ordering, a kitchen display, floor
-dispatch, and manager admin, as one restaurant system with real allergen and dietary data.</sub>
+<table>
+<tr>
+<td width="50%"><img src="assets/screenshots/resturant.png" alt="A restaurant table-booking system built by the Zelyq agent — guest mobile ordering menu with dietary filters and allergen labels — as the build left it: working, but with flat white cards and no consistent visual system" /></td>
+<td width="50%"><img src="assets/screenshots/resturant-after.png" alt="The same restaurant ordering menu after the Designer agent applied its DESIGN.md — a coherent dark surface system, the amber accent carried through consistently, real card elevation, and tighter typography" /></td>
+</tr>
+<tr>
+<td align="center"><sub><b>Before</b> — the build, verified and running. Same restaurant system: guest ordering,
+a kitchen display, floor dispatch, and manager admin, with real allergen and dietary data.</sub></td>
+<td align="center"><sub><b>After</b> — the <b>Designer agent</b> wrote <code>DESIGN.md</code> and applied it:
+one dark surface system, the accent colour carried through, real elevation, tighter type. Same content, no
+functional change.</sub></td>
+</tr>
+</table>
 
 </div>
 
