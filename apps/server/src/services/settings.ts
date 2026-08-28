@@ -365,7 +365,13 @@ const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
 // Only IDs verified live (openai, google) or confirmed against the
 // provider's own 2026 docs (anthropic, xai, deepseek, mistral).
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"],
+  anthropic: [
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-sonnet-4-6",
+    "claude-fable-5",
+    "claude-haiku-4-5",
+  ],
   google: [
     "gemini-pro-latest",
     "gemini-2.5-pro",

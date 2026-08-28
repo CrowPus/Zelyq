@@ -566,6 +566,7 @@ test("the model field suggests the current provider's known models, not a fixed 
       "claude-opus-5",
       "claude-sonnet-5",
       "claude-sonnet-4-6",
+      "claude-fable-5",
       "claude-haiku-4-5",
     ]);
 

@@ -92,11 +92,14 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     docsUrl: "https://console.anthropic.com/settings/keys",
     // Current Claude IDs (Anthropic model list, 2026-06). Every one does
     // native adaptive thinking + tools + streaming. No date suffixes — the
-    // bare IDs are complete.
+    // bare IDs are complete. `claude-fable-5` is the fifth-gen model tuned
+    // for creative/character writing — same loop capabilities, sideways on
+    // the capability ladder rather than a rung on it, so no `tier`.
     models: [
       { value: "claude-opus-5", label: "Claude Opus 5 — most capable", tier: "strong" },
       { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced", tier: "standard" },
       { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", tier: "standard" },
+      { value: "claude-fable-5", label: "Claude Fable 5 — creative writing" },
       { value: "claude-haiku-4-5", label: "Claude Haiku 4.5 — fastest", tier: "cheap" },
     ],
   },
