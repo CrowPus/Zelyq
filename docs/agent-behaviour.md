@@ -79,20 +79,28 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   `AUTO_MAX_TOKENS` / `AUTO_MAX_WALLCLOCK_MS`). The agent's prompt route
   loops `while (autoNextPass) run("keep going")`, streaming each pass.
 - **Dispatched children** — `dispatchBuildTask` runs a bounded
-  Engineer-Mode `AgentSession` for one of three roles: a **builder**
-  (one build-plan task, lean tool set), the **verifier** (`verify: true`
-  — preview + inspection tools, builds and walks the running app, returns
-  a checklist), or the **Designer** (`design: true` / the `design_pass`
-  tool — `DESIGNER_SYSTEM_PROMPT`, a client-UI + `DESIGN.md` write
-  allowlist enforced in the child via `SessionOptions.writeAllowlist`,
-  the two design skill bodies injected). A child's notable steps are
-  forwarded to the parent's stream as `agent.activity` events; the web
-  renders them as a labelled sub-thread.
-- **Honesty gates** on a design pass (in the `isDesign` return branch):
-  0 files, or only `DESIGN.md`, or code-changed-but-no-guide-exists each
+  Engineer-Mode `AgentSession` for a **builder** (one build-plan task,
+  lean tool set), the **verifier** (`verify: true` — preview + inspection
+  tools, walks the running app, returns a checklist), or one of three
+  **specialists** (`SPECIALISTS[kind]` config): the **Designer**
+  (`design: true` / `design_pass`), the **DevOps agent** (`ops: true` /
+  `ops_pass`), or the **Security/QA agent** (`qa: true` / `qa_pass`).
+  Each specialist gets its own `*_SYSTEM_PROMPT`, tool set, injected skill
+  bodies, and a **structural write allowlist** enforced in the child via
+  `SessionOptions.writeAllowlist` (plus `installAllowlist` — empty means no
+  `npm install`, and the DevOps agent's `package.json` access is checked
+  down to the `scripts` block). Caps 40 turns / 600k tokens / 18 min,
+  strong model by default. A child's notable steps are forwarded to the
+  parent's stream as `agent.activity` events; the web renders them as a
+  labelled sub-thread.
+- **Honesty gates** on a specialist pass (the `if (spec)` return branch):
+  0 files, or only the owned spec file, or work-with-no-spec-file each
   come back `isError: true` with what actually happened, not a review.
   A turn that hits its iteration cap having edited files runs the
   verification check and leads the fallback with the breakage.
+- **Pipeline** (Architect Mode §5): build → verify → DevOps (if the design
+  is deployable) → design → re-verify → Security/QA → done. A FAIL /
+  NOT DONE / NOT CLEARED from any of them blocks "done".
 
 ## Why tool errors are not exceptions
 

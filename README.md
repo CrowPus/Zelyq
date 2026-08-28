@@ -63,11 +63,13 @@ responsibly. Zelyq's agent is built toward the second one:
   dispatches each task to a bounded builder, has a separate session verify the running app, and
   claims "done" only against a checklist it can show you. Turn on **Auto Mode** and it runs the
   passes itself, to a hard ceiling, instead of you typing "keep going".
-- **It has specialists.** After a build verifies, the **Designer agent** takes the working app,
-  writes or deepens its `DESIGN.md`, and applies it — a coherent design system, real hierarchy,
-  every state styled, no generic-AI look — then a fresh session re-verifies nothing broke. In
-  Engineer Mode you can call it yourself: *"make it look professionally designed."* Its work
-  streams into the chat as a labelled sub-thread. See [docs/modes.md](./docs/modes.md).
+- **It has specialists.** After a build verifies, named agents finish the job — each owns a spec
+  file it surveys, writes, and implements, and each streams into the chat as a labelled sub-thread.
+  The **Designer** (`DESIGN.md` — a coherent design system, no generic-AI look), the **DevOps
+  agent** (`OPERATIONS.md` — CI, a Dockerfile, `.env.example`, deploy config), and the
+  **Security/QA agent** (`QA.md` — writes and runs the test suite, runs the security scan). In
+  Engineer Mode you can call any of them yourself: *"make it look professionally designed"*, *"set
+  up CI"*, *"write tests"*. See [docs/modes.md](./docs/modes.md).
 - **It builds what was asked, then stops.** No invented navbars, no sample-data toggles nobody
   requested, no filling a vague ask with guesses. A request too shapeless to build responsibly gets one
   clarifying question instead of eight files you didn't want.

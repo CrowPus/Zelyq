@@ -13,6 +13,8 @@ import {
   designPassTool,
   dispatchTaskTool,
   executeTool,
+  opsPassTool,
+  qaPassTool,
   type ToolContext,
   type ToolResult,
   toolDefinitions,
@@ -251,6 +253,10 @@ export interface SessionOptions {
    * creates an out-of-scope file trips the turn's checkpoint. The Designer
    * child runs with `designerPathAllowed`. */
   writeAllowlist?: (normPath: string) => boolean;
+  /** 055 — packages a specialist child may `npm install`. Only consulted
+   * when `writeAllowlist` is set; an empty/absent set with `writeAllowlist`
+   * present means NO installs are allowed. */
+  installAllowlist?: Set<string>;
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
@@ -326,13 +332,14 @@ Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item, PAS
 // It adds no features, no routes, no backend changes — a structural write
 // allowlist (designerPathAllowed) limits it to client UI files, and a fixed
 // dependency allowlist limits what it may install.
-// 054 — raised from 30 / 400k / 12m: the pass now surveys the project,
-// authors or deepens DESIGN.md, AND implements it. A pass that hits a
-// ceiling returns partial with honest NOT DONE lines; "keep going" or a
-// second design_pass continues against the now-written DESIGN.md (cheaper).
-const DESIGNER_MAX_TURNS = 40;
-const DESIGNER_MAX_TOKENS = 600_000;
-const DESIGNER_WALLCLOCK_MS = 18 * 60_000;
+// 054/055 — every specialist (Designer, DevOps, Security/QA) surveys the
+// project, authors or deepens its spec file, AND implements it. Raised from
+// the polish-pass 30/400k/12m. A pass that hits a ceiling returns partial
+// with honest NOT DONE lines; "keep going" or a second pass continues
+// against the now-written spec (cheaper).
+const SPECIALIST_MAX_TURNS = 40;
+const SPECIALIST_MAX_TOKENS = 600_000;
+const SPECIALIST_WALLCLOCK_MS = 18 * 60_000;
 
 // The builder's file/shell set minus delete_file (a polish pass does not
 // remove files), plus the preview + page-inspection tools so it can SEE the
@@ -512,48 +519,346 @@ When done, re-check the running preview, then return a DESIGN REVIEW:
 
 type Emit = (event: AgentEvent) => void;
 
-/** 053 — a short, human title for one of the Designer's steps, shown in the
- * chat as it works. Derived from the child's tool calls. */
-function designerActivityTitle(call: { name: string; input: Record<string, unknown> }): string {
+// ===========================================================================
+// 055 — the DevOps and Security/QA specialists. Same machine as the Designer
+// (053/054): a dispatched bounded child, a curated tool set, injected skill
+// bodies, a structural write allowlist, an owned spec file it surveys /
+// authors / implements, and the same honesty gates. Only the prompt, the
+// tools, the write scope, and the owned file differ.
+// ===========================================================================
+
+type SpecialistKind = "designer" | "devops" | "security";
+
+const DEVOPS_MD_PATHS = new Set(["architecture/OPERATIONS.md", "OPERATIONS.md"]);
+const QA_MD_PATHS = new Set([
+  "architecture/QA.md",
+  "QA.md",
+  "architecture/SECURITY.md",
+  "SECURITY.md",
+]);
+
+const DEVOPS_TOOL_NAMES = [
+  "list_files",
+  "read_file",
+  "search_files",
+  "write_file",
+  "edit_file",
+  "run_command",
+  "typecheck_project",
+  "lint_project",
+  "document_environment",
+  "detect_missing_secret_declarations",
+  "deployment_check",
+  "deployment_environment_report",
+  "build_artifact_report",
+  "inspect_dockerfile",
+  "inspect_compose_file",
+  "container_security_report",
+  "git_status",
+];
+
+const QA_TOOL_NAMES = [
+  "list_files",
+  "read_file",
+  "search_files",
+  "write_file",
+  "edit_file",
+  "run_command",
+  "typecheck_project",
+  "lint_project",
+  "discover_tests",
+  "run_targeted_tests",
+  "summarize_test_failures",
+  "coverage_report",
+  "security_scan",
+  "dependency_report",
+  "container_security_report",
+  "accessibility_audit",
+  "detect_missing_secret_declarations",
+  "quality_report",
+];
+
+/** 055 — the DevOps agent's structural write scope: operational / deploy
+ * files, plus its own OPERATIONS.md. NEVER application code, a real .env, or
+ * a package.json key other than `scripts` (checked separately in the turn
+ * loop). Path is normalized by the caller. */
+function devopsPathAllowed(norm: string): boolean {
+  if (norm === "" || pathPosix.isAbsolute(norm) || norm === ".." || norm.startsWith("../")) {
+    return false;
+  }
+  if (DEVOPS_MD_PATHS.has(norm)) return true;
+  if (/^src\//.test(norm)) return false; // never application code
+  if (/^architecture\//.test(norm)) return false; // OPERATIONS.md handled above
+  if (/^\.env(\.|$)/.test(norm) && !/\.example$/.test(norm)) return false; // no real .env
+  if (
+    /^\.github\/(workflows|actions)\//.test(norm) ||
+    /^Dockerfile(\.[a-z0-9.-]+)?$/i.test(norm) ||
+    norm === ".dockerignore" ||
+    /^docker-compose(\.[a-z0-9.-]+)?\.ya?ml$/.test(norm) ||
+    /^\.env(\.[a-z0-9.-]+)?\.example$/.test(norm) ||
+    norm === ".env.example" ||
+    norm === ".gitignore" ||
+    norm === ".nvmrc" ||
+    norm === "vercel.json" ||
+    norm === "netlify.toml" ||
+    norm === "fly.toml" ||
+    /^railway\.(json|toml)$/.test(norm) ||
+    norm === "Procfile" ||
+    /^scripts\//.test(norm) ||
+    norm === "package.json" // scripts-block-only, enforced in the turn loop
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** 055 — the Security/QA agent's structural write scope: test files, its own
+ * QA.md / SECURITY.md, and risks.md for triage. NEVER application code or
+ * package.json (a needed test dep is named in the review). */
+function qaPathAllowed(norm: string): boolean {
+  if (norm === "" || pathPosix.isAbsolute(norm) || norm === ".." || norm.startsWith("../")) {
+    return false;
+  }
+  if (QA_MD_PATHS.has(norm)) return true;
+  if (norm === "architecture/risks.md") return true;
+  if (/^architecture\//.test(norm)) return false;
+  if (/\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(norm)) return true;
+  if (/(^|\/)(__tests__|__mocks__|tests?|e2e|cypress)\//.test(norm)) return true;
+  if (
+    /^(vitest|jest|playwright|cypress)\.config\.[a-z]+$/.test(norm) ||
+    /^vitest\.setup\.[a-z]+$/.test(norm) ||
+    /^(test|tests)\/setup\.[a-z]+$/.test(norm)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+const OPERATIONS_MD_TEMPLATE = `# Operations — <project name>
+
+## Environments
+Which environments exist (local, preview, production), and what differs between them.
+
+## Configuration & secrets
+Every environment variable the code and the design need — name, purpose, where it is set, whether it is a secret. Point at .env.example. NO real values here.
+
+## CI pipeline
+The jobs (.github/workflows/ci.yml): lint, typecheck, test, build — each matching a real package.json script. Caching. What blocks a merge. Marked "unverified — generated from the design".
+
+## Containers
+If the design targets a container: the Dockerfile strategy (multi-stage, non-root, healthcheck), the .dockerignore, docker-compose for local. If not: "not containerised — <why>".
+
+## Deploy
+The target the design names (static host / container / platform), the build command and output dir, how a deploy is triggered, and rollback.
+
+## Health & observability
+The health endpoint (path, what it checks), where logs and metrics would go. Stubs + notes, not a wired service.
+
+## Runbook
+The three or four things an operator does: run locally, run the tests, build for production, roll back.
+`;
+
+const QA_MD_TEMPLATE = `# Quality — <project name>
+
+## Test plan
+Which layers apply to THIS project and why:
+- unit — the logic worth testing (utils, hooks, reducers, pure functions).
+- component — the important components: render, the primary interaction, the empty/loading/error states.
+- integration — the core user flows.
+- e2e — only if the project genuinely warrants it and the harness supports it.
+The coverage target, and how to run the whole suite.
+
+## Coverage
+What is covered now (added this pass), what is deliberately not, and why.
+
+## Security review
+Method: security_scan, dependency audit, secret scan, (container scan if containerised), input/auth review.
+Findings — one row each: description · severity (critical|high|medium|low) · decision (accepted / needs-Engineer / fixed-by-report). Cross-referenced in architecture/risks.md.
+
+## Result
+CLEARED, or NOT CLEARED — a security_scan FAIL or a critical/high dependency vulnerability means NOT CLEARED.
+`;
+
+const DEVOPS_SYSTEM_PROMPT = `You are the DevOps engineer. Operations is your project: you own OPERATIONS.md — the environments, config and secrets, the CI pipeline, containers, deploy targets, rollback, health, and a short runbook — and you make the repo match it.
+
+The deliverable is the diff (OPERATIONS.md + the CI/container/env files that implement it). A pass that changes no files is a FAILURE. A pass that writes only OPERATIONS.md has written the spec but not implemented it — say so.
+
+Hard boundaries (the tool layer enforces them):
+- Write ONLY operational files: OPERATIONS.md, .github/workflows/**, Dockerfile*, .dockerignore, docker-compose*.yml, .env.example, .gitignore, .nvmrc, deploy config (vercel.json / netlify.toml / fly.toml / railway.* / Procfile), scripts/**, and the "scripts" block of package.json. Application code under src/, a real .env, the data model, and other architecture/* files are refused.
+- Do NOT add dependencies. Do NOT change any package.json key except "scripts". A dependency the setup needs is NAMED IN YOUR REVIEW for the Engineer.
+- Do NOT run a deployment. You write config; you do not ship.
+- A problem that is NOT operational — an application bug, a broken API — you REPORT in the review, you do not fix it.
+
+Work in this order:
+1. SURVEY. Read package.json scripts, the build output, any existing .github/ / Dockerfile / vite.config / .env*. Run document_environment, detect_missing_secret_declarations, deployment_environment_report. Read the design's architecture/infrastructure.md if it exists.
+2. OWN OPERATIONS.md (architecture/OPERATIONS.md, or OPERATIONS.md at the repo root if there is no architecture/ folder) — write it BEFORE the other files. Deepen the draft, or author it from the project using this structure with REAL values (the actual env vars, the actual scripts, the target the design names):
+${OPERATIONS_MD_TEMPLATE}
+3. IMPLEMENT it: .env.example (every var, one per line with a comment, NO real values); .github/workflows/ci.yml (lint/typecheck/test/build jobs matching the REAL package.json scripts, a dependency cache, and a header comment "unverified — generated from the design, not yet run on a runner"); Dockerfile + .dockerignore (multi-stage, non-root, HEALTHCHECK) ONLY if the design targets a container; docker-compose.yml for local ONLY if there are services to compose; .gitignore additions; confirm the lockfile is committed and no secret is.
+4. CHECK: npm run build, build_artifact_report, deployment_check, inspect_dockerfile / container_security_report if containerised.
+5. Return an OPS REVIEW: for each area — PASS (naming the file you wrote and what the check showed) / FAIL / NOT DONE. Never PASS something you did not write or verify. Then list any dependencies the Engineer must add, and any non-operational problems you found. If you implemented nothing, every area is NOT DONE.`;
+
+const QA_SYSTEM_PROMPT = `You are the Security & QA engineer. Quality is your project: you own QA.md — the test plan (what is covered, to what standard, the coverage target, how to run the suite) and the security posture (scan results, the dependency audit, the review, findings with severity and a decision) — and you make the repo match it.
+
+The deliverable is the diff (QA.md + the tests). A pass that changes no files is a FAILURE. A pass that writes only QA.md has written the plan but not the tests — say so.
+
+Hard boundaries (the tool layer enforces them):
+- Write ONLY: QA.md, SECURITY.md, test files (**/*.{test,spec}.*, __tests__/, test/, tests/, e2e/), test config (vitest / jest / playwright / cypress config + setup), and architecture/risks.md for triage. Application code under src/, components, the data model, the server, and package.json are refused.
+- Do NOT fix application bugs. A test that fails because the APP is wrong is a FINDING in QA.md, reported for the Engineer — not an app fix. A test that fails because the TEST is wrong, you fix.
+- Do NOT install a dependency. A test dependency the suite needs (a testing library, jsdom) is NAMED IN YOUR REVIEW for the Engineer/DevOps.
+- Never claim the project is "secure" — only "scanned, N findings, each triaged".
+
+Work in this order:
+1. SURVEY. discover_tests; read the source for the logic worth testing (utils, hooks, reducers, pure functions), the important components, the core flows. Run security_scan, dependency_report, detect_missing_secret_declarations, container_security_report if containerised, accessibility_audit.
+2. OWN QA.md (architecture/QA.md, or QA.md at the repo root if there is no architecture/ folder) — write it BEFORE the tests, using this structure with REAL detail:
+${QA_MD_TEMPLATE}
+3. WRITE THE TESTS to the plan: unit for the logic; component (React Testing Library) for the important components — render, the primary interaction, the empty/loading/error states; integration for the core flows; e2e (Playwright) only if the project genuinely warrants it. Add/adjust vitest.config / a setup file / playwright.config as needed.
+4. RUN EVERYTHING: npm test / vitest run / run_targeted_tests, coverage_report, summarize_test_failures. Fix a test that is wrong. Report — do not fix — an app bug a test reveals.
+5. TRIAGE security findings into QA.md and architecture/risks.md (a dated heading). A security_scan FAIL or a critical/high dependency vulnerability ⇒ the result is NOT CLEARED.
+6. Return a QA REVIEW: tests added / passing / failing + coverage; then per security area PASS / FAIL / N-A with the finding; then the NOT CLEARED line if it applies; then any test dependencies the Engineer must add, and any app bugs found (file + symptom). A coverage number with the core flow untested is a NOT DONE line.`;
+
+/** A short, human title for a specialist child's step, shown in the chat as
+ * it works. Derived from the child's tool calls. */
+function specialistActivityTitle(
+  kind: SpecialistKind,
+  call: { name: string; input: Record<string, unknown> },
+): string {
   const path = typeof call.input.path === "string" ? call.input.path : "";
   const cmd = typeof call.input.command === "string" ? call.input.command : "";
+  const norm = path ? pathPosix.normalize(path) : "";
+  const specPaths =
+    kind === "designer" ? DESIGN_MD_PATHS : kind === "devops" ? DEVOPS_MD_PATHS : QA_MD_PATHS;
+  const guideName =
+    kind === "designer" ? "design guide" : kind === "devops" ? "operations spec" : "quality plan";
   switch (call.name) {
     case "start_preview":
-      return "Opening the preview to look at the current design";
+      return "Opening the preview";
     case "view_preview":
       return "Looking at the rendered page";
     case "inspect_page":
-      return "Inspecting the page structure and styles";
+      return "Inspecting the page";
     case "check_console_errors":
-      return "Checking the running app for console errors";
+      return "Checking for console errors";
     case "check_network_failures":
-      return "Checking the running app for failed requests";
+      return "Checking for failed requests";
     case "typecheck_project":
+      return "Re-checking: typecheck";
     case "lint_project":
-      return `Re-checking: ${call.name === "typecheck_project" ? "typecheck" : "lint"}`;
+      return "Re-checking: lint";
+    case "security_scan":
+      return "Running the security scan";
+    case "dependency_report":
+      return "Auditing dependencies";
+    case "container_security_report":
+      return "Scanning the container";
+    case "coverage_report":
+      return "Measuring coverage";
+    case "run_targeted_tests":
+    case "discover_tests":
+      return "Running the test suite";
+    case "deployment_check":
+      return "Checking deploy readiness";
+    case "inspect_dockerfile":
+      return "Inspecting the Dockerfile";
+    case "document_environment":
+    case "detect_missing_secret_declarations":
+      return "Checking environment & secrets";
+    case "build_artifact_report":
+      return "Checking the build output";
     case "run_command":
       return cmd ? `Running: ${cmd.slice(0, 80)}` : "Running a command";
     case "write_file":
     case "edit_file":
-      return DESIGN_MD_PATHS.has(pathPosix.normalize(path))
-        ? "Writing the design guide (DESIGN.md)"
+      return specPaths.has(norm)
+        ? `Writing the ${guideName}`
         : path
-          ? `Restyling ${path}`
-          : "Restyling a component";
+          ? `Writing ${path}`
+          : "Writing a file";
     case "read_file":
-      return DESIGN_MD_PATHS.has(pathPosix.normalize(path))
-        ? "Reading the design guide"
+      return specPaths.has(norm)
+        ? `Reading the ${guideName}`
         : path
           ? `Reading ${path}`
-          : "Reading a file";
+          : "Reading";
     case "search_files":
-      return "Surveying the project";
     case "list_files":
       return "Surveying the project";
     default:
       return call.name.replace(/_/g, " ");
   }
 }
+
+interface SpecialistConfig {
+  /** The `agent` value on `agent.activity` events. */
+  agent: "designer" | "devops" | "security";
+  /** User-facing name for the chat sub-thread and messages. */
+  label: string;
+  systemPrompt: string;
+  toolNames: string[];
+  /** The structural write scope, checked in the child turn loop. */
+  allow: (normPath: string) => boolean;
+  /** The doc file(s) this specialist owns. */
+  specPaths: Set<string>;
+  /** Loaded skills whose bodies are force-injected into the child. */
+  skills: string[];
+  /** Default acceptance criteria when invoked via the `*_pass` tool. */
+  dod: string;
+  /** Packages the child may `npm install` (empty ⇒ none). */
+  installAllow: Set<string>;
+  /** "design guide" / "operations spec" / "quality plan". */
+  guideNoun: string;
+  /** "Design pass" / "DevOps pass" / "QA pass". */
+  passNoun: string;
+}
+
+const SPECIALISTS: Record<SpecialistKind, SpecialistConfig> = {
+  designer: {
+    agent: "designer",
+    label: "Designer",
+    systemPrompt: DESIGNER_SYSTEM_PROMPT,
+    toolNames: DESIGNER_TOOL_NAMES,
+    allow: designerPathAllowed,
+    specPaths: DESIGN_MD_PATHS,
+    skills: ["ui-ux-design-intelligence", "frontend-ui-engineering"],
+    dod: DESIGN_DOD,
+    installAllow: DESIGNER_DEP_ALLOW,
+    guideNoun: "design guide",
+    passNoun: "Design pass",
+  },
+  devops: {
+    agent: "devops",
+    label: "DevOps agent",
+    systemPrompt: DEVOPS_SYSTEM_PROMPT,
+    toolNames: DEVOPS_TOOL_NAMES,
+    allow: devopsPathAllowed,
+    specPaths: DEVOPS_MD_PATHS,
+    skills: ["ci-cd-and-automation", "senior-software-engineering"],
+    dod:
+      "OPERATIONS.md covers environments, config/secrets, the CI pipeline, containers, deploy, " +
+      "health, and a runbook; .env.example is complete with no real values; CI jobs match the " +
+      "real package.json scripts and carry the 'unverified' header; a Dockerfile exists iff the " +
+      "design targets a container; deployment_check and the build pass.",
+    installAllow: new Set<string>(),
+    guideNoun: "operations spec",
+    passNoun: "DevOps pass",
+  },
+  security: {
+    agent: "security",
+    label: "Security/QA agent",
+    systemPrompt: QA_SYSTEM_PROMPT,
+    toolNames: QA_TOOL_NAMES,
+    allow: qaPathAllowed,
+    specPaths: QA_MD_PATHS,
+    skills: ["application-security-engineering", "senior-software-engineering"],
+    dod:
+      "QA.md states the test plan (layers that apply and why, the coverage target, how to run) and " +
+      "the security posture; unit + component + integration tests exist and pass; the core flows " +
+      "are covered; security_scan is clean or every finding is triaged with a severity and a " +
+      "decision; a FAIL or a critical/high vulnerability is reported as NOT CLEARED.",
+    installAllow: new Set<string>(),
+    guideNoun: "quality plan",
+    passNoun: "QA pass",
+  },
+};
 
 /**
  * One conversation about one project.
@@ -648,9 +953,11 @@ export class AgentSession {
           ...ALL_TOOLS,
           // 047 — the Architect orchestrates builders.
           ...(options.architectMode ? [dispatchTaskTool] : []),
-          // 053 — the Designer specialist is callable from Engineer Mode
-          // (on the user's ask) and Architect Mode (after verification).
-          ...(options.architectMode || options.engineerMode ? [designPassTool] : []),
+          // 053/055 — the specialists are callable from Engineer Mode (on the
+          // user's ask) and Architect Mode (in the pipeline).
+          ...(options.architectMode || options.engineerMode
+            ? [designPassTool, opsPassTool, qaPassTool]
+            : []),
         ];
 
     this.conversation = provider.createConversation({
@@ -780,13 +1087,25 @@ export class AgentSession {
     // the user's ask (Engineer, via design_pass which normalizes to this
     // shape). Both are exempt from the build-only gates below.
     const isVerify = input.verify === true;
-    const isDesign = input.design === true;
+    // 055 — which specialist, if any. The Designer (053/054), the DevOps
+    // agent, and the Security/QA agent all run on the same machine.
+    const specialistKind: SpecialistKind | null =
+      input.design === true
+        ? "designer"
+        : input.ops === true
+          ? "devops"
+          : input.qa === true
+            ? "security"
+            : null;
+    const isSpecialist = specialistKind !== null;
+    const spec = specialistKind ? SPECIALISTS[specialistKind] : null;
 
-    // dispatch_task (build / verify) is Architect Mode only. The Designer is
-    // also reachable from Engineer Mode — there it skips the package/ready
-    // gates (there is no build-plan to be ready), and its own boundaries (the
-    // write allowlist, the caps) still apply.
-    if (!this.options.architectMode && !isDesign) {
+    // dispatch_task (build / verify) is Architect Mode only. A specialist is
+    // also reachable from Engineer Mode (via design_pass / ops_pass /
+    // qa_pass) — there it skips the package/ready gates (there is no
+    // build-plan to be ready), and its own boundaries (the write allowlist,
+    // the caps) still apply.
+    if (!this.options.architectMode && !isSpecialist) {
       return { output: "dispatch_task is only available in Architect Mode.", isError: true };
     }
 
@@ -834,7 +1153,7 @@ export class AgentSession {
 
     // 049 Phase 1 — task-size ceiling. A bounded builder cannot land a task
     // with a dozen files; refuse and make the Architect split it.
-    if (!isVerify && !isDesign && input.files && input.files.length > BUILDER_FILES_MAX) {
+    if (!isVerify && !isSpecialist && input.files && input.files.length > BUILDER_FILES_MAX) {
       return {
         output:
           `This task names ${input.files.length} files — a builder takes at most ${BUILDER_FILES_MAX}. ` +
@@ -848,7 +1167,7 @@ export class AgentSession {
     // skeleton: the app's entry point renders something and the build/dev
     // command passes. Keyed to that outcome in the acceptance criteria, not
     // to a hardcoded filename (a Node API or a CLI has no App.tsx).
-    if (!isVerify && !isDesign && !this.orchestration.firstDispatchDone) {
+    if (!isVerify && !isSpecialist && !this.orchestration.firstDispatchDone) {
       const ac = input.acceptanceCriteria.toLowerCase();
       const looksRunnable =
         /\b(build|dev server|typecheck|npm run|preview|start)\b/.test(ac) &&
@@ -898,7 +1217,7 @@ export class AgentSession {
     // wants the strong model. `modelForTier` falls back to the session model
     // when no strong model is configured, so this is safe on any provider.
     const model = modelForTier(
-      isDesign ? (input.modelTier ?? "strong") : input.modelTier,
+      isSpecialist ? (input.modelTier ?? "strong") : input.modelTier,
       this.options.provider,
       this.options.model,
       describeAvailableModels(),
@@ -922,14 +1241,8 @@ export class AgentSession {
     // child has no use_skill tool, so it gets the text. 053 — the Designer
     // always gets the two design skills, whatever else was named.
     const skillsBlock = (() => {
-      const names = isDesign
-        ? [
-            ...new Set([
-              "ui-ux-design-intelligence",
-              "frontend-ui-engineering",
-              ...(input.skills ?? []),
-            ]),
-          ]
+      const names = spec
+        ? [...new Set([...spec.skills, ...(input.skills ?? [])])]
         : (input.skills ?? []);
       if (!names.length || !this.options.resolveSkillBody) return "";
       const bodies = names
@@ -947,23 +1260,25 @@ export class AgentSession {
     // 053 — the Designer gets its own tool set (preview + inspection +
     // typecheck/lint, no delete_file), a 12-minute wall-clock, a 400k budget,
     // and a structural write scope (client UI only).
-    const toolNames = isDesign
-      ? [...DESIGNER_TOOL_NAMES, ...(input.tools ?? [])]
+    const toolNames = spec
+      ? [...spec.toolNames, ...(input.tools ?? [])]
       : isVerify
         ? [...BUILDER_TOOL_NAMES, ...VERIFIER_EXTRA_TOOL_NAMES, ...(input.tools ?? [])]
         : BUILDER_TOOL_NAMES;
-    const wallclockMs = isDesign
-      ? DESIGNER_WALLCLOCK_MS
+    // 054/055 — a specialist authors a spec AND implements it; more room than
+    // a polish. 40 turns / 600k tokens / 18 min.
+    const wallclockMs = spec
+      ? SPECIALIST_WALLCLOCK_MS
       : isVerify
         ? 10 * 60_000
         : SUBAGENT_WALLCLOCK_MS;
-    const tokenCap = isDesign
-      ? DESIGNER_MAX_TOKENS
+    const tokenCap = spec
+      ? SPECIALIST_MAX_TOKENS
       : isVerify
         ? SUBAGENT_MAX_TOKENS * 3
         : SUBAGENT_MAX_TOKENS;
-    const childTurnCap = isDesign
-      ? DESIGNER_MAX_TURNS
+    const childTurnCap = spec
+      ? SPECIALIST_MAX_TURNS
       : isVerify
         ? SUBAGENT_MAX_TURNS * 2
         : SUBAGENT_MAX_TURNS;
@@ -983,20 +1298,21 @@ export class AgentSession {
       maxIterations: childTurnCap,
       engineerMode: true,
       // 049 Phase 1 — lean profile: hand-written prompt, curated tools.
-      systemPrompt: isDesign
-        ? DESIGNER_SYSTEM_PROMPT
+      systemPrompt: spec
+        ? spec.systemPrompt
         : isVerify
           ? VERIFIER_SYSTEM_PROMPT
           : BUILDER_SYSTEM_PROMPT,
       toolNames,
-      // 053 — the Designer may write client UI only, enforced in the child.
-      ...(isDesign ? { writeAllowlist: designerPathAllowed } : {}),
+      // 053/055 — a specialist has a structural write scope, enforced in the
+      // child; and an install allowlist (empty ⇒ no installs).
+      ...(spec ? { writeAllowlist: spec.allow, installAllowlist: spec.installAllow } : {}),
       ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
     });
 
     const rolePrefix = input.role ? `You are the ${input.role} for this task. ` : "";
     const filesLine = input.files?.length
-      ? `\n\n${isVerify || isDesign ? "Files to check/write" : "Expected files (do not create others)"}: ${input.files.join(", ")}`
+      ? `\n\n${isVerify || isSpecialist ? "Files to check/write" : "Expected files (do not create others)"}: ${input.files.join(", ")}`
       : "";
     const briefBlock = buildContext
       ? `\n\nPROJECT BRIEF (stack, conventions, the shape of the design):\n${buildContext.slice(0, 8000)}`
@@ -1004,10 +1320,12 @@ export class AgentSession {
     const notesBlock = designNotes.trim()
       ? `\n\nDIRECTION FROM THE USER:\n${designNotes.slice(0, 2000)}`
       : "";
-    const prompt = isDesign
-      ? `${rolePrefix}Design is your project here. Survey it, own DESIGN.md, implement it, fix the UI issues, then review. CHANGE FILES — the deliverable is DESIGN.md plus the code that implements it. Add no features, no routes, no backend changes.\n\n` +
-        `SCOPE: ${input.task}\n\nYOUR DESIGN REVIEW MUST COVER:\n${input.acceptanceCriteria}${notesBlock}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
-        "Follow the five steps in order: survey (preview + inspect every screen) → OWN DESIGN.md (write it in full BEFORE your first code edit — deepen the existing one or author it from the project) → implement it in the real token place and screen by screen → fix UI issues → keep it green (build + typecheck must pass when you stop). Return the DESIGN REVIEW as instructed, leading with whether DESIGN.md was created or refined."
+    const prompt = spec
+      ? `${rolePrefix}${
+          spec.label
+        } — this is your project. Survey it, OWN your spec file (write it in full BEFORE your first other file), implement it, then review. CHANGE FILES — the deliverable is the spec file plus what implements it. Do not fix problems outside your lane — report them.\n\n` +
+        `SCOPE: ${input.task}\n\nYOUR REVIEW MUST COVER:\n${input.acceptanceCriteria}${notesBlock}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
+        "Follow the ordered steps in your instructions. Keep the project building/green. Return your REVIEW as instructed, leading with whether your spec file was created or refined."
       : isVerify
         ? `${rolePrefix}Verify this project and write its finishing files. Do not build features.\n\n` +
           `DEFINITION OF DONE (check each item):\n${input.acceptanceCriteria}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
@@ -1018,26 +1336,16 @@ export class AgentSession {
           "When finished, state in two or three sentences what you changed and whether the acceptance " +
           "criteria are met.";
 
-    // 053 — stream the specialist's work up to the user as a labelled
-    // sub-thread. Scoped to the Designer for now (the verifier/builders keep
-    // their single tool-call view); the event is generic so they can be added.
-    const specialist: "designer" | "verifier" | "builder" = isDesign
-      ? "designer"
-      : isVerify
-        ? "verifier"
-        : "builder";
-    const streamActivity = isDesign;
-    if (streamActivity) {
+    // 053/055 — stream a named specialist's work up to the user as a labelled
+    // sub-thread. Builders and the verifier keep their single tool-call view.
+    if (spec) {
       emit({
         type: "agent.activity",
         sessionId: this.id,
         messageId,
-        agent: specialist,
+        agent: spec.agent,
         phase: "start",
-        title:
-          specialist === "designer"
-            ? `Designer called — polishing ${input.task}`
-            : `${specialist} started`,
+        title: `${spec.label} called — ${input.task}`,
       });
     }
 
@@ -1067,15 +1375,16 @@ export class AgentSession {
             onFileChanged(p);
           }
         }
-        // 053 — forward the specialist's meaningful moments to the user.
-        if (streamActivity && e.type === "tool.start") {
+        // 053/055 — forward the specialist's meaningful moments to the user.
+        if (spec && e.type === "tool.start") {
           emit({
             type: "agent.activity",
             sessionId: this.id,
             messageId,
-            agent: specialist,
+            agent: spec.agent,
             phase: "step",
-            title: designerActivityTitle(
+            title: specialistActivityTitle(
+              specialistKind as SpecialistKind,
               e.call as { name: string; input: Record<string, unknown> },
             ),
           });
@@ -1100,107 +1409,101 @@ export class AgentSession {
           ? ` — HIT the ${Math.round(wallclockMs / 60_000)}-minute cap, result may be incomplete.`
           : "";
     const filesChanged = [...changed];
-    const codeFilesChanged = filesChanged.filter(
-      (p) => !DESIGN_MD_PATHS.has(pathPosix.normalize(p)),
-    );
-    const designNoChanges = isDesign && filesChanged.length === 0;
-    // 054 — wrote the guide but implemented nothing.
-    const designGuideOnly = isDesign && !designNoChanges && codeFilesChanged.length === 0;
-    if (streamActivity) {
+    // 054/055 — files that are the specialist's own spec doc don't count as
+    // "implementation".
+    const codeFilesChanged = spec
+      ? filesChanged.filter((p) => !spec.specPaths.has(pathPosix.normalize(p)))
+      : filesChanged;
+    const noChanges = isSpecialist && filesChanged.length === 0;
+    const specOnly = isSpecialist && !noChanges && codeFilesChanged.length === 0;
+    if (spec) {
       emit({
         type: "agent.activity",
         sessionId: this.id,
         messageId,
-        agent: specialist,
+        agent: spec.agent,
         phase: "end",
         title: capNote
-          ? `Design pass stopped${capNote}`
-          : designNoChanges
-            ? "Designer made no changes"
-            : designGuideOnly
-              ? "Wrote DESIGN.md — not yet implemented"
-              : `Design pass complete — ${codeFilesChanged.length} file(s) restyled`,
+          ? `${spec.passNoun} stopped${capNote}`
+          : noChanges
+            ? `${spec.label} made no changes`
+            : specOnly
+              ? `Wrote the ${spec.guideNoun} — not yet implemented`
+              : `${spec.passNoun} complete — ${codeFilesChanged.length} file(s) changed`,
       });
     }
-    if (isDesign) {
-      // A design pass that changed nothing is a no-op, not a result. Do NOT
-      // let the parent relay a review/checklist as if work happened — that is
-      // exactly how "declared done when it wasn't" gets back in.
-      if (designNoChanges && !capNote) {
+    if (spec) {
+      const kind = specialistKind as SpecialistKind;
+      // Nothing written at all — a no-op, not a result.
+      if (noChanges && !capNote) {
         return {
           output:
-            `Design pass changed NOTHING — 0 files, ${secs}s, ${rounds} rounds.\n` +
+            `${spec.passNoun} changed NOTHING — 0 files, ${secs}s, ${rounds} rounds.\n` +
             `model: ${model} · tokens: ${tokIn + tokOut}\n\n` +
-            "This is NOT a completed design pass. The Designer either could not run or produced only " +
-            "text. Do NOT relay a design review or checklist as if the app was redesigned, and do NOT " +
-            'say anything was "applied" or "restyled". Tell the user plainly: the Designer made no ' +
-            "changes. Show what it reported below, and offer to point it at a specific screen or run " +
-            "it again.\n\n" +
-            `Designer's report:\n${reply.slice(0, 3000)}`,
+            `This is NOT a completed ${spec.passNoun.toLowerCase()}. The ${spec.label} either could ` +
+            "not run or produced only text. Do NOT relay a review as if work happened, and do NOT " +
+            `say anything was "applied". Tell the user plainly: the ${spec.label} made no changes. ` +
+            "Show what it reported below.\n\n" +
+            `${spec.label}'s report:\n${reply.slice(0, 3000)}`,
           isError: true,
         };
       }
-      // 054 — wrote/updated DESIGN.md but did not implement it in the code.
-      if (designGuideOnly && !capNote) {
+      // Wrote the spec file but implemented nothing.
+      if (specOnly && !capNote) {
         return {
           output:
-            `Design pass wrote the design guide but did NOT implement it — DESIGN.md changed, 0 code ` +
-            `files. ${secs}s, ${rounds} rounds.\n\n` +
-            "The app does NOT yet match DESIGN.md. Do NOT call this done or say the app was redesigned. " +
-            "Tell the user: the Designer produced/updated the design guide, and the next design pass " +
-            '(or "keep going") will implement it against the code — which is cheaper now that the ' +
-            "guide exists. Relay the review below verbatim; it should already say NOT DONE on the " +
-            "implementation areas.\n\n" +
-            `Designer's report:\n${reply.slice(0, 5000)}`,
+            `${spec.passNoun} wrote the ${spec.guideNoun} but did NOT implement it — the spec ` +
+            `changed, 0 other files. ${secs}s, ${rounds} rounds.\n\n` +
+            `The project does NOT yet match the ${spec.guideNoun}. Do NOT call this done. Tell the ` +
+            `user: the ${spec.label} produced/updated its spec, and the next pass (or "keep going") ` +
+            "will implement it — cheaper now that the spec exists. Relay the review below verbatim.\n\n" +
+            `${spec.label}'s report:\n${reply.slice(0, 5000)}`,
           isError: true,
         };
       }
-      // 054 — the design pass restyled code but never established DESIGN.md.
-      // The visual changes have no written system behind them — the exact
-      // ad-hoc restyle DESIGN.md exists to replace. Only a hard error when
-      // NO guide exists anywhere (a later pass on an existing DESIGN.md may
-      // legitimately not touch it).
+      // Changed other files but never established the spec — ungoverned work.
       if (!capNote && codeFilesChanged.length > 0) {
-        const designMdExists = Boolean(
-          (await this.readFileOrNull("architecture/DESIGN.md")) ??
-            (await this.readFileOrNull("DESIGN.md")),
-        );
-        if (!designMdExists) {
+        const specExists = (
+          await Promise.all([...spec.specPaths].map((p) => this.readFileOrNull(p)))
+        ).some(Boolean);
+        if (!specExists) {
           return {
             output:
-              `Design pass changed ${codeFilesChanged.length} code file(s) but NEVER wrote DESIGN.md, ` +
-              "and no design guide exists in the project. These visual changes have no written " +
-              "system behind them — that is the ad-hoc restyle DESIGN.md is meant to replace, and " +
-              "writing DESIGN.md is the FIRST thing a design pass must do.\n\n" +
-              "Do NOT call this done. Tell the user plainly: the Designer restyled without " +
-              'establishing the design guide. Run the design pass again (or "keep going") — it must ' +
-              "write DESIGN.md first, then implement it. Relay the review below verbatim.\n\n" +
-              `Designer's report:\n${reply.slice(0, 4000)}`,
+              `${spec.passNoun} changed ${codeFilesChanged.length} file(s) but NEVER wrote the ` +
+              `${spec.guideNoun}, and none exists in the project. This work has no written spec ` +
+              `behind it — writing the ${spec.guideNoun} is the FIRST thing a ${spec.label} pass ` +
+              "must do.\n\nDo NOT call this done. Tell the user: the " +
+              `${spec.label} worked without establishing its spec. Run the pass again (or ` +
+              '"keep going") — it must write the spec first. Relay the review below verbatim.\n\n' +
+              `${spec.label}'s report:\n${reply.slice(0, 4000)}`,
             isError: true,
           };
         }
       }
-      const handBack = this.options.architectMode
-        ? "Now dispatch ONE more dispatch_task with verify:true and acceptanceCriteria set to " +
-          '"the app still renders, the core flows still work, typecheck and build pass" — a fresh ' +
-          "session confirms the design pass broke nothing. Only if that re-verify comes back clean " +
-          "may you say the build is done. A FAIL there means the design pass regressed something: " +
-          'say so and offer "keep going" or Engineer Mode. Do not declare done on the design pass alone.'
-        : "Confirm the app still renders (start_preview, then check the page and the console). Then " +
-          "give the user the review above and the preview URL. Report ONLY what the Designer actually " +
-          `changed this pass (${codeFilesChanged.length} code file(s)` +
-          `${filesChanged.length > codeFilesChanged.length ? " + DESIGN.md" : ""}) — do not claim ` +
-          'anything was "applied" that is not in that list. If anything regressed, say what and fix ' +
-          "it before you call it done.";
+      const handBack =
+        kind === "designer"
+          ? this.options.architectMode
+            ? "Now dispatch ONE more dispatch_task with verify:true (acceptanceCriteria: the app " +
+              "still renders, the core flows work, typecheck and build pass) — a fresh session " +
+              "confirms nothing broke. Only if it comes back clean may you say the build is done."
+            : "Confirm the app still renders (start_preview + check the page and console), then give " +
+              "the user the review above and the preview URL. Report ONLY the files actually changed."
+          : kind === "devops"
+            ? "Relay the OPS REVIEW verbatim. If any area is FAIL/NOT DONE the operational setup is " +
+              "not complete — say what is missing. Note any dependency the Engineer must add. A " +
+              "generated CI/Docker file is unverified until it runs on a real runner."
+            : "Relay the QA REVIEW verbatim. If it says NOT CLEARED (a security_scan FAIL or a " +
+              "critical/high vulnerability) the project is not cleared — say so plainly, do not call " +
+              "it done. Note any test dependency the Engineer must add, and any app bug the tests " +
+              "found (report only — the Engineer fixes those).";
       return {
         output:
-          `Design pass finished${capNote}\n` +
+          `${spec.passNoun} finished${capNote}\n` +
           `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
           `files changed (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
-          "This is the Designer's own report. Relay its DESIGN REVIEW to the user VERBATIM — do not " +
-          'write your own, do not turn a FAIL or NOT DONE into a PASS, do not add the word "done". ' +
-          "If it starts with NOT VERIFIED, the design pass did not properly run — say so plainly and " +
-          "do not dress it up.\n\n" +
+          `This is the ${spec.label}'s own report. Relay its REVIEW to the user VERBATIM — do not ` +
+          "write your own, do not turn a FAIL / NOT DONE / NOT CLEARED into a PASS, do not add " +
+          '"done". Report only the files it actually changed.\n\n' +
           `${reply.slice(0, 6000)}\n\n` +
           handBack,
       };
@@ -1705,11 +2008,14 @@ export class AgentSession {
             const architectBlock = this.options.architectMode
               ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
               : null;
-            // 053 — a specialist child with a structural write scope (the
-            // Designer). Refuse a write/edit/delete outside the allowlist, and
-            // refuse a package install of anything off the dependency
-            // allowlist — before the real tool runs.
-            const scopeBlock: "path" | "dep" | null = (() => {
+            // 053/055 — a specialist child with a structural write scope.
+            // Refuse a write/edit/delete outside the allowlist; refuse a
+            // package install of anything off the install allowlist (empty ⇒
+            // all installs refused); refuse a package.json write that touches
+            // any key but `scripts`. Before the real tool runs.
+            const scopeBlock: "path" | "dep" | "pkgjson" | null = await (async (): Promise<
+              "path" | "dep" | "pkgjson" | null
+            > => {
               const allow = this.options.writeAllowlist;
               if (!allow) return null;
               if (
@@ -1721,7 +2027,31 @@ export class AgentSession {
                   typeof (toolCall.input as { path?: unknown }).path === "string"
                     ? (toolCall.input as { path: string }).path
                     : "";
-                return allow(pathPosix.normalize(raw)) ? null : "path";
+                const norm = pathPosix.normalize(raw);
+                if (!allow(norm)) return "path";
+                // 055 — the DevOps agent's only package.json access is the
+                // `scripts` block. Compare the parsed result against the
+                // current file and refuse if any other top-level key moved.
+                if (norm === "package.json" && toolCall.name === "write_file") {
+                  const next = (toolCall.input as { content?: unknown }).content;
+                  if (typeof next === "string") {
+                    const prev = await this.readFileOrNull("package.json");
+                    if (prev) {
+                      try {
+                        const a = JSON.parse(prev) as Record<string, unknown>;
+                        const b = JSON.parse(next) as Record<string, unknown>;
+                        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+                        for (const k of keys) {
+                          if (k === "scripts") continue;
+                          if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return "pkgjson";
+                        }
+                      } catch {
+                        return "pkgjson"; // unparseable — refuse rather than guess
+                      }
+                    }
+                  }
+                }
+                return null;
               }
               if (toolCall.name === "run_command") {
                 const cmd =
@@ -1730,11 +2060,12 @@ export class AgentSession {
                     : "";
                 const m = INSTALL_CMD_RE.exec(cmd);
                 if (!m) return null;
+                const installAllow = this.options.installAllowlist ?? new Set<string>();
                 const pkgs = (m[1] ?? "")
                   .split(/\s+/)
                   .map((s) => s.trim())
                   .filter((s) => s && !s.startsWith("-") && s !== "install" && s !== "add");
-                return pkgs.every((p) => DESIGNER_DEP_ALLOW.has(p.replace(/@[\d^~].*$/, "")))
+                return pkgs.every((p) => installAllow.has(p.replace(/@[\d^~].*$/, "")))
                   ? null
                   : "dep";
               }
@@ -1760,7 +2091,10 @@ export class AgentSession {
             // left alone (see the isHaltRequest comment).
             const haltBlocked =
               isHaltRequest &&
-              (toolCall.name === "dispatch_task" || toolCall.name === "design_pass");
+              (toolCall.name === "dispatch_task" ||
+                toolCall.name === "design_pass" ||
+                toolCall.name === "ops_pass" ||
+                toolCall.name === "qa_pass");
             // Interview not closed yet: the only package files that may be
             // written are requirements.md and README.md.
             const archInterviewPath =
@@ -1816,20 +2150,29 @@ export class AgentSession {
                         emit,
                         messageId,
                       )
-                    : toolCall.name === "design_pass"
+                    : toolCall.name === "design_pass" ||
+                        toolCall.name === "ops_pass" ||
+                        toolCall.name === "qa_pass"
                       ? await this.dispatchBuildTask(
-                          {
-                            task:
-                              typeof (toolCall.input as { scope?: unknown }).scope === "string" &&
-                              (toolCall.input as { scope: string }).scope.trim()
-                                ? (toolCall.input as { scope: string }).scope
-                                : "the whole application",
-                            acceptanceCriteria: DESIGN_DOD,
-                            ...(typeof (toolCall.input as { notes?: unknown }).notes === "string"
-                              ? { notes: (toolCall.input as { notes: string }).notes }
-                              : {}),
-                            design: true,
-                          },
+                          (() => {
+                            const kind: SpecialistKind =
+                              toolCall.name === "design_pass"
+                                ? "designer"
+                                : toolCall.name === "ops_pass"
+                                  ? "devops"
+                                  : "security";
+                            const inp = toolCall.input as { scope?: unknown; notes?: unknown };
+                            return {
+                              task:
+                                typeof inp.scope === "string" && inp.scope.trim()
+                                  ? inp.scope
+                                  : "the whole project",
+                              acceptanceCriteria: SPECIALISTS[kind].dod,
+                              ...(typeof inp.notes === "string" ? { notes: inp.notes } : {}),
+                              [kind === "designer" ? "design" : kind === "devops" ? "ops" : "qa"]:
+                                true,
+                            };
+                          })(),
                           signal,
                           toolContext.onFileChanged,
                           emit,
@@ -1856,16 +2199,18 @@ export class AgentSession {
                           ? {
                               output:
                                 scopeBlock === "path"
-                                  ? `The Designer may write only client UI files — refusing "${toolCall.name}" on ` +
-                                    `"${String((toolCall.input as { path?: unknown }).path ?? "")}". You can touch ` +
-                                    "components, styles, the theme/tokens, index.html, and Tailwind/PostCSS config — " +
-                                    "not the server, the schema, build config, CI, package.json, or .env. Restyle " +
-                                    "within scope; if the design needs a structural change, say so in your report " +
-                                    "instead of making it."
-                                  : "The Designer may install only styling and icon utilities (clsx, tailwind-merge, " +
-                                    "class-variance-authority, tailwindcss-animate, lucide-react, @radix-ui/react-icons, " +
-                                    "@heroicons/react). Refusing this install — a framework or component library the " +
-                                    "project did not choose is out of scope. Use what is already in package.json.",
+                                  ? `This specialist has a fixed write scope — refusing "${toolCall.name}" on ` +
+                                    `"${String((toolCall.input as { path?: unknown }).path ?? "")}". It writes only its ` +
+                                    "own spec file and the files it is allowed to implement (see your instructions) — " +
+                                    "not application code, the data model, the server, or other architecture/* files. " +
+                                    "A change outside that scope goes in your review as a report, not the diff."
+                                  : scopeBlock === "pkgjson"
+                                    ? "Refusing this package.json write — a specialist may change the `scripts` block " +
+                                      "only, nothing else (no dependencies, no config). Name what you need in your review " +
+                                      "for the Engineer to add."
+                                    : "Refusing this install — this specialist does not add dependencies. Name the " +
+                                      "package you need in your review for the Engineer to add, and work with what is " +
+                                      "already in package.json.",
                               isError: true,
                             }
                           : capped

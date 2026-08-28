@@ -107,7 +107,7 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     type: z.literal("agent.activity"),
     sessionId: z.string(),
     messageId: z.string(),
-    agent: z.enum(["designer", "verifier", "builder"]),
+    agent: z.enum(["designer", "devops", "security", "verifier", "builder"]),
     phase: z.enum(["start", "step", "end"]),
     title: z.string(),
     detail: z.string().optional(),

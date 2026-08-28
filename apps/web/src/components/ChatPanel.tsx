@@ -1037,6 +1037,8 @@ function TurnFooter({
  */
 const SPECIALIST_LABEL: Record<AgentActivity["agent"], string> = {
   designer: "Designer agent",
+  devops: "DevOps agent",
+  security: "Security/QA agent",
   verifier: "Verifier agent",
   builder: "Builder agent",
 };

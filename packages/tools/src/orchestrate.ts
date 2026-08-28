@@ -88,6 +88,24 @@ export const dispatchTaskTool = defineTool({
           "relay verbatim. Follow it with one more verify:true (renders / flows / typecheck) before " +
           "you say done.",
       ),
+    ops: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true for the ONE DevOps pass — dispatched after the first verify, ONLY when the " +
+          "design's infrastructure.md describes a deployable service. That child owns OPERATIONS.md " +
+          "and writes CI / Dockerfile / .env.example / deploy config; it does NOT touch application " +
+          "code or add dependencies. Relay its OPS REVIEW verbatim.",
+      ),
+    qa: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true for the ONE Security/QA pass — dispatched near the end, every build. That child " +
+          "owns QA.md, writes and runs the test suite, and runs the security scan + dependency " +
+          "audit. It REPORTS application bugs, it does not fix them. Relay its QA REVIEW verbatim; " +
+          "a NOT CLEARED result blocks 'done'.",
+      ),
   }),
   async run() {
     return {
@@ -134,6 +152,76 @@ export const designPassTool = defineTool({
   async run() {
     return {
       output: "design_pass is handled by the orchestrator, not this path — this should never run.",
+      isError: true,
+    };
+  },
+});
+
+/**
+ * 055 — call the DevOps agent from Engineer Mode (also works in Architect
+ * Mode). It owns `OPERATIONS.md` and writes the CI / container / env /
+ * deploy config to match it — never application code, never a dependency.
+ * Intercepted by `AgentSession` like `design_pass`.
+ */
+export const opsPassTool = defineTool({
+  name: "ops_pass",
+  description:
+    "Hand the current project to the DevOps agent — a bounded specialist that owns OPERATIONS.md " +
+    "(environments, config & secrets, CI pipeline, containers, deploy targets, rollback, health, a " +
+    "runbook) and writes the files that implement it: .env.example (no real values), a CI workflow " +
+    "matching the real package.json scripts, a Dockerfile if the design targets a container, " +
+    ".gitignore. It does NOT touch application code, add dependencies, or run a deployment. Use it " +
+    "when the user asks to set up CI, make the project deployable, add a Dockerfile, or 'do the " +
+    "DevOps'. Relay its OPS REVIEW verbatim.",
+  schema: z.object({
+    scope: z
+      .string()
+      .optional()
+      .describe("What to set up, if not everything — e.g. 'just CI', 'the Dockerfile'."),
+    notes: z
+      .string()
+      .optional()
+      .describe("Any direction from the user — the deploy target, constraints, a platform."),
+  }),
+  async run() {
+    return {
+      output: "ops_pass is handled by the orchestrator, not this path — this should never run.",
+      isError: true,
+    };
+  },
+});
+
+/**
+ * 055 — call the Security/QA agent from Engineer Mode (also works in
+ * Architect Mode). It owns `QA.md`, writes and runs the test suite, and
+ * runs the security scan + dependency audit. It REPORTS application bugs,
+ * it does not fix them. Intercepted by `AgentSession` like `design_pass`.
+ */
+export const qaPassTool = defineTool({
+  name: "qa_pass",
+  description:
+    "Hand the current project to the Security/QA agent — a bounded specialist that owns QA.md (the " +
+    "test plan and the security posture), writes unit / component / integration tests to that plan, " +
+    "runs the whole suite plus coverage, and runs security_scan + a dependency audit + a secret " +
+    "scan. It writes ONLY test files, QA.md/SECURITY.md, and risks.md — never application code, " +
+    "never package.json. An app bug a test reveals is REPORTED, not fixed. Use it when the user " +
+    "asks to write tests, add a test suite, run a security review, or 'do QA'. Relay its QA REVIEW " +
+    "verbatim; a NOT CLEARED result means the project is not cleared.",
+  schema: z.object({
+    scope: z
+      .string()
+      .optional()
+      .describe(
+        "What to test, if not everything — e.g. 'the checkout flow', 'just a security scan'.",
+      ),
+    notes: z
+      .string()
+      .optional()
+      .describe("Any direction from the user — a coverage target, a concern."),
+  }),
+  async run() {
+    return {
+      output: "qa_pass is handled by the orchestrator, not this path — this should never run.",
       isError: true,
     };
   },
