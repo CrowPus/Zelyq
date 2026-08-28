@@ -185,6 +185,39 @@ test("a write outside the package is still refused", async () => {
   }
 });
 
+test("an interview turn that writes nothing is sent back to create requirements.md", async () => {
+  // The model asks a question and ends the turn with no tool call. Because
+  // architecture/requirements.md does not exist yet, the session forces it
+  // back to write the file in the same turn before the reply lands.
+  const { base, workspaceDir, projectId, close } = await setup([
+    say("Great brief. **Question — deletion:** hard or soft delete for v1?"),
+    {
+      events: [text("recording what we have")],
+      result: {
+        toolCalls: [
+          {
+            id: "wr",
+            name: "write_file",
+            input: {
+              path: "architecture/requirements.md",
+              content: "# Requirements\n## Settled\n- A chat app.\n## Open\n- deletion semantics\n",
+            },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("recorded — now, hard or soft delete?"),
+  ]);
+  try {
+    await turn(base, "build me a small chat app, ChatGPT-style, Supabase backend");
+    await fs.access(path.join(workspaceDir, projectId, "architecture/requirements.md"));
+  } finally {
+    await close();
+  }
+});
+
 test("a stop turn still lets the Architect record where things stand", async () => {
   // "stop" does not freeze writing — the Architect can still note the state
   // or drop a handoff brief into requirements.md. Only dispatch is barred.

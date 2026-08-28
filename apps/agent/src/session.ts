@@ -1694,6 +1694,13 @@ export class AgentSession {
     // thing" nudge has already been injected this turn. One-shot, so a model
     // that stays empty even with guidance ends the turn instead of looping.
     let emptyRecoveryDone = false;
+    // Architect Mode: how many times this turn we have made the model go back
+    // and write `architecture/requirements.md` before ending a turn in which
+    // it interviewed but recorded nothing. Prompt guidance ("write it as you
+    // learn") is not reliable across models — some will hold a five-question
+    // interview and never touch a file. Capped so a model that cannot write
+    // still ends the turn.
+    let requirementsNudges = 0;
     // A turn that keeps calling tools every iteration never reaches either
     // check above, or the loop's normal exit — it just falls out when
     // `iteration` reaches `maxIterations`, whatever `assistantText` holds at
@@ -1994,6 +2001,29 @@ export class AgentSession {
                 'otherwise complete and you have not yet, write the "' +
                 ARCHITECT_READY_MARKER +
                 '" line now. Never reply with nothing — do the smaller thing.',
+            );
+            continue;
+          }
+
+          // Architect Mode: the model interviewed (it produced text) but there
+          // is still no `architecture/requirements.md` on disk. That file is a
+          // deliverable from the first substantive exchange — a five-question
+          // interview that writes nothing is the failure this catches. Send it
+          // back to write the file, in this same turn, before it replies.
+          if (
+            this.options.architectMode &&
+            requirementsNudges < 2 &&
+            !anyFileChangedThisTurn &&
+            assistantText.trim().length > 0 &&
+            (await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}requirements.md`)) === null
+          ) {
+            requirementsNudges += 1;
+            this.conversation.addUserMessage(
+              "You replied without recording anything. `architecture/requirements.md` still does not " +
+                "exist. Write it NOW — everything you have learned and every decision taken so far, " +
+                "structured, with a short 'settled / open' list at the top — then continue. It is a " +
+                "deliverable from the first exchange, not something you write up at the end. Do not " +
+                "send another message until that file is written.",
             );
             continue;
           }
