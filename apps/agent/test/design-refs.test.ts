@@ -105,7 +105,7 @@ test("use_design_ref returns a body for a known slug and errors otherwise", asyn
   assert.equal(bad.isError, true);
   assert.match(bad.output, /No design reference "nope"/);
 
-  const escape = await tool.run({} as never, { slug: "../secrets" });
-  assert.equal(escape.isError, true);
-  assert.match(escape.output, /not a valid reference slug/);
+  const escaped = await tool.run({} as never, { slug: "../secrets" });
+  assert.equal(escaped.isError, true);
+  assert.match(escaped.output, /not a valid reference slug/);
 });
