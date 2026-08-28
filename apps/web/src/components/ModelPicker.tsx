@@ -18,14 +18,14 @@ interface Props {
 }
 
 /**
- * A per-conversation model switch, styled after Copilot's own `/model` picker
- * — see `033`. Picking a *model*, not just a vendor: Claude Opus, Sonnet, and
+ * A per-conversation model switch, styled after Copilot's own `/model`
+ * picker. Picking a *model*, not just a vendor: Claude Opus, Sonnet, and
  * Haiku are three separate rows, not one "Claude" row that quietly always
  * uses whichever one happens to be the default. A provider with nothing
- * confirmed in its model catalog (see `032`) is left out entirely — there is
- * nothing to pick, and offering it anyway would mean guessing a model name
- * the agent would then refuse. `custom` is absent for the same reason `032`
- * gives: it names an operator's own endpoint, not a vendor with tiers.
+ * confirmed in its model catalog is left out entirely — there is nothing to
+ * pick, and offering it anyway would mean guessing a model name the agent
+ * would then refuse. `custom` is absent for the same reason: it names an
+ * operator's own endpoint, not a vendor with tiers.
  */
 export function ModelPicker({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);

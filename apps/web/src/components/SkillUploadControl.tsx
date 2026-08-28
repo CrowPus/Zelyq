@@ -6,10 +6,9 @@ import { buildSkillUploadFiles } from "../lib/files";
 import { Button } from "./ui";
 
 /**
- * Upload a skill through Settings — see `043` in the council notes. Picks
- * a whole folder (`webkitdirectory`, not a single file — a skill is a
- * directory, `SKILL.md` plus whatever it carries underneath, the same
- * shape `042` corrected to after shipping the wrong one). Every selected
+ * Upload a skill through Settings. Picks a whole folder (`webkitdirectory`,
+ * not a single file — a skill is a directory, `SKILL.md` plus whatever it
+ * carries underneath). Every selected
  * file's path is sent stripped of the folder name the browser always
  * prefixes, so the server sees exactly what a real `skills/<name>/`
  * directory would contain — `SKILL.md`, `references/whatever.md`, and so

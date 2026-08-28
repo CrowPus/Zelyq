@@ -6,8 +6,8 @@ import { renderReport } from "../evals/checks.js";
 /**
  * Proof that the `renders` check is capable of failing.
  *
- * `017` made this binding: a metric that has never reported a failure must be
- * assumed broken until a deliberately failing input is shown to make it fail.
+ * A metric that has never reported a failure must be assumed broken until
+ * a deliberately failing input is shown to make it fail.
  * This check exists because `intact` scored 22/22 with a hole in it, so shipping
  * it on the strength of "it looks right" would be the same mistake a third time.
  *
@@ -69,8 +69,7 @@ test("an app that mounts passes", async () => {
 });
 
 test("an app that throws on mount fails, and the message says what threw", async () => {
-  // The condition the council attached: without this, `renders` is another
-  // check we believe rather than know.
+  // Without this, `renders` is another check we believe rather than know.
   const result = await renderReport(`${base}/throws`);
   assert.equal(result.ok, false, "a page that throws on mount was scored as working");
   assert.match(result.detail, /threw on render/);

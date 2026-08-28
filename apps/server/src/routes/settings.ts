@@ -19,8 +19,8 @@ export function registerSettingsRoutes(
     return await deps.settings.describe();
   });
 
-  // See `045` — "use the Claude Pro you already pay for" instead of a
-  // separate metered key. Detection is a plain existence check, safe to
+  // "Use the Claude Pro you already pay for" instead of a separate metered
+  // key. Detection is a plain existence check, safe to
   // call whenever Settings renders; the actual read only ever happens on
   // the explicit "use this" click below.
   app.get("/api/settings/cli-sessions/anthropic", async (request) => {
@@ -34,8 +34,7 @@ export function registerSettingsRoutes(
     return await deps.settings.describe();
   });
 
-  // Same shape, for a Codex "sign in with ChatGPT" session — see `045`'s
-  // OpenAI follow-up.
+  // Same shape, for a Codex "sign in with ChatGPT" session.
   app.get("/api/settings/cli-sessions/openai", async (request) => {
     deps.access.requireInstanceAdmin(request);
     return { found: await deps.settings.detectOpenaiCliSession() };

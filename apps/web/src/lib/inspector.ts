@@ -1,6 +1,6 @@
 /**
- * Element inspector — see `038` in the council notes. Click something in
- * the preview, the agent finds out what you clicked.
+ * Element inspector. Click something in the preview, the agent finds out
+ * what you clicked.
  *
  * Message-type strings shared with the bridge script injected into
  * `templates/vite-react/index.html`. Not imported by that file — it's

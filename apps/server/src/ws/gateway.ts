@@ -18,7 +18,7 @@ import type { AttachmentService } from "../services/attachments.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
 
-/** What a provider actually knows how to embed as an image — see `037`. */
+/** What a provider actually knows how to embed as an image. */
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 interface Room {
@@ -149,20 +149,20 @@ export class ChatGateway {
   private async runTurn(
     room: Room,
     prompt: string,
-    /** Picked from the chat's own model control, if at all — see `033`. */
+    /** Picked from the chat's own model control, if at all. */
     override: {
       provider?: string;
       model?: string;
       attachmentIds?: string[];
-      /** Picked from the composer's `/` skill picker — see `044`. */
+      /** Picked from the composer's `/` skill picker. */
       skills?: string[];
-      /** Picked from the same `/` menu's Plugins section — see `044`'s follow-up. */
+      /** Picked from the same `/` menu's Plugins section. */
       plugins?: string[];
-      /** Engineer Mode toggle — see ZED-0001. */
+      /** Engineer Mode toggle. */
       engineerMode?: boolean;
       /** Architect Mode toggle — see 048. */
       architectMode?: boolean;
-      /** Auto Mode toggle — see 051 Part B. Only with architectMode. */
+      /** Auto Mode toggle. Only with architectMode. */
       autoMode?: boolean;
     } = {},
   ): Promise<void> {
@@ -179,10 +179,9 @@ export class ChatGateway {
 
     // Resolved before anything is persisted, so a bad attachment id refuses
     // the turn cleanly rather than leaving a user message with a reference
-    // to something that never actually made it to the model. See `037` in
-    // the council notes: an image goes to the model as itself; anything
-    // else is inlined as text, refused rather than silently mangled if it
-    // is not valid UTF-8.
+    // to something that never actually made it to the model. An image goes
+    // to the model as itself; anything else is inlined as text, refused
+    // rather than silently mangled if it is not valid UTF-8.
     const attachmentRefs: AttachmentRef[] = [];
     const imageAttachments: PromptAttachment[] = [];
     let promptForAgent = prompt;
@@ -255,20 +254,19 @@ export class ChatGateway {
       // own environment happens to hold a key, which makes the settings screen
       // look like it does nothing. The live value, always — never a session's
       // own stored one, which is only ever what it happened to be created
-      // with and never updates itself. See `031` in the council notes: every
-      // real session on a real instance stayed pinned to its original
-      // provider forever, exactly because this used to prefer that stored
-      // value over what settings actually say now.
+      // with and never updates itself. Preferring the stored value over what
+      // settings say now would pin every session to its original provider
+      // forever.
       const settingsProvider = await this.settings.value("provider");
-      // A pick from the chat's own model control (`033`) wins over the
-      // instance default for this turn onward. Omitted means what it always
-      // meant: the live setting.
+      // A pick from the chat's own model control wins over the instance
+      // default for this turn onward. Omitted means what it always meant:
+      // the live setting.
       const provider = override.provider ?? settingsProvider;
       const pickedDifferentProvider = provider !== settingsProvider;
       const apiKey = await this.settings.apiKeyFor(provider);
       // A provider picked from the chat that isn't the settings-configured
       // one has no subscription session detected for it — only ever
-      // meaningful for the provider Settings actually names. See `045`.
+      // meaningful for the provider Settings actually names.
       const authMode = pickedDifferentProvider
         ? "api_key"
         : await this.settings.authModeFor(provider);
@@ -276,26 +274,23 @@ export class ChatGateway {
       // whichever provider settings actually names — forwarding either to a
       // different provider picked from the chat would redirect it to a
       // model or endpoint that was never meant for it. Left empty here, the
-      // agent falls back to that provider's own registry default (`032`).
+      // agent falls back to that provider's own registry default.
       //
-      // `modelFor` — not `value("model")` — is what actually handles a
-      // connected subscription correctly: found live, twice. First a model
-      // pinned for whatever provider was configured before (an operator's
-      // `ZELYQ_MODEL`, or one typed in by hand) rode straight into a newly
-      // connected provider's request and got rejected. The fix for that
-      // then went too far the other way — forcing empty unconditionally
-      // whenever a subscription was active blocked a model actually,
-      // deliberately typed *for* that session from ever reaching it either.
-      // `modelFor` only forces empty when nothing is genuinely stored; a
-      // real, deliberate choice always wins regardless of mode.
+      // `modelFor` — not `value("model")` — is what handles a connected
+      // subscription correctly. A model pinned for whatever provider was
+      // configured before (an operator's `ZELYQ_MODEL`, or one typed in by
+      // hand) must not ride straight into a newly connected provider's
+      // request, but forcing empty unconditionally whenever a subscription
+      // is active would also block a model deliberately typed *for* that
+      // session. `modelFor` only forces empty when nothing is genuinely
+      // stored; a real, deliberate choice always wins regardless of mode.
       const model =
         override.model ?? (pickedDifferentProvider ? "" : await this.settings.modelFor(provider));
       const baseUrl = pickedDifferentProvider ? "" : await this.settings.value("modelBaseUrl");
-      // Found while building ZED-0001's effort floor: this was never read
-      // here at all. The Settings page's "Reasoning effort" field looked
-      // live but had no effect on any session — every session silently ran
-      // on whatever ZELYQ_EFFORT the agent process happened to boot with.
-      // Read and forwarded now the same way model/provider already are.
+      // The Settings page's "Reasoning effort" field used to have no effect
+      // on any session — every session silently ran on whatever ZELYQ_EFFORT
+      // the agent process happened to boot with. Read and forwarded now the
+      // same way model/provider already are.
       const effort = await this.settings.value("effort");
 
       const state = await this.agent.ensureSession({
@@ -349,8 +344,8 @@ export class ChatGateway {
       this.log.error(error, "could not snapshot before the turn");
     }
 
-    // Real, ordinary git, alongside the snapshot above — see `035`. Same
-    // best-effort posture: a project's own git history existing is a
+    // Real, ordinary git, alongside the snapshot above. Same best-effort
+    // posture: a project's own git history existing is a
     // courtesy, not something a turn should ever fail over.
     try {
       await this.projects.ensureGitRepo(room.projectId);

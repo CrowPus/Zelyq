@@ -14,10 +14,10 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * ZED-0001, Phase 1's structural anchor — the purpose-framing shape check on
- * the same forced post-loop gate the automatic-verification tests in
- * `verification.test.ts` already exercise. A scripted provider, same shape
- * as that file's, kept local for the same reason its own comment gives.
+ * The purpose-framing shape check on the same forced post-loop gate the
+ * automatic-verification tests in `verification.test.ts` already exercise.
+ * A scripted provider, same shape as that file's, kept local for the same
+ * reason its own comment gives.
  */
 function scriptedProvider(
   script: Array<{ events: ProviderEvent[]; result: TurnResult }>,
@@ -66,7 +66,7 @@ async function setup(
   // make it unclear which one produced a given hand-back.
   await fs.mkdir(path.join(workspaceDir, projectId), { recursive: true });
   // Simulates a project that didn't start empty this turn — the exact
-  // shape of the false-positive a live incident found: a rewrite of a file
+  // shape of the false-positive to guard against: a rewrite of a file
   // that was already there must never count toward the new-file cap.
   for (const [relativePath, content] of Object.entries(preExistingFiles)) {
     const absolute = path.join(workspaceDir, projectId, relativePath);
@@ -244,12 +244,12 @@ test("engineer mode off: a file changed with no marker is never handed back — 
 });
 
 // ---------------------------------------------------------------------------
-// The new-file checkpoint — added after a live incident: a vague, exploratory
-// prompt ("I'm testing you, I want to build X") produced three imagined
-// subsystems and 22 files before anything stopped it, in Engineer Mode, with
-// the mode's own prose doing nothing to prevent it. This reproduces that
-// shape directly: a scripted provider that keeps inventing new files exactly
-// the way the real one did, and proves the cap actually refuses them rather
+// The new-file checkpoint. A vague, exploratory prompt ("I'm testing you, I
+// want to build X") can otherwise produce three imagined subsystems and 22
+// files before anything stops it, in Engineer Mode, with the mode's own
+// prose doing nothing to prevent it. This reproduces that shape directly: a
+// scripted provider that keeps inventing new files, and proves the cap
+// actually refuses them rather
 // than only asking nicely.
 // ---------------------------------------------------------------------------
 
@@ -337,9 +337,8 @@ test("engineer mode: exactly at the checkpoint (6 files), nothing is refused", a
 
 test("engineer mode off: the checkpoint does not apply at all — default mode is unaffected", async () => {
   // Same shape that trips the cap in engineer mode, run with it off. This is
-  // a deliberate scope decision (see the ZED-0001 incident addendum): the
-  // same failure exists in default mode too, per prior research, but fixing
-  // that is a separate decision this entry does not make unilaterally.
+  // a deliberate scope decision: the same failure exists in default mode
+  // too, but fixing that is out of scope here.
   const script = [1, 2, 3, 4, 5, 6, 7, 8].map(writesFile).concat([saysDoneNoMarker]);
   const { base, close } = await setup(script, false, 15);
   try {
@@ -391,10 +390,9 @@ test("engineer mode: editing an already-created file is never blocked by the che
 });
 
 // ---------------------------------------------------------------------------
-// Two real gaps a live incident found in the checkpoint above, both fixed
-// in the same round: a rewrite of a file that already existed got wrongly
-// capped, and — once it did — the model routed around the refusal entirely
-// through `run_command`, which the cap never touched.
+// Two gaps in the checkpoint above: a rewrite of a file that already existed
+// got wrongly capped, and — once it did — the model routed around the
+// refusal entirely through `run_command`, which the cap never touched.
 // ---------------------------------------------------------------------------
 
 test("engineer mode: rewriting a file that already existed before this turn is never capped, even past the checkpoint", async () => {
@@ -524,10 +522,11 @@ test("engineer mode: a shell command creating fewer files than the checkpoint do
 });
 
 test("engineer mode: a lockfile a shell command writes does not consume a slot in the checkpoint", async () => {
-  // Found live: `npm install` creating package-lock.json got counted by
-  // the reactive run_command check the same as an actually-invented
-  // file, silently costing one of six real slots for something the
-  // model never chose to create. This writes the lockfile directly, via
+  // Without the lockfile exclusion, `npm install` creating
+  // package-lock.json is counted by the reactive run_command check the
+  // same as an actually-invented file, costing one of six real slots for
+  // something the model never chose to create. This writes the lockfile
+  // directly, via
   // a real shell command through the real runtime, the same way the
   // other run_command tests in this file do — a real `npm install`
   // would be slow and network-dependent for no extra signal, since what
@@ -563,12 +562,12 @@ test("engineer mode: a lockfile a shell command writes does not consume a slot i
 });
 
 // ---------------------------------------------------------------------------
-// The real design flaw a second live incident found: refusing only the
-// write that crosses the checkpoint, while leaving edit_file and
-// run_command open, does not stop the model — it just removes the option
-// to decompose properly, and it crams the remaining planned work into
-// whatever file it can still touch instead. These tests are the actual
-// fix: once the checkpoint is reached, no mutating tool runs, period.
+// A design flaw in an earlier version: refusing only the write that crosses
+// the checkpoint, while leaving edit_file and run_command open, does not
+// stop the model — it just removes the option to decompose properly, and it
+// crams the remaining planned work into whatever file it can still touch
+// instead. These tests are the actual fix: once the checkpoint is reached,
+// no mutating tool runs, period.
 // ---------------------------------------------------------------------------
 
 test("engineer mode: once the checkpoint is reached, edit_file is refused too — not just new writes", async () => {

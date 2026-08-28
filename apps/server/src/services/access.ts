@@ -31,7 +31,7 @@ export class AccessControl {
   }
 
   /**
-   * Instance-wide config — Settings, and now skill uploads (`043`) — is not
+   * Instance-wide config — Settings, and skill uploads — is not
    * team-scoped, so team roles do not apply. Only an instance administrator
    * may reach it. Extracted here rather than left as `settings.ts`'s own
    * local closure once a second route needed the identical check — one
@@ -104,9 +104,9 @@ export class AccessControl {
   }
 
   /**
-   * Records a project- or team-level change — see `030` in the council
-   * notes for the scope and for why `teamId`/`projectId`/`userId` carry no
-   * foreign key. Called once, after the action it describes has already
+   * Records a project- or team-level change. `teamId`/`projectId`/`userId`
+   * carry no foreign key. Called once, after the action it describes has
+   * already
    * succeeded, never before: a rejected or failed mutation must never
    * produce a log entry claiming it happened.
    */

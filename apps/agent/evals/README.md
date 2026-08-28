@@ -44,7 +44,7 @@ that changes nothing scores 100%.
 
 That is not a hypothetical: it scored 100% in every run ever recorded, while the underlying check
 counts moved between 92 and 113. A stand-in model written to exercise plumbing did nothing at all
-and scored full marks. See `017` in the council notes.
+and scored full marks.
 
 `intact` is still reported, because an agent that leaves a broken build has to be visible
 immediately. It just does not answer "did it do the job".

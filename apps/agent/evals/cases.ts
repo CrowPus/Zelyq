@@ -553,7 +553,7 @@ export default function App() {
   },
 
   // ------------------------------------------------------------------ specified
-  // 047 Phase 0.1 — Set B. Well-specified tasks in the shape the Architect's
+  // Set B. Well-specified tasks in the shape the Architect's
   // build-plan.md actually emits: a task statement, an explicit file list,
   // explicit acceptance criteria, an explicit non-goal. The measured property
   // is fidelity — build exactly what the task names, and only that. Bars in
@@ -855,7 +855,7 @@ export default function App() {
   },
 
   // ------------------------------------------------------------------ large-task
-  // 047 Phase 0.1 — Set C. One task that legitimately needs 8–10 new files.
+  // Set C. One task that legitimately needs 8–10 new files.
   // Run with --engineer-mode (the new-file cap only exists there). The measured
   // property: the cap must not turn a legitimately-large specified task into a
   // collapse — everything jammed into one file, a run_command bypass, or a

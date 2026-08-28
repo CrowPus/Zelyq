@@ -13,7 +13,7 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * 048 — the Architect interviews before it designs, and it stops when told to.
+ * The Architect interviews before it designs, and it stops when told to.
  *
  * Structural, enforced in `session.ts` (the rest — explaining an unfinished
  * plan, pointing an insistent user at the Engineer — is the model's job):
@@ -169,7 +169,7 @@ test("during the interview, only requirements.md and README.md may be written", 
   }
 });
 
-// 050 R2.5 — an 8-row status block, every topic answered, so the completion
+// An 8-row status block, every topic answered, so the completion
 // line is honoured.
 const STATUS_BLOCK = [
   "| Topic | Status | Source | Note |",

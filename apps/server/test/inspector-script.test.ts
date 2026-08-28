@@ -9,7 +9,7 @@ import { ensureInspectorScript, extractInspectorScript } from "../src/services/i
 /**
  * A project made before the element inspector shipped, or not started from
  * Zelyq's own template at all, should still get the bridge script — see
- * `039` in the council notes. Deliberately tested against a real
+ * Deliberately tested against a real
  * LocalRuntimeDriver, not a fake — the file operations this goes through
  * (readFile/writeFile) are exactly what a real project's preview start
  * already uses.

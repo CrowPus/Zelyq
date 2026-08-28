@@ -1,6 +1,6 @@
 /**
- * Parsing a `SKILL.md`'s own frontmatter and body — see `042`/`043` in the
- * council notes. Shared, not duplicated: `apps/agent/src/skills.ts` uses
+ * Parsing a `SKILL.md`'s own frontmatter and body. Shared, not duplicated:
+ * `apps/agent/src/skills.ts` uses
  * this to load a skill from disk, `apps/server`'s upload route uses the
  * same function to validate an uploaded one before it's ever written, and
  * the upload form in `apps/web` uses it to give instant feedback before a

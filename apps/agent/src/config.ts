@@ -37,19 +37,7 @@ function intFromEnv(name: string, fallback: number): number {
   return value;
 }
 
-/**
- * A boot-time setting read from the database when nothing overrides it —
- * see `034` in the council notes. The agent has no other reason to touch
- * the database at all, so this is deliberately narrow: one short-lived
- * connection per call, one key, closed immediately after.
- *
- * Best-effort on purpose. In the shipped `docker-compose.yml` the agent
- * starts *before* the server, which is what actually runs migrations — a
- * fresh install can have the agent reach for a `settings` table, or even a
- * database file, that does not exist yet. That must never block or crash
- * the agent's own startup; it just means falling back to the default this
- * boot, exactly as if nothing had ever been stored.
- */
+/** Reads one setting from the database and falls back when it is unavailable. */
 async function dbBackedSetting(envVar: string, dbKey: string, fallback: string): Promise<string> {
   if (process.env[envVar]) return process.env[envVar] as string;
 
@@ -78,11 +66,7 @@ function runtimeKindFromEnv(): (typeof RUNTIME_KINDS)[number] {
 
 /** Image, limits and engine for `ZELYQ_RUNTIME=container`. */
 async function containerOptionsFromEnv() {
-  // Defaults off inside the driver itself, and stays off unless an operator
-  // names hosts here — there is no Zelyq-maintained default list. See `028`
-  // in the council notes for why, and `034` for why this can be set from
-  // Settings instead of only `.env`: this is exactly the field that sent
-  // someone back to a terminal to unblock a host their agent needed.
+  // Network egress stays disabled unless an operator explicitly allows hosts.
   const egressAllowlist = await dbBackedSetting(
     "ZELYQ_CONTAINER_EGRESS_ALLOWLIST",
     "containerEgressAllowlist",

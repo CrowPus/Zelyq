@@ -4,7 +4,7 @@ import { AnthropicProvider } from "../src/providers/anthropic.js";
 import { createProvider } from "../src/providers/index.js";
 
 /**
- * `045` in the council notes — using a Claude Code-issued OAuth token in
+ * Using a Claude Code-issued OAuth token in
  * place of an API key. The Anthropic SDK exposes both `apiKey` and
  * `authToken` as plain readable properties on the client it builds, so the
  * actual auth shape a request will carry is directly checkable here,

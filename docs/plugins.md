@@ -40,7 +40,7 @@ instruction — "use the `word_count` tool for this task" — woven into the
 message the same way, but honestly weaker: the model can still choose not
 to call the tool, the way it always could. There is no way to force a
 tool call from text the way real content can be forced into a message a
-model reads. See `044`'s follow-up in the council notes.
+model reads.
 
 ## Writing one
 

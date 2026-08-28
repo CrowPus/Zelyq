@@ -2,8 +2,8 @@ import { z } from "zod";
 import { defineTool } from "./types.js";
 
 /**
- * 047 Phase 3a/3b/3e/3f — the Architect dispatches one build-plan task to a
- * fresh, bounded builder session.
+ * The Architect dispatches one build-plan task to a fresh, bounded builder
+ * session.
  *
  * This tool is NOT run through `executeTool`. `AgentSession` intercepts it in
  * the turn loop (it needs the provider, credentials, and skill bodies that a
@@ -117,8 +117,8 @@ export const dispatchTaskTool = defineTool({
 });
 
 /**
- * 053 — the narrow, user-triggered way to call the Designer agent from
- * Engineer Mode (it also works in Architect Mode). Unlike `dispatch_task`
+ * The narrow, user-triggered way to call the Designer agent from Engineer
+ * Mode (it also works in Architect Mode). Unlike `dispatch_task`
  * this is single-purpose: it hands the current project to the Designer
  * child — same bounded UI-only specialist — and returns its checklist.
  * Engineer Mode gains a designer, not an orchestrator.
@@ -158,8 +158,8 @@ export const designPassTool = defineTool({
 });
 
 /**
- * 055 — call the DevOps agent from Engineer Mode (also works in Architect
- * Mode). It owns `OPERATIONS.md` and writes the CI / container / env /
+ * Call the DevOps agent from Engineer Mode (also works in Architect Mode).
+ * It owns `OPERATIONS.md` and writes the CI / container / env /
  * deploy config to match it — never application code, never a dependency.
  * Intercepted by `AgentSession` like `design_pass`.
  */
@@ -192,8 +192,8 @@ export const opsPassTool = defineTool({
 });
 
 /**
- * 055 — call the Security/QA agent from Engineer Mode (also works in
- * Architect Mode). It owns `QA.md`, writes and runs the test suite, and
+ * Call the Security/QA agent from Engineer Mode (also works in Architect
+ * Mode). It owns `QA.md`, writes and runs the test suite, and
  * runs the security scan + dependency audit. It REPORTS application bugs,
  * it does not fix them. Intercepted by `AgentSession` like `design_pass`.
  */

@@ -26,9 +26,8 @@ const { values } = parseArgs({
     keep: { type: "boolean", default: false },
     compare: { type: "string" },
     help: { type: "boolean", default: false },
-    // ZED-0001's own pre-registered scope-discipline criterion, run for
-    // real: Engineer Mode on, same cases, same checks — the acceptance
-    // plan that existed before Phase 1 shipped, finally run against it.
+    // Runs the scope-discipline criterion: Engineer Mode on, same cases,
+    // same checks.
     "engineer-mode": { type: "boolean", default: false },
   },
 });
@@ -86,7 +85,7 @@ if (
   config.effort !== "max"
 ) {
   console.error(
-    `--engineer-mode needs effort at "high" or above (see ZED-0001's effort floor) — this run is ` +
+    `--engineer-mode needs effort at "high" or above — this run is ` +
       `configured for "${config.effort}". Set ZELYQ_EFFORT.`,
   );
   process.exit(1);

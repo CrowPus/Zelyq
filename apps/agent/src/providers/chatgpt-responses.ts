@@ -12,8 +12,7 @@ import type {
 } from "./types.js";
 
 /**
- * A Codex CLI "Sign in with ChatGPT" session — see `045`'s OpenAI follow-up
- * in the council notes.
+ * A Codex CLI "Sign in with ChatGPT" session.
  *
  * This is a materially different situation from Claude's subscription mode.
  * Claude's OAuth token is a different *auth header* on the same public,
@@ -25,7 +24,7 @@ import type {
  * working third-party integrations exist (opencodex, codex-proxy) and this
  * follows the same request shape they publish — researched, not guessed —
  * but it remains genuinely unverified against a live account until it's
- * actually tried, the same bar every vendor in `032`/`045` was held to.
+ * actually tried, the same bar every other vendor integration was held to.
  * Expect it to be more fragile than the public API: real bug reports
  * describe truncated SSE payloads and dropped connections on this exact
  * endpoint, independent of anything Zelyq does.

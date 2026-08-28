@@ -54,6 +54,23 @@ expect. Values are read once at startup: after editing `.env`, restart.
 | `ZELYQ_MODEL` | provider default | Overrides the model. Required for `custom`, which has no default. |
 | `ZELYQ_EFFORT` | `high` | `low`, `medium`, `high`, `xhigh`, or `max`. Controls reasoning depth and token spend. |
 
+## Voice input
+
+The microphone in the chat composer records locally until the user stops it, then sends the
+finished recording to the server for transcription. The audio is transient: Zelyq returns the text
+to the draft and does not store the recording as a prompt attachment or send the draft
+automatically.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ZELYQ_SPEECH_PROVIDER` | `openai` | Speech-to-text provider. `openai` is implemented today; the setting and server adapter boundary allow additional providers later. |
+| `ZELYQ_SPEECH_MODEL` | `whisper-1` | Model sent to the speech provider. It remains free text in Settings so a supported replacement does not require a Zelyq release. |
+
+OpenAI voice input uses `OPENAI_API_KEY` above even when the chat itself uses Claude, Gemini, or
+another provider. A Codex/ChatGPT subscription session is not an API key for OpenAI's audio
+transcription endpoint. Browser recordings are limited to two minutes client-side and 10MB
+server-side. Microphone access requires a secure browser context (`https` or localhost).
+
 ### Providers
 
 | Provider | Default model | Endpoint | Key from |
@@ -89,8 +106,8 @@ that rejects unknown fields would fail every turn.
 If Claude Code or Codex is already signed in on the machine Zelyq's server runs on, Settings offers
 "Use this instead" next to that provider's key field — reads the CLI's own already-consented session
 and uses it in place of a metered key, so a Claude Pro/Max or ChatGPT Plus/Pro subscription someone
-already pays for is what Zelyq uses too. See `045` in the council notes for the full reasoning: this
-is never a login Zelyq performs itself, only reading a token the CLI's own official app already
+already pays for is what Zelyq uses too. This is never a login Zelyq performs itself, only reading
+a token the CLI's own official app already
 stored, with an explicit click before it's ever used.
 
 Claude's path uses the same public Messages API a key would, just a different header — proven

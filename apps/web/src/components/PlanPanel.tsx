@@ -8,8 +8,8 @@ import { IconButton } from "./ui";
 const REPORT_PATH = "architecture/report.html";
 
 /**
- * 048 — Architect Mode's output. `architecture/report.html` is written by the
- * model from the design package. 050 — it is untrusted input: rendered in a
+ * Architect Mode's output. `architecture/report.html` is written by the
+ * model from the design package. It is untrusted input: rendered in a
  * fully locked-down `sandbox=""` iframe, behind a `default-src 'none'` CSP that
  * trusted code puts first in `<head>`, and run through an allow-policy
  * sanitiser (`buildSafeReportDoc`) that strips every active or network-capable
@@ -46,7 +46,7 @@ export function PlanPanel({ projectId }: { projectId: string }) {
       <div className="min-h-0 flex-1">
         {srcDoc ? (
           <iframe
-            // 050 — no `allow-scripts`. `sandbox=""` is the maximally
+            // No `allow-scripts`. `sandbox=""` is the maximally
             // restrictive value: no scripts, no forms, no popups, no
             // same-origin, no top navigation. Paired with the CSP inside
             // `srcDoc` and the sanitiser that produced it.

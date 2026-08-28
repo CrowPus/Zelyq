@@ -12,25 +12,23 @@ import { buildUseSkillTool, listResources, loadSkills } from "./skills.js";
 const envFile = loadEnvFile();
 
 const config = await loadAgentConfig();
-// Boot-time only, before the server exists to accept a prompt — see `037`
-// in the council notes. `ALL_TOOLS` is the same array every session's tool
-// list already defaults to, so appending to it here is enough; nothing
-// downstream needs to know a tool came from a plugin rather than the box.
-// Loaded before `buildAgentServer` so `/health` can report the names back
-// without the agent's own boot log being the only place to see them.
+// Boot-time only, before the server exists to accept a prompt. `ALL_TOOLS`
+// is the same array every session's tool list already defaults to, so
+// appending to it here is enough; nothing downstream needs to know a tool
+// came from a plugin rather than a built-in. Loaded before `buildAgentServer`
+// so `/health` can report the names back without the agent's own boot log
+// being the only place to see them.
 const plugins = await loadPlugins(process.env.ZELYQ_PLUGIN_DIR, ALL_TOOLS);
 
 // The repo's own `skills/` sits three levels above this file whether it is
 // running from source or from `dist` — same depth `apps/server/src/
-// config.ts` already resolves `templatesDir` at. See `042` in the council
-// notes.
+// config.ts` already resolves `templatesDir` at.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-// The same directory the server's upload route writes into — see `043` in
-// the council notes. Resolved independently here the exact way
-// ZELYQ_WORKSPACE_DIR already is on both sides: a shared default that
-// only has to be a real agreement in a deployment where the two
-// processes' relative paths could differ, which `docker-compose.yml`'s
-// shared /data volume already accounts for.
+// The same directory the server's upload route writes into. Resolved
+// independently here the exact way ZELYQ_WORKSPACE_DIR already is on both
+// sides: a shared default that only has to be a real agreement in a
+// deployment where the two processes' relative paths could differ, which
+// `docker-compose.yml`'s shared /data volume already accounts for.
 const uploadedSkillsDir = path.resolve(process.env.ZELYQ_SKILLS_UPLOAD_DIR ?? "./data/skills");
 const skillsResult = await loadSkills(
   path.join(repoRoot, "skills"),
@@ -42,10 +40,10 @@ if (skillsResult.skills.length > 0) ALL_TOOLS.push(buildUseSkillTool(skillsResul
 // Resolved once at boot, here, rather than inside `server.ts` on every
 // Engineer Mode session creation — `dir` is deliberately internal to
 // `skills.ts` (never shown to the model), so this is the one place with
-// legitimate access to it, same as `buildUseSkillTool` above. See ZED-0001,
-// Implementation boundary: baking a skill straight into the system prompt
-// bypasses the live `use_skill` call that would normally list its deeper
-// files, so the addendum needs this listing supplied another way.
+// legitimate access to it, same as `buildUseSkillTool` above. Baking a
+// skill straight into the system prompt bypasses the live `use_skill` call
+// that would normally list its deeper files, so the addendum needs this
+// listing supplied another way.
 const skillsWithResources = await Promise.all(
   skillsResult.skills.map(async (skill) => ({
     name: skill.name,

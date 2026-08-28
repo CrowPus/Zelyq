@@ -13,10 +13,10 @@ import { LocalRuntimeDriver } from "../src/local.js";
  * way a security control has to be verified: **every isolation claim is run
  * against the local driver too, and must fail there.**
  *
- * `017` made it binding that a check which has never reported a failure is
- * assumed broken. A sandbox test that passes because the probe could not have
- * worked either way — a `curl` that is not installed, a path that never existed
- * — is exactly that, and an earlier version of this file had one.
+ * A check which has never reported a failure is assumed broken. A sandbox
+ * test that passes because the probe could not have worked either way — a
+ * `curl` that is not installed, a path that never existed — is exactly that,
+ * and an earlier version of this file had one.
  */
 
 const scratch = path.join(os.tmpdir(), `zelyq-container-test-${Date.now()}`);
@@ -207,7 +207,7 @@ test("the health check reports the engine, and fails without one", {
 });
 
 // ---------------------------------------------------------------------------
-// The preview, inside the container. Step two of `023`.
+// The preview, inside the container.
 //
 // Two real bugs were found writing these, both by driving the driver against
 // a real container rather than trusting the design: `kill` is a shell
@@ -345,10 +345,10 @@ test("starting a preview recreates the container to publish the port, proven by 
   skip: !hasEngine,
 }, async () => {
   // Docker publishes ports at creation time; there is no way to add one to
-  // a running container. `023`'s design accepted a recreate as the cost of
-  // that — this proves it actually happens rather than trusting the code
-  // path was taken, per `017`'s rule that a claim like this needs evidence,
-  // not an assertion that the end state merely looks right.
+  // a running container. The design accepts a recreate as the cost of that
+  // — this proves it actually happens rather than trusting the code path
+  // was taken, since a claim like this needs evidence, not an assertion
+  // that the end state merely looks right.
   const driver = makeDriver(previewConfig([4791, 4794]));
   const name = containerName("prj_preview_recreate");
   try {
@@ -411,7 +411,7 @@ test("starting a preview recreates the container to publish the port, proven by 
 test("concurrent exec and a preview start for the same project do not corrupt state", {
   skip: !hasEngine,
 }, async () => {
-  // The one race `023` named rather than engineered away: a container
+  // The one race named rather than engineered away: a container
   // recreate landing mid-flight against other work for the same project.
   // The lock's job is to stop it from corrupting anything, not to make the
   // moment free — this proves the former, not the latter.
@@ -463,7 +463,7 @@ test("concurrent exec and a preview start for the same project do not corrupt st
 // ---------------------------------------------------------------------------
 // Project-to-project isolation.
 //
-// Found live, not in a design review: on Docker's default bridge, one
+// On Docker's default bridge, one
 // project's container could reach another's internal port directly — no
 // publishing, no cooperation, just its IP. That is a cross-*tenant* leak on
 // the exact deployment this driver exists for, independent of anything to do
@@ -532,8 +532,8 @@ test("the project network is created with inter-container communication disabled
   skip: !hasEngine,
 }, async () => {
   // Proof the option actually landed, not just that the reachability test
-  // above happened to pass — the two together are what the council's rule
-  // asks for: an assertion on the mechanism, not only on its effect.
+  // above happened to pass — an assertion on the mechanism, not only on
+  // its effect.
   const driver = makeDriver(previewConfig([4811, 4814]));
   try {
     await driver.ensureProject("prj_network_opt");
@@ -556,7 +556,7 @@ test("the project network is created with inter-container communication disabled
 });
 
 // ---------------------------------------------------------------------------
-// The metadata endpoint block. Opt-in only — see `025` in the council notes.
+// The metadata endpoint block. Opt-in only.
 //
 // Every other isolation claim in this file is verified against a real
 // container by default. This one is not, deliberately: it writes into the
@@ -700,11 +700,11 @@ test("no allowlist configured means egress is unrestricted, and health says noth
 test("a driver restarted with the allowlist removed actually restores unrestricted egress", {
   skip: !hasEngine || !liveFirewallTestOptIn,
 }, async () => {
-  // The exact regression `034` in the council notes fixes, reproduced: an
-  // allowlist enabled once, then a fresh driver instance — a restart, in
-  // production — started with no allowlist configured. Found live: without
-  // this, the *first* driver's rules outlived it, rejecting everything they
-  // did not cover regardless of what the second driver was ever told.
+  // A regression reproduced: an allowlist enabled once, then a fresh
+  // driver instance — a restart, in production — started with no allowlist
+  // configured. Without this, the *first* driver's rules outlive it,
+  // rejecting everything they did not cover regardless of what the second
+  // driver was ever told.
   const restricted = new ContainerRuntimeDriver(previewConfig([4836, 4839]), {
     blockMetadataEndpoint: false,
     egressAllowlist: ["registry.npmjs.org"],

@@ -7,7 +7,7 @@ import type { Conversation, ModelProvider } from "../src/providers/index.js";
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * Regression for a real live bug (see `037`): the server forwards a
+ * Regression: the server forwards a
  * resolved image attachment to the agent as part of the prompt's JSON
  * body, base64-encoded — roughly a third larger than the raw bytes on top
  * of everything else in the request. Fastify's own default `bodyLimit` is

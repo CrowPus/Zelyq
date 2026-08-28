@@ -9,10 +9,8 @@ import type { ServerConfig } from "../src/config.js";
 import { ProjectService } from "../src/services/projects.js";
 
 /**
- * Git integration Part A — see `035` in the council notes. Against a real
- * `LocalRuntimeDriver` and real git, not a mock of git's own behaviour —
- * the same standard `031` and `034` already held their own live-system
- * claims to.
+ * Git integration, part A. Against a real `LocalRuntimeDriver` and real
+ * git, not a mock of git's own behaviour.
  *
  * `ensureGitRepo`/`commitTurn` only ever touch `runtime` — `store` and
  * `config` are never read by either, so real ones here would be pure

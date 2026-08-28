@@ -52,7 +52,7 @@ export function ProjectEditorPage() {
   // bottom PaneBar instead, so these are md-only.
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
-  /** Clicked in the preview with the inspector on — see `038`. */
+  /** Clicked in the preview with the inspector on. */
   const [pointedElement, setPointedElement] = useState<SelectedElement | null>(null);
 
   const project = useQuery({ queryKey: ["project", id], queryFn: () => api.getProject(id) });
@@ -84,7 +84,7 @@ export function ProjectEditorPage() {
       if (selectedPath && paths.includes(selectedPath)) {
         queryClient.invalidateQueries({ queryKey: ["file", id, selectedPath] });
       }
-      // 048 — Architect Mode writes architecture/report.html at the end of a run.
+      // Architect Mode writes architecture/report.html at the end of a run.
       if (paths.some((p) => p.startsWith("architecture/"))) {
         queryClient.invalidateQueries({ queryKey: ["plan", id] });
       }

@@ -50,8 +50,8 @@ import {
  * can still look at what exists to write an accurate summary. */
 const MUTATING_TOOL_NAMES = new Set(["write_file", "edit_file", "delete_file", "run_command"]);
 
-// 048 — Architect Mode. It plans; it does not build. Writes are allowed only
-// under `architecture/`, and nothing executes.
+// Architect Mode plans but does not build. Writes are allowed only under
+// `architecture/`, and nothing executes.
 const ARCHITECT_WRITE_TOOLS = new Set(["write_file", "edit_file", "delete_file"]);
 const ARCHITECT_BLOCKED_TOOLS = new Set(["run_command", "start_preview"]);
 // The only package files the Architect may touch before it has written the
@@ -64,12 +64,11 @@ const ARCHITECT_INTERVIEW_WRITABLE = new Set([
   "architecture/README.md",
 ]);
 
-// 050 R2.1 — the exact set of paths the Architect may write, derived from the
-// 048 package contract. NOT "any .md under architecture/": arbitrary Markdown
-// there is not inert everywhere (MDX compilation, raw-markdown imports, doc
-// generators that glob `architecture/**/*.md`). `pending-skills/` is
-// deliberately absent — self-authored capability is 047 Phase 3d, gated
-// separately.
+// The exact set of paths the Architect may write. NOT "any .md under
+// architecture/": arbitrary Markdown there is not inert everywhere (MDX
+// compilation, raw-markdown imports, doc generators that glob
+// `architecture/**/*.md`). `pending-skills/` is deliberately absent —
+// self-authored capability is gated separately.
 const ARCHITECT_PACKAGE_FILES = new Set([
   "architecture/README.md",
   "architecture/requirements.md",
@@ -79,12 +78,12 @@ const ARCHITECT_PACKAGE_FILES = new Set([
   "architecture/build-plan.md",
   "architecture/build-context.md",
   "architecture/risks.md",
-  // 054 — the design system spec. A living document (NOT a decisions/*
-  // record): the Architect seeds a first draft, the Designer owns and
-  // deepens it. In the mutable package set on purpose.
+  // The design system spec. A living document (NOT a decisions/* record):
+  // the Architect seeds a first draft, the Designer owns and deepens it.
+  // Intentionally in the mutable package set.
   "architecture/DESIGN.md",
 ]);
-// 054 — the design guide's canonical paths. `architecture/DESIGN.md` for a
+// The design guide's canonical paths. `architecture/DESIGN.md` for a
 // project that has an Architect package; root `DESIGN.md` otherwise (an
 // Engineer-only project must not sprout an architecture/ folder).
 const DESIGN_MD_PATHS = new Set(["architecture/DESIGN.md", "DESIGN.md"]);
@@ -101,12 +100,12 @@ function isArchitectPackagePath(norm: string): boolean {
   );
 }
 
-/** 050 R2.3 — a fail-fast advisory scan of a complete report.html for active
- * or network-capable content. NOT a security boundary (a substring scan
- * cannot be one — see the proposal); the render-time sanitiser in PlanPanel
- * is the control. This just catches the obvious cases early so the Architect
- * gets told, and so a scripted file does not linger in the workspace.
- * Returns a short description of the first problem, or null if clean. */
+/** A fail-fast advisory scan of a complete report.html for active or
+ * network-capable content. NOT a security boundary (a substring scan cannot
+ * be one); the render-time sanitiser in PlanPanel is the control. This just
+ * catches the obvious cases early so the Architect gets told, and so a
+ * scripted file does not linger in the workspace. Returns a short
+ * description of the first problem, or null if clean. */
 function reportHtmlAdvisory(html: string): string | null {
   const s = html.toLowerCase();
   if (/<script[\s/>]/.test(s)) return "a <script> tag";
@@ -124,7 +123,7 @@ function reportHtmlAdvisory(html: string): string | null {
  *  - "exec"     — an execution tool (run_command, start_preview)
  *  - "scope"    — a write whose canonicalized path is outside `architecture/`
  *  - "artifact" — a write under `architecture/` that is not an allowed
- *                 package file (050 R2.1)
+ *                 package file
  * Path is normalized first so `architecture/../src/x` and `./architecture/../x`
  * cannot slip through. */
 function architectModeBlock(
@@ -149,16 +148,16 @@ function architectModeBlock(
   return null;
 }
 
-// 047 Phase 3 — orchestration caps. Hard, enforced here, not in prose. Every
-// dispatched builder is bounded; the whole run is bounded on top of that.
+// Orchestration caps. Hard, enforced here, not in prose. Every dispatched
+// builder is bounded; the whole run is bounded on top of that.
 const SUBAGENT_MAX_TURNS = 25;
 const SUBAGENT_MAX_TOKENS = 200_000;
 const SUBAGENT_WALLCLOCK_MS = 5 * 60_000;
 const ORCH_MAX_SUBAGENTS = 20;
 const ORCH_MAX_TOKENS = 2_000_000;
-// 051 Part B — Auto Mode's hard ceiling for ONE auto run. Any one hit stops
-// the run; it hands back exactly like a manual pass-cap stop, with the
-// actual totals. Deliberately low so a bad plan is a manageable bill.
+// Auto Mode's hard ceiling for ONE auto run. Any one hit stops the run; it
+// hands back exactly like a manual pass-cap stop, with the actual totals.
+// Deliberately low so a bad plan is a manageable bill.
 const AUTO_MAX_PASSES = 6;
 const AUTO_MAX_TOKENS = 6_000_000;
 const AUTO_MAX_WALLCLOCK_MS = 30 * 60_000;
@@ -168,9 +167,9 @@ const AUTO_MAX_WALLCLOCK_MS = 30 * 60_000;
 // before it surfaces as a visible error.
 const MODEL_RETRY_MAX = 3;
 const MODEL_RETRY_BASE_MS = 800;
-// 049 Phase 1 — a builder takes at most this many named files. A task with
-// more is refused at dispatch, forcing the Architect to split it before a
-// bounded builder chokes on it.
+// A builder takes at most this many named files. A task with more is refused
+// at dispatch, forcing the Architect to split it before a bounded builder
+// chokes on it.
 const BUILDER_FILES_MAX = 5;
 
 /** Pick a concrete model for a task's tier. Falls back to the session's own
@@ -189,12 +188,11 @@ function modelForTier(
 }
 
 /** Lockfiles a package manager writes as a normal side effect of
- * `npm install` and its equivalents — found live: `run_command`'s
- * reactive new-file detection was counting `package-lock.json` toward
- * the same six-file budget as an actually-invented file, silently
- * costing the model one of its six slots for something it didn't choose
- * to create. Excluded by basename, not path, since these always live at
- * the project root. */
+ * `npm install` and its equivalents. Without this list, `run_command`'s
+ * reactive new-file detection counts `package-lock.json` toward the same
+ * six-file budget as a file the model actually invented, costing it one of
+ * its six slots for something it didn't choose to create. Excluded by
+ * basename, not path, since these always live at the project root. */
 const GENERATED_LOCKFILE_NAMES = new Set([
   "package-lock.json",
   "yarn.lock",
@@ -212,58 +210,58 @@ export interface SessionOptions {
   model: string;
   effort: Effort;
   apiKey: string;
-  /** See `045` in the council notes — `apiKey` above is a CLI-sourced OAuth
-   * token, not a classic key, when this is `"subscription"`. */
+  /** When this is `"subscription"`, `apiKey` above is a CLI-sourced OAuth
+   * token, not a classic API key. */
   authMode?: AuthMode;
   /** Endpoint for a provider speaking the OpenAI dialect. */
   baseUrl?: string;
   runtime: RuntimeDriver;
   maxIterations: number;
   history?: Message[];
-  /** The name/description catalog only — see `042`. Empty when nothing loaded. */
+  /** The name/description catalog only. Empty when nothing loaded. */
   skills?: Array<{ name: string; description: string }>;
-  /** Full body lookup for `044`'s guaranteed `/`-selected weaving — a
+  /** Full body lookup for a `/`-selected skill that must be woven in — a
    * separate field from `skills` above so the prompt catalog never has to
    * carry every skill's full text just to build a two-line list. */
   resolveSkillBody?: (name: string) => { body: string } | undefined;
-  /** ZED-0001, Phase 1. `engineerModeSkill` is the `senior-software-engineering`
-   * skill's body and resource listing, resolved by the caller the same way
+  /** `engineerModeSkill` is the `senior-software-engineering` skill's body
+   * and resource listing, resolved by the caller the same way
    * `resolveSkillBody` already is — absent when that skill wasn't found at
    * boot, in which case the mode's four directives still apply on their own. */
   engineerMode?: boolean;
   engineerModeSkill?: { body: string; resources: string[] };
-  /** 048 — Architect Mode, Phase 1. Mutually exclusive with `engineerMode`
-   * (the server rejects both). When on, this session interviews and designs
-   * only: writes outside `architecture/` and every execution tool are
-   * refused at the tool boundary below. `architectModeSkill` is the
-   * `report-page-design` skill for the report render. */
+  /** Architect Mode. Mutually exclusive with `engineerMode` (the server
+   * rejects both). When on, this session interviews and designs only: writes
+   * outside `architecture/` and every execution tool are refused at the tool
+   * boundary below. `architectModeSkill` is the `report-page-design` skill
+   * for the report render. */
   architectMode?: boolean;
   architectModeSkill?: { body: string; resources: string[] };
-  /** 051 Part B — Auto Mode. Only honoured with `architectMode`. */
+  /** Auto Mode. Only honoured with `architectMode`. */
   autoMode?: boolean;
-  /** 049 Phase 1 — the lean builder profile. A dispatched builder runs with
-   * a compact hand-written system prompt (this field) instead of the full
+  /** The lean builder profile. A dispatched builder runs with a compact
+   * hand-written system prompt (this field) instead of the full
    * `buildSystemPrompt` weave, and only the tools named in `toolNames`. Cuts
    * per-turn overhead so a whole build fits in the run budget. */
   systemPrompt?: string;
   toolNames?: string[];
-  /** 053 — a structural write scope for a specialist child. When set, every
+  /** A structural write scope for a specialist child. When set, every
    * write_file / edit_file / delete_file whose normalized path fails this
    * predicate is refused at the tool boundary, and a shell command that
    * creates an out-of-scope file trips the turn's checkpoint. The Designer
    * child runs with `designerPathAllowed`. */
   writeAllowlist?: (normPath: string) => boolean;
-  /** 055 — packages a specialist child may `npm install`. Only consulted
-   * when `writeAllowlist` is set; an empty/absent set with `writeAllowlist`
+  /** Packages a specialist child may `npm install`. Only consulted when
+   * `writeAllowlist` is set; an empty/absent set with `writeAllowlist`
    * present means NO installs are allowed. */
   installAllowlist?: Set<string>;
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
 
-// 049 Phase 1 — the only tools a dispatched builder gets. No plugin
-// catalogue, no use_skill, no preview tools (the Architect owns the preview).
-// Just enough to read the project, write code, and run a command.
+// The only tools a dispatched builder gets. No plugin catalogue, no
+// use_skill, no preview tools (the Architect owns the preview). Just enough
+// to read the project, write code, and run a command.
 const BUILDER_TOOL_NAMES = [
   "list_files",
   "read_file",
@@ -274,10 +272,10 @@ const BUILDER_TOOL_NAMES = [
   "run_command",
 ];
 
-// 051 Part A — the verifier dispatch gets the preview and page-inspection
-// tools back on top of the builder set (so it can actually see whether the
-// app runs, the way Engineer Mode does), plus whatever extra plugin tools
-// the plan named for design / a11y / security checks.
+// The verifier dispatch gets the preview and page-inspection tools back on
+// top of the builder set (so it can actually see whether the app runs, the
+// way Engineer Mode does), plus whatever extra plugin tools the plan named
+// for design / a11y / security checks.
 const VERIFIER_EXTRA_TOOL_NAMES = [
   "start_preview",
   "preview_logs",
@@ -289,8 +287,8 @@ const VERIFIER_EXTRA_TOOL_NAMES = [
   "lint_project",
 ];
 
-// 049 Phase 1 — the builder's whole system prompt. It gets ONE specified task
-// with acceptance criteria, a project brief, and a file map; it does not need
+// The builder's whole system prompt. It gets ONE specified task with
+// acceptance criteria, a project brief, and a file map; it does not need
 // the interview/scope-negotiation machinery of the full agent prompt.
 const BUILDER_SYSTEM_PROMPT = `You are a builder on a software team. You are given ONE task from an approved build plan, with acceptance criteria, a project brief, and a list of files that already exist.
 
@@ -304,12 +302,12 @@ Do exactly that task:
 
 When done, state in two or three sentences what you changed and whether each acceptance criterion is met. If you could not finish, say exactly what remains.`;
 
-// 051 Part A — the verifier's whole system prompt. It runs AFTER the last
-// build task. It verifies the project ACTUALLY WORKS the way a senior
-// engineer would before signing off — and fixes the loose ends the build
-// left. Modelled on what Engineer Mode does when a user asks it to finish a
-// half-built app: preview, inspect the running page, typecheck/build, then
-// read and fix component by component until it runs.
+// The verifier's whole system prompt. It runs AFTER the last build task. It
+// verifies the project ACTUALLY WORKS the way a senior engineer would before
+// signing off — and fixes the loose ends the build left. Modelled on what
+// Engineer Mode does when a user asks it to finish a half-built app:
+// preview, inspect the running page, typecheck/build, then read and fix
+// component by component until it runs.
 const VERIFIER_SYSTEM_PROMPT = `You are the verifier. A team of builders just finished a project from an approved plan. Your job is to make sure it ACTUALLY WORKS end to end — the way a senior engineer checks their own work before signing off — and to write the few project-level files a finished project needs. You may fix what is broken; you do not add new features.
 
 Verify it for real, in this order:
@@ -326,17 +324,16 @@ Then create or correct the finishing files: .env.example (every env var the code
 
 Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item, PASS / FAIL / N/A, each with a one-line reason that names what you ACTUALLY OBSERVED (the command output, what the page showed), never what should be true. Do not mark PASS anything you did not run and see pass. If the app does not render, or the build fails, the overall result is NOT VERIFIED — say that plainly at the top. End with the live preview URL, or "preview not running: <reason>".`;
 
-// 053 — the Designer specialist. Dispatched AFTER a clean verification (or, in
+// The Designer specialist. Dispatched AFTER a clean verification (or, in
 // Engineer Mode, on the user's explicit ask via design_pass). Same mechanism
 // as the verifier; different mandate: make a WORKING app look senior-designed.
 // It adds no features, no routes, no backend changes — a structural write
 // allowlist (designerPathAllowed) limits it to client UI files, and a fixed
 // dependency allowlist limits what it may install.
-// 054/055 — every specialist (Designer, DevOps, Security/QA) surveys the
-// project, authors or deepens its spec file, AND implements it. Raised from
-// the polish-pass 30/400k/12m. A pass that hits a ceiling returns partial
-// with honest NOT DONE lines; "keep going" or a second pass continues
-// against the now-written spec (cheaper).
+// Every specialist (Designer, DevOps, Security/QA) surveys the project,
+// authors or deepens its spec file, AND implements it. A pass that hits a
+// ceiling returns partial with honest NOT DONE lines; "keep going" or a
+// second pass continues against the now-written spec (cheaper).
 const SPECIALIST_MAX_TURNS = 40;
 const SPECIALIST_MAX_TOKENS = 600_000;
 const SPECIALIST_WALLCLOCK_MS = 18 * 60_000;
@@ -377,11 +374,11 @@ const DESIGNER_DEP_ALLOW = new Set([
   "@heroicons/react",
 ]);
 
-// 055 follow-up — the Security/QA agent needs a test runner to write tests
-// that actually run. These are test INFRASTRUCTURE (dev-only), not
-// application dependencies — the QA agent's tools, the same way the styling
-// utilities above are the Designer's. Application deps still go in the review
-// for the Engineer.
+// The Security/QA agent needs a test runner to write tests that actually
+// run. These are test INFRASTRUCTURE (dev-only), not application
+// dependencies — the QA agent's tools, the same way the styling utilities
+// above are the Designer's. Application deps still go in the review for the
+// Engineer.
 const QA_DEP_ALLOW = new Set([
   "vitest",
   "@vitest/coverage-v8",
@@ -402,7 +399,7 @@ const QA_DEP_ALLOW = new Set([
 const INSTALL_CMD_RE =
   /\b(?:npm(?:\s+install|\s+i|\s+add)|pnpm\s+(?:install|i|add)|yarn\s+add|bun\s+add)\b([^\n&|;]*)/i;
 
-/** 053 — the Designer's structural write scope: client UI files only. Anything
+/** The Designer's structural write scope: client UI files only. Anything
  * that does not match is refused at the tool boundary in the child session, so
  * a "make it pretty" pass can never touch the server, the schema, config, CI,
  * or secrets. Path is normalized by the caller. */
@@ -410,8 +407,8 @@ function designerPathAllowed(norm: string): boolean {
   if (norm === "" || pathPosix.isAbsolute(norm) || norm === ".." || norm.startsWith("../")) {
     return false;
   }
-  // 054 — the Designer owns the design guide. This is the ONLY doc it may
-  // write; every other architecture/* path stays refused below.
+  // The Designer owns the design guide. This is the ONLY doc it may write;
+  // every other architecture/* path stays refused below.
   if (DESIGN_MD_PATHS.has(norm)) return true;
   // Never server/data/build-tooling code, even when it lives under src/.
   if (/^src\/(server|api|backend|db|database|prisma|lib\/server|trpc|routes\/api)\b/.test(norm)) {
@@ -448,7 +445,7 @@ const DESIGN_DOD = [
   "the app still renders and typechecks after the changes.",
 ].join(" ");
 
-// 054 — the shape of DESIGN.md. Given to the child so an authored guide is
+// The shape of DESIGN.md. Given to the child so an authored guide is
 // complete and uniformly structured. The Designer fills it with REAL values
 // (hex, a type scale, spacing steps), never placeholders.
 const DESIGN_MD_TEMPLATE = `# Design System — <project name>
@@ -539,11 +536,11 @@ When done, re-check the running preview, then return a DESIGN REVIEW:
 type Emit = (event: AgentEvent) => void;
 
 // ===========================================================================
-// 055 — the DevOps and Security/QA specialists. Same machine as the Designer
-// (053/054): a dispatched bounded child, a curated tool set, injected skill
-// bodies, a structural write allowlist, an owned spec file it surveys /
-// authors / implements, and the same honesty gates. Only the prompt, the
-// tools, the write scope, and the owned file differ.
+// The DevOps and Security/QA specialists. Same machine as the Designer: a
+// dispatched bounded child, a curated tool set, injected skill bodies, a
+// structural write allowlist, an owned spec file it surveys / authors /
+// implements, and the same honesty gates. Only the prompt, the tools, the
+// write scope, and the owned file differ.
 // ===========================================================================
 
 type SpecialistKind = "designer" | "devops" | "security";
@@ -597,9 +594,9 @@ const QA_TOOL_NAMES = [
   "quality_report",
 ];
 
-/** 055 — the DevOps agent's structural write scope: operational / deploy
- * files, plus its own OPERATIONS.md. NEVER application code, a real .env, or
- * a package.json key other than `scripts` (checked separately in the turn
+/** The DevOps agent's structural write scope: operational / deploy files,
+ * plus its own OPERATIONS.md. NEVER application code, a real .env, or a
+ * package.json key other than `scripts` (checked separately in the turn
  * loop). Path is normalized by the caller. */
 function devopsPathAllowed(norm: string): boolean {
   if (norm === "" || pathPosix.isAbsolute(norm) || norm === ".." || norm.startsWith("../")) {
@@ -631,7 +628,7 @@ function devopsPathAllowed(norm: string): boolean {
   return false;
 }
 
-/** 055 — the Security/QA agent's structural write scope: test files, its own
+/** The Security/QA agent's structural write scope: test files, its own
  * QA.md / SECURITY.md, and risks.md for triage. NEVER application code or
  * package.json (a needed test dep is named in the review). */
 function qaPathAllowed(norm: string): boolean {
@@ -903,49 +900,48 @@ export class AgentSession {
   private tokensIn = 0;
   private tokensOut = 0;
 
-  // 048/047 — the turn number on which the Architect first declared the
-  // package ready (or 0 if a resumed session's history already contains that
-  // declaration). dispatch_task is refused until this is set AND at least one
-  // user turn has happened since — i.e. the user has seen the finished plan
-  // and come back to say build it. Prevents "wrote the whole plan itself,
-  // then started building" in one breath.
+  // The turn number on which the Architect first declared the package ready
+  // (or 0 if a resumed session's history already contains that declaration).
+  // dispatch_task is refused until this is set AND at least one user turn has
+  // happened since — i.e. the user has seen the finished plan and come back
+  // to say build it. Prevents "wrote the whole plan itself, then started
+  // building" in one breath.
   private readyDeclaredAtTurn: number | null = null;
 
-  // 048/047 — set once the Architect has written the "Interview complete:"
-  // line. Until then the only package files it may write are
-  // architecture/requirements.md and architecture/README.md; every other
-  // design file (decisions/*, data-model.md, api.md, ...) is refused. Stops
-  // "raced through three interview topics, then dumped the whole package in
-  // one turn".
+  // Set once the Architect has written the "Interview complete:" line. Until
+  // then the only package files it may write are architecture/requirements.md
+  // and architecture/README.md; every other design file (decisions/*,
+  // data-model.md, api.md, ...) is refused. Stops "raced through three
+  // interview topics, then dumped the whole package in one turn".
   private interviewDoneDeclared = false;
 
-  // 050 R2.5 — the "Interview complete:" content check (a `blocked` status
-  // row blocks the marker) fires at most once per session. After it has
-  // refused and told the model why, a re-declared marker is honoured, so a
-  // misformatted status table can never trap the user in a loop.
+  // The "Interview complete:" content check (a `blocked` status row blocks
+  // the marker) fires at most once per session. After it has refused and told
+  // the model why, a re-declared marker is honoured, so a misformatted status
+  // table can never trap the user in a loop.
   private interviewCloseRefusedOnce = false;
 
-  // 055 follow-up #2 — how many turns in a row have ended having hit the
-  // iteration cap with the build broken. After the second, "keep going" is
-  // no longer the recommended action — the turn is not converging and the
-  // token spend is not buying progress. Reset to 0 by any clean turn end.
+  // How many turns in a row have ended having hit the iteration cap with the
+  // build broken. After the second, "keep going" is no longer the recommended
+  // action — the turn is not converging and the token spend is not buying
+  // progress. Reset to 0 by any clean turn end.
   private cappedBrokenStreak = 0;
 
-  // 047 Phase 3 — orchestration run state. Session-scoped, so "build the plan"
-  // can span turns against one running total. `killed` is the kill switch;
-  // once set, no further builders dispatch and nothing resumes on its own.
+  // Orchestration run state. Session-scoped, so "build the plan" can span
+  // turns against one running total. `killed` is the kill switch; once set,
+  // no further builders dispatch and nothing resumes on its own.
   private readonly orchestration = {
     subagents: 0,
     tokens: 0,
     killed: false,
-    // 049 Phase 1 — the first task of a build pass must produce a runnable
-    // skeleton (app entry renders, build command passes). Enforced on the
-    // first dispatch only.
+    // The first task of a build pass must produce a runnable skeleton (app
+    // entry renders, build command passes). Enforced on the first dispatch
+    // only.
     firstDispatchDone: false,
     // Cleared by a "keep going" user turn so the next pass gets a fresh
     // budget instead of dead-ending at the cap.
     pass: 1,
-    // 051 Part B — Auto Mode run state.
+    // Auto Mode run state.
     auto: false, // this session was created with autoMode + architectMode
     autoStartedAt: null as number | null,
     autoTokens: 0, // cumulative builder tokens across the whole auto run
@@ -969,17 +965,17 @@ export class AgentSession {
       ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
     });
 
-    // 049 Phase 1 — a builder runs lean: its own compact prompt, and only
-    // the file/shell tools. Everything else keeps the full weave.
+    // A builder runs lean: its own compact prompt, and only the file/shell
+    // tools. Everything else keeps the full weave.
     const leanBuilder = Boolean(options.systemPrompt && options.toolNames);
     const toolPool = leanBuilder
       ? ALL_TOOLS.filter((t) => options.toolNames?.includes(t.name))
       : [
           ...ALL_TOOLS,
-          // 047 — the Architect orchestrates builders.
+          // The Architect orchestrates builders.
           ...(options.architectMode ? [dispatchTaskTool] : []),
-          // 053/055 — the specialists are callable from Engineer Mode (on the
-          // user's ask) and Architect Mode (in the pipeline).
+          // The specialists are callable from Engineer Mode (on the user's
+          // ask) and Architect Mode (in the pipeline).
           ...(options.architectMode || options.engineerMode
             ? [designPassTool, opsPassTool, qaPassTool]
             : []),
@@ -1061,9 +1057,9 @@ export class AgentSession {
     this.abortController?.abort();
   }
 
-  /** 047 Phase 3 — the kill switch. Stops any further builder dispatch on this
-   * session; a stopped run does not resume on its own. Also aborts the current
-   * turn so a mid-orchestration stop takes effect now. */
+  /** The kill switch. Stops any further builder dispatch on this session; a
+   * stopped run does not resume on its own. Also aborts the current turn so a
+   * mid-orchestration stop takes effect now. */
   stopOrchestration(): void {
     this.orchestration.killed = true;
     this.abortController?.abort();
@@ -1080,11 +1076,11 @@ export class AgentSession {
   }
 
   /**
-   * 047 Phase 3a/3b/3e/3f — run one build-plan task in a fresh, bounded
-   * Engineer-Mode child session against this same project, and hand its
-   * result back to the Architect. Never recurses: a child is Engineer Mode,
-   * which has no `dispatch_task`. Hard caps: 25 turns, 200k tokens, 5 min per
-   * child; 20 children and 2M tokens per orchestration run.
+   * Run one build-plan task in a fresh, bounded Engineer-Mode child session
+   * against this same project, and hand its result back to the Architect.
+   * Never recurses: a child is Engineer Mode, which has no `dispatch_task`.
+   * Hard caps: 25 turns, 200k tokens, 5 min per child; 20 children and 2M
+   * tokens per orchestration run.
    */
   private async dispatchBuildTask(
     raw: Record<string, unknown>,
@@ -1103,17 +1099,17 @@ export class AgentSession {
       };
     }
     const input = parsed.data;
-    // 053 — free-text direction, only sent by design_pass; not part of the
+    // Free-text direction, only sent by design_pass; not part of the
     // dispatch_task schema, so read it off the raw input before Zod strips it.
     const designNotes = typeof raw.notes === "string" ? raw.notes : "";
 
-    // 051 Part A — the final verification & finishing dispatch.
-    // 053 — the design pass, dispatched after a clean verify (Architect) or on
-    // the user's ask (Engineer, via design_pass which normalizes to this
-    // shape). Both are exempt from the build-only gates below.
+    // The final verification & finishing dispatch, or the design pass —
+    // dispatched after a clean verify (Architect) or on the user's ask
+    // (Engineer, via design_pass which normalizes to this shape). Both are
+    // exempt from the build-only gates below.
     const isVerify = input.verify === true;
-    // 055 — which specialist, if any. The Designer (053/054), the DevOps
-    // agent, and the Security/QA agent all run on the same machine.
+    // Which specialist, if any. The Designer, the DevOps agent, and the
+    // Security/QA agent all run on the same machine.
     const specialistKind: SpecialistKind | null =
       input.design === true
         ? "designer"
@@ -1176,8 +1172,8 @@ export class AgentSession {
       };
     }
 
-    // 049 Phase 1 — task-size ceiling. A bounded builder cannot land a task
-    // with a dozen files; refuse and make the Architect split it.
+    // Task-size ceiling. A bounded builder cannot land a task with a dozen
+    // files; refuse and make the Architect split it.
     if (!isVerify && !isSpecialist && input.files && input.files.length > BUILDER_FILES_MAX) {
       return {
         output:
@@ -1188,10 +1184,10 @@ export class AgentSession {
       };
     }
 
-    // 049 Phase 1 — the first task of a build pass must produce a runnable
-    // skeleton: the app's entry point renders something and the build/dev
-    // command passes. Keyed to that outcome in the acceptance criteria, not
-    // to a hardcoded filename (a Node API or a CLI has no App.tsx).
+    // The first task of a build pass must produce a runnable skeleton: the
+    // app's entry point renders something and the build/dev command passes.
+    // Keyed to that outcome in the acceptance criteria, not to a hardcoded
+    // filename (a Node API or a CLI has no App.tsx).
     if (!isVerify && !isSpecialist && !this.orchestration.firstDispatchDone) {
       const ac = input.acceptanceCriteria.toLowerCase();
       const looksRunnable =
@@ -1213,11 +1209,11 @@ export class AgentSession {
       }
     }
 
-    // 055 follow-up — the orchestration-run caps bound the BUILD (many
-    // builders against one 2M budget). A specialist pass is one bounded
-    // child that runs AFTER the build, or on its own from Engineer Mode —
-    // it has its own 40-turn / 600k-token / 18-min ceiling and must not be
-    // refused just because an earlier build spent the run's builder budget.
+    // The orchestration-run caps bound the BUILD (many builders against one
+    // 2M budget). A specialist pass is one bounded child that runs AFTER the
+    // build, or on its own from Engineer Mode — it has its own 40-turn /
+    // 600k-token / 18-min ceiling and must not be refused just because an
+    // earlier build spent the run's builder budget.
     if (!isSpecialist && this.orchestration.subagents >= ORCH_MAX_SUBAGENTS) {
       this.orchestration.passCapHitThisTurn = true;
       return {
@@ -1243,9 +1239,9 @@ export class AgentSession {
 
     const n = ++this.orchestration.subagents;
     this.orchestration.firstDispatchDone = true;
-    // 054 — a design pass authors a spec and reconciles a whole app's UI; it
-    // wants the strong model. `modelForTier` falls back to the session model
-    // when no strong model is configured, so this is safe on any provider.
+    // A design pass authors a spec and reconciles a whole app's UI; it wants
+    // the strong model. `modelForTier` falls back to the session model when
+    // no strong model is configured, so this is safe on any provider.
     const model = modelForTier(
       isSpecialist ? (input.modelTier ?? "strong") : input.modelTier,
       this.options.provider,
@@ -1253,9 +1249,9 @@ export class AgentSession {
       describeAvailableModels(),
     );
 
-    // 049 Phase 1 — the shared build brief (written once by the Architect at
-    // handoff) plus a compact map of what already exists, so the builder does
-    // not spend its budget rediscovering the project every time.
+    // The shared build brief (written once by the Architect at handoff) plus
+    // a compact map of what already exists, so the builder does not spend its
+    // budget rediscovering the project every time.
     const buildContext = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}build-context.md`);
     const existing = [...(await this.listAllFilePaths())]
       .filter((p) => !p.startsWith(ARCHITECT_WRITE_ROOT))
@@ -1267,9 +1263,9 @@ export class AgentSession {
           .join("\n")}`
       : "\n\nThe project has no source files yet — you are laying the first ones.";
 
-    // 051 Part A — inject the bodies of the skills the task named. The lean
-    // child has no use_skill tool, so it gets the text. 053 — the Designer
-    // always gets the two design skills, whatever else was named.
+    // Inject the bodies of the skills the task named. The lean child has no
+    // use_skill tool, so it gets the text. The Designer always gets the two
+    // design skills, whatever else was named.
     const skillsBlock = (() => {
       const names = spec
         ? [...new Set([...spec.skills, ...(input.skills ?? [])])]
@@ -1285,18 +1281,18 @@ export class AgentSession {
       return bodies ? `\n\nGUIDANCE FROM SKILLS THIS TASK NEEDS:\n${bodies.slice(0, 14000)}` : "";
     })();
 
-    // 051 Part A — the verifier gets the preview tools and the named plugin
-    // tools on top of the builder set, and a longer wall-clock.
-    // 053 — the Designer gets its own tool set (preview + inspection +
-    // typecheck/lint, no delete_file), a 12-minute wall-clock, a 400k budget,
-    // and a structural write scope (client UI only).
+    // The verifier gets the preview tools and the named plugin tools on top
+    // of the builder set, and a longer wall-clock. The Designer gets its own
+    // tool set (preview + inspection + typecheck/lint, no delete_file), a
+    // longer wall-clock and budget, and a structural write scope (client UI
+    // only).
     const toolNames = spec
       ? [...spec.toolNames, ...(input.tools ?? [])]
       : isVerify
         ? [...BUILDER_TOOL_NAMES, ...VERIFIER_EXTRA_TOOL_NAMES, ...(input.tools ?? [])]
         : BUILDER_TOOL_NAMES;
-    // 054/055 — a specialist authors a spec AND implements it; more room than
-    // a polish. 40 turns / 600k tokens / 18 min.
+    // A specialist authors a spec AND implements it, so it gets more room:
+    // 40 turns / 600k tokens / 18 min.
     const wallclockMs = spec
       ? SPECIALIST_WALLCLOCK_MS
       : isVerify
@@ -1327,15 +1323,15 @@ export class AgentSession {
       runtime: this.options.runtime,
       maxIterations: childTurnCap,
       engineerMode: true,
-      // 049 Phase 1 — lean profile: hand-written prompt, curated tools.
+      // Lean profile: hand-written prompt, curated tools.
       systemPrompt: spec
         ? spec.systemPrompt
         : isVerify
           ? VERIFIER_SYSTEM_PROMPT
           : BUILDER_SYSTEM_PROMPT,
       toolNames,
-      // 053/055 — a specialist has a structural write scope, enforced in the
-      // child; and an install allowlist (empty ⇒ no installs).
+      // A specialist has a structural write scope, enforced in the child, and
+      // an install allowlist (empty ⇒ no installs).
       ...(spec ? { writeAllowlist: spec.allow, installAllowlist: spec.installAllow } : {}),
       ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
     });
@@ -1366,7 +1362,7 @@ export class AgentSession {
           "When finished, state in two or three sentences what you changed and whether the acceptance " +
           "criteria are met.";
 
-    // 053/055 — stream a named specialist's work up to the user as a labelled
+    // Stream a named specialist's work up to the user as a labelled
     // sub-thread. Builders and the verifier keep their single tool-call view.
     if (spec) {
       emit({
@@ -1405,7 +1401,7 @@ export class AgentSession {
             onFileChanged(p);
           }
         }
-        // 053/055 — forward the specialist's meaningful moments to the user.
+        // Forward the specialist's meaningful moments to the user.
         if (spec && e.type === "tool.start") {
           emit({
             type: "agent.activity",
@@ -1439,7 +1435,7 @@ export class AgentSession {
           ? ` — HIT the ${Math.round(wallclockMs / 60_000)}-minute cap, result may be incomplete.`
           : "";
     const filesChanged = [...changed];
-    // 054/055 — files that are the specialist's own spec doc don't count as
+    // Files that are the specialist's own spec doc don't count as
     // "implementation".
     const codeFilesChanged = spec
       ? filesChanged.filter((p) => !spec.specPaths.has(pathPosix.normalize(p)))
@@ -1595,8 +1591,8 @@ export class AgentSession {
     this.turns += 1;
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
-    // 051 Part B — this flag reflects only the turn about to run; Auto Mode
-    // reads it after the turn to decide whether to start another pass.
+    // This flag reflects only the turn about to run; Auto Mode reads it after
+    // the turn to decide whether to start another pass.
     this.orchestration.passCapHitThisTurn = false;
     if (
       this.orchestration.auto &&
@@ -1613,66 +1609,53 @@ export class AgentSession {
     // at the bottom of this loop knows whether anything has changed since
     // the last one, not just in the iteration that just finished.
     let verificationNeeded = false;
-    // ZED-0001, Phase 1's structural anchor. Unlike `changedFiles`, never
-    // cleared — this asks "did anything change at all this turn", not
-    // "since the last check". `purposeCheckDone` bounds the hand-back to
-    // once, the same reason the entry calls this a shape check: retrying
-    // forever on a model that just never adds the marker would be worse
-    // than accepting one uncorrected turn.
+    // Unlike `changedFiles`, never cleared — this asks "did anything change
+    // at all this turn", not "since the last check". `purposeCheckDone`
+    // bounds the hand-back to once: retrying forever on a model that just
+    // never adds the marker would be worse than accepting one uncorrected
+    // turn.
     let anyFileChangedThisTurn = false;
     let purposeCheckDone = false;
     // Architect Mode: whether the "your reply was empty — do the smaller
     // thing" nudge has already been injected this turn. One-shot, so a model
     // that stays empty even with guidance ends the turn instead of looping.
     let emptyRecoveryDone = false;
-    // Found live: a turn that keeps calling tools every single iteration
-    // never reaches either check above, or the loop's own normal exit —
-    // it just falls out when `iteration` reaches `maxIterations`, whatever
-    // `assistantText` happens to hold at that point. On a run that spent
-    // its whole per-turn budget on tool calls and never got to write a
-    // final message, that's nothing — the user is left staring at a blank
-    // reply after real work actually happened. `stoppedByBreak` tells the
-    // two paths apart: set at both of the loop's own internal `break`s
+    // A turn that keeps calling tools every iteration never reaches either
+    // check above, or the loop's normal exit — it just falls out when
+    // `iteration` reaches `maxIterations`, whatever `assistantText` holds at
+    // that point. On a run that spent its whole per-turn budget on tool calls
+    // and never wrote a final message, that's nothing, and the user is left
+    // staring at a blank reply after real work happened. `stoppedByBreak`
+    // tells the two paths apart: set at both of the loop's internal `break`s
     // (a refusal, and the ordinary "nothing left to do" exit) so the code
-    // after the loop can tell "the model chose to stop" from "the budget
-    // ran out mid-work" and only synthesize a fallback in the latter case,
-    // or whenever the model's own text is empty regardless of why.
+    // after the loop can tell "the model chose to stop" from "the budget ran
+    // out mid-work" and only synthesize a fallback in the latter case, or
+    // whenever the model's own text is empty regardless of why.
     let stoppedByBreak = false;
-    // A refusal already carries its own `error` event with the model's own
-    // reason — the fallback synthesis below must not run on top of it
-    // (peer review: a refusal was getting a "finished without providing a
-    // summary" body underneath it, which reads as a quiet normal ending
-    // sitting under a refusal banner, not the actual explanation for why
-    // nothing happened). Also lets `turn.end`'s own `stopReason` say
-    // "refusal" honestly instead of the generic "end_turn".
+    // A refusal already carries its own `error` event with the model's
+    // reason — the fallback synthesis below must not run on top of it, or a
+    // refusal ends up with a "finished without providing a summary" body
+    // underneath it, which reads as a quiet normal ending sitting under a
+    // refusal banner. Also lets `turn.end`'s `stopReason` say "refusal"
+    // honestly instead of the generic "end_turn".
     let refused = false;
-    // Structural cap on invented scope, added after a live incident — see
-    // ZED-0001's incident addendum. `020` in the council notes already
-    // measured correct decomposition for a reasonably-scoped small feature
-    // at 6-7 files; a vague prompt that turns into three imagined
-    // subsystems blows past that by an order of magnitude before anything
-    // stops it. Distinct genuinely-new paths — a file that already existed
-    // before this turn started never counts, no matter which tool touches
-    // it, so a legitimate rewrite of App.tsx is never mistaken for
-    // invented scope.
+    // Structural cap on invented scope. Correct decomposition for a
+    // reasonably-scoped small feature runs about 6-7 files; a vague prompt
+    // that turns into three imagined subsystems blows past that by an order
+    // of magnitude before anything stops it. Counted as distinct
+    // genuinely-new paths — a file that existed before this turn started
+    // never counts, no matter which tool touches it, so a legitimate rewrite
+    // of App.tsx is never mistaken for invented scope.
     //
-    // A second live incident, on a legitimate, well-specified request
-    // (a four-resource admin dashboard), showed the first version of this
-    // fix was still wrong in a different way: refusing only the write that
-    // crosses the checkpoint, while leaving `edit_file` and everything
-    // else open, does not stop the model — it just removes the option to
-    // decompose properly. Blocked from creating a seventh honestly-named
-    // component, it crammed six components' worth of code into the one
-    // file it could still touch, growing App.tsx to hundreds of lines
-    // rather than actually stopping. `checkpointReached` fixes this by
-    // ending the turn's ability to change anything at all, not just create
-    // new files, the moment the checkpoint is hit — the model's only
-    // remaining job is to say what it built and stop, the same way a
-    // human engineer checks in before continuing a large task rather than
-    // forcing everything already planned into whatever is left open.
-    // Reaching the checkpoint is expected on real, larger work, not a
-    // failure — the user's next prompt is what continues it, with a fresh
-    // per-turn budget of its own.
+    // Refusing only the write that crosses the checkpoint, while leaving
+    // `edit_file` and everything else open, does not stop the model — it
+    // just removes the option to decompose properly, and the model crams
+    // several components' worth of code into the one file it can still
+    // touch. `checkpointReached` instead ends the turn's ability to change
+    // anything at all the moment the checkpoint is hit — the model's only
+    // remaining job is to say what it built and stop. Reaching the
+    // checkpoint is expected on real, larger work, not a failure — the
+    // user's next prompt continues it, with a fresh per-turn budget.
     const NEW_FILE_CHECKPOINT = 6;
     const newFilesThisTurn = new Set<string>();
     let checkpointReached = false;
@@ -1703,9 +1686,9 @@ export class AgentSession {
       /^\s*(?:stop|wait|hold on|hold up|pause|halt|don'?t\b|no,?\s*(?:stop|wait|don'?t))\b/i.test(
         userMessage,
       );
-    // 049 Phase 1 — "keep going" starts a fresh build pass: reset the run
-    // budget so a build that stopped at the token cap can continue instead of
-    // dead-ending. The kill switch is not reset by this.
+    // "keep going" starts a fresh build pass: reset the run budget so a build
+    // that stopped at the token cap can continue instead of dead-ending. The
+    // kill switch is not reset by this.
     if (
       this.options.architectMode &&
       !this.orchestration.killed &&
@@ -1719,18 +1702,17 @@ export class AgentSession {
       this.orchestration.pass += 1;
     }
     const toolCalls: ToolCall[] = [];
-    // 055 follow-up — a weak model can get stuck calling the exact same tool
-    // with the exact same input dozens of times (a `search_files` loop that
-    // finds nothing, over and over). Each round costs real model tokens.
-    // After this many identical calls in one turn, refuse it and tell the
-    // model to change approach or stop.
+    // A weak model can get stuck calling the exact same tool with the exact
+    // same input dozens of times (a `search_files` loop that finds nothing,
+    // over and over). Each round costs real model tokens. After this many
+    // identical calls in one turn, refuse it and tell the model to change
+    // approach or stop.
     const IDENTICAL_CALL_LIMIT = 5;
     const identicalCallCounts = new Map<string, number>();
-    // 055 follow-up #2 — the loop above also happens with the pattern
-    // *varied*: read/search/edit the same big file over and over, never
-    // converging (seen live on a 1000-line store file with gemini-flash).
-    // Count every read/search/edit against the file's path; past the limit,
-    // refuse further work on THAT path this turn.
+    // The same loop also happens with the pattern *varied*: read/search/edit
+    // the same big file over and over, never converging (seen on a 1000-line
+    // store file with a weak model). Count every read/search/edit against the
+    // file's path; past the limit, refuse further work on THAT path this turn.
     const PATH_CHURN_LIMIT = 8;
     const pathChurnCounts = new Map<string, number>();
     let assistantText = "";
@@ -1738,13 +1720,13 @@ export class AgentSession {
 
     emit({ type: "turn.start", sessionId: this.id, messageId, at: new Date().toISOString() });
 
-    // Guaranteed, not offered — see `044`. Woven into what the model sees,
-    // the same way attachment text already is by the time this reaches the
-    // agent at all; the transcript's own record of what was typed is a
-    // server-side concern, untouched by this. Plugins wrap first (innermost,
-    // closest to the original message) since a plugin pick is only ever a
-    // one-line instruction, not real content — skills then wrap the whole
-    // thing so their full bodies read first.
+    // A `/`-selected skill or plugin is guaranteed, not offered: woven into
+    // what the model sees, the same way attachment text already is by the
+    // time this reaches the agent; the transcript's record of what was typed
+    // is a server-side concern, untouched by this. Plugins wrap first
+    // (innermost, closest to the original message) since a plugin pick is
+    // only ever a one-line instruction, not real content — skills then wrap
+    // the whole thing so their full bodies read first.
     const withPluginInstruction = pluginNames?.length
       ? withPlugins(userMessage, pluginNames)
       : userMessage;
@@ -1775,7 +1757,7 @@ export class AgentSession {
         //   - it returned NOTHING: no text, no tool calls, not a refusal —
         //     an empty completion, which is almost always a provider hiccup
         //     and otherwise leaves the user staring at "No changes were
-        //     made" with no way forward (found live: the Architect stalled
+        //     made" with no way forward (observed: the Architect stalling
         //     mid-package, every "proceed" producing an empty turn).
         // Only retried while this attempt has streamed nothing, so a
         // mid-stream failure or a real prose answer is never re-run.
@@ -1888,20 +1870,16 @@ export class AgentSession {
             }
           }
 
-          // ZED-0001, Phase 1's structural anchor — see Proposed decision
-          // point 3. A shape check, not a semantic one: this confirms the
+          // A shape check, not a semantic one: this confirms the purpose
           // marker is present somewhere in what the model said this turn,
           // never that the sentence after it is actually a good account of
-          // the turn's purpose. Checked against the whole turn's
-          // accumulated text rather than isolating one "final" message,
-          // since iterations don't mark that boundary today — a simpler,
-          // honestly-described check over a more precise one that would
-          // need new bookkeeping to earn.
+          // the turn's purpose. Checked against the whole turn's accumulated
+          // text rather than isolating one "final" message, since iterations
+          // don't mark that boundary today.
           if (
             this.options.engineerMode &&
-            // 049 Phase 1 — a lean builder already has one specified task; the
-            // "state the purpose" hand-back is Engineer-Mode-for-a-human noise
-            // here.
+            // A lean builder already has one specified task; the "state the
+            // purpose" hand-back is Engineer-Mode-for-a-human noise here.
             !this.options.systemPrompt &&
             anyFileChangedThisTurn &&
             !purposeCheckDone &&
@@ -1945,9 +1923,9 @@ export class AgentSession {
           break;
         }
 
-        // 050 R2.5 — if the Architect declared the interview complete earlier
-        // in THIS turn, unlock the design files now so it can start the
-        // package in the same turn instead of needing another round.
+        // If the Architect declared the interview complete earlier in THIS
+        // turn, unlock the design files now so it can start the package in
+        // the same turn instead of needing another round.
         if (
           this.options.architectMode &&
           !this.interviewDoneDeclared &&
@@ -2046,13 +2024,13 @@ export class AgentSession {
             if (archNewPath !== undefined && !architectFileCapped) {
               newArchFilesThisTurn.add(archNewPath);
             }
-            // 048 — Architect Mode plans only. Refuse execution tools and any
-            // write outside `architecture/`, at the boundary, before the real
-            // tool runs.
+            // Architect Mode plans only. Refuse execution tools and any write
+            // outside `architecture/`, at the boundary, before the real tool
+            // runs.
             const architectBlock = this.options.architectMode
               ? architectModeBlock(toolCall.name, toolCall.input as Record<string, unknown>)
               : null;
-            // 053/055 — a specialist child with a structural write scope.
+            // A specialist child with a structural write scope.
             // Refuse a write/edit/delete outside the allowlist; refuse a
             // package install of anything off the install allowlist (empty ⇒
             // all installs refused); refuse a package.json write that touches
@@ -2073,7 +2051,7 @@ export class AgentSession {
                     : "";
                 const norm = pathPosix.normalize(raw);
                 if (!allow(norm)) return "path";
-                // 055 — the DevOps agent's only package.json access is the
+                // The DevOps agent's only package.json access is the
                 // `scripts` block. Compare the parsed result against the
                 // current file and refuse if any other top-level key moved.
                 if (norm === "package.json" && toolCall.name === "write_file") {
@@ -2115,11 +2093,11 @@ export class AgentSession {
               }
               return null;
             })();
-            // 050 R2.2 — a write/edit to architecture/report.html is checked
-            // on the COMPLETE resulting file, not the tool input, so active
-            // content cannot be assembled across edit_file calls or survive
-            // from a prior version. Snapshot the current file first so a
-            // failed check rolls back.
+            // A write/edit to architecture/report.html is checked on the
+            // COMPLETE resulting file, not the tool input, so active content
+            // cannot be assembled across edit_file calls or survive from a
+            // prior version. Snapshot the current file first so a failed
+            // check rolls back.
             const isReportWrite =
               this.options.architectMode &&
               architectBlock === null &&
@@ -2318,10 +2296,10 @@ export class AgentSession {
                                     isError: true,
                                   }
                                 : await executeTool(toolContext, toolCall.name, toolCall.input);
-            // 050 R2.2/R2.3 — validate the whole report.html after the write.
-            // This is a fail-fast advisory (the render-time sanitiser in
-            // PlanPanel is the authoritative control); on a trip it rolls the
-            // file back and tells the model why.
+            // Validate the whole report.html after the write. This is a
+            // fail-fast advisory (the render-time sanitiser in PlanPanel is
+            // the authoritative control); on a trip it rolls the file back
+            // and tells the model why.
             const outcome =
               isReportWrite && !preOutcome.isError
                 ? await this.validateReportAfterWrite(preOutcome, reportPriorContent)
@@ -2347,22 +2325,18 @@ export class AgentSession {
 
         this.conversation.addToolResults(results);
 
-        // Closes the bypass a live incident found: `run_command` can write
-        // a file through an arbitrary shell command just as well as
-        // `write_file` can, and nothing above touches it — unless
-        // `checkpointReached` already refused the call outright, which
-        // only happens once this same check has already fired at least
-        // once. The very first `run_command` that crosses the checkpoint
-        // cannot be refused ahead of time — the files already exist by
-        // the time the command finishes — so this is reactive: count
-        // whatever appeared, and if that pushes past the checkpoint, set
-        // `checkpointReached` so every mutating tool is refused from here
-        // on, the same as the write_file path already does. A single
-        // command that creates many files in one shot can still get past
-        // the checkpoint before this catches up; the message telling the
-        // model plainly what happened, and that nothing else will run
-        // this turn, is the honest limit of what a check run only after
-        // the fact can promise.
+        // `run_command` can write a file through an arbitrary shell command
+        // just as well as `write_file` can, and the pre-flight checks above
+        // don't see it. The first `run_command` that crosses the checkpoint
+        // cannot be refused ahead of time — the files exist by the time the
+        // command finishes — so this is reactive: count whatever appeared,
+        // and if that pushes past the checkpoint, set `checkpointReached` so
+        // every mutating tool is refused from here on, the same as the
+        // write_file path already does. A single command that creates many
+        // files at once can still get past the checkpoint before this
+        // catches up; the message telling the model what happened, and that
+        // nothing else runs this turn, is the limit of what an after-the-fact
+        // check can promise.
         if (
           this.options.engineerMode &&
           result.toolCalls.some((call) => call.name === "run_command")
@@ -2374,10 +2348,10 @@ export class AgentSession {
               !newFilesThisTurn.has(filePath) &&
               !GENERATED_LOCKFILE_NAMES.has(filePath),
           );
-          // 053 — a specialist with a write scope (the Designer) must not
-          // create out-of-scope files through the shell either. This is
-          // reactive — the file exists by the time the command returns — so
-          // it trips the checkpoint and says plainly what happened.
+          // A specialist with a write scope (the Designer) must not create
+          // out-of-scope files through the shell either. This is reactive —
+          // the file exists by the time the command returns — so it trips
+          // the checkpoint and says plainly what happened.
           const allow = this.options.writeAllowlist;
           if (allow) {
             const outOfScope = newlyAppeared.filter(
@@ -2430,36 +2404,32 @@ export class AgentSession {
         return;
       }
 
-      // Found live: a 56-tool-call turn that legitimately built real
-      // things still ended with a stored message of length zero, because
-      // the loop above spent its whole budget on tool calls and never
-      // reached a point where it could stop and ask the model to sum up.
-      // This is the backstop — whatever the reason (the step budget ran
-      // out mid-work, or a provider just returned nothing) the user never
-      // sees a silent reply after real work happened.
+      // A long tool-heavy turn that legitimately built real things can still
+      // end with a stored message of length zero, because the loop above
+      // spent its whole budget on tool calls and never reached a point where
+      // it could stop and ask the model to sum up. This is the backstop —
+      // whatever the reason (the step budget ran out mid-work, or a provider
+      // returned nothing) the user never sees a silent reply after real work
+      // happened. Two related gaps the shape below also closes:
       //
-      // Independent review of the first version of this found two more
-      // gaps in the same failure family, both fixed by the shape below:
-      //
-      // 1. Checking only "is the text empty" missed the near-miss case —
-      //    a turn that says one stray sentence ("Working on it.") on an
-      //    early iteration and then goes heads-down calling tools until
-      //    the budget runs out hit the exact same user-visible failure
-      //    (real work, no real account of it) but skipped the backstop
-      //    entirely, since that one sentence made `assistantText`
-      //    non-empty. Hitting the iteration cap now always appends the
-      //    reconstructed summary, whether or not the model said something
-      //    on the way — real text already said is kept, never discarded.
+      // 1. Checking only "is the text empty" misses the near-miss case — a
+      //    turn that says one stray sentence ("Working on it.") early and
+      //    then goes heads-down calling tools until the budget runs out hits
+      //    the same user-visible failure (real work, no account of it) but a
+      //    single sentence makes `assistantText` non-empty. Hitting the
+      //    iteration cap now always appends the reconstructed summary,
+      //    whether or not the model said something on the way — real text
+      //    already said is kept, never discarded.
       //
       // 2. Whitespace-only text (a model that streamed nothing but blank
-      //    lines) broke the exact invariant this exists to protect: the
-      //    old code replaced `assistantText` outright, so the DB-persisted
-      //    copy (built by the server's gateway from every `text.delta` it
-      //    saw, whitespace included) and this event's own `message.content`
-      //    disagreed. `addition` below is always appended with `+=`, never
-      //    substituted, so the delta stream this emits and the final
-      //    `assistantText` stay identical by construction — the same
-      //    property `apps/server/src/ws/gateway.ts` needs.
+      //    lines) breaks the invariant this exists to protect: replacing
+      //    `assistantText` outright makes the DB-persisted copy (built by the
+      //    server's gateway from every `text.delta`, whitespace included) and
+      //    this event's `message.content` disagree. `addition` below is
+      //    always appended with `+=`, never substituted, so the delta stream
+      //    this emits and the final `assistantText` stay identical by
+      //    construction — the same property `apps/server/src/ws/gateway.ts`
+      //    needs.
       //
       // A refusal is deliberately excluded (`!refused`): its own `error`
       // event already carries the model's stated reason, and layering
@@ -2539,9 +2509,9 @@ export class AgentSession {
       }
 
       // Once the Architect closes the interview, the design files unlock for
-      // every following turn. 050 R2.5: a marker over a status block that
-      // still has a `blocked` row is refused ONCE, with a reason — after
-      // that, or if the block is fine, it is honoured. Never wedges.
+      // every following turn. A marker over a status block that still has a
+      // `blocked` row is refused ONCE, with a reason — after that, or if the
+      // block is fine, it is honoured. Never wedges.
       if (
         this.options.architectMode &&
         !this.interviewDoneDeclared &&
@@ -2599,8 +2569,8 @@ export class AgentSession {
   }
 
   /**
-   * 051 Part B — Auto Mode's between-pass decision. The server calls this
-   * after each build turn: it returns `true` when another build pass should
+   * Auto Mode's between-pass decision. The server calls this after each build
+   * turn: it returns `true` when another build pass should
    * run on its own (the caller then does `run("keep going", …)`), and
    * `false` — after emitting the stop reason as a non-fatal `error` event —
    * when the auto run is over. Only meaningful on a session created with
@@ -2737,8 +2707,8 @@ export class AgentSession {
   }
 
   /**
-   * 050 R2.2/R2.3 — after a write/edit to architecture/report.html, read the
-   * whole resulting file and run `reportHtmlAdvisory` on it. If it trips, roll
+   * After a write/edit to architecture/report.html, read the whole resulting
+   * file and run `reportHtmlAdvisory` on it. If it trips, roll
    * the file back to `prior` (or delete it if there was none) and return a
    * refusal for the model. This is a fail-fast advisory only — the render-time
    * sanitiser in PlanPanel is the authoritative control — but it stops an
@@ -2772,8 +2742,8 @@ export class AgentSession {
   }
 
   /**
-   * 050 R2.5 — whether an "Interview complete:" line may be honoured. The one
-   * genuinely load-bearing check: a status-block table ROW whose status cell
+   * Whether an "Interview complete:" line may be honoured. The one genuinely
+   * load-bearing check: a status-block table ROW whose status cell
    * is exactly `blocked` means the interview is not done. Everything else
    * about the block ("a row per topic", "assumed needs the user's go-ahead")
    * is prompt guidance, not a code gate — parsing a model-authored table
@@ -2814,8 +2784,8 @@ export class AgentSession {
   }
 
   /**
-   * 047 Phase 3 — whether the architecture package is far enough along that a
-   * task may be handed to a builder. A design that is still an interview has
+   * Whether the architecture package is far enough along that a task may be
+   * handed to a builder. A design that is still an interview has
    * no build-plan and no decision records; dispatching from it is the failure
    * this gate exists to stop. Checked against the filesystem, so it holds on a
    * fresh session and a resumed one alike.

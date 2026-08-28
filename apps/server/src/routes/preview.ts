@@ -23,7 +23,7 @@ export function registerPreviewRoutes(
     await access.requireProject(access.requireUser(request), request.params.id, "editor");
     // A project made before the element inspector shipped, or not started
     // from Zelyq's own template at all, gets patched with the same bridge
-    // script the template ships — see `039`. Best-effort, before the
+    // script the template ships. Best-effort, before the
     // preview starts serving the file: never a reason starting it fails.
     await ensureInspectorScript(deps.runtime, deps.templatesDir, request.params.id);
     return { preview: await deps.runtime.startPreview(request.params.id) };

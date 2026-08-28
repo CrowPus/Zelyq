@@ -206,6 +206,43 @@ test("settings are readable only by an instance administrator", async () => {
   assert.equal(admin.statusCode, 200);
 });
 
+test("voice provider and model are visible and configurable in Settings", async () => {
+  const initial = await server.app.inject({
+    method: "GET",
+    url: "/api/settings",
+    headers: { cookie: adminCookie },
+  });
+  const voiceGroup = initial
+    .json()
+    .groups.find((group: { name: string }) => group.name === "Voice input");
+  assert.ok(voiceGroup);
+  assert.equal(
+    voiceGroup.fields.find((field: { key: string }) => field.key === "speechProvider").value,
+    "openai",
+  );
+  assert.equal(
+    voiceGroup.fields.find((field: { key: string }) => field.key === "speechModel").value,
+    "whisper-1",
+  );
+
+  const changed = await server.app.inject({
+    method: "PUT",
+    url: "/api/settings",
+    headers: { cookie: adminCookie },
+    payload: { speechModel: "another-transcription-model" },
+  });
+  assert.equal(changed.statusCode, 200, changed.body);
+  const changedVoice = changed
+    .json()
+    .groups.find((group: { name: string }) => group.name === "Voice input");
+  assert.equal(
+    changedVoice.fields.find((field: { key: string }) => field.key === "speechModel").value,
+    "another-transcription-model",
+  );
+
+  await server.store.settings.remove("speechModel");
+});
+
 test("a member cannot write settings", async () => {
   const response = await server.app.inject({
     method: "PUT",

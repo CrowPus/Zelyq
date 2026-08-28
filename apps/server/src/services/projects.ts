@@ -252,8 +252,8 @@ export class ProjectService {
 
   /**
    * Real, ordinary git, separate from snapshots — which remain the actual
-   * undo mechanism. See `035` in the council notes: this exists so a
-   * project's history is real and usable the moment someone runs `git log`,
+   * undo mechanism. This exists so a project's history is real and usable
+   * the moment someone runs `git log`,
    * not because anything else here needs it.
    *
    * Never through the agent's own shell tool — `shell.ts` already blocks git
@@ -289,7 +289,7 @@ export class ProjectService {
   /**
    * Commits whatever a turn actually changed — a real `git diff`, not a
    * tool-name allowlist, so this covers a plugin tool's own file writes
-   * (`037`) the same as a built-in one's. No commit when nothing actually
+   * the same as a built-in one's. No commit when nothing actually
    * changed: an empty commit for a turn that only read files would be noise
    * in a history meant to be real and usable, not a log of every attempt.
    *
@@ -325,7 +325,7 @@ export class ProjectService {
   }
 
   /**
-   * Push, manual and on-demand — `035` Part B. The promise clone already
+   * Push, manual and on-demand. The promise clone already
    * made had to be replaced with its honest version, not quietly broken:
    * **Zelyq never pushes without being asked, and still never stores what
    * you give it.** Reuses `cloneInto`'s exact shape — the credential-helper

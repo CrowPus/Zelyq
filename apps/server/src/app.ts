@@ -21,6 +21,7 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerSkillRoutes } from "./routes/skills.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerTeamRoutes } from "./routes/teams.js";
+import { registerVoiceRoutes } from "./routes/voice.js";
 import { AccessControl } from "./services/access.js";
 import { AccountService } from "./services/accounts.js";
 import { AgentClient } from "./services/agent-client.js";
@@ -30,6 +31,7 @@ import { ProjectService } from "./services/projects.js";
 import { resolveSecretKey, SecretBox } from "./services/secrets.js";
 import { SettingsService } from "./services/settings.js";
 import { SkillUploadService } from "./services/skill-uploads.js";
+import { SpeechService } from "./services/speech.js";
 import { ChatGateway } from "./ws/gateway.js";
 
 declare module "fastify" {
@@ -96,6 +98,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const accounts = new AccountService(store, projects);
   const attachments = new AttachmentService(config.attachmentsDir);
   const skillUploads = new SkillUploadService(config.uploadedSkillsDir);
+  const speech = new SpeechService();
 
   await app.register(cors, {
     origin: config.corsOrigin.includes("*") ? true : config.corsOrigin,
@@ -194,6 +197,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerPreviewRoutes(app, { projects, runtime, access, templatesDir: config.templatesDir });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
   registerAttachmentRoutes(app, { attachments, access });
+  registerVoiceRoutes(app, { speech, settings, access });
 
   const gateway = new ChatGateway(store, projects, agent, access, settings, attachments, {
     info: (message) => app.log.info(message),

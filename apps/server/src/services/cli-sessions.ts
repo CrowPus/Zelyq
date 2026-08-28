@@ -5,22 +5,18 @@ import path from "node:path";
 /**
  * Reads a locally-installed CLI's own already-consented OAuth session, so
  * Zelyq can use a subscription someone already pays for instead of asking
- * for a separate metered API key — see `045` in the council notes, and its
- * OpenAI follow-up for Codex specifically. This is never a login Zelyq
+ * for a separate metered API key. This is never a login Zelyq
  * performs itself: the file only exists here because the person already
  * signed into that vendor's own official CLI, of their own accord, under
  * that vendor's own terms.
  *
  * Detection and the actual read both run here, server-side, on the machine
- * this process runs on — the same trust boundary `037` already drew for
- * plugin loading (filesystem access to this machine is the real boundary,
- * not a UI gate). Nothing here runs on its own: every call is triggered by
- * an explicit action from an instance admin in Settings, never a background
- * scan or a timer. See the proposal for why that matters — attempting the
- * equivalent of this file's own `readClaudeCodeSession` from a terminal,
- * even just to inspect field names, was refused twice by Claude Code's own
- * safety tooling during that proposal's research. Narrow, explicit,
- * one-shot reads are the only version of this worth building.
+ * this process runs on — the same trust boundary plugin loading draws
+ * (filesystem access to this machine is the real boundary, not a UI gate).
+ * Nothing here runs on its own: every call is triggered by an explicit
+ * action from an instance admin in Settings, never a background scan or a
+ * timer. Narrow, explicit, one-shot reads are the only version of this
+ * worth building.
  */
 
 /** Overridable so tests can point this at a fixture instead of a real
@@ -87,8 +83,7 @@ export async function readClaudeCodeSession(
   };
 }
 
-/** Overridable so tests can point this at a fixture — see `045`'s OpenAI
- * follow-up. */
+/** Overridable so tests can point this at a fixture. */
 export const DEFAULT_CODEX_CREDENTIALS_PATH = path.join(os.homedir(), ".codex", "auth.json");
 
 export interface CodexSession {
@@ -135,10 +130,10 @@ export async function readCodexSession(
   const accessToken = tokens?.access_token;
   if (typeof accessToken !== "string" || !accessToken) return null;
 
-  // Codex CLI's own file usually stores this directly, but a real,
-  // independent implementation of this same flow (found live, in a
-  // different project) never has that convenience — it doesn't have
-  // Codex CLI's file, only the token — and reads the account id straight
+  // Codex CLI's own file usually stores this directly, but an independent
+  // implementation of this same flow may not have that convenience — it
+  // doesn't have Codex CLI's file, only the token — and reads the account
+  // id straight
   // out of the access token's own JWT claims instead. That's the more
   // robust source, not a fallback of last resort: reading it here too
   // means a Codex CLI version that ever stops writing the plain field

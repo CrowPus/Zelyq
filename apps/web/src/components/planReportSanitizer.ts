@@ -1,5 +1,5 @@
 /**
- * 050 — turn a model-authored `architecture/report.html` into a safe,
+ * Turns a model-authored `architecture/report.html` into a safe,
  * self-contained document to drop into a `sandbox=""` iframe.
  *
  * Three things happen here, and the order matters:

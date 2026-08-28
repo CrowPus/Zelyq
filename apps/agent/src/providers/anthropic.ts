@@ -18,9 +18,9 @@ const MAX_TOKENS = 64_000;
  * The header Claude Code's own CLI sends alongside an OAuth session token —
  * required for the Messages API to accept a subscription token in place of
  * an API key at all. Undocumented as a public API surface (this is what a
- * first-party client sends, not a published contract), so `045`'s own bar
- * applies: confirmed by trying it against a real account, not assumed from
- * writing this comment. If the vendor ever changes it, a subscription-mode
+ * first-party client sends, not a published contract), so it must be
+ * confirmed by trying it against a real account, not assumed. If the vendor
+ * ever changes it, a subscription-mode
  * request starts failing with a normal `unauthorized`, the same as an
  * expired token would — not a silent wrong answer.
  */
@@ -73,7 +73,7 @@ export function buildAnthropicHistory(
  * `buildAnthropicHistory` is: testable without a live client or the
  * non-exported `AnthropicConversation` class it lives inside. Images before
  * text — the documented Anthropic convention, and a model reads what it's
- * looking at before the caption for it. See `037` in the council notes.
+ * looking at before the caption for it.
  */
 export function buildAnthropicUserContent(
   text: string,
@@ -96,7 +96,7 @@ export function buildAnthropicUserContent(
  * A `tool_result` block's own `content` can be a plain string or an array of
  * blocks — images included, natively, no workaround needed. Stays a plain
  * string when there are no images, so a result without one produces the
- * exact wire shape it always has. See `040` in the council notes.
+ * exact wire shape it always has.
  */
 export function buildAnthropicToolResultContent(
   result: ToolResult,
@@ -263,8 +263,8 @@ export function classifyAnthropicError(error: unknown): ProviderErrorCode {
 
 /**
  * The SDK's own `.message` for a rate limit or auth failure is often just
- * the raw HTTP status and JSON body verbatim (`429 {"type":"error",...}`) —
- * found live, shown to a real person exactly like that. Real error
+ * the raw HTTP status and JSON body verbatim (`429 {"type":"error",...}`),
+ * which is otherwise shown to a real person exactly like that. Real error
  * subclasses are already available to branch on, which is a better signal
  * than parsing a string — Google's own `describeGoogleError` has to unwrap
  * JSON by hand because it doesn't get typed errors the way this SDK does.

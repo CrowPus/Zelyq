@@ -5,7 +5,7 @@ import { ApiError, api } from "../lib/api";
 import { Button, Input, Spinner } from "./ui";
 
 /**
- * Push to a remote — manual, on-demand, see `035` in the council notes.
+ * Push to a remote — manual, on-demand.
  * "Zelyq never pushes without being asked, and still never stores what you
  * give it" — nothing here is submitted until this button is clicked, and
  * neither field is kept once the request finishes, success or not.

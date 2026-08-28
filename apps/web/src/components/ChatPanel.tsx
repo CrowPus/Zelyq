@@ -10,6 +10,7 @@ import {
   HardHat,
   Infinity as InfinityIcon,
   Info,
+  Mic,
   Paperclip,
   Puzzle,
   Sparkles,
@@ -23,6 +24,7 @@ import { api } from "../lib/api";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import { findSlashCommand, matchByPrefix, replaceSlashCommand } from "../lib/slash-menu";
+import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, StatusDot } from "./ui";
 import { ZelyqThinking } from "./ZelyqThinking";
@@ -43,6 +45,7 @@ const Markdown = lazy(() => import("./Markdown").then((module) => ({ default: mo
  * control you are reaching for should not migrate while you type.
  */
 const COMPOSER_HEIGHT = 72;
+const MAX_RECORDING_MS = 2 * 60 * 1000;
 
 interface Props {
   chat: ChatState & {
@@ -59,8 +62,8 @@ interface Props {
     abort(): void;
   };
   model?: string;
-  /** What `/` in the composer offers — see `044`. Name and description only;
-   * a skill's full body never reaches the browser. */
+  /** What `/` in the composer offers. Name and description only; a skill's
+   * full body never reaches the browser. */
   skills: Array<{ name: string; description: string }>;
   /** Loaded plugin tool names — offered in the `/` menu the same way skills
    * are. Picking one can only ever produce a strong instruction naming the
@@ -70,8 +73,8 @@ interface Props {
   projectId: string;
   /** Editors and above. The server checks again on the restore call. */
   canEdit: boolean;
-  /** Clicked in the preview with the inspector on — see `038`. Null when
-   * nothing is currently pointed at. */
+  /** Clicked in the preview with the inspector on. Null when nothing is
+   * currently pointed at. */
   pointedElement: SelectedElement | null;
   onClearPointedElement(): void;
   /** The project on disk changed, so the file tree and preview are stale. */
@@ -97,29 +100,29 @@ export function ChatPanel({
   onOpenDiff,
 }: Props) {
   const [draft, setDraft] = useState("");
-  /** Picked from the composer's own model control — see `033`. Null means
-   * the instance default, unchanged. */
+  /** Picked from the composer's own model control. Null means the instance
+   * default, unchanged. */
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
-  /** Uploaded and ready to send with the next prompt — see `037`. */
+  /** Uploaded and ready to send with the next prompt. */
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
-  /** Picked from the `/` menu, guaranteed to be used — see `044`. */
+  /** Picked from the `/` menu, guaranteed to be used. */
   const [selectedSkills, setSelectedSkills] = useState<
     Array<{ name: string; description: string }>
   >([]);
-  /** Picked from the `/` menu's Plugins section — see `044`'s follow-up.
-   * Names only; there's no body to hold onto the way a skill has one. */
+  /** Picked from the `/` menu's Plugins section. Names only; there's no body
+   * to hold onto the way a skill has one. */
   const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
-  // ZED-0001, Phase 1. Per-conversation like modelChoice above, not a
-  // Settings-page default — deliberately not persisted past a refresh, the
+  // Per-conversation like modelChoice above, not a Settings-page default —
+  // deliberately not persisted past a refresh, the
   // same reason modelChoice isn't either, so a mode this consequential is
   // never silently still on from a session someone forgot about.
   const [engineerMode, setEngineerMode] = useState(false);
-  // 048 — Architect Mode. Same per-conversation, not-persisted treatment as
+  // Architect Mode. Same per-conversation, not-persisted treatment as
   // engineerMode; mutually exclusive with it in the UI (turning one on turns
   // the other off), matching the agent's own rejection of both at once.
   const [architectMode, setArchitectMode] = useState(false);
-  // 051 Part B — Auto Mode. Only meaningful with Architect Mode; turning it
-  // on turns Architect on, turning Architect off turns it off.
+  // Auto Mode. Only meaningful with Architect Mode; turning it on turns
+  // Architect on, turning Architect off turns it off.
   const [autoMode, setAutoMode] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Anchored to the info button, but rendered in a portal so the composer's
@@ -142,6 +145,14 @@ export function ChatPanel({
   }, [shortcutsOpen]);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [voiceState, setVoiceState] = useState<
+    "idle" | "requesting" | "recording" | "transcribing"
+  >("idle");
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const microphoneRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -154,7 +165,7 @@ export function ChatPanel({
   const contentRef = useRef<HTMLDivElement>(null);
 
   /** Tracked so the slash command can be found wherever the cursor actually
-   * is, not just at the end of the draft — see `044`'s correction. */
+   * is, not just at the end of the draft. */
   const [cursor, setCursor] = useState(0);
 
   const providers = useQuery({
@@ -195,7 +206,7 @@ export function ChatPanel({
   const showSlashMenu =
     matchingSkills.length > 0 || matchingModels.length > 0 || matchingPlugins.length > 0;
   // The single flat list Enter/Tab picks the first row of — skills first, so
-  // the thing `044` actually exists for wins a tie.
+  // a skill match wins a tie against a model or plugin match.
   const firstMatch: { kind: "skill" | "model" | "plugin"; index: number } | null =
     matchingSkills.length > 0
       ? { kind: "skill", index: 0 }
@@ -267,21 +278,22 @@ export function ChatPanel({
         selectedSkills.length === 0 &&
         selectedPlugins.length === 0) ||
       chat.busy ||
-      uploading > 0
+      uploading > 0 ||
+      voiceState !== "idle"
     ) {
       return;
     }
     // Woven in client-side, ahead of what was typed — the exact same string
-    // field chat.send() already carries, nothing new downstream. See `038`.
+    // field chat.send() already carries, nothing new downstream.
     const finalMessage = pointedElement ? withPointedElement(message, pointedElement) : message;
     chat.send(finalMessage, {
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(attachments.length ? { attachments } : {}),
       // Names only — the guaranteed weaving happens agent-side, from a
-      // skill's already-loaded body, not from anything sent here. See `044`.
+      // skill's already-loaded body, not from anything sent here.
       ...(selectedSkills.length ? { skills: selectedSkills.map((skill) => skill.name) } : {}),
       // Names only, too — agent-side this becomes an instruction naming the
-      // tool, not real content the way a skill's body is. See `044`'s follow-up.
+      // tool, not real content the way a skill's body is.
       ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
       ...(engineerMode ? { engineerMode: true } : {}),
       ...(architectMode ? { architectMode: true } : {}),
@@ -318,6 +330,132 @@ export function ChatPanel({
       }
     }
   }
+
+  function releaseMicrophone() {
+    if (recordingTimerRef.current !== null) {
+      window.clearTimeout(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    for (const track of microphoneRef.current?.getTracks() ?? []) track.stop();
+    microphoneRef.current = null;
+    recorderRef.current = null;
+  }
+
+  async function startVoiceRecording() {
+    setVoiceError(null);
+    // Browsers expose microphone access only in secure contexts.
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setVoiceError(
+        "Voice input needs a secure connection. Open Zelyq over HTTPS, or reach it through " +
+          "localhost (e.g. an SSH tunnel) — browsers block the microphone on plain http:// addresses.",
+      );
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setVoiceError("Voice input is not supported by this browser.");
+      return;
+    }
+
+    setVoiceState("requesting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mountedRef.current) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
+
+      microphoneRef.current = stream;
+      const mimeType = preferredRecordingMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const chunks: Blob[] = [];
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onerror = () => {
+        recorder.onstop = null;
+        releaseMicrophone();
+        if (mountedRef.current) {
+          setVoiceState("idle");
+          setVoiceError("The browser could not record from the microphone.");
+        }
+      };
+      recorder.onstop = () => {
+        const recordedType = recorder.mimeType || chunks[0]?.type || mimeType || "audio/webm";
+        const audio = new Blob(chunks, { type: recordedType });
+        releaseMicrophone();
+        if (!mountedRef.current) return;
+        if (audio.size === 0) {
+          setVoiceState("idle");
+          setVoiceError("No audio was recorded. Try again and speak after recording starts.");
+          return;
+        }
+        setVoiceState("transcribing");
+        void fileToBase64(audio)
+          .then((data) => api.transcribeVoice(projectId, { mimeType: recordedType, data }))
+          .then(({ text }) => {
+            if (!mountedRef.current) return;
+            const textarea = textareaRef.current;
+            const selectionStart = textarea?.selectionStart ?? draft.length;
+            const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+            setDraft((current) => {
+              const inserted = insertTranscript(current, text, selectionStart, selectionEnd);
+              requestAnimationFrame(() => {
+                textareaRef.current?.focus();
+                textareaRef.current?.setSelectionRange(inserted.cursor, inserted.cursor);
+                setCursor(inserted.cursor);
+              });
+              return inserted.value;
+            });
+            setVoiceState("idle");
+          })
+          .catch((error) => {
+            if (!mountedRef.current) return;
+            setVoiceState("idle");
+            setVoiceError(error instanceof Error ? error.message : "Could not transcribe audio.");
+          });
+      };
+      recorder.start(250);
+      setVoiceState("recording");
+      recordingTimerRef.current = window.setTimeout(() => {
+        if (recorder.state === "recording") recorder.stop();
+      }, MAX_RECORDING_MS);
+    } catch (error) {
+      releaseMicrophone();
+      setVoiceState("idle");
+      setVoiceError(
+        error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Microphone access was denied. Allow it in your browser settings and try again."
+          : "Could not access the microphone.",
+      );
+    }
+  }
+
+  function stopVoiceRecording() {
+    const recorder = recorderRef.current;
+    if (recorder?.state === "recording") recorder.stop();
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const recorder = recorderRef.current;
+      if (recorder) {
+        recorder.ondataavailable = null;
+        recorder.onerror = null;
+        recorder.onstop = null;
+        if (recorder.state !== "inactive") recorder.stop();
+      }
+      if (recordingTimerRef.current !== null) {
+        window.clearTimeout(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      for (const track of microphoneRef.current?.getTracks() ?? []) track.stop();
+      microphoneRef.current = null;
+      recorderRef.current = null;
+    };
+  }, []);
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-border-default bg-surface">
@@ -584,6 +722,17 @@ export function ChatPanel({
             </div>
           )}
           {uploadError && <p className="px-2.5 pt-2 text-2xs text-danger">{uploadError}</p>}
+          {voiceError && <p className="px-2.5 pt-2 text-2xs text-danger">{voiceError}</p>}
+          {voiceState === "recording" && (
+            <p className="px-2.5 pt-2 text-2xs text-danger" role="status">
+              Recording… click the microphone again to stop.
+            </p>
+          )}
+          {voiceState === "transcribing" && (
+            <p className="px-2.5 pt-2 text-2xs text-fg-muted" role="status">
+              Transcribing voice…
+            </p>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -611,7 +760,8 @@ export function ChatPanel({
               // While the menu is showing, Enter and Tab pick its first row
               // instead of doing what they'd otherwise do — sending a turn
               // with "/shadcn" still literally in it would be exactly the
-              // "hoped it noticed" failure `044` exists to remove.
+              // "hoped it noticed" failure the guaranteed weaving exists to
+              // remove.
               if (showSlashMenu && (event.key === "Enter" || event.key === "Tab") && firstMatch) {
                 event.preventDefault();
                 if (firstMatch.kind === "skill") selectSkill(matchingSkills[0]!);
@@ -646,9 +796,34 @@ export function ChatPanel({
               >
                 <Paperclip size={13} strokeWidth={2} />
               </IconButton>
+              <IconButton
+                size="sm"
+                variant={voiceState === "recording" ? "danger" : "ghost"}
+                label={
+                  voiceState === "recording"
+                    ? "Stop voice recording"
+                    : voiceState === "requesting"
+                      ? "Requesting microphone access"
+                      : voiceState === "transcribing"
+                        ? "Transcribing voice"
+                        : "Start voice input"
+                }
+                aria-pressed={voiceState === "recording"}
+                disabled={chat.busy || voiceState === "requesting" || voiceState === "transcribing"}
+                onClick={
+                  voiceState === "recording" ? stopVoiceRecording : () => void startVoiceRecording()
+                }
+                className="shrink-0"
+              >
+                {voiceState === "recording" ? (
+                  <Square size={11} strokeWidth={2.5} className="fill-current" />
+                ) : (
+                  <Mic size={13} strokeWidth={2} />
+                )}
+              </IconButton>
               <ModelPicker value={modelChoice} onChange={setModelChoice} />
-              {/* ZED-0001, Phase 1. Per-conversation, not persisted — see
-                  the engineerMode state declaration above. */}
+              {/* Per-conversation, not persisted — see the engineerMode
+                  state declaration above. */}
               <IconButton
                 size="sm"
                 variant={engineerMode ? "primary" : "ghost"}
@@ -666,7 +841,7 @@ export function ChatPanel({
               >
                 <HardHat size={13} strokeWidth={2} />
               </IconButton>
-              {/* 048 — Architect Mode. Interviews and plans, writes no code. */}
+              {/* Architect Mode. Interviews and plans, writes no code. */}
               <IconButton
                 size="sm"
                 variant={architectMode ? "primary" : "ghost"}
@@ -687,8 +862,8 @@ export function ChatPanel({
               >
                 <Compass size={13} strokeWidth={2} />
               </IconButton>
-              {/* 051 Part B — Auto Mode. Runs build passes back to back on
-                  its own until the plan is done or a ceiling is hit. Only
+              {/* Auto Mode. Runs build passes back to back on its own until
+                  the plan is done or a ceiling is hit. Only
                   with Architect Mode. */}
               <IconButton
                 size="sm"
@@ -744,7 +919,10 @@ export function ChatPanel({
                 variant="primary"
                 label="Send message"
                 type="submit"
-                disabled={!draft.trim() && attachments.length === 0 && !pointedElement}
+                disabled={
+                  voiceState !== "idle" ||
+                  (!draft.trim() && attachments.length === 0 && !pointedElement)
+                }
                 className="shrink-0"
               >
                 <ArrowUp size={13} strokeWidth={2.5} />
@@ -1031,8 +1209,8 @@ function TurnFooter({
 }
 
 /**
- * 053 — a named specialist child agent (the Designer) working, shown as its
- * own labelled sub-thread so it is obvious a different agent is on the job.
+ * A named specialist child agent (the Designer) working, shown as its own
+ * labelled sub-thread so it is obvious a different agent is on the job.
  * Live only; the dispatch tool call and its full report persist on their own.
  */
 const SPECIALIST_LABEL: Record<AgentActivity["agent"], string> = {
@@ -1137,9 +1315,9 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
-/** One titled group in the `/` menu — Model, Skills, Plugins — the same
- * grouped shape the founder's own reference showed, not an undifferentiated
- * list with no way to tell what kind of thing each row is. */
+/** One titled group in the `/` menu — Model, Skills, Plugins — grouped so
+ * it is clear what kind of thing each row is, rather than an
+ * undifferentiated list. */
 function SlashSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mt-1 first:mt-0">

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { REPORT_CSP, scrubCss, wrapReportDoc } from "../src/components/planReportSanitizer";
 
-// 050 R2.4 — the CSP <meta> must be parsed before any content the model
+// The CSP <meta> must be parsed before any content the model
 // authored, so it wraps the whole document from a trusted skeleton.
 test("wrapReportDoc puts the CSP first in <head>, before styles and body", () => {
   const out = wrapReportDoc("body{color:red}", "<p>remote <img></p>");
@@ -22,7 +22,7 @@ test("the CSP denies network and script by default", () => {
   assert.match(REPORT_CSP, /style-src 'unsafe-inline'/);
 });
 
-// 050 R2.3 — inline CSS is allowed but must not reach the network.
+// Inline CSS is allowed but must not reach the network.
 test("scrubCss removes @import and remote url() and expression()", () => {
   const dirty =
     "@import url('https://evil/x.css'); a{background:url(https://evil/bg.png)} b{width:expression(alert(1))}";

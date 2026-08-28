@@ -21,7 +21,7 @@ test("every registered provider is fully described", () => {
     // so `baseUrl: null`, the self-hosted door, is one entry allowed to have no
     // default. The other: a hosted vendor with no `models` entry either, which
     // means nothing about it is confirmed yet — same evidence bar as `custom`,
-    // just for a different reason (see `032`). Anything with a confirmed model
+    // just for a different reason. Anything with a confirmed model
     // list but no default is a mistake — those two must agree.
     if (provider.baseUrl === null || !provider.models) {
       assert.equal(

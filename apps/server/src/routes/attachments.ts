@@ -4,8 +4,8 @@ import type { AccessControl } from "../services/access.js";
 import type { AttachmentService } from "../services/attachments.js";
 
 /**
- * A file uploaded to be attached to a prompt — see `037` in the council
- * notes. Editor role to upload (the same requirement sending a prompt
+ * A file uploaded to be attached to a prompt. Editor role to upload (the
+ * same requirement sending a prompt
  * already has); viewer role to read one back, so a shared team member can
  * still see what was attached in a transcript they can only read.
  */

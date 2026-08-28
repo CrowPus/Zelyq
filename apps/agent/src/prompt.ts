@@ -7,16 +7,14 @@ export function buildSystemPrompt(options: {
   projectName: string;
   template: string;
   skills?: Array<{ name: string; description: string }>;
-  /** ZED-0001, Phase 1. When set, an Engineer Mode addendum is built into
-   * this same string, once, so it rides inside the prompt's own cache
-   * breakpoint instead of being re-sent per message the way `withSkills`
-   * is — see the entry's Proposed decision for why that distinction is
-   * load-bearing, not stylistic. Absent or `undefined` skill means the
-   * `senior-software-engineering` skill wasn't found at boot; the four
-   * directives still apply, degraded rather than refused. */
+  /** When set, an Engineer Mode addendum is built into this same string,
+   * once, so it rides inside the prompt's own cache breakpoint instead of
+   * being re-sent per message the way `withSkills` is. Absent or `undefined`
+   * skill means the `senior-software-engineering` skill wasn't found at
+   * boot; the four directives still apply, degraded rather than refused. */
   engineerMode?: { skill?: { body: string; resources: string[] } };
-  /** 048 — Architect Mode, Phase 1. Mutually exclusive with `engineerMode`
-   * (the server rejects both at once). When set, the Architect addendum is
+  /** Architect Mode. Mutually exclusive with `engineerMode` (the server
+   * rejects both at once). When set, the Architect addendum is
    * built into the prompt the same cache-friendly way. `skill` is the
    * `report-page-design` skill body + resource listing, used for the
    * `architecture/report.html` render; absent means it wasn't found at boot
@@ -25,11 +23,10 @@ export function buildSystemPrompt(options: {
 }): string {
   // `</communication>${...}` deliberately has no newline between them —
   // the addendum's own body supplies its leading newline when it renders,
-  // so engineerMode off produces the exact byte-identical string this
-  // function always returned. Found by independent review: this used to
-  // end with a bare newline before the interpolation, which survived even
-  // with an empty string in it — a real, if inert, violation of Phase 1's
-  // own "default mode is unaffected" acceptance criterion.
+  // so engineerMode off produces a byte-identical string to the one this
+  // function produced before the addendum existed. A bare newline before
+  // the interpolation would survive even with an empty string in it,
+  // changing the default-mode prompt.
   return `You are the Zelyq build agent. You work inside a single web project and change it by \
 using tools — never by printing code for someone else to copy.
 
@@ -469,17 +466,17 @@ ${skillSection}</architect_mode>
 
 /**
  * The literal marker Engineer Mode's purpose-framing directive asks for and
- * `session.ts`'s structural anchor checks for — see ZED-0001, Proposed
- * decision point 3. A shape check, not a semantic one: this can confirm the
- * marker is present, never that the sentence after it is actually a good
- * account of the turn's purpose. Exported so the check in `session.ts`
- * can't drift from the instruction actually given to the model.
+ * `session.ts`'s structural anchor checks for. A shape check, not a semantic
+ * one: this can confirm the marker is present, never that the sentence after
+ * it is actually a good account of the turn's purpose. Exported so the check
+ * in `session.ts` can't drift from the instruction actually given to the
+ * model.
  */
 export const ENGINEER_MODE_PURPOSE_MARKER = "Purpose:";
 
 /**
- * Engineer Mode's addendum — see ZED-0001. Built once into the system
- * prompt when a session has the mode on, never re-sent per message the way
+ * Engineer Mode's addendum. Built once into the system prompt when a
+ * session has the mode on, never re-sent per message the way
  * `withSkills` weaves a composer-picked skill into a single turn. Covers
  * the responsibility families `senior-software-engineering` doesn't:
  * purpose framing, epistemic labeling, decision responsibility, and the
@@ -573,10 +570,10 @@ is worse than stopping honestly.
 
 /**
  * A skill's name and description only — the full body loads through
- * `use_skill` on request, never here. See `042` in the council notes: this
- * is the cheap, always-present tier; the expensive one is opt-in per task.
- * Empty when nothing loaded, so a checkout with no skills configured gets
- * exactly the prompt it had before this existed.
+ * `use_skill` on request, never here. This is the cheap, always-present
+ * tier; the expensive one is opt-in per task. Empty when nothing loaded, so
+ * a checkout with no skills configured gets exactly the prompt it had before
+ * this existed.
  *
  * The decision guidance below (multiple matches, overlap, the no-backend
  * reminder) was added once the library grew past two narrow, obviously
@@ -615,14 +612,14 @@ ${list}
 }
 
 /**
- * Weaves explicitly-selected skills' full bodies into a user message —
- * see `044` in the council notes. Unlike `<skills>` above (name and
- * description, the model's own choice whether to call `use_skill`), this
- * is a guarantee: content the user picked from the composer's `/` menu
- * rides in the one message a model cannot fail to read, the same reason
- * `037`'s attachment inlining and `038`'s pointed-element weaving already
- * put their own content directly into the message rather than offering it
- * as something optional to fetch. A skill named that isn't actually loaded
+ * Weaves explicitly-selected skills' full bodies into a user message.
+ * Unlike `<skills>` above (name and description, the model's own choice
+ * whether to call `use_skill`), this is a guarantee: content the user
+ * picked from the composer's `/` menu rides in the one message a model
+ * cannot fail to read, the same reason attachment inlining and
+ * pointed-element weaving already put their own content directly into the
+ * message rather than offering it as something optional to fetch. A skill
+ * named that isn't actually loaded
  * (stale picker data, since deleted) is skipped rather than failing the
  * whole turn over it — `resolve` returning `undefined` is exactly that.
  */

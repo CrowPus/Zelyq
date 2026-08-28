@@ -59,7 +59,7 @@ export function buildGoogleHistory(
  * Builds the `parts` for one user turn — inline-data parts for each
  * attachment, then a trailing text part if there is any text. A pure
  * function so it is testable without a live client or the non-exported
- * `GoogleConversation` class it lives inside. See `037` in the council notes.
+ * `GoogleConversation` class it lives inside.
  */
 export function buildGoogleUserParts(text: string, attachments?: PromptAttachment[]): Part[] {
   if (!attachments?.length) return [{ text }];
@@ -75,7 +75,7 @@ export function buildGoogleUserParts(text: string, attachments?: PromptAttachmen
  * `inlineData` part per image it carries. A `functionResponse` cannot itself
  * hold image bytes, so an image rides as its own part immediately after it.
  * A pure function, same reason `buildGoogleUserParts` is: testable without a
- * live client. See `040` in the council notes.
+ * live client.
  */
 export function buildGoogleToolResultParts(result: ToolResult, callId: string | undefined): Part[] {
   const parts: Part[] = [

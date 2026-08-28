@@ -9,8 +9,8 @@ import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 
 /**
- * "Use your Claude Code session instead of a key" — see `045` in the
- * council notes. `SettingsService` is constructed with a fixture path here
+ * "Use your Claude Code session instead of a key". `SettingsService` is
+ * constructed with a fixture path here
  * (a real credentials file, of the exact shape Claude Code itself writes,
  * with a fake token) rather than pointing at a real `$HOME` — this proves
  * the detect/read/store/reset behaviour, not that a particular developer
@@ -110,8 +110,8 @@ test("no file at all: not found, and using it fails with a clear message", async
 });
 
 test("a real-shaped credentials file is detected and can be used", async () => {
-  // Starting on a different provider on purpose — this is the actual bug
-  // found live: connecting the session did nothing to switch away from
+  // Starting on a different provider deliberately — the bug being: connecting
+  // the session did nothing to switch away from
   // whatever was already selected, so the fallback already being
   // "anthropic" would have hidden the fix without this.
   await server.app.inject({
@@ -156,7 +156,7 @@ test("a real-shaped credentials file is detected and can be used", async () => {
   const providerField = fields.find((f: { key: string }) => f.key === "provider");
   assert.equal(authModeField.value, "subscription");
   assert.equal(keyField.configured, true);
-  // Found live: connecting the session alone left a turn running on
+  // Connecting the session alone would leave a turn running on
   // whatever provider was already selected, which made the button look
   // like it did nothing. "Use this instead" has to actually switch to it.
   assert.equal(providerField.value, "anthropic");
@@ -243,7 +243,7 @@ test("an ordinary member cannot detect or use a CLI session", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Codex — see `045`'s OpenAI follow-up. Same shape as Claude's above; the
+// Codex. Same shape as Claude's above; the
 // one real difference is what "use it" actually stores, since the agent
 // needs both an access token and an account id and `apiKey` only carries
 // one string — see the packed "<token>:<accountId>" format this checks for.
@@ -313,8 +313,8 @@ test("a real-shaped Codex auth.json is detected, used, and packs both values api
 });
 
 test("a Codex file with no plain account_id field still works, reading it from the token's own JWT claims", async () => {
-  // Found live, from a real independent implementation of this same read:
-  // it never has Codex CLI's file, only the access token, and has no
+  // An independent implementation of this same read may not have Codex
+  // CLI's file, only the access token, and has no
   // choice but to read the account id straight out of the JWT — the more
   // robust source, not just a fallback. This proves this codebase's own
   // read does the same, rather than depending on a plain field that a
@@ -382,7 +382,7 @@ test("an ordinary member cannot detect or use a Codex session either", async () 
 });
 
 test("connecting a Codex session switches the model field's suggestions to Codex candidates, not the ordinary API ones", async () => {
-  // Found live: "gpt-5.1" (the ordinary API's own suggestion) is exactly
+  // "gpt-5.1" (the ordinary API's own suggestion) is exactly
   // the model a real Codex session rejected outright. The two auth modes
   // need different suggestions, not the same list either way.
   await writeCodexCredentials({

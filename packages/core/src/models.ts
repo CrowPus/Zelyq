@@ -37,8 +37,8 @@ export type Project = z.infer<typeof projectSchema>;
  * is exactly the deployment this product is for. It is the caller's network to
  * judge.
  *
- * Shared by `createProjectSchema` (clone) and `pushToRemoteSchema` (`035`
- * Part B) — the same address shape either direction.
+ * Shared by `createProjectSchema` (clone) and `pushToRemoteSchema` (push) —
+ * the same address shape either direction.
  */
 const gitUrlSchema = z
   .string()
@@ -70,8 +70,8 @@ export const createProjectSchema = z.object({
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 
 /**
- * `035` Part B. `gitUrl` is only needed the first time a project with no
- * remote yet is pushed — `git remote add origin` then push, the other
+ * `gitUrl` is only needed the first time a project with no remote yet is
+ * pushed — `git remote add origin` then push, the other
  * direction of the same job clone already does. Once a remote exists, later
  * pushes need only `gitToken`, if the repository is private.
  */
@@ -254,8 +254,8 @@ export type Snapshot = z.infer<typeof snapshotSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Project- and team-level actions, per `030` in the council notes. Instance-
- * wide actions (settings, account deletion) are deliberately not here yet —
+ * Project- and team-level actions. Instance-wide actions (settings, account
+ * deletion) are deliberately not here yet —
  * a separate read surface, scoped to instance admins rather than a team.
  */
 export const auditActionSchema = z.enum([
@@ -292,7 +292,7 @@ export const auditLogEntrySchema = z.object({
 export type AuditLogEntry = z.infer<typeof auditLogEntrySchema>;
 
 // ---------------------------------------------------------------------------
-// Skill uploads — see `043` in the council notes
+// Skill uploads
 // ---------------------------------------------------------------------------
 
 export const uploadSkillFileSchema = z.object({

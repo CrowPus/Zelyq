@@ -12,11 +12,10 @@ interface StoredMeta {
 }
 
 /**
- * Where a prompt's uploaded files live — see `037` in the council notes.
- * Deliberately not the project's own workspace: an attachment is
- * conversation data, not project data, and `035` now commits a project's
- * files to git automatically — an image landing in that history by
- * accident is not this feature's call to make.
+ * Where a prompt's uploaded files live. Deliberately not the project's own
+ * workspace: an attachment is conversation data, not project data, and a
+ * project's files are committed to git automatically — an image landing in
+ * that history by accident is not this feature's call to make.
  *
  * Uses plain `node:fs` directly, the same way `secrets.ts` already does for
  * the encryption key file — this is application data outside `RuntimeDriver`'s
@@ -28,7 +27,7 @@ interface StoredMeta {
  * sizeBytes) already lives on the message row that used it, which is the
  * only place that ever needs to list them; this only ever needs to answer
  * "what are the bytes and type for this one id", which a sidecar answers
- * without a schema migration bigger than the one `037` already needed.
+ * without a schema migration.
  */
 export class AttachmentService {
   constructor(private readonly baseDir: string) {}

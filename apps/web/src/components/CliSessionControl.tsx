@@ -16,8 +16,8 @@ const COPY: Record<Props["provider"], { cliName: string; found: string; caution?
   openai: {
     cliName: "Codex",
     found: "A Codex session was found on this machine.",
-    // Honest, not equal — see `045`'s OpenAI follow-up: unlike Claude's
-    // proven path, this speaks a private endpoint OpenAI never published
+    // Honest, not equal: unlike Claude's proven path, this speaks a private
+    // endpoint OpenAI never published
     // for outside use. Real, but not verified against a live account the
     // way Claude's is.
     caution:
@@ -26,7 +26,7 @@ const COPY: Record<Props["provider"], { cliName: string; found: string; caution?
 };
 
 /**
- * "Use your CLI session instead" — see `045` in the council notes.
+ * "Use your CLI session instead".
  * Detection is a plain existence check, safe to run whenever this renders.
  * The actual read only ever happens on the explicit click below, and it
  * goes straight into the same encrypted storage an API key already uses —

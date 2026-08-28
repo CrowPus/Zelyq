@@ -169,7 +169,7 @@ before(async () => {
   // only seeds a brand-new session's initial value. Setting it here is what
   // makes this test exercise the actual live-resolution path.
   process.env.ZELYQ_PROVIDER = "google";
-  // Same story for `configured` — see `045`'s follow-up: it now reflects
+  // Same story for `configured`: it now reflects
   // whether Settings can actually resolve a key for a provider, not
   // whatever the agent's own response happened to claim. Without this, the
   // fake agent's `configured: true` for google would be a claim nothing
@@ -330,9 +330,8 @@ test("a session already stored with a different provider is corrected on the nex
 });
 
 test("a provider picked from the chat itself overrides the live setting for that prompt, and is remembered", async () => {
-  // See `033`: the composer's own model control, not a settings change —
-  // proves the override reaches the agent and the session row picks it up,
-  // the same way `031`'s fix already proved for the settings-driven path.
+  // The composer's own model control, not a settings change — proves the
+  // override reaches the agent and the session row picks it up.
   const { cookie } = await register("picker-test@example.com");
 
   const project = (
@@ -378,7 +377,7 @@ test("a provider picked from the chat itself overrides the live setting for that
 });
 
 test("a specific model picked from the chat reaches the agent, not just its provider's default", async () => {
-  // The picker (`033`) offers Opus, Sonnet, and Haiku as separate choices,
+  // The picker offers Opus, Sonnet, and Haiku as separate choices,
   // not one "Claude" choice that quietly always uses the default tier.
   const { cookie } = await register("model-tier-test@example.com");
 
@@ -428,12 +427,12 @@ test("a specific model picked from the chat reaches the agent, not just its prov
 });
 
 // ---------------------------------------------------------------------------
-// The live-configured effort setting — found while building ZED-0001's
-// effort floor: this was never read here at all, so the Settings page's
-// "Reasoning effort" field looked live but had no effect on any session.
+// The live-configured effort setting used to never be read here at all,
+// so the Settings page's "Reasoning effort" field looked live but had no
+// effect on any session.
 // ---------------------------------------------------------------------------
 
-test("the live-configured effort setting reaches the agent — found live: it never did before", async () => {
+test("the live-configured effort setting reaches the agent", async () => {
   await server.app.inject({
     method: "PUT",
     url: "/api/settings",
@@ -486,10 +485,9 @@ test("the live-configured effort setting reaches the agent — found live: it ne
 });
 
 // ---------------------------------------------------------------------------
-// Engineer Mode toggle — ZED-0001, Phase 1. Threaded from the composer the
-// same way a model or skill pick already is: a per-turn override, not a
-// Settings-page default (see the entry's Proposed decision, and its
-// discovery that effort itself has no such per-session client override).
+// Engineer Mode toggle. Threaded from the composer the same way a model or
+// skill pick already is: a per-turn override, not a Settings-page default.
+// Effort itself has no such per-session client override.
 // ---------------------------------------------------------------------------
 
 test("engineer mode picked from the chat reaches the agent", async () => {
@@ -561,7 +559,7 @@ test("engineer mode omitted from the chat leaves the default session unaffected"
 });
 
 test("a base URL configured for the live provider is not forwarded to a provider picked instead", async () => {
-  // The scenario `033` calls out explicitly: settings has a base URL meant
+  // The scenario: settings has a base URL meant
   // for whatever provider is actually configured (google, here) — picking
   // a different provider from the chat must not redirect it there too.
   await server.store.settings.set("modelBaseUrl", "http://localhost:9/not-for-openai");
@@ -610,12 +608,12 @@ test("a base URL configured for the live provider is not forwarded to a provider
 });
 
 test("a connected Codex session wins over OPENAI_API_KEY also being set in the environment", async () => {
-  // Found live: the founder had a real OPENAI_API_KEY pinned in .env — the
-  // ordinary, correct way to configure a plain key — and separately
-  // connected a Codex session through Settings. Every turn silently used
-  // the env key instead, because `apiKeyFor`'s env-wins-first rule for an
-  // ordinary key had no idea "subscription" mode meant something entirely
-  // different was supposed to win instead. See `045`'s OpenAI follow-up.
+  // With a real OPENAI_API_KEY pinned in .env — the ordinary, correct way
+  // to configure a plain key — and a Codex session separately connected
+  // through Settings, every turn would silently use the env key instead,
+  // because `apiKeyFor`'s env-wins-first rule for an ordinary key had no
+  // idea "subscription" mode meant something entirely different was
+  // supposed to win instead.
   process.env.OPENAI_API_KEY = "sk-a-real-pinned-key-unrelated-to-codex";
   try {
     await fs.writeFile(
@@ -745,7 +743,7 @@ test("a connected Claude session follows Claude Code token rotation", async () =
 });
 
 test("connecting a subscription doesn't carry over an env-pinned model meant for the previous provider", async () => {
-  // Found live, a second time: a model an operator's own ZELYQ_MODEL pins
+  // A model an operator's own ZELYQ_MODEL pins
   // for whatever provider was configured at deploy time rode straight
   // into a request built for the newly-connected provider — Claude
   // rejected the Gemini-shaped model string outright. Set via
@@ -818,8 +816,7 @@ test("a model deliberately set for a connected subscription is used, not discard
   // The regression that shipped in the very first fix for the test above:
   // forcing empty unconditionally whenever a subscription was active
   // blocked a model actually, deliberately chosen *for* that provider
-  // from ever reaching it either — found live, immediately after the fix
-  // above went out, by trying to set exactly this. A real, stored choice
+  // from ever reaching it either. A real, stored choice
   // has to win regardless of which mode is active.
   await server.store.settings.set("model", "claude-sonnet-5");
   try {
@@ -911,7 +908,7 @@ test("GET /api/providers is available to anyone signed in, and never carries a k
   assert.ok(!serialised.includes("docsUrl"), "only what the picker needs is returned");
 });
 
-// --- Attachments (see `037`) ---------------------------------------------
+// --- Attachments ---------------------------------------------------------
 
 // A 1x1 transparent PNG.
 const PNG_BASE64 =
@@ -1149,7 +1146,7 @@ test("a non-image, non-UTF8 attachment is refused with a clear error, not silent
   assert.equal(agent.prompts.length, 0);
 });
 
-// --- Git integration (see `035`) -----------------------------------------
+// --- Git integration ---------------------------------------------------------
 
 test("a turn that changes a file produces a real git commit in the project's own workspace", async () => {
   const { cookie } = await register("git-commit@example.com");

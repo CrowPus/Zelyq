@@ -54,8 +54,7 @@ export function sessionRepository(db: ZelyqDb) {
 
     /**
      * Keeps the stored row an honest record of what a session is actually
-     * using, rather than what it happened to be created with — see `031`
-     * in the council notes for why that gap mattered.
+     * using, rather than what it happened to be created with.
      */
     async setModel(id: string, provider: Session["provider"], model: string): Promise<void> {
       await db

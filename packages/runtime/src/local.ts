@@ -286,8 +286,8 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     const absolute = resolveInside(root, filePath);
     await fs.mkdir(path.dirname(absolute), { recursive: true });
     await assertRealPathInside(root, absolute);
-    // 050 R2.6 — never write *through* a symlink at the destination, and
-    // replace atomically. `lstat` catches a planted link that resolves back
+    // Never write *through* a symlink at the destination, and replace
+    // atomically. `lstat` catches a planted link that resolves back
     // inside the root (which `assertRealPathInside` alone would allow); the
     // temp-write + `rename` makes the swap atomic and, because `rename`
     // operates on the link entry rather than its target, also symlink-safe

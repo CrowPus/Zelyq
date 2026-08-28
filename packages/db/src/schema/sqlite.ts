@@ -167,7 +167,7 @@ export const messages = sqliteTable(
     thinking: text("thinking"),
     /** JSON-encoded ToolCall[]. */
     toolCalls: text("tool_calls").notNull().default("[]"),
-    /** JSON-encoded AttachmentRef[] — see `037` in the council notes. */
+    /** JSON-encoded AttachmentRef[]. */
     attachments: text("attachments").notNull().default("[]"),
     /**
      * The project as it stood immediately before this turn ran, so the turn can

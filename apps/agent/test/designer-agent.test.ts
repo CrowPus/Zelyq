@@ -13,7 +13,7 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * 053 — the Designer specialist. One scripted provider serves the parent and
+ * The Designer specialist. One scripted provider serves the parent and
  * every dispatched child: `createConversation` runs once per `AgentSession`,
  * so script[0] is the parent and script[1..] the children in dispatch order.
  */
@@ -377,7 +377,7 @@ test("Architect Mode: dispatch_task with design:true runs the Designer and asks 
 });
 
 // ---------------------------------------------------------------------------
-// 055 — the DevOps and Security/QA specialists (same machine as the Designer)
+// The DevOps and Security/QA specialists (same machine as the Designer)
 // ---------------------------------------------------------------------------
 
 test("Engineer Mode: ops_pass dispatches the DevOps agent and relays its review", async () => {

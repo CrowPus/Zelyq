@@ -16,18 +16,17 @@ interface PluginLogger {
 }
 
 /**
- * `ZELYQ_PLUGIN_DIR` — the whole plugin interface. See `037` in the council
- * notes for the reasoning; the short version: a plugin tool gets nothing a
- * built-in tool doesn't already have (`ToolContext` is the entire surface,
- * for either one), so the trust question is supply-chain, not privilege —
- * and the answer has to be "exactly as trusted as whoever can already
- * configure and restart this instance, never less."
+ * Loads plugin tools from `ZELYQ_PLUGIN_DIR`.
  *
- * That is why this is boot-time only (never re-scanned while running,
- * never reachable from Settings), filesystem-only (never a network
- * address), and reads only the directory an operator names — never a
- * project's own directory, which would let a cloned repository choose its
- * own tools for the agent that reads it.
+ * A plugin tool gets nothing a built-in tool doesn't already have
+ * (`ToolContext` is the entire surface for either one), so the trust
+ * question is supply-chain, not privilege: a plugin is exactly as trusted as
+ * whoever can already configure and restart this instance. That is why
+ * loading is boot-time only (never re-scanned while running, never reachable
+ * from Settings), filesystem-only (never a network address), and reads only
+ * the directory an operator names — never a project's own directory, which
+ * would let a cloned repository choose its own tools for the agent that
+ * reads it.
  *
  * `tools` is the array to append into (`ALL_TOOLS` at boot, a scratch array
  * in a test) — mutated in place, the same shape every existing call site
@@ -46,8 +45,7 @@ export async function loadPlugins(
     entries = (await fs.readdir(dir)).filter((name) => name.endsWith(".mjs")).sort();
   } catch (error) {
     // A misconfigured or missing directory is a boot-time warning, never a
-    // reason the agent fails to start — the same posture `034` already
-    // established for a best-effort database read at boot.
+    // reason the agent fails to start.
     log.warn(`ZELYQ_PLUGIN_DIR ("${dir}") could not be read: ${(error as Error).message}`);
     return result;
   }
@@ -88,9 +86,9 @@ export async function loadPlugins(
       // per new session (toolDefinitions(), for every tool at once), which
       // needs a genuine zod schema, not just an object shaped like one. A
       // schema that fails this is caught here, at boot, instead of taking
-      // down every session created afterward — found live: a plugin with a
-      // hand-rolled `{ safeParse }` stand-in passed the shape check and then
-      // broke every single new conversation until the agent was restarted.
+      // down every session created afterward: a plugin with a hand-rolled
+      // `{ safeParse }` stand-in passes the shape check and then breaks
+      // every new conversation until the agent is restarted.
       try {
         z.toJSONSchema(tool.schema, { io: "input" });
       } catch (error) {
@@ -103,8 +101,8 @@ export async function loadPlugins(
       if (knownNames.has(tool.name)) {
         const reason = `tool name "${tool.name}" collides with an existing tool`;
         result.skipped.push({ file: entry, reason });
-        // Loud on purpose — see `037`: a plugin is additive, never allowed
-        // to shadow or replace what ships in the box.
+        // Deliberately loud: a plugin is additive, never allowed to shadow
+        // or replace a built-in tool.
         log.warn(
           `plugin "${entry}": ${reason} — skipped, a plugin may never shadow a built-in tool`,
         );
