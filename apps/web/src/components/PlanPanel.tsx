@@ -19,15 +19,21 @@ const REPORT_PATH = "architecture/report.html";
  *    allow-policy sanitiser (`buildSafeReportDoc`) first.
  */
 export function PlanPanel({ projectId }: { projectId: string }) {
+  // Both files may not exist yet when the panel first mounts (the Architect
+  // writes them mid-run). `refetchOnMount: "always"` means switching to the
+  // Plan tab re-queries even a query that previously 404'd, so the panel
+  // recovers on its own instead of staying stuck on a stale miss.
   const report = useQuery({
     queryKey: ["plan", projectId],
     queryFn: () => api.readFile(projectId, REPORT_PATH),
     retry: false,
+    refetchOnMount: "always",
   });
   const topologyFile = useQuery({
     queryKey: ["topology", projectId],
     queryFn: () => api.readFile(projectId, TOPOLOGY_PATH),
     retry: false,
+    refetchOnMount: "always",
   });
 
   const topology = useMemo(() => {

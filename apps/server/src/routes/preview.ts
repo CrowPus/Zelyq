@@ -2,6 +2,7 @@ import type { RuntimeDriver } from "@zelyq/runtime";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import { ensureInspectorScript } from "../services/inspector-script.js";
+import type { PreviewEnvResolver } from "../services/preview-env.js";
 import type { ProjectService } from "../services/projects.js";
 
 export function registerPreviewRoutes(
@@ -11,6 +12,12 @@ export function registerPreviewRoutes(
     runtime: RuntimeDriver;
     access: AccessControl;
     templatesDir: string;
+    /**
+     * 058 · Phase A — supplies a linked project's preview with its public
+     * Supabase config (URL + publishable key). Only ever the two public
+     * values; never a credential.
+     */
+    resolvePreviewEnv: PreviewEnvResolver;
   },
 ): void {
   const { access } = deps;
@@ -26,7 +33,12 @@ export function registerPreviewRoutes(
     // script the template ships. Best-effort, before the
     // preview starts serving the file: never a reason starting it fails.
     await ensureInspectorScript(deps.runtime, deps.templatesDir, request.params.id);
-    return { preview: await deps.runtime.startPreview(request.params.id) };
+    const env = await deps.resolvePreviewEnv(request.params.id);
+    return {
+      preview: await deps.runtime.startPreview(request.params.id, {
+        ...(Object.keys(env).length > 0 ? { env } : {}),
+      }),
+    };
   });
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/preview/stop", async (request) => {

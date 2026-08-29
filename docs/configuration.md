@@ -201,6 +201,23 @@ The session cookie is marked `Secure` automatically when the request arrives ove
 it does not — so sign-in still works on a plain-HTTP instance without silently sending the cookie in
 the clear where TLS is available.
 
+### Supabase integration (proposal 058, Phase A)
+
+A team can connect a Supabase account so a project's preview points at a real backend. The
+Management credential (OAuth token or Personal Access Token) is encrypted with the same key as
+model API keys and is used **only** by the server: it never reaches a generated project, the agent,
+or a preview process, which receive just the project URL and the public publishable key. OAuth is
+offered only when a client id **and** secret are set; otherwise teams paste a PAT (which carries
+full account access — the UI says so). Connect and manage it from **Settings**, alongside the
+model API keys; the **instance administrator** is required for every connect, link, provision, or
+delete. Linking a resource to one project needs only project-editor rights.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ZELYQ_SUPABASE_OAUTH_CLIENT_ID` | — | Supabase OAuth app client id. With the secret, enables "Connect with Supabase". |
+| `ZELYQ_SUPABASE_OAUTH_CLIENT_SECRET` | — | Confidential client secret; server environment only. |
+| `ZELYQ_SUPABASE_OAUTH_REDIRECT_URL` | `<ZELYQ_PUBLIC_URL>/api/integrations/supabase/oauth/callback` | Must match the value registered with the OAuth app. |
+
 ## Storage
 
 | Variable | Default | Notes |
@@ -234,6 +251,8 @@ Migrations run automatically when the server boots.
 | `ZELYQ_PLUGIN_DIR` | — | A local directory of extra tools for the agent, loaded once at boot. See [plugins.md](./plugins.md). |
 | `ZELYQ_SKILLS_DIR` | — | A local directory of extra skills — packaged instructions for a specific kind of task, loaded once at boot. See [skills.md](./skills.md). |
 | `ZELYQ_DESIGN_REFS_DIR` | — | A local directory of design references — one subdirectory per reference, each with a `DESIGN.md` (a real product's design language: tokens + prose), plus an optional `Agent.md` UI-craft checklist. The Architect picks the closest one to base a project's `DESIGN.md` on. Merged over the bundled `design-md/` (this dir wins on a slug collision), loaded once at boot. |
+| `ZELYQ_AI_PROVIDERS_DIR` | — | A local directory of LLM-provider integration notes — one subdirectory per provider, each with a `PROVIDER.md` (npm package, call shape, key name, docs URL), plus an optional `Agent.md` of integration rules. Used when a build wires a model-backed feature. Merged over the bundled `ai-providers/` (this dir wins on a slug collision), loaded once at boot. |
+| `ZELYQ_DOC_CACHE_DIR` | `<tmp>/zelyq-doc-cache` | Where `fetch_provider_docs` caches fetched documentation pages (7-day TTL). A non-writable path just disables the cache. |
 | `ZELYQ_IMAGE_PROVIDER` | `openverse` | Stock-photo service for `fetch_reference_image`: `openverse` (keyless, Creative-Commons), `unsplash`, or `pexels`. `unsplash`/`pexels` need `ZELYQ_IMAGE_PROVIDER_KEY`. With no provider reachable the tool writes a labelled placeholder instead of guessing. |
 | `ZELYQ_IMAGE_PROVIDER_KEY` | — | API key for `ZELYQ_IMAGE_PROVIDER` when it is `unsplash` (its "Access Key") or `pexels`. Passed only to the download command, never logged. With `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` set, also allow the provider's hosts (`api.openverse.org`; `api.unsplash.com`,`images.unsplash.com`; `api.pexels.com`,`images.pexels.com`). |
 | `ZELYQ_SKILLS_UPLOAD_DIR` | `<data dir>/skills` | Where a skill uploaded through Settings is written. Resolved independently by the server and the agent — must be the same directory for both, same requirement `ZELYQ_WORKSPACE_DIR` already has. See [skills.md](./skills.md). |

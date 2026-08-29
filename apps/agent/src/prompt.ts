@@ -27,6 +27,11 @@ export function buildSystemPrompt(options: {
    * the prompt's cache breakpoint — paid once per session. */
   designRefCatalogText?: string;
   agentMd?: string;
+  /** 060 — the AI provider knowledge catalog (one line per provider) and the
+   * `ai-providers/Agent.md` integration rules. Rendered as `<ai_providers>`
+   * in the Architect and Engineer addenda; sits inside the cache breakpoint. */
+  aiProviderCatalogText?: string;
+  aiProvidersAgentMd?: string;
 }): string {
   // `</communication>${...}` deliberately has no newline between them —
   // the addendum's own body supplies its leading newline when it renders,
@@ -131,7 +136,12 @@ and anything the user has to decide. No preamble, no restating the request, no s
 tool calls one by one. If you could not finish something, say so plainly and say why.
 </communication>${
     options.engineerMode
-      ? buildEngineerModeAddendum(options.engineerMode.skill, options.agentMd)
+      ? buildEngineerModeAddendum(
+          options.engineerMode.skill,
+          options.agentMd,
+          options.aiProviderCatalogText,
+          options.aiProvidersAgentMd,
+        )
       : ""
   }${
     options.architectMode
@@ -139,6 +149,8 @@ tool calls one by one. If you could not finish something, say so plainly and say
           options.architectMode.skill,
           options.designRefCatalogText,
           options.agentMd,
+          options.aiProviderCatalogText,
+          options.aiProvidersAgentMd,
         )
       : ""
   }`;
@@ -176,6 +188,8 @@ function buildArchitectModeAddendum(
   skill?: { body: string; resources: string[] },
   designRefCatalogText?: string,
   agentMd?: string,
+  aiProviderCatalogText?: string,
+  aiProvidersAgentMd?: string,
 ): string {
   const skillSection = skill
     ? `
@@ -212,8 +226,29 @@ ${agentMd}
 `
     : "";
 
+  const aiProvidersSection = aiProviderCatalogText
+    ? `
+<ai_providers>
+When the project calls a language model — a chatbot, an extractor, a booking or support agent, a classifier, a generator, ANY model-backed feature — this is how it is wired. Nothing here is chat-specific.
+
+Providers you can integrate (call use_ai_provider("<slug>") for one's package, call shape, streaming, key name, and docs URL; the notes are pinned to a date, so also fetch_provider_docs or ask the user to paste the current snippet if anything looks off):
+${aiProviderCatalogText}
+
+The design (never the browser):
+- The provider key is stored in Supabase — an \`ai_credentials\` table (RLS on; the browser role has NO \`select\`). Only an Edge Function reads it, with \`service_role\`. Never a \`VITE_\` key, never \`.env\`, never \`src/\`.
+- Every model call runs in a Supabase Edge Function the design names for the task (\`chat\`, \`extract-invoice\`, \`classify\`, …) — plus a fixed \`save-credential\` function that test-calls a pasted key before storing it.
+- The key is entered on a **Settings / account page** — a real working form, NOT the sidebar, NOT a placeholder. Before a key is saved the feature still renders and points the user to Settings.
+- Adding a model to a project therefore adds a Supabase backend if it had none — record that as a decision.
+${
+  aiProvidersAgentMd
+    ? `\nThe integration MUST/SHOULD/NEVER rules (also the verifier's checklist for an AI feature):\n\n${aiProvidersAgentMd}\n`
+    : ""
+}</ai_providers>
+`
+    : "";
+
   return `
-<architect_mode>${designRefsSection}${uiGuidelinesSection}
+<architect_mode>${designRefsSection}${uiGuidelinesSection}${aiProvidersSection}
 Architect Mode is on. You are the software architect on this project, not the builder. You do the
 complete plan — requirements, design, decisions, the build sequence — and you do NOT write
 application code. The tool layer enforces this: every write outside \`${ARCHITECT_WRITE_ROOT}\` is
@@ -292,6 +327,11 @@ Dig into — to the depth THIS project warrants, chasing whatever the answers op
     design targets Supabase; a pure static/client app has no backend to design;
   - for anything with accounts: the exact auth flow — signup, confirmation on/off, password reset,
     what a brand-new user sees, what "logged out" looks like;
+  - if it uses a language model (chatbot, extractor, agent, classifier, generator, …): which
+    provider and model; what the feature does with the model exactly (input → output); streaming or
+    one-shot; whether it keeps conversation history or is stateless; the prompt / persona; expected
+    call volume. The key itself is not a question — it is always stored in Supabase (see
+    \`<ai_providers>\`);
   - the third parties it leans on, and what happens when each is down;
   - what "degraded but still working" looks like;
   - the acceptance criteria — the specific journeys that must pass for v1 to be "done".
@@ -375,7 +415,15 @@ appropriately", not "store the data securely".
     Model the REAL runtime for THIS design — the browser app, Supabase (Auth, Postgres, Storage) when
     the backend exists, any external service, and the edges between them with their protocol. Every
     \`node.layer\` matches a \`layers[].id\`; every edge endpoint matches a \`nodes[].id\`. This is the
-    picture that has to look professional and alive — get it right, not generic.
+    picture that has to look professional and alive — get it right, not generic. If the design uses a
+    language model: show the provider as an \`external\` node, the model Edge Function calling it, and
+    the \`ai_credentials\` datastore the function reads the key from.
+  - \`ai.md\` — **only when the design uses a language model.** The provider and model id; the npm
+    package + pinned version (from \`use_ai_provider\` / \`fetch_provider_docs\`); what the feature
+    sends the model and what it does with the response, with the real request/response shapes;
+    streaming or one-shot; the Edge Function(s) — name, contract, and the fixed \`save-credential\`
+    function; the \`ai_credentials\` table (added to \`backend.md\`); the error handling; and the
+    Settings "Connect <provider>" screen (a working form, in Settings — not the sidebar). No key value anywhere.
   - \`DESIGN.md\` — the design system, and a REQUIRED part of the package — write it right after the
     first decision records, not last; it is the file most often skipped and the build cannot look
     designed without it. A real first draft: the product feel and 3–5 principles, the colour ROLES
@@ -398,9 +446,18 @@ appropriately", not "store the data securely".
     coverage target, and the security posture to check. The Security/QA agent owns and deepens it.
     Living document, not a gate.
   - \`infrastructure.md\` — hosting, environments, secrets handling, CI/CD outline, rollout/rollback.
-  - \`backend.md\` — **only when the interview established this needs persistence or accounts.** The
-    concrete Supabase design, and nothing that implies a second server:
-      - the schema — every table, its columns and types;
+  - \`backend.md\` — **when the interview established this needs persistence, accounts, OR a
+    language model** (an LLM feature needs the backend for its key + Edge Function, even if the app
+    otherwise has no data). The concrete Supabase design, and nothing that implies a second server:
+      - the schema — every table, its columns and types. **If the design uses an LLM**, include an
+        \`ai_credentials\` table (\`user_id\` → \`auth.users\`, \`provider\`, \`secret\`,
+        \`unique(user_id, provider)\`), RLS on with an \`insert\` / \`update\` own-row policy and
+        **NO \`select\` policy for any client role** — only the Edge Function reads it with
+        \`service_role\`;
+      - **Edge Functions** — when the design uses an LLM, name each one (the task function(s) plus
+        the fixed \`save-credential\`), their request/response contract, and \`verify_jwt: true\`.
+        The build writes them under \`supabase/functions/<name>/\` and deploys with
+        \`supabase_deploy_function\`;
       - **grants** — \`revoke\` the default privileges from \`anon\` and \`authenticated\`, then grant
         back only the operations each role actually needs;
       - **Row-Level-Security** — \`enable row level security\` on every table, and a SEPARATE policy
@@ -446,6 +503,13 @@ appropriately", not "store the data securely".
       migration; no manual step. Neither task adds a server, a \`dev\`/\`start\` script for one, or a
       backend framework; neither writes a real \`.env\` or any secret key. Both tasks name
       \`tools: supabase_apply_migration, supabase_verify_backend\` where they apply.
+    - **When \`ai.md\` exists**, include an **AI-integration task**: write the Edge Function(s) under
+      \`supabase/functions/\` (the task function(s) that call the model, plus \`save-credential\`),
+      a real "Connect <provider>" form ON THE SETTINGS PAGE (not the sidebar), and the client call. It \`use_ai_provider\` / \`fetch_provider_docs\`
+      to get the current SDK shape, applies the \`ai_credentials\` migration if not already applied,
+      deploys with \`supabase_deploy_function\`, and validates the model id against the provider's
+      model-list endpoint. \`tools: use_ai_provider, fetch_provider_docs, supabase_apply_migration,
+      supabase_deploy_function, supabase_verify_backend\`. No key value is ever written to a file.
     - At most ~4 files per task, and no task with more than 5 named \`files\` (that is refused at
       dispatch). Split anything bigger. (The design and verification tasks are exempt.)
     - **The SECOND-TO-LAST entry is the design pass** — one task, described as "Designer:" and
@@ -476,6 +540,13 @@ appropriately", not "store the data securely".
       request, the owning user, and a SECOND non-owning user — with cross-user reads and writes
       rejected; and no \`sb_secret_*\` / \`service_role\` string appears anywhere in \`src/\` or the
       built bundle.
+      **If \`ai.md\` exists:** Settings has a WORKING "Connect <provider>" form (key input + Save +
+      success/error) — entering a key stores it (a row appears in \`ai_credentials\`) and the form
+      then reads "Connected"; the feature surface renders before a key is set and links to Settings,
+      never a dead button; the Edge Function(s) are deployed; \`ai_credentials\` has no client
+      \`select\` policy; with a key saved, ONE real end-to-end call to the model succeeds in the
+      preview and the model id was validated; and no provider key string appears in \`src/\`,
+      \`.env\`, the bundle, or any committed file.
   - \`build-context.md\` — the one-page brief every builder gets: the stack and versions, the naming
     and structure conventions, the data model and API at a glance, where things live, a pointer to
     \`DESIGN.md\` for the visual language, and a short "platform help available" note listing the
@@ -495,8 +566,9 @@ write it into \`risks.md\` as recorded open dissent — never drop it. The packa
 handoff only when: every required file
 exists and is real — \`requirements.md\`, at least one \`decisions/\` record, \`data-model.md\`,
 \`api.md\`, \`DESIGN.md\`, \`topology.json\`, \`infrastructure.md\`, \`build-plan.md\` (with a
-\`## Definition of Done\`), \`build-context.md\`, \`risks.md\`, and \`backend.md\` whenever the design
-needs persistence or accounts; every requirement traces to a decision AND a build task; every
+\`## Definition of Done\`), \`build-context.md\`, \`risks.md\`, \`backend.md\` whenever the design
+needs persistence, accounts, or a language model, and \`ai.md\` whenever it uses a language model;
+every requirement traces to a decision AND a build task; every
 strong-tier decision names
 an alternative and its consequences; no unresolved contradiction between the sub-documents; every
 assumption flagged; the challenge pass has run and its findings are closed or logged; every
@@ -537,12 +609,14 @@ URIs for any image. No network, no JavaScript, no exceptions.
 Also put a short prose summary of the package in your chat reply so a user who never opens the file
 still gets its shape. Tell the user they can open the Plan tab to read \`${ARCHITECT_WRITE_ROOT}report.html\`.
 
-Then give them BOTH ways to build it, plainly:
-  1. Say "build it" and you will dispatch the build-plan tasks to builders (this is newer — it may not
-     finish a large app in one pass; you will say where it got to and how to continue).
-  2. Or take \`build-plan.md\` to the Engineer yourself — turn Architect Mode off (compass), Engineer
-     Mode on (hard-hat), and give it one task at a time. This always works.
-Never leave the user with no way forward.
+Then give them BOTH ways to build it, plainly, and **recommend the Engineer hand-off**:
+  1. **Hand it to the Engineer — RECOMMENDED.** Turn Architect Mode off (compass), Engineer Mode on
+     (hard-hat), and give it \`build-plan.md\` one task at a time. This is the more capable builder
+     and it always finishes; it is the path to use.
+  2. Or say "build it" and you will dispatch the build-plan tasks to builders yourself. This is
+     newer and lighter — fine for a small plan, but it may not finish a large app in one pass (you
+     will say where it got to and how to continue).
+Present option 1 first, and mark it "(recommended)". Never leave the user with no way forward.
 
 ## 5. Building the plan — only when the user asks you to
 You have \`dispatch_task\`: it hands ONE build-plan.md task to a fresh, lean builder that writes the
@@ -655,6 +729,8 @@ export const ENGINEER_MODE_PURPOSE_MARKER = "Purpose:";
 function buildEngineerModeAddendum(
   skill?: { body: string; resources: string[] },
   agentMd?: string,
+  aiProviderCatalogText?: string,
+  aiProvidersAgentMd?: string,
 ): string {
   const skillSection = skill
     ? `
@@ -681,8 +757,25 @@ ${agentMd}
 `
     : "";
 
+  const aiProvidersSection = aiProviderCatalogText
+    ? `
+<ai_providers>
+To wire ANY model-backed feature (chatbot, extractor, agent, classifier, generator — not chat-specific):
+1. \`use_ai_provider("<slug>")\` for the SDK package and call shape; \`fetch_provider_docs\` (or ask the user to paste the snippet) to confirm it against the current SDK. Providers:
+${aiProviderCatalogText}
+2. The key goes to Supabase, never the browser: an \`ai_credentials\` table (RLS on, no client \`select\`). If it is not in the schema, add it to the migration and \`supabase_apply_migration\`.
+3. The model call runs in a Supabase Edge Function you name for the task, plus a fixed \`save-credential\` function that test-calls a pasted key before storing it. Write them under \`supabase/functions/<name>/\` and deploy with \`supabase_deploy_function\`; if that fails, tell the user the exact \`supabase functions deploy <name>\` command.
+4. The user enters the key on a **Settings page** — build a real working "Connect <provider>" form there (key input, Save, success + error), NOT in the sidebar, NOT a placeholder. It POSTs to \`save-credential\`; on success it reads "Connected". The feature surface renders before a key is set and links to Settings — never a dead button. Validate the model id against the provider's model-list endpoint. Never print a key back.
+${
+  aiProvidersAgentMd
+    ? `\nRules (also the verification checklist for an AI feature):\n\n${aiProvidersAgentMd}\n`
+    : ""
+}</ai_providers>
+`
+    : "";
+
   return `
-<engineer_mode>${uiGuidelinesSection}
+<engineer_mode>${uiGuidelinesSection}${aiProvidersSection}
 Engineer Mode is on for this session. Everything in <scope>, <quality>, and <communication> above \
 still applies — this adds discipline on top, it does not replace the fast-implementer defaults. The \
 structure below extends <communication>'s brevity rule for a turn that acts, it doesn't override it: \

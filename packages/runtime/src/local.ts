@@ -62,6 +62,13 @@ export interface PreviewRecord {
   startedAt: string;
   /** Which Zelyq process spawned it. Useful when reading these by hand. */
   ownerPid: number;
+  /**
+   * 058 · Phase A — a fingerprint of the public Supabase env the preview was
+   * started with (URL + publishable key), so a re-link is detected and the
+   * dev server restarted. Absent for a preview started without a linked
+   * backend. Public values only; never a credential.
+   */
+  supabaseEnv?: string;
 }
 
 /**
@@ -111,6 +118,18 @@ interface PreviewProcess {
   logs: string[];
   status: Preview["status"];
   lastError: string | null;
+  /** See `PreviewRecord.supabaseEnv`. */
+  supabaseEnv: string;
+}
+
+/**
+ * A stable string identifying the public Supabase config a preview runs with,
+ * so a change (link, re-link, unlink) triggers a restart. Only the public URL
+ * and publishable key — a credential is never in a preview env.
+ */
+function supabaseEnvFingerprint(env?: Record<string, string>): string {
+  if (!env?.VITE_SUPABASE_URL) return "";
+  return `${env.VITE_SUPABASE_URL}|${env.VITE_SUPABASE_PUBLISHABLE_KEY ?? ""}`;
 }
 
 /**
@@ -321,15 +340,31 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   // -------------------------------------------------------------------------
 
   async startPreview(projectId: string, options: PreviewOptions = {}): Promise<Preview> {
+    // 058 · Phase A — the caller (a preview route or the agent tool) may pass a
+    // linked project's public Supabase config in `options.env`. A running
+    // preview started with different values is stale: linking or re-linking a
+    // backend has to actually reach the dev server, so restart when it changes.
+    const wantSupabaseEnv = supabaseEnvFingerprint(options.env);
+
     const existing = this.previews.get(projectId);
-    if (existing && existing.status !== "crashed") return this.toPreview(projectId, existing);
+    if (existing && existing.status !== "crashed") {
+      if (existing.supabaseEnv === wantSupabaseEnv) return this.toPreview(projectId, existing);
+      await this.stopPreview(projectId);
+    }
 
     // The agent and the server each construct their own driver, so a preview
     // one of them started lives in a Map the other cannot see. Without this the
     // agent's start_preview tool spawns a dev server the UI reports as stopped,
     // and starting it from the UI spawns a second one for the same project.
     const adopted = await this.adoptPreview(projectId);
-    if (adopted) return adopted;
+    if (adopted) {
+      const record = await this.readPreviewRecord(projectId);
+      const adoptedEnv = record?.supabaseEnv ?? "";
+      if (adopted.status === "crashed" || adoptedEnv === wantSupabaseEnv) return adopted;
+      // Stale backend config on an adopted preview: end it and start fresh.
+      if (record?.pid) killPidTree(record.pid);
+      await this.clearPreviewRecord(projectId);
+    }
 
     const root = await this.requireRoot(projectId);
 
@@ -354,6 +389,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
           logs: [install.stdout, install.stderr].filter(Boolean),
           status: "crashed",
           lastError: `Dependency install failed (exit ${install.exitCode})`,
+          supabaseEnv: wantSupabaseEnv,
         };
         this.previews.set(projectId, preview);
         return this.toPreview(projectId, preview);
@@ -390,6 +426,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       logs: [],
       status: "starting",
       lastError: null,
+      supabaseEnv: wantSupabaseEnv,
     };
     this.previews.set(projectId, preview);
     if (child.pid) {
@@ -398,6 +435,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
         port,
         startedAt: preview.startedAt,
         ownerPid: process.pid,
+        ...(wantSupabaseEnv ? { supabaseEnv: wantSupabaseEnv } : {}),
       });
     }
 

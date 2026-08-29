@@ -20,6 +20,8 @@ import { registerProviderRoutes } from "./routes/providers.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerSkillRoutes } from "./routes/skills.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
+import { registerSupabaseBridgeRoutes } from "./routes/supabase-bridge.js";
+import { registerSupabaseConnectionRoutes } from "./routes/supabase-connections.js";
 import { registerTeamRoutes } from "./routes/teams.js";
 import { registerVoiceRoutes } from "./routes/voice.js";
 import { AccessControl } from "./services/access.js";
@@ -27,11 +29,14 @@ import { AccountService } from "./services/accounts.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
+import { makePreviewEnvResolver } from "./services/preview-env.js";
 import { ProjectService } from "./services/projects.js";
 import { resolveSecretKey, SecretBox } from "./services/secrets.js";
 import { SettingsService } from "./services/settings.js";
 import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
+import { SupabaseBridge } from "./services/supabase-bridge.js";
+import { SupabaseConnectionService } from "./services/supabase-connections.js";
 import { ChatGateway } from "./ws/gateway.js";
 
 declare module "fastify" {
@@ -95,6 +100,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     oidc: config.oidc,
   });
   const access = new AccessControl(store);
+  const supabaseConnections = new SupabaseConnectionService(store, secrets, access, {
+    oauth: config.supabaseOAuth,
+    verifyEmailDomain: config.supabaseVerifyEmailDomain,
+  });
+  const resolvePreviewEnv = makePreviewEnvResolver({ supabaseConnections });
+  const supabaseBridge = new SupabaseBridge(store);
   const accounts = new AccountService(store, projects);
   const attachments = new AttachmentService(config.attachmentsDir);
   const skillUploads = new SkillUploadService(config.uploadedSkillsDir);
@@ -194,15 +205,40 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerTeamRoutes(app, { store, access });
   registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });
   registerFileRoutes(app, { projects, runtime, access });
-  registerPreviewRoutes(app, { projects, runtime, access, templatesDir: config.templatesDir });
+  registerPreviewRoutes(app, {
+    projects,
+    runtime,
+    access,
+    templatesDir: config.templatesDir,
+    resolvePreviewEnv,
+  });
+  registerSupabaseConnectionRoutes(app, { supabase: supabaseConnections, access, runtime });
+  registerSupabaseBridgeRoutes(app, {
+    bridge: supabaseBridge,
+    supabase: supabaseConnections,
+    store,
+  });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
   registerAttachmentRoutes(app, { attachments, access });
   registerVoiceRoutes(app, { speech, settings, access });
 
-  const gateway = new ChatGateway(store, projects, agent, access, settings, attachments, {
-    info: (message) => app.log.info(message),
-    error: (object, message) => app.log.error(object, message),
-  });
+  const gateway = new ChatGateway(
+    store,
+    projects,
+    agent,
+    access,
+    settings,
+    attachments,
+    {
+      info: (message) => app.log.info(message),
+      error: (object, message) => app.log.error(object, message),
+    },
+    {
+      bridge: supabaseBridge,
+      resolvePreviewEnv,
+      serverInternalUrl: config.serverInternalUrl,
+    },
+  );
 
   app.get<{ Params: { id: string } }>(
     "/ws/projects/:id",

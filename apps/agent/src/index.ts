@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "@zelyq/core/node";
 import { ALL_TOOLS } from "@zelyq/tools";
+import { aiProviderCatalogText, buildUseAiProviderTool, loadAiProviders } from "./ai-providers.js";
 import { loadAgentConfig } from "./config.js";
 import { buildUseDesignRefTool, designRefCatalogText, loadDesignRefs } from "./design-refs.js";
 import { loadPlugins } from "./plugins.js";
@@ -62,12 +63,29 @@ const designRefs = await loadDesignRefs(
 );
 if (designRefs.refs.length > 0) ALL_TOOLS.push(buildUseDesignRefTool(designRefs.refs));
 
+// 060 — the AI provider knowledge library. `ai-providers/` sits beside
+// `skills/` and `design-md/`; an operator can point ZELYQ_AI_PROVIDERS_DIR at
+// their own set.
+const aiProviders = await loadAiProviders(
+  path.join(repoRoot, "ai-providers"),
+  process.env.ZELYQ_AI_PROVIDERS_DIR,
+);
+if (aiProviders.providers.length > 0) {
+  ALL_TOOLS.push(buildUseAiProviderTool(aiProviders.providers));
+}
+
 const server = buildAgentServer(config, {
   pluginNames: plugins.loaded,
   skills: skillsWithResources,
   designRefCatalog: designRefs.refs.map((r) => ({ slug: r.slug, description: r.description })),
   designRefCatalogText: designRefCatalogText(designRefs.refs),
   agentMd: designRefs.agentMd,
+  aiProviderCatalog: aiProviders.providers.map((p) => ({
+    slug: p.slug,
+    description: p.description,
+  })),
+  aiProviderCatalogText: aiProviderCatalogText(aiProviders.providers),
+  aiProvidersAgentMd: aiProviders.agentMd,
 });
 if (plugins.loaded.length > 0) {
   server.app.log.info(
@@ -82,6 +100,11 @@ if (skillsResult.skills.length > 0) {
 if (designRefs.refs.length > 0 || designRefs.agentMd) {
   server.app.log.info(
     `${designRefs.refs.length} design reference(s) loaded${designRefs.agentMd ? " + Agent.md UI guidelines" : ""}`,
+  );
+}
+if (aiProviders.providers.length > 0 || aiProviders.agentMd) {
+  server.app.log.info(
+    `${aiProviders.providers.length} AI provider(s) loaded${aiProviders.agentMd ? " + Agent.md integration rules" : ""}`,
   );
 }
 

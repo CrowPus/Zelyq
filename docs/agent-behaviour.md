@@ -140,6 +140,24 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   in the Architect and Engineer prompts; its observable MUSTs are a gate
   block in the verifier and Designer checklists and in Engineer Mode's
   auto-verification. `/health` reports the loaded slugs.
+- **AI-backed features** (proposal 060) — building anything that calls an LLM
+  (chatbot, extractor, agent, classifier, generator; not chat-specific).
+  `ai-providers/` loads like `design-md/` (bundled + `ZELYQ_AI_PROVIDERS_DIR`);
+  its catalog + `Agent.md` render as `<ai_providers>` in the Architect and
+  Engineer prompts. `use_ai_provider(slug)` returns one provider's call notes;
+  `fetch_provider_docs` pulls the current docs from an allowlist (7-day disk
+  cache) or, failing that, tells the model to ask the user to paste the
+  snippet. The key never touches the browser: it is stored in an
+  `ai_credentials` Supabase table (RLS on, no client `select`) and read only
+  by an Edge Function with `service_role`; the model call runs in an Edge
+  Function the design names for the task, plus a fixed `save-credential`
+  function that test-calls a pasted key. `supabase_deploy_function` deploys
+  them via the Management API, with a manual `supabase functions deploy`
+  fallback. The Architect writes `architecture/ai.md` and adds the table +
+  functions to `backend.md`; `architecturePackageState` refuses dispatch if
+  the design names a provider but `ai.md` is missing or a stub. DoD adds: one
+  real model round-trip in the preview, model id validated, no key string
+  anywhere committed. `/health` reports `aiProviders` + `aiIntegrationRules`.
 
 ## Why tool errors are not exceptions
 

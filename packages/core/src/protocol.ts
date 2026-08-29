@@ -170,6 +170,20 @@ export const createAgentSessionSchema = z.object({
   anthropicWorkspaceId: z.string().optional(),
   /** Prior turns, so a restarted agent can resume a conversation. */
   history: z.array(messageSchema).optional(),
+  /**
+   * 058 · Phase C — when this project has a linked Supabase resource, the
+   * server hands the agent a short-lived capability to apply migrations and
+   * verify the backend *through the server*. The agent never receives the
+   * Management credential itself. Absent when nothing is linked.
+   */
+  supabaseBridge: z.object({ url: z.string(), token: z.string() }).optional(),
+  /**
+   * The linked project's public Supabase config — URL + publishable key only.
+   * Merged into the preview environment so the app the agent builds connects
+   * to the real backend. Both values are public (they ship in the browser
+   * bundle); no secret is here.
+   */
+  supabasePreviewEnv: z.record(z.string(), z.string()).optional(),
 });
 export type CreateAgentSessionInput = z.infer<typeof createAgentSessionSchema>;
 

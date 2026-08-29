@@ -13,6 +13,7 @@ import { useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { CliSessionControl } from "../components/CliSessionControl";
 import { SkillUploadControl } from "../components/SkillUploadControl";
+import { SupabaseIntegration } from "../components/SupabaseIntegration";
 import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -238,6 +239,8 @@ export function SettingsPage() {
               </div>
             </section>
           ))}
+
+          {user?.instanceRole === "admin" && <SupabaseIntegration />}
 
           <section className="mt-7">
             <h2 className="text-sm font-medium text-fg">Users</h2>

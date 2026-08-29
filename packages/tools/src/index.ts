@@ -10,6 +10,11 @@ import {
 import { designPassTool, dispatchTaskTool, opsPassTool, qaPassTool } from "./orchestrate.js";
 import { previewLogsTool, startPreviewTool, viewPreviewTool } from "./preview.js";
 import { runCommandTool } from "./shell.js";
+import {
+  supabaseApplyMigrationTool,
+  supabaseDeployFunctionTool,
+  supabaseVerifyBackendTool,
+} from "./supabase.js";
 import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
 
 export * from "./types.js";
@@ -26,6 +31,9 @@ export {
   runCommandTool,
   searchFilesTool,
   startPreviewTool,
+  supabaseApplyMigrationTool,
+  supabaseDeployFunctionTool,
+  supabaseVerifyBackendTool,
   viewPreviewTool,
   writeFileTool,
 };
@@ -45,6 +53,9 @@ export const ALL_TOOLS: ZelyqTool[] = [
   startPreviewTool,
   previewLogsTool,
   viewPreviewTool,
+  supabaseApplyMigrationTool,
+  supabaseDeployFunctionTool,
+  supabaseVerifyBackendTool,
 ];
 
 export interface ToolDefinition {

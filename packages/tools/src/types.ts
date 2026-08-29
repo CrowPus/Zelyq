@@ -14,6 +14,18 @@ export interface ToolContext {
   onFileChanged(path: string): void;
   /** Structured progress for the event stream. */
   log(message: string): void;
+  /**
+   * 058 · Phase C — present only when a Supabase resource is linked to this
+   * project. A capability to apply migrations and verify the backend by
+   * calling the Zelyq server, which holds the Management credential. The tool
+   * never sees a token beyond this session-scoped one.
+   */
+  supabaseBridge?: { url: string; token: string };
+  /**
+   * The linked project's public Supabase config (URL + publishable key).
+   * `start_preview` merges it so the built app reaches the real backend.
+   */
+  supabasePreviewEnv?: Record<string, string>;
 }
 
 export interface ToolResult {

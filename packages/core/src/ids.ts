@@ -22,6 +22,9 @@ export const ID_PREFIXES = {
   tool: "tol",
   audit: "adt",
   attachment: "atc",
+  providerConnection: "pcn",
+  providerResource: "prs",
+  providerOperation: "pop",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

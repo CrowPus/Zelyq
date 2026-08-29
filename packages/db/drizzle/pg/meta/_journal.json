@@ -64,6 +64,20 @@
       "when": 1787650000000,
       "tag": "0008_oidc_identities",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787918833042,
+      "tag": "0009_lucky_wolfsbane",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787918834042,
+      "tag": "0010_lowly_wraith",
+      "breakpoints": true
     }
   ]
 }

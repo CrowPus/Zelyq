@@ -233,6 +233,121 @@ export const auditLog = pgTable(
   }),
 );
 
+/**
+ * Proposal 058 · Phase A — an instance-wide connection to an external backend
+ * provider (Supabase in Phase A), managed from Settings alongside the model
+ * API keys. The credential lives in `encryptedBlob`, `SecretBox`-encrypted;
+ * it is only ever decrypted inside the server's connection service, never
+ * handed to the agent, a tool, or a project runtime.
+ */
+export const providerConnections = pgTable(
+  "provider_connections",
+  {
+    id: text("id").primaryKey(),
+    /** Only `"supabase"` in Phase A. */
+    provider: text("provider").notNull(),
+    /** `"oauth"` | `"pat"`. */
+    credentialType: text("credential_type").notNull(),
+    /**
+     * `SecretBox` ciphertext. For a PAT: the raw token. For OAuth: a JSON
+     * `{ access_token, refresh_token }`.
+     */
+    encryptedBlob: text("encrypted_blob").notNull(),
+    /** Space-joined OAuth scopes; empty string for a PAT. */
+    grantedScopes: text("granted_scopes").notNull().default(""),
+    /** ISO-8601; null for a PAT (does not self-expire). */
+    expiresAt: text("expires_at"),
+    /** `"active"` | `"expired"` | `"revoked"` | `"orphaned"`. */
+    status: text("status").notNull().default("active"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+    lastUsedAt: text("last_used_at"),
+  },
+  (table) => ({
+    providerIdx: index("provider_connections_provider_idx").on(table.provider),
+    createdByIdx: index("provider_connections_created_by_idx").on(table.createdBy),
+  }),
+);
+
+/**
+ * A concrete provider project reachable through a connection. `publishableKey`
+ * is the public browser key and is stored in the clear — it ships to browsers
+ * anyway. A provider *secret* key is never stored here or anywhere.
+ */
+export const providerResources = pgTable(
+  "provider_resources",
+  {
+    id: text("id").primaryKey(),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: "cascade" }),
+    orgId: text("org_id").notNull(),
+    projectRef: text("project_ref").notNull(),
+    projectUrl: text("project_url").notNull(),
+    publishableKey: text("publishable_key").notNull(),
+    /** `"development"` | `"staging"` | `"production"`. v1 mutates development only. */
+    environment: text("environment").notNull().default("development"),
+    region: text("region"),
+    displayName: text("display_name").notNull(),
+    /** 1 when Zelyq provisioned it — governs whether delete calls the provider. */
+    provisionedByZelyq: integer("provisioned_by_zelyq").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    connectionRefIdx: uniqueIndex("provider_resources_connection_ref_idx").on(
+      table.connectionId,
+      table.projectRef,
+    ),
+  }),
+);
+
+/** One provider resource linked to one Zelyq project (Phase A: at most one). */
+export const projectProviderLinks = pgTable(
+  "project_provider_links",
+  {
+    zelyqProjectId: text("zelyq_project_id")
+      .primaryKey()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    providerResourceId: text("provider_resource_id")
+      .notNull()
+      .references(() => providerResources.id, { onDelete: "cascade" }),
+    linkedBy: text("linked_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    linkedAt: text("linked_at").notNull(),
+  },
+  (table) => ({
+    resourceIdx: index("project_provider_links_resource_idx").on(table.providerResourceId),
+  }),
+);
+
+/**
+ * An auditable provider action. Like `auditLog`, it carries no foreign keys —
+ * a `delete` entry is written after the connection row is gone. `detail` is
+ * JSON metadata only: never a token, never SQL with values, never rows.
+ */
+export const providerOperations = pgTable(
+  "provider_operations",
+  {
+    id: text("id").primaryKey(),
+    connectionId: text("connection_id"),
+    zelyqProjectId: text("zelyq_project_id"),
+    /** `connect` | `provision` | `configure-auth` | `delete` | `link` | `unlink`. */
+    action: text("action").notNull(),
+    /** `"ok"` | `"error"`. */
+    outcome: text("outcome").notNull(),
+    detail: text("detail").notNull().default("{}"),
+    actorUserId: text("actor_user_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    connectionIdx: index("provider_operations_connection_id_idx").on(table.connectionId),
+    createdIdx: index("provider_operations_created_at_idx").on(table.createdAt),
+  }),
+);
+
 export const schema = {
   users,
   teams,
@@ -245,4 +360,8 @@ export const schema = {
   snapshots,
   settings,
   auditLog,
+  providerConnections,
+  providerResources,
+  projectProviderLinks,
+  providerOperations,
 };

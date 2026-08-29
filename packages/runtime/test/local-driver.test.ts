@@ -205,6 +205,57 @@ test("a preview started by one driver is visible to another on the same workspac
   }
 });
 
+test("058: a running preview restarts when the injected Supabase env changes", async () => {
+  const config = {
+    kind: "local" as const,
+    workspaceDir,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4961, 4969] as [number, number],
+    previewHost: "127.0.0.1",
+  };
+  const driver = new LocalRuntimeDriver(config);
+  await driver.ensureProject("prj_sb_env");
+  await driver.scaffold("prj_sb_env", [
+    { path: "package.json", content: '{"name":"sbenv","scripts":{"dev":"node server.mjs"}}' },
+    {
+      path: "server.mjs",
+      content:
+        "import http from 'node:http';\n" +
+        "http.createServer((_, res) => res.end(process.env.VITE_SUPABASE_URL ?? 'none'))" +
+        ".listen(process.env.PORT);\n",
+    },
+  ]);
+
+  async function body(url: string): Promise<string> {
+    const res = await fetch(url);
+    return res.text();
+  }
+
+  try {
+    const first = await driver.startPreview("prj_sb_env", {
+      env: { VITE_SUPABASE_URL: "https://one.supabase.co", VITE_SUPABASE_PUBLISHABLE_KEY: "k1" },
+    });
+    assert.equal(first.status, "running");
+    assert.equal(await body(first.url as string), "https://one.supabase.co");
+
+    // Same env → adopts, no restart, same port.
+    const same = await driver.startPreview("prj_sb_env", {
+      env: { VITE_SUPABASE_URL: "https://one.supabase.co", VITE_SUPABASE_PUBLISHABLE_KEY: "k1" },
+    });
+    assert.equal(same.port, first.port, "unchanged env must not restart the preview");
+
+    // Changed env → restart, and the running server reflects the new value.
+    const relinked = await driver.startPreview("prj_sb_env", {
+      env: { VITE_SUPABASE_URL: "https://two.supabase.co", VITE_SUPABASE_PUBLISHABLE_KEY: "k2" },
+    });
+    assert.equal(relinked.status, "running");
+    assert.equal(await body(relinked.url as string), "https://two.supabase.co");
+  } finally {
+    await driver.stopPreview("prj_sb_env").catch(() => undefined);
+    await driver.dispose();
+  }
+});
+
 test("a preview record whose process is gone is not reported as running", async () => {
   const config = {
     kind: "local" as const,

@@ -114,7 +114,7 @@ export class ProjectService {
     const manifests = paths.filter((file) => file.endsWith("package.json")).slice(0, 30);
     for (const manifest of manifests) {
       const file = await this.runtime.readFile(id, manifest).catch(() => null);
-      if (!file || file.encoding !== "utf8") continue;
+      if (file?.encoding !== "utf8") continue;
       try {
         const parsed = JSON.parse(file.content) as {
           dependencies?: Record<string, string>;

@@ -22,6 +22,10 @@ const TABLES = [
   "snapshots",
   "settings",
   "auditLog",
+  "providerConnections",
+  "providerResources",
+  "projectProviderLinks",
+  "providerOperations",
 ] as const;
 
 for (const name of TABLES) {

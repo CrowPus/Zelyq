@@ -51,6 +51,13 @@ export interface AgentServerDeps {
   designRefCatalog?: Array<{ slug: string; description: string }>;
   designRefCatalogText?: string;
   agentMd?: string | null;
+  /** 060 — the AI provider knowledge catalog (slug + one-liner each), for an
+   * AI build. `aiProviderCatalogText` is the pre-rendered list;
+   * `aiProvidersAgentMd` is the integration MUST/SHOULD/NEVER checklist, both
+   * rendered as `<ai_providers>` in the Architect / Engineer prompts. */
+  aiProviderCatalog?: Array<{ slug: string; description: string }>;
+  aiProviderCatalogText?: string;
+  aiProvidersAgentMd?: string | null;
 }
 
 /** The one skill Engineer Mode is allowed to guarantee — not a generic
@@ -126,6 +133,8 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       })),
       designRefs: (deps.designRefCatalog ?? []).map((r) => r.slug),
       uiGuidelines: Boolean(deps.agentMd),
+      aiProviders: (deps.aiProviderCatalog ?? []).map((p) => p.slug),
+      aiIntegrationRules: Boolean(deps.aiProvidersAgentMd),
       timestamp: new Date().toISOString(),
     };
   });
@@ -279,6 +288,11 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       ...(input.anthropicWorkspaceId || config.anthropicWorkspaceId
         ? { anthropicWorkspaceId: input.anthropicWorkspaceId || config.anthropicWorkspaceId }
         : {}),
+      // 058 · Phase C — the Supabase bridge (apply migrations via the server)
+      // and the linked project's public config for the preview. Absent unless
+      // a Supabase resource is linked to this project.
+      ...(input.supabaseBridge ? { supabaseBridge: input.supabaseBridge } : {}),
+      ...(input.supabasePreviewEnv ? { supabasePreviewEnv: input.supabasePreviewEnv } : {}),
       runtime,
       maxIterations: config.maxTurnIterations,
       history: input.history,
@@ -289,6 +303,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       // them), but threaded unconditionally — the constructor decides.
       ...(deps.designRefCatalogText ? { designRefCatalogText: deps.designRefCatalogText } : {}),
       ...(deps.agentMd ? { agentMd: deps.agentMd } : {}),
+      // 060 — the AI provider catalog + integration rules, for an AI build.
+      ...(deps.aiProviderCatalogText ? { aiProviderCatalogText: deps.aiProviderCatalogText } : {}),
+      ...(deps.aiProvidersAgentMd ? { aiProvidersAgentMd: deps.aiProvidersAgentMd } : {}),
       ...(deps.providerFactory ? { providerFactory: deps.providerFactory } : {}),
     });
 

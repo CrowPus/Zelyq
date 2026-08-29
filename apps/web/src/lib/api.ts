@@ -22,6 +22,33 @@ import type {
   User,
 } from "@zelyq/core";
 
+/** Supabase integration (proposal 058, Phase A) — response shapes. */
+export interface SupabaseConnection {
+  id: string;
+  credentialType: "oauth" | "pat";
+  status: string;
+  grantedScopes: string[];
+  createdBy: string;
+  createdAt: string;
+}
+export interface SupabaseResource {
+  id: string;
+  connectionId: string;
+  projectRef: string;
+  projectUrl: string;
+  publishableKey: string;
+  environment: "development" | "staging" | "production";
+  region: string | null;
+  displayName: string;
+  provisionedByZelyq: boolean;
+}
+export interface SupabaseOrgProject {
+  ref: string;
+  name: string;
+  organizationId: string;
+  region: string | null;
+}
+
 /**
  * Every call goes through `request`, so error handling, JSON parsing, and the
  * server's `{ error: { code, message } }` envelope are handled once.
@@ -147,6 +174,66 @@ export const api = {
     request<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
 
   auditLog: (teamId: string) => request<{ entries: AuditLogEntry[] }>(`/teams/${teamId}/audit-log`),
+
+  // — Supabase integration (proposal 058, Phase A) —
+
+  supabaseConfig: () => request<{ oauthConfigured: boolean }>("/integrations/supabase/config"),
+
+  listSupabaseConnections: () =>
+    request<{ connections: SupabaseConnection[] }>("/integrations/supabase/connections"),
+
+  connectSupabasePat: (pat: string) =>
+    request<{ connection: SupabaseConnection }>("/integrations/supabase/connections/pat", {
+      method: "POST",
+      body: JSON.stringify({ pat }),
+    }),
+
+  startSupabaseOAuth: () =>
+    request<{ url: string }>("/integrations/supabase/connections/oauth/start", { method: "POST" }),
+
+  revokeSupabaseConnection: (connectionId: string) =>
+    request<void>(`/integrations/supabase/connections/${connectionId}`, { method: "DELETE" }),
+
+  listSupabaseResources: (connectionId: string) =>
+    request<{ resources: SupabaseResource[] }>(
+      `/integrations/supabase/connections/${connectionId}/resources`,
+    ),
+
+  listSupabaseOrgProjects: (connectionId: string) =>
+    request<{ projects: SupabaseOrgProject[] }>(
+      `/integrations/supabase/connections/${connectionId}/org-projects`,
+    ),
+
+  linkSupabaseResource: (
+    connectionId: string,
+    input: { projectRef: string; environment?: "development" | "staging" | "production" },
+  ) =>
+    request<{ resource: SupabaseResource }>(
+      `/integrations/supabase/connections/${connectionId}/resources/link`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  getProjectSupabaseLink: (projectId: string) =>
+    request<{ resource: SupabaseResource | null }>(`/projects/${projectId}/supabase-link`),
+
+  setProjectSupabaseLink: (projectId: string, resourceId: string) =>
+    request<{ ok: true }>(`/projects/${projectId}/supabase-link`, {
+      method: "PUT",
+      body: JSON.stringify({ resourceId }),
+    }),
+
+  clearProjectSupabaseLink: (projectId: string) =>
+    request<{ ok: true }>(`/projects/${projectId}/supabase-link`, { method: "DELETE" }),
+
+  applyAndVerifySupabase: (projectId: string) =>
+    request<{
+      migrations: Array<{ name: string; status: string }>;
+      verification: {
+        verified: boolean;
+        summary: string;
+        checks: Array<{ name: string; status: "pass" | "fail" | "info"; detail: string }>;
+      };
+    }>(`/projects/${projectId}/supabase/apply-and-verify`, { method: "POST" }),
 
   health: () =>
     request<{

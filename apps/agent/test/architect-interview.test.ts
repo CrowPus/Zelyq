@@ -185,6 +185,96 @@ test("a write outside the package is still refused", async () => {
   }
 });
 
+test("an interview turn that writes nothing is sent back to create requirements.md", async () => {
+  // The model asks a question and ends the turn with no tool call. Because
+  // architecture/requirements.md does not exist yet, the session forces it
+  // back to write the file in the same turn before the reply lands.
+  const { base, workspaceDir, projectId, close } = await setup([
+    say("Great brief. **Question — deletion:** hard or soft delete for v1?"),
+    {
+      events: [text("recording what we have")],
+      result: {
+        toolCalls: [
+          {
+            id: "wr",
+            name: "write_file",
+            input: {
+              path: "architecture/requirements.md",
+              content: "# Requirements\n## Settled\n- A chat app.\n## Open\n- deletion semantics\n",
+            },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("recorded — now, hard or soft delete?"),
+  ]);
+  try {
+    await turn(base, "build me a small chat app, ChatGPT-style, Supabase backend");
+    await fs.access(path.join(workspaceDir, projectId, "architecture/requirements.md"));
+  } finally {
+    await close();
+  }
+});
+
+test("'package ready' over a package missing topology.json is sent back to finish it", async () => {
+  const bigDesign = `Designed from first principles\n${"# section\nreal content line.\n".repeat(20)}`;
+  const topo = JSON.stringify({
+    layers: [
+      { id: "c", label: "Client" },
+      { id: "d", label: "Data" },
+    ],
+    nodes: [
+      { id: "app", label: "App", layer: "c" },
+      { id: "db", label: "DB", layer: "d" },
+    ],
+    edges: [{ from: "app", to: "db" }],
+  });
+  const { base, workspaceDir, projectId, close } = await setup([
+    // Turn 1: declares ready with no tool call — package is missing topology.json.
+    say("Architecture package ready: a small chat app."),
+    // Turn 1 continued (after the nudge): writes topology.json.
+    {
+      events: [text("adding the system design")],
+      result: {
+        toolCalls: [
+          {
+            id: "t",
+            name: "write_file",
+            input: { path: "architecture/topology.json", content: topo },
+          },
+        ],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 5, outputTokens: 5 },
+      },
+    },
+    say("Architecture package ready: a small chat app."),
+  ]);
+  // Everything the completeness gate needs EXCEPT topology.json.
+  const dir = path.join(workspaceDir, projectId, "architecture");
+  await fs.mkdir(path.join(dir, "decisions"), { recursive: true });
+  await fs.writeFile(path.join(dir, "decisions", "0001-stack.md"), "# 0001\nchoice.\n");
+  for (const [f, body] of [
+    ["requirements.md", "# reqs\nsettled: a chat app.\n"],
+    ["data-model.md", "# data\none table.\n"],
+    ["api.md", "# api\none query.\n"],
+    ["DESIGN.md", bigDesign],
+    ["infrastructure.md", "# infra\nstatic host.\n"],
+    ["build-plan.md", "# plan\n## Task 1\n- do it.\n## Definition of Done\n- builds.\n"],
+    ["build-context.md", "# ctx\nReact + Vite.\n"],
+    ["risks.md", "# risks\nnone.\n"],
+  ] as const) {
+    await fs.writeFile(path.join(dir, f), body);
+  }
+  try {
+    await turn(base, "the plan is approved, finalize it");
+    await fs.access(path.join(dir, "topology.json"));
+  } finally {
+    await close();
+  }
+});
+
 test("a stop turn still lets the Architect record where things stand", async () => {
   // "stop" does not freeze writing — the Architect can still note the state
   // or drop a handoff brief into requirements.md. Only dispatch is barred.

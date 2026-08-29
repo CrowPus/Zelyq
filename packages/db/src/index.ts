@@ -4,6 +4,7 @@ import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { messageRepository } from "./repositories/messages.js";
 import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
 import { projectRepository } from "./repositories/projects.js";
+import { providerConnectionRepository } from "./repositories/provider-connections.js";
 import { sessionRepository } from "./repositories/sessions.js";
 import { settingsRepository } from "./repositories/settings.js";
 import { snapshotRepository } from "./repositories/snapshots.js";
@@ -17,6 +18,7 @@ export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
 export type { MessageRepository } from "./repositories/messages.js";
 export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
 export type { ProjectRepository } from "./repositories/projects.js";
+export type { ProviderConnectionRepository } from "./repositories/provider-connections.js";
 export type { SessionRepository } from "./repositories/sessions.js";
 export type { SettingsRepository } from "./repositories/settings.js";
 export type { SnapshotRepository } from "./repositories/snapshots.js";
@@ -36,6 +38,7 @@ export interface Store extends DatabaseHandle {
   snapshots: ReturnType<typeof snapshotRepository>;
   settings: ReturnType<typeof settingsRepository>;
   auditLog: ReturnType<typeof auditLogRepository>;
+  providerConnections: ReturnType<typeof providerConnectionRepository>;
 }
 
 /**
@@ -57,5 +60,6 @@ export function createStore(url: string): Store {
     snapshots: snapshotRepository(handle.db),
     settings: settingsRepository(handle.db),
     auditLog: auditLogRepository(handle.db),
+    providerConnections: providerConnectionRepository(handle.db),
   };
 }

@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { AttachmentRef, Message, ToolCall } from "@zelyq/core";
 import {
+  ArrowRight,
   ArrowUp,
   ChevronRight,
   CircleAlert,
@@ -21,6 +22,7 @@ import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import type { AgentActivity, ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
+import { continueLabel, detectContinuePrompt } from "../lib/continuePrompt";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import { findSlashCommand, matchByPrefix, replaceSlashCommand } from "../lib/slash-menu";
@@ -309,6 +311,19 @@ export function ChatPanel({
     textareaRef.current?.focus();
   }
 
+  /** Send a bare word to carry the turn on — the "Continue" button below the
+   * conversation. Same mode flags as a typed message, nothing else attached. */
+  function continueTurn(word: string) {
+    if (chat.busy || uploading > 0 || voiceState !== "idle") return;
+    chat.send(word, {
+      ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
+      ...(engineerMode ? { engineerMode: true } : {}),
+      ...(architectMode ? { architectMode: true } : {}),
+      ...(architectMode && autoMode ? { autoMode: true } : {}),
+    });
+    textareaRef.current?.focus();
+  }
+
   async function attachFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
     setUploadError(null);
@@ -548,6 +563,26 @@ export function ChatPanel({
               />
             )}
           </div>
+
+          {(() => {
+            if (chat.busy || chat.streaming || !canEdit) return null;
+            const last = chat.messages[chat.messages.length - 1];
+            if (!last || last.role !== "assistant") return null;
+            const word = detectContinuePrompt(last.content);
+            if (!word) return null;
+            return (
+              <div className="mx-3 my-3 flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => continueTurn(word)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+                >
+                  <ArrowRight size={13} strokeWidth={2} />
+                  {continueLabel(word)}
+                </button>
+              </div>
+            );
+          })()}
 
           {chat.error && (
             <p className="mx-3 my-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs break-words text-danger">
