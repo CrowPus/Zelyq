@@ -29,7 +29,7 @@ live.
 <a href="assets/screenshots/aura.mp4">
   <img src="assets/screenshots/aura-studio.png" alt="AURA STUDIO: a full Shopify-style commerce admin — analytics, a discount engine, live theme customization, multi-currency settings, and order management — built by the Zelyq agent from one prompt" width="900" />
 </a>
-
+https://github.com/user-attachments/assets/3debd0aa-6858-4017-a40f-feb6f293b9ef
 <sub><a href="assets/screenshots/aura.mp4">▶ Watch it happen</a> — one prompt in, and the agent
 built a working commerce admin: analytics dashboard, discount engine, live theme customizer,
 multi-currency and tax settings, and an encrypted checkout simulation, across 8 files, with its own
