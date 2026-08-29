@@ -6,6 +6,8 @@
 
 **Vibecoding writes code. Zelyq builds like an engineer.**
 
+### [Try it live → zelyq.com](https://zelyq.com)
+
 <video src="https://github.com/user-attachments/assets/3debd0aa-6858-4017-a40f-feb6f293b9ef" autoplay loop muted playsinline controls width="900"></video>
 
 <sub>▶ Watch it happen — one prompt in, and the agent built a working commerce admin: analytics, a discount engine, a live theme customizer, multi-currency and tax settings, and an encrypted checkout simulation, with its own typecheck and preview passing before it called the turn done.</sub>
@@ -35,7 +37,7 @@ live.
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.base.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](./CONTRIBUTING.md)
 
-[Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
+[Live demo](https://zelyq.com) · [Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
 [How it works](#how-it-works) · [Modes](./docs/modes.md) · [Architecture](./docs/architecture.md) ·
 [Configuration](./docs/configuration.md) · [Self-hosting](./docs/self-hosting.md) ·
 [Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
