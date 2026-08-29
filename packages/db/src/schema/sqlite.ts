@@ -241,8 +241,8 @@ export const auditLog = sqliteTable(
 );
 
 /**
- * Proposal 058 · Phase A — an instance-wide connection to an external backend
- * provider (Supabase in Phase A), managed from Settings alongside the model
+ * An instance-wide connection to an external backend
+ * provider (Supabase, for now), managed from Settings alongside the model
  * API keys. The credential lives in `encryptedBlob`, `SecretBox`-encrypted;
  * it is only ever decrypted inside the server's connection service, never
  * handed to the agent, a tool, or a project runtime.
@@ -251,7 +251,7 @@ export const providerConnections = sqliteTable(
   "provider_connections",
   {
     id: text("id").primaryKey(),
-    /** Only `"supabase"` in Phase A. */
+    /** Only `"supabase"` for now. */
     provider: text("provider").notNull(),
     /** `"oauth"` | `"pat"`. */
     credentialType: text("credential_type").notNull(),
@@ -310,7 +310,7 @@ export const providerResources = sqliteTable(
   }),
 );
 
-/** One provider resource linked to one Zelyq project (Phase A: at most one). */
+/** One provider resource linked to one Zelyq project (for now: at most one). */
 export const projectProviderLinks = sqliteTable(
   "project_provider_links",
   {

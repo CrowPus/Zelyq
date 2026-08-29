@@ -201,7 +201,7 @@ The session cookie is marked `Secure` automatically when the request arrives ove
 it does not — so sign-in still works on a plain-HTTP instance without silently sending the cookie in
 the clear where TLS is available.
 
-### Supabase integration (proposal 058, Phase A)
+### Supabase integration
 
 A team can connect a Supabase account so a project's preview points at a real backend. The
 Management credential (OAuth token or Personal Access Token) is encrypted with the same key as

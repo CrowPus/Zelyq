@@ -172,7 +172,7 @@ export const createAgentSessionSchema = z.object({
   /** Prior turns, so a restarted agent can resume a conversation. */
   history: z.array(messageSchema).optional(),
   /**
-   * 058 · Phase C — when this project has a linked Supabase resource, the
+   * When this project has a linked Supabase resource, the
    * server hands the agent a short-lived capability to apply migrations and
    * verify the backend *through the server*. The agent never receives the
    * Management credential itself. Absent when nothing is linked.

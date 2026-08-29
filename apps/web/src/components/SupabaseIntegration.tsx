@@ -5,7 +5,7 @@ import { api, type SupabaseResource } from "../lib/api";
 import { Badge, Button, Input, Spinner } from "./ui";
 
 /**
- * Proposal 058 · Phase A. Instance-admin surface (Settings) for connecting
+ * Instance-admin surface (Settings) for connecting
  * Supabase, adding a project resource, and linking Zelyq projects to it. The
  * Management credential is handled entirely server-side — this UI never sees a
  * token, only the public project URL + publishable key on a linked resource.

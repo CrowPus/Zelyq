@@ -59,7 +59,7 @@ export class AgentClient {
     /** Anthropic only — the workspace id for an identity-linked key. */
     anthropicWorkspaceId?: string;
     history?: Message[];
-    /** 058 · Phase C — capability to apply Supabase migrations via the server. */
+    /** Capability to apply Supabase migrations via the server. */
     supabaseBridge?: { url: string; token: string };
     /** Public Supabase config (URL + publishable key) for the preview. */
     supabasePreviewEnv?: Record<string, string>;
@@ -126,7 +126,7 @@ export class AgentClient {
     /** Anthropic only — the workspace id for an identity-linked key. */
     anthropicWorkspaceId?: string;
     history?: Message[];
-    /** 058 · Phase C — capability to apply Supabase migrations via the server. */
+    /** Capability to apply Supabase migrations via the server. */
     supabaseBridge?: { url: string; token: string };
     /** Public Supabase config (URL + publishable key) for the preview. */
     supabasePreviewEnv?: Record<string, string>;

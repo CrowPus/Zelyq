@@ -133,7 +133,7 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   come back `isError: true` with what actually happened, not a review.
   A turn that hits its iteration cap having edited files runs the
   verification check and leads the fallback with the breakage.
-- **The Cinematic engineer's asset gate** (proposal 061). Its write scope
+- **The Cinematic engineer's asset gate.** Its write scope
   is client UI + `public/cinematic/**` + the gitignored repo-root
   `cinematic/**` staging + `CINEMATIC.md`; its `run_command` is scoped
   (`SpecialistConfig.cmdDeny` — `ffmpeg`-class work yes, git/network no);
@@ -161,7 +161,7 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   in the Architect and Engineer prompts; its observable MUSTs are a gate
   block in the verifier and Designer checklists and in Engineer Mode's
   auto-verification. `/health` reports the loaded slugs.
-- **AI-backed features** (proposal 060) — building anything that calls an LLM
+- **AI-backed features** — building anything that calls an LLM
   (chatbot, extractor, agent, classifier, generator; not chat-specific).
   `ai-providers/` loads like `design-md/` (bundled + `ZELYQ_AI_PROVIDERS_DIR`);
   its catalog + `Agent.md` render as `<ai_providers>` in the Architect and

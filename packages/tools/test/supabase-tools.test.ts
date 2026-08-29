@@ -8,7 +8,7 @@ import {
 import type { ToolContext } from "../src/types.js";
 
 /**
- * 058 · Phase C — the migration tools call the Zelyq server through the
+ * The migration tools call the Zelyq server through the
  * session bridge. With no bridge on the context (no Supabase linked) they
  * refuse cleanly instead of doing anything.
  */

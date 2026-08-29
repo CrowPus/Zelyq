@@ -44,7 +44,7 @@ test("architect mode on adds the addendum with the interview, the package, the c
   assert.match(prompt, /Everything in <scope>, <quality>, and <communication> above still applies/);
 });
 
-test("architect mode teaches the Supabase backend path — interview topic, backend.md, backend DoD (058 Phase B)", () => {
+test("architect mode teaches the Supabase backend path — interview topic, backend.md, backend DoD", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", architectMode: {} });
   // The interview asks whether a backend is needed, and names Supabase as the only one.
   assert.match(prompt, /saved data, user accounts, or any backend/i);

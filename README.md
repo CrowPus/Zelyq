@@ -116,8 +116,8 @@ not just this one file, the whole <code>architecture/</code> package on the left
 
 <table>
 <tr>
-<td width="50%"><img src="assets/screenshots/resturant.png" alt="A restaurant table-booking system built by the Zelyq agent — guest mobile ordering menu with dietary filters and allergen labels — as the build left it: working, but with flat white cards and no consistent visual system" /></td>
-<td width="50%"><img src="assets/screenshots/resturant-after.png" alt="The same restaurant ordering menu after the Designer agent applied its DESIGN.md — a coherent dark surface system, the amber accent carried through consistently, real card elevation, and tighter typography" /></td>
+<td width="50%"><img src="assets/screenshots/restaurant.png" alt="A restaurant table-booking system built by the Zelyq agent — guest mobile ordering menu with dietary filters and allergen labels — as the build left it: working, but with flat white cards and no consistent visual system" /></td>
+<td width="50%"><img src="assets/screenshots/restaurant-after.png" alt="The same restaurant ordering menu after the Designer agent applied its DESIGN.md — a coherent dark surface system, the amber accent carried through consistently, real card elevation, and tighter typography" /></td>
 </tr>
 <tr>
 <td align="center"><sub><b>Before</b> — the build, verified and running. Same restaurant system: guest ordering,

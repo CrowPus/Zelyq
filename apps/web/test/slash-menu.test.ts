@@ -17,7 +17,7 @@ test("a slash at the very start still works — the original, narrower behaviour
 });
 
 test("a slash in the middle of the message is found — the actual bug this fixes", () => {
-  // The founder's own example: typed after other words, not at the start.
+  // A real-world example: typed after other words, not at the start.
   const text = "design my website /shad";
   const result = findSlashCommand(text, text.length);
   assert.deepEqual(result, { query: "shad", start: text.indexOf("/"), end: text.length });

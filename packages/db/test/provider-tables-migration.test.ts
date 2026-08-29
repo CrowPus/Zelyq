@@ -7,7 +7,7 @@ import { createClient } from "@libsql/client";
 import { runMigrations } from "../src/index.js";
 
 /**
- * 058: the four provider_* tables were reshaped (the connection went
+ * The four provider_* tables were reshaped (the connection went
  * instance-wide, losing `team_id`) via migration 0010. This proves 0010
  * lands the final shape both on a fresh database and on one that already
  * ran the earlier team-scoped 0009.

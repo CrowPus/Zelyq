@@ -63,7 +63,7 @@ export interface PreviewRecord {
   /** Which Zelyq process spawned it. Useful when reading these by hand. */
   ownerPid: number;
   /**
-   * 058 · Phase A — a fingerprint of the public Supabase env the preview was
+   * A fingerprint of the public Supabase env the preview was
    * started with (URL + publishable key), so a re-link is detected and the
    * dev server restarted. Absent for a preview started without a linked
    * backend. Public values only; never a credential.
@@ -340,7 +340,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   // -------------------------------------------------------------------------
 
   async startPreview(projectId: string, options: PreviewOptions = {}): Promise<Preview> {
-    // 058 · Phase A — the caller (a preview route or the agent tool) may pass a
+    // The caller (a preview route or the agent tool) may pass a
     // linked project's public Supabase config in `options.env`. A running
     // preview started with different values is stale: linking or re-linking a
     // backend has to actually reach the dev server, so restart when it changes.

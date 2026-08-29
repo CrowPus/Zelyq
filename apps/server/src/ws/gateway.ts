@@ -56,7 +56,7 @@ export class ChatGateway {
     private readonly settings: SettingsService,
     private readonly attachments: AttachmentService,
     private readonly log: { info(msg: string): void; error(obj: unknown, msg?: string): void },
-    /** 058 · Phase C — Supabase bridge (agent applies migrations via the server). */
+    /** Supabase bridge (agent applies migrations via the server). */
     private readonly supabase: {
       bridge: SupabaseBridge;
       resolvePreviewEnv: PreviewEnvResolver;
@@ -306,7 +306,7 @@ export class ChatGateway {
       // same way model/provider already are.
       const effort = await this.settings.value("effort");
 
-      // 058 · Phase C — if this project has a linked Supabase resource, hand
+      // If this project has a linked Supabase resource, hand
       // the agent a session-scoped capability to apply migrations through the
       // server, plus the project's PUBLIC config for its preview. No secret.
       const [bridgeToken, supabasePreviewEnv] = await Promise.all([

@@ -22,7 +22,7 @@ import type {
   User,
 } from "@zelyq/core";
 
-/** Supabase integration (proposal 058, Phase A) — response shapes. */
+/** Supabase integration — response shapes. */
 export interface SupabaseConnection {
   id: string;
   credentialType: "oauth" | "pat";
@@ -175,7 +175,7 @@ export const api = {
 
   auditLog: (teamId: string) => request<{ entries: AuditLogEntry[] }>(`/teams/${teamId}/audit-log`),
 
-  // — Supabase integration (proposal 058, Phase A) —
+  // — Supabase integration —
 
   supabaseConfig: () => request<{ oauthConfigured: boolean }>("/integrations/supabase/config"),
 

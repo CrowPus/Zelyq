@@ -8,7 +8,7 @@ import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 
 /**
- * Proposal 058 · Phase A — route-level authorization. The Supabase connection
+ * Route-level authorization. The Supabase connection
  * is instance-wide (Settings), so its routes require the instance
  * administrator. The service logic is covered in `supabase-connections.test.ts`.
  */

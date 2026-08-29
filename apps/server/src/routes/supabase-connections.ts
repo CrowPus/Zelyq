@@ -5,7 +5,7 @@ import type { AccessControl } from "../services/access.js";
 import type { SupabaseConnectionService } from "../services/supabase-connections.js";
 
 /**
- * Proposal 058 · Phase A routes.
+ * Supabase connection routes.
  *
  * The Supabase connection is **instance-wide**, managed from Settings next to
  * the model API keys — so connect / list / link-resource / provision / delete
@@ -169,7 +169,7 @@ export function registerSupabaseConnectionRoutes(
 
   // Apply the project's `supabase/migrations/*.sql` to its linked development
   // resource, then run the backend verification checks. Explicit user action —
-  // the "applying a mutation" consent point from 058 rev 2 §3.
+  // the "applying a mutation" consent point.
   app.post<{ Params: { id: string } }>(
     "/api/projects/:id/supabase/apply-and-verify",
     async (request) => {

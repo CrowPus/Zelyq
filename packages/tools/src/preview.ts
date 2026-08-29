@@ -13,7 +13,7 @@ export const startPreviewTool = defineTool({
   async run(context, input): Promise<ToolResult> {
     if (input.restart) await context.runtime.stopPreview(context.projectId);
 
-    // 058 · Phase C — when a Supabase resource is linked, the running app needs
+    // When a Supabase resource is linked, the running app needs
     // its public URL + publishable key. The runtime restarts the dev server if
     // these differ from what it was last started with.
     const env = context.supabasePreviewEnv;

@@ -15,7 +15,7 @@ import {
 } from "../src/services/supabase-connections.js";
 
 /**
- * Proposal 058 · Phase A. These tests are the load-bearing ones: the Management
+ * These tests are the load-bearing ones: the Management
  * credential must never leave the service — not in a preview env, not in an
  * audit row, not in a summary — and consent gates must hold.
  */
@@ -338,7 +338,7 @@ test("getLinkedResource returns nothing once the connection is revoked", async (
   assert.equal(await svc.getLinkedResource(project.id), null);
 });
 
-// ──────────────────────── applyMigration (058 Phase C) ───────────────────────
+// ──────────────────────── applyMigration (build-agent bridge) ────────────────
 
 async function linkedProject(
   suffix: string,
@@ -438,7 +438,7 @@ test("applyMigration refuses the same name with changed content (drift)", async 
   );
 });
 
-// ──────────────────────── backendVerification (058 Phase C) ──────────────────
+// ──────────────────────── backendVerification (build-agent bridge) ───────────
 
 /**
  * The verification does, in order: three `/database/query` POSTs (pg_tables,

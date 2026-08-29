@@ -9,7 +9,7 @@ import {
 } from "../schema/sqlite.js";
 
 /**
- * Proposal 058 · Phase A. All persistence for the instance-wide external-backend
+ * All persistence for the instance-wide external-backend
  * connection lives here. The stored `encryptedBlob` is opaque to this layer —
  * it is only ever decrypted inside `SupabaseConnectionService`.
  */
