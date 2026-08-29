@@ -7,7 +7,13 @@ import {
   searchFilesTool,
   writeFileTool,
 } from "./files.js";
-import { designPassTool, dispatchTaskTool, opsPassTool, qaPassTool } from "./orchestrate.js";
+import {
+  cinematicPassTool,
+  designPassTool,
+  dispatchTaskTool,
+  opsPassTool,
+  qaPassTool,
+} from "./orchestrate.js";
 import { previewLogsTool, startPreviewTool, viewPreviewTool } from "./preview.js";
 import { runCommandTool } from "./shell.js";
 import {
@@ -19,6 +25,7 @@ import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
 
 export * from "./types.js";
 export {
+  cinematicPassTool,
   deleteFileTool,
   designPassTool,
   dispatchTaskTool,

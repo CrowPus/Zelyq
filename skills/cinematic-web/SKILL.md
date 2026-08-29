@@ -108,6 +108,7 @@ Read `references/performance.md` and `references/accessibility.md`.
 
 ### 6. Select a known pattern
 Load only the recipe needed:
+- `recipes/scroll-video-scrub.md` — supplied footage painted on a DOM canvas as scroll progresses (the common "hero plays as you scroll"; no WebGL)
 - `recipes/product-reveal.md`
 - `recipes/camera-dolly.md`
 - `recipes/orbit-sequence.md`

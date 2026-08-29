@@ -115,23 +115,44 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   tools, walks the running app, returns a checklist), or one of three
   **specialists** (`SPECIALISTS[kind]` config): the **Designer**
   (`design: true` / `design_pass`), the **DevOps agent** (`ops: true` /
-  `ops_pass`), or the **Security/QA agent** (`qa: true` / `qa_pass`).
+  `ops_pass`), the **Security/QA agent** (`qa: true` / `qa_pass`), or the
+  **Cinematic engineer** (`cinematic: true` / `cinematic_pass` — Engineer
+  Mode only in practice).
   Each specialist gets its own `*_SYSTEM_PROMPT`, tool set, injected skill
   bodies, and a **structural write allowlist** enforced in the child via
   `SessionOptions.writeAllowlist` (plus `installAllowlist` — empty means no
   `npm install`, and the DevOps agent's `package.json` access is checked
-  down to the `scripts` block). Caps 40 turns / 600k tokens / 18 min,
-  strong model by default. A child's notable steps are forwarded to the
-  parent's stream as `agent.activity` events; the web renders them as a
-  labelled sub-thread.
+  down to the `scripts` block). Caps 40 turns / 600k tokens / 18 min by
+  default, or a per-kind override on `SpecialistConfig`
+  (`maxTurns?/maxTokens?/wallclockMs?` — the Cinematic engineer runs
+  50 / 800k / 25 min); strong model by default. A child's notable steps are
+  forwarded to the parent's stream as `agent.activity` events; the web
+  renders them as a labelled sub-thread.
 - **Honesty gates** on a specialist pass (the `if (spec)` return branch):
   0 files, or only the owned spec file, or work-with-no-spec-file each
   come back `isError: true` with what actually happened, not a review.
   A turn that hits its iteration cap having edited files runs the
   verification check and leads the fallback with the breakage.
+- **The Cinematic engineer's asset gate** (proposal 061). Its write scope
+  is client UI + `public/cinematic/**` + the gitignored repo-root
+  `cinematic/**` staging + `CINEMATIC.md`; its `run_command` is scoped
+  (`SpecialistConfig.cmdDeny` — `ffmpeg`-class work yes, git/network no);
+  and `SpecialistConfig.newFileCheckpointExempt` excludes
+  `public/cinematic/**` from Engineer Mode's 6-new-file checkpoint so
+  `ffmpeg`'s bulk frame output cannot freeze the turn. When the footage is
+  not already in `cinematic/<slug>/`, the child writes `SOURCE.md`, a
+  `.gitkeep`, and a draft `CINEMATIC.md`, then opens a line of its reply
+  with the `ASSETS NEEDED:` marker. The parent detects that (marker + 0
+  code files changed — the `cinematic/**` and `public/cinematic/**` trees
+  don't count as implementation) and returns a **PAUSED** result:
+  `isError: false`, relayed verbatim, no re-verify, `agent.activity` end
+  title "Waiting for footage". The user drops the file in and replies
+  `go`; the Engineer re-dispatches `cinematic_pass` and the child resumes.
 - **Pipeline** (Architect Mode §5): build → verify → DevOps (if the design
   is deployable) → design → re-verify → Security/QA → done. A FAIL /
-  NOT DONE / NOT CLEARED from any of them blocks "done".
+  NOT DONE / NOT CLEARED from any of them blocks "done". The Cinematic
+  engineer is **not** in this pipeline — it pauses for a human, so it is a
+  user-triggered Engineer-Mode pass only.
 - **Design references** (`apps/agent/src/design-refs.ts`) — `design-md/`
   loads like `skills/` (bundled + `ZELYQ_DESIGN_REFS_DIR`, operator wins).
   A slug+description catalog goes into the Architect's `DESIGN.md` step;

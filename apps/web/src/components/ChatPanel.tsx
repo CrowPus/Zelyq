@@ -7,6 +7,7 @@ import {
   CircleAlert,
   Compass,
   Crosshair,
+  Film,
   GraduationCap,
   HardHat,
   Infinity as InfinityIcon,
@@ -1252,8 +1253,18 @@ const SPECIALIST_LABEL: Record<AgentActivity["agent"], string> = {
   designer: "Designer agent",
   devops: "DevOps agent",
   security: "Security/QA agent",
+  cinematic: "Cinematic engineer",
   verifier: "Verifier agent",
   builder: "Builder agent",
+};
+
+const SPECIALIST_ICON: Record<AgentActivity["agent"], typeof Sparkles> = {
+  designer: Sparkles,
+  devops: Sparkles,
+  security: Sparkles,
+  cinematic: Film,
+  verifier: Sparkles,
+  builder: Sparkles,
 };
 
 function SpecialistActivity({ items }: { items: AgentActivity[] }) {
@@ -1262,11 +1273,12 @@ function SpecialistActivity({ items }: { items: AgentActivity[] }) {
   const steps = items.filter((i) => i.phase === "step");
   const endLine = items.find((i) => i.phase === "end");
   const startLine = items.find((i) => i.phase === "start");
+  const Icon = SPECIALIST_ICON[agent] ?? Sparkles;
 
   return (
     <div className="mb-2.5 rounded-md border border-border-default bg-surface-subtle px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-xs">
-        <Sparkles size={13} strokeWidth={2} className="shrink-0 text-fg-secondary" />
+        <Icon size={13} strokeWidth={2} className="shrink-0 text-fg-secondary" />
         <span className="font-medium text-fg-secondary">{SPECIALIST_LABEL[agent]}</span>
         {!ended && <StatusDot tone="warning" pulse />}
         <span className="min-w-0 flex-1 truncate text-fg-muted">

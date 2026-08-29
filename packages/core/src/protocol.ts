@@ -95,7 +95,8 @@ export const agentEventSchema = z.discriminatedUnion("type", [
   }),
 
   /**
-   * A named specialist child agent (the Designer, the verifier, a builder)
+   * A named specialist child agent (the Designer, the Cinematic engineer, the
+   * verifier, a builder)
    * doing something worth showing the user as a distinct,
    * labelled sub-thread. Forwarded from the child's own run up to the
    * parent's event stream. `messageId` is the parent assistant message the
@@ -107,7 +108,7 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     type: z.literal("agent.activity"),
     sessionId: z.string(),
     messageId: z.string(),
-    agent: z.enum(["designer", "devops", "security", "verifier", "builder"]),
+    agent: z.enum(["designer", "devops", "security", "cinematic", "verifier", "builder"]),
     phase: z.enum(["start", "step", "end"]),
     title: z.string(),
     detail: z.string().optional(),

@@ -236,6 +236,62 @@ dependency (it names it in the review).
 **`OPERATIONS.md` and `QA.md` are yours to steer**, the same as
 `DESIGN.md` — edit them and the next pass respects your version.
 
+### The Cinematic engineer
+
+Turns one screen into an intentional **scroll-driven experience** — a hero
+that scrubs supplied footage frame by frame as you scroll, a pinned product
+reveal, a horizontal story, a DOM↔canvas hand-off — and owns its scroll
+storyboard. Built to the `cinematic-web` skill: the simplest rendering mode
+that works (usually a DOM canvas, not WebGL), one coordinated motion system,
+real copy as semantic DOM, a deliberate mobile recomposition, reduced motion
+honoured.
+
+**When it runs:**
+- **Engineer Mode only, on request** — *"make the hero play as I scroll"*,
+  *"Apple-style scroll"*, *"scrollytelling"*, *"pin the hero and animate
+  it"*. The Engineer calls `cinematic_pass` on one screen. It is not in the
+  automatic Architect pipeline (a pass that pauses for a human cannot sit in
+  an unattended build); the Architect may note *"run a cinematic pass on the
+  hero after the build"* in the plan, and you trigger it.
+
+**The asset gate — it pauses and asks you for footage.** A cinematic hero
+*is* the footage, so the pass will not build against a placeholder. On the
+first call it:
+1. surveys the screen and decides what footage the effect needs;
+2. writes **`cinematic/<slug>/SOURCE.md`** — a plain-language checklist of
+   exactly what to provide (format, length, framing, resolution, frame
+   rate, what to name the file);
+3. writes a first-draft **`CINEMATIC.md`** with the storyboard and an
+   `## Assets — AWAITING` section;
+4. stops and returns **`ASSETS NEEDED`** — not an error, not "done".
+
+You drop your file into that folder (through the file tree / your workspace
+directory) and reply **`go`**. The pass resumes from the storyboard it
+already wrote, validates your file against `SOURCE.md` (and blocks again
+with a specific diff if it is the wrong shape — portrait when it needed
+landscape, 40 s when it needed 8), extracts and optimises the frames into
+`public/cinematic/<slug>/`, builds the scroll component, and returns a
+**CINEMATIC REVIEW** with screenshots at 0 / 25 / 50 / 75 / 100 % scroll.
+
+**What it will not touch.** Client UI files, `public/cinematic/**`, the
+repo-root `cinematic/**` staging folder, and `CINEMATIC.md` only — the
+server, the data model, routing structure, state, `.env`, CI,
+`package.json` (beyond an allowlisted motion/scroll library), and the rest
+of `architecture/` are refused. It adds no features, no routes, no new
+screens. Its shell runs `ffmpeg`-class asset work but no git and no network.
+
+**Raw footage stays out of git.** Only the optimised
+`public/cinematic/**` output is committed; the raw drop lives in the
+gitignored repo-root `cinematic/<slug>/` staging folder.
+
+**Honest outcomes.** A cinematic pass that changes nothing, or only writes
+`CINEMATIC.md`, or builds without a storyboard, comes back as "not done"
+with what actually happened. `ASSETS NEEDED` is a first-class **paused**
+state — reported as a pause, never as done.
+
+**`CINEMATIC.md` is yours to steer** — edit the storyboard and the next
+pass builds to your version.
+
 ---
 
 ## Which to use
@@ -248,5 +304,6 @@ dependency (it names it in the review).
 | …and you don't want to babysit the passes | Architect + Auto Mode |
 | The existing app to look professionally designed | Engineer Mode → *"make it look professionally designed"* |
 | CI / a Dockerfile / to make it deployable | Engineer Mode → *"set up CI"* / *"make this deployable"* |
+| A hero that plays as you scroll | Engineer Mode → *"make the hero play as I scroll"* (it will ask you for footage) |
 | A test suite and a security review | Engineer Mode → *"write tests"* / *"do QA"* |
 | To build it yourself from a plan | Architect Mode to plan, then Engineer Mode task by task |
