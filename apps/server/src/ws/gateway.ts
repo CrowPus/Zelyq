@@ -15,8 +15,10 @@ import type { WebSocket } from "ws";
 import type { AccessControl } from "../services/access.js";
 import type { AgentClient } from "../services/agent-client.js";
 import type { AttachmentService } from "../services/attachments.js";
+import type { PreviewEnvResolver } from "../services/preview-env.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
+import type { SupabaseBridge } from "../services/supabase-bridge.js";
 
 /** What a provider actually knows how to embed as an image. */
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -54,6 +56,12 @@ export class ChatGateway {
     private readonly settings: SettingsService,
     private readonly attachments: AttachmentService,
     private readonly log: { info(msg: string): void; error(obj: unknown, msg?: string): void },
+    /** 058 · Phase C — Supabase bridge (agent applies migrations via the server). */
+    private readonly supabase: {
+      bridge: SupabaseBridge;
+      resolvePreviewEnv: PreviewEnvResolver;
+      serverInternalUrl: string;
+    },
   ) {}
 
   /**
@@ -134,7 +142,7 @@ export class ChatGateway {
       return;
     }
 
-    await this.runTurn(room, message.message, {
+    await this.runTurn(room, connection.user.id, message.message, {
       provider: message.provider,
       model: message.model,
       attachmentIds: message.attachments,
@@ -148,6 +156,7 @@ export class ChatGateway {
 
   private async runTurn(
     room: Room,
+    userId: string,
     prompt: string,
     /** Picked from the chat's own model control, if at all. */
     override: {
@@ -297,6 +306,14 @@ export class ChatGateway {
       // same way model/provider already are.
       const effort = await this.settings.value("effort");
 
+      // 058 · Phase C — if this project has a linked Supabase resource, hand
+      // the agent a session-scoped capability to apply migrations through the
+      // server, plus the project's PUBLIC config for its preview. No secret.
+      const [bridgeToken, supabasePreviewEnv] = await Promise.all([
+        this.supabase.bridge.mint(room.sessionId, room.projectId, userId),
+        this.supabase.resolvePreviewEnv(room.projectId),
+      ]);
+
       const state = await this.agent.ensureSession({
         sessionId: room.sessionId,
         projectId: room.projectId,
@@ -310,6 +327,10 @@ export class ChatGateway {
         ...(authMode !== "api_key" ? { authMode } : {}),
         ...(baseUrl ? { baseUrl } : {}),
         ...(anthropicWorkspaceId ? { anthropicWorkspaceId } : {}),
+        ...(bridgeToken
+          ? { supabaseBridge: { url: this.supabase.serverInternalUrl, token: bridgeToken } }
+          : {}),
+        ...(Object.keys(supabasePreviewEnv).length > 0 ? { supabasePreviewEnv } : {}),
         // Everything except the message we just stored — that is the prompt.
         history: history.slice(0, -1),
       });

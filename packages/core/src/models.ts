@@ -270,6 +270,15 @@ export const auditActionSchema = z.enum([
   "team.member_added",
   "team.member_role_changed",
   "team.member_removed",
+  "provider.connected",
+  "provider.disconnected",
+  "provider.resource_linked",
+  "provider.resource_unlinked",
+  "provider.resource_provisioned",
+  "provider.resource_deleted",
+  "provider.auth_configured",
+  "provider.migration_applied",
+  "provider.function_deployed",
 ]);
 export type AuditAction = z.infer<typeof auditActionSchema>;
 

@@ -63,6 +63,37 @@ test("architect mode teaches the Supabase backend path — interview topic, back
   assert.match(prompt, /SECOND non-owning user/);
 });
 
+test("architect + engineer prompts carry the AI-provider integration path when the catalog is supplied (060)", () => {
+  const opts = {
+    projectName: "p",
+    template: "vite-react",
+    aiProviderCatalogText: "- openai: OpenAI GPT family\n- anthropic: Claude",
+    aiProvidersAgentMd: "## MUST\n- key lives in Supabase, never the browser",
+  };
+  const arch = buildSystemPrompt({ ...opts, architectMode: {} });
+  assert.match(arch, /<ai_providers>/);
+  assert.match(arch, /use_ai_provider\("<slug>"\)/);
+  assert.match(arch, /ai_credentials/);
+  assert.match(arch, /- openai: OpenAI GPT family/);
+  assert.match(arch, /key lives in Supabase/);
+  // ai.md is a package file and appears in the required list + DoD.
+  assert.match(arch, /- `ai\.md`/);
+  assert.match(arch, /and `ai\.md` whenever it uses a language model/);
+  assert.match(arch, /If `ai\.md` exists:/);
+
+  const eng = buildSystemPrompt({ ...opts, engineerMode: {} });
+  assert.match(eng, /<ai_providers>/);
+  assert.match(eng, /supabase_deploy_function/);
+  assert.match(eng, /Settings page/);
+  assert.match(eng, /NOT in the sidebar/);
+
+  // The populated section is absent when no catalog is supplied (the prompt
+  // prose still mentions the `<ai_providers>` tag by name — match the rendered
+  // block, not the bare string).
+  const bare = buildSystemPrompt({ projectName: "p", template: "vite-react", architectMode: {} });
+  assert.doesNotMatch(bare, /\n<ai_providers>\nWhen the project calls a language model/);
+});
+
 test("architect mode has the Phase 2 resume/drift-review path — read README first, supersede, don't fix", () => {
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react", architectMode: {} });
   assert.match(prompt, /is there already a package here\?/i);

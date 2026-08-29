@@ -84,9 +84,13 @@ export function ProjectEditorPage() {
       if (selectedPath && paths.includes(selectedPath)) {
         queryClient.invalidateQueries({ queryKey: ["file", id, selectedPath] });
       }
-      // Architect Mode writes architecture/report.html at the end of a run.
+      // Architect Mode writes architecture/report.html and topology.json
+      // during a run. Both Plan-panel queries must refresh — the topology one
+      // especially, since it 404s (and, with retry:false, stays failed) if the
+      // panel first queried it before the Architect had written the file.
       if (paths.some((p) => p.startsWith("architecture/"))) {
         queryClient.invalidateQueries({ queryKey: ["plan", id] });
+        queryClient.invalidateQueries({ queryKey: ["topology", id] });
       }
       setReloadToken((token) => token + 1);
     },

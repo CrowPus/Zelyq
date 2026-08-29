@@ -102,6 +102,8 @@ const ARCHITECT_PACKAGE_FILES = new Set([
   "architecture/DESIGN.md",
   // The system design as structured data — rendered as the live diagram.
   "architecture/topology.json",
+  // 060 — the AI-integration spec, when the design uses a language model.
+  "architecture/ai.md",
   // Specialist-owned specs the Architect first-drafts when they apply.
   "architecture/OPERATIONS.md",
   "architecture/QA.md",
@@ -283,6 +285,11 @@ export interface SessionOptions {
    * `agentMd` appended to their system prompt as a gate. */
   designRefCatalogText?: string;
   agentMd?: string;
+  /** 060 — the AI provider knowledge catalog (one line per provider) and the
+   * integration MUST/SHOULD/NEVER rules. Rendered as `<ai_providers>` in the
+   * Architect and Engineer prompts; a lean specialist child does not get it. */
+  aiProviderCatalogText?: string;
+  aiProvidersAgentMd?: string;
   /** Auto Mode. Only honoured with `architectMode`. */
   autoMode?: boolean;
   /** The lean builder profile. A dispatched builder runs with a compact
@@ -320,6 +327,7 @@ const BUILDER_TOOL_NAMES = [
   // when it is, the backend builder applies its migration itself.
   "supabase_apply_migration",
   "supabase_verify_backend",
+  "supabase_deploy_function",
 ];
 
 // The verifier dispatch gets the preview and page-inspection tools back on
@@ -1024,7 +1032,11 @@ export class AgentSession {
     const leanBuilder = Boolean(options.systemPrompt && options.toolNames);
     // 058 · Phase C — the Supabase migration tools only make sense when a
     // resource is linked (they refuse otherwise). Hide them when it is not.
-    const SUPABASE_TOOL_NAMES = new Set(["supabase_apply_migration", "supabase_verify_backend"]);
+    const SUPABASE_TOOL_NAMES = new Set([
+      "supabase_apply_migration",
+      "supabase_verify_backend",
+      "supabase_deploy_function",
+    ]);
     const supabaseLinked = Boolean(options.supabaseBridge);
     const toolPool = (
       leanBuilder
@@ -1057,6 +1069,12 @@ export class AgentSession {
               ...(options.agentMd ? { agentMd: options.agentMd } : {}),
               ...(options.designRefCatalogText
                 ? { designRefCatalogText: options.designRefCatalogText }
+                : {}),
+              ...(options.aiProviderCatalogText
+                ? { aiProviderCatalogText: options.aiProviderCatalogText }
+                : {}),
+              ...(options.aiProvidersAgentMd
+                ? { aiProvidersAgentMd: options.aiProvidersAgentMd }
                 : {}),
               ...(options.engineerMode
                 ? { engineerMode: { skill: options.engineerModeSkill } }
@@ -1694,6 +1712,17 @@ export class AgentSession {
     // thing" nudge has already been injected this turn. One-shot, so a model
     // that stays empty even with guidance ends the turn instead of looping.
     let emptyRecoveryDone = false;
+    // Architect Mode: how many times this turn we have made the model go back
+    // and write `architecture/requirements.md` before ending a turn in which
+    // it interviewed but recorded nothing. Prompt guidance ("write it as you
+    // learn") is not reliable across models — some will hold a five-question
+    // interview and never touch a file. Capped so a model that cannot write
+    // still ends the turn.
+    let requirementsNudges = 0;
+    // Architect Mode: how many times this turn we have sent the model back to
+    // finish an incomplete package (a required file missing or a stub) before
+    // letting it wrap up. Capped so a model that keeps stalling still ends.
+    let packageNudges = 0;
     // A turn that keeps calling tools every iteration never reaches either
     // check above, or the loop's normal exit — it just falls out when
     // `iteration` reaches `maxIterations`, whatever `assistantText` holds at
@@ -1996,6 +2025,53 @@ export class AgentSession {
                 '" line now. Never reply with nothing — do the smaller thing.',
             );
             continue;
+          }
+
+          // Architect Mode: the model interviewed (it produced text) but there
+          // is still no `architecture/requirements.md` on disk. That file is a
+          // deliverable from the first substantive exchange — a five-question
+          // interview that writes nothing is the failure this catches. Send it
+          // back to write the file, in this same turn, before it replies.
+          if (
+            this.options.architectMode &&
+            requirementsNudges < 2 &&
+            !anyFileChangedThisTurn &&
+            assistantText.trim().length > 0 &&
+            (await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}requirements.md`)) === null
+          ) {
+            requirementsNudges += 1;
+            this.conversation.addUserMessage(
+              "You replied without recording anything. `architecture/requirements.md` still does not " +
+                "exist. Write it NOW — everything you have learned and every decision taken so far, " +
+                "structured, with a short 'settled / open' list at the top — then continue. It is a " +
+                "deliverable from the first exchange, not something you write up at the end. Do not " +
+                "send another message until that file is written.",
+            );
+            continue;
+          }
+
+          // Architect Mode: the model is wrapping up the package (a build plan
+          // exists, or it wrote the "ready" line) but the package is not
+          // actually complete — a required file is missing or a stub. Send it
+          // back with the exact list, in this same turn. Prompt guidance that
+          // a file is "required" does not hold on its own across models.
+          if (
+            this.options.architectMode &&
+            packageNudges < 3 &&
+            assistantText.trim().length > 0 &&
+            ((await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}build-plan.md`)) !== null ||
+              assistantText.includes(ARCHITECT_READY_MARKER))
+          ) {
+            const state = await this.architecturePackageState();
+            if (!state.ready) {
+              packageNudges += 1;
+              this.conversation.addUserMessage(
+                `The package is not finished: ${state.reason} Write what is missing NOW, fully and ` +
+                  "for real (no stubs, no placeholders), then continue. Do not present the plan or " +
+                  `write the "${ARCHITECT_READY_MARKER}" line until every required file exists.`,
+              );
+              continue;
+            }
           }
 
           stoppedByBreak = true;
@@ -2557,10 +2633,13 @@ export class AgentSession {
 
       // Record the turn on which the Architect first declared the package
       // ready. dispatch_task then needs a *later* user turn before it fires.
+      // Only honoured when the package actually IS complete — a "ready" line
+      // over a package still missing a required file does not count.
       if (
         this.options.architectMode &&
         this.readyDeclaredAtTurn === null &&
-        assistantText.includes(ARCHITECT_READY_MARKER)
+        assistantText.includes(ARCHITECT_READY_MARKER) &&
+        (await this.architecturePackageState()).ready
       ) {
         this.readyDeclaredAtTurn = this.turns;
       }
@@ -2842,17 +2921,34 @@ export class AgentSession {
           "model the real runtime (layers, nodes, edges) before dispatching.",
       };
     }
-    // A Supabase design needs its backend spec. If the package talks about
-    // Supabase anywhere load-bearing and there is no backend.md, it is not done.
-    if (!files.has(`${ARCHITECT_WRITE_ROOT}backend.md`)) {
-      const reqs = (await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}requirements.md`)) ?? "";
-      const dataModel = (await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}data-model.md`)) ?? "";
-      if (/\bsupabase\b/i.test(reqs) || /\bsupabase\b/i.test(dataModel)) {
+    const reqs = (await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}requirements.md`)) ?? "";
+    const dataModel = (await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}data-model.md`)) ?? "";
+    // A Supabase design needs its backend spec.
+    if (
+      !files.has(`${ARCHITECT_WRITE_ROOT}backend.md`) &&
+      (/\bsupabase\b/i.test(reqs) || /\bsupabase\b/i.test(dataModel))
+    ) {
+      return {
+        ready: false,
+        reason:
+          "The design uses Supabase but there is no architecture/backend.md — write the backend spec " +
+          "(schema, grants, RLS, auth, key map, migration plan) before dispatching.",
+      };
+    }
+    // 060 — a design that uses a language model needs a real ai.md.
+    const usesLlm =
+      /\b(openai|anthropic|\bgemini\b|mistral|\bgroq\b|\bgrok\b|openrouter|\bLLM\b|language model|chatbot|\bGPT-|\bClaude\b|ai_credentials)\b/i.test(
+        `${reqs}\n${(await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}backend.md`)) ?? ""}`,
+      );
+    if (usesLlm) {
+      const ai = await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}ai.md`);
+      if ((ai ?? "").replace(/\s+/g, "").length < 300) {
         return {
           ready: false,
           reason:
-            "The design uses Supabase but there is no architecture/backend.md — write the backend spec " +
-            "(schema, grants, RLS, auth, key map, migration plan) before dispatching.",
+            "The design uses a language model but architecture/ai.md is missing or a stub — write " +
+            "the AI spec (provider, model, package, the Edge Function contract, the ai_credentials " +
+            "table, error handling, the connect-your-provider state) before dispatching.",
         };
       }
     }

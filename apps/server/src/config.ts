@@ -10,6 +10,12 @@ export interface ServerConfig {
   corsOrigin: string[];
   databaseUrl: string;
   agentUrl: string;
+  /**
+   * 058 · Phase C — URL the agent calls back on for the Supabase bridge
+   * (applying migrations through the server). Defaults to loopback on the
+   * server's own port; set it when the agent runs on another host.
+   */
+  serverInternalUrl: string;
   provider: "anthropic" | "google";
   /** After the first account exists, whether strangers may still sign up. */
   allowRegistration: boolean;
@@ -20,6 +26,23 @@ export interface ServerConfig {
     clientSecret: string | undefined;
     redirectUri: string | undefined;
   };
+  /**
+   * 058 · Phase A — an optional Supabase OAuth app registration. When present,
+   * the UI offers "Connect with Supabase" (scoped, refreshable tokens);
+   * otherwise only the Personal Access Token path is available.
+   */
+  supabaseOAuth?: {
+    clientId: string;
+    clientSecret: string;
+    redirectUrl: string;
+  };
+  /**
+   * 058 · Phase C — domain for the throwaway user the backend verification
+   * signs up. Supabase's email validator rejects domains with no MX records
+   * (`example.com` among them), so set this to one that resolves. Defaults to
+   * `example.com` when unset.
+   */
+  supabaseVerifyEmailDomain?: string;
   model: string;
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   templatesDir: string;
@@ -126,6 +149,9 @@ export function loadServerConfig(): ServerConfig {
       .filter(Boolean),
     databaseUrl: process.env.DATABASE_URL ?? "file:./data/zelyq.db",
     agentUrl: process.env.ZELYQ_AGENT_URL ?? "http://127.0.0.1:8788",
+    serverInternalUrl:
+      process.env.ZELYQ_SERVER_INTERNAL_URL ??
+      `http://127.0.0.1:${intFromEnv("ZELYQ_SERVER_PORT", 8787)}`,
     // The agent owns provider defaults; the server only records what a session
     // was created with. An empty model means "let the agent decide".
     provider: (process.env.ZELYQ_PROVIDER ?? "anthropic") as ServerConfig["provider"],
@@ -137,6 +163,18 @@ export function loadServerConfig(): ServerConfig {
       clientSecret: process.env.ZELYQ_OIDC_CLIENT_SECRET,
       redirectUri: process.env.ZELYQ_OIDC_REDIRECT_URI,
     },
+    supabaseOAuth:
+      process.env.ZELYQ_SUPABASE_OAUTH_CLIENT_ID && process.env.ZELYQ_SUPABASE_OAUTH_CLIENT_SECRET
+        ? {
+            clientId: process.env.ZELYQ_SUPABASE_OAUTH_CLIENT_ID,
+            clientSecret: process.env.ZELYQ_SUPABASE_OAUTH_CLIENT_SECRET,
+            redirectUrl:
+              process.env.ZELYQ_SUPABASE_OAUTH_REDIRECT_URL ??
+              `${(process.env.ZELYQ_PUBLIC_URL ?? "http://localhost:5173").replace(/\/$/, "")}/api/integrations/supabase/oauth/callback`,
+          }
+        : undefined,
+    supabaseVerifyEmailDomain:
+      process.env.ZELYQ_SUPABASE_VERIFY_EMAIL_DOMAIN?.trim() || "example.com",
     model: process.env.ZELYQ_MODEL ?? "",
     effort: (process.env.ZELYQ_EFFORT ?? "high") as ServerConfig["effort"],
     templatesDir: path.resolve(process.env.ZELYQ_TEMPLATES_DIR ?? path.join(repoRoot, "templates")),
