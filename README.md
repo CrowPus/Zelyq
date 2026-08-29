@@ -6,9 +6,15 @@
 
 **Vibecoding writes code. Zelyq builds like an engineer.**
 
-<video src="https://github.com/user-attachments/assets/1cba3b43-4be1-4940-83dd-0465017ba502" autoplay loop muted playsinline controls width="900"></video>
+<video src="https://github.com/user-attachments/assets/3debd0aa-6858-4017-a40f-feb6f293b9ef" autoplay loop muted playsinline controls width="900"></video>
 
-<sub>▶ Watch it happen — the agent connects a Supabase backend and builds a working AI agent, with the provider key in the backend, live.</sub>
+<sub>▶ Watch it happen — one prompt in, and the agent built a working commerce admin: analytics, a discount engine, a live theme customizer, multi-currency and tax settings, and an encrypted checkout simulation, with its own typecheck and preview passing before it called the turn done.</sub>
+
+<br />
+
+<video src="https://github.com/user-attachments/assets/1cba3b43-4be1-4940-83dd-0465017ba502" controls muted loop playsinline width="900"></video>
+
+<sub>▶ And the agent connecting a Supabase backend and building a working AI agent, with the provider key in the backend.</sub>
 
 <br />
 
