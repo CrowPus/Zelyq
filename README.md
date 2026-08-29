@@ -6,9 +6,15 @@
 
 **Vibecoding writes code. Zelyq builds like an engineer.**
 
-<video src="https://github.com/user-attachments/assets/3debd0aa-6858-4017-a40f-feb6f293b9ef" autoplay loop muted playsinline controls width="900"></video>
+<video src="https://github.com/user-attachments/assets/1cba3b43-4be1-4940-83dd-0465017ba502" autoplay loop muted playsinline controls width="900"></video>
 
-<sub>▶ Watch it happen — the <b>Cinematic engineer</b> turning a supplied clip into a scroll-scrubbed hero, live.</sub>
+<sub>▶ Watch it happen — the agent connects a Supabase backend and builds a working AI agent, with the provider key in the backend, live.</sub>
+
+<br />
+
+<video src="https://github.com/user-attachments/assets/11e110aa-be4b-4e34-be07-a7c820ce8a81" controls muted loop playsinline width="900"></video>
+
+<sub>▶ And the <b>Cinematic engineer</b> turning a supplied clip into a scroll-scrubbed hero.</sub>
 
 Most "prompt to app" tools generate something that looks right and leave you to find out where it
 isn't. Zelyq's agent plans before it acts, verifies its own work before it calls a turn finished,
