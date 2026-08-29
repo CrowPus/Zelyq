@@ -69,6 +69,49 @@ location /ws/ {
 
 The long read timeout matters — the default 60 seconds cuts turns off mid-answer.
 
+### 4. Previews behind the proxy
+
+By default a running preview is advertised at `http://<browser-host>:<port>` — the browser's own
+address plus a port from `ZELYQ_PREVIEW_PORT_MIN..MAX`. That works on a laptop, or on a VM reached
+by a bare IP with those ports opened. It does **not** work behind a real domain with HTTPS: HSTS
+rewrites the `http://` to `https://` on a port nothing serves TLS on, and the app can't iframe an
+`http://` preview from an `https://` page (mixed content).
+
+Reverse-proxy each preview over one HTTPS origin instead:
+
+1. **DNS** — a wildcard `*.preview.example.com` → the host.
+2. **Cert** — a wildcard TLS cert for `*.preview.example.com` (Let's Encrypt DNS-01).
+3. **nginx** — one vhost that maps the port out of the subdomain:
+
+   ```nginx
+   server {
+       listen 443 ssl http2;
+       server_name ~^p(?<pport>\d+)\.preview\.example\.com$;
+
+       ssl_certificate     /etc/letsencrypt/live/preview.example.com/fullchain.pem;
+       ssl_certificate_key /etc/letsencrypt/live/preview.example.com/privkey.pem;
+
+       location / {
+           proxy_pass http://127.0.0.1:$pport;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade    $http_upgrade;   # Vite HMR is a WebSocket
+           proxy_set_header Connection "upgrade";
+           proxy_set_header Host       $host;
+           proxy_read_timeout 3600s;
+       }
+   }
+   ```
+
+4. **Zelyq** — set `ZELYQ_PREVIEW_URL_TEMPLATE` to the matching template and restart:
+
+   ```env
+   ZELYQ_PREVIEW_URL_TEMPLATE=https://p{port}.preview.example.com
+   ```
+
+   `{port}` is substituted with the assigned port; the app and the agent then use that URL as-is.
+   Keep `ZELYQ_PREVIEW_HOST` at `127.0.0.1` (previews only need to be reachable from nginx) and
+   leave the `4300-4399` range closed at the firewall.
+
 ## Backups
 
 Two things hold state:

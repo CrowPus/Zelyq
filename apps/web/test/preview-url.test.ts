@@ -33,6 +33,18 @@ test("falls back to the server's url when no port is available", () => {
   assert.equal(resolvePreviewUrl(preview, "136.112.104.233"), "http://example.internal:4300");
 });
 
+test("uses a templated reverse-proxy URL verbatim, port and scheme included", () => {
+  // ZELYQ_PREVIEW_URL_TEMPLATE=https://p{port}.preview.zelyq.com — the server
+  // built a URL meant to be reached exactly as given; do not rewrite it.
+  const preview = running({ url: "https://p4300.preview.zelyq.com", port: 4300 });
+  assert.equal(resolvePreviewUrl(preview, "app.zelyq.com"), "https://p4300.preview.zelyq.com");
+});
+
+test("still rewrites a loopback url to the browser's address even when a port is present", () => {
+  const preview = running({ url: "http://0.0.0.0:4300", port: 4300 });
+  assert.equal(resolvePreviewUrl(preview, "app.zelyq.com"), "http://app.zelyq.com:4300");
+});
+
 test("is null while not running, regardless of a stale url or port", () => {
   const preview = running({ status: "starting", url: null });
   assert.equal(resolvePreviewUrl(preview, "136.112.104.233"), null);

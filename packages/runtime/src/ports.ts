@@ -1,6 +1,18 @@
 import net from "node:net";
 
 /**
+ * The address a browser should load a running preview at.
+ *
+ * With a `template` (`RuntimeConfig.previewUrlTemplate`, e.g.
+ * `https://p{port}.preview.example.com`) `{port}` is substituted and the result
+ * used as-is — for a deployment that reverse-proxies each preview over one
+ * HTTPS origin. Without one, the raw `http://<host>:<port>`.
+ */
+export function previewUrl(template: string | undefined, host: string, port: number): string {
+  return template ? template.replaceAll("{port}", String(port)) : `http://${host}:${port}`;
+}
+
+/**
  * Preview servers need a port nobody else is using. Binding to test is the only
  * check that is not a race, and even then we track handed-out ports in-process
  * so two projects starting at once cannot be given the same one.

@@ -208,6 +208,7 @@ export function loadServerConfig(): ServerConfig {
         intFromEnv("ZELYQ_PREVIEW_PORT_MAX", 4399),
       ],
       previewHost: process.env.ZELYQ_PREVIEW_HOST ?? "127.0.0.1",
+      previewUrlTemplate: process.env.ZELYQ_PREVIEW_URL_TEMPLATE || undefined,
       container: containerOptionsFromEnv(),
     },
   };

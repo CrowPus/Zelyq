@@ -12,7 +12,7 @@ import {
   ZelyqError,
 } from "@zelyq/core";
 import { assertRealPathInside, isIgnored, resolveInside, toPosix } from "./paths.js";
-import { allocatePort, releasePort, waitForPort } from "./ports.js";
+import { allocatePort, previewUrl, releasePort, waitForPort } from "./ports.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -149,6 +149,8 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   private readonly previewHost: string;
   /** Loopback previews bind loopback; anything else has to accept remote clients. */
   private readonly previewBindHost: string;
+  /** See `RuntimeConfig.previewUrlTemplate`. */
+  private readonly previewUrlTemplate: string | undefined;
   private readonly previews = new Map<string, PreviewProcess>();
 
   constructor(config: RuntimeConfig) {
@@ -160,6 +162,12 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       this.previewHost === "127.0.0.1" || this.previewHost === "localhost"
         ? "127.0.0.1"
         : "0.0.0.0";
+    this.previewUrlTemplate = config.previewUrlTemplate || undefined;
+  }
+
+  /** The address a browser should load a running preview at. */
+  private previewUrlFor(port: number): string {
+    return previewUrl(this.previewUrlTemplate, this.previewHost, port);
   }
 
   async health(): Promise<RuntimeHealth> {
@@ -811,7 +819,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     return {
       projectId,
       status: listening ? "running" : "starting",
-      url: listening ? `http://${this.previewHost}:${record.port}` : null,
+      url: listening ? this.previewUrlFor(record.port) : null,
       port: record.port,
       pid: record.pid,
       startedAt: record.startedAt,
@@ -823,7 +831,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     return {
       projectId,
       status: preview.status,
-      url: preview.status === "running" ? `http://${this.previewHost}:${preview.port}` : null,
+      url: preview.status === "running" && preview.port ? this.previewUrlFor(preview.port) : null,
       port: preview.port || null,
       pid: preview.child?.pid ?? null,
       startedAt: preview.startedAt,
