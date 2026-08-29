@@ -556,8 +556,7 @@ export default function App() {
   // Set B. Well-specified tasks in the shape the Architect's
   // build-plan.md actually emits: a task statement, an explicit file list,
   // explicit acceptance criteria, an explicit non-goal. The measured property
-  // is fidelity — build exactly what the task names, and only that. Bars in
-  // docs/co-founders/047-phase-0/0.1-base-agent-stability-criteria.md.
+  // is fidelity — build exactly what the task names, and only that.
   {
     id: "spec-three-files",
     title: "Specified: build exactly the three named files",

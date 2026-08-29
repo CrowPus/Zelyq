@@ -11,7 +11,7 @@ export interface ServerConfig {
   databaseUrl: string;
   agentUrl: string;
   /**
-   * 058 · Phase C — URL the agent calls back on for the Supabase bridge
+   * URL the agent calls back on for the Supabase bridge
    * (applying migrations through the server). Defaults to loopback on the
    * server's own port; set it when the agent runs on another host.
    */
@@ -27,7 +27,7 @@ export interface ServerConfig {
     redirectUri: string | undefined;
   };
   /**
-   * 058 · Phase A — an optional Supabase OAuth app registration. When present,
+   * An optional Supabase OAuth app registration. When present,
    * the UI offers "Connect with Supabase" (scoped, refreshable tokens);
    * otherwise only the Personal Access Token path is available.
    */
@@ -37,7 +37,7 @@ export interface ServerConfig {
     redirectUrl: string;
   };
   /**
-   * 058 · Phase C — domain for the throwaway user the backend verification
+   * Domain for the throwaway user the backend verification
    * signs up. Supabase's email validator rejects domains with no MX records
    * (`example.com` among them), so set this to one that resolves. Defaults to
    * `example.com` when unset.

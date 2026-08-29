@@ -5,10 +5,10 @@ import type { AccessControl } from "./access.js";
 import type { SecretBox } from "./secrets.js";
 
 /**
- * Proposal 058 · Phase A — the one trusted place a Supabase **Management**
- * credential is decrypted and used.
+ * The one trusted place a Supabase **Management** credential is decrypted and
+ * used.
  *
- * Invariants enforced here (see `058` rev 2, §3):
+ * Invariants enforced here:
  *   - The PAT / OAuth token never leaves this class. Callers get bounded
  *     summaries — ids, `projectRef`, `projectUrl`, the public `publishableKey`,
  *     `environment`, `status` — never the credential, never a raw API body.
@@ -478,7 +478,7 @@ export class SupabaseConnectionService {
     return rowToResourceSummary(link.resource);
   }
 
-  // ──────────────────────── migrations + verification (058 Phase C) ─────────
+  // ──────────────────────── migrations + verification (build-agent bridge) ──
 
   /**
    * Apply one migration to the linked `development` resource. Refuses anything

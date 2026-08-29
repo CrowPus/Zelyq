@@ -12,7 +12,7 @@ import { SupabaseBridge } from "../src/services/supabase-bridge.js";
 import { SupabaseConnectionService } from "../src/services/supabase-connections.js";
 
 /**
- * 058 · Phase C — the bridge hands the agent a session-scoped capability, never
+ * The bridge hands the agent a session-scoped capability, never
  * the Management credential. These tests cover the token lifecycle.
  */
 

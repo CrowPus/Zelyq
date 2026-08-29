@@ -6,8 +6,8 @@ import type { SupabaseBridge } from "../services/supabase-bridge.js";
 import type { SupabaseConnectionService } from "../services/supabase-connections.js";
 
 /**
- * Proposal 058 · Phase C — the endpoints the build agent calls through the
- * bridge. Authenticated ONLY by the bridge token (`x-zelyq-supabase-bridge`
+ * The endpoints the build agent calls through the Supabase bridge.
+ * Authenticated ONLY by the bridge token (`x-zelyq-supabase-bridge`
  * header), never a user cookie. Each call resolves to one project + the
  * connecting user; the Management credential stays inside
  * `SupabaseConnectionService`.

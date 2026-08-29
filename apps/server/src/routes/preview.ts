@@ -13,7 +13,7 @@ export function registerPreviewRoutes(
     access: AccessControl;
     templatesDir: string;
     /**
-     * 058 · Phase A — supplies a linked project's preview with its public
+     * Supplies a linked project's preview with its public
      * Supabase config (URL + publishable key). Only ever the two public
      * values; never a credential.
      */

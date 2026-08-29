@@ -15,7 +15,7 @@ export interface ToolContext {
   /** Structured progress for the event stream. */
   log(message: string): void;
   /**
-   * 058 · Phase C — present only when a Supabase resource is linked to this
+   * Present only when a Supabase resource is linked to this
    * project. A capability to apply migrations and verify the backend by
    * calling the Zelyq server, which holds the Management credential. The tool
    * never sees a token beyond this session-scoped one.

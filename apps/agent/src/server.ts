@@ -288,7 +288,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       ...(input.anthropicWorkspaceId || config.anthropicWorkspaceId
         ? { anthropicWorkspaceId: input.anthropicWorkspaceId || config.anthropicWorkspaceId }
         : {}),
-      // 058 · Phase C — the Supabase bridge (apply migrations via the server)
+      // The Supabase bridge (apply migrations via the server)
       // and the linked project's public config for the preview. Absent unless
       // a Supabase resource is linked to this project.
       ...(input.supabaseBridge ? { supabaseBridge: input.supabaseBridge } : {}),

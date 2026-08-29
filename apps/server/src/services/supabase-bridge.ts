@@ -2,9 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { Store } from "@zelyq/db";
 
 /**
- * Proposal 058 · Phase C — the capability channel that lets a build agent apply
- * a Supabase migration and verify the backend **without ever holding the
- * Management credential**.
+ * The capability channel that lets a build agent apply a Supabase migration and
+ * verify the backend **without ever holding the Management credential**.
  *
  * The server mints a random, short-lived token bound to one session and one
  * project. The agent presents it to `/api/internal/supabase/*`; the server

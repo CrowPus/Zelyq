@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineTool, type ToolResult, truncate } from "./types.js";
 
 /**
- * Proposal 058 · Phase C — the build agent applies its own Supabase migrations
+ * The build agent applies its own Supabase migrations
  * and checks the result, without ever holding the Management credential. Both
  * tools call the Zelyq server through the session's bridge; the server holds
  * the credential and makes the Supabase call. They only exist for a project

@@ -205,7 +205,7 @@ test("a preview started by one driver is visible to another on the same workspac
   }
 });
 
-test("058: a running preview restarts when the injected Supabase env changes", async () => {
+test("a running preview restarts when the injected Supabase env changes", async () => {
   const config = {
     kind: "local" as const,
     workspaceDir,

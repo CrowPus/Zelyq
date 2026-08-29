@@ -1,8 +1,7 @@
 import type { SupabaseConnectionService } from "./supabase-connections.js";
 
 /**
- * Proposal 058 · Phase A — the one path that supplies a running preview with
- * its backend configuration.
+ * The one path that supplies a running preview with its backend configuration.
  *
  * It returns **only** the public browser values: the project URL and the
  * publishable key. A Management credential (PAT / OAuth token) or a provider

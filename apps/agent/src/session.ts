@@ -245,7 +245,7 @@ export interface SessionOptions {
    * identity-linked API key. Inherited by dispatched child sessions. */
   anthropicWorkspaceId?: string;
   /**
-   * 058 · Phase C — a capability to apply Supabase migrations and verify the
+   * A capability to apply Supabase migrations and verify the
    * backend *through the server* (the agent never holds the Management
    * credential). Present only when a Supabase resource is linked to this
    * project. Inherited by dispatched builders/verifiers.
@@ -332,7 +332,7 @@ const BUILDER_TOOL_NAMES = [
   "edit_file",
   "delete_file",
   "run_command",
-  // 058 · Phase C — no-ops (they refuse) unless a Supabase resource is linked;
+  // No-ops (they refuse) unless a Supabase resource is linked;
   // when it is, the backend builder applies its migration itself.
   "supabase_apply_migration",
   "supabase_verify_backend",
@@ -1309,7 +1309,7 @@ export class AgentSession {
     // A builder runs lean: its own compact prompt, and only the file/shell
     // tools. Everything else keeps the full weave.
     const leanBuilder = Boolean(options.systemPrompt && options.toolNames);
-    // 058 · Phase C — the Supabase migration tools only make sense when a
+    // The Supabase migration tools only make sense when a
     // resource is linked (they refuse otherwise). Hide them when it is not.
     const SUPABASE_TOOL_NAMES = new Set([
       "supabase_apply_migration",
@@ -1683,7 +1683,7 @@ export class AgentSession {
       ...(this.options.anthropicWorkspaceId
         ? { anthropicWorkspaceId: this.options.anthropicWorkspaceId }
         : {}),
-      // 058 · Phase C — dispatched builders and the verifier inherit the
+      // Dispatched builders and the verifier inherit the
       // Supabase bridge and the preview config, so a backend build task can
       // apply its migration and the verifier can check it.
       ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
