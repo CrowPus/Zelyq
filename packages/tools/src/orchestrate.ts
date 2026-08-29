@@ -106,6 +106,18 @@ export const dispatchTaskTool = defineTool({
           "audit. It REPORTS application bugs, it does not fix them. Relay its QA REVIEW verbatim; " +
           "a NOT CLEARED result blocks 'done'.",
       ),
+    cinematic: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true for a Cinematic pass on ONE screen — a bounded child that owns CINEMATIC.md and " +
+          "turns a screen into a scroll-driven experience (frame-scrub hero, pinned reveal, " +
+          "horizontal story). It PAUSES and returns ASSETS NEEDED if the footage is not already in " +
+          "cinematic/<slug>/; the user drops the file in and replies 'go' to resume. It writes only " +
+          "client UI + public/cinematic/** + CINEMATIC.md, adds no features or routes. Not part of " +
+          "the automatic pipeline — a plan-noted, user-gated step only. Relay its CINEMATIC REVIEW " +
+          "verbatim.",
+      ),
   }),
   async run() {
     return {
@@ -222,6 +234,57 @@ export const qaPassTool = defineTool({
   async run() {
     return {
       output: "qa_pass is handled by the orchestrator, not this path — this should never run.",
+      isError: true,
+    };
+  },
+});
+
+/**
+ * Call the Cinematic engineer from Engineer Mode (also works in Architect
+ * Mode). It owns `CINEMATIC.md` — the Scroll Storyboard and the asset ledger
+ * — and turns one screen into an intentional scroll-driven experience built
+ * to `skills/cinematic-web/`.
+ *
+ * It is the first specialist that PAUSES for the user: when the footage is
+ * not already in `cinematic/<slug>/` it writes a plain-language `SOURCE.md`
+ * brief plus a draft storyboard and returns `ASSETS NEEDED` (a non-error,
+ * non-done outcome). The user drops the file in and replies "go"; the pass
+ * validates the source and takes it from there. Intercepted by `AgentSession`
+ * like `design_pass`.
+ */
+export const cinematicPassTool = defineTool({
+  name: "cinematic_pass",
+  description:
+    "Hand ONE screen to the Cinematic engineer — a bounded specialist that owns CINEMATIC.md (the " +
+    "Scroll Storyboard + the asset ledger) and turns that screen into a scroll-driven experience: " +
+    "a hero that scrubs supplied footage frame by frame as you scroll, a pinned product reveal, a " +
+    "horizontal story, a DOM↔canvas hand-off. It writes ONLY client UI files, public/cinematic/**, " +
+    "the repo-root cinematic/** staging folder, and CINEMATIC.md — no features, no routes, no " +
+    "backend. It will PAUSE and ask you for footage: if the file is not in cinematic/<slug>/ it " +
+    "writes SOURCE.md (a plain-language checklist) + a draft storyboard and returns ASSETS NEEDED; " +
+    "add the file and reply 'go' to resume. Use it ONLY when the user asks for scroll-cinema — " +
+    '"plays as you scroll", "scroll animation", "scrollytelling", "Apple-style / cinematic ' +
+    'scroll", "pin the hero and animate it". Relay its CINEMATIC REVIEW verbatim; an ASSETS ' +
+    "NEEDED / FAIL / NOT DONE line is reported as such, not as done.",
+  schema: z.object({
+    scope: z
+      .string()
+      .optional()
+      .describe(
+        "The one screen or section — e.g. 'the landing hero', 'the /product page', 'the homepage " +
+          "top'. Omit for the hero of the current screen.",
+      ),
+    notes: z
+      .string()
+      .optional()
+      .describe(
+        "Any art direction the user gave — the feeling, a reference, the motion, things to avoid.",
+      ),
+  }),
+  async run() {
+    return {
+      output:
+        "cinematic_pass is handled by the orchestrator, not this path — this should never run.",
       isError: true,
     };
   },

@@ -66,10 +66,23 @@ responsibly. Zelyq's agent is built toward the second one:
 - **It has specialists.** After a build verifies, named agents finish the job — each owns a spec
   file it surveys, writes, and implements, and each streams into the chat as a labelled sub-thread.
   The **Designer** (`DESIGN.md` — a coherent design system, no generic-AI look), the **DevOps
-  agent** (`OPERATIONS.md` — CI, a Dockerfile, `.env.example`, deploy config), and the
-  **Security/QA agent** (`QA.md` — writes and runs the test suite, runs the security scan). In
-  Engineer Mode you can call any of them yourself: *"make it look professionally designed"*, *"set
-  up CI"*, *"write tests"*. See [docs/modes.md](./docs/modes.md).
+  agent** (`OPERATIONS.md` — CI, a Dockerfile, `.env.example`, deploy config), the **Security/QA
+  agent** (`QA.md` — writes and runs the test suite, runs the security scan), and the **Cinematic
+  engineer** (`CINEMATIC.md` — turns one screen into a scroll-driven film: a hero that scrubs your
+  footage frame by frame as you scroll, a pinned reveal, a horizontal story, built to a
+  senior-engineer skill). In Engineer Mode you call any of them yourself: *"make it look
+  professionally designed"*, *"set up CI"*, *"write tests"*, *"make the hero play as I scroll"*.
+  See [docs/modes.md](./docs/modes.md).
+- **A specialist can pause for something only you have.** A cinematic hero *is* the footage, so the
+  Cinematic engineer doesn't fake it against a placeholder: it writes a plain-language brief of
+  exactly what to provide, creates the folder, and stops. You drop the file in and reply `go` — it
+  validates what you gave it against the brief and takes it from there. A dispatched pass that asks,
+  waits, and resumes from a plan it already wrote.
+- **It builds the backend, not just the screen.** When a project needs saved data or accounts, the
+  agent designs a Supabase Postgres schema with Row-Level-Security written per operation, applies the
+  migration, wires the client, and has a separate session verify that a second user genuinely can't
+  read the first user's rows. AI features too — a chatbot, an extractor, a classifier — with the
+  provider key living in the backend, never shipped to the browser.
 - **It builds what was asked, then stops.** No invented navbars, no sample-data toggles nobody
   requested, no filling a vague ask with guesses. A request too shapeless to build responsibly gets one
   clarifying question instead of eight files you didn't want.

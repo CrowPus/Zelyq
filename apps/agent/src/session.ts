@@ -11,6 +11,7 @@ import {
 import type { RuntimeDriver } from "@zelyq/runtime";
 import {
   ALL_TOOLS,
+  cinematicPassTool,
   designPassTool,
   dispatchTaskTool,
   executeTool,
@@ -308,6 +309,14 @@ export interface SessionOptions {
    * `writeAllowlist` is set; an empty/absent set with `writeAllowlist`
    * present means NO installs are allowed. */
   installAllowlist?: Set<string>;
+  /** 061 — a genuinely-new file whose normalized path this accepts is NOT
+   * counted toward Engineer Mode's NEW_FILE_CHECKPOINT. The Cinematic
+   * engineer's child sets it so `ffmpeg`'s bulk frame output under
+   * `public/cinematic/**` cannot freeze the turn. */
+  newFileCheckpointExempt?: (normPath: string) => boolean;
+  /** 061 — a `run_command` whose command matches this is refused at the tool
+   * boundary (the Cinematic engineer's scoped shell: no git, no network). */
+  cmdDeny?: RegExp;
   /** Overridable so tests can run the loop without a network or an API key. */
   providerFactory?: ProviderFactory;
 }
@@ -615,7 +624,7 @@ type Emit = (event: AgentEvent) => void;
 // write scope, and the owned file differ.
 // ===========================================================================
 
-type SpecialistKind = "designer" | "devops" | "security";
+type SpecialistKind = "designer" | "devops" | "security" | "cinematic";
 
 const DEVOPS_MD_PATHS = new Set(["architecture/OPERATIONS.md", "OPERATIONS.md"]);
 const QA_MD_PATHS = new Set([
@@ -804,6 +813,193 @@ ${QA_MD_TEMPLATE}
 5. TRIAGE security findings into QA.md and architecture/risks.md (a dated heading). A security_scan FAIL or a critical/high dependency vulnerability ⇒ the result is NOT CLEARED.
 6. Return a QA REVIEW: tests added / passing / failing + coverage; then per security area PASS / FAIL / N-A with the finding; then the NOT CLEARED line if it applies; then any test dependencies the Engineer must add, and any app bugs found (file + symptom). A coverage number with the core flow untested is a NOT DONE line.`;
 
+// ===========================================================================
+// 061 — the Cinematic engineer. The fourth SpecialistKind, on the exact
+// Designer/DevOps/Security-QA mechanism. It turns one screen into an
+// intentional scroll-driven experience (frame-scrub hero, pinned reveal,
+// horizontal story, DOM↔canvas hand-off) built to `skills/cinematic-web/`.
+// Two things beyond a table entry: (a) an ASSET GATE — when the footage is
+// not in `cinematic/<slug>/` the pass writes SOURCE.md + a draft storyboard
+// and returns ASSETS NEEDED (paused, not error, not done); (b) a
+// `newFileCheckpointExempt` predicate so `ffmpeg`'s 90–140-file frame output
+// under `public/cinematic/**` does not trip NEW_FILE_CHECKPOINT.
+// ===========================================================================
+
+/** The child writes this at the start of a line of its reply when it is
+ * blocking for footage. The parent relays the reply verbatim, marks the pass
+ * PAUSED, and skips the re-verify. */
+export const CINEMATIC_ASSETS_MARKER = "ASSETS NEEDED:";
+
+const CINEMATIC_MD_PATHS = new Set(["architecture/CINEMATIC.md", "CINEMATIC.md"]);
+
+// The Designer's file/preview/inspection/typecheck set (already includes
+// run_command), plus the image-asset plugin tools for resizing / re-encoding
+// / probing frames when `ffmpeg` is not in the sandbox. Plugin tools are only
+// present when the image-assets plugin is loaded; harmless in the filter when
+// it is not.
+const CINEMATIC_TOOL_NAMES = [
+  ...DESIGNER_TOOL_NAMES,
+  "inspect_image_asset",
+  "resize_image_asset",
+  "optimize_image_asset",
+];
+
+// The only dependencies the Cinematic engineer may install — the motion /
+// scroll / WebGL helpers the `cinematic-web` skill endorses, nothing else. No
+// framework swap, no animation library the skill rejects, no component
+// mega-library. Checked at the run_command install boundary like
+// DESIGNER_DEP_ALLOW.
+const CINEMATIC_DEP_ALLOW = new Set([
+  "gsap",
+  "lenis",
+  "three",
+  "@react-three/fiber",
+  "@react-three/drei",
+  "@react-three/postprocessing",
+  "@14islands/r3f-scroll-rig",
+]);
+
+// A scoped shell: it may run `ffmpeg`-class asset work and normal dev
+// commands, but not reach the network or git. Refused at the run_command
+// boundary for the cinematic kind only.
+const CINEMATIC_CMD_DENY =
+  /\b(?:curl|wget|nc|ncat|netcat|ssh|scp|sftp|rsync|telnet)\b|\bgit\s+(?:push|remote|clone|fetch|pull)\b|\bnpm\s+publish\b/i;
+
+/** The Cinematic engineer's structural write scope: client UI source, the
+ * cinematic asset trees, its own CINEMATIC.md, the entry HTML, styling
+ * config. Anything else is refused at the tool boundary in the child, so a
+ * "make it cinematic" pass can never touch the server, the schema, config,
+ * CI, routing structure, or other architecture/* files. Path is normalized by
+ * the caller. */
+function cinematicPathAllowed(norm: string): boolean {
+  if (norm === "" || pathPosix.isAbsolute(norm) || norm === ".." || norm.startsWith("../")) {
+    return false;
+  }
+  // The Cinematic engineer owns the scroll storyboard. Its only architecture/*
+  // doc; every other architecture/* path stays refused below.
+  if (CINEMATIC_MD_PATHS.has(norm)) return true;
+  // The cinematic asset trees: the optimised output that ships, and the
+  // gitignored repo-root staging folder (the raw source drop + SOURCE.md).
+  if (/^public\/cinematic\//.test(norm) || /^cinematic\//.test(norm)) return true;
+  // ...and .gitignore, so the raw-source staging folder stays out of git
+  // (decision 4 — only the optimised public/cinematic/** output is committed).
+  if (norm === ".gitignore") return true;
+  // Never server/data/build-tooling code, even when it lives under src/.
+  if (/^src\/(server|api|backend|db|database|prisma|lib\/server|trpc|routes\/api)\b/.test(norm)) {
+    return false;
+  }
+  if (
+    /^(server|api|backend|prisma|migrations|db|scripts|\.github)\//.test(norm) ||
+    /\.(prisma|sql)$/.test(norm) ||
+    /^(package\.json|tsconfig.*\.json|vite\.config\.[a-z]+|\.env.*)$/.test(norm)
+  ) {
+    return false;
+  }
+  if (/^architecture\//.test(norm)) return false; // CINEMATIC.md handled above
+  // Allowed: client UI source, stylesheets, the entry HTML, styling config,
+  // scenes / cinematic components.
+  if (/^src\/.*\.(tsx|jsx|ts|js|css|scss|sass)$/.test(norm)) return true;
+  if (/^src\/(assets|styles|theme|design|ui|components|scenes|cinematic)\//.test(norm)) return true;
+  if (norm === "index.html" || norm === "src/index.css" || norm === "src/App.css") return true;
+  if (/\.css$/.test(norm)) return true;
+  if (/^(tailwind|postcss)\.config\.(js|cjs|mjs|ts)$/.test(norm)) return true;
+  return false;
+}
+
+/** What a Cinematic pass must COVER — the acceptance criteria when it is
+ * called through `cinematic_pass` (Engineer Mode has no build-plan). A
+ * coverage list, NOT a template to hand back: the deliverable is the changed
+ * files; the review is evidence of them. */
+const CINEMATIC_DOD = [
+  "the rendering mode chosen (Cinematic DOM / hybrid DOM+WebGL / full WebGL) — and why the simplest sufficient one was chosen;",
+  "the Scroll Storyboard implemented — each scene's purpose, scroll range, entry/exit, hold; screenshots at 0 / 25 / 50 / 75 / 100 %;",
+  "one coordinated motion system — a single timeline / rAF loop, no competing scroll handlers, scrub where progress is scroll-linked, cleanup on unmount;",
+  "assets — source received (name, size, duration, dimensions), processing applied (N frames at WxH, format, transfer size, poster), everything under public/cinematic/<slug>/;",
+  "responsive — a deliberate mobile recomposition shown at a narrow viewport, not a shrunk desktop;",
+  "reduced motion — the prefers-reduced-motion path shown: meaning preserved, non-essential travel removed, a static poster where a scrub would be;",
+  "the Agent.md observable gate — reduced-motion honoured, no transition:all / no layout-prop animation, explicit media dimensions, <a>/<Link> navigation, canvas aria-hidden and not blocking links/forms;",
+  "reliability — forward / reverse / fast-fling / scrollbar-drag / mid-page reload / resize all stable; no blank frames, no pinning leak that traps the page;",
+  "the app still renders, typechecks, and builds after the changes.",
+].join(" ");
+
+// The shape of CINEMATIC.md. Given to the child so an authored storyboard is
+// complete and uniformly structured. Real values, never placeholders.
+const CINEMATIC_MD_TEMPLATE = `# Cinematic — <project name> · <scene / screen>
+
+## Product & intent
+One paragraph: what this screen is, the feeling the scroll experience should create, and the one idea the motion communicates.
+
+## Mode
+Cinematic DOM · hybrid DOM+WebGL · full WebGL — pick ONE, and state in a sentence why the simplest sufficient mode was chosen. Anything heavier than a DOM canvas needs a reason here.
+
+## Scroll Storyboard
+The skill's storyboard, one block per scene:
+- scene — name
+- scroll range — e.g. 0–40% of the track
+- purpose — what the viewer understands here
+- entry / hold / exit — the state at each edge
+- asset — which file drives it
+
+## Assets
+Status: AWAITING | RECEIVED.
+Per file the experience needs — path under public/cinematic/<slug>/, source spec (duration, dimensions, fps, codec, framing, background), and once received the REAL numbers (N frames at WxH, format, total transfer size, poster).
+
+## Motion system
+The single timeline / rAF loop, the library (GSAP ScrollTrigger / rAF / Lenis only if it earns its place), where scrub is scroll-linked, and how it cleans up on unmount.
+
+## Device strategy
+Desktop vs. the mobile recomposition (per recipes/mobile-fallback.md levels) — not a shrunk desktop.
+
+## Reduced motion
+What the prefers-reduced-motion path shows: the meaning kept, the travel removed, the poster shown instead of a scrub.
+
+## Implementation
+Where the timeline, the component, and the frames live in the code, and how the screen mounts it.
+`;
+
+const CINEMATIC_SYSTEM_PROMPT = `You are the Cinematic engineer — a senior cinematic web engineer, not a code generator. One screen (or a section of one) is your project: you turn it into an intentional scroll-driven experience — a hero that scrubs supplied footage frame by frame as you scroll, a pinned product reveal, a horizontal story, a DOM↔canvas hand-off — built to the cinematic-web skill. The app already runs; your job is to CHANGE FILES so that screen plays as you scroll, and to leave the app still running.
+
+The deliverable is the diff (CINEMATIC.md + the code and assets that implement it). A pass that changes no files at all is a FAILURE — you must NOT end your turn having only surveyed. By the end of this turn you have EITHER (a) written SOURCE.md + the .gitkeep + a draft CINEMATIC.md and returned the "${CINEMATIC_ASSETS_MARKER}" line, OR (b) implemented the scroll experience. There is no third option — "I surveyed and here is what I would do" is a failed pass. Do not ask the user a question and stop; the ASSETS NEEDED pause IS how you ask for the one thing (footage) you are allowed to wait for, and you only reach it after writing the three files. A pass that writes only CINEMATIC.md has written the storyboard but NOT implemented it — say so plainly, do not call that done.
+
+## The asset gate — your FIRST decision, before any implementation
+A cinematic hero IS the footage. You do not build the scrub rig against a placeholder.
+1. Survey briefly (a few tool calls, not a full audit): list_files; read the target screen; start_preview + view_preview on it; read CINEMATIC.md if it exists; look in \`cinematic/<slug>/\` for a source file (the user's drop) — pick a short kebab \`<slug>\` from the scope ("the landing hero" → \`landing-hero\`). Then ACT — do not stop here.
+2. Decide what footage the experience needs and in what form (a hero video to scrub — the common case; a GIF; a numbered still sequence; a GLB for a 3D reveal).
+3. If that footage is NOT already in \`cinematic/<slug>/\`:
+   - write \`cinematic/<slug>/SOURCE.md\` — a plain-language, checklist-style brief: exactly what to provide (format, 3–8 s duration, one continuous move, framing, background, ~1080p, 25–30 fps, name it \`source.<ext>\`), what happens next, and that a future version will generate it;
+   - probe for \`ffmpeg\`/\`ffprobe\` first (\`ffmpeg -version\`). If they are ABSENT, SOURCE.md must ask for a **pre-extracted numbered frame sequence** (or an already-optimised \`.webm\` + poster) instead of a raw video — you will resize / re-encode with the image-asset tools only;
+   - write \`public/cinematic/<slug>/.gitkeep\`;
+   - make sure \`.gitignore\` ignores the repo-root \`cinematic/\` staging folder (add \`/cinematic/\` if it is not already there) — only the optimised \`public/cinematic/**\` output is committed, never the raw drop;
+   - write a first-draft \`architecture/CINEMATIC.md\` (or root \`CINEMATIC.md\` when there is no \`architecture/\` folder) with the full Scroll Storyboard and an \`## Assets\` section set to \`AWAITING\`, naming each file and its spec;
+   - then STOP. Your reply must begin with a line starting exactly "${CINEMATIC_ASSETS_MARKER}" followed by: which folder and file you created, what to add, and that the user replies "go" to resume. Change NO code files. This is a cheap, honest pause — a survey and three short writes.
+4. On resume (the footage is now present): validate it against SOURCE.md (\`ffprobe\` for duration / dimensions / fps / codec, or the first frame's dimensions + the file count when ffmpeg is absent). If it is the wrong shape (portrait when the brief said landscape, 4K when 1080p was asked, 40 s when ≤ 8 s was asked, hard cuts), block again with "${CINEMATIC_ASSETS_MARKER}" and a SPECIFIC diff — "you provided X, the storyboard needs Y — replace it and reply go, or tell me to adapt the storyboard to what you gave." Do not silently build something bad.
+
+## Once you have a valid source — do the real work
+- OWN CINEMATIC.md. Deepen the draft you wrote, or author it from the project using the template below. Flip \`## Assets\` from AWAITING to RECEIVED with the real numbers. This is the contract the rest of the pass is judged against; write it fully before the component.
+${CINEMATIC_MD_TEMPLATE}
+- Process the footage: \`ffmpeg\` → a numbered WebP/AVIF frame sequence sized to the layout (aim a few MB total), or an optimised \`.webm\` + a poster frame; write a small \`manifest.json\`. When ffmpeg is absent, resize / re-encode the supplied frames with the image-asset tools. Everything lands under \`public/cinematic/<slug>/\`.
+- Build the scroll experience in the SIMPLEST sufficient mode. For a video-scrub hero that is the Cinematic DOM shape: a tall track section with a sticky inner container; a SINGLE \`<canvas>\` that preloads the frames and paints one per requestAnimationFrame as a function of the track's scroll progress, rewinding on scroll-up; cover-fit blit, DPR-capped backing store; the real copy is DOM on top, the canvas is \`aria-hidden\` and never blocks links or forms; a static poster for the reduced-motion path and before frames load.
+- One coordinated motion system — a single timeline or rAF loop. No second scroll handler competing with the first. \`scrub\` where progress is scroll-linked. Clean up on unmount.
+- Choreograph any secondary scenes per the storyboard. A deliberate mobile recomposition, not a shrunk desktop.
+- KEEP IT GREEN. After each meaningful change: typecheck/build, reload the preview, check_console_errors, and walk the screen at 0 / 25 / 50 / 75 / 100 % scroll. A blank frame, a thrown error, pinning that traps the page, a red typecheck, or a scroll container that no longer reaches the footer is something you broke — fix or revert it before moving on.
+
+## Boundaries (the tool layer enforces them)
+- Write ONLY: client UI source (components, styles, scenes), \`public/cinematic/**\`, the repo-root \`cinematic/**\` staging folder, \`architecture/CINEMATIC.md\` (or root \`CINEMATIC.md\`), \`index.html\`, \`.gitignore\`, and Tailwind/PostCSS config. Writes to the server, the database/schema, routing structure, state management, \`.env\`, CI, \`package.json\` (beyond an allowlisted install), or any other \`architecture/*\` file are refused.
+- Add NO features, NO routes, NO data-flow changes, NO new screens.
+- Install a dependency only from this set if you genuinely need it: gsap, lenis, three, @react-three/fiber, @react-three/drei, @react-three/postprocessing, @14islands/r3f-scroll-rig. Prefer what is installed. Do NOT default to a 3D engine — a DOM canvas is the common answer; anything heavier needs a reason in CINEMATIC.md.
+- \`run_command\` is for \`ffmpeg\`/\`ffprobe\`/\`gltf-transform\`-class asset work and normal dev commands only — no git, no network beyond the sandbox, no deploy.
+- No body copy inside the canvas. One motion system. Mobile is a recomposition. Reduced motion is mandatory. WebGL only when CSS/DOM cannot do it cleanly.
+- A problem that is NOT this screen's cinematic craft — a broken API call, a data bug, a server error — you REPORT in the review, you do not fix it.
+
+## What you return — the CINEMATIC REVIEW (relayed to the user verbatim)
+- FIRST line: "CINEMATIC.md <created|refined> — <mode chosen and why the simplest that works, scene count, device strategy>". If a cap was hit or you are blocked on assets, say that at the top instead.
+- Then, for EACH area below, one line — PASS (naming the screen/file you changed and what the screenshot showed) / FAIL / NOT DONE. Never PASS something you did not change or did not see rendered. If you implemented nothing, every area is NOT DONE and the top line is NOT VERIFIED (or ASSETS NEEDED).
+- Areas: ${CINEMATIC_DOD}
+- Then an Agent.md observable gate block if you were given <ui_guidelines> — one line per checkable rule, PASS / FAIL / N-A with what you saw.
+- Then 2–4 concrete before/after notes naming the actual screen.
+- Then any non-cinematic issues you found, for the Engineer.
+- End with the live preview URL (or "preview not running: <reason>"), and which asset path was taken (ffmpeg transcode / user-supplied frames).`;
+
 /** A short, human title for a specialist child's step, shown in the chat as
  * it works. Derived from the child's tool calls. */
 function specialistActivityTitle(
@@ -814,9 +1010,48 @@ function specialistActivityTitle(
   const cmd = typeof call.input.command === "string" ? call.input.command : "";
   const norm = path ? pathPosix.normalize(path) : "";
   const specPaths =
-    kind === "designer" ? DESIGN_MD_PATHS : kind === "devops" ? DEVOPS_MD_PATHS : QA_MD_PATHS;
+    kind === "designer"
+      ? DESIGN_MD_PATHS
+      : kind === "devops"
+        ? DEVOPS_MD_PATHS
+        : kind === "cinematic"
+          ? CINEMATIC_MD_PATHS
+          : QA_MD_PATHS;
   const guideName =
-    kind === "designer" ? "design guide" : kind === "devops" ? "operations spec" : "quality plan";
+    kind === "designer"
+      ? "design guide"
+      : kind === "devops"
+        ? "operations spec"
+        : kind === "cinematic"
+          ? "scroll storyboard"
+          : "quality plan";
+  // The Cinematic engineer's shell is mostly asset processing — surface that
+  // as a legible line rather than the raw ffmpeg invocation.
+  if (kind === "cinematic") {
+    if (call.name === "run_command") {
+      if (/\bff(?:mpeg|probe)\b/i.test(cmd)) return "Processing footage";
+      if (/\bgltf-transform\b/i.test(cmd)) return "Optimising the 3D model";
+      return cmd ? `Running: ${cmd.slice(0, 80)}` : "Running a command";
+    }
+    if (
+      (call.name === "write_file" || call.name === "edit_file") &&
+      /^public\/cinematic\//.test(norm)
+    ) {
+      return "Writing frames";
+    }
+    if (call.name === "write_file" && norm === "cinematic/SOURCE.md") {
+      return "Waiting for your footage";
+    }
+    if (
+      (call.name === "write_file" || call.name === "edit_file") &&
+      /^cinematic\/.*\/SOURCE\.md$/.test(norm)
+    ) {
+      return "Waiting for your footage";
+    }
+    if ((call.name === "write_file" || call.name === "edit_file") && specPaths.has(norm)) {
+      return "Writing the scroll storyboard";
+    }
+  }
   switch (call.name) {
     case "start_preview":
       return "Opening the preview";
@@ -877,7 +1112,7 @@ function specialistActivityTitle(
 
 interface SpecialistConfig {
   /** The `agent` value on `agent.activity` events. */
-  agent: "designer" | "devops" | "security";
+  agent: "designer" | "devops" | "security" | "cinematic";
   /** User-facing name for the chat sub-thread and messages. */
   label: string;
   systemPrompt: string;
@@ -896,6 +1131,20 @@ interface SpecialistConfig {
   guideNoun: string;
   /** "Design pass" / "DevOps pass" / "QA pass". */
   passNoun: string;
+  /** 061 — a genuinely-new file whose normalized path this predicate accepts
+   * is NOT counted toward Engineer Mode's NEW_FILE_CHECKPOINT. The Cinematic
+   * engineer sets it so `ffmpeg`'s bulk frame output under
+   * `public/cinematic/**` cannot freeze the turn. Unset ⇒ every new file
+   * counts, exactly as today. */
+  newFileCheckpointExempt?: (normPath: string) => boolean;
+  /** 061 — per-kind cap overrides. Absent ⇒ the shared SPECIALIST_MAX_*. */
+  maxTurns?: number;
+  maxTokens?: number;
+  wallclockMs?: number;
+  /** 061 — a `run_command` whose command matches this is refused at the tool
+   * boundary. The Cinematic engineer uses it to keep a scoped shell (no git,
+   * no network beyond the sandbox) while still running `ffmpeg`-class work. */
+  cmdDeny?: RegExp;
 }
 
 const SPECIALISTS: Record<SpecialistKind, SpecialistConfig> = {
@@ -946,6 +1195,30 @@ const SPECIALISTS: Record<SpecialistKind, SpecialistConfig> = {
     guideNoun: "quality plan",
     passNoun: "QA pass",
   },
+  cinematic: {
+    agent: "cinematic",
+    label: "Cinematic engineer",
+    systemPrompt: CINEMATIC_SYSTEM_PROMPT,
+    toolNames: CINEMATIC_TOOL_NAMES,
+    allow: cinematicPathAllowed,
+    specPaths: CINEMATIC_MD_PATHS,
+    skills: ["cinematic-web", "frontend-ui-engineering"],
+    dod: CINEMATIC_DOD,
+    installAllow: CINEMATIC_DEP_ALLOW,
+    guideNoun: "scroll storyboard",
+    passNoun: "Cinematic pass",
+    // 061 — ffmpeg writes 90–140 frame files in one command; without this the
+    // sixth would freeze the turn before the component could be written.
+    newFileCheckpointExempt: (n) => n.startsWith("public/cinematic/"),
+    // 061 — asset processing + storyboard + implementation + a scroll-QA loop
+    // needs more room than the shared specialist caps.
+    maxTurns: 50,
+    maxTokens: 800_000,
+    wallclockMs: 25 * 60_000,
+    // 061 — a scoped shell: ffmpeg-class work and dev commands, no git, no
+    // network beyond the sandbox.
+    cmdDeny: CINEMATIC_CMD_DENY,
+  },
 };
 
 /**
@@ -979,6 +1252,12 @@ export class AgentSession {
   // to say build it. Prevents "wrote the whole plan itself, then started
   // building" in one breath.
   private readyDeclaredAtTurn: number | null = null;
+
+  // 061 — set for the current turn when a cinematic pass returned the
+  // ASSETS-NEEDED pause. The only files it wrote are docs / staging (SOURCE.md,
+  // a .gitkeep, a draft CINEMATIC.md, a .gitignore line), so the automatic
+  // end-of-turn project verify is pure noise on that turn — suppress it.
+  private assetGatePausedThisTurn = false;
 
   // How many turns in a row have ended having hit the iteration cap with the
   // build broken. After the second, "keep going" is no longer the recommended
@@ -1048,7 +1327,7 @@ export class AgentSession {
             // The specialists are callable from Engineer Mode (on the user's
             // ask) and Architect Mode (in the pipeline).
             ...(options.architectMode || options.engineerMode
-              ? [designPassTool, opsPassTool, qaPassTool]
+              ? [designPassTool, opsPassTool, qaPassTool, cinematicPassTool]
               : []),
           ]
     ).filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name));
@@ -1195,7 +1474,9 @@ export class AgentSession {
           ? "devops"
           : input.qa === true
             ? "security"
-            : null;
+            : input.cinematic === true
+              ? "cinematic"
+              : null;
     const isSpecialist = specialistKind !== null;
     const spec = specialistKind ? SPECIALISTS[specialistKind] : null;
 
@@ -1370,19 +1651,20 @@ export class AgentSession {
         ? [...BUILDER_TOOL_NAMES, ...VERIFIER_EXTRA_TOOL_NAMES, ...(input.tools ?? [])]
         : BUILDER_TOOL_NAMES;
     // A specialist authors a spec AND implements it, so it gets more room:
-    // 40 turns / 600k tokens / 18 min.
+    // 40 turns / 600k tokens / 18 min by default, or a per-kind override on
+    // its SpecialistConfig (061 — the Cinematic engineer runs 50 / 800k / 25m).
     const wallclockMs = spec
-      ? SPECIALIST_WALLCLOCK_MS
+      ? (spec.wallclockMs ?? SPECIALIST_WALLCLOCK_MS)
       : isVerify
         ? 10 * 60_000
         : SUBAGENT_WALLCLOCK_MS;
     const tokenCap = spec
-      ? SPECIALIST_MAX_TOKENS
+      ? (spec.maxTokens ?? SPECIALIST_MAX_TOKENS)
       : isVerify
         ? SUBAGENT_MAX_TOKENS * 3
         : SUBAGENT_MAX_TOKENS;
     const childTurnCap = spec
-      ? SPECIALIST_MAX_TURNS
+      ? (spec.maxTurns ?? SPECIALIST_MAX_TURNS)
       : isVerify
         ? SUBAGENT_MAX_TURNS * 2
         : SUBAGENT_MAX_TURNS;
@@ -1421,8 +1703,16 @@ export class AgentSession {
       // A specialist has a structural write scope, enforced in the child, and
       // an install allowlist (empty ⇒ no installs).
       ...(spec ? { writeAllowlist: spec.allow, installAllowlist: spec.installAllow } : {}),
-      // 056 — the verifier and the Designer check the UI against Agent.md.
-      ...(this.options.agentMd && (isVerify || specialistKind === "designer")
+      // 061 — the Cinematic engineer's frame output is exempt from the
+      // new-file checkpoint, and its shell is scoped (no git / no network).
+      ...(spec?.newFileCheckpointExempt
+        ? { newFileCheckpointExempt: spec.newFileCheckpointExempt }
+        : {}),
+      ...(spec?.cmdDeny ? { cmdDeny: spec.cmdDeny } : {}),
+      // 056 — the verifier, the Designer, and (061) the Cinematic engineer
+      // check the UI against Agent.md.
+      ...(this.options.agentMd &&
+      (isVerify || specialistKind === "designer" || specialistKind === "cinematic")
         ? { agentMd: this.options.agentMd }
         : {}),
       ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
@@ -1443,6 +1733,14 @@ export class AgentSession {
           spec.label
         } — this is your project. Survey it, OWN your spec file (write it in full BEFORE your first other file), implement it, then review. CHANGE FILES — the deliverable is the spec file plus what implements it. Do not fix problems outside your lane — report them.\n\n` +
         `SCOPE: ${input.task}\n\nYOUR REVIEW MUST COVER:\n${input.acceptanceCriteria}${notesBlock}${filesLine}${briefBlock}${skillsBlock}${existingBlock}\n\n` +
+        (specialistKind === "cinematic"
+          ? "ACT THIS TURN. A brief survey (a few tool calls) is fine, then WRITE: either (a) SOURCE.md " +
+            "+ public/cinematic/<slug>/.gitkeep + a draft CINEMATIC.md, then a reply beginning " +
+            `"${CINEMATIC_ASSETS_MARKER}" (the footage is not here yet); or (b) the frames + the ` +
+            "scroll component (the footage is here). Ending this turn with 0 files written and no " +
+            "ASSETS NEEDED line is a FAILED pass — do not stop after only surveying, and do not ask " +
+            "the user a question instead of writing the files. "
+          : "") +
         "Follow the ordered steps in your instructions. Keep the project building/green. Return your REVIEW as instructed, leading with whether your spec file was created or refined."
       : isVerify
         ? `${rolePrefix}Verify this project and write its finishing files. Do not build features.\n\n` +
@@ -1528,12 +1826,37 @@ export class AgentSession {
           : "";
     const filesChanged = [...changed];
     // Files that are the specialist's own spec doc don't count as
-    // "implementation".
+    // "implementation". 061 — nor does the Cinematic engineer's asset tree
+    // (SOURCE.md, .gitkeep, the frame sequence, a poster, the manifest): those
+    // are inputs and outputs, not the component that implements the storyboard.
     const codeFilesChanged = spec
-      ? filesChanged.filter((p) => !spec.specPaths.has(pathPosix.normalize(p)))
+      ? filesChanged.filter((p) => {
+          const n = pathPosix.normalize(p);
+          if (spec.specPaths.has(n)) return false;
+          if (
+            spec.agent === "cinematic" &&
+            (n.startsWith("cinematic/") || n.startsWith("public/cinematic/") || n === ".gitignore")
+          ) {
+            return false;
+          }
+          return true;
+        })
       : filesChanged;
     const noChanges = isSpecialist && filesChanged.length === 0;
     const specOnly = isSpecialist && !noChanges && codeFilesChanged.length === 0;
+    // 061 — the Cinematic engineer's asset gate. When it blocks for footage it
+    // writes SOURCE.md + .gitkeep + a draft storyboard + a .gitignore entry
+    // (all of which `codeFilesChanged` already excludes — none is the
+    // component that implements the storyboard) and opens a line of its reply
+    // with the ASSETS NEEDED marker. This is a PAUSED outcome, not an error
+    // and not done: the parent relays it verbatim, does NOT run a re-verify,
+    // and the user resumes with "go".
+    const blockedOnAssets =
+      spec?.agent === "cinematic" &&
+      !capNote &&
+      filesChanged.length > 0 &&
+      codeFilesChanged.length === 0 &&
+      reply.split("\n").some((line) => line.trimStart().startsWith(CINEMATIC_ASSETS_MARKER));
     if (spec) {
       emit({
         type: "agent.activity",
@@ -1543,12 +1866,36 @@ export class AgentSession {
         phase: "end",
         title: capNote
           ? `${spec.passNoun} stopped${capNote}`
-          : noChanges
-            ? `${spec.label} made no changes`
-            : specOnly
-              ? `Wrote the ${spec.guideNoun} — not yet implemented`
-              : `${spec.passNoun} complete — ${codeFilesChanged.length} file(s) changed`,
+          : blockedOnAssets
+            ? "Waiting for footage"
+            : noChanges
+              ? `${spec.label} made no changes`
+              : specOnly
+                ? `Wrote the ${spec.guideNoun} — not yet implemented`
+                : `${spec.passNoun} complete — ${codeFilesChanged.length} file(s) changed`,
       });
+    }
+    if (spec && blockedOnAssets) {
+      // Suppress the automatic end-of-turn project verify: only docs/staging
+      // changed, and the "verify" step in the UI plus the model's commentary
+      // on it are pure noise on a paused pass.
+      this.assetGatePausedThisTurn = true;
+      return {
+        output:
+          `${spec.passNoun} is PAUSED — the Cinematic engineer needs footage before it can build ` +
+          `this.\n\n` +
+          "RELAY THE MESSAGE BELOW AS YOUR ENTIRE REPLY — paste it once, exactly, and nothing else. " +
+          "Do NOT add a preamble, a 'Purpose' line, an 'Epistemic status' section, or a summary of " +
+          "your own. Do NOT repeat it. Do NOT say anything was built or verified. It is a deliberate " +
+          'pause: the user adds the file(s) to the named folder and replies "go" to resume.\n\n' +
+          "-----\n" +
+          `${reply.slice(0, 6000)}\n` +
+          "-----\n" +
+          `(context, not for the user: ${filesChanged.length} docs/staging file(s) written — ${
+            filesChanged.join(", ") || "none"
+          }; ${rounds} rounds, ${secs}s.)`,
+        isError: false,
+      };
     }
     if (spec) {
       const kind = specialistKind as SpecialistKind;
@@ -1610,10 +1957,20 @@ export class AgentSession {
             ? "Relay the OPS REVIEW verbatim. If any area is FAIL/NOT DONE the operational setup is " +
               "not complete — say what is missing. Note any dependency the Engineer must add. A " +
               "generated CI/Docker file is unverified until it runs on a real runner."
-            : "Relay the QA REVIEW verbatim. If it says NOT CLEARED (a security_scan FAIL or a " +
-              "critical/high vulnerability) the project is not cleared — say so plainly, do not call " +
-              "it done. Note any test dependency the Engineer must add, and any app bug the tests " +
-              "found (report only — the Engineer fixes those).";
+            : kind === "cinematic"
+              ? this.options.architectMode
+                ? "Relay the CINEMATIC REVIEW verbatim. If it changed code, dispatch ONE more " +
+                  "dispatch_task with verify:true (renders / core flows / typecheck / build) — a " +
+                  "fresh session confirms nothing broke. An ASSETS NEEDED / FAIL / NOT DONE line " +
+                  "is reported as such, never as done."
+                : "Relay the CINEMATIC REVIEW verbatim. Confirm the app still renders (start_preview " +
+                  "+ check the page and console) and walk the screen at a few scroll positions. An " +
+                  "ASSETS NEEDED / FAIL / NOT DONE line is reported as such — do not call it done. " +
+                  "Report ONLY the files actually changed."
+              : "Relay the QA REVIEW verbatim. If it says NOT CLEARED (a security_scan FAIL or a " +
+                "critical/high vulnerability) the project is not cleared — say so plainly, do not call " +
+                "it done. Note any test dependency the Engineer must add, and any app bug the tests " +
+                "found (report only — the Engineer fixes those).";
       return {
         output:
           `${spec.passNoun} finished${capNote}\n` +
@@ -1695,6 +2052,7 @@ export class AgentSession {
     }
 
     const messageId = newId("message");
+    this.assetGatePausedThisTurn = false;
     const changedFiles = new Set<string>();
     // Set whenever a file changes, cleared once a check has actually run —
     // survives across iterations, unlike changedFiles itself, so the check
@@ -2113,7 +2471,11 @@ export class AgentSession {
             const path =
               toolCall.name === "write_file" &&
               typeof toolCall.input.path === "string" &&
-              !existingFilesAtTurnStart.has(toolCall.input.path)
+              !existingFilesAtTurnStart.has(toolCall.input.path) &&
+              // 061 — a specialist child may exempt a path prefix from the
+              // new-file count (the Cinematic engineer's `public/cinematic/**`
+              // frame output, which ffmpeg writes in bulk).
+              !this.options.newFileCheckpointExempt?.(pathPosix.normalize(toolCall.input.path))
                 ? toolCall.input.path
                 : undefined;
             // Once the checkpoint is reached, every tool that changes the
@@ -2170,8 +2532,8 @@ export class AgentSession {
             // package install of anything off the install allowlist (empty ⇒
             // all installs refused); refuse a package.json write that touches
             // any key but `scripts`. Before the real tool runs.
-            const scopeBlock: "path" | "dep" | "pkgjson" | null = await (async (): Promise<
-              "path" | "dep" | "pkgjson" | null
+            const scopeBlock: "path" | "dep" | "pkgjson" | "cmd" | null = await (async (): Promise<
+              "path" | "dep" | "pkgjson" | "cmd" | null
             > => {
               const allow = this.options.writeAllowlist;
               if (!allow) return null;
@@ -2215,6 +2577,10 @@ export class AgentSession {
                   typeof (toolCall.input as { command?: unknown }).command === "string"
                     ? (toolCall.input as { command: string }).command
                     : "";
+                // 061 — a specialist may run a scoped shell: the Cinematic
+                // engineer gets `ffmpeg`-class work and dev commands, but no
+                // git and no network beyond the sandbox.
+                if (this.options.cmdDeny?.test(cmd)) return "cmd";
                 const m = INSTALL_CMD_RE.exec(cmd);
                 if (!m) return null;
                 const installAllow = this.options.installAllowlist ?? new Set<string>();
@@ -2251,7 +2617,8 @@ export class AgentSession {
               (toolCall.name === "dispatch_task" ||
                 toolCall.name === "design_pass" ||
                 toolCall.name === "ops_pass" ||
-                toolCall.name === "qa_pass");
+                toolCall.name === "qa_pass" ||
+                toolCall.name === "cinematic_pass");
             // 055 follow-up — refuse the same exact call repeated past the
             // limit. Read-only tools only: a repeated write/edit/dispatch has
             // its own gates, and this must never block a legitimate retry of
@@ -2317,7 +2684,8 @@ export class AgentSession {
                       )
                     : toolCall.name === "design_pass" ||
                         toolCall.name === "ops_pass" ||
-                        toolCall.name === "qa_pass"
+                        toolCall.name === "qa_pass" ||
+                        toolCall.name === "cinematic_pass"
                       ? await this.dispatchBuildTask(
                           (() => {
                             const kind: SpecialistKind =
@@ -2325,17 +2693,26 @@ export class AgentSession {
                                 ? "designer"
                                 : toolCall.name === "ops_pass"
                                   ? "devops"
-                                  : "security";
+                                  : toolCall.name === "cinematic_pass"
+                                    ? "cinematic"
+                                    : "security";
                             const inp = toolCall.input as { scope?: unknown; notes?: unknown };
                             return {
                               task:
                                 typeof inp.scope === "string" && inp.scope.trim()
                                   ? inp.scope
-                                  : "the whole project",
+                                  : kind === "cinematic"
+                                    ? "the hero of the current screen"
+                                    : "the whole project",
                               acceptanceCriteria: SPECIALISTS[kind].dod,
                               ...(typeof inp.notes === "string" ? { notes: inp.notes } : {}),
-                              [kind === "designer" ? "design" : kind === "devops" ? "ops" : "qa"]:
-                                true,
+                              [kind === "designer"
+                                ? "design"
+                                : kind === "devops"
+                                  ? "ops"
+                                  : kind === "cinematic"
+                                    ? "cinematic"
+                                    : "qa"]: true,
                             };
                           })(),
                           signal,
@@ -2374,9 +2751,14 @@ export class AgentSession {
                                     ? "Refusing this package.json write — a specialist may change the `scripts` block " +
                                       "only, nothing else (no dependencies, no config). Name what you need in your review " +
                                       "for the Engineer to add."
-                                    : "Refusing this install — this specialist does not add dependencies. Name the " +
-                                      "package you need in your review for the Engineer to add, and work with what is " +
-                                      "already in package.json.",
+                                    : scopeBlock === "cmd"
+                                      ? `Refusing "${toolCall.name}" — this specialist's shell is scoped to asset work ` +
+                                        "(ffmpeg / ffprobe / gltf-transform) and normal dev commands. No git, no network " +
+                                        "fetches, no deploy. Do the asset processing with the tools you have, or note in " +
+                                        "your review what you could not do."
+                                      : "Refusing this install — this specialist does not add dependencies. Name the " +
+                                        "package you need in your review for the Engineer to add, and work with what is " +
+                                        "already in package.json.",
                               isError: true,
                             }
                           : capped
@@ -2466,7 +2848,10 @@ export class AgentSession {
             (filePath) =>
               !existingFilesAtTurnStart.has(filePath) &&
               !newFilesThisTurn.has(filePath) &&
-              !GENERATED_LOCKFILE_NAMES.has(filePath),
+              !GENERATED_LOCKFILE_NAMES.has(filePath) &&
+              // 061 — ffmpeg's bulk frame output under `public/cinematic/**`
+              // is exempt from the new-file checkpoint count.
+              !this.options.newFileCheckpointExempt?.(pathPosix.normalize(filePath)),
           );
           // A specialist with a write scope (the Designer) must not create
           // out-of-scope files through the shell either. This is reactive —
@@ -2524,8 +2909,12 @@ export class AgentSession {
           // (no `npm install` in this mode). Running the verify step here
           // just fails every turn and drags the model into explaining a
           // non-problem in its reply. The `files.changed` event still fires
-          // so the UI and the Plan panel refresh.
-          if (!this.options.architectMode) verificationNeeded = true;
+          // so the UI and the Plan panel refresh. 061 — likewise skip it when
+          // a cinematic pass just paused for assets: only docs / staging
+          // changed, nothing to verify.
+          if (!this.options.architectMode && !this.assetGatePausedThisTurn) {
+            verificationNeeded = true;
+          }
           anyFileChangedThisTurn = true;
           emit({ type: "files.changed", sessionId: this.id, paths: [...changedFiles] });
           changedFiles.clear();

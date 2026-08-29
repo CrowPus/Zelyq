@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 /** One line of a specialist child agent's live activity (the Designer, the
  * verifier). Shown as a labelled sub-thread under the streaming turn. */
 export interface AgentActivity {
-  agent: "designer" | "devops" | "security" | "verifier" | "builder";
+  agent: "designer" | "devops" | "security" | "cinematic" | "verifier" | "builder";
   phase: "start" | "step" | "end";
   title: string;
   detail?: string;
