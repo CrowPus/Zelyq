@@ -6,6 +6,10 @@
 
 **Vibecoding writes code. Zelyq builds like an engineer.**
 
+<video src="https://github.com/user-attachments/assets/3debd0aa-6858-4017-a40f-feb6f293b9ef" autoplay loop muted playsinline controls width="900"></video>
+
+<sub>▶ Watch it happen — the <b>Cinematic engineer</b> turning a supplied clip into a scroll-scrubbed hero, live.</sub>
+
 Most "prompt to app" tools generate something that looks right and leave you to find out where it
 isn't. Zelyq's agent plans before it acts, verifies its own work before it calls a turn finished,
 tells you plainly what it checked versus what it assumed, and stops to ask instead of guessing when
@@ -23,17 +27,6 @@ live.
 [How it works](#how-it-works) · [Modes](./docs/modes.md) · [Architecture](./docs/architecture.md) ·
 [Configuration](./docs/configuration.md) · [Self-hosting](./docs/self-hosting.md) ·
 [Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
-
-<br />
-
-<a href="assets/screenshots/aura.mp4">
-  <img src="assets/screenshots/aura-studio.png" alt="AURA STUDIO: a full Shopify-style commerce admin — analytics, a discount engine, live theme customization, multi-currency settings, and order management — built by the Zelyq agent from one prompt" width="900" />
-</a>
-https://github.com/user-attachments/assets/3debd0aa-6858-4017-a40f-feb6f293b9ef
-<sub><a href="assets/screenshots/aura.mp4">▶ Watch it happen</a> — one prompt in, and the agent
-built a working commerce admin: analytics dashboard, discount engine, live theme customizer,
-multi-currency and tax settings, and an encrypted checkout simulation, across 8 files, with its own
-typecheck and preview passing before it called the turn done.</sub>
 
 </div>
 
