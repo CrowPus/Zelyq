@@ -2161,6 +2161,13 @@ export class AgentSession {
     // thing" nudge has already been injected this turn. One-shot, so a model
     // that stays empty even with guidance ends the turn instead of looping.
     let emptyRecoveryDone = false;
+    // 064 — one-shot re-nudge when the user picked a specialist from the
+    // `/agent` menu and the turn is about to end without that specialist's
+    // pass tool ever being called. The grant + the `withAgents` instruction
+    // get a capable model (gpt-5.2) to comply on their own; a weak one
+    // (Gemini Flash) tends to just do the work itself. One firm nudge makes
+    // the pick reliable without forcing a dispatch the model had no say in.
+    let specialistPickNudgeDone = false;
     // Architect Mode: how many times this turn we have made the model go back
     // and write `architecture/requirements.md` before ending a turn in which
     // it interviewed but recorded nothing. Prompt guidance ("write it as you
@@ -2289,6 +2296,15 @@ export class AgentSession {
     // reads the instruction. Woven between the plugin line and the skill
     // bodies so a named skill still reads first.
     if (agentNames?.length) this.grantSpecialistTools(agentNames);
+    // 064 — the pass tools this pick is expected to produce a call to, for
+    // the end-of-turn backstop below. Empty for a lean child (no pick) or an
+    // unrecognised name.
+    const pickedPassTools =
+      this.options.systemPrompt && this.options.toolNames
+        ? []
+        : (agentNames ?? [])
+            .map((name) => SPECIALIST_PASS_TOOLS[name as SpecialistKind]?.name)
+            .filter((name): name is string => Boolean(name));
     const withAgentHint = agentNames?.length
       ? withAgents(withPluginInstruction, agentNames)
       : withPluginInstruction;
@@ -2481,6 +2497,31 @@ export class AgentSession {
                 'otherwise complete and you have not yet, write the "' +
                 ARCHITECT_READY_MARKER +
                 '" line now. Never reply with nothing — do the smaller thing.',
+            );
+            continue;
+          }
+
+          // 064 — the user picked a specialist from the `/agent` menu, its
+          // pass tool was granted for this turn, and the turn is ending
+          // without a single call to it. One firm re-nudge, then let the
+          // turn end — a model that still refuses after this has made its
+          // choice, and looping would be worse. Not mode-gated: the whole
+          // point is the default mode where the founder hit this.
+          if (
+            pickedPassTools.length > 0 &&
+            !specialistPickNudgeDone &&
+            !pickedPassTools.some((name) => toolCalls.some((call) => call.name === name))
+          ) {
+            specialistPickNudgeDone = true;
+            const list = pickedPassTools.map((name) => `\`${name}\``).join(" and ");
+            const one = pickedPassTools.length === 1;
+            this.conversation.addUserMessage(
+              `The user picked ${one ? "a specialist" : "specialists"} from the /agent menu and you ` +
+                `have ${list} available this turn, but you have not called ${one ? "it" : "them"}. ` +
+                `Running the pass is what they asked for — not doing the work yourself, not loading a ` +
+                `skill, not writing that specialist's file by hand. Call ${list} now. If a pass is ` +
+                `genuinely not warranted for this request, say so in one sentence instead of finishing ` +
+                `without one.`,
             );
             continue;
           }

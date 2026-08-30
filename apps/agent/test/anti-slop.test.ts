@@ -35,6 +35,9 @@ import { buildAgentServer } from "../src/server.js";
 
 interface Built {
   options: ConversationOptions;
+  /** Every text added back into the conversation after creation — nudges,
+   * tool-result envelopes, and the auto-verification hand-back all land here. */
+  injected: string[];
 }
 
 function recordingProvider(
@@ -46,11 +49,14 @@ function recordingProvider(
     id: "anthropic",
     model: "scripted",
     createConversation(options: ConversationOptions) {
-      built.push({ options });
+      const record: Built = { options, injected: [] };
+      built.push(record);
       const script = scripts[Math.min(session++, scripts.length - 1)]!;
       let i = 0;
       const conversation: Conversation = {
-        addUserMessage: () => undefined,
+        addUserMessage: (text: string) => {
+          record.injected.push(text);
+        },
         addToolResults: () => undefined,
         async *stream() {
           const step = script[Math.min(i++, script.length - 1)]!;
@@ -312,6 +318,69 @@ test("064: the Designer child gets the library in Engineer Mode too", async () =
     await prompt(base, "design it");
     assert.equal(built.length, 2);
     assert.match(built[1]!.options.systemPrompt, /<design_references>/);
+  } finally {
+    await close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Part C — the weak-model backstop. The grant + the withAgents instruction
+// get a capable model to call the pass tool on its own (verified live on
+// gpt-5.2). A weak one (Gemini Flash) tends to just build files itself. If
+// a picked specialist's pass tool is never called, the turn gets one firm
+// re-nudge before it is allowed to end.
+// ---------------------------------------------------------------------------
+
+test("064: /agent designer + a turn that never calls design_pass gets one re-nudge", async () => {
+  // The model "does the work itself" and stops. The session must send it back.
+  const parent = [say("I restyled the components directly."), say("ok, done now")];
+  const { base, built, close } = await setup([parent]);
+  try {
+    await prompt(base, "make it look designed", ["designer"]);
+    // Keyed on the nudge's own wording — the woven prompt also names the tool.
+    const nudges = built[0]!.injected.filter((m) => m.includes("but you have not called"));
+    assert.equal(nudges.length, 1, "exactly one re-nudge");
+    assert.match(nudges[0]!, /have `design_pass` available/);
+    assert.match(nudges[0]!, /not doing the work yourself/);
+  } finally {
+    await close();
+  }
+});
+
+test("064: the re-nudge is one-shot — a model that still refuses ends the turn", async () => {
+  // Three plain replies: initial, post-nudge, and the fallback the loop would
+  // ask for. If the backstop looped it would never terminate.
+  const parent = [say("did it myself"), say("still not calling it"), say("nope")];
+  const { base, built, close } = await setup([parent]);
+  try {
+    await prompt(base, "designer please", ["designer"]);
+    const nudges = built[0]!.injected.filter((m) => m.includes("but you have not called"));
+    assert.equal(nudges.length, 1, "never more than one specialist-pick nudge");
+  } finally {
+    await close();
+  }
+});
+
+test("064: no re-nudge when the turn DID call the picked pass tool", async () => {
+  const parent = [call("design_pass", { scope: "app" }), say("relayed the review")];
+  const { base, built, close } = await setup([parent, [say("DESIGN.md refined")]]);
+  try {
+    await prompt(base, "make it look designed", ["designer"]);
+    assert.ok(
+      !built[0]!.injected.some((m) => m.includes("you have not called")),
+      "a turn that ran the pass must not be nudged",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("064: no specialist-pick nudge when no /agent pick was made", async () => {
+  const parent = [say("built the page, no pick here")];
+  const { base, built, close } = await setup([parent]);
+  try {
+    await prompt(base, "just build a page");
+    assert.ok(!built[0]!.injected.some((m) => m.includes("/agent menu")));
   } finally {
     await close();
   }
