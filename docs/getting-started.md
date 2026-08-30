@@ -34,24 +34,25 @@ Open the web URL and create a project.
 
 ## Windows
 
-It works on Windows, with two things to know:
+It works on Windows (PowerShell or Windows Terminal — no WSL needed). Two
+things to know:
 
-- **Do not clone into a synced folder** — OneDrive, Dropbox, Google Drive.
-  `node_modules` is tens of thousands of files including native `.node`
-  binaries; the sync client locks and partially-writes them, and you get errors
-  like *"Cannot find native binding"* from Vite's bundler even though the
-  install "succeeded". Clone somewhere plain: `C:\dev\zelyq`,
-  `C:\Users\you\projects\zelyq`.
-- If you already hit that error, move the folder out of the synced location,
-  then:
+- **`Cannot find native binding` / a missing `@rolldown/binding-win32-x64-msvc`
+  on first run.** The lockfile does declare that binary; this is a stale entry
+  in pnpm's content-addressable store (the `npm/cli#4828` category — the
+  package manager's cache, not this repo). Fix:
 
   ```powershell
-  rmdir /s /q node_modules
-  pnpm store prune
-  pnpm install
+  pnpm install --force
   ```
 
-PowerShell or Windows Terminal is fine; nothing here needs WSL.
+  If that alone doesn't clear it, `rmdir /s /q node_modules; pnpm store prune;
+  pnpm install`.
+
+- **Prefer a plain path over a synced folder** — OneDrive / Dropbox / Google
+  Drive lock and partially-write `node_modules`, which is what makes the store
+  corruption above more likely in the first place. `C:\dev\zelyq` beats
+  `…\OneDrive\Desktop\zelyq`.
 
 ## Your first project
 
