@@ -21,11 +21,15 @@ request.
 `/` in the composer opens a menu of loaded **skills**, named
 **agents** (the specialists below), **plugins**, and **models**, filtered
 as you type. Picking an agent — Designer, DevOps agent, Security/QA agent,
-Cinematic engineer — does **not** dispatch that specialist; it tags the
-message with whose lens you meant, so the agent steers the work that way
-(and calls the matching pass tool if the current mode allows it). Whatever
-you named — skill, agent or plugin — is shown back on the sent message in
-the transcript.
+Cinematic engineer — **runs that specialist**, in any mode, including the
+default one: the pick grants that specialist's pass tool for the
+conversation and tells the agent to call it, so `/agent` + "make it look
+designed" in an ordinary chat dispatches a real Designer that changes
+files and hands back its own review. The agent may not apply the lens
+itself, substitute a skill, or write the specialist's file by hand; if it
+judges a pass genuinely unwarranted it has to say so rather than claim one.
+Whatever you named — skill, agent or plugin — is shown back on the sent
+message in the transcript.
 
 Architect and Engineer Mode are mutually exclusive — turning one on turns
 the other off. All mode toggles are **per conversation**, not saved

@@ -150,14 +150,19 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   `go`; the Engineer re-dispatches `cinematic_pass` and the child resumes.
 - **Composer `/agent` picks** — the menu's Agents section (`apps/web`
   `lib/specialists.ts`, kept in step with `SPECIALIST_KINDS` by a drift
-  test) rides the wire as `prompt.agents`. `withAgents` in `prompt.ts`
-  weaves a one-line hint per named specialist ahead of the message —
-  between the plugin instruction and the skill bodies — explicitly *not a
-  dispatch*: a plain user message cannot start a specialist turn, only the
-  pipeline and `*_pass` tools do. The gateway also records the pick on the
-  user message row (`messages.mentions`, JSON `{ skills, agents, plugins }`,
-  null when empty) purely so the transcript shows what was named;
-  `content` stays exactly what was typed.
+  test) rides the wire as `prompt.agents`. A pick is a **dispatch**, in
+  any mode (064): `AgentSession.grantSpecialistTools` adds that
+  specialist's `*_pass` tool to the live tool array — sticky for the
+  session and add-only, since on Anthropic the tool block sits ahead of the
+  system prompt in the cache prefix and a per-turn add/remove would
+  invalidate the breakpoint on every later turn — and `withAgents` then
+  weaves an instruction naming the granted tool, forbidding the three
+  things the model used to do instead (apply the lens itself, substitute a
+  skill, hand-write the specialist's file). A session where nobody types
+  `/agent` keeps a byte-identical tool block. The gateway also records the
+  pick on the user message row (`messages.mentions`, JSON
+  `{ skills, agents, plugins }`, null when empty) purely so the transcript
+  shows what was named; `content` stays exactly what was typed.
 - **Pipeline** (Architect Mode §5): build → verify → DevOps (if the design
   is deployable) → design → re-verify → Security/QA → done. A FAIL /
   NOT DONE / NOT CLEARED from any of them blocks "done". The Cinematic
@@ -165,9 +170,18 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   user-triggered Engineer-Mode pass only.
 - **Design references** (`apps/agent/src/design-refs.ts`) — `design-md/`
   loads like `skills/` (bundled + `ZELYQ_DESIGN_REFS_DIR`, operator wins).
-  A slug+description catalog goes into the Architect's `DESIGN.md` step;
-  `use_design_ref(slug)` returns one reference's full body (path-guarded,
-  capped on inject). `design-md/Agent.md` is inlined as `<ui_guidelines>`
+  A slug+description catalog goes into the Architect's `DESIGN.md` step
+  and, since 064, into the **Designer and Cinematic children** as a
+  `<design_references>` block ahead of their own prompt — before that, the
+  Designer was told to pick from a list no code path ever handed it, so
+  every pass fell through to "author from first principles" and the library
+  was never read. `use_design_ref(slug)` returns one reference's full body
+  (path-guarded, capped on inject) and **lists every available slug in its
+  own description**, so the library is reachable in default mode too. The
+  default prompt's `<quality>` block names the stock look it must not
+  default to (near-black + one indigo-violet gradient, emoji as icons,
+  gradient blocks standing in for imagery) and requires a committed type
+  and spacing scale, contrast, focus states and every state styled. `design-md/Agent.md` is inlined as `<ui_guidelines>`
   in the Architect and Engineer prompts; its observable MUSTs are a gate
   block in the verifier and Designer checklists and in Engineer Mode's
   auto-verification. `/health` reports the loaded slugs.

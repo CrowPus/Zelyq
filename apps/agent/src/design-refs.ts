@@ -199,15 +199,23 @@ export function buildUseDesignRefTool(refs: DesignRef[]): ZelyqTool {
   return defineTool({
     name: "use_design_ref",
     description:
-      "Load one design reference from the <design_references> list in your prompt. Returns that " +
-      "product's full design-language analysis — colour roles, a type scale with an open-source " +
-      "font substitute, spacing, radius, elevation, and component conventions. Use it when drafting " +
-      "or deepening a project's DESIGN.md: pick the reference closest to the project's product " +
-      "category and personality, then ADAPT it — rename to the project's domain, drop what does not " +
+      "Load one real product's design language. Returns its full analysis — colour roles, a type " +
+      "scale with an open-source font substitute, spacing, radius, elevation, and component " +
+      "conventions. Use it BEFORE designing any substantial UI, and when drafting or deepening a " +
+      "project's DESIGN.md: pick the reference closest to the project's product category first and " +
+      "personality second, then ADAPT it — rename to the project's domain, drop what does not " +
       "apply, recolour if the personality differs. Never skin the project as the brand; never use " +
-      "its logo or wordmark.",
+      "its logo or wordmark. Starting from a real design language is what separates a designed " +
+      "product from the default dark-background-and-purple-gradient look. " +
+      // 064 — the slugs live HERE, not only in a <design_references> prompt
+      // block, so the library is reachable in every mode and in every child
+      // that holds this tool. The old description pointed at a list the
+      // default-mode prompt never had, so the model read the tool as "not for
+      // me" and never called it. Costs ~900 bytes, inside the cached tool
+      // block, paid once per session.
+      `Available references: ${slugList}.`,
     schema: z.object({
-      slug: z.string().describe("A slug from the <design_references> list"),
+      slug: z.string().describe("One of the slugs listed in this tool's description"),
     }),
     async run(_context, input): Promise<ToolResult> {
       const slug = input.slug.trim();

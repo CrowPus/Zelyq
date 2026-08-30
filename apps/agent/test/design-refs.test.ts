@@ -109,3 +109,39 @@ test("use_design_ref returns a body for a known slug and errors otherwise", asyn
   assert.equal(escaped.isError, true);
   assert.match(escaped.output, /not a valid reference slug/);
 });
+
+// ---------------------------------------------------------------------------
+// 064 — the library has to be DISCOVERABLE, not just present.
+//
+// The tool was in ALL_TOOLS at boot all along, so every session — default mode
+// included — could call it. But its description said "from the
+// <design_references> list in your prompt", and default mode has no such
+// list, so the model read the tool as not-for-me and never called it. The
+// slugs were computed for the error message and nowhere else. Moving them into
+// the description makes the 74 references reachable in every mode and in every
+// child that holds the tool, for ~900 bytes inside the cached tool block.
+// ---------------------------------------------------------------------------
+
+test("064: use_design_ref lists its slugs in its own description", async () => {
+  const dir = await tmpDir();
+  await writeRef(dir, "linearish", "---\nname: L\ndescription: near-black tool\n---\n# L\nbody\n");
+  await writeRef(dir, "stripeish", "---\nname: S\ndescription: trust-forward\n---\n# S\nbody\n");
+  const { refs } = await loadDesignRefs(dir, undefined, silent);
+  const tool = buildUseDesignRefTool(refs);
+
+  assert.match(tool.description, /Available references: /);
+  assert.match(tool.description, /linearish/);
+  assert.match(tool.description, /stripeish/);
+});
+
+test("064: use_design_ref's description no longer assumes a prompt-side list", async () => {
+  // The exact wording that made the tool unreachable in default mode.
+  const dir = await tmpDir();
+  await writeRef(dir, "linearish", "---\nname: L\ndescription: near-black tool\n---\n# L\nbody\n");
+  const { refs } = await loadDesignRefs(dir, undefined, silent);
+  const tool = buildUseDesignRefTool(refs);
+
+  assert.doesNotMatch(tool.description, /list in your prompt/);
+  // And it names the failure mode it exists to prevent.
+  assert.match(tool.description, /dark-background-and-purple-gradient/);
+});

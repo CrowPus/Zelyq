@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   AGENT_HINT_NAMES,
   buildSystemPrompt,
+  designReferencesBlock,
   ENGINEER_MODE_PURPOSE_MARKER,
   withAgents,
   withPlugins,
@@ -333,21 +334,122 @@ test("062: withAgents drops names it does not recognise rather than failing the 
   assert.equal(withAgents("do the thing", ["not-a-specialist"]), "do the thing");
 });
 
-test("062: withAgents weaves a pointer, not a dispatch, ahead of the message", () => {
+test("064: withAgents weaves a dispatch instruction naming the pass tool", () => {
+  // 062 shipped this as a pointer — "not a command to run that specialist
+  // now" — because default mode had no pass tool to command. 064 grants the
+  // tool before this runs, so the hint must now tell the model to call it.
+  // A user who picks "Designer" from a menu asked for a Designer.
   const woven = withAgents("polish the hero", ["designer"]);
   assert.match(woven, /pointed at a specialist/);
   assert.match(woven, /Designer/);
-  assert.match(woven, /not a command to run that specialist now/);
+  assert.match(woven, /You have `design_pass` this turn/);
+  assert.doesNotMatch(woven, /not a command to run that specialist now/);
   assert.ok(woven.endsWith("polish the hero"));
 });
 
-test("062: withAgents handles more than one specialist", () => {
+test("064: withAgents forbids the three ways the agent faked a pass", () => {
+  // The logged slop session did all three: applied "the Designer lens"
+  // itself, substituted use_skill, and hand-wrote DESIGN.md.
+  const woven = withAgents("make it look designed", ["designer"]);
+  assert.match(woven, /do not apply the lens yourself/);
+  assert.match(woven, /do not substitute a skill/);
+  assert.match(woven, /do not write that specialist's file by hand/);
+  assert.match(woven, /rather than claiming you did one/);
+});
+
+test("064: withAgents handles more than one specialist and names every tool", () => {
   const woven = withAgents("ship it", ["designer", "security"]);
   assert.match(woven, /pointed at specialists/);
   assert.match(woven, /Designer/);
   assert.match(woven, /Security\/QA agent/);
+  assert.match(woven, /`design_pass` and `qa_pass`/);
+});
+
+test("064: every specialist kind maps to a pass tool in the woven hint", () => {
+  // A name in the menu with no tool behind it is exactly the 062 bug.
+  for (const kind of SPECIALIST_KINDS) {
+    assert.match(withAgents("go", [kind]), /You have `\w+_pass` this turn/);
+  }
 });
 
 test("062: withAgents' hint table covers exactly the specialist kinds, no drift", () => {
   assert.deepEqual([...AGENT_HINT_NAMES].sort(), [...SPECIALIST_KINDS].sort());
+});
+
+// ---------------------------------------------------------------------------
+// 064 — the art-direction floor. Default mode used to get four generic lines
+// ("sensible visual design"), which every model resolves to the same
+// near-black page with one purple gradient. These assert the floor is in the
+// DEFAULT prompt — not only behind Architect or Engineer Mode, which is where
+// all the design machinery lived when the founder hit this.
+// ---------------------------------------------------------------------------
+
+test("064: the default prompt points at the design reference library", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.match(prompt, /use_design_ref/);
+  assert.match(prompt, /Pick the \s*one closest to this product's category/s);
+  assert.match(prompt, /ADAPT it/);
+});
+
+test("064: the default prompt names the slop it must not default to", () => {
+  // A model avoids a described anti-pattern far more reliably than it invents
+  // an unnamed alternative, so the failure mode is spelled out.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.match(prompt, /near-black background/);
+  assert.match(prompt, /indigo-to-violet accent gradient/);
+  assert.match(prompt, /NEVER emoji as iconography/);
+  assert.match(prompt, /hand-drawn SVG "screenshot"/);
+  assert.match(prompt, /Colour is an identity decision/);
+});
+
+test("064: the default prompt forbids claiming a specialist pass that never ran", () => {
+  // Turn 3 of the logged session wrote DESIGN.md by hand and reported
+  // "Applying the Designer lens, I have crafted and documented the design
+  // system" — with no Designer anywhere in the run.
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.match(prompt, /Writing a DESIGN\.md is writing a document; it is not a design pass/);
+  assert.match(prompt, /unless that \s*specialist actually ran/s);
+});
+
+test("064: the art-direction floor is in every mode, not just Architect/Engineer", () => {
+  const modes = [
+    buildSystemPrompt({ projectName: "p", template: "vite-react" }),
+    buildSystemPrompt({ projectName: "p", template: "vite-react", engineerMode: {} }),
+    buildSystemPrompt({ projectName: "p", template: "vite-react", architectMode: {} }),
+  ];
+  for (const prompt of modes) {
+    assert.match(prompt, /use_design_ref/);
+    assert.match(prompt, /NEVER emoji as iconography/);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 064 — designReferencesBlock: one renderer, so the top-level prompt and a
+// specialist child's prompt cannot drift. They did drift, and the Designer
+// child spent every pass without the library it was told to use.
+// ---------------------------------------------------------------------------
+
+test("064: designReferencesBlock renders nothing for an empty catalog", () => {
+  assert.equal(designReferencesBlock(undefined), "");
+  assert.equal(designReferencesBlock(""), "");
+});
+
+test("064: designReferencesBlock renders the catalog inside the tagged block", () => {
+  const block = designReferencesBlock("- linear: a calm, dense product surface");
+  assert.match(block, /<design_references>/);
+  assert.match(block, /- linear: a calm, dense product surface/);
+  assert.match(block, /<\/design_references>/);
+});
+
+test("064: the top-level prompt renders the catalog through the same helper", () => {
+  // If these two ever diverge, a child and a top-level session are being told
+  // different things about the same library — the 063 bug class.
+  const catalog = "- stripe: precise, restrained, trust-forward";
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    architectMode: {},
+    designRefCatalogText: catalog,
+  });
+  assert.ok(prompt.includes(designReferencesBlock(catalog).trim()));
 });

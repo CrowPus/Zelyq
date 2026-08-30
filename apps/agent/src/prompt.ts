@@ -128,12 +128,40 @@ minimum bar, not a bonus.
 - Use semantic HTML and accessible controls — real buttons, labelled inputs, visible focus states.
 - Keep components small and named for what they are.
 - Match whatever conventions already exist in the project over your own preferences.
+
+Before building any substantial UI, take a design direction instead of defaulting to one. \
+\`use_design_ref\` loads a real product's design language — colour roles, a type scale, spacing, \
+elevation, component conventions — and its description lists every reference available. Pick the \
+one closest to this product's category, read it, and ADAPT it: rename to this domain, drop what \
+does not apply, recolour to the product's own identity. Never skin the app as that brand and never \
+use its logo. A different product should not come out looking like the last one you built.
+
+Left unattended, a model reaches for the same page every time: a near-black background, one \
+indigo-to-violet accent gradient, monospace numerals, and a grid of cards that all look alike. \
+That is not a design decision — it is the absence of one, and users recognise it instantly. \
+Specifically:
+- NEVER emoji as iconography or as a stand-in for a real icon set.
+- NEVER a gradient block, a coloured rectangle, or a hand-drawn SVG "screenshot" where real \
+imagery belongs — use the image tools you have, or a labelled placeholder that admits what it is.
+- Commit to a type scale and a spacing scale, and use them; do not size things one-off.
+- Body text needs 4.5:1 contrast, every interactive control needs a visible focus state, and every \
+hit target needs 24px (44px on mobile).
+- Style every state — empty, loading, error, success — not just the happy one.
+- Colour is an identity decision. If the product has no stated identity, derive one from what it \
+IS; do not fall back to the default dark-and-purple.
 </quality>
 
 <communication>
 Report what you did, not what you are about to do. Keep it to a few sentences: what changed, where, \
 and anything the user has to decide. No preamble, no restating the request, no summarising your own \
 tool calls one by one. If you could not finish something, say so plainly and say why.
+
+Zelyq's specialists — the Designer, the DevOps agent, the Security/QA agent, the Cinematic \
+engineer — are separate agents that run as their own pass and hand back their own review. \
+Writing a DESIGN.md is writing a document; it is not a design pass. Never report that you \
+"applied the Designer lens", ran a design/ops/QA pass, or acted as a specialist unless that \
+specialist actually ran and you are relaying what it returned. If the user asked for a specialist \
+and you have no tool to run one, say that plainly and say what you did instead.
 </communication>${
     options.engineerMode
       ? buildEngineerModeAddendum(
@@ -204,17 +232,7 @@ ${
 `
     : "";
 
-  const designRefsSection = designRefCatalogText
-    ? `
-<design_references>
-Real product design languages you can start DESIGN.md from. Each entry is a slug and a one-line summary; call use_design_ref("<slug>") to read the full analysis (colour roles, a type scale with an open-source font substitute, spacing, radius, elevation, component conventions).
-
-When you write DESIGN.md (section 2), pick the reference closest to this project's product category FIRST, personality second. Read it, then ADAPT it: rename tokens to this project's domain, drop what does not apply, recolour to the product's own identity. The reference informs roles and rhythm, not identity — never skin the app as that brand, never use its logo or wordmark. If nothing fits, design from first principles and say so.
-
-${designRefCatalogText}
-</design_references>
-`
-    : "";
+  const designRefsSection = designReferencesBlock(designRefCatalogText);
 
   const uiGuidelinesSection = agentMd
     ? `
@@ -969,15 +987,59 @@ const AGENT_HINTS: Record<string, string> = {
 
 export const AGENT_HINT_NAMES = Object.keys(AGENT_HINTS);
 
+/** 064 — the tool each named specialist runs behind. Mirrors
+ * `SPECIALIST_PASS_TOOLS` in `session.ts` (which does the granting); the drift
+ * check keeps the two, plus the composer's `/agent` list, on one set. */
+const AGENT_PASS_TOOLS: Record<string, string> = {
+  designer: "design_pass",
+  devops: "ops_pass",
+  security: "qa_pass",
+  cinematic: "cinematic_pass",
+};
+
 /**
- * Weaves an `/agent` pick into a user message. The weakest of the three
- * `with*` weavers by design: naming a specialist is a pointer, not a
- * dispatch. Zelyq's specialists run as their own scoped child turns behind
- * the `*_pass` tools and the mode orchestration — a plain user message
- * cannot start one. So this only tells the model which specialist the user
- * had in mind, to steer the work that way (call the matching pass tool when
- * the mode allows it, or just apply that lens directly). Unknown names are
- * dropped rather than failing the turn.
+ * 064 — the one renderer for the `<design_references>` block, exported so the
+ * top-level prompt (`buildSystemPrompt`) and a specialist child's prompt
+ * (`session.ts`) cannot drift apart.
+ *
+ * They did drift, and it cost us: `DESIGNER_SYSTEM_PROMPT` has always told the
+ * Designer child to "pick the reference closest to this product's category"
+ * from a `<design_references>` list, while the only code that rendered that
+ * list lived on the `buildSystemPrompt` branch — which a child, having its own
+ * `systemPrompt`, never takes. The child silently fell through to "author from
+ * first principles" on every single pass, and the 74-reference library shipped
+ * in 056 was never once read by the agent whose job it is.
+ *
+ * Returns "" for empty input, so callers can interpolate it unconditionally.
+ */
+export function designReferencesBlock(designRefCatalogText?: string): string {
+  if (!designRefCatalogText) return "";
+  return `
+<design_references>
+Real product design languages you can start DESIGN.md from. Each entry is a slug and a one-line summary; call use_design_ref("<slug>") to read the full analysis (colour roles, a type scale with an open-source font substitute, spacing, radius, elevation, component conventions).
+
+When you write DESIGN.md (section 2), pick the reference closest to this project's product category FIRST, personality second. Read it, then ADAPT it: rename tokens to this project's domain, drop what does not apply, recolour to the product's own identity. The reference informs roles and rhythm, not identity — never skin the app as that brand, never use its logo or wordmark. If nothing fits, design from first principles and say so.
+
+${designRefCatalogText}
+</design_references>
+`;
+}
+
+/**
+ * Weaves an `/agent` pick into a user message.
+ *
+ * 062 shipped this as a pointer — "not a command to run that specialist now"
+ * — because in default mode the `*_pass` tools were not in the pool, so there
+ * was nothing to command. 064 grants the named specialist's pass tool for the
+ * session (`AgentSession.grantSpecialistTools`) BEFORE this runs, so the tool
+ * this text names is genuinely there. The hint is therefore now a dispatch
+ * instruction, not a hedge: the user picked a specialist from a menu, and the
+ * only correct response to that is to run it.
+ *
+ * The tool's own description still governs whether the turn warrants a pass
+ * (a question about design is not a request for one), which is why this says
+ * "survey first" rather than "call it immediately". Unknown names are dropped
+ * rather than failing the turn.
  */
 export function withAgents(message: string, names: string[]): string {
   const hints = names
@@ -988,10 +1050,21 @@ export function withAgents(message: string, names: string[]): string {
     hints.length === 1
       ? "The user pointed at a specialist for this task:"
       : "The user pointed at specialists for this task:";
+  const tools = names
+    .map((name) => AGENT_PASS_TOOLS[name])
+    .filter((tool): tool is string => Boolean(tool));
+  const toolList =
+    tools.length === 1 ? `\`${tools[0]}\`` : tools.map((tool) => `\`${tool}\``).join(" and ");
   return (
     `${intro}\n${hints.join("\n")}\n\n` +
-    "This names whose lens to apply — it is not a command to run that specialist now. " +
-    "Invoke the matching pass tool only if the current mode allows it.\n\n---\n\n" +
+    `You have ${toolList} this turn. The user picked ${
+      tools.length === 1 ? "this specialist" : "these specialists"
+    } from a menu, so running ` +
+    `${tools.length === 1 ? "it" : "them"} is what they asked for — do not apply the lens ` +
+    "yourself, do not substitute a skill, and do not write that specialist's file by hand. " +
+    "Survey what the request actually needs, then call the pass tool and relay its review " +
+    "verbatim. If you conclude a pass is genuinely not warranted, say so plainly rather than " +
+    "claiming you did one.\n\n---\n\n" +
     message
   );
 }
