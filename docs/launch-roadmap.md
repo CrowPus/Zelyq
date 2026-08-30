@@ -4,28 +4,23 @@ The repository is already public. This is the plan to turn it from *public* into
 *launched* — able to stand up to contributor and user traffic, and honest about
 what it is.
 
-**Licensing is settled and out of scope here.** Zelyq stays on the Sustainable
-Use License plus a separate Enterprise License for `ee/` paths — the same model
-n8n uses. See [`LICENSING.md`](../LICENSING.md) and
-[`docs/adr/0004-sustainable-use-license.md`](./adr/0004-sustainable-use-license.md).
+**Licensing is settled.** Zelyq is open source under the **GNU AGPL-3.0**, with a
+commercial dual-licence and an open-core `ee/` split. See
+[`LICENSING.md`](../LICENSING.md) and
+[ADR 0005](./adr/0005-agpl-3.0-and-dual-licensing.md).
 
 The forward-looking product roadmap is a separate document — see
 [`roadmap.md`](./roadmap.md), which gets its own refresh once this list is done.
 
 ---
 
-## Phase 1 — Say what it is
+## Phase 1 — Say what it is  ✅
 
-_Tracked in [#96](https://github.com/CrowPus/Zelyq/issues/96)._
-
-The `LICENSE` and `LICENSING.md` are already honest ("source-available, not open
-source"). A few surfaces still say "open source", which is the exact thing n8n
-got criticised for and then fixed.
-
-- [ ] GitHub repo **description**: "Open-source AI app builder" → "fair-code" or
-      "source-available" phrasing that matches the licence.
-- [ ] README one-liner and any "open source" in prose → the same.
-- [ ] Sweep `docs/` for stray "open source" claims.
+The relicence to AGPL-3.0 landed (issue [#96](https://github.com/CrowPus/Zelyq/issues/96),
+closed), so every surface can say "open source" and mean it: `LICENSE`, `NOTICE`,
+`LICENSING.md`, `README` + badge, `CONTRIBUTING`, `CLA`, `CHANGELOG`, the
+`research/` front-matter, and every `package.json` `license` field are
+consistent. The GitHub repo description already reads correctly.
 
 ## Phase 2 — Governance & sustainability
 
@@ -103,7 +98,7 @@ _Product-roadmap refresh tracked in [#104](https://github.com/CrowPus/Zelyq/issu
 
 ## Not in scope
 
-- **Relicensing.** The Sustainable Use License + Enterprise License split is the
-  chosen model and is not changing here.
+- **Further relicensing.** The model is settled — AGPL-3.0 + a commercial
+  dual-licence + the open-core `ee/` split (ADR 0005).
 - **A hosted service in this repo.** Still out — see `roadmap.md`
   "Explicitly not planned".
