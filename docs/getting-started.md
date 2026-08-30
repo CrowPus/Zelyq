@@ -32,6 +32,27 @@ Three processes start:
 
 Open the web URL and create a project.
 
+## Windows
+
+It works on Windows, with two things to know:
+
+- **Do not clone into a synced folder** — OneDrive, Dropbox, Google Drive.
+  `node_modules` is tens of thousands of files including native `.node`
+  binaries; the sync client locks and partially-writes them, and you get errors
+  like *"Cannot find native binding"* from Vite's bundler even though the
+  install "succeeded". Clone somewhere plain: `C:\dev\zelyq`,
+  `C:\Users\you\projects\zelyq`.
+- If you already hit that error, move the folder out of the synced location,
+  then:
+
+  ```powershell
+  rmdir /s /q node_modules
+  pnpm store prune
+  pnpm install
+  ```
+
+PowerShell or Windows Terminal is fine; nothing here needs WSL.
+
 ## Your first project
 
 1. **Create a project.** A React + Vite + Tailwind template is scaffolded into
