@@ -18,6 +18,21 @@ test("detects plain-word and single-quote variants", () => {
   );
 });
 
+test("detects 'reply with \"continue\"' when the word is the whole ask, no trailing clause", () => {
+  // The AI often says the trigger word once, then explains what it will do —
+  // "so I can…", "and I'll…", or just a full stop. The word already is the ask.
+  assert.equal(
+    detectContinuePrompt('Please reply with "continue" so I can write the complete showcase code.'),
+    "continue",
+  );
+  assert.equal(
+    detectContinuePrompt("Reply with **continue** and I'll finish the build."),
+    "continue",
+  );
+  assert.equal(detectContinuePrompt("Type `keep going`."), "keep going");
+  assert.equal(detectContinuePrompt('Send "build it" whenever you like.'), "build it");
+});
+
 test("ignores messages that only mention continuing in passing", () => {
   assert.equal(
     detectContinuePrompt("The build will continue automatically after verification."),
