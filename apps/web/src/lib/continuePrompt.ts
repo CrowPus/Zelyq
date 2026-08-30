@@ -25,6 +25,10 @@ const ACCEPTED = [
 const PATTERNS: RegExp[] = [
   /\b(?:reply|respond|answer|type|send|say|hit)\s+(?:with\s+|back\s+with\s+)?[*_"'“”`]{0,3}([A-Za-z][A-Za-z .'-]{0,22}?)[*_"'“”`]{0,3}\s+(?:to\s+|and\s+I['’]?ll\s+|when\s+(?:you['’]?re\s+)?ready\s+to\s+)?(?:continue|proceed|carry on|keep going|move on|resume|go on|for the next|to get the next)/i,
   /\b[*_"'“”`]{1,2}([A-Za-z][A-Za-z .'-]{0,22}?)[*_"'“”`]{1,2}\s+to (?:continue|proceed|get the next|move on)\b/i,
+  // "reply with 'continue' so I can…" — when the quoted word already IS an
+  // accepted continue-word, whatever follows ("so I can…", "and I'll…", a full
+  // stop, nothing) does not matter. No trailing "to continue" clause required.
+  /\b(?:reply|respond|answer|type|send|say|hit)\s+(?:with\s+|back\s+with\s+)?[*_"'“”`]{0,3}(continue|go on|go ahead|keep going|carry on|proceed|next|yes|build it|do it)[*_"'“”`]{0,3}\b/i,
 ];
 
 export function detectContinuePrompt(messageText: string | null | undefined): string | null {
