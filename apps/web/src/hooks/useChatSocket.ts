@@ -52,28 +52,60 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
   filesChangedRef.current = onFilesChanged;
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/projects/${projectId}`);
-    socketRef.current = socket;
-    setState(INITIAL);
+    // A long-lived idle dev WebSocket eventually drops — a laptop sleeps, a
+    // browser tab is backgrounded and its heartbeat timer throttled, an
+    // intermediary reaps the idle socket. Without this the UI stuck on "closed"
+    // until a manual page refresh. Reconnect with exponential backoff; the
+    // server replays history on `connected`, so state re-hydrates on its own.
+    let disposed = false;
+    let attempt = 0;
+    let heartbeat: number | undefined;
+    let reconnectTimer: number | undefined;
 
-    socket.onopen = () => setState((previous) => ({ ...previous, status: "open" }));
-    socket.onclose = () => setState((previous) => ({ ...previous, status: "closed", busy: false }));
-    socket.onerror = () =>
-      setState((previous) => ({ ...previous, error: "Lost connection to the server." }));
+    const connect = () => {
+      if (disposed) return;
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(`${protocol}//${window.location.host}/ws/projects/${projectId}`);
+      socketRef.current = socket;
 
-    socket.onmessage = (event) => {
-      const message = JSON.parse(event.data as string) as ServerMessage;
-      setState((previous) => reduce(previous, message, filesChangedRef.current));
+      socket.onopen = () => {
+        attempt = 0;
+        setState((previous) => ({ ...previous, status: "open", error: null }));
+      };
+
+      socket.onclose = () => {
+        window.clearInterval(heartbeat);
+        if (disposed) return;
+        setState((previous) => ({ ...previous, status: "connecting", busy: false }));
+        const delay = Math.min(1000 * 2 ** attempt, 15_000) + Math.random() * 1000;
+        attempt += 1;
+        reconnectTimer = window.setTimeout(connect, delay);
+      };
+
+      // `onerror` is always followed by `onclose`; let that drive the retry and
+      // just surface a message here.
+      socket.onerror = () => {
+        setState((previous) => ({ ...previous, error: "Connection lost — reconnecting…" }));
+      };
+
+      socket.onmessage = (event) => {
+        const message = JSON.parse(event.data as string) as ServerMessage;
+        setState((previous) => reduce(previous, message, filesChangedRef.current));
+      };
+
+      heartbeat = window.setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
+      }, 25_000);
     };
 
-    const heartbeat = window.setInterval(() => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
-    }, 25_000);
+    setState(INITIAL);
+    connect();
 
     return () => {
+      disposed = true;
+      window.clearTimeout(reconnectTimer);
       window.clearInterval(heartbeat);
-      socket.close();
+      socketRef.current?.close();
     };
   }, [projectId]);
 
@@ -154,7 +186,16 @@ function reduce(
 ): ChatState {
   switch (message.type) {
     case "connected":
-      return { ...state, status: "open", messages: message.history };
+      // Also covers a reconnect: resync to server history, drop any streaming
+      // turn we lost the tail of.
+      return {
+        ...state,
+        status: "open",
+        error: null,
+        busy: false,
+        streaming: null,
+        messages: message.history,
+      };
 
     case "pong":
       return state;
