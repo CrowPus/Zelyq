@@ -1,4 +1,4 @@
-import path from "node:path";
+import { resolveFromRepoRoot } from "@zelyq/core/node";
 import { createStore, resolveSetting } from "@zelyq/db";
 import type { RuntimeConfig } from "@zelyq/runtime";
 import {
@@ -135,7 +135,7 @@ export async function loadAgentConfig(): Promise<AgentConfig> {
     maxTurnIterations: intFromEnv("ZELYQ_MAX_TURN_ITERATIONS", 50),
     runtime: {
       kind: runtimeKind,
-      workspaceDir: path.resolve(process.env.ZELYQ_WORKSPACE_DIR ?? "./workspace"),
+      workspaceDir: resolveFromRepoRoot(process.env.ZELYQ_WORKSPACE_DIR ?? "workspace"),
       url: process.env.ZELYQ_RUNTIME_URL,
       token: process.env.ZELYQ_RUNTIME_TOKEN,
       execTimeoutMs: intFromEnv("ZELYQ_EXEC_TIMEOUT_MS", 120_000),
