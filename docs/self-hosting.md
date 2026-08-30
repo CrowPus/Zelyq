@@ -117,6 +117,19 @@ Reverse-proxy each preview over one HTTPS origin instead:
    Keep `ZELYQ_PREVIEW_HOST` at `127.0.0.1` (previews only need to be reachable from nginx) and
    leave the `4300-4399` range closed at the firewall.
 
+5. **Let the editor frame the preview.** The editor embeds the preview in an `<iframe>`. If your
+   proxy sends `X-Frame-Options: SAMEORIGIN` (a common global default), that cross-host frame is
+   blocked. On the preview vhost, replace it with a `frame-ancestors` policy scoped to the editor
+   origin — defining any `add_header` in the `server` block drops the inherited set, so the
+   `X-Frame-Options` simply stops being sent:
+
+   ```nginx
+   add_header Content-Security-Policy "frame-ancestors https://app.example.com" always;
+   ```
+
+   The rebuilt web bundle also has to be live — in production mode the server serves
+   `apps/web/dist`, so run `pnpm --filter @zelyq/web build` before restarting after any web change.
+
 ## Backups
 
 Two things hold state:
