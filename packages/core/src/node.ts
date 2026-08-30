@@ -6,3 +6,4 @@
  * would break the bundle.
  */
 export { loadEnvFile } from "./env.js";
+export { resolveFromRepoRoot } from "./paths.js";

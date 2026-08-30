@@ -1,5 +1,5 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolveFromRepoRoot } from "@zelyq/core/node";
 import type { RuntimeConfig } from "@zelyq/runtime";
 
 export interface ServerConfig {
@@ -88,10 +88,13 @@ function intFromEnv(name: string, fallback: number): number {
   return value;
 }
 
-/** The directory holding a SQLite database, or ./data for anything else. */
+/** The directory holding a SQLite database, or ./data for anything else.
+ * Repo-root-anchored so it matches where `@zelyq/db` opens the file. */
 function dataDirFrom(databaseUrl: string | undefined): string {
-  if (databaseUrl?.startsWith("file:")) return path.dirname(path.resolve(databaseUrl.slice(5)));
-  return path.resolve("./data");
+  if (databaseUrl?.startsWith("file:")) {
+    return path.dirname(resolveFromRepoRoot(databaseUrl.slice(5)));
+  }
+  return resolveFromRepoRoot("./data");
 }
 
 const RUNTIME_KINDS = ["local", "remote", "container"] as const;
@@ -130,8 +133,6 @@ function containerOptionsFromEnv() {
 }
 
 export function loadServerConfig(): ServerConfig {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const repoRoot = path.resolve(here, "..", "..", "..");
   const runtimeKind = runtimeKindFromEnv();
 
   if (runtimeKind === "remote" && !process.env.ZELYQ_RUNTIME_URL) {
@@ -177,29 +178,29 @@ export function loadServerConfig(): ServerConfig {
       process.env.ZELYQ_SUPABASE_VERIFY_EMAIL_DOMAIN?.trim() || "example.com",
     model: process.env.ZELYQ_MODEL ?? "",
     effort: (process.env.ZELYQ_EFFORT ?? "high") as ServerConfig["effort"],
-    templatesDir: path.resolve(process.env.ZELYQ_TEMPLATES_DIR ?? path.join(repoRoot, "templates")),
+    templatesDir: resolveFromRepoRoot(process.env.ZELYQ_TEMPLATES_DIR ?? "templates"),
     secretKey: process.env.ZELYQ_SECRET_KEY,
     // Beside the database, so backing up one takes the other.
-    secretKeyFile: path.resolve(
+    secretKeyFile: resolveFromRepoRoot(
       process.env.ZELYQ_SECRET_KEY_FILE ??
         path.join(dataDirFrom(process.env.DATABASE_URL), "secret.key"),
     ),
-    attachmentsDir: path.resolve(
+    attachmentsDir: resolveFromRepoRoot(
       process.env.ZELYQ_ATTACHMENTS_DIR ??
         path.join(dataDirFrom(process.env.DATABASE_URL), "attachments"),
     ),
-    uploadedSkillsDir: path.resolve(
+    uploadedSkillsDir: resolveFromRepoRoot(
       process.env.ZELYQ_SKILLS_UPLOAD_DIR ??
         path.join(dataDirFrom(process.env.DATABASE_URL), "skills"),
     ),
     webDir: process.env.ZELYQ_WEB_DIR
-      ? path.resolve(process.env.ZELYQ_WEB_DIR)
+      ? resolveFromRepoRoot(process.env.ZELYQ_WEB_DIR)
       : process.env.NODE_ENV === "production"
-        ? path.join(repoRoot, "apps", "web", "dist")
+        ? resolveFromRepoRoot("apps/web/dist")
         : null,
     runtime: {
       kind: runtimeKind,
-      workspaceDir: path.resolve(process.env.ZELYQ_WORKSPACE_DIR ?? "./workspace"),
+      workspaceDir: resolveFromRepoRoot(process.env.ZELYQ_WORKSPACE_DIR ?? "workspace"),
       url: process.env.ZELYQ_RUNTIME_URL,
       token: process.env.ZELYQ_RUNTIME_TOKEN,
       execTimeoutMs: intFromEnv("ZELYQ_EXEC_TIMEOUT_MS", 120_000),

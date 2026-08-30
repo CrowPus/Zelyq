@@ -1,6 +1,4 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { loadEnvFile } from "@zelyq/core/node";
+import { loadEnvFile, resolveFromRepoRoot } from "@zelyq/core/node";
 import { runMigrations } from "@zelyq/db";
 import { ALL_TOOLS } from "@zelyq/tools";
 import { aiProviderCatalogText, buildUseAiProviderTool, loadAiProviders } from "./ai-providers.js";
@@ -29,18 +27,12 @@ const config = await loadAgentConfig();
 // being the only place to see them.
 const plugins = await loadPlugins(process.env.ZELYQ_PLUGIN_DIR, ALL_TOOLS);
 
-// The repo's own `skills/` sits three levels above this file whether it is
-// running from source or from `dist` — same depth `apps/server/src/
-// config.ts` already resolves `templatesDir` at.
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-// The same directory the server's upload route writes into. Resolved
-// independently here the exact way ZELYQ_WORKSPACE_DIR already is on both
-// sides: a shared default that only has to be a real agreement in a
-// deployment where the two processes' relative paths could differ, which
-// `docker-compose.yml`'s shared /data volume already accounts for.
-const uploadedSkillsDir = path.resolve(process.env.ZELYQ_SKILLS_UPLOAD_DIR ?? "./data/skills");
+// The same directory the server's upload route writes into. Both are
+// repo-root-anchored (`resolveFromRepoRoot`) so the two processes agree even
+// under `pnpm --filter <app> dev`, where each runs from its own package dir.
+const uploadedSkillsDir = resolveFromRepoRoot(process.env.ZELYQ_SKILLS_UPLOAD_DIR ?? "data/skills");
 const skillsResult = await loadSkills(
-  path.join(repoRoot, "skills"),
+  resolveFromRepoRoot("skills"),
   uploadedSkillsDir,
   process.env.ZELYQ_SKILLS_DIR,
 );
@@ -65,7 +57,7 @@ const skillsWithResources = await Promise.all(
 // 056 — the design reference library. `design-md/` sits beside `skills/` in
 // the repo; an operator can point ZELYQ_DESIGN_REFS_DIR at their own set.
 const designRefs = await loadDesignRefs(
-  path.join(repoRoot, "design-md"),
+  resolveFromRepoRoot("design-md"),
   process.env.ZELYQ_DESIGN_REFS_DIR,
 );
 if (designRefs.refs.length > 0) ALL_TOOLS.push(buildUseDesignRefTool(designRefs.refs));
@@ -74,7 +66,7 @@ if (designRefs.refs.length > 0) ALL_TOOLS.push(buildUseDesignRefTool(designRefs.
 // `skills/` and `design-md/`; an operator can point ZELYQ_AI_PROVIDERS_DIR at
 // their own set.
 const aiProviders = await loadAiProviders(
-  path.join(repoRoot, "ai-providers"),
+  resolveFromRepoRoot("ai-providers"),
   process.env.ZELYQ_AI_PROVIDERS_DIR,
 );
 if (aiProviders.providers.length > 0) {
