@@ -8,7 +8,9 @@ import { createDatabase, detectDialect } from "./client.js";
  * Applies pending migrations, then exits. Safe to run on every boot: Drizzle
  * records what it has applied and skips the rest.
  *
- * SQLite needs its directory to exist first — a fresh clone has no ./data.
+ * A relative `file:` path is resolved against the repo root and its parent
+ * directory is created — both handled by `createDatabase` below, so a fresh
+ * clone with no `./data` works.
  */
 export async function runMigrations(databaseUrl: string): Promise<void> {
   const dialect = detectDialect(databaseUrl);
@@ -19,12 +21,6 @@ export async function runMigrations(databaseUrl: string): Promise<void> {
     "drizzle",
     dialect === "postgres" ? "pg" : "sqlite",
   );
-
-  if (dialect === "sqlite" && databaseUrl.startsWith("file:")) {
-    const { mkdir } = await import("node:fs/promises");
-    const filePath = databaseUrl.slice("file:".length);
-    await mkdir(path.dirname(path.resolve(filePath)), { recursive: true });
-  }
 
   const handle = createDatabase(databaseUrl);
   try {

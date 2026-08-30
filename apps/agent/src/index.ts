@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "@zelyq/core/node";
+import { runMigrations } from "@zelyq/db";
 import { ALL_TOOLS } from "@zelyq/tools";
 import { aiProviderCatalogText, buildUseAiProviderTool, loadAiProviders } from "./ai-providers.js";
 import { loadAgentConfig } from "./config.js";
@@ -12,6 +13,12 @@ import { buildUseSkillTool, listResources, loadSkills } from "./skills.js";
 
 // Before anything reads process.env.
 const envFile = loadEnvFile();
+
+// The agent reads DB-backed settings while loading its config, and under
+// `pnpm dev` it starts alongside the server rather than after it — so it
+// migrates too. Drizzle records what it applied; running this from both
+// processes is safe and idempotent.
+await runMigrations(process.env.DATABASE_URL ?? "file:./data/zelyq.db");
 
 const config = await loadAgentConfig();
 // Boot-time only, before the server exists to accept a prompt. `ALL_TOOLS`

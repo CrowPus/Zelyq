@@ -1,3 +1,6 @@
+import { mkdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createClient } from "@libsql/client";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql";
@@ -38,6 +41,27 @@ export interface DatabaseHandle {
   close(): Promise<void>;
 }
 
+// `packages/db/src` (tsx) or `packages/db/dist` (built) — the repo root is
+// three directories up either way, the same anchor `migrate.ts` uses.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/**
+ * A **relative** `file:` SQLite path in `DATABASE_URL` is resolved against the
+ * repo root, not `process.cwd()`.
+ *
+ * `pnpm --filter <pkg> <script>` runs each app with its own package directory
+ * as cwd, so a bare `file:./data/zelyq.db` would otherwise name a *different*
+ * physical file for the server, the agent, and `pnpm db:migrate` — three
+ * databases instead of one. An absolute `file:` path, `libsql://`, or
+ * `postgres://` is returned unchanged.
+ */
+export function resolveDatabaseUrl(url: string): string {
+  if (!url.startsWith("file:")) return url;
+  const filePath = url.slice("file:".length);
+  if (path.isAbsolute(filePath)) return url;
+  return `file:${path.resolve(REPO_ROOT, filePath)}`;
+}
+
 export function detectDialect(url: string): Dialect {
   if (url.startsWith("postgres://") || url.startsWith("postgresql://")) return "postgres";
   if (url.startsWith("file:") || url.startsWith("libsql://") || url.endsWith(".db"))
@@ -68,7 +92,13 @@ export function createDatabase(url: string): DatabaseHandle {
     };
   }
 
-  const client = createClient({ url });
+  const resolved = resolveDatabaseUrl(url);
+  // A fresh clone has no `./data`; libsql's native open won't create the
+  // parent directory, it just fails with SQLITE_CANTOPEN (error 14). The
+  // migration runner does this too — do it here so a caller that opens the
+  // database directly (the agent's settings read) is safe on a cold start.
+  mkdirSync(path.dirname(resolved.slice("file:".length)), { recursive: true });
+  const client = createClient({ url: resolved });
   const db = drizzleLibsql(client, { schema: sqliteSchema });
   return {
     db,
@@ -76,7 +106,7 @@ export function createDatabase(url: string): DatabaseHandle {
     exec: async (statement: string) => {
       await client.execute(statement);
     },
-    describe: () => redact(url),
+    describe: () => redact(resolved),
     close: async () => {
       client.close();
     },
