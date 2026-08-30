@@ -14,7 +14,7 @@ import {
   stoppedPreview,
   writePreviewRecord,
 } from "./local.js";
-import { allocatePort, releasePort } from "./ports.js";
+import { allocatePort, previewUrl, releasePort } from "./ports.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -185,6 +185,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   private readonly previewHost: string;
   /** What `--publish` binds to. Loopback for loopback previews; every interface otherwise. */
   private readonly previewBindHost: string;
+  /** See `RuntimeConfig.previewUrlTemplate`. */
+  private readonly previewUrlTemplate: string | undefined;
   /** Projects whose container this process has already started. */
   private readonly started = new Set<string>();
   /** The preview port published on that container, if any. */
@@ -255,6 +257,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       this.previewHost === "127.0.0.1" || this.previewHost === "localhost"
         ? "127.0.0.1"
         : "0.0.0.0";
+    this.previewUrlTemplate = config.previewUrlTemplate || undefined;
     this.image = options.image ?? DEFAULT_IMAGE;
     this.memory = options.memory ?? DEFAULT_MEMORY;
     this.cpus = options.cpus ?? DEFAULT_CPUS;
@@ -265,6 +268,11 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     this.egressAllowlist = (options.egressAllowlist ?? [])
       .map((hostname) => hostname.trim())
       .filter(Boolean);
+  }
+
+  /** The address a browser should load a running preview at. */
+  private previewUrlFor(port: number): string {
+    return previewUrl(this.previewUrlTemplate, this.previewHost, port);
   }
 
   /**
@@ -518,7 +526,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         return {
           projectId,
           status: "running",
-          url: `http://${this.previewHost}:${port}`,
+          url: this.previewUrlFor(port),
           port,
           pid: spawned.pid,
           startedAt,
@@ -611,7 +619,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     return {
       projectId,
       status: listening ? "running" : "starting",
-      url: listening ? `http://${this.previewHost}:${record.port}` : null,
+      url: listening ? this.previewUrlFor(record.port) : null,
       port: record.port,
       pid: record.pid,
       startedAt: record.startedAt,

@@ -140,6 +140,7 @@ export async function loadAgentConfig(): Promise<AgentConfig> {
       token: process.env.ZELYQ_RUNTIME_TOKEN,
       execTimeoutMs: intFromEnv("ZELYQ_EXEC_TIMEOUT_MS", 120_000),
       previewHost: await dbBackedSetting("ZELYQ_PREVIEW_HOST", "previewHost", "127.0.0.1"),
+      previewUrlTemplate: process.env.ZELYQ_PREVIEW_URL_TEMPLATE || undefined,
       previewPortRange: [
         intFromEnv("ZELYQ_PREVIEW_PORT_MIN", 4300),
         intFromEnv("ZELYQ_PREVIEW_PORT_MAX", 4399),

@@ -144,6 +144,15 @@ export interface RuntimeConfig {
    * browser cannot reach.
    */
   previewHost: string;
+  /**
+   * Optional. When set, preview URLs are built from this template instead of
+   * `http://<previewHost>:<port>` — for a deployment that reverse-proxies each
+   * preview over one HTTPS origin rather than exposing the raw port range.
+   * `{port}` is substituted with the assigned port. Example:
+   * `https://p{port}.preview.example.com`. `previewHost` still governs what the
+   * dev server binds to.
+   */
+  previewUrlTemplate?: string;
   /** Container: image, limits and engine. Ignored by the other kinds. */
   container?: {
     image?: string;

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import { announcedPort, LocalRuntimeDriver } from "../src/local.js";
-import { waitForPort } from "../src/ports.js";
+import { previewUrl, waitForPort } from "../src/ports.js";
 
 const workspaceDir = path.join(os.tmpdir(), `zelyq-local-driver-${Date.now()}`);
 const driver = new LocalRuntimeDriver({
@@ -571,4 +571,15 @@ test("the port a dev server announces is read out of its own output", () => {
   assert.equal(announcedPort("ready - started server on http://127.0.0.1:3000"), 3000);
   assert.equal(announcedPort("no url here at all"), null);
   assert.equal(announcedPort("https://example.com/no-port"), null);
+});
+
+test("previewUrl: raw host:port without a template, substituted template with one", () => {
+  assert.equal(previewUrl(undefined, "127.0.0.1", 4300), "http://127.0.0.1:4300");
+  assert.equal(previewUrl("", "example.internal", 4310), "http://example.internal:4310");
+  assert.equal(
+    previewUrl("https://p{port}.preview.zelyq.com", "0.0.0.0", 4321),
+    "https://p4321.preview.zelyq.com",
+  );
+  // every {port} is substituted
+  assert.equal(previewUrl("https://{port}.x.dev/at/{port}", "h", 42), "https://42.x.dev/at/42");
 });
