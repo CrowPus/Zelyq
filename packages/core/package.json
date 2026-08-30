@@ -2,7 +2,7 @@
   "name": "@zelyq/core",
   "version": "0.1.0",
   "description": "Shared domain types and wire protocol for Zelyq.",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

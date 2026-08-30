@@ -18,14 +18,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **License changed from Apache-2.0 to the Sustainable Use License** (source-available). Zelyq stays
-  free to run and modify for your own internal business use and for personal or non-commercial use;
-  offering it to third parties as a hosted or managed service now needs a commercial agreement.
-  Features designated "Zelyq Enterprise" are licensed separately under the new Zelyq Enterprise
-  License and require a subscription. Releases up to and including `v0.1.0` remain available under
-  Apache-2.0. Contributions are now accepted under a Contributor License Agreement (`CLA.md`). See
-  `LICENSE`, `LICENSE_EE.md`, and `LICENSING.md`. The rationale: fund full-time development without a
-  third party simply reselling the project as a service — the same model n8n and Sentry adopted.
+- **License changed from Apache-2.0 to the GNU AGPL-3.0.** Zelyq is open source: run it, modify it,
+  self-host it, fork it, with no usage restriction. If you run a *modified* Zelyq as a network
+  service, the AGPL requires you to offer users your source. A **commercial license** — the same
+  code without that requirement — is available for embedding Zelyq in a closed product or for
+  organisations that cannot use AGPL. Features designated "Zelyq Enterprise" (`ee/` paths) are a
+  separate paid subscription under the Zelyq Enterprise License. Contributions are accepted under a
+  Contributor License Agreement (`CLA.md`), which the dual-license needs. Releases up to and
+  including `v0.1.0` remain available under Apache-2.0. See `LICENSE`, `LICENSE_EE.md`,
+  `LICENSING.md`, and [ADR 0005](docs/adr/0005-agpl-3.0-and-dual-licensing.md). (An interim move to
+  the source-available Sustainable Use License, ADR 0004, was reversed before any release carried
+  it.)
 - The README and `SECURITY.md` now state plainly that no reference runtime host ships yet, so
   `ZELYQ_RUNTIME=remote` currently means implementing the protocol yourself, and that local mode is
   not a sandbox. The `remote` driver was always documented; the host it talks to was not, and the

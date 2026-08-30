@@ -1,18 +1,26 @@
 Zelyq
 Copyright © 2026 Dee Empire — https://dee-empire.com
 
-This software is source-available, not open source.
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU Affero General Public License, version 3, as published by the
+Free Software Foundation. See the LICENSE file for the full text.
 
-Except where noted, it is licensed under the Sustainable Use License; see the
-LICENSE file. In short: you may run and modify it for free for your own internal
-business use and for personal or non-commercial use, but you may not sell it to
-third parties as a hosted or managed service. See LICENSING.md for a
-plain-language summary.
+In short: you may run, study, modify, and redistribute this software. If you run a
+modified version so that other people interact with it over a network, the AGPL
+requires you to offer those users the complete source of your modified version.
+LICENSING.md is a plain-language summary.
+
+A commercial license, under terms that do not carry the AGPL's network-source
+requirement, is available from Dee Empire for embedding Zelyq in a closed-source
+product or for organisations that cannot use AGPL software — support@dee-empire.com.
 
 Content designated as "Zelyq Enterprise" — anything under an `ee` / `.ee`
 directory or repository, or in a file whose name contains `.ee.` — is licensed
 separately under the Zelyq Enterprise License and requires a paid subscription;
 see LICENSE_EE.md.
+
+Releases up to and including v0.1.0, and every commit up to that tag, remain
+available under Apache-2.0.
 
 "Zelyq" and the Zelyq logo are trademarks of Dee Empire. The licenses covering
 this software do not grant any right to use the licensor's name, logo, or

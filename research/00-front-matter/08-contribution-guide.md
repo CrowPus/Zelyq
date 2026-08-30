@@ -272,7 +272,7 @@ AI systems and tools are not authors. Material AI assistance should be disclosed
 
 ## Licensing and contributor rights
 
-Research content is licensed under Creative Commons Attribution 4.0 International as described in [Copyright and License](02-copyright.md). This research-specific license is an explicit exception to the repository's Sustainable Use License and Contributor License Agreement, which otherwise govern contributions outside `research/`.
+Research content is licensed under Creative Commons Attribution 4.0 International as described in [Copyright and License](02-copyright.md). This research-specific license is an explicit exception to the repository's GNU AGPL-3.0 and Contributor License Agreement, which otherwise govern contributions outside `research/`.
 
 By intentionally submitting a contribution for inclusion in the book, a contributor confirms that they have the right to submit it and agrees that accepted content may be published under CC BY 4.0.
 

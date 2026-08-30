@@ -2,8 +2,8 @@
   "name": "zelyq",
   "version": "0.1.0",
   "private": true,
-  "description": "Source-available AI app builder — describe an app, watch an agent build it, edit it live.",
-  "license": "SEE LICENSE IN LICENSE",
+  "description": "Open-source AI app builder — describe an app, watch an agent build it, edit it live.",
+  "license": "AGPL-3.0-only",
   "homepage": "https://github.com/CrowPus/Zelyq#readme",
   "repository": {
     "type": "git",

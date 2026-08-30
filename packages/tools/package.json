@@ -2,7 +2,7 @@
   "name": "@zelyq/tools",
   "version": "0.1.0",
   "description": "The tools the Zelyq agent uses to read, edit, and run a project.",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
