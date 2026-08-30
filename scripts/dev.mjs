@@ -19,10 +19,20 @@ const SERVICES = [
 const children = [];
 let shuttingDown = false;
 
+// On Windows `pnpm` is a `.CMD` shim, not an `.exe`. A bare `spawn("pnpm")`
+// there hits `CreateProcess` directly, which neither resolves `PATHEXT` nor
+// runs batch files — so it fails with `ENOENT` even though `pnpm` works in a
+// terminal. Name the `.cmd` explicitly and route it through the shell (Node
+// >= 18.20 / 20.12 refuses to spawn a `.cmd` without `shell: true`). The POSIX
+// path is left exactly as it was so signal forwarding to the children — the
+// thing Ctrl-C relies on below — is unchanged.
+const isWindows = process.platform === "win32";
+
 for (const service of SERVICES) {
-  const child = spawn("pnpm", ["--filter", service.filter, "dev"], {
+  const child = spawn(isWindows ? "pnpm.cmd" : "pnpm", ["--filter", service.filter, "dev"], {
     stdio: ["ignore", "pipe", "pipe"],
     env: process.env,
+    shell: isWindows,
   });
 
   const prefix = `${service.color}${service.name}${RESET} | `;
