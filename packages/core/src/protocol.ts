@@ -223,6 +223,11 @@ export const promptSchema = z.object({
    * name here becomes a clear instruction to use that tool, woven into the
    * message the same way, but honestly not the same kind of promise. */
   plugins: z.array(z.string()).optional(),
+  /** Named specialists picked from the `/agent` section — `designer`,
+   * `devops`, `security`, `cinematic`. A name here weaves a one-line hint
+   * naming that specialist into the message; it is not a command to dispatch
+   * it. */
+  agents: z.array(z.string()).optional(),
 });
 export type PromptInput = z.infer<typeof promptSchema>;
 
@@ -270,6 +275,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     skills: z.array(z.string()).optional(),
     /** Picked from the same `/` menu's Plugins section — names only. */
     plugins: z.array(z.string()).optional(),
+    /** Picked from the `/agent` section — specialist names only. */
+    agents: z.array(z.string()).optional(),
     /** Engineer Mode toggle. Omitted or false means the default
      * fast-implementer behavior, unchanged. */
     engineerMode: z.boolean().optional(),

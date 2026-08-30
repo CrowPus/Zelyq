@@ -18,8 +18,14 @@ request.
 | 📎 **Paperclip** | attach files / images to the prompt |
 | **Model** | per-conversation model override (the instance default otherwise) |
 
-`/` in the composer opens a menu of loaded **skills**, **plugins**, and
-**models**, filtered as you type.
+`/` in the composer opens a menu of loaded **skills**, named
+**agents** (the specialists below), **plugins**, and **models**, filtered
+as you type. Picking an agent — Designer, DevOps agent, Security/QA agent,
+Cinematic engineer — does **not** dispatch that specialist; it tags the
+message with whose lens you meant, so the agent steers the work that way
+(and calls the matching pass tool if the current mode allows it). Whatever
+you named — skill, agent or plugin — is shown back on the sent message in
+the transcript.
 
 Architect and Engineer Mode are mutually exclusive — turning one on turns
 the other off. All mode toggles are **per conversation**, not saved

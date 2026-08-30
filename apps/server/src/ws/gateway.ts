@@ -148,6 +148,7 @@ export class ChatGateway {
       attachmentIds: message.attachments,
       skills: message.skills,
       plugins: message.plugins,
+      agents: message.agents,
       engineerMode: message.engineerMode,
       architectMode: message.architectMode,
       autoMode: message.autoMode,
@@ -167,6 +168,8 @@ export class ChatGateway {
       skills?: string[];
       /** Picked from the same `/` menu's Plugins section. */
       plugins?: string[];
+      /** Picked from the same `/` menu's Agents section — specialist names. */
+      agents?: string[];
       /** Engineer Mode toggle. */
       engineerMode?: boolean;
       /** Architect Mode toggle — see 048. */
@@ -249,6 +252,16 @@ export class ChatGateway {
       thinking: null,
       toolCalls: [],
       attachments: attachmentRefs,
+      // Display only — what the composer's `/` menu pointed at. `content`
+      // above still holds exactly what was typed. Null when nothing was named.
+      mentions:
+        override.skills?.length || override.agents?.length || override.plugins?.length
+          ? {
+              skills: override.skills ?? [],
+              agents: override.agents ?? [],
+              plugins: override.plugins ?? [],
+            }
+          : null,
       snapshotId: null,
       tokensIn: 0,
       tokensOut: 0,
@@ -402,6 +415,7 @@ export class ChatGateway {
         imageAttachments,
         override.skills,
         override.plugins,
+        override.agents,
       )) {
         // The agent builds its own copy of the finished message, and it does not
         // know about the snapshot this server took before the turn. Broadcasting

@@ -27,6 +27,7 @@ import {
   ARCHITECT_WRITE_ROOT,
   buildSystemPrompt,
   ENGINEER_MODE_PURPOSE_MARKER,
+  withAgents,
   withPlugins,
   withSkills,
 } from "./prompt.js";
@@ -624,7 +625,11 @@ type Emit = (event: AgentEvent) => void;
 // write scope, and the owned file differ.
 // ===========================================================================
 
-type SpecialistKind = "designer" | "devops" | "security" | "cinematic";
+/** The specialist names, in menu order. Exported so the composer's
+ * `/agent` list (`apps/web`) and `withAgents`' hint table (`prompt.ts`)
+ * can be drift-checked against the one true set. */
+export const SPECIALIST_KINDS = ["designer", "devops", "security", "cinematic"] as const;
+type SpecialistKind = (typeof SPECIALIST_KINDS)[number];
 
 const DEVOPS_MD_PATHS = new Set(["architecture/OPERATIONS.md", "OPERATIONS.md"]);
 const QA_MD_PATHS = new Set([
@@ -2024,6 +2029,7 @@ export class AgentSession {
     attachments?: PromptAttachment[],
     skillNames?: string[],
     pluginNames?: string[],
+    agentNames?: string[],
   ): Promise<void> {
     if (this.busy) {
       emit({
@@ -2192,10 +2198,15 @@ export class AgentSession {
     const withPluginInstruction = pluginNames?.length
       ? withPlugins(userMessage, pluginNames)
       : userMessage;
+    // An `/agent` pick is a pointer, not a dispatch — woven between the
+    // plugin line and the skill bodies so a named skill still reads first.
+    const withAgentHint = agentNames?.length
+      ? withAgents(withPluginInstruction, agentNames)
+      : withPluginInstruction;
     const messageForModel =
       skillNames?.length && this.options.resolveSkillBody
-        ? withSkills(withPluginInstruction, skillNames, this.options.resolveSkillBody)
-        : withPluginInstruction;
+        ? withSkills(withAgentHint, skillNames, this.options.resolveSkillBody)
+        : withAgentHint;
 
     this.conversation.addUserMessage(messageForModel, attachments);
 

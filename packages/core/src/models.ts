@@ -130,6 +130,19 @@ export const messageSchema = z.object({
   toolCalls: z.array(toolCallSchema).default([]),
   attachments: z.array(attachmentRefSchema).default([]),
   /**
+   * What the composer's `/` menu named on this message — skills, specialists,
+   * plugin tools. Display only: it records what was pointed at, the `content`
+   * field still holds exactly what was typed. `null` when nothing was named.
+   */
+  mentions: z
+    .object({
+      skills: z.array(z.string()).default([]),
+      agents: z.array(z.string()).default([]),
+      plugins: z.array(z.string()).default([]),
+    })
+    .nullable()
+    .optional(),
+  /**
    * The project as it stood immediately before this turn, so it can be undone.
    * Null on user messages and on turns taken before snapshots were automatic.
    */

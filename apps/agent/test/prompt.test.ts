@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  AGENT_HINT_NAMES,
   buildSystemPrompt,
   ENGINEER_MODE_PURPOSE_MARKER,
+  withAgents,
   withPlugins,
   withSkills,
 } from "../src/prompt.js";
+import { SPECIALIST_KINDS } from "../src/session.js";
 
 /** The catalog is the cheap, always-present tier; these are the fast,
  * direct checks the live-turn test in `skills.test.ts` doesn't need to
@@ -316,4 +319,35 @@ test("056: no catalog and no agentMd leaves the Architect/Engineer prompts uncha
   });
   assert.doesNotMatch(withArgs, /\n<design_references>\nReal product/);
   assert.doesNotMatch(withArgs, /\n<ui_guidelines>\nThe UI-quality bar/);
+});
+
+// ---------------------------------------------------------------------------
+// 062 — withAgents (the `/agent` menu's hint weaving)
+// ---------------------------------------------------------------------------
+
+test("062: withAgents leaves the message untouched when nothing is named", () => {
+  assert.equal(withAgents("build me a landing page", []), "build me a landing page");
+});
+
+test("062: withAgents drops names it does not recognise rather than failing the turn", () => {
+  assert.equal(withAgents("do the thing", ["not-a-specialist"]), "do the thing");
+});
+
+test("062: withAgents weaves a pointer, not a dispatch, ahead of the message", () => {
+  const woven = withAgents("polish the hero", ["designer"]);
+  assert.match(woven, /pointed at a specialist/);
+  assert.match(woven, /Designer/);
+  assert.match(woven, /not a command to run that specialist now/);
+  assert.ok(woven.endsWith("polish the hero"));
+});
+
+test("062: withAgents handles more than one specialist", () => {
+  const woven = withAgents("ship it", ["designer", "security"]);
+  assert.match(woven, /pointed at specialists/);
+  assert.match(woven, /Designer/);
+  assert.match(woven, /Security\/QA agent/);
+});
+
+test("062: withAgents' hint table covers exactly the specialist kinds, no drift", () => {
+  assert.deepEqual([...AGENT_HINT_NAMES].sort(), [...SPECIALIST_KINDS].sort());
 });
