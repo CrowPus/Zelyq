@@ -32,7 +32,7 @@ and reports back — while you watch every tool call, every file it touched, and
 live.
 
 [![CI](https://github.com/CrowPus/Zelyq/actions/workflows/ci.yml/badge.svg)](https://github.com/CrowPus/Zelyq/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Sustainable%20Use-blue.svg)](./LICENSING.md)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520.12-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.base.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](./CONTRIBUTING.md)
@@ -314,15 +314,18 @@ the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ## License
 
-Zelyq is **source-available**, not open source. It is licensed under the
-[Sustainable Use License](./LICENSE) — free to run and modify for your own internal
-business use and for personal or non-commercial use; offering it to third parties
-as a hosted or managed service needs a commercial agreement. Features designated
-"Zelyq Enterprise" are licensed separately under the
-[Zelyq Enterprise License](./LICENSE_EE.md).
+Zelyq is **open source**, licensed under the [GNU AGPL-3.0](./LICENSE). Run it,
+modify it, self-host it, fork it. If you run a *modified* Zelyq as a service other
+people use over a network, the AGPL requires you to offer them your source.
 
-See [LICENSING.md](./LICENSING.md) for a plain-language summary of what is free and
-what is paid. Releases up to and including `v0.1.0` remain available under Apache-2.0.
+A **commercial license** — the same code without the AGPL's network-source
+requirement — is available for embedding Zelyq in a closed-source product, or for
+organisations whose policy blocks AGPL software: **support@dee-empire.com**.
+Features designated "Zelyq Enterprise" (`ee/` paths) are a separate paid
+subscription under the [Zelyq Enterprise License](./LICENSE_EE.md).
+
+See [LICENSING.md](./LICENSING.md) for the plain-language version. Releases up to
+and including `v0.1.0` remain available under Apache-2.0.
 
 © 2026 [Dee Empire](https://dee-empire.com). "Zelyq" and the Zelyq logo are
 trademarks of Dee Empire. Commercial licensing and support: support@dee-empire.com.

@@ -2,7 +2,7 @@
   "name": "@zelyq/runtime",
   "version": "0.1.0",
   "description": "Execution drivers for Zelyq — one interface, local child processes or a remote runtime host.",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

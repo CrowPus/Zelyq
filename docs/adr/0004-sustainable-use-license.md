@@ -1,7 +1,13 @@
 # 4. Relicense from Apache-2.0 to the Sustainable Use License
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0005](./0005-agpl-3.0-and-dual-licensing.md) (2026-08-30)
 - **Date:** 2026-08-28
+
+> **Superseded.** This decision — a source-available licence — was reversed before
+> any release carried it. The project moved to the **GNU AGPL-3.0** plus a
+> commercial dual-licence, keeping the open-core `ee/` split and the CLA. The
+> context and the enterprise-boundary reasoning below still hold; the licence
+> choice does not. See [ADR 0005](./0005-agpl-3.0-and-dual-licensing.md).
 
 ## Context
 

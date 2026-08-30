@@ -2,7 +2,7 @@
   "name": "@zelyq/agent",
   "version": "0.1.0",
   "description": "Zelyq agent runtime — runs the model loop and executes tools against a project.",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

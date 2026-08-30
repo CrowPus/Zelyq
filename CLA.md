@@ -3,7 +3,7 @@
 Thank you for contributing to Zelyq. Before a contribution can be merged, we need
 you to agree to this Contributor License Agreement (the "Agreement"). It lets the
 project accept your work while keeping the freedom to license Zelyq under the
-Sustainable Use License and a commercial license at the same time.
+GNU Affero General Public License v3.0 and a commercial license at the same time.
 
 You accept this Agreement by adding a `Signed-off-by` line to your commits (see
 below) and confirming acceptance when prompted on your first pull request. If you
@@ -21,9 +21,9 @@ are contributing on behalf of an employer, make sure you are authorised to do so
    irrevocable copyright license to reproduce, prepare derivative works of,
    publicly display, publicly perform, sublicense, and distribute your
    Contribution and derivative works. This includes the right for Dee Empire to
-   license your Contribution under the Sustainable Use License, the Zelyq
-   Enterprise License, and any other license terms, including proprietary and
-   commercial terms.
+   license your Contribution under the GNU Affero General Public License v3.0, the
+   Zelyq Enterprise License, and any other license terms, including proprietary
+   and commercial terms.
 
 3. **Patent license.** You grant Dee Empire and recipients of the software a
    perpetual, worldwide, non-exclusive, royalty-free, irrevocable (except as

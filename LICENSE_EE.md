@@ -6,7 +6,8 @@ This license governs any content that resides under a directory or repository
 named `ee` or `.ee`, any file whose name contains `.ee.`, and anything else the
 licensor designates in writing as **"Zelyq Enterprise"** (collectively, the
 **"Enterprise Software"**). All other content in the Zelyq repository is licensed
-under the Sustainable Use License in [`LICENSE`](./LICENSE).
+under the GNU Affero General Public License, version 3, in [`LICENSE`](./LICENSE),
+or under a commercial license from Dee Empire.
 
 ## Grant
 
@@ -14,8 +15,9 @@ The Enterprise Software may be used, copied, modified, and run **only** if, at t
 time of that use:
 
 1. you (and any entity you represent) have agreed to and are in compliance with
-   the Sustainable Use License in [`LICENSE`](./LICENSE) or another written
-   agreement governing the software mutually agreed with Dee Empire; **and**
+   the GNU Affero General Public License v3.0 in [`LICENSE`](./LICENSE), or
+   another written agreement governing the software mutually agreed with Dee
+   Empire; **and**
 2. you hold a current, valid **Zelyq Enterprise subscription** from Dee Empire
    that covers your use, including the correct number of licensed user seats and
    instances; **and**

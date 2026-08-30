@@ -2,7 +2,7 @@
   "name": "@zelyq/runtime-host",
   "version": "0.1.0",
   "description": "Reference Zelyq runtime host — serves docs/runtime-protocol.md over HTTP.",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
