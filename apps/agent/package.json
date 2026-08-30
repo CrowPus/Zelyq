@@ -15,9 +15,9 @@
     "eval": "tsx evals/run.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.120.0",
+    "@anthropic-ai/sdk": "^0.121.0",
     "@fastify/cors": "^11.3.0",
-    "@google/genai": "^2.18.0",
+    "@google/genai": "^2.19.0",
     "@zelyq/core": "workspace:*",
     "@zelyq/db": "workspace:*",
     "@zelyq/runtime": "workspace:*",
