@@ -17,6 +17,7 @@ import {
   Puzzle,
   Sparkles,
   Square,
+  Users,
   X,
 } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -27,6 +28,7 @@ import { continueLabel, detectContinuePrompt } from "../lib/continuePrompt";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import { findSlashCommand, matchByPrefix, replaceSlashCommand } from "../lib/slash-menu";
+import { SPECIALISTS, type Specialist } from "../lib/specialists";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, StatusDot } from "./ui";
@@ -60,6 +62,7 @@ interface Props {
         attachments?: AttachmentRef[];
         skills?: string[];
         plugins?: string[];
+        agents?: string[];
       },
     ): void;
     abort(): void;
@@ -115,6 +118,10 @@ export function ChatPanel({
   /** Picked from the `/` menu's Plugins section. Names only; there's no body
    * to hold onto the way a skill has one. */
   const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
+  /** Picked from the `/` menu's Agents section. A pointer to whose lens the
+   * agent should apply, not a dispatch — the specialists still run behind
+   * their own pass tools. Names only. */
+  const [selectedAgents, setSelectedAgents] = useState<Specialist[]>([]);
   // Per-conversation like modelChoice above, not a Settings-page default —
   // deliberately not persisted past a refresh, the
   // same reason modelChoice isn't either, so a mode this consequential is
@@ -206,18 +213,32 @@ export function ChatPanel({
         (name) => name,
       )
     : [];
+  const matchingAgents = slashCommand
+    ? matchByPrefix(
+        SPECIALISTS.filter(
+          (specialist) => !selectedAgents.some((selected) => selected.name === specialist.name),
+        ),
+        slashCommand.query,
+        (specialist) => specialist.name,
+      )
+    : [];
   const showSlashMenu =
-    matchingSkills.length > 0 || matchingModels.length > 0 || matchingPlugins.length > 0;
+    matchingSkills.length > 0 ||
+    matchingModels.length > 0 ||
+    matchingAgents.length > 0 ||
+    matchingPlugins.length > 0;
   // The single flat list Enter/Tab picks the first row of — skills first, so
-  // a skill match wins a tie against a model or plugin match.
-  const firstMatch: { kind: "skill" | "model" | "plugin"; index: number } | null =
+  // a skill match wins a tie against a model, agent or plugin match.
+  const firstMatch: { kind: "skill" | "model" | "agent" | "plugin"; index: number } | null =
     matchingSkills.length > 0
       ? { kind: "skill", index: 0 }
       : matchingModels.length > 0
         ? { kind: "model", index: 0 }
-        : matchingPlugins.length > 0
-          ? { kind: "plugin", index: 0 }
-          : null;
+        : matchingAgents.length > 0
+          ? { kind: "agent", index: 0 }
+          : matchingPlugins.length > 0
+            ? { kind: "plugin", index: 0 }
+            : null;
 
   function selectSkill(skill: { name: string; description: string }) {
     if (!slashCommand) return;
@@ -234,6 +255,12 @@ export function ChatPanel({
   function selectPlugin(name: string) {
     if (!slashCommand) return;
     setSelectedPlugins((previous) => [...previous, name]);
+    applySlashReplacement(slashCommand);
+  }
+
+  function selectAgent(specialist: Specialist) {
+    if (!slashCommand) return;
+    setSelectedAgents((previous) => [...previous, specialist]);
     applySlashReplacement(slashCommand);
   }
 
@@ -279,7 +306,8 @@ export function ChatPanel({
         attachments.length === 0 &&
         !pointedElement &&
         selectedSkills.length === 0 &&
-        selectedPlugins.length === 0) ||
+        selectedPlugins.length === 0 &&
+        selectedAgents.length === 0) ||
       chat.busy ||
       uploading > 0 ||
       voiceState !== "idle"
@@ -298,6 +326,9 @@ export function ChatPanel({
       // Names only, too — agent-side this becomes an instruction naming the
       // tool, not real content the way a skill's body is.
       ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
+      // Names only — a pointer to whose lens to apply. The specialists still
+      // run behind their own pass tools; this never dispatches one.
+      ...(selectedAgents.length ? { agents: selectedAgents.map((agent) => agent.name) } : {}),
       ...(engineerMode ? { engineerMode: true } : {}),
       ...(architectMode ? { architectMode: true } : {}),
       ...(architectMode && autoMode ? { autoMode: true } : {}),
@@ -307,6 +338,7 @@ export function ChatPanel({
     setAttachments([]);
     setSelectedSkills([]);
     setSelectedPlugins([]);
+    setSelectedAgents([]);
     setUploadError(null);
     onClearPointedElement();
     textareaRef.current?.focus();
@@ -645,6 +677,28 @@ export function ChatPanel({
                 ))}
               </SlashSection>
             )}
+            {matchingAgents.length > 0 && (
+              <SlashSection title="Agents">
+                {matchingAgents.map((specialist, index) => (
+                  <button
+                    key={specialist.name}
+                    type="button"
+                    className={`flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left ${
+                      firstMatch?.kind === "agent" && index === 0
+                        ? "bg-surface-hover"
+                        : "hover:bg-surface-hover"
+                    }`}
+                    onClick={() => selectAgent(specialist)}
+                  >
+                    <span className="flex items-center gap-1.5 font-mono text-xs text-fg">
+                      <Users size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+                      {specialist.label}
+                    </span>
+                    <span className="truncate text-2xs text-fg-secondary">{specialist.blurb}</span>
+                  </button>
+                ))}
+              </SlashSection>
+            )}
             {matchingPlugins.length > 0 && (
               <SlashSection title="Plugins">
                 {matchingPlugins.map((name, index) => (
@@ -671,7 +725,8 @@ export function ChatPanel({
             attachments.length > 0 ||
             uploading > 0 ||
             selectedSkills.length > 0 ||
-            selectedPlugins.length > 0) && (
+            selectedPlugins.length > 0 ||
+            selectedAgents.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2.5 pt-2">
               {selectedSkills.map((skill) => (
                 <span
@@ -686,6 +741,26 @@ export function ChatPanel({
                     aria-label={`Don't use the ${skill.name} skill`}
                     onClick={() =>
                       setSelectedSkills((previous) => previous.filter((s) => s.name !== skill.name))
+                    }
+                    className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
+              {selectedAgents.map((agent) => (
+                <span
+                  key={agent.name}
+                  title={agent.blurb}
+                  className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary"
+                >
+                  <Users size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+                  <span className="max-w-40 truncate font-mono">{agent.label}</span>
+                  <button
+                    type="button"
+                    aria-label={`Don't point at the ${agent.label}`}
+                    onClick={() =>
+                      setSelectedAgents((previous) => previous.filter((a) => a.name !== agent.name))
                     }
                     className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
                   >
@@ -802,6 +877,7 @@ export function ChatPanel({
                 event.preventDefault();
                 if (firstMatch.kind === "skill") selectSkill(matchingSkills[0]!);
                 else if (firstMatch.kind === "model") selectModelOption(matchingModels[0]!);
+                else if (firstMatch.kind === "agent") selectAgent(matchingAgents[0]!);
                 else selectPlugin(matchingPlugins[0]!);
                 return;
               }
@@ -1000,7 +1076,7 @@ export function ChatPanel({
                   </span>
                 </li>
                 <li className="flex items-center justify-between gap-2">
-                  <span>Commands, skills, plugins</span>
+                  <span>Commands, skills, agents, plugins</span>
                   <span className="flex items-center gap-0.5">
                     <Kbd>/</Kbd>
                   </span>
@@ -1011,6 +1087,48 @@ export function ChatPanel({
           document.body,
         )}
     </section>
+  );
+}
+
+/**
+ * The read-only echo, on a sent user message, of what its `/` menu pointed
+ * at — skills, specialists, plugin tools. Non-interactive: it records what
+ * was named, it does not let you change a message already sent. `mentions`
+ * is optional the same way `attachments` is — a row from before the field
+ * existed, or a server mid-deploy, simply has nothing to show here.
+ */
+function MentionChips({ mentions }: { mentions?: Message["mentions"] }) {
+  if (!mentions) return null;
+  const rows: Array<{ key: string; icon: typeof GraduationCap; label: string }> = [
+    ...(mentions.skills ?? []).map((name) => ({
+      key: `skill:${name}`,
+      icon: GraduationCap,
+      label: name,
+    })),
+    ...(mentions.agents ?? []).map((name) => ({
+      key: `agent:${name}`,
+      icon: Users,
+      label: SPECIALISTS.find((s) => s.name === name)?.label ?? name,
+    })),
+    ...(mentions.plugins ?? []).map((name) => ({
+      key: `plugin:${name}`,
+      icon: Puzzle,
+      label: name,
+    })),
+  ];
+  if (rows.length === 0) return null;
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {rows.map(({ key, icon: Icon, label }) => (
+        <span
+          key={key}
+          className="flex items-center gap-1 rounded-md border border-border-default bg-surface px-2 py-1 text-2xs text-fg-secondary"
+        >
+          <Icon size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+          <span className="max-w-40 truncate font-mono">{label}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -1064,6 +1182,7 @@ function MessageRow({
             )}
           </div>
         )}
+        <MentionChips mentions={message.mentions} />
         {message.content && (
           <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
             {message.content}

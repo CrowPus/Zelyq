@@ -120,6 +120,8 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
         skills?: string[];
         /** Picked from the same `/` menu's Plugins section. */
         plugins?: string[];
+        /** Picked from the same `/` menu's Agents section — specialist names. */
+        agents?: string[];
         /** Engineer Mode toggle. */
         engineerMode?: boolean;
         /** Architect Mode toggle. */
@@ -143,6 +145,7 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
             : {}),
           ...(override?.skills?.length ? { skills: override.skills } : {}),
           ...(override?.plugins?.length ? { plugins: override.plugins } : {}),
+          ...(override?.agents?.length ? { agents: override.agents } : {}),
           ...(override?.engineerMode ? { engineerMode: true } : {}),
           ...(override?.architectMode ? { architectMode: true } : {}),
           ...(override?.autoMode ? { autoMode: true } : {}),
@@ -162,6 +165,16 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
             thinking: null,
             toolCalls: [],
             attachments: override?.attachments ?? [],
+            // Mirror what the server will persist, so the sent bubble shows
+            // its `/` mentions the moment it appears, not only after reload.
+            mentions:
+              override?.skills?.length || override?.agents?.length || override?.plugins?.length
+                ? {
+                    skills: override.skills ?? [],
+                    agents: override.agents ?? [],
+                    plugins: override.plugins ?? [],
+                  }
+                : null,
             tokensIn: 0,
             tokensOut: 0,
             createdAt: new Date().toISOString(),

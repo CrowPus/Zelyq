@@ -148,6 +148,16 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   `isError: false`, relayed verbatim, no re-verify, `agent.activity` end
   title "Waiting for footage". The user drops the file in and replies
   `go`; the Engineer re-dispatches `cinematic_pass` and the child resumes.
+- **Composer `/agent` picks** — the menu's Agents section (`apps/web`
+  `lib/specialists.ts`, kept in step with `SPECIALIST_KINDS` by a drift
+  test) rides the wire as `prompt.agents`. `withAgents` in `prompt.ts`
+  weaves a one-line hint per named specialist ahead of the message —
+  between the plugin instruction and the skill bodies — explicitly *not a
+  dispatch*: a plain user message cannot start a specialist turn, only the
+  pipeline and `*_pass` tools do. The gateway also records the pick on the
+  user message row (`messages.mentions`, JSON `{ skills, agents, plugins }`,
+  null when empty) purely so the transcript shows what was named;
+  `content` stays exactly what was typed.
 - **Pipeline** (Architect Mode §5): build → verify → DevOps (if the design
   is deployable) → design → re-verify → Security/QA → done. A FAIL /
   NOT DONE / NOT CLEARED from any of them blocks "done". The Cinematic

@@ -178,6 +178,8 @@ export class AgentClient {
     skills?: string[],
     /** Names only, from the same `/` picker's Plugins section. */
     plugins?: string[],
+    /** Specialist names, from the same `/` picker's Agents section. */
+    agents?: string[],
   ): AsyncGenerator<AgentEvent> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/prompt`, {
       method: "POST",
@@ -187,6 +189,7 @@ export class AgentClient {
         ...(attachments?.length ? { attachments } : {}),
         ...(skills?.length ? { skills } : {}),
         ...(plugins?.length ? { plugins } : {}),
+        ...(agents?.length ? { agents } : {}),
       }),
       signal,
     });

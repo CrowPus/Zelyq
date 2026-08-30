@@ -946,3 +946,52 @@ export function withPlugins(message: string, names: string[]): string {
       : `Use these tools for this task: ${names.join(", ")}.`;
   return `${line}\n\n---\n\n${message}`;
 }
+
+/**
+ * One line per specialist the `/agent` menu can name. Keyed by the same
+ * `SpecialistKind` strings `session.ts`'s `SPECIALISTS` uses — the drift
+ * test in `prompt.test.ts` keeps the two lists identical.
+ */
+const AGENT_HINTS: Record<string, string> = {
+  designer:
+    "the Designer — look and feel, layout, `DESIGN.md`, the design reference library; for visual " +
+    "craft, component design and design-system decisions.",
+  devops:
+    "the DevOps agent — `OPERATIONS.md`, environments, CI, containers, deploy and the runbook; for " +
+    "build and release, config and secrets, infrastructure.",
+  security:
+    "the Security/QA agent — `QA.md`, the test plan and the security posture; for test coverage, " +
+    "vulnerability review and release sign-off.",
+  cinematic:
+    "the Cinematic engineer — scroll-driven storytelling on `skills/cinematic-web/`; for " +
+    "scroll-linked animation, pinned sequences and DOM↔canvas hand-off.",
+};
+
+export const AGENT_HINT_NAMES = Object.keys(AGENT_HINTS);
+
+/**
+ * Weaves an `/agent` pick into a user message. The weakest of the three
+ * `with*` weavers by design: naming a specialist is a pointer, not a
+ * dispatch. Zelyq's specialists run as their own scoped child turns behind
+ * the `*_pass` tools and the mode orchestration — a plain user message
+ * cannot start one. So this only tells the model which specialist the user
+ * had in mind, to steer the work that way (call the matching pass tool when
+ * the mode allows it, or just apply that lens directly). Unknown names are
+ * dropped rather than failing the turn.
+ */
+export function withAgents(message: string, names: string[]): string {
+  const hints = names
+    .map((name) => (AGENT_HINTS[name] ? `- ${AGENT_HINTS[name]}` : null))
+    .filter((line): line is string => line !== null);
+  if (hints.length === 0) return message;
+  const intro =
+    hints.length === 1
+      ? "The user pointed at a specialist for this task:"
+      : "The user pointed at specialists for this task:";
+  return (
+    `${intro}\n${hints.join("\n")}\n\n` +
+    "This names whose lens to apply — it is not a command to run that specialist now. " +
+    "Invoke the matching pass tool only if the current mode allows it.\n\n---\n\n" +
+    message
+  );
+}

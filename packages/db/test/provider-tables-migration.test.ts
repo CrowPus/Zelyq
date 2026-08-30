@@ -55,6 +55,9 @@ test("a database that already ran the team-scoped 0009 is reconciled by 0010", a
   await c.execute(`CREATE TABLE users (id text primary key)`);
   await c.execute(`CREATE TABLE teams (id text primary key)`);
   await c.execute(`CREATE TABLE projects (id text primary key)`);
+  // A DB that ran everything up to 0009 has this from 0000; later migrations
+  // (0011) alter it.
+  await c.execute(`CREATE TABLE messages (id text primary key)`);
   await c.execute(
     `CREATE TABLE provider_connections (
        id text primary key, team_id text not null, provider text not null,

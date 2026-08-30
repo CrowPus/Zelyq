@@ -29,6 +29,9 @@ function fakeAgent() {
   const prompts: Array<{
     message: string;
     attachments?: Array<{ filename: string; mimeType: string; data: string }>;
+    skills?: string[];
+    plugins?: string[];
+    agents?: string[];
   }> = [];
   const server = http.createServer((req, res) => {
     const send = (status: number, body: unknown) => {
@@ -101,7 +104,13 @@ function fakeAgent() {
       });
       req.on("end", () => {
         const input = JSON.parse(promptBody);
-        prompts.push({ message: input.message, attachments: input.attachments });
+        prompts.push({
+          message: input.message,
+          attachments: input.attachments,
+          skills: input.skills,
+          plugins: input.plugins,
+          agents: input.agents,
+        });
         writePromptResponse();
       });
       return;
@@ -1058,6 +1067,106 @@ test("an uploaded text file is inlined into the prompt sent to the agent, not se
     "the stored transcript is exactly what was typed, without the inlined file text",
   );
   assert.equal(userMessage?.attachments[0]?.filename, "notes.txt");
+});
+
+test("062: `/` menu picks are forwarded to the agent and recorded on the user message row", async () => {
+  const { cookie } = await register("mentions@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Mentions test" },
+    })
+  ).json().project;
+
+  agent.prompts.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  let sessionId = "";
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        sessionId = msg.sessionId;
+        ws.send(
+          JSON.stringify({
+            type: "prompt",
+            message: "polish the landing page",
+            skills: ["shadcn-ui-setup"],
+            agents: ["designer"],
+            plugins: ["some_tool"],
+          }),
+        );
+      }
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  assert.equal(agent.prompts.length, 1);
+  assert.deepEqual(agent.prompts[0]?.agents, ["designer"], "agents reach the agent service");
+  assert.deepEqual(agent.prompts[0]?.skills, ["shadcn-ui-setup"]);
+  assert.deepEqual(agent.prompts[0]?.plugins, ["some_tool"]);
+
+  const history = await server.store.messages.listForSession(sessionId);
+  const userMessage = history.find((m) => m.role === "user");
+  assert.equal(
+    userMessage?.content,
+    "polish the landing page",
+    "the stored transcript is still exactly what was typed",
+  );
+  assert.deepEqual(userMessage?.mentions, {
+    skills: ["shadcn-ui-setup"],
+    agents: ["designer"],
+    plugins: ["some_tool"],
+  });
+});
+
+test("062: a message with no `/` picks stores null mentions, not an empty object", async () => {
+  const { cookie } = await register("no-mentions@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "No mentions test" },
+    })
+  ).json().project;
+
+  agent.prompts.length = 0;
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+
+  let sessionId = "";
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        sessionId = msg.sessionId;
+        ws.send(JSON.stringify({ type: "prompt", message: "just a plain message" }));
+      }
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+
+  const history = await server.store.messages.listForSession(sessionId);
+  const userMessage = history.find((m) => m.role === "user");
+  assert.equal(userMessage?.mentions, null);
 });
 
 test("an unknown attachment id refuses the turn with a clear error, before anything is persisted", async () => {

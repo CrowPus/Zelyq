@@ -100,8 +100,8 @@ by hand, the same as a built-in would need.
 ## Picking one from the composer, guaranteed
 
 Typing `/` anywhere in the composer — not just at the start of the draft —
-opens a menu of skills, plugins, and models, filtered as you keep typing.
-Picking a skill there is a different promise from the catalog above: its
+opens a menu of skills, agents, plugins, and models, filtered as you keep
+typing. Picking a skill there is a different promise from the catalog above: its
 full body is woven directly into the message the model reads on turn one,
 before the turn even starts, rather than left for the model to decide
 whether `use_skill` is worth calling. It rides in the one message a model

@@ -42,6 +42,12 @@ to call the tool, the way it always could. There is no way to force a
 tool call from text the way real content can be forced into a message a
 model reads.
 
+The menu's **Agents** section (Designer, DevOps agent, Security/QA agent,
+Cinematic engineer) is weaker still — see [modes.md](./modes.md). Naming a
+specialist there points the agent at whose lens to apply; it never starts
+that specialist's own scoped turn, which only the mode pipeline and the
+`*_pass` tools do.
+
 ## Writing one
 
 Set `ZELYQ_PLUGIN_DIR` to a local directory (see

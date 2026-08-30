@@ -170,6 +170,11 @@ export const messages = sqliteTable(
     /** JSON-encoded AttachmentRef[]. */
     attachments: text("attachments").notNull().default("[]"),
     /**
+     * JSON `{ skills, agents, plugins }` — what the composer's `/` menu named
+     * on this message, for the transcript to show. Null when nothing was named.
+     */
+    mentions: text("mentions"),
+    /**
      * The project as it stood immediately before this turn ran, so the turn can
      * be undone. Null for user messages, and for assistant turns that predate
      * automatic snapshots.

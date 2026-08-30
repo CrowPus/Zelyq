@@ -15,6 +15,36 @@ function parseJsonArray<T>(raw: string): T[] {
   }
 }
 
+type Mentions = NonNullable<Message["mentions"]>;
+
+/** `{ skills, agents, plugins }` or null. Missing arrays default to empty; a
+ * malformed value reads as null rather than breaking the transcript. */
+function parseMentions(raw: string | null): Mentions | null {
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw) as Partial<Mentions>;
+    const arr = (v: unknown) =>
+      Array.isArray(v) ? (v.filter((x) => typeof x === "string") as string[]) : [];
+    const mentions = { skills: arr(p.skills), agents: arr(p.agents), plugins: arr(p.plugins) };
+    return mentions.skills.length || mentions.agents.length || mentions.plugins.length
+      ? mentions
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Drop a mentions object with nothing in it to null, so an empty pick does not
+ * leave a `{}` on the row. */
+function normaliseMentions(mentions: Message["mentions"]): string | null {
+  if (!mentions) return null;
+  const skills = mentions.skills ?? [];
+  const agents = mentions.agents ?? [];
+  const plugins = mentions.plugins ?? [];
+  if (!skills.length && !agents.length && !plugins.length) return null;
+  return JSON.stringify({ skills, agents, plugins });
+}
+
 function toMessage(row: Row): Message {
   return {
     id: row.id,
@@ -24,6 +54,7 @@ function toMessage(row: Row): Message {
     thinking: row.thinking,
     toolCalls: parseJsonArray<ToolCall>(row.toolCalls),
     attachments: parseJsonArray<AttachmentRef>(row.attachments),
+    mentions: parseMentions(row.mentions),
     snapshotId: row.snapshotId,
     tokensIn: row.tokensIn,
     tokensOut: row.tokensOut,
@@ -42,6 +73,7 @@ export function messageRepository(db: ZelyqDb) {
         thinking: message.thinking ?? null,
         toolCalls: JSON.stringify(message.toolCalls ?? []),
         attachments: JSON.stringify(message.attachments ?? []),
+        mentions: normaliseMentions(message.mentions),
         snapshotId: message.snapshotId ?? null,
         tokensIn: message.tokensIn,
         tokensOut: message.tokensOut,
