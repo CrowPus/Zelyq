@@ -18,14 +18,17 @@ import {
   opsPassTool,
   qaPassTool,
   type ToolContext,
+  type ToolDefinition,
   type ToolResult,
   toolDefinitions,
+  type ZelyqTool,
 } from "@zelyq/tools";
 import {
   ARCHITECT_DRIFT_MARKER,
   ARCHITECT_READY_MARKER,
   ARCHITECT_WRITE_ROOT,
   buildSystemPrompt,
+  designReferencesBlock,
   ENGINEER_MODE_PURPOSE_MARKER,
   withAgents,
   withPlugins,
@@ -630,6 +633,19 @@ type Emit = (event: AgentEvent) => void;
  * can be drift-checked against the one true set. */
 export const SPECIALIST_KINDS = ["designer", "devops", "security", "cinematic"] as const;
 type SpecialistKind = (typeof SPECIALIST_KINDS)[number];
+
+/** 064 — the pass tool that runs each specialist. An `/agent` pick grants the
+ * matching one for the session (`grantSpecialistTools`), which is what makes
+ * `/agent designer` dispatch a real Designer in default mode instead of
+ * leaving the model to impersonate one. Keyed by the same names the composer's
+ * `/agent` menu and `withAgents`' hint table use — the drift check covers all
+ * three. */
+const SPECIALIST_PASS_TOOLS: Record<SpecialistKind, ZelyqTool> = {
+  designer: designPassTool,
+  devops: opsPassTool,
+  security: qaPassTool,
+  cinematic: cinematicPassTool,
+};
 
 const DEVOPS_MD_PATHS = new Set(["architecture/OPERATIONS.md", "OPERATIONS.md"]);
 const QA_MD_PATHS = new Set([
@@ -1244,6 +1260,22 @@ export class AgentSession {
   private readonly options: SessionOptions;
   private readonly conversation: Conversation;
 
+  // 064 — the SAME array the conversation holds, kept by reference so an
+  // `/agent` pick can add that specialist's pass tool to a live session.
+  // Every provider reads `options.tools` when it builds a request
+  // (anthropic.ts, google.ts, openai-compatible.ts, chatgpt-responses.ts) —
+  // never in a constructor — so a push here is visible on the next turn,
+  // uniformly, with no session restart.
+  //
+  // INVARIANT: a grant is STICKY for the life of the session and is only ever
+  // ADDED, never removed. On Anthropic the tool block sits ahead of the system
+  // prompt in the cache prefix, so a tool list that churns per turn would
+  // invalidate the `cache_control` breakpoint on every turn after the first
+  // pick. Adding once costs one invalidation, then the prefix is stable again.
+  // Presence is capability, not instruction: the prompt and each pass tool's
+  // own description already bind these to an explicit user ask.
+  private readonly liveTools: ToolDefinition[];
+
   private abortController: AbortController | null = null;
   private busy = false;
   private turns = 0;
@@ -1337,15 +1369,26 @@ export class AgentSession {
           ]
     ).filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name));
 
+    // Held by reference (see `liveTools` on the class) so a later `/agent`
+    // pick can grant a specialist's pass tool without rebuilding the session.
+    const liveTools = toolDefinitions(toolPool);
+    this.liveTools = liveTools;
+
     this.conversation = provider.createConversation({
       systemPrompt:
         // 056 — a lean specialist child (systemPrompt + toolNames) gets
         // `Agent.md` appended as a gate; the full prompt for a top-level
         // session gets the catalog + `agentMd` woven in by buildSystemPrompt.
         options.systemPrompt
-          ? options.agentMd
-            ? `${options.systemPrompt}\n\n<ui_guidelines>\nThese MUST/SHOULD/NEVER rules are the UI-quality bar. Check the observable ones against the running preview and fix or report any failure.\n\n${options.agentMd}\n</ui_guidelines>`
-            : options.systemPrompt
+          ? // 064 — a child's prompt is assembled here, not by
+            // buildSystemPrompt: <design_references> first (it is what the
+            // Designer's step 2 reads before writing DESIGN.md), then the
+            // hand-written prompt, then <ui_guidelines> as the closing gate.
+            `${designReferencesBlock(options.designRefCatalogText)}${options.systemPrompt}${
+              options.agentMd
+                ? `\n\n<ui_guidelines>\nThese MUST/SHOULD/NEVER rules are the UI-quality bar. Check the observable ones against the running preview and fix or report any failure.\n\n${options.agentMd}\n</ui_guidelines>`
+                : ""
+            }`
           : buildSystemPrompt({
               projectName: options.projectName,
               template: options.template,
@@ -1367,7 +1410,7 @@ export class AgentSession {
                 ? { architectMode: { skill: options.architectModeSkill } }
                 : {}),
             }),
-      tools: toolDefinitions(toolPool),
+      tools: liveTools,
       effort: options.effort,
       history: (options.history ?? [])
         .filter(
@@ -1720,6 +1763,16 @@ export class AgentSession {
       (isVerify || specialistKind === "designer" || specialistKind === "cinematic")
         ? { agentMd: this.options.agentMd }
         : {}),
+      // 064 — the two design-AUTHORING specialists get the reference catalog.
+      // DESIGNER_SYSTEM_PROMPT step 2 has always instructed the child to pick
+      // from a <design_references> list; until now nothing ever handed it one,
+      // so it fell through to "first principles" — the stock dark-purple — on
+      // every pass. DevOps and Security/QA are excluded on purpose: a CI
+      // pipeline has no design language.
+      ...(this.options.designRefCatalogText &&
+      (specialistKind === "designer" || specialistKind === "cinematic")
+        ? { designRefCatalogText: this.options.designRefCatalogText }
+        : {}),
       ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
     });
 
@@ -2019,6 +2072,38 @@ export class AgentSession {
   }
 
   /**
+   * 064 — an `/agent` pick makes that specialist runnable, in ANY mode.
+   *
+   * Before this, `design_pass` and friends existed only in Architect or
+   * Engineer Mode, so a default-mode user who picked "Designer" from the
+   * composer menu got a hint pointing at a tool the model had never been
+   * given. It could not comply, so it improvised: a `use_skill` call, or a
+   * hand-written `DESIGN.md` and a claim that it had "applied the Designer
+   * lens". Naming a specialist now puts that specialist's pass tool in the
+   * live tool array, and `withAgents` tells the model to call it.
+   *
+   * STICKY, ADD-ONLY — see the `liveTools` invariant. Granting is not
+   * instructing: each pass tool's description already says "only when the user
+   * asks", and a session where nobody ever types `/agent` keeps a byte-
+   * identical tool block.
+   *
+   * A lean child (its own prompt + a curated `toolNames`) is never granted:
+   * specialists do not spawn specialists.
+   */
+  private grantSpecialistTools(agentNames: string[]): void {
+    if (this.options.systemPrompt && this.options.toolNames) return;
+    const granted: ZelyqTool[] = [];
+    for (const name of agentNames) {
+      const tool = SPECIALIST_PASS_TOOLS[name as SpecialistKind];
+      if (!tool) continue; // an unknown name is dropped, never a failed turn
+      if (this.liveTools.some((t) => t.name === tool.name)) continue;
+      granted.push(tool);
+    }
+    if (granted.length === 0) return;
+    this.liveTools.push(...toolDefinitions(granted));
+  }
+
+  /**
    * Runs one user turn to completion, emitting events as it goes. Resolves when
    * the model stops asking for tools, the user aborts, or the iteration cap is
    * reached — expected failures become `error` events rather than throwing.
@@ -2076,6 +2161,13 @@ export class AgentSession {
     // thing" nudge has already been injected this turn. One-shot, so a model
     // that stays empty even with guidance ends the turn instead of looping.
     let emptyRecoveryDone = false;
+    // 064 — one-shot re-nudge when the user picked a specialist from the
+    // `/agent` menu and the turn is about to end without that specialist's
+    // pass tool ever being called. The grant + the `withAgents` instruction
+    // get a capable model (gpt-5.2) to comply on their own; a weak one
+    // (Gemini Flash) tends to just do the work itself. One firm nudge makes
+    // the pick reliable without forcing a dispatch the model had no say in.
+    let specialistPickNudgeDone = false;
     // Architect Mode: how many times this turn we have made the model go back
     // and write `architecture/requirements.md` before ending a turn in which
     // it interviewed but recorded nothing. Prompt guidance ("write it as you
@@ -2198,8 +2290,21 @@ export class AgentSession {
     const withPluginInstruction = pluginNames?.length
       ? withPlugins(userMessage, pluginNames)
       : userMessage;
-    // An `/agent` pick is a pointer, not a dispatch — woven between the
-    // plugin line and the skill bodies so a named skill still reads first.
+    // 064 — an `/agent` pick is a dispatch, not a pointer: grant the named
+    // specialist's pass tool for the session BEFORE the hint is woven, so the
+    // tool `withAgents` names is genuinely in the pool by the time the model
+    // reads the instruction. Woven between the plugin line and the skill
+    // bodies so a named skill still reads first.
+    if (agentNames?.length) this.grantSpecialistTools(agentNames);
+    // 064 — the pass tools this pick is expected to produce a call to, for
+    // the end-of-turn backstop below. Empty for a lean child (no pick) or an
+    // unrecognised name.
+    const pickedPassTools =
+      this.options.systemPrompt && this.options.toolNames
+        ? []
+        : (agentNames ?? [])
+            .map((name) => SPECIALIST_PASS_TOOLS[name as SpecialistKind]?.name)
+            .filter((name): name is string => Boolean(name));
     const withAgentHint = agentNames?.length
       ? withAgents(withPluginInstruction, agentNames)
       : withPluginInstruction;
@@ -2392,6 +2497,31 @@ export class AgentSession {
                 'otherwise complete and you have not yet, write the "' +
                 ARCHITECT_READY_MARKER +
                 '" line now. Never reply with nothing — do the smaller thing.',
+            );
+            continue;
+          }
+
+          // 064 — the user picked a specialist from the `/agent` menu, its
+          // pass tool was granted for this turn, and the turn is ending
+          // without a single call to it. One firm re-nudge, then let the
+          // turn end — a model that still refuses after this has made its
+          // choice, and looping would be worse. Not mode-gated: the whole
+          // point is the default mode where the founder hit this.
+          if (
+            pickedPassTools.length > 0 &&
+            !specialistPickNudgeDone &&
+            !pickedPassTools.some((name) => toolCalls.some((call) => call.name === name))
+          ) {
+            specialistPickNudgeDone = true;
+            const list = pickedPassTools.map((name) => `\`${name}\``).join(" and ");
+            const one = pickedPassTools.length === 1;
+            this.conversation.addUserMessage(
+              `The user picked ${one ? "a specialist" : "specialists"} from the /agent menu and you ` +
+                `have ${list} available this turn, but you have not called ${one ? "it" : "them"}. ` +
+                `Running the pass is what they asked for — not doing the work yourself, not loading a ` +
+                `skill, not writing that specialist's file by hand. Call ${list} now. If a pass is ` +
+                `genuinely not warranted for this request, say so in one sentence instead of finishing ` +
+                `without one.`,
             );
             continue;
           }
