@@ -24,6 +24,12 @@
 
 <sub>▶ And the <b>Cinematic engineer</b> turning a supplied clip into a scroll-scrubbed hero.</sub>
 
+<br />
+
+<video src="https://github.com/user-attachments/assets/a59cd007-fe2f-4396-98c6-b9aaf27345e5" controls muted loop playsinline width="900"></video>
+
+<sub>▶ And checking the build at real mobile, tablet, and desktop widths right in the preview — no resizing the window.</sub>
+
 Most "prompt to app" tools generate something that looks right and leave you to find out where it
 isn't. Zelyq's agent plans before it acts, verifies its own work before it calls a turn finished,
 tells you plainly what it checked versus what it assumed, and stops to ask instead of guessing when
