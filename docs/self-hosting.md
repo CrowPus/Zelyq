@@ -92,11 +92,16 @@ Reverse-proxy each preview over one HTTPS origin instead:
        ssl_certificate_key /etc/letsencrypt/live/preview.example.com/privkey.pem;
 
        location / {
-           proxy_pass http://127.0.0.1:$pport;
+           # proxy_pass carries a variable, so the URI must be explicit.
+           proxy_pass http://127.0.0.1:$pport$request_uri;
            proxy_http_version 1.1;
            proxy_set_header Upgrade    $http_upgrade;   # Vite HMR is a WebSocket
            proxy_set_header Connection "upgrade";
-           proxy_set_header Host       $host;
+           # Vite / Next / CRA reject an unknown external Host with a 403
+           # (`server.allowedHosts`). Hand the dev server a Host it trusts;
+           # keep the real one on X-Forwarded-Host.
+           proxy_set_header Host             127.0.0.1:$pport;
+           proxy_set_header X-Forwarded-Host $host;
            proxy_read_timeout 3600s;
        }
    }
