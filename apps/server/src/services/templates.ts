@@ -8,16 +8,25 @@ export interface TemplateInfo {
   title: string;
   description: string;
   fileCount: number;
+  /** One-line stack summary — forwarded to the agent for this project (066). */
+  stack?: string;
+  /** A skill whose body is force-woven for projects on this stack (066). */
+  agentSkill?: string;
 }
 
 /**
  * Templates are plain directories of files — no placeholder syntax beyond the
  * handful of tokens below. Anyone can add one by dropping a folder in
  * `templates/` with a `template.json`, which is the point.
+ *
+ * `stack` and `agentSkill` are optional and only read by 066's agent plumb —
+ * a template without them behaves exactly as before.
  */
 export interface TemplateManifest {
   title: string;
   description: string;
+  stack?: string;
+  agentSkill?: string;
 }
 
 const TOKEN_PATTERN = /\{\{\s*(projectName|projectSlug|projectId)\s*\}\}/g;
@@ -36,6 +45,8 @@ export async function listTemplates(templatesDir: string): Promise<TemplateInfo[
       title: manifest.title,
       description: manifest.description,
       fileCount: files.length,
+      ...(manifest.stack ? { stack: manifest.stack } : {}),
+      ...(manifest.agentSkill ? { agentSkill: manifest.agentSkill } : {}),
     });
   }
 
@@ -87,6 +98,19 @@ async function readManifest(root: string): Promise<TemplateManifest | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * The manifest for one template by name, or `null` if it has none. Used by the
+ * gateway to tell the agent what stack a project is on (066). Name is validated
+ * the same way `loadTemplate` validates it.
+ */
+export async function templateManifest(
+  templatesDir: string,
+  name: string,
+): Promise<TemplateManifest | null> {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) return null;
+  return readManifest(path.join(templatesDir, name));
 }
 
 async function collectFiles(root: string, prefix = ""): Promise<string[]> {

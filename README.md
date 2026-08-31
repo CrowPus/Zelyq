@@ -30,6 +30,12 @@
 
 <sub>▶ And checking the build at real mobile, tablet, and desktop widths right in the preview — no resizing the window.</sub>
 
+<br />
+
+<video src="https://github.com/user-attachments/assets/b2782b9e-d020-4a09-99e8-1e96e52ac9af" controls muted loop playsinline width="900"></video>
+
+<sub>▶ And building a <b>real mobile app</b> — pick <b>Expo — React Native</b> when you create a project and the agent builds native screens (<code>View</code> / <code>Text</code> / Expo Router, not <code>div</code>), previewed in the browser via Expo web.</sub>
+
 Most "prompt to app" tools generate something that looks right and leave you to find out where it
 isn't. Zelyq's agent plans before it acts, verifies its own work before it calls a turn finished,
 tells you plainly what it checked versus what it assumed, and stops to ask instead of guessing when
@@ -163,6 +169,9 @@ built so that nothing about it is magic and nothing is locked in:
   person is working on an instance.
 - **Boring, inspectable storage.** SQLite by default (one file), PostgreSQL when you scale. Project
   files are plain files on disk — you can `cd` into them and take them with you.
+- **Web or mobile.** Pick **React + Vite** or **Expo — React Native** when you create a project.
+  The Expo stack previews in the browser via Expo web, and the agent knows it's React Native —
+  it builds `View`/`Text`/Expo Router, not `div`. Device and store builds are a separate step.
 
 ## Status
 

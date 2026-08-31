@@ -1,0 +1,6 @@
+{
+  "title": "Expo — React Native",
+  "description": "React Native + TypeScript with Expo Router and NativeWind. The preview runs in your browser via Expo web — no Xcode or Android SDK needed. Device and store builds are a separate step.",
+  "stack": "React Native + TypeScript on Expo (managed workflow), Expo Router for file-based navigation, and NativeWind (Tailwind for React Native). Previewed in the browser via Expo web (Metro static rendering).",
+  "agentSkill": "expo-react-native"
+}

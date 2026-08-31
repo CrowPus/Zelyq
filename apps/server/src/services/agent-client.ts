@@ -63,6 +63,11 @@ export class AgentClient {
     supabaseBridge?: { url: string; token: string };
     /** Public Supabase config (URL + publishable key) for the preview. */
     supabasePreviewEnv?: Record<string, string>;
+    /** 066 — the project's template, its one-line stack summary, and a
+     * skill to force-weave for that stack. Absent ⇒ vite-react defaults. */
+    template?: string;
+    stack?: string;
+    agentSkill?: string;
   }): Promise<AgentSessionState> {
     const response = await fetch(`${this.baseUrl}/sessions`, {
       method: "POST",
@@ -130,6 +135,11 @@ export class AgentClient {
     supabaseBridge?: { url: string; token: string };
     /** Public Supabase config (URL + publishable key) for the preview. */
     supabasePreviewEnv?: Record<string, string>;
+    /** 066 — the project's template, its one-line stack summary, and a
+     * skill to force-weave for that stack. Absent ⇒ vite-react defaults. */
+    template?: string;
+    stack?: string;
+    agentSkill?: string;
   }): Promise<AgentSessionState> {
     const existing = await fetch(`${this.baseUrl}/sessions/${input.sessionId}/state`, {
       signal: AbortSignal.timeout(5000),

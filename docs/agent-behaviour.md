@@ -52,6 +52,15 @@ touch, prefer `edit_file` over `write_file`, verify by running the typecheck and
 Change it deliberately. Small wording changes move behaviour more than they look like they should —
 try a change against several real prompts before keeping it.
 
+The `<project>` block's `Stack:` line and an optional `<stack_guide>` are **per project**, from the
+project's template (066). `template.json` may carry a `stack` one-liner and an `agentSkill`; the
+gateway reads them (`ProjectService.stackFor`) and forwards them to the agent, which swaps the
+`Stack:` line and force-weaves that skill's body as `<stack_guide>` right after `<skills>` — the
+same inject Engineer Mode uses for `senior-software-engineering`. A `vite-react` project declares
+neither, so its prompt is byte-identical to before. The Expo template
+(`skills/expo-react-native`) is the first user: it's what makes the agent build `View`/`Text`,
+not `div`, on a React Native project.
+
 **2. The tool descriptions** (`packages/tools`) are prompt text too. `search_files` says it is
 "much cheaper than reading files to find something" because otherwise the model reads files it does
 not need. When a tool is misused, the description is usually the fix.

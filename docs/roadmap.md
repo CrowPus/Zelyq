@@ -83,6 +83,11 @@ separates this from a chat with a black box.
 ## Later — depth
 
 - [ ] More templates: Next.js, plain Vite, static site, Node API
+- [~] Mobile apps — **Expo / React Native**, v1: scaffold → edit → preview in the browser via
+      Expo web (Metro). Pick "Expo — React Native" in the new-project dialog. The agent is told
+      the stack and force-woven `skills/expo-react-native` (RN primitives, Expo Router,
+      NativeWind), so it builds `View`/`Text`/`FlatList`, not `div`. Device/simulator preview
+      (Expo Go, iOS/Android sims) and EAS / native builds are separate follow-ups. See #109
 - [x] Element inspector — click something in the preview to point the agent at it. Works on
       projects not started from the Zelyq template too — the bridge script is patched into an
       existing project's `index.html` the first time its preview starts

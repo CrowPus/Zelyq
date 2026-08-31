@@ -84,6 +84,14 @@ import type {
  */
 
 const DEFAULT_IMAGE = "node:22-bookworm-slim";
+
+function normalizePreviewPort(port: number | undefined): number | undefined {
+  if (port === undefined) return undefined;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw ZelyqError.badRequest("Invalid preview port. Expected an integer between 1 and 65535.");
+  }
+  return port;
+}
 const DEFAULT_MEMORY = "2g";
 const DEFAULT_CPUS = "2";
 const DEFAULT_PIDS = 512;
@@ -464,7 +472,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         }
       }
 
-      const port = options.port ?? (await allocatePort(this.portRange));
+      const requestedPort = normalizePreviewPort(options.port);
+      const port = requestedPort ?? (await allocatePort(this.portRange));
       // The container must have exactly this port published. If it does not —
       // the common case, since the install above did not ask for one — it is
       // recreated. Safe: nothing lives in the container's own layer.

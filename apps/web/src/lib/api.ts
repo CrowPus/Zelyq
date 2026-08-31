@@ -254,9 +254,17 @@ export const api = {
     }>("/health"),
 
   listTemplates: () =>
-    request<{ templates: Array<{ name: string; title: string; description: string }> }>(
-      "/templates",
-    ),
+    request<{
+      templates: Array<{
+        name: string;
+        title: string;
+        description: string;
+        /** One-line stack summary the agent is told (066). */
+        stack?: string;
+        /** A skill whose body is force-woven for projects on this stack. */
+        agentSkill?: string;
+      }>;
+    }>("/templates"),
 
   deleteAccount: (password: string) =>
     request<void>("/auth/me", { method: "DELETE", body: JSON.stringify({ password }) }),

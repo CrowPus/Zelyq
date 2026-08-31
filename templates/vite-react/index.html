@@ -18,86 +18,90 @@
       A project made before this shipped, or not started from this
       template at all, gets this same block patched in automatically the
       first time its preview starts. The sentinel comments around this
-      block are what let the server find and
-      copy exactly this, and nothing else, into a project that doesn't
-      have it yet.
+      block are what let the server find and copy exactly this, and
+      nothing else, into a project that doesn't have it yet.
+
+      This file is the one source of truth. templates/vite-react/index.html
+      carries it inline; templates/expo-react-native serves the script body
+      (templates/_shared/inspector.js) as a static asset. Tests in
+      apps/server/test/inspector-script.test.ts fail if any copy drifts.
     -->
     <script>
-      (function () {
-        var ACTIVATE = "zelyq:inspector:activate";
-        var DEACTIVATE = "zelyq:inspector:deactivate";
-        var SELECTED = "zelyq:inspector:selected";
-        var active = false;
-        var overlay = null;
+    (function () {
+      var ACTIVATE = "zelyq:inspector:activate";
+      var DEACTIVATE = "zelyq:inspector:deactivate";
+      var SELECTED = "zelyq:inspector:selected";
+      var active = false;
+      var overlay = null;
 
-        function ensureOverlay() {
-          if (overlay) return overlay;
-          overlay = document.createElement("div");
-          overlay.style.cssText =
-            "position:fixed;pointer-events:none;z-index:2147483647;" +
-            "border:2px solid #6366f1;background:rgba(99,102,241,0.15);" +
-            "border-radius:2px;display:none;";
-          document.documentElement.appendChild(overlay);
-          return overlay;
+      function ensureOverlay() {
+        if (overlay) return overlay;
+        overlay = document.createElement("div");
+        overlay.style.cssText =
+          "position:fixed;pointer-events:none;z-index:2147483647;" +
+          "border:2px solid #6366f1;background:rgba(99,102,241,0.15);" +
+          "border-radius:2px;display:none;";
+        document.documentElement.appendChild(overlay);
+        return overlay;
+      }
+
+      function outline(el) {
+        var box = el.getBoundingClientRect();
+        var node = ensureOverlay();
+        node.style.display = "block";
+        node.style.left = box.left + "px";
+        node.style.top = box.top + "px";
+        node.style.width = box.width + "px";
+        node.style.height = box.height + "px";
+      }
+
+      function describe(el) {
+        var classes =
+          el.className && typeof el.className === "string"
+            ? el.className.trim().split(/\s+/).filter(Boolean)
+            : [];
+        var text = (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 80);
+        return {
+          tag: el.tagName.toLowerCase(),
+          id: el.id || undefined,
+          classes: classes.slice(0, 4),
+          text: text || undefined,
+        };
+      }
+
+      function onMove(event) {
+        if (!active || !(event.target instanceof Element)) return;
+        outline(event.target);
+      }
+
+      function onClick(event) {
+        if (!active || !(event.target instanceof Element)) return;
+        // Point at it, don't actually trigger it — a click in select mode
+        // describes the element, it never submits a form or follows a link.
+        event.preventDefault();
+        event.stopPropagation();
+        window.parent.postMessage({ type: SELECTED, element: describe(event.target) }, "*");
+      }
+
+      window.addEventListener("message", function (event) {
+        // Only Zelyq's own page can turn this on — never a random
+        // embedder, if this preview is ever reached some other way.
+        if (event.source !== window.parent) return;
+        if (event.data && event.data.type === ACTIVATE) {
+          active = true;
+          document.body.style.cursor = "crosshair";
+        } else if (event.data && event.data.type === DEACTIVATE) {
+          active = false;
+          document.body.style.cursor = "";
+          if (overlay) overlay.style.display = "none";
         }
+      });
 
-        function outline(el) {
-          var box = el.getBoundingClientRect();
-          var node = ensureOverlay();
-          node.style.display = "block";
-          node.style.left = box.left + "px";
-          node.style.top = box.top + "px";
-          node.style.width = box.width + "px";
-          node.style.height = box.height + "px";
-        }
-
-        function describe(el) {
-          var classes =
-            el.className && typeof el.className === "string"
-              ? el.className.trim().split(/\s+/).filter(Boolean)
-              : [];
-          var text = (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 80);
-          return {
-            tag: el.tagName.toLowerCase(),
-            id: el.id || undefined,
-            classes: classes.slice(0, 4),
-            text: text || undefined,
-          };
-        }
-
-        function onMove(event) {
-          if (!active || !(event.target instanceof Element)) return;
-          outline(event.target);
-        }
-
-        function onClick(event) {
-          if (!active || !(event.target instanceof Element)) return;
-          // Point at it, don't actually trigger it — a click in select mode
-          // describes the element, it never submits a form or follows a link.
-          event.preventDefault();
-          event.stopPropagation();
-          window.parent.postMessage({ type: SELECTED, element: describe(event.target) }, "*");
-        }
-
-        window.addEventListener("message", function (event) {
-          // Only Zelyq's own page can turn this on — never a random
-          // embedder, if this preview is ever reached some other way.
-          if (event.source !== window.parent) return;
-          if (event.data && event.data.type === ACTIVATE) {
-            active = true;
-            document.body.style.cursor = "crosshair";
-          } else if (event.data && event.data.type === DEACTIVATE) {
-            active = false;
-            document.body.style.cursor = "";
-            if (overlay) overlay.style.display = "none";
-          }
-        });
-
-        // Capture phase, so this sees the click before the app's own
-        // handlers do — required for preventDefault to actually stop it.
-        document.addEventListener("mousemove", onMove, true);
-        document.addEventListener("click", onClick, true);
-      })();
+      // Capture phase, so this sees the click before the app's own
+      // handlers do — required for preventDefault to actually stop it.
+      document.addEventListener("mousemove", onMove, true);
+      document.addEventListener("click", onClick, true);
+    })();
     </script>
     <!-- zelyq:inspector:end -->
   </body>

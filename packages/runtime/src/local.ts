@@ -27,6 +27,14 @@ import type {
 
 const DEFAULT_MAX_OUTPUT_BYTES = 512 * 1024;
 const PREVIEW_LOG_LINES = 500;
+
+function normalizePreviewPort(port: number | undefined): number | undefined {
+  if (port === undefined) return undefined;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw ZelyqError.badRequest("Invalid preview port. Expected an integer between 1 and 65535.");
+  }
+  return port;
+}
 export const PREVIEW_READY_TIMEOUT_MS = 90_000;
 const MAX_READABLE_FILE_BYTES = 2 * 1024 * 1024;
 /** Sibling of the project roots, so nothing here lands inside a user's project. */
@@ -404,7 +412,8 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       }
     }
 
-    const port = options.port ?? (await allocatePort(this.portRange));
+    const requestedPort = normalizePreviewPort(options.port);
+    const port = requestedPort ?? (await allocatePort(this.portRange));
     const command =
       options.command ?? (await this.detectDevCommand(root, port, this.previewBindHost));
 
@@ -993,6 +1002,16 @@ export async function detectDevCommand(root: string, port: number, host: string)
   }
   if (/\bnext\b/.test(body) || "next" in deps) {
     return `${runner} -- --port ${port} --hostname ${host}`;
+  }
+
+  // Expo (managed) serves web through Metro on the dev-server port since
+  // SDK 50 — one port, iframe-able like any other preview. It takes `--port`;
+  // it has no equivalent of Vite's `--host <addr>` / `--strictPort` (its
+  // `--host` picks lan/tunnel/localhost, not an address), so binding is left
+  // to the PORT/HOST env `startPreview` already sets. The template's own
+  // `dev` script carries `CI=1` so Expo does not prompt.
+  if (/\bexpo\b/.test(body) || "expo" in deps) {
+    return `${runner} -- --port ${port}`;
   }
 
   // react-scripts and anything unrecognised: PORT and HOST in the environment,

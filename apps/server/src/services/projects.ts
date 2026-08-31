@@ -11,7 +11,7 @@ import {
 import type { Store } from "@zelyq/db";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { ServerConfig } from "../config.js";
-import { loadTemplate } from "./templates.js";
+import { loadTemplate, templateManifest } from "./templates.js";
 
 /**
  * Project lifecycle. Creation is the one flow that has to keep two systems in
@@ -74,6 +74,24 @@ export class ProjectService {
   async listForUser(user: User): Promise<Project[]> {
     const teams = await this.store.teams.listForUser(user.id);
     return await this.store.projects.listForTeams(teams.map((team) => team.id));
+  }
+
+  /**
+   * The stack a project is on, for the agent (066). `template` is the row's
+   * own value; `stack` / `agentSkill` come from that template's `template.json`
+   * if it declares them. A cloned project, or one whose template has no
+   * manifest fields, comes back with just `template` — the agent then falls
+   * back to its built-in default stack line and force-weaves nothing.
+   */
+  async stackFor(id: string): Promise<{ template: string; stack?: string; agentSkill?: string }> {
+    const project = await this.store.projects.findById(id);
+    const template = project?.template ?? "vite-react";
+    const manifest = await templateManifest(this.config.templatesDir, template);
+    return {
+      template,
+      ...(manifest?.stack ? { stack: manifest.stack } : {}),
+      ...(manifest?.agentSkill ? { agentSkill: manifest.agentSkill } : {}),
+    };
   }
 
   async get(id: string): Promise<Project> {

@@ -31,7 +31,7 @@ import { findSlashCommand, matchByPrefix, replaceSlashCommand } from "../lib/sla
 import { SPECIALISTS, type Specialist } from "../lib/specialists";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
-import { IconButton, Kbd, StatusDot } from "./ui";
+import { IconButton, Kbd, Spinner, StatusDot } from "./ui";
 import { ZelyqThinking } from "./ZelyqThinking";
 
 /**
@@ -159,6 +159,14 @@ export function ChatPanel({
     "idle" | "requesting" | "recording" | "transcribing"
   >("idle");
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  /**
+   * A reply the user made while the turn was still streaming — held until the
+   * turn actually stops, then sent. This is what lets someone answer an agent
+   * that finished its message and is only still "busy" because a slow tool
+   * (an Expo `start_preview`, say) hasn't returned, without making them hit
+   * Stop first. Cleared on send, on `aborted`, or if the turn ends on its own.
+   */
+  const [queuedReply, setQueuedReply] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const microphoneRef = useRef<MediaStream | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
@@ -192,6 +200,13 @@ export function ChatPanel({
         }))
       : [],
   );
+
+  // The agent has streamed a message that reads as "reply to continue" but the
+  // turn is still busy (a slow tool hasn't returned). `detectContinuePrompt`
+  // is the same matcher the finished-turn Continue button uses; here it runs
+  // against the still-streaming text so the user can act without hitting Stop.
+  const awaitingReplyWord =
+    chat.streaming && !queuedReply ? detectContinuePrompt(chat.streaming.text) : null;
 
   // The menu is derived, not stateful — the draft and cursor together *are*
   // its open state. See lib/slash-menu.ts.
@@ -301,17 +316,33 @@ export function ChatPanel({
   function submit(event: FormEvent) {
     event.preventDefault();
     const message = draft.trim();
-    if (
-      (!message &&
+    const nothingToSend =
+      !message &&
+      attachments.length === 0 &&
+      !pointedElement &&
+      selectedSkills.length === 0 &&
+      selectedPlugins.length === 0 &&
+      selectedAgents.length === 0;
+    if (nothingToSend || uploading > 0 || voiceState !== "idle") return;
+    if (chat.busy) {
+      // The one case a message goes out while the turn is still "busy": the
+      // agent has finished its message and is waiting on the user, and a slow
+      // tool is all that's keeping the turn open. A plain typed reply stops
+      // that step and sends once the turn clears. Anything with attachments or
+      // a `/` pick needs a clean fresh turn, so those still wait.
+      const plainReply =
+        awaitingReplyWord &&
+        message &&
         attachments.length === 0 &&
         !pointedElement &&
         selectedSkills.length === 0 &&
         selectedPlugins.length === 0 &&
-        selectedAgents.length === 0) ||
-      chat.busy ||
-      uploading > 0 ||
-      voiceState !== "idle"
-    ) {
+        selectedAgents.length === 0;
+      if (plainReply) {
+        replyWhileBusy(message);
+        setDraft("");
+        setCursor(0);
+      }
       return;
     }
     // Woven in client-side, ahead of what was typed — the exact same string
@@ -344,18 +375,53 @@ export function ChatPanel({
     textareaRef.current?.focus();
   }
 
-  /** Send a bare word to carry the turn on — the "Continue" button below the
-   * conversation. Same mode flags as a typed message, nothing else attached. */
-  function continueTurn(word: string) {
-    if (chat.busy || uploading > 0 || voiceState !== "idle") return;
-    chat.send(word, {
+  /** The mode flags every send carries — a typed message, a Continue, or a
+   * queued reply all use the same set. */
+  function turnFlags() {
+    return {
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(engineerMode ? { engineerMode: true } : {}),
       ...(architectMode ? { architectMode: true } : {}),
       ...(architectMode && autoMode ? { autoMode: true } : {}),
-    });
+    };
+  }
+
+  /** Send a bare word to carry the turn on — the "Continue" button below the
+   * conversation. Same mode flags as a typed message, nothing else attached. */
+  function continueTurn(word: string) {
+    if (chat.busy || uploading > 0 || voiceState !== "idle") return;
+    chat.send(word, turnFlags());
     textareaRef.current?.focus();
   }
+
+  /**
+   * Reply to an agent that has finished its message but whose turn is still
+   * "busy" (a slow tool hasn't returned). Stop the stalled step, then send the
+   * reply once the turn is actually clear — the flush effect below does the
+   * second half when `busy`/`streaming` drop.
+   */
+  function replyWhileBusy(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || queuedReply) return;
+    setQueuedReply(trimmed);
+    chat.abort();
+    textareaRef.current?.focus();
+  }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the queue flushes on the busy→idle edge; the flags are read fresh at send time and don't need to retrigger it.
+  useEffect(() => {
+    if (!queuedReply || chat.busy || chat.streaming) return;
+    const text = queuedReply;
+    setQueuedReply(null);
+    chat.send(text, turnFlags());
+  }, [queuedReply, chat.busy, chat.streaming]);
+
+  // A queued reply that never got to send — the turn errored, or the socket
+  // dropped — should not sit there forever waiting for a `busy` edge that
+  // won't come.
+  useEffect(() => {
+    if (queuedReply && chat.error) setQueuedReply(null);
+  }, [queuedReply, chat.error]);
 
   async function attachFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -597,25 +663,44 @@ export function ChatPanel({
             )}
           </div>
 
-          {(() => {
-            if (chat.busy || chat.streaming || !canEdit) return null;
-            const last = chat.messages[chat.messages.length - 1];
-            if (!last || last.role !== "assistant") return null;
-            const word = detectContinuePrompt(last.content);
-            if (!word) return null;
-            return (
-              <div className="mx-3 my-3 flex justify-start">
-                <button
-                  type="button"
-                  onClick={() => continueTurn(word)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-                >
-                  <ArrowRight size={13} strokeWidth={2} />
-                  {continueLabel(word)}
-                </button>
-              </div>
-            );
-          })()}
+          {queuedReply && (
+            <div className="mx-3 my-3 flex items-center gap-2 text-xs text-fg-secondary">
+              <Spinner />
+              Stopping the current step, then sending your reply…
+            </div>
+          )}
+
+          {!queuedReply &&
+            canEdit &&
+            (() => {
+              // Turn finished — the plain Continue affordance.
+              if (!chat.busy && !chat.streaming) {
+                const last = chat.messages[chat.messages.length - 1];
+                if (last?.role !== "assistant") return null;
+                const word = detectContinuePrompt(last.content);
+                return word ? (
+                  <ContinuePrompt label={continueLabel(word)} onClick={() => continueTurn(word)} />
+                ) : null;
+              }
+              // Turn still "busy", but the agent has written a reply-to-continue
+              // hand-off — a slow tool is all that's keeping it open. Offer the
+              // same action without making the user hit Stop first.
+              if (chat.streaming && awaitingReplyWord) {
+                return (
+                  <div className="flex flex-col items-start gap-0.5">
+                    <ContinuePrompt
+                      label={continueLabel(awaitingReplyWord)}
+                      onClick={() => replyWhileBusy(awaitingReplyWord)}
+                    />
+                    <span className="mx-3 -mt-1 mb-2 max-w-md text-2xs text-fg-muted">
+                      The agent finished its message and is waiting for you — this stops the current
+                      step first. You can also just type a reply below.
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
           {chat.error && (
             <p className="mx-3 my-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs break-words text-danger">
@@ -889,7 +974,7 @@ export function ChatPanel({
                 submit(event);
               }
             }}
-            placeholder="Describe a change…"
+            placeholder={awaitingReplyWord ? "Reply to the agent…" : "Describe a change…"}
             aria-label="Message the agent"
             style={{ height: COMPOSER_HEIGHT }}
             className="w-full resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-fg placeholder:text-fg-muted focus:outline-none"
@@ -1484,6 +1569,23 @@ function formatBytes(bytes: number): string {
 /** One titled group in the `/` menu — Model, Skills, Plugins — grouped so
  * it is clear what kind of thing each row is, rather than an
  * undifferentiated list. */
+/** The "Continue" pill under the transcript — shown when the agent asked the
+ * user to reply, whether the turn has finished or is still busy on a slow tool. */
+function ContinuePrompt({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <div className="mx-3 my-3 flex justify-start">
+      <button
+        type="button"
+        onClick={onClick}
+        className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+      >
+        <ArrowRight size={13} strokeWidth={2} />
+        {label}
+      </button>
+    </div>
+  );
+}
+
 function SlashSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mt-1 first:mt-0">
