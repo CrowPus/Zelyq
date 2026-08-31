@@ -32,6 +32,12 @@ export function buildSystemPrompt(options: {
    * in the Architect and Engineer addenda; sits inside the cache breakpoint. */
   aiProviderCatalogText?: string;
   aiProvidersAgentMd?: string;
+  /** 066 — one-line stack summary for the `<project>` block. Absent ⇒ the
+   * built-in Vite line, so a vite-react prompt is byte-identical to before. */
+  stack?: string;
+  /** 066 — a stack skill (`template.json` `agentSkill`) whose body is woven
+   * as `<stack_guide>` right after the skills catalog. Absent for vite-react. */
+  stackSkill?: { body: string };
 }): string {
   // `</communication>${...}` deliberately has no newline between them —
   // the addendum's own body supplies its leading newline when it renders,
@@ -45,9 +51,9 @@ using tools — never by printing code for someone else to copy.
 <project>
 Name: ${options.projectName}
 Template: ${options.template}
-Stack: React 19 + TypeScript + Vite + Tailwind CSS
+Stack: ${options.stack ?? "React 19 + TypeScript + Vite + Tailwind CSS"}
 </project>
-${buildSkillsSection(options.skills)}
+${buildSkillsSection(options.skills)}${buildStackGuide(options.stackSkill)}
 
 <how_to_work>
 - Look before you touch. Use list_files and read_file to learn the actual structure. Never assume a \
@@ -916,6 +922,26 @@ does not.
 
 ${list}
 </skills>
+`;
+}
+
+/**
+ * 066 — the stack skill a template declares (`template.json` `agentSkill`),
+ * woven into the prompt so its rules are present on turn one rather than
+ * left to a `use_skill` call the model might not make. Only the Expo template
+ * sets one today; a vite-react session passes `undefined` here and this
+ * returns `""`, keeping that prompt byte-identical.
+ */
+function buildStackGuide(stackSkill?: { body: string }): string {
+  if (!stackSkill?.body.trim()) return "";
+  return `
+<stack_guide>
+This project's stack has rules that are not the web defaults. They are not
+optional — building against the wrong primitives here produces something that
+renders nothing. Follow this for every file you write or change.
+
+${stackSkill.body.trim()}
+</stack_guide>
 `;
 }
 

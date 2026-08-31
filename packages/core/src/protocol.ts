@@ -185,6 +185,16 @@ export const createAgentSessionSchema = z.object({
    * bundle); no secret is here.
    */
   supabasePreviewEnv: z.record(z.string(), z.string()).optional(),
+  /**
+   * 066 — the stack this project is on. `template` is the project row's own
+   * value; `stack` is the one-line summary the `<project>` prompt block
+   * describes; `agentSkill` names a loaded skill whose body is force-woven
+   * for this stack (e.g. `expo-react-native`). All optional — absent means
+   * the built-in `vite-react` defaults, byte-identical to before.
+   */
+  template: z.string().optional(),
+  stack: z.string().optional(),
+  agentSkill: z.string().optional(),
 });
 export type CreateAgentSessionInput = z.infer<typeof createAgentSessionSchema>;
 

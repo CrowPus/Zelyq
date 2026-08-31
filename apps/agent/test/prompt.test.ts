@@ -453,3 +453,64 @@ test("064: the top-level prompt renders the catalog through the same helper", ()
   });
   assert.ok(prompt.includes(designReferencesBlock(catalog).trim()));
 });
+
+// ---------------------------------------------------------------------------
+// 066 — the <project> stack line and the woven <stack_guide>.
+// ---------------------------------------------------------------------------
+
+test("066: no stack option keeps the built-in Vite stack line, byte-identical", () => {
+  const withoutStack = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  const withUndefined = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    stack: undefined,
+    stackSkill: undefined,
+  });
+  assert.equal(withUndefined, withoutStack);
+  assert.match(withoutStack, /Stack: React 19 \+ TypeScript \+ Vite \+ Tailwind CSS/);
+  assert.doesNotMatch(withoutStack, /<stack_guide>/);
+});
+
+test("066: a stack string replaces the Stack line and does not add a guide on its own", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "expo-react-native",
+    stack: "React Native on Expo, previewed via Expo web.",
+  });
+  assert.match(prompt, /Stack: React Native on Expo, previewed via Expo web\./);
+  assert.doesNotMatch(prompt, /Vite \+ Tailwind CSS/);
+  assert.doesNotMatch(prompt, /<stack_guide>/);
+});
+
+test("066: a stackSkill body is woven as <stack_guide> right after <skills>", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "expo-react-native",
+    stack: "RN on Expo",
+    skills: [{ name: "x", description: "y" }],
+    stackSkill: { body: "Use View and Text, never div.\nRoutes live under app/." },
+  });
+  assert.match(prompt, /<stack_guide>/);
+  assert.match(prompt, /Use View and Text, never div\./);
+  assert.match(
+    prompt,
+    /building against the wrong primitives here produces something that\nrenders nothing/,
+  );
+  assert.ok(
+    prompt.indexOf("</skills>") < prompt.indexOf("<stack_guide>"),
+    "the stack guide comes after the skills catalog",
+  );
+  assert.ok(
+    prompt.indexOf("<stack_guide>") < prompt.indexOf("<how_to_work>"),
+    "and before how_to_work",
+  );
+});
+
+test("066: an empty stackSkill body renders no guide", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    stackSkill: { body: "   " },
+  });
+  assert.doesNotMatch(prompt, /<stack_guide>/);
+});

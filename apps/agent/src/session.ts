@@ -236,6 +236,14 @@ export interface SessionOptions {
   projectId: string;
   projectName: string;
   template: string;
+  /** 066 — one-line stack summary for the `<project>` block. Absent ⇒ the
+   * built-in `React 19 + Vite + Tailwind` line, so a vite-react session's
+   * prompt is byte-identical to before. */
+  stack?: string;
+  /** 066 — a stack skill whose body is force-woven into turn one (the same
+   * mechanism Engineer Mode uses for `senior-software-engineering`). Set from
+   * `template.json`'s `agentSkill`; absent for vite-react. */
+  stackSkill?: { body: string };
   provider: ProviderId;
   model: string;
   effort: Effort;
@@ -1393,6 +1401,8 @@ export class AgentSession {
               projectName: options.projectName,
               template: options.template,
               skills: options.skills,
+              ...(options.stack ? { stack: options.stack } : {}),
+              ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
               ...(options.agentMd ? { agentMd: options.agentMd } : {}),
               ...(options.designRefCatalogText
                 ? { designRefCatalogText: options.designRefCatalogText }

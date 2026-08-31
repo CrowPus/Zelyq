@@ -250,13 +250,22 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       ? deps.skills?.find((skill) => skill.name === ARCHITECT_MODE_SKILL_NAME)
       : undefined;
 
+    // 066 — the stack skill a template names (`template.json` `agentSkill`),
+    // force-woven into turn one so RN-vs-DOM rules are never left to chance.
+    // Nothing for vite-react (no `agentSkill`), so its prompt is unchanged.
+    const stackSkill = input.agentSkill
+      ? deps.skills?.find((skill) => skill.name === input.agentSkill)
+      : undefined;
+
     await runtime.ensureProject(input.projectId);
 
     const session = new AgentSession({
       sessionId: input.sessionId,
       projectId: input.projectId,
       projectName: input.projectId,
-      template: "vite-react",
+      template: input.template ?? "vite-react",
+      ...(input.stack ? { stack: input.stack } : {}),
+      ...(stackSkill ? { stackSkill: { body: stackSkill.body } } : {}),
       provider,
       model:
         input.model ?? (provider === config.provider ? config.model : defaultModelFor(provider)),

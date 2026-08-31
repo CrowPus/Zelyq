@@ -78,8 +78,52 @@ test("templates are discovered from the templates directory", async () => {
     headers: as(),
   });
   assert.equal(response.statusCode, 200);
-  const names = response.json().templates.map((template: { name: string }) => template.name);
+  const templates = response.json().templates as Array<{
+    name: string;
+    stack?: string;
+    agentSkill?: string;
+  }>;
+  const names = templates.map((template) => template.name);
   assert.ok(names.includes("vite-react"), `expected vite-react in ${names.join(", ")}`);
+
+  // 066 — the Expo template ships with the manifest fields the agent plumb reads.
+  assert.ok(
+    names.includes("expo-react-native"),
+    `expected expo-react-native in ${names.join(", ")}`,
+  );
+  const expo = templates.find((t) => t.name === "expo-react-native");
+  assert.match(expo?.stack ?? "", /React Native/);
+  assert.equal(expo?.agentSkill, "expo-react-native");
+});
+
+test("066: creating an Expo project records the template and scaffolds the RN tree", async () => {
+  const created = await server.app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: as(),
+    payload: { name: "Frog RN", template: "expo-react-native" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const project = created.json().project;
+  assert.equal(project.template, "expo-react-native");
+
+  const files = await server.app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/files`,
+    headers: as(),
+  });
+  const paths = files.json().entries.map((entry: { path: string }) => entry.path);
+  assert.ok(paths.includes("app"), `expo project has an app/ dir: ${paths.join(", ")}`);
+  assert.ok(paths.includes("package.json"));
+  assert.ok(!paths.includes("index.html"), "an Expo project has no index.html");
+
+  const pkg = await server.app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/files/package.json`,
+    headers: as(),
+  });
+  assert.match(pkg.json().content, /"name": "frog-rn"/);
+  assert.match(pkg.json().content, /expo-router/);
 });
 
 test("creating a project scaffolds real files on disk", async () => {

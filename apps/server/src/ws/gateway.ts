@@ -327,6 +327,12 @@ export class ChatGateway {
         this.supabase.resolvePreviewEnv(room.projectId),
       ]);
 
+      // 066 — which stack this project is on, so the agent's prompt describes
+      // the right one and (for Expo) force-weaves the RN skill. A vite-react
+      // project resolves to `{ template: "vite-react" }` with no `stack` and
+      // the agent's default line, byte-identical to before.
+      const stackInfo = await this.projects.stackFor(room.projectId);
+
       const state = await this.agent.ensureSession({
         sessionId: room.sessionId,
         projectId: room.projectId,
@@ -344,6 +350,9 @@ export class ChatGateway {
           ? { supabaseBridge: { url: this.supabase.serverInternalUrl, token: bridgeToken } }
           : {}),
         ...(Object.keys(supabasePreviewEnv).length > 0 ? { supabasePreviewEnv } : {}),
+        template: stackInfo.template,
+        ...(stackInfo.stack ? { stack: stackInfo.stack } : {}),
+        ...(stackInfo.agentSkill ? { agentSkill: stackInfo.agentSkill } : {}),
         // Everything except the message we just stored — that is the prompt.
         history: history.slice(0, -1),
       });
