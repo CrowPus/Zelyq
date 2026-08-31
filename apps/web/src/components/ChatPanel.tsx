@@ -25,7 +25,12 @@ import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import type { AgentActivity, ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
-import { buildCloneDirective, CLONE_SKILL, parseCloneCommand } from "../lib/clone-command";
+import {
+  buildCloneDirective,
+  CLONE_SKILL,
+  parseCloneCommand,
+  parseCloneMessage,
+} from "../lib/clone-command";
 import { continueLabel, detectContinuePrompt } from "../lib/continuePrompt";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
@@ -1303,6 +1308,35 @@ function MentionChips({ mentions }: { mentions?: Message["mentions"] }) {
   );
 }
 
+/**
+ * A `/clone` message carries a workflow directive the agent needs but a person
+ * doesn't want to read in the transcript — show it as a compact row (the URL,
+ * plus anything the user added) instead of the raw text. Anything else renders
+ * as the plain typed message.
+ */
+function UserMessageBody({ content }: { content: string }) {
+  const clone = parseCloneMessage(content);
+  if (clone) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="flex w-fit items-center gap-1.5 rounded-md border border-border-default bg-surface px-2 py-1 text-2xs text-fg-secondary">
+          <Copy size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+          <span className="font-mono">clone</span>
+          <span className="max-w-64 truncate text-fg">{clone.url}</span>
+        </span>
+        {clone.rest && (
+          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
+            {clone.rest}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">{content}</p>
+  );
+}
+
 function MessageRow({
   message,
   streaming,
@@ -1354,11 +1388,7 @@ function MessageRow({
           </div>
         )}
         <MentionChips mentions={message.mentions} />
-        {message.content && (
-          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
-            {message.content}
-          </p>
-        )}
+        {message.content && <UserMessageBody content={message.content} />}
       </div>
     );
   }

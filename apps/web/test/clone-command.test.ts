@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCloneDirective, CLONE_SKILL, parseCloneCommand } from "../src/lib/clone-command.ts";
+import {
+  buildCloneDirective,
+  CLONE_SKILL,
+  parseCloneCommand,
+  parseCloneMessage,
+} from "../src/lib/clone-command.ts";
 
 test("parseCloneCommand returns null for a normal message", () => {
   assert.equal(parseCloneCommand("build me a landing page"), null);
@@ -39,18 +44,32 @@ test("parseCloneCommand rejects a non-http(s) URL", () => {
   assert.ok(result && "error" in result);
 });
 
-test("buildCloneDirective wraps the URL and appends the user's own text", () => {
+test("buildCloneDirective is short, names the URL and the skill, and appends the user's text", () => {
   const msg = buildCloneDirective("https://example.com/", "keep the dark theme");
-  assert.match(msg, /<clone_task>/);
-  assert.match(msg, /URL: https:\/\/example\.com\//);
+  assert.match(
+    msg,
+    /^Clone this website into the current project, page for page: https:\/\/example\.com\//,
+  );
+  assert.match(msg, /complete-replica-engineering skill's "\/clone" workflow/);
   assert.match(msg, /clone\/example\.com\/REPLICA\.md/);
-  assert.match(msg, /PUBLIC pages only/);
+  assert.match(msg, /Public pages only/);
   assert.match(msg, /keep the dark theme$/);
+  assert.ok(msg.split("\n").length < 12, "directive should stay compact");
 });
 
-test("buildCloneDirective with no extra text ends at the closing tag", () => {
-  const msg = buildCloneDirective("https://example.com/", "");
-  assert.match(msg, /<\/clone_task>$/);
+test("parseCloneMessage round-trips buildCloneDirective", () => {
+  assert.deepEqual(parseCloneMessage(buildCloneDirective("https://example.com/", "")), {
+    url: "https://example.com/",
+    rest: "",
+  });
+  assert.deepEqual(parseCloneMessage(buildCloneDirective("https://a.io/x", "make it teal")), {
+    url: "https://a.io/x",
+    rest: "make it teal",
+  });
+});
+
+test("parseCloneMessage ignores an ordinary message", () => {
+  assert.equal(parseCloneMessage("build me a landing page for https://example.com"), null);
 });
 
 test("CLONE_SKILL is the replica skill's name", () => {

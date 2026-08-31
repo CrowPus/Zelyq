@@ -51,52 +51,44 @@ export function parseCloneCommand(draft: string): ParsedClone | { error: string 
 }
 
 /**
- * The message the agent actually receives for a clone turn. Kept in sync with
- * the `complete-replica-engineering` skill's workflow and the `capture_reference`
- * tool.
+ * How a clone message opens. Kept short on purpose: the full workflow lives in
+ * the `complete-replica-engineering` skill (force-woven for this turn), and a
+ * 40-line directive in the chat transcript reads as noise. This first line is
+ * also the marker `parseCloneMessage` matches to render the bubble compactly.
+ */
+const CLONE_PREFIX = "Clone this website into the current project, page for page:";
+
+/**
+ * The message the agent receives for a clone turn — a short instruction that
+ * points at the skill's `/clone` workflow, plus whatever else the user typed.
  */
 export function buildCloneDirective(url: string, rest: string): string {
   const host = safeHost(url);
-  const directive = [
-    "<clone_task>",
-    "Rebuild this website in the current project, page for page:",
-    `  URL: ${url}`,
-    "",
-    "This is a complete-replica task — follow the complete-replica-engineering skill.",
-    "Work in this exact order; do not skip a step:",
-    "",
-    `1. Run capture_reference on the URL (mode "site"). It writes a full bundle into`,
-    `   clone/${host}/ — screenshots per width, post-JS DOM, geometry, a resource`,
-    "   manifest, and every asset it can fetch. Read the files it names; do not re-fetch",
-    "   the site yourself.",
-    `2. Write clone/${host}/REPLICA.md — the build plan — from the skill's`,
-    "   templates/replica-contract.md and templates/reference-inventory.md, filled in",
-    "   from the capture: reference environment, every route in scope, per-page section",
-    "   inventory, the typography fingerprint, the asset fingerprint + provenance plan,",
-    "   the responsive transition widths, and the target acceptance level (A/B/C). Post a",
-    "   short version to the chat. Do NOT write any component code before this file exists.",
-    "3. Build in THIS project's own framework and router — macro geometry first (skill",
-    `   section 13). Copy the assets you use from clone/${host}/assets/ into the project`,
-    "   and point at the local copies — never hotlink the origin. For every asset that",
-    `   failed to fetch, substitute a dimension-matched equivalent and log it in`,
-    `   clone/${host}/asset-gaps.md.`,
-    "4. After each build pass: start_preview, then capture_reference with",
-    `   mode "single", url = the preview URL, diffAgainst = "clone/${host}/reference/<page>".`,
-    "   Read the changed ratio, classify the largest delta (global geometry / local",
-    "   geometry / typography / asset / paint / state), fix that, and recapture. Max 4",
-    "   passes per page.",
-    "5. Finish with the replica audit table (skill section 22): per route and width —",
-    "   reference vs replica, the largest remaining delta, and the acceptance level",
-    `   reached. List asset provenance (copied / self-hosted / substituted / linked).`,
-    '   Never claim "pixel-perfect" without the diff numbers next to it.',
-    "",
-    "Scope: PUBLIC pages only. If robots.txt disallows a path, the site needs a login, or",
-    "it blocks automated access — STOP and ask the user whether they own this site or have",
-    "permission to reproduce it. Only clone what the user is allowed to. Do not spend the",
-    "turn decoding assets pixel by pixel.",
-    "</clone_task>",
-  ].join("\n");
+  const directive =
+    `${CLONE_PREFIX} ${url}\n\n` +
+    `Follow the complete-replica-engineering skill's "/clone" workflow exactly: ` +
+    `run capture_reference (mode "site") → write clone/${host}/REPLICA.md before any ` +
+    `component code → build in this project's own framework, macro geometry first, ` +
+    `assets copied in locally (substitutes logged in clone/${host}/asset-gaps.md) → ` +
+    `run the screenshot-diff loop (capture_reference mode "single" + diffAgainst) → ` +
+    `finish with the audit table and asset provenance, no "pixel-perfect" without the ` +
+    `numbers. Public pages only: if it needs a login or blocks automated access, stop ` +
+    `and ask whether the user owns this site or has permission to reproduce it.`;
   return rest ? `${directive}\n\n${rest}` : directive;
+}
+
+/**
+ * Recognises a sent clone message so the transcript can show it as a compact
+ * "clone <url>" row instead of the raw instruction. Returns the URL and any
+ * extra text the user added, or null for an ordinary message.
+ */
+export function parseCloneMessage(content: string): { url: string; rest: string } | null {
+  if (!content.startsWith(CLONE_PREFIX)) return null;
+  const body = content.slice(CLONE_PREFIX.length).trimStart();
+  const match = body.match(/^(https?:\/\/\S+)/i);
+  if (!match) return null;
+  const afterDirective = body.split("\n\n").slice(2).join("\n\n").trim();
+  return { url: match[1], rest: afterDirective };
 }
 
 function safeHost(url: string): string {
