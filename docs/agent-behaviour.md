@@ -172,6 +172,24 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   pick on the user message row (`messages.mentions`, JSON
   `{ skills, agents, plugins }`, null when empty) purely so the transcript
   shows what was named; `content` stays exactly what was typed.
+- **Composer `/clone <url>` pick** (067) — the menu's new Command section
+  (`apps/web` `lib/slash-menu.ts` `SLASH_COMMANDS`). Unlike every other `/`
+  pick it keeps its text: on send the composer rewrites the draft into a
+  `<clone_task>` directive (`lib/clone-command.ts` `buildCloneDirective`)
+  and adds `complete-replica-engineering` to `prompt.skills` so its body is
+  force-woven — no new wire field, the directive is just message text. A
+  `/clone` with no valid URL blocks the send with an inline hint. The recon
+  is the agent's **`capture_reference`** tool (`packages/tools`,
+  Playwright, runs in the agent process where Chromium already is): it
+  crawls same-origin pages, screenshots per width, dumps post-JS DOM +
+  element geometry + a resource manifest, downloads assets, and writes it
+  all under `clone/<host>/`. Every request — navigation and every
+  subresource — routes through `capture-fetch-guard.ts`: scheme/port check,
+  DNS-resolve-and-range-check against a private/loopback/link-local/CGNAT
+  denylist, per-redirect re-validation, a pinned connect (no DNS rebind),
+  and byte/time budgets. There is no operator switch to disable the guard;
+  `ZELYQ_CLONE_ENABLED=false` disables the tool itself. `mode: "single"`
+  with `diffAgainst` is the build loop's screenshot-diff step.
 - **Pipeline** (Architect Mode §5): build → verify → DevOps (if the design
   is deployable) → design → re-verify → Security/QA → done. A FAIL /
   NOT DONE / NOT CLEARED from any of them blocks "done". The Cinematic

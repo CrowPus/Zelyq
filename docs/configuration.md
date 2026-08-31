@@ -257,6 +257,7 @@ Migrations run automatically when the server boots.
 | `ZELYQ_IMAGE_PROVIDER` | `openverse` | Stock-photo service for `fetch_reference_image`: `openverse` (keyless, Creative-Commons), `unsplash`, or `pexels`. `unsplash`/`pexels` need `ZELYQ_IMAGE_PROVIDER_KEY`. With no provider reachable the tool writes a labelled placeholder instead of guessing. |
 | `ZELYQ_IMAGE_PROVIDER_KEY` | — | API key for `ZELYQ_IMAGE_PROVIDER` when it is `unsplash` (its "Access Key") or `pexels`. Passed only to the download command, never logged. With `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` set, also allow the provider's hosts (`api.openverse.org`; `api.unsplash.com`,`images.unsplash.com`; `api.pexels.com`,`images.pexels.com`). |
 | `ZELYQ_SKILLS_UPLOAD_DIR` | `<data dir>/skills` | Where a skill uploaded through Settings is written. Resolved independently by the server and the agent — must be the same directory for both, same requirement `ZELYQ_WORKSPACE_DIR` already has. See [skills.md](./skills.md). |
+| `ZELYQ_CLONE_ENABLED` | `true` | Set `false` to disable `/clone`: the `capture_reference` tool then refuses with a message the agent relays. The SSRF guard on `capture_reference` (private/loopback/link-local address denylist, per-redirect re-validation, pinned connect, port and byte/time limits) is always on and has no switch. |
 
 ### Running agent commands and the preview in a container
 

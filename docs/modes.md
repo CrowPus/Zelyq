@@ -18,18 +18,44 @@ request.
 | 📎 **Paperclip** | attach files / images to the prompt |
 | **Model** | per-conversation model override (the instance default otherwise) |
 
-`/` in the composer opens a menu of loaded **skills**, named
-**agents** (the specialists below), **plugins**, and **models**, filtered
-as you type. Picking an agent — Designer, DevOps agent, Security/QA agent,
-Cinematic engineer — **runs that specialist**, in any mode, including the
-default one: the pick grants that specialist's pass tool for the
-conversation and tells the agent to call it, so `/agent` + "make it look
-designed" in an ordinary chat dispatches a real Designer that changes
-files and hands back its own review. The agent may not apply the lens
-itself, substitute a skill, or write the specialist's file by hand; if it
-judges a pass genuinely unwarranted it has to say so rather than claim one.
-Whatever you named — skill, agent or plugin — is shown back on the sent
-message in the transcript.
+`/` in the composer opens a menu of a **command** (`/clone`, below), loaded
+**skills**, named **agents** (the specialists below), **plugins**, and
+**models**, filtered as you type. Picking an agent — Designer, DevOps
+agent, Security/QA agent, Cinematic engineer — **runs that specialist**, in
+any mode, including the default one: the pick grants that specialist's pass
+tool for the conversation and tells the agent to call it, so `/agent` +
+"make it look designed" in an ordinary chat dispatches a real Designer that
+changes files and hands back its own review. The agent may not apply the
+lens itself, substitute a skill, or write the specialist's file by hand; if
+it judges a pass genuinely unwarranted it has to say so rather than claim
+one. Whatever you named — skill, agent or plugin — is shown back on the
+sent message in the transcript.
+
+### `/clone <url>`
+
+`/clone https://some-site.com` rebuilds a live website in the current
+project, page for page. Unlike the other `/` picks it keeps its text — you
+paste the URL after it. On send the agent runs `capture_reference`: a real
+browser visits the URL, crawls the same-origin pages at several widths, and
+writes a capture bundle (full-page screenshots, the post-JavaScript DOM,
+element geometry, a resource manifest, every asset it can download) into
+`clone/<host>/`. It then writes a `REPLICA.md` build plan, rebuilds in the
+project's own framework — macro geometry first — with the real images and
+fonts copied in locally (dimension-matched substitutes for anything it
+couldn't fetch, each logged in `asset-gaps.md`), and closes a
+screenshot-diff loop against the reference until the pages match. It
+finishes with an audit table and an asset provenance list, and never
+claims "pixel-perfect" without the diff numbers.
+
+Every request it makes — the navigation and every subresource — is
+SSRF-guarded: public hosts only, private / loopback / link-local / cloud
+metadata addresses refused, redirects to internal hosts blocked, the
+connection pinned so DNS can't be swapped after the check. **Public pages
+only**: if `robots.txt` disallows a path, or the site needs a login, or it
+blocks automation, the agent stops and asks whether you own the site or
+have permission to reproduce it. Only clone what you're allowed to — the
+assets it copies in are yours to license. An operator can turn the whole
+feature off with `ZELYQ_CLONE_ENABLED=false`.
 
 Architect and Engineer Mode are mutually exclusive — turning one on turns
 the other off. All mode toggles are **per conversation**, not saved

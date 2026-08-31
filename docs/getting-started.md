@@ -84,6 +84,18 @@ For anything bigger:
 
 Full detail: [modes.md](./modes.md).
 
+## Cloning a site
+
+Type `/` in the composer and pick **`/clone`**, then paste a URL —
+`/clone https://the-site.com`. The agent visits it with a real browser, walks the same-origin
+pages, and rebuilds it page for page in your project's stack: it writes a `REPLICA.md` build plan
+first, mirrors the images and fonts it can (substitutes the rest, and tells you which in
+`asset-gaps.md`), then screenshot-diffs its version against the original and closes the gap. The
+capture bundle lands in `clone/<host>/` if you want to inspect it. Public pages only — if the
+site needs a login or blocks bots, the agent stops and asks. Only clone sites you own or have
+permission to reproduce; the assets it copies in are yours to license. An operator can turn the
+feature off with `ZELYQ_CLONE_ENABLED=false`.
+
 ## Troubleshooting
 
 **"No … API key configured"** — the key for the selected provider is not reaching the agent
