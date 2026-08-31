@@ -172,6 +172,11 @@ built so that nothing about it is magic and nothing is locked in:
 - **Web or mobile.** Pick **React + Vite** or **Expo — React Native** when you create a project.
   The Expo stack previews in the browser via Expo web, and the agent knows it's React Native —
   it builds `View`/`Text`/Expo Router, not `div`. Device and store builds are a separate step.
+- **`/clone <url>` — rebuild a live site, page for page.** The agent visits the URL with a real
+  browser, walks the pages, and rebuilds it in your project's framework: a `REPLICA.md` plan
+  first, then the screens, with the real images and fonts mirrored in (substitutes logged where
+  it couldn't get one), and a screenshot-diff loop against the original. Every fetch is
+  SSRF-guarded — public hosts only. Only clone what you own or have permission to reproduce.
 
 ## Status
 

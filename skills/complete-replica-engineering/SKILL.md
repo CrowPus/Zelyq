@@ -3,9 +3,42 @@ name: complete-replica-engineering
 description: Use this skill when recreating an existing website, web application, component, page, design system, or interactive experience from authorized reference material and the requirement is a faithful replica rather than an inspired redesign. It makes the agent behave like a senior replication engineer: establish a reference contract, capture deterministic golden states, inventory assets and typography, measure browser geometry and resolved styles, map interaction and responsive behavior, implement without redesigning, render under matched conditions, compare screenshots and geometry, diagnose deltas, and iterate until acceptance thresholds are met. Exact proprietary source code or protected assets are reused only when the user owns, supplies, licenses, or is authorized to reuse them.
 metadata:
   author: Zelyq
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 # Complete Replica Engineering
+
+## Invoked via `/clone`
+
+When a user runs `/clone <url>` in the composer, this skill is force-woven and
+the turn carries a `<clone_task>` directive. The recon step is the
+**`capture_reference`** tool: it visits the URL with a real browser, crawls
+same-origin pages, and writes a bundle into the project at **`clone/<host>/`** —
+`reference/<page>/<width>.png`, `reference/<page>/dom.html`,
+`reference/<page>/geometry.json`, `reference/<page>/resources.json`,
+`assets/<hash>.<ext>` (the downloaded bytes), `manifest.json`, and
+`capture-log.md`. Read those files rather than re-fetching the site. Every
+request it makes is SSRF-guarded — public hosts only, no private addresses, no
+redirects to internal ones.
+
+Then, before any component code:
+
+1. Write **`clone/<host>/REPLICA.md`** — the build plan — from
+   `templates/replica-contract.md` + `templates/reference-inventory.md`, filled
+   in from the capture. Post a short version to the chat.
+2. Build in the project's own framework. Copy used assets out of
+   `clone/<host>/assets/` into the project and reference them locally; for any
+   asset that failed to fetch, substitute a dimension-matched equivalent and
+   record it in **`clone/<host>/asset-gaps.md`**.
+3. Run the diff loop with `capture_reference` in `mode: "single"` against the
+   preview URL, `diffAgainst` pointed at the reference page dir — it writes
+   `clone/<host>/diff/<page>/<width>.png` and reports a changed ratio. Fix the
+   largest delta, recapture, max 4 passes per page.
+4. Finish with the §22 audit table, asset provenance, and the acceptance level
+   (A / B / C). Never claim "pixel-perfect" without the diff numbers.
+
+Public pages only. If `robots.txt` disallows a path, the site needs a login, or
+it blocks automation — stop and ask whether the user owns it or has permission.
+
 ## Mission
 Recreate the observed interface as faithfully as possible.
 This is not:

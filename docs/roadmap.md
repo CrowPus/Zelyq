@@ -88,6 +88,16 @@ separates this from a chat with a black box.
       the stack and force-woven `skills/expo-react-native` (RN primitives, Expo Router,
       NativeWind), so it builds `View`/`Text`/`FlatList`, not `div`. Device/simulator preview
       (Expo Go, iOS/Android sims) and EAS / native builds are separate follow-ups. See #109
+- [~] **`/clone <url>`** — rebuild a live website in the project, page for page. The composer's
+      new Command section force-weaves `skills/complete-replica-engineering`; the agent's
+      `capture_reference` tool visits the URL with a real browser, crawls same-origin pages at
+      several widths, and writes a capture bundle (screenshots, post-JS DOM, element geometry,
+      a resource manifest, downloaded assets) into `clone/<host>/`. It then writes a `REPLICA.md`
+      build plan, rebuilds in the project's own framework, mirrors the assets it can and
+      substitutes the rest (logged in `asset-gaps.md`), and closes a screenshot-diff loop
+      against the reference. Every fetch is SSRF-guarded (public hosts only, private addresses
+      and redirect-to-internal blocked). Public pages only — auth walls and bot blocks make it
+      stop and ask. Proposal 067.
 - [x] Element inspector — click something in the preview to point the agent at it. Works on
       projects not started from the Zelyq template too — the bridge script is patched into an
       existing project's `index.html` the first time its preview starts

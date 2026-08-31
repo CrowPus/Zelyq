@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { captureReferenceTool } from "./capture-reference.js";
 import {
   deleteFileTool,
   editFileTool,
@@ -25,6 +26,7 @@ import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
 
 export * from "./types.js";
 export {
+  captureReferenceTool,
   cinematicPassTool,
   deleteFileTool,
   designPassTool,
@@ -60,6 +62,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   startPreviewTool,
   previewLogsTool,
   viewPreviewTool,
+  captureReferenceTool,
   supabaseApplyMigrationTool,
   supabaseDeployFunctionTool,
   supabaseVerifyBackendTool,

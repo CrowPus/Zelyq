@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CircleAlert,
   Compass,
+  Copy,
   Crosshair,
   Film,
   GraduationCap,
@@ -24,10 +25,17 @@ import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import type { AgentActivity, ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
+import { buildCloneDirective, CLONE_SKILL, parseCloneCommand } from "../lib/clone-command";
 import { continueLabel, detectContinuePrompt } from "../lib/continuePrompt";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
-import { findSlashCommand, matchByPrefix, replaceSlashCommand } from "../lib/slash-menu";
+import {
+  findSlashCommand,
+  matchByPrefix,
+  replaceSlashCommand,
+  SLASH_COMMANDS,
+  type SlashMenuCommand,
+} from "../lib/slash-menu";
 import { SPECIALISTS, type Specialist } from "../lib/specialists";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
@@ -122,6 +130,9 @@ export function ChatPanel({
    * agent should apply, not a dispatch — the specialists still run behind
    * their own pass tools. Names only. */
   const [selectedAgents, setSelectedAgents] = useState<Specialist[]>([]);
+  /** Set when a `/` command (today only `/clone`) can't be sent as typed —
+   * e.g. `/clone` with no URL. Cleared on the next edit. */
+  const [commandError, setCommandError] = useState<string | null>(null);
   // Per-conversation like modelChoice above, not a Settings-page default —
   // deliberately not persisted past a refresh, the
   // same reason modelChoice isn't either, so a mode this consequential is
@@ -237,28 +248,54 @@ export function ChatPanel({
         (specialist) => specialist.name,
       )
     : [];
+  const matchingCommands = slashCommand
+    ? matchByPrefix(SLASH_COMMANDS, slashCommand.query, (command) => command.name)
+    : [];
   const showSlashMenu =
+    matchingCommands.length > 0 ||
     matchingSkills.length > 0 ||
     matchingModels.length > 0 ||
     matchingAgents.length > 0 ||
     matchingPlugins.length > 0;
-  // The single flat list Enter/Tab picks the first row of — skills first, so
-  // a skill match wins a tie against a model, agent or plugin match.
-  const firstMatch: { kind: "skill" | "model" | "agent" | "plugin"; index: number } | null =
-    matchingSkills.length > 0
-      ? { kind: "skill", index: 0 }
-      : matchingModels.length > 0
-        ? { kind: "model", index: 0 }
-        : matchingAgents.length > 0
-          ? { kind: "agent", index: 0 }
-          : matchingPlugins.length > 0
-            ? { kind: "plugin", index: 0 }
-            : null;
+  // The single flat list Enter/Tab picks the first row of — a command wins a
+  // tie (it's the most deliberate pick), then skills, then the rest.
+  const firstMatch: {
+    kind: "command" | "skill" | "model" | "agent" | "plugin";
+    index: number;
+  } | null =
+    matchingCommands.length > 0
+      ? { kind: "command", index: 0 }
+      : matchingSkills.length > 0
+        ? { kind: "skill", index: 0 }
+        : matchingModels.length > 0
+          ? { kind: "model", index: 0 }
+          : matchingAgents.length > 0
+            ? { kind: "agent", index: 0 }
+            : matchingPlugins.length > 0
+              ? { kind: "plugin", index: 0 }
+              : null;
 
   function selectSkill(skill: { name: string; description: string }) {
     if (!slashCommand) return;
     setSelectedSkills((previous) => [...previous, skill]);
     applySlashReplacement(slashCommand);
+  }
+
+  /** A command keeps its text: `/clone ` stays in the draft with the cursor
+   * after it so the user types the URL. Not a selection like the others. */
+  function selectCommand(command: SlashMenuCommand) {
+    if (!slashCommand) return;
+    const next = replaceSlashCommand(draft, slashCommand, command.insert);
+    setDraft(next);
+    setCommandError(null);
+    const caret = slashCommand.start + command.insert.length;
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(caret, caret);
+      setCursor(caret);
+    });
   }
 
   function selectModelOption(option: { provider: string; model: string; label: string }) {
@@ -335,6 +372,7 @@ export function ChatPanel({
         message &&
         attachments.length === 0 &&
         !pointedElement &&
+        !parseCloneCommand(draft) &&
         selectedSkills.length === 0 &&
         selectedPlugins.length === 0 &&
         selectedAgents.length === 0;
@@ -345,15 +383,31 @@ export function ChatPanel({
       }
       return;
     }
+    // `/clone <url>` (proposal 067): rewrite the draft into a <clone_task>
+    // directive and force-weave the replica skill. A malformed command blocks
+    // the send with an inline hint rather than going out half-formed.
+    const clone = parseCloneCommand(draft);
+    if (clone && "error" in clone) {
+      setCommandError(clone.error);
+      return;
+    }
+    const skillNames = clone
+      ? [...new Set([...selectedSkills.map((skill) => skill.name), CLONE_SKILL])]
+      : selectedSkills.map((skill) => skill.name);
+
     // Woven in client-side, ahead of what was typed — the exact same string
     // field chat.send() already carries, nothing new downstream.
-    const finalMessage = pointedElement ? withPointedElement(message, pointedElement) : message;
+    const finalMessage = clone
+      ? buildCloneDirective(clone.url, clone.rest)
+      : pointedElement
+        ? withPointedElement(message, pointedElement)
+        : message;
     chat.send(finalMessage, {
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(attachments.length ? { attachments } : {}),
       // Names only — the guaranteed weaving happens agent-side, from a
       // skill's already-loaded body, not from anything sent here.
-      ...(selectedSkills.length ? { skills: selectedSkills.map((skill) => skill.name) } : {}),
+      ...(skillNames.length ? { skills: skillNames } : {}),
       // Names only, too — agent-side this becomes an instruction naming the
       // tool, not real content the way a skill's body is.
       ...(selectedPlugins.length ? { plugins: selectedPlugins } : {}),
@@ -371,6 +425,7 @@ export function ChatPanel({
     setSelectedPlugins([]);
     setSelectedAgents([]);
     setUploadError(null);
+    setCommandError(null);
     onClearPointedElement();
     textareaRef.current?.focus();
   }
@@ -718,6 +773,28 @@ export function ChatPanel({
             aria-label="Commands"
             className="absolute inset-x-2.5 bottom-full z-10 mb-1.5 max-h-64 overflow-y-auto rounded-md border border-border-default bg-overlay py-1 shadow-overlay"
           >
+            {matchingCommands.length > 0 && (
+              <SlashSection title="Command">
+                {matchingCommands.map((command, index) => (
+                  <button
+                    key={command.name}
+                    type="button"
+                    className={`flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left ${
+                      firstMatch?.kind === "command" && index === 0
+                        ? "bg-surface-hover"
+                        : "hover:bg-surface-hover"
+                    }`}
+                    onClick={() => selectCommand(command)}
+                  >
+                    <span className="flex items-center gap-1.5 font-mono text-xs text-fg">
+                      <Copy size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />/
+                      {command.name}
+                    </span>
+                    <span className="truncate text-2xs text-fg-secondary">{command.blurb}</span>
+                  </button>
+                ))}
+              </SlashSection>
+            )}
             {matchingModels.length > 0 && (
               <SlashSection title="Model">
                 {matchingModels.map((option, index) => (
@@ -918,6 +995,7 @@ export function ChatPanel({
             </div>
           )}
           {uploadError && <p className="px-2.5 pt-2 text-2xs text-danger">{uploadError}</p>}
+          {commandError && <p className="px-2.5 pt-2 text-2xs text-danger">{commandError}</p>}
           {voiceError && <p className="px-2.5 pt-2 text-2xs text-danger">{voiceError}</p>}
           {voiceState === "recording" && (
             <p className="px-2.5 pt-2 text-2xs text-danger" role="status">
@@ -946,6 +1024,7 @@ export function ChatPanel({
             onChange={(event) => {
               setDraft(event.target.value);
               setCursor(event.target.selectionStart ?? event.target.value.length);
+              if (commandError) setCommandError(null);
             }}
             // The cursor moves on its own too — arrow keys, clicking
             // elsewhere in the text — and the menu has to track it there as
@@ -960,7 +1039,8 @@ export function ChatPanel({
               // remove.
               if (showSlashMenu && (event.key === "Enter" || event.key === "Tab") && firstMatch) {
                 event.preventDefault();
-                if (firstMatch.kind === "skill") selectSkill(matchingSkills[0]!);
+                if (firstMatch.kind === "command") selectCommand(matchingCommands[0]!);
+                else if (firstMatch.kind === "skill") selectSkill(matchingSkills[0]!);
                 else if (firstMatch.kind === "model") selectModelOption(matchingModels[0]!);
                 else if (firstMatch.kind === "agent") selectAgent(matchingAgents[0]!);
                 else selectPlugin(matchingPlugins[0]!);
@@ -974,7 +1054,13 @@ export function ChatPanel({
                 submit(event);
               }
             }}
-            placeholder={awaitingReplyWord ? "Reply to the agent…" : "Describe a change…"}
+            placeholder={
+              awaitingReplyWord
+                ? "Reply to the agent…"
+                : /^\/clone\b/i.test(draft.trimStart())
+                  ? "/clone https://the-site-to-rebuild.com"
+                  : "Describe a change…"
+            }
             aria-label="Message the agent"
             style={{ height: COMPOSER_HEIGHT }}
             className="w-full resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-fg placeholder:text-fg-muted focus:outline-none"

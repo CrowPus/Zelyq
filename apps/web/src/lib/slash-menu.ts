@@ -15,6 +15,27 @@ export interface SlashCommand {
 }
 
 /**
+ * A slash *command* — unlike a skill / model / agent / plugin pick, this one
+ * carries an argument and stays in the draft after it's chosen. `insert` is
+ * what replaces the `/query` fragment (e.g. `"/clone "`), leaving the cursor
+ * after it for the user to type the argument. `clone` is the only one today
+ * (proposal 067); the shape is here so a second is cheap.
+ */
+export interface SlashMenuCommand {
+  name: string;
+  blurb: string;
+  insert: string;
+}
+
+export const SLASH_COMMANDS: SlashMenuCommand[] = [
+  {
+    name: "clone",
+    blurb: "Rebuild a live website in this project, page for page — you give it the URL.",
+    insert: "/clone ",
+  },
+];
+
+/**
  * Finds an active slash-command fragment ending at the cursor, if any. The
  * "/" has to start a fresh word — the beginning of the message, or right
  * after whitespace — so "https://example.com" or "a/b" never trigger it;
