@@ -30,20 +30,23 @@ export function ProjectListPage() {
   const [name, setName] = useState("");
   const [gitUrl, setGitUrl] = useState("");
   const [gitToken, setGitToken] = useState("");
+  /** Which starter stack a new (non-clone) project scaffolds from. */
+  const [template, setTemplate] = useState("vite-react");
   const [composing, setComposing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [confirming, setConfirming] = useState<string | null>(null);
 
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.listProjects });
+  const templates = useQuery({ queryKey: ["templates"], queryFn: api.listTemplates });
   // Deleting takes admin on the project's team. The server decides for real;
   // this only keeps a button nobody may press off the screen.
   const teams = useQuery({ queryKey: ["teams"], queryFn: api.listTeams });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
 
   const createProject = useMutation({
-    mutationFn: (input: { name: string; gitUrl?: string; gitToken?: string }) =>
-      api.createProject({ ...input, template: "vite-react" }),
+    mutationFn: (input: { name: string; gitUrl?: string; gitToken?: string; template?: string }) =>
+      api.createProject({ template: "vite-react", ...input }),
     // Whatever happens, the token does not linger in the page.
     onSettled: () => setGitToken(""),
     onSuccess: ({ project }) => {
@@ -71,7 +74,8 @@ export function ProjectListPage() {
     const token = gitToken.trim();
     if (!trimmed) return;
     if (!repository) {
-      createProject.mutate({ name: trimmed });
+      // Template only applies to a fresh scaffold; a clone brings its own files.
+      createProject.mutate({ name: trimmed, template });
       return;
     }
     createProject.mutate({
@@ -147,6 +151,37 @@ export function ProjectListPage() {
                 </Button>
               </div>
 
+              {!gitUrl.trim() && (templates.data?.templates.length ?? 0) > 1 && (
+                <fieldset className="mt-1 flex flex-col gap-1.5">
+                  <legend className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
+                    Stack
+                  </legend>
+                  <div className="flex flex-wrap gap-2">
+                    {templates.data?.templates.map((option) => {
+                      const active = option.name === template;
+                      return (
+                        <button
+                          key={option.name}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setTemplate(option.name)}
+                          className={`max-w-xs rounded-md border px-3 py-2 text-left transition-colors ${
+                            active
+                              ? "border-focus bg-surface-subtle shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_20%,transparent)]"
+                              : "border-border-default bg-surface hover:border-border-strong"
+                          }`}
+                        >
+                          <span className="block text-xs font-medium text-fg">{option.title}</span>
+                          <span className="mt-0.5 block text-2xs leading-4 text-fg-secondary">
+                            {option.description}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              )}
+
               <Input
                 value={gitUrl}
                 onChange={(event) => setGitUrl(event.target.value)}
@@ -172,7 +207,9 @@ export function ProjectListPage() {
                   ? "Zelyq clones the repository and works on a copy — it never pushes, so a " +
                     "read-only token is enough. The token is used once and never stored. Cloning " +
                     "can take a minute."
-                  : "Leave the address empty and Zelyq starts a new React app instead."}
+                  : (templates.data?.templates.length ?? 0) > 1
+                    ? "Leave the address empty and Zelyq scaffolds a new project in the stack you pick above."
+                    : "Leave the address empty and Zelyq starts a new React app instead."}
               </p>
             </form>
           )}
