@@ -76,6 +76,30 @@ securely until it runs on a device. Anything that needs a config plugin +
 native prebuild (most Bluetooth, some camera/ML modules) is out of scope for
 the web preview — say so rather than adding it.
 
+## TypeScript gotchas — MUST
+
+- **Timers are numbers here, not `NodeJS.Timeout`.** There is no `@types/node`
+  in an Expo app. Type a timer as `ReturnType<typeof setTimeout>` (or
+  `number`), never `NodeJS.Timeout` / `NodeJS.Timer` — that fails
+  `tsc --noEmit` with "Namespace 'NodeJS' has no exported member".
+- No `process.env` for app config — use `expo-constants`
+  (`Constants.expoConfig?.extra`) or `EXPO_PUBLIC_*` vars read via
+  `process.env.EXPO_PUBLIC_FOO` (the only `process.env` Metro inlines).
+- Event handler types come from `react-native` (`GestureResponderEvent`,
+  `NativeSyntheticEvent<…>`, `LayoutChangeEvent`), not from `react`'s DOM
+  event types (`MouseEvent`, `ChangeEvent`, `KeyboardEvent`).
+- `require()` for a local asset returns a number (an asset id), not a string.
+
+## Scope — MUST
+
+- Build the screens and interaction that were asked for. Do **not** spend the
+  turn reverse-engineering assets: decoding PNG frames pixel by pixel with
+  inline `node -e` scripts, measuring sprite sheets, or profiling image data
+  is almost never the task and it burns the whole step budget. If you need a
+  frame count or a dimension, read it once, cheaply, and move on. If an asset
+  genuinely can't be used without analysis you cannot do quickly, say so and
+  ask — don't grind.
+
 ## Definition of done
 
 - `npm run typecheck` is clean (`tsc --noEmit`).

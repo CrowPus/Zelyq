@@ -1261,6 +1261,30 @@ const SPECIALISTS: Record<SpecialistKind, SpecialistConfig> = {
  * Everything vendor-specific lives behind `Conversation`, so this loop reads
  * the same whether it is driving Claude or Gemini.
  */
+
+/**
+ * One `run_command` collapsed to a short, single-line token for the
+ * reconstructed fallback summary. A turn that spent its whole budget on a
+ * dozen big inline probes (`node -e "<4kb of script>"`) must not paste those
+ * bodies into the transcript — the summary is meant to say *what* ran, not
+ * reproduce it. An inline script becomes `<runner> -e "<inline script, Nkb>"`;
+ * anything else is trimmed to one line and ~72 chars.
+ */
+export function shortenCommand(command: string): string {
+  const flat = command.replace(/\s+/g, " ").trim();
+  const inline = flat.match(/^(\S*\b(?:node|deno|bun|python3?|ruby|php|perl))\s+(-e|-c|--eval)\b/);
+  if (inline) {
+    const kb =
+      command.length >= 1024 ? `${(command.length / 1024).toFixed(1)}kb` : `${command.length}b`;
+    return `${inline[1]} ${inline[2]} "<inline script, ${kb}>"`;
+  }
+  if (/<<[-']?\w/.test(command)) {
+    const head = flat.split("<<")[0]?.trim() ?? flat;
+    return `${head.slice(0, 60)} <<'…'`;
+  }
+  return flat.length > 72 ? `${flat.slice(0, 71)}…` : flat;
+}
+
 export class AgentSession {
   readonly id: string;
   readonly projectId: string;
@@ -3323,7 +3347,15 @@ export class AgentSession {
     if (created.size > 0) lines.push(`- Created: ${[...created].join(", ")}`);
     if (edited.size > 0) lines.push(`- Edited: ${[...edited].join(", ")}`);
     if (deleted.size > 0) lines.push(`- Deleted: ${[...deleted].join(", ")}`);
-    if (commands.length > 0) lines.push(`- Ran: ${commands.map((c) => `\`${c}\``).join(", ")}`);
+    if (commands.length > 0) {
+      // One line per command, each shortened — a turn that ran a dozen big
+      // inline `node -e "…"` probes must not paste tens of KB of script into
+      // the transcript. The point is "what ran", not "the exact bytes".
+      const SHOWN = 8;
+      const shown = commands.slice(0, SHOWN).map((c) => `\`${shortenCommand(c)}\``);
+      if (commands.length > SHOWN) shown.push(`…and ${commands.length - SHOWN} more`);
+      lines.push(`- Ran: ${shown.join(", ")}`);
+    }
     if (created.size === 0 && edited.size === 0 && deleted.size === 0 && commands.length === 0) {
       lines.push("- No changes were made.");
     }
