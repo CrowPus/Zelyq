@@ -995,6 +995,16 @@ export async function detectDevCommand(root: string, port: number, host: string)
     return `${runner} -- --port ${port} --hostname ${host}`;
   }
 
+  // Expo (managed) serves web through Metro on the dev-server port since
+  // SDK 50 — one port, iframe-able like any other preview. It takes `--port`;
+  // it has no equivalent of Vite's `--host <addr>` / `--strictPort` (its
+  // `--host` picks lan/tunnel/localhost, not an address), so binding is left
+  // to the PORT/HOST env `startPreview` already sets. The template's own
+  // `dev` script carries `CI=1` so Expo does not prompt.
+  if (/\bexpo\b/.test(body) || "expo" in deps) {
+    return `${runner} -- --port ${port}`;
+  }
+
   // react-scripts and anything unrecognised: PORT and HOST in the environment,
   // as before. This list is not exhaustive and is not pretending to be — if a
   // tool lands somewhere else, startPreview reads the port out of its own
