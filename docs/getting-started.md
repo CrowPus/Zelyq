@@ -56,10 +56,13 @@ things to know:
 
 ## Your first project
 
-1. **Create a project.** A React + Vite + Tailwind template is scaffolded into
-   `./workspace/<project-id>`. Those are ordinary files — open them in your editor if you like.
-2. **Start the preview.** The first start runs `npm install`, so give it a minute. The dev server
-   gets a port from the configured range and the UI embeds it.
+1. **Create a project.** Pick a stack in the dialog — **React + Vite + Tailwind** (the default)
+   or **Expo — React Native**, which previews in the browser via Expo web. Either scaffolds into
+   `./workspace/<project-id>`; those are ordinary files, open them in your editor if you like.
+2. **Start the preview.** The first start runs `npm install`, so give it a minute — an Expo
+   project's first Metro build takes a minute or two more on top. The dev server gets a port from
+   the configured range and the UI embeds it. An Expo project runs on web only here; device and
+   store builds are a separate step outside Zelyq.
 3. **Ask for a change.** Something concrete works best:
    *"Add a pricing page with three tiers and a monthly/annual toggle, linked from the header."*
 4. **Watch it work.** Tool calls appear as they run — expand one to see its output. Files the agent
