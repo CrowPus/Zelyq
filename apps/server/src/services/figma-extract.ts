@@ -386,7 +386,7 @@ export function buildFigmaDirective(
     `   ${bundleDir}/assets/ locally; substitute + log any that are missing in`,
     `   ${bundleDir}/asset-gaps.md.`,
     `4. Run the screenshot-diff loop: start_preview, then capture_reference with`,
-    `   mode "single", url = the preview, diffAgainst = "${bundleDir}/render/<frame>".`,
+    `   mode "single", url = the preview, diffAgainst = "${bundleDir}/render/<frame>.png" (the frame's slug — see manifest.json).`,
     `   Fix the largest delta, recapture. Max 4 passes per frame.`,
     `5. Finish with the audit table (per frame/width: render vs replica, largest delta,`,
     `   acceptance level A/B/C) and token provenance (Variables / inferred). No`,

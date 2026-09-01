@@ -38,7 +38,7 @@ tree at a time.
    (`references/layout-and-computed-style.md` §13). Map the tree per
    `references/figma-node-tree.md`.
 4. **Diff loop.** `start_preview`, then `capture_reference` (`mode: "single"`,
-   `url` = the preview route, `diffAgainst: "design/<key>/render/<frame>"`).
+   `url` = the preview route, `diffAgainst: "design/<key>/render/<frame>.png"`).
    Read the changed ratio, classify the largest delta, fix, recapture. **Max 4
    passes per frame.**
 5. **Finish** with the §22 audit table (per frame/width: render vs. replica,
