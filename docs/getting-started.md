@@ -96,6 +96,15 @@ site needs a login or blocks bots, the agent stops and asks. Only clone sites yo
 permission to reproduce; the assets it copies in are yours to license. An operator can turn the
 feature off with `ZELYQ_CLONE_ENABLED=false`.
 
+## Building from a Figma design
+
+If the operator has registered a Figma OAuth app, connect Figma in **Settings**, then use
+**`/figma`** with a frame's *Copy link* URL. The server pulls the frame's structure, a render,
+the assets, and the design tokens from Figma (the token never reaches the agent) into
+`design/<file-key>/`; the agent writes a `REPLICA.md`, turns the tokens into the project's theme
+and a `DESIGN.md`, rebuilds the frame — auto-layout becomes flexbox, not absolute positioning —
+and diffs against the render. One file, up to 15 frames. It reads frames, not prototype flows.
+
 ## Troubleshooting
 
 **"No … API key configured"** — the key for the selected provider is not reaching the agent

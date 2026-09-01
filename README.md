@@ -177,6 +177,10 @@ built so that nothing about it is magic and nothing is locked in:
   first, then the screens, with the real images and fonts mirrored in (substitutes logged where
   it couldn't get one), and a screenshot-diff loop against the original. Every fetch is
   SSRF-guarded — public hosts only. Only clone what you own or have permission to reproduce.
+- **`/figma <link>` — build from a Figma frame.** Connect Figma in Settings (OAuth; the token
+  stays on the server). Paste a frame's link and the agent pulls its node tree, a render, the
+  assets, and the design tokens, then rebuilds it in your project — auto-layout becomes
+  flexbox, Variables become the Tailwind theme — and diffs against the render.
 
 ## Status
 

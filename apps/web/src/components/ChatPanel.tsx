@@ -32,6 +32,7 @@ import {
   parseCloneMessage,
 } from "../lib/clone-command";
 import { continueLabel, detectContinuePrompt } from "../lib/continuePrompt";
+import { parseFigmaCommand, parseFigmaMessage } from "../lib/figma-command";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import {
@@ -206,6 +207,14 @@ export function ChatPanel({
     queryKey: ["providers"],
     queryFn: api.getProviders,
     staleTime: 60_000,
+  });
+  // Only fetched once someone actually starts a `/figma` command — it gates
+  // the send with "connect first" rather than letting the turn fail server-side.
+  const figmaConnection = useQuery({
+    queryKey: ["figma-connection"],
+    queryFn: api.figmaConnection,
+    enabled: /^\/figma\b/i.test(draft.trimStart()),
+    staleTime: 30_000,
   });
   const modelOptions = (providers.data?.providers ?? []).flatMap((provider) =>
     provider.configured && provider.id !== "custom" && provider.models?.length
@@ -388,6 +397,21 @@ export function ChatPanel({
       }
       return;
     }
+    // `/figma <link>` (proposal 068): the server pulls the design and builds
+    // the directive — the client only gates. A bad link or no connection
+    // blocks the send with an inline hint.
+    const figma = parseFigmaCommand(draft);
+    if (figma) {
+      if ("error" in figma) {
+        setCommandError(figma.error);
+        return;
+      }
+      if (figmaConnection.data && !figmaConnection.data.connection) {
+        setCommandError("Connect Figma in Settings first, then try /figma again.");
+        return;
+      }
+    }
+
     // `/clone <url>` (proposal 067): rewrite the draft into a <clone_task>
     // directive and force-weave the replica skill. A malformed command blocks
     // the send with an inline hint rather than going out half-formed.
@@ -1064,7 +1088,9 @@ export function ChatPanel({
                 ? "Reply to the agent…"
                 : /^\/clone\b/i.test(draft.trimStart())
                   ? "/clone https://the-site-to-rebuild.com"
-                  : "Describe a change…"
+                  : /^\/figma\b/i.test(draft.trimStart())
+                    ? "/figma  — paste a Figma frame's share link"
+                    : "Describe a change…"
             }
             aria-label="Message the agent"
             style={{ height: COMPOSER_HEIGHT }}
@@ -1330,6 +1356,18 @@ function UserMessageBody({ content }: { content: string }) {
           </p>
         )}
       </div>
+    );
+  }
+  const figma = parseFigmaMessage(content);
+  if (figma) {
+    return (
+      <span className="flex w-fit items-center gap-1.5 rounded-md border border-border-default bg-surface px-2 py-1 text-2xs text-fg-secondary">
+        <Copy size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+        <span className="font-mono">figma</span>
+        <span className="max-w-64 truncate text-fg">
+          {figma.fileKey} · {figma.nodeId}
+        </span>
+      </span>
     );
   }
   return (

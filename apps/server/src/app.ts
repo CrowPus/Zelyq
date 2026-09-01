@@ -13,6 +13,7 @@ import type { ServerConfig } from "./config.js";
 import { registerAccountRoutes } from "./routes/accounts.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
+import { registerFigmaRoutes } from "./routes/figma.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -29,6 +30,8 @@ import { AccountService } from "./services/accounts.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
+import { FigmaConnectionService } from "./services/figma-connections.js";
+import { FigmaExtractService } from "./services/figma-extract.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
 import { ProjectService } from "./services/projects.js";
 import { resolveSecretKey, SecretBox } from "./services/secrets.js";
@@ -106,6 +109,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   const resolvePreviewEnv = makePreviewEnvResolver({ supabaseConnections });
   const supabaseBridge = new SupabaseBridge(store);
+  const figmaConnections = new FigmaConnectionService(store, secrets, {
+    oauth: config.figmaOAuth,
+  });
+  const figmaExtract = new FigmaExtractService(figmaConnections, runtime, store);
   const accounts = new AccountService(store, projects);
   const attachments = new AttachmentService(config.attachmentsDir);
   const skillUploads = new SkillUploadService(config.uploadedSkillsDir);
@@ -213,6 +220,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     resolvePreviewEnv,
   });
   registerSupabaseConnectionRoutes(app, { supabase: supabaseConnections, access, runtime });
+  registerFigmaRoutes(app, { figma: figmaConnections, access });
   registerSupabaseBridgeRoutes(app, {
     bridge: supabaseBridge,
     supabase: supabaseConnections,
@@ -238,6 +246,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       resolvePreviewEnv,
       serverInternalUrl: config.serverInternalUrl,
     },
+    { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
 
   app.get<{ Params: { id: string } }>(

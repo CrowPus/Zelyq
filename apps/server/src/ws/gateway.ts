@@ -15,6 +15,8 @@ import type { WebSocket } from "ws";
 import type { AccessControl } from "../services/access.js";
 import type { AgentClient } from "../services/agent-client.js";
 import type { AttachmentService } from "../services/attachments.js";
+import type { FigmaExtractService } from "../services/figma-extract.js";
+import { parseFigmaLink } from "../services/figma-link.js";
 import type { PreviewEnvResolver } from "../services/preview-env.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
@@ -62,6 +64,9 @@ export class ChatGateway {
       resolvePreviewEnv: PreviewEnvResolver;
       serverInternalUrl: string;
     },
+    /** `/figma` extraction (proposal 068). `enabled` is false when no Figma
+     * OAuth app is configured — a `/figma` message then gets a plain reply. */
+    private readonly figma: { extract: FigmaExtractService; enabled: boolean },
   ) {}
 
   /**
@@ -240,6 +245,61 @@ export class ChatGateway {
       promptForAgent = prompt + inlinedText;
     }
 
+    // `/figma <link>` (proposal 068): pull the design from Figma server-side —
+    // the token never touches the agent — then run the turn against a directive
+    // that points at the written `design/<key>/` bundle, with the replica skill
+    // force-woven. Extraction failure reports and starts no turn.
+    let figmaSkill: string | undefined;
+    const figmaLink = parseFigmaLink(prompt);
+    if (figmaLink) {
+      if ("error" in figmaLink) {
+        this.broadcast(room, {
+          type: "error",
+          sessionId: room.sessionId,
+          code: "bad_request",
+          message: figmaLink.error,
+          fatal: false,
+        });
+        return;
+      }
+      if (!this.figma.enabled) {
+        this.broadcast(room, {
+          type: "error",
+          sessionId: room.sessionId,
+          code: "bad_request",
+          message:
+            "Figma isn't set up on this instance — an operator needs to register a Figma OAuth app (ZELYQ_FIGMA_CLIENT_ID / _SECRET).",
+          fatal: false,
+        });
+        return;
+      }
+      const result = await this.figma.extract.run({
+        fileKey: figmaLink.fileKey,
+        nodeId: figmaLink.nodeId,
+        userId,
+        projectId: room.projectId,
+      });
+      if (!result.ok || !result.directive) {
+        this.broadcast(room, {
+          type: "error",
+          sessionId: room.sessionId,
+          code: "bad_request",
+          message: result.error ?? "Figma extraction failed.",
+          fatal: false,
+        });
+        return;
+      }
+      promptForAgent = figmaLink.rest
+        ? `${result.directive}\n\n${figmaLink.rest}`
+        : result.directive;
+      figmaSkill = "complete-replica-engineering";
+      this.log.info(result.summary ?? "figma extract ok");
+    }
+
+    const effectiveSkills = figmaSkill
+      ? [...new Set([...(override.skills ?? []), figmaSkill])]
+      : override.skills;
+
     // Persist the user's message before anything can fail, so a crashed turn
     // still leaves a readable transcript. `content` stays exactly what was
     // typed — inlined attachment text is only ever added to what the model
@@ -255,9 +315,9 @@ export class ChatGateway {
       // Display only — what the composer's `/` menu pointed at. `content`
       // above still holds exactly what was typed. Null when nothing was named.
       mentions:
-        override.skills?.length || override.agents?.length || override.plugins?.length
+        effectiveSkills?.length || override.agents?.length || override.plugins?.length
           ? {
-              skills: override.skills ?? [],
+              skills: effectiveSkills ?? [],
               agents: override.agents ?? [],
               plugins: override.plugins ?? [],
             }
@@ -422,7 +482,7 @@ export class ChatGateway {
         promptForAgent,
         room.turn.signal,
         imageAttachments,
-        override.skills,
+        effectiveSkills,
         override.plugins,
         override.agents,
       )) {

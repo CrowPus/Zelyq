@@ -190,6 +190,23 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   and byte/time budgets. There is no operator switch to disable the guard;
   `ZELYQ_CLONE_ENABLED=false` disables the tool itself. `mode: "single"`
   with `diffAgainst` is the build loop's screenshot-diff step.
+- **Composer `/figma <link>` pick** (068) — the second Command-section entry.
+  Unlike `/clone`, extraction runs **server-side before the turn** (there is a
+  secret): the gateway parses the link (`figma-link.ts`), calls
+  `FigmaExtractService` — which reaches the Figma REST API only through
+  `FigmaConnectionService.withAccessToken`, so the OAuth token is in scope for
+  one `fetch` and never touches an env var, a shell, the runtime, or the agent
+  — prunes the node tree (`figma-tree-prune.ts`, node-budget capped), renders
+  each frame to PNG, downloads image assets, and writes
+  `design/<file-key>/{tree,render,assets,tokens.json,styles.json,manifest.json}`.
+  The turn then runs a directive pointing at that bundle with
+  `complete-replica-engineering` force-woven (its `profiles/figma-design.md` +
+  `references/figma-node-tree.md`). Signed Figma URLs are fetched server-side
+  and rewritten to local paths — never in a file the agent reads. The connection
+  is per-user (`provider_connections` row `provider: "figma"`, `SecretBox` blob);
+  `/figma` is hidden unless `ZELYQ_FIGMA_CLIENT_ID`/`_SECRET` are set, and
+  `ZELYQ_FIGMA_ENABLED=false` turns it off. The diff loop reuses `/clone`'s
+  `capture_reference` (`mode: "single"`, `diffAgainst` a render).
 - **Pipeline** (Architect Mode §5): build → verify → DevOps (if the design
   is deployable) → design → re-verify → Security/QA → done. A FAIL /
   NOT DONE / NOT CLEARED from any of them blocks "done". The Cinematic

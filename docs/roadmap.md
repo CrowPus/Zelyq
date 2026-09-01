@@ -88,6 +88,14 @@ separates this from a chat with a black box.
       the stack and force-woven `skills/expo-react-native` (RN primitives, Expo Router,
       NativeWind), so it builds `View`/`Text`/`FlatList`, not `div`. Device/simulator preview
       (Expo Go, iOS/Android sims) and EAS / native builds are separate follow-ups. See #109
+- [~] **`/figma <link>`** — build a website from a Figma frame. Connect Figma in Settings
+      (OAuth, per user; the token is held server-side and never reaches the agent). The server
+      pulls the frame's node tree, a PNG render, image assets, and the file's Variables + Styles
+      from the Figma REST API into `design/<file-key>/`; the agent writes a `REPLICA.md`, turns
+      the tokens into the project theme + `DESIGN.md`, rebuilds in the project's framework
+      (auto-layout → flexbox, never absolute positioning), and diffs against the render. Reuses
+      the `/clone` reconstruction engine. v1: one file, ≤15 frames, no prototype flows, no Code
+      Connect. Proposal 068.
 - [~] **`/clone <url>`** — rebuild a live website in the project, page for page. The composer's
       new Command section force-weaves `skills/complete-replica-engineering`; the agent's
       `capture_reference` tool visits the URL with a real browser, crawls same-origin pages at

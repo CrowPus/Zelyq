@@ -3,9 +3,23 @@ name: complete-replica-engineering
 description: Use this skill when recreating an existing website, web application, component, page, design system, or interactive experience from authorized reference material and the requirement is a faithful replica rather than an inspired redesign. It makes the agent behave like a senior replication engineer: establish a reference contract, capture deterministic golden states, inventory assets and typography, measure browser geometry and resolved styles, map interaction and responsive behavior, implement without redesigning, render under matched conditions, compare screenshots and geometry, diagnose deltas, and iterate until acceptance thresholds are met. Exact proprietary source code or protected assets are reused only when the user owns, supplies, licenses, or is authorized to reuse them.
 metadata:
   author: Zelyq
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 # Complete Replica Engineering
+
+## Invoked via `/figma`
+
+When a user runs `/figma <frame-link>`, this skill is force-woven and the turn
+carries a directive pointing at **`design/<file-key>/`** — the server has
+already pulled the frame's pruned node tree (`tree/<frame>.json`), a PNG render
+(`render/<frame>.png`), image assets (`assets/`), and, if the seat allowed it,
+Figma Variables (`tokens.json`) + Styles (`styles.json`). You do **not** call
+the Figma API. Load **`profiles/figma-design.md`** and
+**`references/figma-node-tree.md`** and follow that profile: `REPLICA.md` first,
+tokens → the project theme + `DESIGN.md`, build from the tree (auto-layout →
+flexbox, **never `position: absolute` for page content**), then the
+screenshot-diff loop against the renders, then the audit table + token
+provenance.
 
 ## Invoked via `/clone`
 
