@@ -781,6 +781,13 @@ a rate limit, a dropped connection — where scoring the rest of the suite is ri
 error that fails every case identically is a different thing, and the harness cannot currently tell
 them apart.
 
+**Fixed — 2026-09-01.** `neverRan(result)` = `error && rounds === 0 && tokensIn === 0`. `harness.ts`
+returns before the check loop when it's true — no checks, so no `intact 100%` on a pristine
+template. `run.ts` gained an `errored N/total` line and a `⚠` mark; when the same never-ran error
+happens twice it stops starting cases (`abortReason`) and the rest come back `skipped`; a run where
+nothing reached the model is not saved and exits non-zero with the config-mismatch hint. A case that
+ran partway and *then* failed is still scored — the line is whether anything ran at all.
+
 → Solution: [06-measurement.md](./06-measurement.md) §5
 
 ### F6 — `max_files_changed` cannot tell decomposition from invention, and rewards monoliths `high`

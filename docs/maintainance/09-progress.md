@@ -203,6 +203,26 @@ reconfigure the agent. The prompt subordination is the mitigation until then.
 | A2 | persisted `write_file`/`edit_file` input bodies | ✅ (companion) | `maint/phase1` — `stripHeavyToolInputs` |
 | G1 | dark-SaaS default template | ✅ | `maint/phase1` — neutral `App.tsx` |
 | G2 | nowhere for a type/spacing scale | ✅ | `maint/phase1` — `@theme` block in `index.css` |
+| F5 | provider error scored as agent failure | ✅ (pre-flight probe still open) | `maint/phase1` — `neverRan` |
+
+---
+
+## F5 — don't score a case the model never reached
+
+**Where:** `maint/phase1`. [06-measurement.md](./06-measurement.md) §5. Worth doing before the
+founder's eval run — a config typo now costs a clear message, not a fake `intact 100%`.
+
+**What shipped:**
+
+- `neverRan(result)` in `evals/harness.ts` (`error && rounds === 0 && tokensIn === 0`), exported.
+  `runCase` returns before the check loop when true.
+- `run.ts`: `errored N/total` in the report, `⚠` per-case mark; `abortReason` stops starting new
+  cases after the same never-ran error twice (rest → `skipped`); a run where nothing ran isn't
+  saved and exits 1 with the provider/model hint.
+- `apps/agent/test/eval-errored-case.test.ts` — 5 cases. Agent suite 368/368.
+
+**Follow-up:** a pre-flight `models.retrieve` / trivial-completion check before the first scaffold,
+so the first two cases aren't wasted either. Needs per-provider plumbing.
 
 ---
 

@@ -275,6 +275,24 @@ is more than zero and is currently unmeasured.
 
 **Fixes F5. Small, and it prevents a whole category of wasted run.**
 
+### Done — 2026-09-01
+
+- `neverRan(result)` in `harness.ts` (`error && rounds === 0 && tokensIn === 0`), exported.
+  `runCase` returns before the check loop when it's true — the pristine template no longer scores
+  `intact` for a model that did nothing.
+- `run.ts`: an `errored N/total` line in the report and a `⚠` mark in the per-case line. When the
+  same never-ran error occurs twice, `abortReason` is set and every remaining case comes back
+  `skipped` (also never-ran). A run where **nothing** reached the model prints the config hint and
+  exits 1 **without saving** — so `--compare` can't read it as a collapse.
+- `apps/agent/test/eval-errored-case.test.ts` — 5 cases.
+
+Not done: the pre-flight `models.retrieve` / trivial-completion probe before the first `npm install`.
+The post-hoc abort saves the wasted API spend on the *rest* of the suite but not the first two
+cases; a pre-flight check would catch it before any scaffold. Left as a follow-up — it needs
+per-provider plumbing the abort path doesn't.
+
+Original plan below.
+
 Three changes to `harness.ts` and `run.ts`.
 
 ### Fail the case, do not check it

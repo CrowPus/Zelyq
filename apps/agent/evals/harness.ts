@@ -6,6 +6,15 @@ import { runCheck } from "./checks.js";
 import type { CaseResult, Check, EvalCase } from "./types.js";
 import { diff, fingerprint, linkModules, loadTemplateFiles } from "./workspace.js";
 
+/**
+ * The turn produced nothing measurable: the model was never reached. A case
+ * that ran partway and *then* hit a rate limit did real work and is still
+ * scored — the line that matters is whether anything ran at all.
+ */
+export function neverRan(result: CaseResult): boolean {
+  return result.error !== null && result.rounds === 0 && result.tokensIn === 0;
+}
+
 export interface RunOptions {
   runtime: RuntimeDriver;
   baseRoot: string;
@@ -133,6 +142,16 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
       await session.run(evalCase.prompt, emit);
     } finally {
       clearTimeout(timer);
+    }
+
+    // The model was never reached — a bad key, a provider/model mismatch, an
+    // endpoint that 404s. Every critical check passes on the pristine template
+    // by construction, so running them here would report `intact 100%` about a
+    // model that did nothing. `errored` is a distinct outcome from done /
+    // intact / clean; leave the checks empty and let the report classify it.
+    if (result.error && neverRan(result)) {
+      result.durationMs = Date.now() - startedAt;
+      return result;
     }
 
     const after = await fingerprint(runtime, projectId);

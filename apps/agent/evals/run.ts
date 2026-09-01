@@ -9,7 +9,7 @@ import { buildSystemPrompt } from "../src/prompt.js";
 import { PROVIDERS, speaksOpenAIDialect } from "../src/providers/index.js";
 import { listResources, loadSkills } from "../src/skills.js";
 import { selectCases } from "./cases.js";
-import { runCase } from "./harness.js";
+import { neverRan, runCase } from "./harness.js";
 import {
   cachedFraction,
   estimateCostUsd,
@@ -17,7 +17,7 @@ import {
   type TokenCounts,
   totalPromptTokens,
 } from "./rates.js";
-import type { CaseResult, SuiteResult } from "./types.js";
+import type { CaseResult, EvalCase, SuiteResult } from "./types.js";
 import { EVAL_WORKSPACE, prepareBaseProject } from "./workspace.js";
 
 loadEnvFile();
@@ -134,7 +134,16 @@ console.log(
 const baseRoot = await prepareBaseProject(runtime, values.template, log);
 
 const started = Date.now();
+
+// Five identical `model not found` errors is one configuration problem, not
+// five measurements. Count never-ran failures by their message; once the same
+// one has happened twice, stop starting cases and report the cause.
+const configErrors = new Map<string, number>();
+let abortReason: string | null = null;
+
 const results = await pool(cases, Number.parseInt(values.concurrency, 10), async (evalCase) => {
+  if (abortReason) return skipped(evalCase);
+
   const result = await runCase(evalCase, {
     runtime,
     baseRoot,
@@ -151,6 +160,13 @@ const results = await pool(cases, Number.parseInt(values.concurrency, 10), async
     ...(values["engineer-mode"] ? { engineerMode: true } : {}),
     ...(engineerModeSkill ? { engineerModeSkill } : {}),
   });
+
+  if (neverRan(result) && result.error) {
+    const seen = (configErrors.get(result.error) ?? 0) + 1;
+    configErrors.set(result.error, seen);
+    if (seen >= 2 && !abortReason) abortReason = result.error;
+  }
+
   console.log(line(result, config.model));
   return result;
 });
@@ -178,6 +194,33 @@ const suite: SuiteResult = {
   cases: results,
 };
 
+// A run where nothing reached the model measures the configuration, not the
+// agent. Don't print a `done 0%` / `intact 100%` table that invites the wrong
+// reading, don't save it where `--compare` would read it as a collapse.
+const ran = results.filter((result) => !neverRan(result));
+if (ran.length === 0) {
+  const cause = abortReason ?? results.find((r) => r.error)?.error ?? "unknown";
+  console.error(`
+─────────────────────────────────────────────
+ Nothing reached the model. This run measures nothing and was not saved.
+
+   ${cause}
+${
+  config.provider === "google" || config.provider === "openai" || config.provider === "anthropic"
+    ? `   Check ZELYQ_PROVIDER=${config.provider} and ZELYQ_MODEL=${config.model} name the\n   same vendor, and that the key is valid.`
+    : `   Check ZELYQ_PROVIDER / ZELYQ_MODEL / ZELYQ_BASE_URL / the key.`
+}
+─────────────────────────────────────────────`);
+  process.exit(1);
+}
+if (abortReason) {
+  console.error(
+    `\n Aborted after 2 cases failed identically before reaching the model:\n\n   ${abortReason}\n\n` +
+      ` ${ran.length}/${results.length} cases ran; the rest were skipped. Not saved.`,
+  );
+  process.exit(1);
+}
+
 report(suite, Date.now() - started);
 
 const outPath = path.join(
@@ -198,9 +241,41 @@ process.exit(results.every((result) => result.done) ? 0 : 1);
 
 // ---------------------------------------------------------------------------
 
+/** A case that never started because the suite aborted first. Scored as errored. */
+function skipped(evalCase: EvalCase): CaseResult {
+  return {
+    id: evalCase.id,
+    title: evalCase.title,
+    tags: evalCase.tags,
+    intact: false,
+    done: false,
+    clean: false,
+    checks: [],
+    rounds: 0,
+    toolCalls: 0,
+    toolErrors: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    filesChanged: [],
+    reply: "",
+    durationMs: 0,
+    error: "skipped — suite aborted on a repeated config error",
+  };
+}
+
 function line(result: CaseResult, model: string): string {
   const failed = result.checks.filter((check) => !check.ok);
-  const mark = result.clean ? "✓" : result.done ? "◑" : result.intact ? "~" : "✗";
+  const mark = neverRan(result)
+    ? "⚠"
+    : result.clean
+      ? "✓"
+      : result.done
+        ? "◑"
+        : result.intact
+          ? "~"
+          : "✗";
   const detail = result.error
     ? result.error
     : failed.length
@@ -224,6 +299,7 @@ function report(suite: SuiteResult, elapsedMs: number): void {
   const intact = suite.cases.filter((result) => result.intact).length;
   const done = suite.cases.filter((result) => result.done).length;
   const clean = suite.cases.filter((result) => result.clean).length;
+  const errored = suite.cases.filter((result) => neverRan(result)).length;
   const checks = suite.cases.flatMap((result) => result.checks);
   const passed = checks.filter((check) => check.ok).length;
 
@@ -231,7 +307,11 @@ function report(suite: SuiteResult, elapsedMs: number): void {
 ─────────────────────────────────────────────
  done     ${done}/${total}  (${pct(done, total)})   the work was actually done
  intact   ${intact}/${total}  (${pct(intact, total)})   still typechecks, builds and previews
- clean    ${clean}/${total}  (${pct(clean, total)})   every check passed, cosmetic included
+ clean    ${clean}/${total}  (${pct(clean, total)})   every check passed, cosmetic included${
+   errored > 0
+     ? `\n errored  ${errored}/${total}  (${pct(errored, total)})   the model was never reached — measures nothing`
+     : ""
+}
  checks   ${passed}/${checks.length}  (${pct(passed, checks.length)})
 
  rounds   median ${median(suite.cases.map((r) => r.rounds))}
