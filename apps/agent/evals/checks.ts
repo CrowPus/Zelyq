@@ -15,6 +15,46 @@ export interface CheckContext {
   reply: string;
 }
 
+/**
+ * The manifest and its lockfiles: changed as a side effect of installing
+ * anything, and never by themselves a feature nobody asked for.
+ *
+ * `max_files_changed` is the restraint check — it exists to catch invented
+ * scope, the agent building a navbar and a testimonials block when the request
+ * named a hero and a footer. It cannot see intent, so it counts files, and
+ * counting the manifest costs a slot the agent did not choose to spend. That
+ * only started to matter once a model that decomposes well was measured: on
+ * 2026-09-01 `claude-opus-5` failed `todo-app` at 7 files against a cap of 6
+ * where the seventh was `package.json` and the other six were a form, an item,
+ * a list, a types module, a hook and `App.tsx` — a textbook decomposition
+ * losing to a single-file implementation of the same feature.
+ *
+ * `session.ts` holds the same idea for Engineer Mode's new-file checkpoint
+ * (`GENERATED_LOCKFILE_NAMES`), for the reason stated there: a file the agent
+ * did not choose to create must not cost it one of its slots.
+ *
+ * Deliberately narrow. `index.html` and `src/index.css` stay counted — editing
+ * the entry document or the global stylesheet IS a scope decision, and
+ * excluding them would let real invented scope through: the same run's
+ * `landing-page` failure (`Wordmark.tsx` and `AnnotatedPage.tsx`, neither
+ * requested) passes if they are discounted. A dependency added to
+ * `package.json` is still real scope too — that is what the separate
+ * `no_new_dependency` check is for, and cases that care about it assert it.
+ */
+const MANIFEST_FILES = new Set([
+  "package.json",
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
+]);
+
+/** The changed files that represent a scope decision, for `max_files_changed`. */
+export function scopeRelevant(changed: string[]): string[] {
+  return changed.filter((path) => !MANIFEST_FILES.has(path));
+}
+
 export function describe(check: Check): string {
   switch (check.kind) {
     case "typecheck":
@@ -124,12 +164,21 @@ async function evaluate(
         detail: changed.length > 0 ? "" : "the agent changed no files at all",
       };
 
-    case "max_files_changed":
+    case "max_files_changed": {
+      // Counted over the files that are actually a scope decision — see
+      // MANIFEST_FILES. The detail reports both numbers so a failure is still
+      // readable against the raw diff.
+      const relevant = scopeRelevant(changed);
+      const neutral = changed.length - relevant.length;
       return {
-        ok: changed.length <= check.count,
+        ok: relevant.length <= check.count,
         detail:
-          changed.length <= check.count ? "" : `changed ${changed.length}: ${changed.join(", ")}`,
+          relevant.length <= check.count
+            ? ""
+            : `changed ${relevant.length}: ${relevant.join(", ")}` +
+              (neutral > 0 ? ` (+${neutral} manifest, not counted)` : ""),
       };
+    }
 
     case "max_file_lines":
       return await checkFileLengths(runtime, projectId, after, check.count);
