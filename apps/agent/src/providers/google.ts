@@ -166,10 +166,14 @@ class GoogleConversation implements Conversation {
     let stopReason: TurnResult["stopReason"] = "end_turn";
     let inputTokens = 0;
     let outputTokens = 0;
+    let cachedTokens = 0;
 
     for await (const chunk of stream) {
       if (chunk.usageMetadata) {
-        inputTokens = chunk.usageMetadata.promptTokenCount ?? inputTokens;
+        // `promptTokenCount` INCLUDES cached content; split it so input is the
+        // uncached remainder, matching the other providers (finding A4).
+        cachedTokens = chunk.usageMetadata.cachedContentTokenCount ?? cachedTokens;
+        inputTokens = (chunk.usageMetadata.promptTokenCount ?? inputTokens) - cachedTokens;
         outputTokens =
           (chunk.usageMetadata.candidatesTokenCount ?? 0) +
           (chunk.usageMetadata.thoughtsTokenCount ?? 0);
@@ -206,7 +210,11 @@ class GoogleConversation implements Conversation {
     return {
       toolCalls,
       stopReason,
-      usage: { inputTokens, outputTokens },
+      usage: {
+        inputTokens: Math.max(0, inputTokens),
+        outputTokens,
+        ...(cachedTokens > 0 ? { cacheReadInputTokens: cachedTokens } : {}),
+      },
     };
   }
 }

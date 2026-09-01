@@ -682,6 +682,17 @@ export function ChatPanel({
         {chat.tokensIn + chat.tokensOut > 0 && (
           <span className="ml-auto shrink-0 font-mono text-2xs text-fg-muted tabular-nums">
             {formatTokens(chat.tokensIn)} / {formatTokens(chat.tokensOut)}
+            {chat.cacheReadTokens > 0 && (
+              <span
+                title="Share of the prompt served from the model's cache (~10% of the input price)"
+                className="text-success"
+              >
+                {" "}
+                ·{" "}
+                {Math.round((chat.cacheReadTokens / (chat.tokensIn + chat.cacheReadTokens)) * 100)}%
+                cached
+              </span>
+            )}
           </span>
         )}
       </header>

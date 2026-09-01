@@ -1313,6 +1313,12 @@ export class AgentSession {
   private turns = 0;
   private tokensIn = 0;
   private tokensOut = 0;
+  // Prompt tokens the provider served from / wrote to its cache this session.
+  // `tokensIn` above is only the UNCACHED remainder on Anthropic and OpenAI, so
+  // true prompt size is `tokensIn + cacheReadTokens + cacheCreationTokens`
+  // (finding A4). `docs/agent-behaviour.md` explains the display.
+  private cacheReadTokens = 0;
+  private cacheCreationTokens = 0;
 
   // The turn number on which the Architect first declared the package ready
   // (or 0 if a resumed session's history already contains that declaration).
@@ -2436,11 +2442,17 @@ export class AgentSession {
         })();
         this.tokensIn += result.usage.inputTokens;
         this.tokensOut += result.usage.outputTokens;
+        this.cacheReadTokens += result.usage.cacheReadInputTokens ?? 0;
+        this.cacheCreationTokens += result.usage.cacheCreationInputTokens ?? 0;
         emit({
           type: "usage",
           sessionId: this.id,
           tokensIn: this.tokensIn,
           tokensOut: this.tokensOut,
+          ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
+          ...(this.cacheCreationTokens > 0
+            ? { cacheCreationTokens: this.cacheCreationTokens }
+            : {}),
         });
 
         if (result.stopReason === "refusal") {

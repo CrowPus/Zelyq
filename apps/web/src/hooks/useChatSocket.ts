@@ -25,6 +25,8 @@ export interface ChatState {
   error: string | null;
   tokensIn: number;
   tokensOut: number;
+  /** Prompt tokens read from the provider cache this session (finding A4). */
+  cacheReadTokens: number;
 }
 
 const INITIAL: ChatState = {
@@ -35,6 +37,7 @@ const INITIAL: ChatState = {
   error: null,
   tokensIn: 0,
   tokensOut: 0,
+  cacheReadTokens: 0,
 };
 
 /**
@@ -274,7 +277,12 @@ function reduce(
       return state;
 
     case "usage":
-      return { ...state, tokensIn: message.tokensIn, tokensOut: message.tokensOut };
+      return {
+        ...state,
+        tokensIn: message.tokensIn,
+        tokensOut: message.tokensOut,
+        cacheReadTokens: message.cacheReadTokens ?? state.cacheReadTokens,
+      };
 
     case "turn.end": {
       const finished: Message = message.message ?? {

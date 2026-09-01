@@ -1,0 +1,71 @@
+# Maintenance — progress log
+
+Running record of the Phase-1 work from [07-roadmap.md](./07-roadmap.md), written as it happens so
+nothing is lost between sessions. Each entry: what shipped, where, how it was verified, what's left.
+
+Baseline: `origin/main` @ `72745f9` (after #123 clone, #124 figma, #125 review+F6, #126 065).
+Agent suite 336/336 green, `pnpm -r typecheck` clean, `biome check .` clean (2 pre-existing warnings
+in `packages/tools/src/files.ts` and `apps/server/test/supabase-connections.test.ts`, neither mine).
+
+Order (from the roadmap, adjusted for what's already done):
+
+| # | Finding | Status |
+|---|---|---|
+| A1 | conversation caching | **done** — `withConversationCacheBreakpoint`, shipped in #124 |
+| F6 | `max_files_changed` manifest half | **done** — `scopeRelevant()`, shipped in #125 |
+| **A4** | cache-token capture + 2-breakpoint upgrade | **in progress** — this branch |
+| C1 | `stop_reason: "max_tokens"` unhandled | pending |
+| E1+C2 | untrusted-content boundary + operator `role:system` | pending |
+| B2/B3/B4 | `read_file` paging, edit diffs, same-path serialisation | pending |
+| D1 | `AGENTS.md` | pending |
+
+---
+
+## A4 — capture cache tokens, correct the counter, 2-breakpoint upgrade
+
+**Branch:** `maint/a4-cache-usage`
+**Fixes:** finding A4; upgrades A1's single-tail breakpoint to the incremental two-breakpoint pattern.
+**Why first:** A1 is live but unverifiable. On Anthropic `input_tokens` *excludes* cached tokens, so
+the number the UI and the eval suite show as "tokens in" is the uncached remainder — a working cache
+makes it fall ~90% while the true request size is unchanged. Until the cache fields are captured,
+every A1 metric is measuring the wrong quantity.
+
+### Plan
+
+1. `providers/types.ts` — widen `TurnResult.usage` with optional `cacheReadInputTokens` /
+   `cacheCreationInputTokens`. Optional, not zero — an absent field is honest, a `0` is a claim.
+2. `providers/anthropic.ts` — map `response.usage.cache_read_input_tokens` /
+   `.cache_creation_input_tokens`; also emit them on the streamed `usage` event.
+3. `providers/openai-compatible.ts` — OpenAI reports `prompt_tokens_details.cached_tokens`; map it to
+   `cacheReadInputTokens`. No creation figure in that dialect — leave it unset.
+4. `providers/google.ts` — Gemini reports `cachedContentTokenCount`; map it.
+5. `session.ts` — accumulate the two new fields; emit them on the `usage` event so the gateway/UI can
+   show true prompt size + cached fraction.
+6. `protocol.ts` — the `usage` agent event carries the two new optional numbers.
+7. `withConversationCacheBreakpoint` — keep the current-tail breakpoint, add the previous-tail one
+   (the read breakpoint), so a round that emitted many parallel tool calls still gets an incremental
+   hit rather than a partial one.
+8. `docs/agent-behaviour.md:259` — the "check `usage.cache_read_input_tokens`" line becomes true;
+   point it at the real field.
+
+### Progress
+
+**Done — 2026-09-01.** Commit on `maint/a4-cache-usage`.
+
+| step | where | note |
+|---|---|---|
+| `TokenUsage` type | `providers/types.ts` | `TurnResult.usage` widened with optional `cacheReadInputTokens` / `cacheCreationInputTokens` |
+| Anthropic map | `providers/anthropic.ts` | `response.usage.cache_read_input_tokens` / `.cache_creation_input_tokens` → the two fields |
+| OpenAI-dialect map | `providers/openai-compatible.ts` | `prompt_tokens` INCLUDES cached there — split `prompt_tokens_details.cached_tokens` out so `inputTokens` is the uncached remainder, matching Anthropic. +1 test |
+| Gemini map | `providers/google.ts` | same split on `usageMetadata.cachedContentTokenCount` |
+| accumulate + emit | `session.ts` | `cacheReadTokens` / `cacheCreationTokens` session totals; added to the `usage` event when non-zero |
+| event schema | `packages/core/protocol.ts` | `usage` event gains the two optional numbers |
+| **2-breakpoint upgrade** | `providers/anthropic.ts` `withConversationCacheBreakpoint` | was a single tail breakpoint (shipped #124); now marks the last **two** message boundaries — the read breakpoint + the write breakpoint — so a round with many parallel tool calls still gets an incremental hit. Test rewritten. |
+| UI | `apps/web` `useChatSocket.ts` + `ChatPanel.tsx` | `cacheReadTokens` in chat state; a green "· N% cached" next to the token counter |
+| docs | `docs/agent-behaviour.md` §Caching | rewritten — two breakpoints, `tokensIn` is the uncached remainder, check the cache fields not `tokensIn` |
+
+Verified: `pnpm -r typecheck` clean, `biome check .` clean (2 pre-existing warnings), core 19 /
+tools 46 / **agent 338** (+2) / web 91 / server 215 — all green.
+
+Not done: a dollar figure (needs a per-model rate table — [06](./06-measurement.md) §2, Phase 2);
+the eval harness accumulating the cache fields (Phase 2.1, and it now *can*).

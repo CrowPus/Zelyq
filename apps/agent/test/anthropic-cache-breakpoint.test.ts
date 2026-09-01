@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { withConversationCacheBreakpoint } from "../src/providers/anthropic.ts";
 
-test("adds one ephemeral breakpoint on the last message's last block", () => {
+test("marks the last two message boundaries — the write and the read breakpoint", () => {
   const messages = [
     { role: "user" as const, content: "build a page" },
     { role: "assistant" as const, content: [{ type: "text" as const, text: "on it" }] },
@@ -16,16 +16,26 @@ test("adds one ephemeral breakpoint on the last message's last block", () => {
   ];
   const out = withConversationCacheBreakpoint(messages);
 
-  // First two messages untouched, no cache_control anywhere in them.
+  // First message untouched.
   assert.equal(JSON.stringify(out[0]), JSON.stringify(messages[0]));
-  assert.equal(JSON.stringify(out[1]), JSON.stringify(messages[1]));
+
+  // Second-to-last (the assistant turn): its last block carries a breakpoint.
+  const midBlocks = out[1].content as Array<Record<string, unknown>>;
+  assert.deepEqual(midBlocks[midBlocks.length - 1].cache_control, { type: "ephemeral" });
 
   // Last message: only the FINAL block carries the breakpoint.
   const lastBlocks = out[2].content as Array<Record<string, unknown>>;
   assert.equal(lastBlocks[0].cache_control, undefined);
   assert.deepEqual(lastBlocks[1].cache_control, { type: "ephemeral" });
 
-  // Exactly one message-level breakpoint in the whole payload.
+  // Exactly two message-level breakpoints — plus the system one, that is 3, under Anthropic's 4.
+  assert.equal(JSON.stringify(out).match(/"cache_control"/g)?.length, 2);
+});
+
+test("with a single message, marks just that one", () => {
+  const out = withConversationCacheBreakpoint([
+    { role: "user" as const, content: [{ type: "text" as const, text: "hi" }] },
+  ]);
   assert.equal(JSON.stringify(out).match(/"cache_control"/g)?.length, 1);
 });
 
