@@ -149,7 +149,15 @@ export default [
 
       const key = crypto.createHash("sha1").update(url).digest("hex");
       const cached = cacheRead(key);
-      if (cached) return { output: `# ${url}  (cached)\n\n${cached}` };
+      if (cached) {
+        let source;
+        try {
+          source = new URL(url).hostname;
+        } catch {
+          source = "the docs page";
+        }
+        return { output: `# ${url}  (cached)\n\n${cached}`, untrusted: { source } };
+      }
 
       let res;
       try {
@@ -175,7 +183,15 @@ export default [
         text = `${text.slice(0, MAX_CHARS)}\n\n… [truncated — fetch a more specific page, or ask the user for the exact snippet]`;
       }
       cacheWrite(key, text);
-      return { output: `# ${url}\n\n${text}` };
+      // A fetched documentation page — text from a host the user does not
+      // control (finding E1). Allowlisted hosts, but still data, not orders.
+      let source;
+      try {
+        source = new URL(url).hostname;
+      } catch {
+        source = "the docs page";
+      }
+      return { output: `# ${url}\n\n${text}`, untrusted: { source } };
     },
   },
 ];

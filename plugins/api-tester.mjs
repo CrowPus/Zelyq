@@ -33,7 +33,17 @@ export default [
       timeout_ms: z.number().int().min(1000).max(120000).default(30000),
     }),
     async run(context, input) {
-      return exec(context, curlCommand(input), { timeoutMs: input.timeout_ms + 2000 });
+      const result = await exec(context, curlCommand(input), {
+        timeoutMs: input.timeout_ms + 2000,
+      });
+      let source;
+      try {
+        source = new URL(input.url).hostname;
+      } catch {
+        source = "the requested URL";
+      }
+      // An arbitrary URL's response body — wrap it as data (finding E1).
+      return { ...result, untrusted: { source } };
     },
   },
   {

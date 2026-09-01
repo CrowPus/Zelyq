@@ -40,6 +40,17 @@ export interface ToolResult {
    * shape can hold an image directly.
    */
   images?: Array<{ mimeType: string; data: string }>;
+  /**
+   * Set when `output` carries text from outside the user's control — a fetched
+   * web page, a cloned repository's own files, a third-party API's response, an
+   * issue tracker, a database row. The session wraps such output in
+   * `<untrusted_content>` before the model sees it, and the base prompt tells
+   * the model to treat anything inside those tags as data, never as
+   * instruction (finding E1). A tool that returns only its own summary of such
+   * content leaves this unset; a tool that passes the content through must set
+   * it. `source` is a short, honest label — a URL, a repo name, a service.
+   */
+  untrusted?: { source: string };
 }
 
 export interface ZelyqTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {

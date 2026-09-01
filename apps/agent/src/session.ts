@@ -1285,6 +1285,23 @@ export function shortenCommand(command: string): string {
   return flat.length > 72 ? `${flat.slice(0, 71)}…` : flat;
 }
 
+/**
+ * E1 — wraps a tool result whose content came from outside the user's control
+ * in `<untrusted_content>`, so the model has a structural basis for treating it
+ * as data rather than instruction. Any `<untrusted_content>` tags already in
+ * the fetched text are defanged first so the block cannot be closed early from
+ * inside. Pure; covered by `untrusted-content.test.ts`.
+ */
+export function wrapUntrusted(output: string, via: string, source: string): string {
+  const safeSource = source.replace(/["<>]/g, "").slice(0, 200);
+  const body = output.replace(/<\/?untrusted_content/gi, "&lt;untrusted_content");
+  return (
+    `<untrusted_content source="${safeSource}" via="${via}">\n` +
+    `${body}\n` +
+    `</untrusted_content>`
+  );
+}
+
 export class AgentSession {
   readonly id: string;
   readonly projectId: string;
@@ -3028,7 +3045,12 @@ export class AgentSession {
             return {
               id: toolCall.id,
               name: toolCall.name,
-              output: outcome.output,
+              // E1 — content the tool fetched from outside the user's control
+              // is wrapped so the model treats it as data, not instruction.
+              // Done here, once, rather than in each of ~80 tools.
+              output: outcome.untrusted
+                ? wrapUntrusted(outcome.output, toolCall.name, outcome.untrusted.source)
+                : outcome.output,
               isError: outcome.isError ?? false,
               images: outcome.images,
             };
