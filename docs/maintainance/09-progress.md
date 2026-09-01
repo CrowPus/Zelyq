@@ -132,3 +132,27 @@ providers plus 9 call sites, model-gated (not on Sonnet 5), and deserves its own
 a live turn to prove the turn-correction behaviour still fires. Also deferred: per-host fetch
 confirmation (§4), a `run_command` injection denylist (§5), marking a *cloned* repo's own
 `read_file` output (needs a clone-vs-scaffold signal the agent does not have yet).
+
+---
+
+## B2 / B3 / B4 — read_file paging, edit/write diffs, same-path serialisation
+
+**Branch:** `maint/b2-b3-b4-tools` (stacked on A4 + C1 + E1). All in `packages/tools/src/files.ts`.
+
+**Done — 2026-09-01.**
+
+| finding | change | note |
+|---|---|---|
+| **B2** | `read_file` gains `offset` / `limit` (1-indexed, default 2000, max 5000) | `numberedSlice()` — **never elides the middle of source**. Past the window it cuts at the end with `call read_file again with offset: N`. `truncate()`'s head+tail elision is kept for `run_command` / `search_files` / `preview_logs`, not `read_file`. A 60k-char hard cap on one window still cuts at the end, not the middle. |
+| **B3** | `edit_file` returns the changed region (±3 lines, numbered); `write_file` over an existing file returns a brief diff | `regionSnippet()` + `briefDiff()` (common head/tail trim, capped at 80 lines each side). The model verifies its own edit in the same round-trip instead of a ~3k-char confirmatory `read_file`. New file → `Created … (N lines).` |
+| **B4** | `withPathLock()` — a per-`{project}:{path}` async mutex around `write_file` / `edit_file` / `delete_file` | The **live data-loss bug**: `Promise.all` over the tool batch + a read-modify-write `edit_file` meant two edits to one path both read the original and both wrote, losing the first, both reporting success. Now they serialise per path. Concurrency for different paths and all read-only tools is untouched. |
+
+Tests: `packages/tools/test/tools.test.ts` +4 — B2 paging + no-elision + a middle window; B3 edit region + write diff; **B4 two concurrent `edit_file` on one path both land** (against a real `LocalRuntimeDriver` — this test fails on the pre-lock code).
+
+Verified: `pnpm -r typecheck` clean, `biome check .` clean (2 pre-existing warnings), tools 50
+(+4), agent 344, server 215 — all green.
+
+**Cheap-alternative call, stated plainly:** B4 here is the review's own "per-path async mutex …
+about twenty lines" stopgap, not the full batch partition. It fully closes the `edit_file` +
+`edit_file` silent-loss hole. It does **not** order a `run_command` against an `edit_file` on the
+same project — that needs the emission-order batch partition in `session.ts` and is the follow-up.
