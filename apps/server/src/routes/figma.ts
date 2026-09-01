@@ -37,6 +37,14 @@ export function registerFigmaRoutes(
   // Figma redirects the browser here after consent.
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     "/api/integrations/figma/oauth/callback",
+    {
+      config: {
+        rateLimit: {
+          max: 20,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (request, reply) => {
       access.requireUser(request);
       const { code, state, error } = request.query;
