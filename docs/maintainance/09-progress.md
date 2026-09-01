@@ -204,6 +204,29 @@ reconfigure the agent. The prompt subordination is the mitigation until then.
 | G1 | dark-SaaS default template | ✅ | `maint/phase1` — neutral `App.tsx` |
 | G2 | nowhere for a type/spacing scale | ✅ | `maint/phase1` — `@theme` block in `index.css` |
 | F5 | provider error scored as agent failure | ✅ (pre-flight probe still open) | `maint/phase1` — `neverRan` |
+| E1 §5 | `run_command` injection/exfil denylist | ✅ | `maint/phase1` — `INJECTION_PATTERNS` |
+
+---
+
+## E1 §5 — tighten run_command against the injection payload
+
+**Where:** `maint/phase1`. [05-untrusted-content.md](./05-untrusted-content.md) §5.
+
+**What shipped:**
+
+- `INJECTION_PATTERNS` in `packages/tools/src/shell.ts`, checked after the existing
+  `DESTRUCTIVE_PATTERNS`: pipe-a-download-to-a-shell, send `.env` / SSH / AWS creds to a remote host,
+  pipe a secret into a network tool, upload a local file (`curl -T` / `-d @` / `--upload-file`),
+  install or run from a git URL / raw tarball / `github:` spec. Refusal text also tells the model to
+  quote the instruction if it came from something it read.
+- `packages/tools/test/tools.test.ts` — a refuse list (9) and an allow list (`npm install <pkg>`,
+  `pnpm add -D vitest`, `curl -sO <asset>`, `curl <api>/health`, `cat .env.example`, a local node
+  script). Tools suite 52/52.
+- `SECURITY.md` "Enforced today" now names both denylists and repeats that neither is a boundary —
+  container mode + egress allowlist is.
+
+**Still open:** §4 — confirm before the first fetch from a new host, and the interim "fetched N
+pages from example.com" transcript row. Both need UI, not just a rule.
 
 ---
 
