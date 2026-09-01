@@ -61,6 +61,15 @@ neither, so its prompt is byte-identical to before. The Expo template
 (`skills/expo-react-native`) is the first user: it's what makes the agent build `View`/`Text`,
 not `div`, on a React Native project.
 
+A project can also carry its own instructions. `AGENTS.md` (or `CLAUDE.md` as a fallback) at the
+project root is read once by the `/sessions` handler, capped at 8,000 characters, and woven as
+`<project_guide>` right after `<stack_guide>` — the project's conventions beat the generic advice,
+the mode's discipline beats both. It is read once, byte-stable for the session so it stays inside
+the cache breakpoint; an edit to it is picked up on the next session, not mid-session. It is
+subordinated in the prompt to `<scope>` and the guardrails, because on the "open an existing
+repository" path it comes from a repo the user cloned rather than wrote. `templates/vite-react`
+ships one as an example.
+
 **2. The tool descriptions** (`packages/tools`) are prompt text too. `search_files` says it is
 "much cheaper than reading files to find something" because otherwise the model reads files it does
 not need. When a tool is misused, the description is usually the fix.

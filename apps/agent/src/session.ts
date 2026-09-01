@@ -244,6 +244,9 @@ export interface SessionOptions {
    * mechanism Engineer Mode uses for `senior-software-engineering`). Set from
    * `template.json`'s `agentSkill`; absent for vite-react. */
   stackSkill?: { body: string };
+  /** D1 — `AGENTS.md` / `CLAUDE.md` from the project root, read once by the
+   * `/sessions` handler and capped. Woven as `<project_guide>`. */
+  projectGuide?: string;
   provider: ProviderId;
   model: string;
   effort: Effort;
@@ -1450,6 +1453,7 @@ export class AgentSession {
               skills: options.skills,
               ...(options.stack ? { stack: options.stack } : {}),
               ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
+              ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
               ...(options.agentMd ? { agentMd: options.agentMd } : {}),
               ...(options.designRefCatalogText
                 ? { designRefCatalogText: options.designRefCatalogText }

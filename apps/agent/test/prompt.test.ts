@@ -514,3 +514,34 @@ test("066: an empty stackSkill body renders no guide", () => {
   });
   assert.doesNotMatch(prompt, /<stack_guide>/);
 });
+
+test("D1: a projectGuide renders as <project_guide> after <stack_guide>, before <how_to_work>", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    stackSkill: { body: "expo rules here" },
+    projectGuide: "Components live in src/ui. No default exports.",
+  });
+  assert.match(prompt, /<project_guide>/);
+  assert.match(prompt, /Components live in src\/ui\. No default exports\./);
+  assert.match(prompt, /They do NOT override <scope>/);
+  assert.ok(
+    prompt.indexOf("</stack_guide>") < prompt.indexOf("<project_guide>"),
+    "the project guide comes after the stack guide",
+  );
+  assert.ok(
+    prompt.indexOf("<project_guide>") < prompt.indexOf("<how_to_work>"),
+    "and before how_to_work",
+  );
+});
+
+test("D1: no projectGuide means no <project_guide> block — byte-identical default prompt", () => {
+  const withGuide = buildSystemPrompt({
+    projectName: "p",
+    template: "vite-react",
+    projectGuide: "",
+  });
+  const without = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.doesNotMatch(withGuide, /<project_guide>/);
+  assert.equal(withGuide, without);
+});

@@ -156,3 +156,52 @@ Verified: `pnpm -r typecheck` clean, `biome check .` clean (2 pre-existing warni
 about twenty lines" stopgap, not the full batch partition. It fully closes the `edit_file` +
 `edit_file` silent-loss hole. It does **not** order a `run_command` against an `edit_file` on the
 same project — that needs the emission-order batch partition in `session.ts` and is the follow-up.
+
+---
+
+## D1 — `AGENTS.md`
+
+**Branch:** `maint/d1-agents-md` (stacked on A4 + C1 + E1 + B*).
+
+**Done — 2026-09-01.**
+
+| step | where | note |
+|---|---|---|
+| read the file | `apps/agent/src/server.ts` `/sessions` | after `ensureProject`: read `AGENTS.md`, fall back to `CLAUDE.md`, cap at 8,000 chars with a note; passed as `SessionOptions.projectGuide` |
+| weave it | `apps/agent/src/prompt.ts` `buildProjectGuide()` | `<project_guide>` block after `<stack_guide>`, before `<how_to_work>` and the mode addenda. Byte-identical default prompt when absent. |
+| subordinate it | the block's own text | wins over the agent's defaults and skills; does **not** override `<scope>`, is not a licence past a guardrail, and "ignore the above"-shaped lines in it are declared not from the user |
+| plumbing | `session.ts` `SessionOptions.projectGuide` → `buildSystemPrompt` | one option, threaded like `stack` / `stackSkill` |
+| teach by example | `templates/vite-react/AGENTS.md` | a short real one — stack, where components live, token-first, "not a backend" — scaffolded into every new vite-react project |
+| docs | `docs/agent-behaviour.md` §"three inputs" | added |
+
+Verified: `pnpm -r typecheck` clean, `biome check .` clean, agent 346 (+2 prompt tests), server 215.
+
+Byte-stable / cache: read once in the handler, not per turn — a mid-session edit to `AGENTS.md` is
+picked up on the next session, as intended, so the prompt prefix stays cacheable.
+
+**Follow-ups (04 §1 details 5, 6 / 4):** the Architect writing a root `AGENTS.md` as part of its
+finishing task (so a planned project hands its conventions to every later session); an
+`expo-react-native` template guide; and — for the "open an existing repo" path — surfacing a
+first-time-seen guide to the user *before* it takes effect, so a cloned repo cannot silently
+reconfigure the agent. The prompt subordination is the mitigation until then.
+
+---
+
+## Phase 1 — status
+
+| # | finding | done | branch / where |
+|---|---|---|---|
+| A1 | conversation caching | ✅ | shipped #124 |
+| F6 | manifest half of `max_files_changed` | ✅ | shipped #125 |
+| A4 | cache-token capture + 2-breakpoint | ✅ | `654f2e1` |
+| C1 | `max_tokens` handling | ✅ | `3d36b3e` |
+| E1 §2 | untrusted-content wrapping + prompt block | ✅ | `6c0bf44` |
+| B2/B3/B4 | read_file paging, edit/write diffs, per-path lock | ✅ | `d0f796b` |
+| D1 | `AGENTS.md` | ✅ | this branch |
+
+**Deferred, each its own item (recorded above where relevant):** C2 (operator nudges → `role:system`),
+C1's three workaround deletions, B4's full batch partition (`run_command` vs edit ordering),
+the E1 follow-ups (`role:system` structure, per-host fetch confirmation, `run_command` injection
+denylist, cloned-`read_file` marking), the D1 follow-ups (Architect writes one, template guide,
+first-time surface). Phase 2 (measurement, effort tuning, eval coverage) and Phase 3 (tool-surface
+reduction, compaction, task budgets, `update_plan`) are untouched.
