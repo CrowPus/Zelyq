@@ -21,6 +21,48 @@ Load with `references/figma-node-tree.md` and `references/layout-and-computed-st
 You do **not** call the Figma API. Work from these files. Read one frame's
 tree at a time.
 
+## This is a REPLICA — reproduce, do not reinvent
+
+The tree lists **every** text node with its exact `content` and `bbox`, and
+every rectangle (`VECTOR` / `RECTANGLE`) with its `bbox`, `fills`, `radius`.
+That is the whole design. Your build:
+
+- **Must contain every string in the tree, verbatim** — every heading, label,
+  number, caption. If the tree has `"Open tasks"`, `"18"`, `"+4 this week"`,
+  `"Agent runs"`, `"42"`, `"87% verified"` … then those exact strings appear in
+  your output. Substituting "representative" metrics, "plausible" copy, or a
+  "similar" set of cards is a **failure**, not an acceptable approximation.
+- **Must contain every section the render shows.** Count the distinct panels /
+  cards / rows in `render/<frame>.png` and in the tree; build all of them, in
+  the same order and the same grid. A stat-card row, a chart panel, a status
+  panel, a table — if it's in the render, it's in your build. Skipping one
+  because it's "hard to infer" is a failure.
+- If a value or a sub-tree is genuinely missing from the data (a `truncated`
+  marker, a chart with no data points), say so in `REPLICA.md` and render a
+  faithful placeholder of the right size — do not invent plausible content to
+  fill it.
+
+## Reading a flat tree (no auto-layout)
+
+Many Figma files use no auto-layout: the frame's children are a **flat list**
+of `VECTOR`/`RECTANGLE` nodes (card and panel backgrounds) and `TEXT` nodes
+positioned over them, all as direct children with absolute-ish `bbox`es and no
+`layout`. To rebuild one:
+
+1. Sort the children by `bbox.y`, then `bbox.x`.
+2. A `VECTOR`/`RECTANGLE` with a large `bbox` is a **container** (a card, a
+   panel, the sidebar). The `TEXT` and small `VECTOR` nodes whose `bbox` falls
+   inside its rectangle are its **contents** — nest them under it.
+3. Group the top-level containers into **rows** (nodes sharing a `bbox.y`
+   band) and **columns** (by `bbox.x`). Four cards at the same `y` → a
+   `grid-template-columns: repeat(4, 1fr)` / flex row. A tall box on the left
+   + content on the right → a two-column layout.
+4. Build every container and every text node you grouped. Size the grid and
+   the gaps from the bboxes (a card `bbox.w` of 255 in a 1440 frame → roughly
+   `minmax(0,1fr)` in a 4-up grid with the observed gap).
+5. Still **never `position: absolute`** for page content — the bboxes tell you
+   the structure; you express it with flex/grid.
+
 ## Order of work
 
 1. **`design/<key>/REPLICA.md` first — no component code before it exists.**
@@ -37,10 +79,15 @@ tree at a time.
 3. **Build in the project's own framework**, macro geometry first
    (`references/layout-and-computed-style.md` §13). Map the tree per
    `references/figma-node-tree.md`.
-4. **Diff loop.** `start_preview`, then `capture_reference` (`mode: "single"`,
+4. **Diff loop — not optional, and not "one pass".** `start_preview`, then
+   `capture_reference` (`mode: "single"`, `width` = the frame's `bbox.w`,
    `url` = the preview route, `diffAgainst: "design/<key>/render/<frame>.png"`).
-   Read the changed ratio, classify the largest delta, fix, recapture. **Max 4
-   passes per frame.**
+   **Iterate until `changedRatio` < 0.10, or you have done 4 passes** —
+   whichever comes first. One pass at 0.28 is not done. After each pass:
+   `inspect_image_asset` the diff PNG, find the **largest red region**, name
+   what it is (a missing section, wrong column count, wrong font size, wrong
+   background), fix that one thing, recapture. Record each pass's ratio in
+   `REPLICA.md`.
 5. **Finish** with the §22 audit table (per frame/width: render vs. replica,
    largest remaining delta, acceptance level) + **token provenance** (Variables
    / inferred) + the asset list (copied / substituted). No "pixel-perfect"
@@ -70,6 +117,12 @@ tree at a time.
 
 ## Acceptance flags
 
+- **Any invented content** — a metric, label, card, or section that is not in
+  the tree — ⇒ the replica has failed. Redo it from the actual strings.
+- A section visible in `render/<frame>.png` that is missing from the build ⇒
+  **not** acceptance level A or B.
+- Fewer than 2 diff passes, or a final `changedRatio` over 0.15 with no
+  explanation in `REPLICA.md` ⇒ not done.
 - Any `position: absolute` on a content node ⇒ **not** acceptance level A.
 - Tokens dumped raw (a variable per hex with no scale) ⇒ not a design system —
   fold them into a coherent scale in `DESIGN.md`.

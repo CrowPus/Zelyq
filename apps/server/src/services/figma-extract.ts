@@ -89,7 +89,38 @@ export class FigmaExtractService {
         );
       }
 
-      let frames: Json[] = [targetDoc];
+      // A link with node-id=0-1 (or any page/canvas) points at a whole PAGE,
+      // not a frame — descend to its top-level FRAME/COMPONENT children so
+      // bboxes are frame-relative and each frame is its own tree file.
+      let frames: Json[];
+      if (
+        (targetDoc.type === "CANVAS" || targetDoc.type === "DOCUMENT") &&
+        Array.isArray(targetDoc.children)
+      ) {
+        const childFrames: Json[] = targetDoc.children.filter(
+          (c: Json) => c.type === "FRAME" || c.type === "COMPONENT" || c.type === "SECTION",
+        );
+        if (childFrames.length === 0) {
+          return fail(
+            `The link points at a Figma page with no frames. Select a specific frame in Figma and Copy link to it.`,
+          );
+        }
+        frames = childFrames.slice(0, MAX_FRAMES);
+        if (childFrames.length > MAX_FRAMES) {
+          notes.push(`page has ${childFrames.length} frames; capped at ${MAX_FRAMES}`);
+        }
+        // Re-fetch each frame at full depth from its own id — a depth-N pull
+        // from the canvas is N-1 levels into the frame, which can clip a deep
+        // dashboard.
+        const ids = frames.map((f) => f.id).join(",");
+        const full = await this.figma<Json>(
+          input.userId,
+          `/v1/files/${enc(key)}/nodes?ids=${enc(ids)}&depth=${NODE_DEPTH}`,
+        );
+        frames = frames.map((f) => full?.nodes?.[f.id]?.document ?? f);
+      } else {
+        frames = [targetDoc];
+      }
       if (input.wholePage) {
         // The node response includes the parent chain only via a second call;
         // cheap path: pull the file at depth 2 and take the target's page.
@@ -373,21 +404,30 @@ export function buildFigmaDirective(
     `renders in render/, image assets in assets/, plus manifest.json and (if the seat`,
     `allowed it) tokens.json. Frames: ${list}.`,
     ``,
-    `Follow the complete-replica-engineering skill's Figma-design profile:`,
-    `1. Write ${bundleDir}/REPLICA.md — the build plan — from the trees + renders: each`,
-    `   frame's section inventory, the typography and color it uses, which frames are`,
-    `   routes vs. sections of one page, and the acceptance level. No component code`,
-    `   before this file exists.`,
+    `Follow the complete-replica-engineering skill's Figma-design profile. This is a`,
+    `REPLICA: your build must contain EVERY string in the tree verbatim (every heading,`,
+    `label, number, caption) and EVERY section the render shows — do not invent`,
+    `"representative" metrics or a "similar" set of cards. If the tree lists a text node`,
+    `it appears in your output.`,
+    ``,
+    `1. Write ${bundleDir}/REPLICA.md — from the trees + renders: a full section`,
+    `   inventory (count the panels/cards/rows in the render and list each with its`,
+    `   text), the typography and colors it uses, the layout grid, and the acceptance`,
+    `   level. No component code before this file exists.`,
     `2. Turn the tokens (tokens.json, or inferred from styles.json + the frames) into the`,
     `   project's theme — CSS variables + the Tailwind config — and a root DESIGN.md.`,
-    `3. Build in THIS project's own framework, macro geometry first. Translate auto-layout`,
-    `   to flexbox/grid; where a node has no layout (layoutMode NONE) infer structure from`,
-    `   the bboxes — NEVER position:absolute for page content. Copy assets from`,
-    `   ${bundleDir}/assets/ locally; substitute + log any that are missing in`,
-    `   ${bundleDir}/asset-gaps.md.`,
-    `4. Run the screenshot-diff loop: start_preview, then capture_reference with`,
-    `   mode "single", url = the preview, diffAgainst = "${bundleDir}/render/<frame>.png" (the frame's slug — see manifest.json).`,
-    `   Fix the largest delta, recapture. Max 4 passes per frame.`,
+    `3. Build in THIS project's own framework, macro geometry first. Most Figma files`,
+    `   have NO auto-layout — the frame's children are a flat list of rectangles`,
+    `   (card/panel backgrounds) and text nodes with bboxes: sort by bbox.y then bbox.x,`,
+    `   treat a big rectangle as a container and the text/vectors inside its bbox as its`,
+    `   contents, group same-y nodes into flex/grid rows. NEVER position:absolute for`,
+    `   page content. Copy assets from ${bundleDir}/assets/ locally; substitute + log`,
+    `   any missing in ${bundleDir}/asset-gaps.md.`,
+    `4. Diff loop — NOT one pass. start_preview, then capture_reference (mode "single",`,
+    `   width = the frame's bbox.w, url = the preview, diffAgainst =`,
+    `   "${bundleDir}/render/<frame>.png"). Iterate until changedRatio < 0.10 or 4`,
+    `   passes. After each pass, inspect_image_asset the diff PNG, fix the largest red`,
+    `   region, recapture. Record every pass's ratio in REPLICA.md.`,
     `5. Finish with the audit table (per frame/width: render vs replica, largest delta,`,
     `   acceptance level A/B/C) and token provenance (Variables / inferred). No`,
     `   "pixel-perfect" without the diff numbers.`,
