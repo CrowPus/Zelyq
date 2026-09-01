@@ -29,9 +29,17 @@ export function registerFigmaRoutes(
     return { connection: await figma.connectionForUser(user.id) };
   });
 
-  app.post("/api/integrations/figma/oauth/start", async (request) => {
-    const user = access.requireUser(request);
-    return { url: figma.beginOAuth(user).url };
+  app.post("/api/integrations/figma/oauth/start", {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: "1 minute",
+      },
+    },
+    handler: async (request) => {
+      const user = access.requireUser(request);
+      return { url: figma.beginOAuth(user).url };
+    },
   });
 
   // Figma redirects the browser here after consent.
