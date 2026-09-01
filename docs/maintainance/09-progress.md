@@ -201,6 +201,32 @@ reconfigure the agent. The prompt subordination is the mitigation until then.
 | F6 | invention half of `max_files_changed` | ✅ | `maint/phase1` — `no_unrequested_components` |
 | F4 | cache tokens + a dollar figure in the eval report | ✅ | `maint/phase1` — `evals/rates.ts` |
 | A2 | persisted `write_file`/`edit_file` input bodies | ✅ (companion) | `maint/phase1` — `stripHeavyToolInputs` |
+| G1 | dark-SaaS default template | ✅ | `maint/phase1` — neutral `App.tsx` |
+| G2 | nowhere for a type/spacing scale | ✅ | `maint/phase1` — `@theme` block in `index.css` |
+
+---
+
+## G1 + G2 — the starting point
+
+**Where:** `maint/phase1`. [08-the-starting-point.md](./08-the-starting-point.md) §1 / §2.
+
+**Why now:** these need no eval run (they don't touch the prompt — a screenshot is the test) and
+G1 is the same template/prompt mismatch behind two of the F6 icon false-failures.
+
+**What shipped:**
+
+- `templates/vite-react/src/App.tsx` — `bg-white text-neutral-900` + `dark:` variants, no accent
+  colour, no `font-mono`, no uppercase tracked micro-label. The `<h1>Your app starts here.</h1>`
+  copy the e2e suite pins is untouched.
+- `templates/vite-react/src/index.css` — a Tailwind v4 `@theme` block: neutral `--color-brand-*`
+  ramp, `--font-display` / `--font-body`, `--radius-card` / `--radius-control`, each commented as
+  the thing to set. Neutral on purpose; filling it in is the identity decision.
+
+**Verified:** scaffolded the template into a temp dir, `npm install` + `tsc --noEmit` + `vite build`
+all clean (CSS 7.24 kB with the generated brand utilities).
+
+**G3 not done:** icons-in-one-file (prompt) and `lucide-react` (dependency) both need the
+before/after eval run per this folder's rule. Left for that pass.
 
 ---
 

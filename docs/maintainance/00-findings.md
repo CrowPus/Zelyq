@@ -876,6 +876,11 @@ project unless the agent fights it.
 `text-neutral-900` with no accent at all. The newer template already got it right, which is good
 evidence the old one is a legacy artifact rather than a decision.
 
+**Fixed — 2026-09-01.** `templates/vite-react/src/App.tsx` now opens on `bg-white text-neutral-900`
+(with `dark:` variants), no accent colour, no `font-mono`, no uppercase tracked label. The `<h1>Your
+app starts here.</h1>` copy is unchanged. Scaffold + `tsc` + `vite build` clean. No prompt change,
+so no eval run needed — a screenshot is the test.
+
 → Solution: [08-the-starting-point.md](./08-the-starting-point.md) §1
 
 ---
@@ -891,6 +896,12 @@ carrying real colour roles, a type scale, and spacing/radius/elevation.
 inlines one-off values in every component — the thing the prompt forbids — or invents a new file,
 which costs it a slot against the restraint budget. It is also the missing link between the
 Architect writing a design system and the build actually implementing one.
+
+**Fixed — 2026-09-01.** `templates/vite-react/src/index.css` now carries a Tailwind v4 `@theme`
+block, pre-filled with a neutral brand ramp (`--color-brand-*`), a display/body font pair and
+`--radius-card` / `--radius-control`, commented as the place to commit a scale rather than sizing
+one-off. Values are deliberately neutral so setting them is an identity decision, not a default.
+`vite build` compiles it clean.
 
 → Solution: [08-the-starting-point.md](./08-the-starting-point.md) §2
 

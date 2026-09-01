@@ -60,6 +60,13 @@ somebody's design:
 The bar: a screenshot of the template should tell a designer nothing about what the app is going to
 look like. Today it tells them "dark SaaS".
 
+### Done — 2026-09-01
+
+`templates/vite-react/src/App.tsx`: `bg-white text-neutral-900` with `dark:` variants, no accent, no
+`font-mono`, no uppercase tracked label; the "Your app starts here." copy and the `<h1>` the e2e
+suite asserts are unchanged. Verified by scaffolding the template and running `tsc --noEmit` +
+`vite build` — both clean.
+
 ---
 
 ## 2. There is nowhere to put a type scale or a spacing scale
@@ -109,6 +116,13 @@ Two things this buys beyond tidiness. The agent gets an obvious, conventional ho
 the prompt already demands — so "commit to a scale" becomes a file edit rather than an act of
 invention. And `DESIGN.md`'s starter palette gets somewhere to be *implemented*, which is currently
 the gap between the Architect writing a design system and the build using one.
+
+### Done — 2026-09-01
+
+`templates/vite-react/src/index.css` now has an `@theme` block: a neutral `--color-brand-50..950`
+ramp, `--font-display` / `--font-body`, `--radius-card` / `--radius-control`, each commented as the
+thing to set rather than inline. Neutral on purpose — a single grey ramp reads as "no decision
+made", so filling it in is the identity step. `vite build` compiles the generated utilities clean.
 
 ---
 
@@ -181,10 +195,13 @@ minutes, and the baselines already exist (`2026-09-01T10-54-08-227Z.json`,
 
 | change | fixes | effort | payoff |
 | --- | --- | --- | --- |
-| Neutral default scaffold — no dark, no accent, no mono | G1 | small | the agent stops having to undo its own starting point |
-| `@theme` token block in `index.css` | G2 | small | "commit to a scale" and `DESIGN.md` finally have somewhere to land |
+| Neutral default scaffold — no dark, no accent, no mono **(done)** | G1 | small | the agent stops having to undo its own starting point |
+| `@theme` token block in `index.css` **(done)** | G2 | small | "commit to a scale" and `DESIGN.md` finally have somewhere to land |
 | Icons-in-one-file prompt rule | G3 | one line | removes a measured false restraint failure |
 | `lucide-react` in the template | G3 | small | removes the bind entirely |
+
+**G3 is not done** — both its options are prompt/dependency changes and this folder's rule is that
+those get a before/after eval run on `claude-opus-5` first. Left for that pass.
 
 Four files. No agent logic, no API change, no new abstraction. Of everything in this folder, this is
 the highest ratio of user-visible quality to effort — because it changes what *every* project looks
