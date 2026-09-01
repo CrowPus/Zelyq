@@ -196,7 +196,12 @@ class AnthropicConversation implements Conversation {
         thinking: { type: "adaptive", display: "summarized" },
         output_config: { effort: this.options.effort },
         tools: toAnthropicTools(this.options.tools),
-        messages: this.messages,
+        // A second breakpoint on the last message caches the whole conversation
+        // prefix — every prior assistant turn and tool result. Without it an
+        // agentic turn re-pays full input price for the entire growing
+        // transcript on every step, which on an expensive model is the
+        // difference between cents and tens of dollars for one build.
+        messages: withConversationCacheBreakpoint(this.messages),
       },
       { signal },
     );
@@ -237,6 +242,35 @@ class AnthropicConversation implements Conversation {
       },
     };
   }
+}
+
+/**
+ * Returns a copy of `messages` with a single `cache_control` breakpoint on the
+ * last message's last content block. Everything before it — the full
+ * conversation prefix — is then served from Anthropic's prompt cache on the
+ * next step at ~10% of the input price, instead of being re-charged in full on
+ * every agentic iteration.
+ *
+ * `messages` itself is never mutated: no breakpoint is ever stored, so there is
+ * always exactly one message breakpoint (plus the system one) and never the
+ * stale, accumulating breakpoints that would blow past Anthropic's limit of
+ * four.
+ */
+export function withConversationCacheBreakpoint(
+  messages: Anthropic.MessageParam[],
+): Anthropic.MessageParam[] {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  if (!last) return messages;
+  const blocks: Anthropic.ContentBlockParam[] =
+    typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...last.content];
+  if (blocks.length === 0) return messages;
+  const tail = blocks[blocks.length - 1];
+  blocks[blocks.length - 1] = {
+    ...tail,
+    cache_control: { type: "ephemeral" },
+  } as Anthropic.ContentBlockParam;
+  return [...messages.slice(0, -1), { role: last.role, content: blocks }];
 }
 
 function toAnthropicTools(tools: ToolDefinition[]): Anthropic.Tool[] {
