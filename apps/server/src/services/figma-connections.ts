@@ -119,8 +119,6 @@ export class FigmaConnectionService {
     }
 
     const token = await this.tokenRequest(FIGMA_OAUTH_TOKEN, {
-      client_id: this.oauth.clientId,
-      client_secret: this.oauth.clientSecret,
       redirect_uri: this.oauth.redirectUrl,
       code,
       grant_type: "authorization_code",
@@ -218,9 +216,8 @@ export class FigmaConnectionService {
     let token: TokenResponse;
     try {
       token = await this.tokenRequest(FIGMA_OAUTH_REFRESH, {
-        client_id: this.oauth.clientId,
-        client_secret: this.oauth.clientSecret,
         refresh_token: refreshToken,
+        grant_type: "refresh_token",
       });
     } catch {
       await this.store.providerConnections.setConnectionStatus(connectionId, "expired");
@@ -242,9 +239,18 @@ export class FigmaConnectionService {
     endpoint: string,
     params: Record<string, string>,
   ): Promise<TokenResponse> {
+    if (!this.oauth) throw new ZelyqError("bad_request", "Figma is not configured.");
+    // Figma's api.figma.com/v1/oauth/{token,refresh} authenticate the client
+    // with HTTP Basic (base64 client_id:client_secret), not body params.
+    const basic = Buffer.from(`${this.oauth.clientId}:${this.oauth.clientSecret}`).toString(
+      "base64",
+    );
     const res = await this.fetch(endpoint, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        authorization: `Basic ${basic}`,
+      },
       body: new URLSearchParams(params).toString(),
     });
     if (!res.ok) {
