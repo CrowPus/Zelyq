@@ -304,6 +304,9 @@ export const api = {
       body: JSON.stringify({ content }),
     }),
 
+  deleteFile: (id: string, path: string) =>
+    request<void>(`/projects/${id}/files/${encodeURI(path)}`, { method: "DELETE" }),
+
   getPreview: (id: string) => request<{ preview: Preview }>(`/projects/${id}/preview`),
 
   startPreview: (id: string) =>

@@ -313,12 +313,32 @@ export function ProjectEditorPage() {
                 entries={files.data?.entries ?? []}
                 selected={selectedPath}
                 loading={files.isLoading}
+                canEdit={canEdit}
                 onSelect={(next) => {
                   // Picking a file from the tree means "show me the file", not
                   // "show me what some turn did to it".
                   setCompareSnapshotId(null);
                   setCompareAfterSnapshotId(null);
                   setSelectedPath(next);
+                }}
+                onCreate={async (path, isDir) => {
+                  // A folder is an empty file at `<path>/.gitkeep` — the runtime
+                  // makes intermediate directories on write either way.
+                  const target = isDir ? `${path}/.gitkeep` : path;
+                  await api.writeFile(id, target, "");
+                  await queryClient.invalidateQueries({ queryKey: ["files", id] });
+                  if (!isDir) {
+                    setCompareSnapshotId(null);
+                    setCompareAfterSnapshotId(null);
+                    setSelectedPath(path);
+                  }
+                }}
+                onDelete={async (path) => {
+                  await api.deleteFile(id, path);
+                  await queryClient.invalidateQueries({ queryKey: ["files", id] });
+                  if (selectedPath === path || selectedPath?.startsWith(`${path}/`)) {
+                    setSelectedPath(null);
+                  }
                 }}
               />
             </div>
