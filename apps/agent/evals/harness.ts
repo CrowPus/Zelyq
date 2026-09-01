@@ -55,6 +55,8 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     toolErrors: 0,
     tokensIn: 0,
     tokensOut: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
     filesChanged: [],
     reply: "",
     durationMs: 0,
@@ -104,6 +106,10 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
           result.rounds += 1;
           result.tokensIn = event.tokensIn;
           result.tokensOut = event.tokensOut;
+          // Absent on providers without prompt caching — keep the last non-zero
+          // rather than clobbering with an undefined-coalesced 0.
+          result.cacheReadTokens = event.cacheReadTokens ?? result.cacheReadTokens;
+          result.cacheCreationTokens = event.cacheCreationTokens ?? result.cacheCreationTokens;
           break;
         case "text.delta":
           result.reply += event.text;

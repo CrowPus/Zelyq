@@ -118,17 +118,18 @@ disconnected products — the Architect writes the file, every later session rea
 Phase 1 is defensible on reasoning alone. Phase 2 is not, and should not be attempted without
 numbers.
 
-### 2.1 — Cache tokens and a dollar figure in the eval report
+### 2.1 — Cache tokens and a dollar figure in the eval report — **done 2026-09-01**
 
 [06](./06-measurement.md) §2 · fixes **F4** · small
 
-Tokens are already measured and `--compare` already shows a delta — that part was wrong in an
-earlier draft. What is missing is the cache read/creation fields (blocked on 1.1) and a rate table.
+`CaseResult.cacheReadTokens` / `cacheCreationTokens` (from the A4 fields), `evals/rates.ts` with
+`estimateCostUsd`, the report's `tokens` line switched to the total prompt size with a cached-%
+note, a new `cost` line, and cost + total-token deltas in `--compare`. `eval-cost.test.ts` (7);
+replaying the 2026-09-01 `claude-opus-5` run reproduces the doc's $2.94.
 
-**This is not optional alongside 1.1, it is part of it.** On Anthropic, `input_tokens` excludes
-cached tokens, so shipping the caching work without this makes the suite report `tokensIn` falling
-~90% while the real request size is unchanged — a spectacular-looking number measuring the wrong
-quantity.
+Shipping the caching work without this would have made the suite report `tokensIn` falling ~90%
+while the real request size was unchanged — the number now reported is the total, so that trap is
+closed.
 
 ### 2.2 — Effort tuning
 

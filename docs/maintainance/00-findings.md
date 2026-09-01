@@ -711,6 +711,15 @@ signed token delta between two runs. That is most of the axis, and it was alread
 change doubled the token count. It cannot yet tell you whether a caching change worked, or what any
 of it costs.
 
+**Fixed — 2026-09-01.** A4 landed the cache fields on `TurnResult.usage` and the `usage` event.
+`CaseResult` now carries `cacheReadTokens` / `cacheCreationTokens`; the report's `tokens` line shows
+the **total** prompt size (`in + cache_read + cache_creation`) with a `· NN% cached` note, and a new
+`cost` line prices it — cache reads at 0.1×, the cache write at 1.25× — from a hand-maintained
+`evals/rates.ts`. `--compare` gained a cost delta and its token delta switched to the total, so a
+caching change no longer reads as a 90% token drop that never happened. Replayed against the
+2026-09-01 `claude-opus-5` run it reproduces the doc's $2.94. An unpriced model prints `—`, not a
+guess.
+
 → Solutions: [06-measurement.md](./06-measurement.md)
 
 ### F5 — A provider error is scored as agent failure, and the suite runs on regardless `high`

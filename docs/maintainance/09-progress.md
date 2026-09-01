@@ -199,6 +199,38 @@ reconfigure the agent. The prompt subordination is the mitigation until then.
 | B2/B3/B4 | read_file paging, edit/write diffs, per-path lock | ✅ | `d0f796b` |
 | D1 | `AGENTS.md` | ✅ | this branch |
 | F6 | invention half of `max_files_changed` | ✅ | `maint/phase1` — `no_unrequested_components` |
+| F4 | cache tokens + a dollar figure in the eval report | ✅ | `maint/phase1` — `evals/rates.ts` |
+
+---
+
+## F4 — cost axis in the eval report
+
+**Where:** `maint/phase1`, on top of F6. [06-measurement.md](./06-measurement.md) §2 / roadmap 2.1.
+
+**Why now:** the founder is about to run `pnpm eval` on `claude-opus-5`. A4 already captured the
+cache tokens; without this the report shows them as a ~90% `tokensIn` drop and never converts any
+of it to money.
+
+**What shipped:**
+
+- `CaseResult` gained `cacheReadTokens` / `cacheCreationTokens`; `harness.ts` accumulates them off
+  the `usage` event next to `tokensIn` / `tokensOut`.
+- `evals/rates.ts` — hand-maintained per-model USD rates (deliberately *not* in `PROVIDERS`; the
+  report is the only consumer). `estimateCostUsd` prices cache reads at 0.1× and the cache write at
+  1.25× the input rate; `totalPromptTokens`, `cachedFraction`, `formatUsd`. No entry → `null` → the
+  report prints `—`, never a guessed number.
+- `run.ts`: the `tokens` line now reports the **total** prompt size with a `· NN% cached` note; a
+  new `cost` line; per-case `$`; `--compare` gained a `cost` delta and its token delta moved from
+  `tokensIn` to the total, so the caching work can't read as a phantom 90% saving.
+- `apps/agent/test/eval-cost.test.ts` — 7 cases. Replayed against the recorded 2026-09-01
+  `claude-opus-5` run the suite figure is $2.94, matching the doc; old result JSONs with no cache
+  fields don't `NaN`.
+
+**Verified:** `pnpm --filter @zelyq/agent typecheck` clean, agent suite 363/363, biome clean, and
+the $2.94 replay above.
+
+**Still open (Phase 2, needs the eval run):** 2.2 effort tuning, 2.3 mode/specialist coverage,
+2.4 context editing.
 
 ---
 

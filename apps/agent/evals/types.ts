@@ -165,8 +165,19 @@ export interface CaseResult {
   rounds: number;
   toolCalls: number;
   toolErrors: number;
+  /**
+   * On Anthropic and OpenAI this is the **uncached** part of the prompt only —
+   * the true prompt size is `tokensIn + cacheReadTokens + cacheCreationTokens`.
+   * See `evals/rates.ts`. A working conversation cache makes this fall ~90%
+   * while the request is unchanged, so it must never be read on its own.
+   */
   tokensIn: number;
   tokensOut: number;
+  /** Prompt tokens served from the cache at ~0.1×. 0 when the provider has no
+   * prompt caching or the field was absent. */
+  cacheReadTokens: number;
+  /** Prompt tokens written to the cache at ~1.25×, the one-time cost of a miss. */
+  cacheCreationTokens: number;
   filesChanged: string[];
   /** The agent's final message. Some requests are answered, not built. */
   reply: string;

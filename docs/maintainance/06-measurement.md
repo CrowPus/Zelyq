@@ -98,7 +98,7 @@ prompt size and the cached fraction, not just the uncached remainder.
 
 ### A dollar figure
 
-`PROVIDERS` carries `models[].tier` but no rates. Add `inputPer1M` / `outputPer1M` and compute:
+`PROVIDERS` carries `models[].tier` but no rates. Compute:
 
 ```
 (input × in) + (cache_read × in × 0.1) + (cache_creation × in × 1.25) + (output × out)
@@ -110,6 +110,26 @@ get cheaper".
 
 Anchored on the last full run, `claude-opus-5` at $5/$25 per MTok puts a 22-case suite at roughly
 **$8–15**.
+
+### Done — 2026-09-01
+
+A4 shipped the cache fields (`TurnResult.usage`, the `usage` event). On top of that:
+
+- `CaseResult` gained `cacheReadTokens` / `cacheCreationTokens`, accumulated in `harness.ts`
+  alongside `tokensIn` / `tokensOut`.
+- `evals/rates.ts` — a hand-maintained per-model rate table (not in `PROVIDERS`; the eval report is
+  its only consumer). `estimateCostUsd`, `totalPromptTokens`, `cachedFraction`, `formatUsd`. A model
+  with no entry returns `null` and the report shows `—` rather than a fabricated number.
+- The report's `tokens` line now reads the **total** prompt size with a `· NN% cached` note, not the
+  uncached remainder. New `cost` line. `--compare` gained a `cost` delta, and its token delta
+  switched from `tokensIn` to the total — so shipping conversation caching no longer shows up as a
+  spurious ~90% token drop.
+- `apps/agent/test/eval-cost.test.ts` — 7 cases. Replayed against the recorded 2026-09-01
+  `claude-opus-5` run, the suite figure comes out at $2.94, matching this doc.
+
+The rate table is best-effort and dated by its own comment. `claude-opus-5` is anchored to the
+$5/$25 above; the rest of the Claude family follows Anthropic's list ratios; non-Anthropic entries
+are estimates for the models the suite has actually run on.
 
 ### One caution
 
@@ -413,7 +433,7 @@ dissolve under thirty seconds of that inspection; the third does not, and is the
 | change | fixes | effort | payoff |
 | --- | --- | --- | --- |
 | Run the suite on `claude-opus-5` | F1 | **one command** | the first real baseline for the shipped product |
-| Cache tokens + a dollar figure (tokens already there) | F4 | small | makes [01](./01-context-and-cost.md) §1 verifiable at all |
+| Cache tokens + a dollar figure **(done)** | F4 | small | makes [01](./01-context-and-cost.md) §1 verifiable at all |
 | Engineer-Mode-specific checks (`Purpose:`, checkpoint, labelling) | F3 | small | the existing `--engineer-mode` A/B starts measuring the mode, not the model |
 | Expo + `/clone` cases | F3 | medium | two shipped features with zero behavioural coverage |
 | Specialist honesty-gate cases | F3 | medium | protects the guarantee the specialists rest on |

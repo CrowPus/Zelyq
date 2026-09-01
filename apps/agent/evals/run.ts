@@ -10,6 +10,13 @@ import { PROVIDERS, speaksOpenAIDialect } from "../src/providers/index.js";
 import { listResources, loadSkills } from "../src/skills.js";
 import { selectCases } from "./cases.js";
 import { runCase } from "./harness.js";
+import {
+  cachedFraction,
+  estimateCostUsd,
+  formatUsd,
+  type TokenCounts,
+  totalPromptTokens,
+} from "./rates.js";
 import type { CaseResult, SuiteResult } from "./types.js";
 import { EVAL_WORKSPACE, prepareBaseProject } from "./workspace.js";
 
@@ -144,7 +151,7 @@ const results = await pool(cases, Number.parseInt(values.concurrency, 10), async
     ...(values["engineer-mode"] ? { engineerMode: true } : {}),
     ...(engineerModeSkill ? { engineerModeSkill } : {}),
   });
-  console.log(line(result));
+  console.log(line(result, config.model));
   return result;
 });
 
@@ -191,7 +198,7 @@ process.exit(results.every((result) => result.done) ? 0 : 1);
 
 // ---------------------------------------------------------------------------
 
-function line(result: CaseResult): string {
+function line(result: CaseResult, model: string): string {
   const failed = result.checks.filter((check) => !check.ok);
   const mark = result.clean ? "✓" : result.done ? "◑" : result.intact ? "~" : "✗";
   const detail = result.error
@@ -199,11 +206,13 @@ function line(result: CaseResult): string {
     : failed.length
       ? failed.map((check) => check.label).join(", ")
       : "";
+  const cost = estimateCostUsd(model, tokenCountsOf(result));
   return [
     ` ${mark} ${result.id.padEnd(22)}`,
     `${String(result.rounds).padStart(2)} rounds`,
     `${String(result.toolCalls).padStart(3)} tools`,
     `${String(Math.round(result.durationMs / 1000)).padStart(4)}s`,
+    cost !== null && `${formatUsd(cost).padStart(6)}`,
     detail && ` — ${detail}`,
   ]
     .filter(Boolean)
@@ -227,7 +236,8 @@ function report(suite: SuiteResult, elapsedMs: number): void {
 
  rounds   median ${median(suite.cases.map((r) => r.rounds))}
  tools    median ${median(suite.cases.map((r) => r.toolCalls))}   ${suite.cases.reduce((sum, r) => sum + r.toolErrors, 0)} tool errors total
- tokens   ${fmt(suite.cases.reduce((sum, r) => sum + r.tokensIn, 0))} in · ${fmt(suite.cases.reduce((sum, r) => sum + r.tokensOut, 0))} out
+ tokens   ${fmt(totalPromptTokens(suiteTokens(suite.cases)))} in · ${fmt(suiteTokens(suite.cases).tokensOut)} out${cachedNote(suiteTokens(suite.cases))}
+ cost     ${formatUsd(suiteCostUsd(suite))}${costCaveat(suite.model)}
  wall     ${Math.round(elapsedMs / 1000)}s
  prompt   ${suite.promptHash}
 ─────────────────────────────────────────────`);
@@ -293,8 +303,14 @@ async function compare(suite: SuiteResult, previousPath: string): Promise<void> 
 
   const roundsBefore = sum(wasPaired, (r) => r.rounds);
   const roundsAfter = sum(paired, (r) => r.rounds);
-  const tokensBefore = sum(wasPaired, (r) => r.tokensIn);
-  const tokensAfter = sum(paired, (r) => r.tokensIn);
+  // Total prompt size, not the uncached remainder — `tokensIn` alone falls ~90%
+  // the day conversation caching ships while the real request is unchanged, and
+  // `--compare` would report that as the biggest win in the project's history.
+  // Results recorded before the cache fields existed coalesce to `tokensIn`.
+  const tokensBefore = sum(wasPaired, promptTokensOf);
+  const tokensAfter = sum(paired, promptTokensOf);
+  const costBefore = sum(wasPaired, (r) => estimateCostUsd(previous.model, tokenCountsOf(r)) ?? 0);
+  const costAfter = sum(paired, (r) => estimateCostUsd(suite.model, tokenCountsOf(r)) ?? 0);
   const timeBefore = sum(wasPaired, (r) => r.durationMs);
   const timeAfter = sum(paired, (r) => r.durationMs);
 
@@ -317,6 +333,7 @@ async function compare(suite: SuiteResult, previousPath: string): Promise<void> 
 
    rounds   ${roundsBefore} → ${roundsAfter}  (${delta(roundsBefore, roundsAfter)})
    tokens   ${fmt(tokensBefore)} → ${fmt(tokensAfter)} in  (${delta(tokensBefore, tokensAfter)})
+   cost     ${formatUsd(costBefore || null)} → ${formatUsd(costAfter || null)}  (${delta(costBefore, costAfter)})
    wall     ${Math.round(timeBefore / 1000)}s → ${Math.round(timeAfter / 1000)}s  (${delta(timeBefore, timeAfter)})
 
    biggest movers (rounds)
@@ -356,4 +373,59 @@ function median(values: number[]): number {
 
 function fmt(value: number): string {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
+}
+
+/** The four token counts summed across a run. */
+function suiteTokens(cases: CaseResult[]): TokenCounts {
+  return cases.reduce<TokenCounts>(
+    (sum, r) => ({
+      tokensIn: sum.tokensIn + r.tokensIn,
+      tokensOut: sum.tokensOut + r.tokensOut,
+      cacheReadTokens: sum.cacheReadTokens + r.cacheReadTokens,
+      cacheCreationTokens: sum.cacheCreationTokens + r.cacheCreationTokens,
+    }),
+    { tokensIn: 0, tokensOut: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
+  );
+}
+
+/** `  · 94% cached`, or nothing when the provider served nothing from cache. */
+function cachedNote(counts: TokenCounts): string {
+  const fraction = cachedFraction(counts);
+  return fraction && fraction > 0 ? `   · ${Math.round(fraction * 100)}% cached` : "";
+}
+
+/** A CaseResult's token counts, tolerant of results saved before the cache
+ * fields existed. */
+function tokenCountsOf(r: CaseResult): TokenCounts {
+  return {
+    tokensIn: r.tokensIn,
+    tokensOut: r.tokensOut,
+    cacheReadTokens: r.cacheReadTokens ?? 0,
+    cacheCreationTokens: r.cacheCreationTokens ?? 0,
+  };
+}
+
+function promptTokensOf(r: CaseResult): number {
+  return totalPromptTokens(tokenCountsOf(r));
+}
+
+function suiteCostUsd(suite: SuiteResult): number | null {
+  let total = 0;
+  for (const result of suite.cases) {
+    const cost = estimateCostUsd(suite.model, tokenCountsOf(result));
+    if (cost === null) return null; // no rate for this model → no honest figure
+    total += cost;
+  }
+  return total;
+}
+
+function costCaveat(model: string): string {
+  return estimateCostUsd(model, {
+    tokensIn: 1,
+    tokensOut: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  }) === null
+    ? `   (no rate for ${model} — see evals/rates.ts)`
+    : "   (est., evals/rates.ts)";
 }
