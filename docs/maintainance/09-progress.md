@@ -21,6 +21,28 @@ Order (from the roadmap, adjusted for what's already done):
 
 ---
 
+## Session 2026-09-01 (evening) — Phase 2/4 items that need no eval run and no founder call
+
+All on `maint/phase1`, each its own commit, full matrix green. Written up in detail below.
+
+| # | what | commit |
+|---|---|---|
+| F6 (invention half) | `no_unrequested_components` eval check | `e39d882` |
+| F4 | cost axis in the eval report (`evals/rates.ts`) | `366a292` |
+| A2 (companion) | `stripHeavyToolInputs` — drop file bodies from persisted history | `c670f9a` |
+| G1 + G2 | neutral vite-react template + `@theme` token layer | `aec8d48` |
+| F5 | don't score a case the model never reached (`neverRan`) | `097c99c` |
+| E1 §5 | `run_command` injection/exfil denylist | `ecd0452` |
+| B5 | `find_files` + `glob`/`context_lines` on `search_files` | `ee6aa21` |
+| F2 (gate) | prompt-hash CI check (non-blocking until a baseline exists) | `4154d3f` |
+
+**Left for the founder** (each noted in its section): the `claude-opus-5` eval run — which gates
+G3, the `<scope>` prompt half of F6, a `<how_to_work>` mention of `find_files`, flipping the F2 gate
+to blocking, and F2's per-PR smoke set (needs a CI key). Provider-beta / product-call items
+untouched: C2, C5, D3, 2.2, 2.3, 3.1–3.4, E1 §4.
+
+---
+
 ## A4 — capture cache tokens, correct the counter, 2-breakpoint upgrade
 
 **Branch:** `maint/a4-cache-usage`
