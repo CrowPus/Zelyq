@@ -200,6 +200,32 @@ reconfigure the agent. The prompt subordination is the mitigation until then.
 | D1 | `AGENTS.md` | ✅ | this branch |
 | F6 | invention half of `max_files_changed` | ✅ | `maint/phase1` — `no_unrequested_components` |
 | F4 | cache tokens + a dollar figure in the eval report | ✅ | `maint/phase1` — `evals/rates.ts` |
+| A2 | persisted `write_file`/`edit_file` input bodies | ✅ (companion) | `maint/phase1` — `stripHeavyToolInputs` |
+
+---
+
+## A2 — drop persisted file bodies from tool-call history
+
+**Where:** `maint/phase1`, on top of F4. [01-context-and-cost.md](./01-context-and-cost.md) §2 the
+"Zelyq-side companion change"; the Anthropic-only live-turn `clear_tool_uses_20250919` is still open.
+
+**Why now:** `write_file` + `edit_file` inputs are ~1.27M tokens / 68.5% of every tool-call byte in
+the DB, and every one duplicates a file that is on disk. This half needs no beta header and also
+fixes the post-restart history-reconstruction path.
+
+**What shipped:**
+
+- `stripHeavyToolInputs(calls)` in `packages/core/src/models.ts` — replaces `write_file.content`
+  and `edit_file.old_text` / `new_text` over 200 chars with `OMITTED_TOOL_INPUT_MARKER`. Other
+  fields, other tools, and short values are left alone; pure copy, no mutation.
+- `ChatGateway` applies it to `assistant.toolCalls` in the `finally` immediately before
+  `store.messages.append`. The `turn.end` broadcast just above still sends the full copy to the live
+  client (which doesn't render it anyway — `ToolRow` shows `input.path` and `result`).
+- The history rebuilders (`buildAnthropicHistory` + OpenAI/Google) pair the shortened `tool_use`
+  input with its unchanged `tool_result` summary; a model needing current bytes calls `read_file`.
+
+**Verified:** `@zelyq/core` typecheck + build clean, 6 new tests (`test/tool-calls.test.ts`);
+`@zelyq/server` typecheck clean, 215/215; biome clean.
 
 ---
 

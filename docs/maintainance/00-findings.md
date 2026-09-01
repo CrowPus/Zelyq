@@ -113,6 +113,13 @@ with *how much code the agent writes*, which is exactly the workload the product
 stateless replay of a tool-use conversation looks like. The API grew a feature for it
 (`clear_tool_uses_20250919` with `clear_tool_inputs: true`) and Zelyq has not adopted it.
 
+**Companion change shipped — 2026-09-01.** `stripHeavyToolInputs` (`packages/core/src/models.ts`)
+replaces `write_file.content` and `edit_file.old_text` / `new_text` over 200 chars with a marker
+before `ChatGateway` persists an assistant message. The live turn keeps the full copy; every session
+rebuilt from history after that — a restart, a subagent — no longer recarries the bodies. The
+transcript UI never rendered them (it shows `input.path` and `result`). Provider-agnostic, no beta
+header. The API-side `clear_tool_uses_20250919` (Anthropic-only, live turns) is still open.
+
 → Solution: [01-context-and-cost.md](./01-context-and-cost.md) §2
 
 ---

@@ -7,6 +7,7 @@ import {
   type PromptAttachment,
   type Role,
   roleAtLeast,
+  stripHeavyToolInputs,
   type ToolCall,
   type User,
 } from "@zelyq/core";
@@ -525,7 +526,11 @@ export class ChatGateway {
         fatal: false,
       });
     } finally {
-      assistant.toolCalls = [...toolCalls.values()];
+      // Persist without the whole-file bodies in write_file / edit_file inputs
+      // (A2): the transcript never shows them, and a session rebuilt from this
+      // history would otherwise recarry ~68% of the tool-call bytes for content
+      // that is already on disk. The live broadcast above kept the full copy.
+      assistant.toolCalls = stripHeavyToolInputs([...toolCalls.values()]);
       await this.store.messages.append(assistant);
       await this.store.sessions.addUsage(room.sessionId, assistant.tokensIn, assistant.tokensOut);
       await this.store.sessions.setStatus(room.sessionId, "idle");

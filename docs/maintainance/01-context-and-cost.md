@@ -156,6 +156,16 @@ history-reconstruction path that runs after a server restart.
 no longer show what the agent wrote in that call. Decide whether the UI needs it. If it does, store
 it in a separate column the agent never reads back, rather than in the block that gets replayed.
 
+**Shipped — 2026-09-01.** `stripHeavyToolInputs(calls)` in `packages/core/src/models.ts`: for
+`write_file` (`content`) and `edit_file` (`old_text` / `new_text`), any value over 200 chars becomes
+`OMITTED_TOOL_INPUT_MARKER`; shorter values and every other tool are untouched; it is a pure copy.
+`ChatGateway` calls it on `assistant.toolCalls` immediately before `store.messages.append`, in the
+`finally` — the `turn.end` broadcast just above still carries the full copy for the live client. The
+transcript's `ToolRow` only reads `input.path` and `result`, so nothing on screen changes. The
+history-rebuild path (`buildAnthropicHistory` and its OpenAI/Google equivalents) pairs the shortened
+`tool_use` input with its existing `tool_result` summary unchanged; a model that needs the current
+bytes calls `read_file`. Verified: `@zelyq/core` 6 new tests, `@zelyq/server` 215/215.
+
 ---
 
 ## 3. Add compaction as the backstop

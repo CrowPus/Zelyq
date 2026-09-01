@@ -158,9 +158,12 @@ credibility rests on.
 
 [01](./01-context-and-cost.md) §2 · fixes **A2** · small
 
-`clear_tool_uses_20250919` with `clear_tool_inputs: true`, plus capping persisted
-`write_file`/`edit_file` inputs locally. ~1.27M tokens of measured dead weight — 68.5% of every
-tool-call byte in the database — gone.
+**Companion change done — 2026-09-01.** `stripHeavyToolInputs` shrinks the persisted
+`write_file` / `edit_file` inputs to a marker before `ChatGateway` stores the message, so every
+session rebuilt from history drops the ~1.27M tokens of dead file-body weight — provider-agnostic,
+no beta header. **Still open:** the Anthropic-only `clear_tool_uses_20250919` /
+`clear_tool_inputs: true` for the *live* turn, which trims the same weight before the window fills
+rather than only on rebuild.
 
 Ships after 2.1 so the effect is visible as a step change rather than noise.
 
