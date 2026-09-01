@@ -13,8 +13,8 @@ Order (from the roadmap, adjusted for what's already done):
 |---|---|---|
 | A1 | conversation caching | **done** — `withConversationCacheBreakpoint`, shipped in #124 |
 | F6 | `max_files_changed` manifest half | **done** — `scopeRelevant()`, shipped in #125 |
-| **A4** | cache-token capture + 2-breakpoint upgrade | **in progress** — this branch |
-| C1 | `stop_reason: "max_tokens"` unhandled | pending |
+| **A4** | cache-token capture + 2-breakpoint upgrade | **done** — `feat/agent-maint-phase1`, commit `654f2e1` |
+| **C1** | `stop_reason: "max_tokens"` unhandled | **done** — this branch |
 | E1+C2 | untrusted-content boundary + operator `role:system` | pending |
 | B2/B3/B4 | `read_file` paging, edit diffs, same-path serialisation | pending |
 | D1 | `AGENTS.md` | pending |
@@ -69,3 +69,31 @@ tools 46 / **agent 338** (+2) / web 91 / server 215 — all green.
 
 Not done: a dollar figure (needs a per-model rate table — [06](./06-measurement.md) §2, Phase 2);
 the eval harness accumulating the cache fields (Phase 2.1, and it now *can*).
+
+---
+
+## C1 — handle `stop_reason: "max_tokens"`
+
+**Branch:** `feat/agent-maint-phase1` (stacked on A4).
+**Fixes:** finding C1 (the additive half). The run loop only checked `refusal` and
+`toolCalls.length === 0`, so a response truncated at the output limit fell into the end-of-turn
+path and was reported as a completed turn.
+
+**Done — 2026-09-01.**
+
+| step | where | note |
+|---|---|---|
+| per-model output ceiling | `providers/anthropic.ts` | `MAX_TOKENS` constant → `maxTokensFor(model)`: 128,000 for opus-5 / sonnet-5 / sonnet-4-6 (streaming, which this provider always uses), 64,000 otherwise |
+| continuation | `session.ts` run loop | `stopReason === "max_tokens"` with no tool calls → one user message asking it to continue from where it stopped; bounded to **2** extra rounds, same iteration budget |
+| honest end | `session.ts` | after 2 continuations: a plain `error` (`code: "max_tokens"`) + `stoppedByBreak` so no fake fallback summary is synthesised |
+| `turn.end` | `session.ts` | `stopReason` union gains `"max_tokens"` — the UI can say "too long to finish" instead of showing partial text as complete |
+| tests | `test/turn-retry.test.ts` | +2 — continuation exhausted → `max_tokens` error + stopReason; continuation that finishes → normal `end_turn`, partial + continuation text both streamed |
+
+Verified: agent 340 (+2), typecheck + biome clean.
+
+**Deliberately NOT done tonight (subtractive, needs a live max-tokens turn to prove first):**
+delete the `emptyRecoveryDone` nudge (`session.ts:~2531`) and the "report render being too large"
+fallback (`session.ts:~3189`) and the Architect prompt's `report.html is large` paragraph
+(`prompt.ts:~620`). The review is right that these become redundant once the continuation path is
+proven, but removing working failure-recovery code without a real Anthropic turn that hits the
+output limit is the wrong risk to take at 2am. Flagged for a follow-up once someone can trigger it.

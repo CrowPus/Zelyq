@@ -12,7 +12,17 @@ import type {
   TurnResult,
 } from "./types.js";
 
-const MAX_TOKENS = 64_000;
+/**
+ * Output-token ceiling per model. Opus 5 / Sonnet 5 / Sonnet 4.6 support
+ * 128,000 with streaming (which this provider always uses); Haiku 4.5 and the
+ * older families do not, so they stay at 64,000. Raising it costs nothing on a
+ * response that does not need it — output is billed on what is produced — and
+ * it is half of the fix for a turn silently truncated at the limit (finding
+ * C1); the run loop's continuation is the other half.
+ */
+function maxTokensFor(model: string): number {
+  return /opus-5|sonnet-5|sonnet-4-6/.test(model) ? 128_000 : 64_000;
+}
 
 /**
  * The header Claude Code's own CLI sends alongside an OAuth session token —
@@ -187,7 +197,7 @@ class AnthropicConversation implements Conversation {
     const stream = this.client.messages.stream(
       {
         model: this.model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: maxTokensFor(this.model),
         system: [
           // Prompt and tool list are stable for the session, so this breakpoint
           // is what keeps a long turn affordable.

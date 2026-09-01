@@ -2201,6 +2201,10 @@ export class AgentSession {
     // thing" nudge has already been injected this turn. One-shot, so a model
     // that stays empty even with guidance ends the turn instead of looping.
     let emptyRecoveryDone = false;
+    // C1 — how many times this turn a response cut off at the output limit has
+    // been continued. Bounded: an output that will not converge in two extra
+    // rounds is genuinely too large for one response, and the user is told so.
+    let maxTokensContinuations = 0;
     // 064 — one-shot re-nudge when the user picked a specialist from the
     // `/agent` menu and the turn is about to end without that specialist's
     // pass tool ever being called. The grant + the `withAgents` instruction
@@ -2238,6 +2242,11 @@ export class AgentSession {
     // refusal banner. Also lets `turn.end`'s `stopReason` say "refusal"
     // honestly instead of the generic "end_turn".
     let refused = false;
+    // C1 — set when the turn ends because a response was still being cut off at
+    // the output limit after two continuations. `turn.end` reports it so the UI
+    // can say "the answer was too long to finish" instead of showing a
+    // truncated response as complete.
+    let truncatedByMaxTokens = false;
     // Structural cap on invented scope. Correct decomposition for a
     // reasonably-scoped small feature runs about 6-7 files; a vague prompt
     // that turns into three imagined subsystems blows past that by an order
@@ -2467,6 +2476,35 @@ export class AgentSession {
           });
           stoppedByBreak = true;
           refused = true;
+          break;
+        }
+
+        // C1 — the response was cut off at the output-token limit, not
+        // finished. With no tool calls it would otherwise fall straight into
+        // the end-of-turn path and be reported as complete. Ask the model to
+        // continue from where it stopped; bounded to two extra rounds.
+        if (result.stopReason === "max_tokens" && result.toolCalls.length === 0) {
+          if (maxTokensContinuations < 2) {
+            maxTokensContinuations += 1;
+            this.conversation.addUserMessage(
+              "Your previous response was cut off at the output length limit before it finished. " +
+                "Continue from exactly where you stopped — do not repeat anything you already wrote " +
+                "and do not restart. If the remaining output is inherently too large for one " +
+                "response, produce a shorter version that is complete instead.",
+            );
+            continue;
+          }
+          emit({
+            type: "error",
+            sessionId: this.id,
+            code: "max_tokens",
+            message:
+              "The response was too long to finish in one turn, even after continuing. " +
+              "What is above is partial — ask for a shorter version or break the request up.",
+            fatal: false,
+          });
+          stoppedByBreak = true;
+          truncatedByMaxTokens = true;
           break;
         }
 
@@ -3224,7 +3262,13 @@ export class AgentSession {
         type: "turn.end",
         sessionId: this.id,
         messageId,
-        stopReason: refused ? "refusal" : hitIterationCap ? "max_iterations" : "end_turn",
+        stopReason: refused
+          ? "refusal"
+          : truncatedByMaxTokens
+            ? "max_tokens"
+            : hitIterationCap
+              ? "max_iterations"
+              : "end_turn",
         message: {
           id: messageId,
           sessionId: this.id,
