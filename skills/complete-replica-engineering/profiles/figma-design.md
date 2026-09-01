@@ -21,6 +21,29 @@ Load with `references/figma-node-tree.md` and `references/layout-and-computed-st
 You do **not** call the Figma API. Work from these files. Read one frame's
 tree at a time.
 
+## The tree already has the numbers — do NOT measure the render
+
+Every value you need is in `tree/<frame>.json`: `bbox` (position + size),
+`radius`, `fills` (resolved hex / gradient), `stroke`, `effects` (shadow /
+blur), `opacity`, and `text` with `fontSize` / `fontWeight` / `lineHeightPx` /
+`letterSpacing` / `align`. **Use those.**
+
+Do **NOT**:
+
+- decode `render/<frame>.png` pixel by pixel (no `zlib.inflateSync` PNG
+  readers, no manual filter reconstruction, no least-squares radius fitting, no
+  colour sampling scripts);
+- write `node -e` / `python3 -c` scripts to probe the image for geometry,
+  radii, gradients, or colours;
+- install or reach for `sharp` / image libraries to inspect the render.
+
+This burns the whole turn (and, on an expensive model, real money) to
+re-derive numbers you were already handed. If a value is genuinely missing
+from the tree, pick a sensible one from the design system and move on — the
+diff loop (step 4) is what catches a wrong radius or colour, not a pixel
+probe. `inspect_image_asset` on the render once, to see the overall layout, is
+fine; scripting the pixels is not.
+
 ## This is a REPLICA — reproduce, do not reinvent
 
 The tree lists **every** text node with its exact `content` and `bbox`, and
@@ -114,6 +137,9 @@ positioned over them, all as direct children with absolute-ish `bbox`es and no
   system/Google stack and record the gap.
 - `truncated: true` on a node means its subtree was cut for the node budget —
   build what is there and note the gap; do not invent the missing detail.
+- **Do not decode or pixel-probe the render.** The tree has `radius`, `fills`,
+  `stroke`, `effects`, and text metrics already (see the section above). A
+  wrong value is corrected by the diff loop, not by a PNG reader.
 
 ## Acceptance flags
 
