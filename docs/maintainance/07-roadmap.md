@@ -34,6 +34,10 @@ Gemini's numbers.
 restraint flips are single runs on a non-deterministic model, and this suite's own README says to
 run twice before believing one.
 
+**F6 both halves now fixed in the suite** (`scopeRelevant()` #125; `no_unrequested_components`
+2026-09-01 — see [06](./06-measurement.md) §6). The re-run above now also produces a direct
+restraint number, not just a file count. The `<scope>` prompt half stays gated on that number.
+
 ---
 
 ## Phase 1 — The five that matter most

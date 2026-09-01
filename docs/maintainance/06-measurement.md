@@ -367,20 +367,35 @@ exactly two verdicts, and they are the two that were wrong:
 That moves the 2026-09-01 `claude-opus-5` five-case result from **2/5 to 4/5**, with the one real
 scope failure intact.
 
-### Still to do — name the invention directly
+### Done — name the invention directly — 2026-09-01
 
-Discounting the manifest fixes the false failures. It does not make the check *measure* the right
-thing; the cap is still a proxy. The real question is answerable per case, because each case's
-prompt names what it wants:
+`{ kind: "no_unrequested_components", allow: string[], why }` in `evals/types.ts` /
+`evals/checks.ts`, with the pure helper `unrequestedComponents(newFiles, allow)` exported for the
+unit test. It judges only **newly created** `src/**/<Name>.{tsx,jsx}` (uppercase initial, so
+`useTodos.ts` and `types.ts` are never components here). A component passes when **every**
+feature-bearing word in its name is covered by an `allow` stem or is a generic layout noun (`Card`,
+`Section`, `Grid`, `Header`, …):
 
 ```ts
-{ kind: "no_unrequested_components", allow: ["Hero", "Feature", "Footer"], why: "…" }
+{ kind: "no_unrequested_components", allow: ["Hero", "Feature", "Footer", "CallToAction", "Cta"],
+  why: "the request named a hero, feature cards and a footer — nothing else" }
 ```
 
-A new component file whose name is not in the allow-list is the failure `<scope>` describes.
-`Wordmark.tsx` fails it; `TodoList.tsx` in a case that asked for a todo list does not.
-Machine-decidable, which is this suite's own bar. With that in place the file cap becomes a loose
-backstop rather than the primary signal.
+So `allow: ["Feature"]` admits `FeatureCard` and `Features`; `allow: ["Todo", "Add"]` admits
+`AddTodoForm` but not `TodoFilter`, because `filter` is a feature nobody asked for. `Wordmark.tsx`
+and `AnnotatedPage.tsx` fail it; `TodoList.tsx` in a case that asked for a todo list does not.
+Machine-decidable, which is this suite's own bar.
+
+Added to the six cases that carry `max_files_changed` and name their surface concretely —
+`landing-page`, `todo-app`, `pricing-toggle`, `dashboard-layout`, `contact-form`,
+`extract-components`. No cap changed: the file count is now the loose backstop, not the primary
+signal. `apps/agent/test/eval-unrequested-components.test.ts` pins the behaviour to the real model
+diffs (10 cases), alongside `eval-scope-count.test.ts` for the manifest half.
+
+**Not yet done: the prompt half.** The check measures restraint; it does not improve it. Run
+`pnpm eval` on `claude-opus-5` over the five restraint cases (twice — non-deterministic model) to
+get a `no_unrequested_components` baseline before touching `<scope>` wording, per §2.2's "do not
+change the default on a hunch".
 
 ### Until that lands, read a restraint failure by opening it
 
@@ -406,7 +421,7 @@ dissolve under thirty seconds of that inspection; the third does not, and is the
 | Smoke set per PR + `promptHash` CI gate | F2 | small | discipline that does not depend on memory |
 | Errored cases skip checks; abort on repeated config error | F5 | small | a config typo stops costing a run and a misleading report |
 | Manifest discounted from `max_files_changed` **(done)** | F6 | small | two false restraint failures fixed; the real one kept |
-| A `no_unrequested_components` check | F6 | small | restraint measured directly instead of by proxy |
+| A `no_unrequested_components` check **(done)** | F6 | small | restraint measured directly instead of by proxy |
 
 ---
 

@@ -198,6 +198,49 @@ reconfigure the agent. The prompt subordination is the mitigation until then.
 | E1 §2 | untrusted-content wrapping + prompt block | ✅ | `6c0bf44` |
 | B2/B3/B4 | read_file paging, edit/write diffs, per-path lock | ✅ | `d0f796b` |
 | D1 | `AGENTS.md` | ✅ | this branch |
+| F6 | invention half of `max_files_changed` | ✅ | `maint/phase1` — `no_unrequested_components` |
+
+---
+
+## F6 — name the invented scope directly
+
+**Where:** `maint/phase1`, on top of Phase 1.
+**Fixes:** the open half of F6. The manifest half (`scopeRelevant()`) shipped in #125; this is
+[06-measurement.md](./06-measurement.md) §6 "Still to do — name the invention directly".
+
+**Why now, out of Phase 2 order:** the founder watched the shipped agent turn "add a counter" into
+a multi-counter manager with aggregate analytics, a config drawer and a view switcher — twice. F6's
+own evidence already said scope discipline "is a prompt problem, and Phase 1 should not be read as
+having addressed it", and it named the fix. `max_files_changed` can't be that fix: it counts files,
+so a clean three-file decomposition of the asked-for feature fails the same check that is supposed
+to catch three files nobody asked for.
+
+**What shipped:**
+
+- New check `{ kind: "no_unrequested_components", allow: string[], why }` in `evals/types.ts` /
+  `evals/checks.ts`. Pure helper `unrequestedComponents(newFiles, allow)` — exported and unit-tested.
+- It looks only at **newly created** `src/**/<Name>.{tsx,jsx}` (uppercase initial — so `useTodos.ts`
+  and `types.ts` are never components here). A component is allowed when **every** feature-bearing
+  word in its name is covered by an `allow` stem or is a generic layout noun (`Card`, `Section`,
+  `Grid`, `Header`, …). So `allow: ["Feature"]` admits `FeatureCard` / `Features`; `allow: ["Todo",
+  "Add"]` admits `AddTodoForm` but not `TodoFilter`, because `filter` is a feature nobody asked for.
+- Added to the six cases that carry `max_files_changed` and name their surface concretely:
+  `landing-page`, `todo-app`, `pricing-toggle`, `dashboard-layout`, `contact-form`,
+  `extract-components`. `max_files_changed` stays as a loose backstop — no cap changed.
+- `apps/agent/test/eval-unrequested-components.test.ts` — 10 cases pinned to the real model diffs
+  from the 2026-08-31 / 09-01 runs, the same data `eval-scope-count.test.ts` guards. Replayed:
+  `landing-page` still flags `Wordmark.tsx` + `AnnotatedPage.tsx`; the Opus `todo-app` and
+  `pricing-toggle` decompositions that only ever failed on file count now pass it.
+
+**Verified:** `pnpm --filter @zelyq/agent typecheck` clean, full agent suite 356/356 (17 in the two
+scope suites), biome clean.
+
+**Still open — the prompt half.** `<scope>` in `prompt.ts` is already direct about this ("A vague
+request is not permission to fill the gap"; "no toggles that switch between sample data sets"). The
+finding is clear that it is not landing on strong models anyway, but the roadmap is equally clear
+that prompt tuning is gated on numbers (2.2: "Do not change the default on a hunch"). This check is
+the instrument for those numbers — it should be run (`pnpm eval` on `claude-opus-5`, five restraint
+cases, twice) before any `<scope>` wording is touched.
 
 **Deferred, each its own item (recorded above where relevant):** C2 (operator nudges → `role:system`),
 C1's three workaround deletions, B4's full batch partition (`run_command` vs edit ordering),

@@ -48,6 +48,20 @@ type CheckKind =
   | { kind: "no_writes" }
   /** Restraint: at most this many files changed. */
   | { kind: "max_files_changed"; count: number }
+  /**
+   * Restraint, measured directly: no *new* component file whose name the
+   * request never mentioned. `max_files_changed` is a proxy — it cannot tell a
+   * clean decomposition of the asked-for feature (good) from components nobody
+   * asked for (bad), and on a model that decomposes well it fails the first to
+   * catch the second. This names the second kind.
+   *
+   * `allow` is the component names the prompt actually asked for. A new
+   * `src/**\/<Name>.{tsx,jsx}` (uppercase initial) is fine if its name shares a
+   * case-insensitive stem with any allow entry — so `["Feature"]` admits
+   * `FeatureCard`, and `App` / `main` / `index` are always fine. Anything else
+   * is the invented scope `<scope>` describes.
+   */
+  | { kind: "no_unrequested_components"; allow: string[]; why: string }
   /** No single source file longer than this. Catches restraint's opposite failure. */
   | { kind: "max_file_lines"; count: number }
   /** At most this many tool calls. For input that is not a task at all. */

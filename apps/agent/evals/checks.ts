@@ -55,6 +55,92 @@ export function scopeRelevant(changed: string[]): string[] {
   return changed.filter((path) => !MANIFEST_FILES.has(path));
 }
 
+/**
+ * Component-name words that describe a shape, not a feature. `PlanCard` and
+ * `PricingSection` are `Plan` and `Pricing` wearing a layout noun; the noun
+ * carries no scope claim, so it is dropped before the name is judged. `App` /
+ * `Main` / `Router` are here too — every case starts from a template that
+ * already has them and a rename is neutral.
+ */
+const GENERIC_NAME_WORDS = new Set([
+  "app",
+  "main",
+  "index",
+  "root",
+  "router",
+  "routes",
+  "card",
+  "section",
+  "list",
+  "grid",
+  "item",
+  "row",
+  "panel",
+  "container",
+  "wrapper",
+  "view",
+  "box",
+  "group",
+  "header",
+  "footer",
+  "layout",
+  "page",
+  "form",
+  "field",
+  "input",
+  "button",
+  "link",
+  "icon",
+  "area",
+  "block",
+  "content",
+  "nav",
+  "menu",
+  "bar",
+  "widget",
+  "component",
+]);
+
+/** camelCase / PascalCase → lowercase words, with a trailing plural `s` dropped. */
+function nameWords(name: string): string[] {
+  return name
+    .split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/)
+    .map((word) => word.toLowerCase().replace(/s$/, ""))
+    .filter(Boolean);
+}
+
+/**
+ * The invented scope `<scope>` actually forbids: a **new** component file whose
+ * name the request never named.
+ *
+ * `newFiles` is the set of paths that exist now and did not before. A component
+ * file is `src/…/<Name>.{tsx,jsx}` with an uppercase initial — that convention
+ * separates `TodoList.tsx` (judged) from `useTodos.ts` or `types.ts` (not
+ * components; dependencies and file length have their own checks).
+ *
+ * A component is allowed when **every** feature-bearing word in its name is
+ * covered by an `allow` stem (either is a prefix of the other, after lowercasing
+ * and de-pluralising). So `allow: ["Feature"]` admits `FeatureCard`,
+ * `FeatureGrid` and `Features`; `allow: ["Todo", "Add"]` admits `AddTodoForm`
+ * but not `TodoFilter`, because `filter` is a feature nobody asked for. A name
+ * that is all generic words (`ContentSection`) is allowed — it makes no scope
+ * claim to check.
+ */
+export function unrequestedComponents(newFiles: string[], allow: string[]): string[] {
+  const stems = allow.flatMap((entry) => nameWords(entry));
+  const covered = (word: string) =>
+    GENERIC_NAME_WORDS.has(word) ||
+    stems.some((stem) => stem === word || word.startsWith(stem) || stem.startsWith(word));
+
+  const offenders: string[] = [];
+  for (const path of newFiles) {
+    const [, name] = /(?:^|\/)([A-Z][A-Za-z0-9]*)\.(?:tsx|jsx)$/.exec(path) ?? [];
+    if (!name) continue;
+    if (!nameWords(name).every(covered)) offenders.push(path);
+  }
+  return offenders;
+}
+
 export function describe(check: Check): string {
   switch (check.kind) {
     case "typecheck":
@@ -79,6 +165,8 @@ export function describe(check: Check): string {
       return "wrote no files";
     case "max_files_changed":
       return `changed at most ${check.count} file${check.count === 1 ? "" : "s"}`;
+    case "no_unrequested_components":
+      return check.why;
     case "max_file_lines":
       return `no file over ${check.count} lines`;
     case "max_tool_calls":
@@ -177,6 +265,18 @@ async function evaluate(
             ? ""
             : `changed ${relevant.length}: ${relevant.join(", ")}` +
               (neutral > 0 ? ` (+${neutral} manifest, not counted)` : ""),
+      };
+    }
+
+    case "no_unrequested_components": {
+      const created = [...after.files.keys()].filter((path) => !before.files.has(path));
+      const invented = unrequestedComponents(created, check.allow);
+      return {
+        ok: invented.length === 0,
+        detail:
+          invented.length === 0
+            ? ""
+            : `not asked for: ${invented.join(", ")} (allowed: ${check.allow.join(", ")})`,
       };
     }
 
