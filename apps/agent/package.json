@@ -12,7 +12,8 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p evals/tsconfig.json",
     "test": "node --import tsx --test test/*.test.ts",
-    "eval": "tsx evals/run.ts"
+    "eval": "tsx evals/run.ts",
+    "check:prompt-hash": "tsx scripts/check-prompt-hash.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

@@ -122,6 +122,15 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # prompt-hash gate (F2): flags a PR that changes apps/agent/src/prompt.ts
+      # with no recorded eval result for the new prompt. A no-op when prompt.ts
+      # is unchanged. Non-blocking until the first claude-opus-5 baseline for the
+      # current prompt is committed to apps/agent/evals/results/ — then drop the
+      # `continue-on-error` line and it becomes a rule.
+      - name: Check prompt hash has an eval result
+        continue-on-error: true
+        run: git fetch --no-tags --depth=1 origin main && pnpm --filter @zelyq/agent check:prompt-hash
+
   docker:
     name: Docker image builds
     runs-on: ubuntu-latest

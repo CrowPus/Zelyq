@@ -252,6 +252,19 @@ so plainly. But "run it when someone remembers" always decays to "run it never".
   (`"promptHash": "20711ed13dfd"`). CI can fail a PR that changes `prompt.ts` with no eval result
   recorded for the new hash. That is a small script and it converts a good intention into a rule.
 
+### Done (the gate) — 2026-09-01
+
+`apps/agent/scripts/check-prompt-hash.ts` + `pnpm --filter @zelyq/agent check:prompt-hash`. It
+diffs against `origin/main` (override with `PROMPT_HASH_BASE`); a no-op unless
+`apps/agent/src/prompt.ts` changed, otherwise it computes the current default-mode hash and fails if
+no file in `evals/results/` records it, printing the `pnpm eval` line to run. Wired into `ci.yml`
+after `Test`, **`continue-on-error: true` for now** — the current prompt (post-D1) has no matching
+result, so making it blocking today would fail the maintenance PR itself. Drop that line once the
+first `claude-opus-5` run for the current prompt is committed.
+
+**Not done:** the smoke set on every PR (`pnpm eval --tag restraint --limit 6`) — that spends real
+money and needs an API key in CI, which is the founder's call.
+
 ### The gap the harness names about itself
 
 The README is honest about what it does not measure:

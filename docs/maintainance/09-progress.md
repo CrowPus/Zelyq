@@ -206,6 +206,27 @@ reconfigure the agent. The prompt subordination is the mitigation until then.
 | F5 | provider error scored as agent failure | ✅ (pre-flight probe still open) | `maint/phase1` — `neverRan` |
 | E1 §5 | `run_command` injection/exfil denylist | ✅ | `maint/phase1` — `INJECTION_PATTERNS` |
 | B5 | no file-finder; `search_files` can't scope | ✅ | `maint/phase1` — `find_files` + `glob`/`context_lines` |
+| F2 | prompt changes ship without an eval | ✅ (gate, non-blocking) | `maint/phase1` — `check-prompt-hash.ts` |
+
+---
+
+## F2 — a promptHash gate
+
+**Where:** `maint/phase1`. [06-measurement.md](./06-measurement.md) §4.
+
+**What shipped:**
+
+- `apps/agent/scripts/check-prompt-hash.ts` + `check:prompt-hash` script. No-op unless
+  `apps/agent/src/prompt.ts` changed vs the base (`origin/main`, or `PROMPT_HASH_BASE`); otherwise
+  computes the current default-mode hash and fails if `evals/results/` has no file recording it,
+  printing the `pnpm eval` command.
+- `ci.yml`: a step after `Test`, **`continue-on-error: true`** — the current prompt (post-D1) has no
+  matching result, so blocking today would fail this very PR. Drop that line once a `claude-opus-5`
+  run for the current prompt is committed. Verified both paths locally (no-op vs a pre-D1 base →
+  clean FAIL naming hash `18b772c2702f`).
+
+**Not done:** the `--tag restraint --limit 6` smoke set on every PR — real spend + a CI API key,
+the founder's call.
 
 ---
 
