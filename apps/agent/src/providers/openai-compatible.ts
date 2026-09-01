@@ -157,31 +157,45 @@ class OpenAICompatibleConversation implements Conversation {
     // One message per result, each naming the call it answers. Unlike
     // Anthropic's single user message, the dialect requires them separate and
     // in the same order the calls were made.
+    //
+    // 065 — and CONTIGUOUS. The tool messages answering an assistant's
+    // `tool_calls` must follow it with nothing in between, so every one of
+    // them is emitted here, in call order, before anything else is pushed.
     for (const result of results) {
       this.messages.push({
         role: "tool",
         tool_call_id: result.id,
         content: result.output,
       });
+    }
 
-      // A `role: "tool"` message's content is a plain string in this dialect
-      // — no image-carrying variant of it exists. An image rides instead as
-      // an ordinary user turn immediately after, built with the exact same
-      // image-part shape `addUserMessage` already uses, labelled so the
-      // model understands why a user turn appeared that it never sent.
-      if (result.images?.length) {
-        this.messages.push({
-          role: "user",
-          content: buildOpenAIUserContent(
-            `Screenshot from ${result.name}:`,
-            result.images.map((image) => ({
-              filename: "screenshot",
-              mimeType: image.mimeType,
-              data: image.data,
-            })),
-          ),
-        });
-      }
+    // A `role: "tool"` message's content is a plain string in this dialect
+    // — no image-carrying variant of it exists. An image rides instead as
+    // an ordinary user turn, built with the exact same image-part shape
+    // `addUserMessage` already uses, labelled so the model understands why a
+    // user turn appeared that it never sent.
+    //
+    // 065 — this MUST come after the whole batch, never interleaved between
+    // results. Emitting it inline ended the contiguous run of tool messages
+    // at the first image, and the server rejected the request with "the
+    // following tool_call_ids did not have response messages" for every call
+    // after it: a `view_preview` (screenshot) issued in parallel with four
+    // audit tools killed the turn, after all five had already run. One tool
+    // at a time never trips it, and neither does an image-returning tool in
+    // the last slot — which is why it stayed hidden.
+    for (const result of results) {
+      if (!result.images?.length) continue;
+      this.messages.push({
+        role: "user",
+        content: buildOpenAIUserContent(
+          `Screenshot from ${result.name}:`,
+          result.images.map((image) => ({
+            filename: "screenshot",
+            mimeType: image.mimeType,
+            data: image.data,
+          })),
+        ),
+      });
     }
   }
 
