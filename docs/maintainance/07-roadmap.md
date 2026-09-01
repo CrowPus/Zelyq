@@ -212,7 +212,7 @@ Worth doing, nothing depends on it.
 
 | item | file | fixes |
 | --- | --- | --- |
-| `find_files` + `glob`/`context_lines` on `search_files` | [02](./02-tool-surface.md) §5 | B5 |
+| `find_files` + `glob`/`context_lines` on `search_files` **(done 2026-09-01)** | [02](./02-tool-surface.md) §5 | B5 |
 | `strict: true` on the 14 core tools | [02](./02-tool-surface.md) §6 | B6 |
 | Server-side refusal fallbacks | [03](./03-api-alignment.md) §6 | C5 |
 | One budget warning near the iteration cap | [04](./04-agent-competence.md) §3 | D3 |

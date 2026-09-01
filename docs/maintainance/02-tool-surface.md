@@ -280,6 +280,22 @@ then pipes to `head -n ${max}`. So `max_results: 50` can mean "50 matches from t
 happened to reach". The `head` saves it from being unbounded, but the semantics are not what the
 description promises. Fix the description or the flag; do not leave them disagreeing.
 
+### Done — 2026-09-01
+
+`find_files` added to `packages/tools/src/files.ts` and `ALL_TOOLS` (right after `list_files`). Pure —
+`runtime.listFiles({ depth: 32 })` filtered through the same `gitIgnored` set `list_files` uses, a
+small `globToRegExp` (`**`, `*`, `?`, `{a,b}`; a slash-free pattern matches the basename anywhere),
+sorted by `modifiedAt` descending, capped with a "showing the N newest of M" note. No shell.
+
+`search_files` gained `glob` (→ grep `--include`) and `context_lines` (→ `-C`). The per-file `-m`
+was **removed** — `head -n` is now the only cap and it is a true global limit; the line budget
+widens when context is on so ~`max_results` matches still come back. Description updated to "up to
+`max_results` matching lines". `packages/tools/test/find-files.test.ts` (4) plus the existing
+`tools.test.ts`; tools suite 56/56.
+
+Not touched: a `<how_to_work>` mention of the two tools. That is a prompt change and waits for the
+eval pass — the tool descriptions carry enough for discovery in the meantime.
+
 ---
 
 ## 6. Make tool schemas strict

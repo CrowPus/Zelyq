@@ -3,6 +3,7 @@ import { captureReferenceTool } from "./capture-reference.js";
 import {
   deleteFileTool,
   editFileTool,
+  findFilesTool,
   listFilesTool,
   readFileTool,
   searchFilesTool,
@@ -32,6 +33,7 @@ export {
   designPassTool,
   dispatchTaskTool,
   editFileTool,
+  findFilesTool,
   listFilesTool,
   opsPassTool,
   previewLogsTool,
@@ -53,6 +55,7 @@ export {
  */
 export const ALL_TOOLS: ZelyqTool[] = [
   listFilesTool,
+  findFilesTool,
   readFileTool,
   searchFilesTool,
   writeFileTool,

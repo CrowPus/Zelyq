@@ -205,6 +205,27 @@ reconfigure the agent. The prompt subordination is the mitigation until then.
 | G2 | nowhere for a type/spacing scale | ✅ | `maint/phase1` — `@theme` block in `index.css` |
 | F5 | provider error scored as agent failure | ✅ (pre-flight probe still open) | `maint/phase1` — `neverRan` |
 | E1 §5 | `run_command` injection/exfil denylist | ✅ | `maint/phase1` — `INJECTION_PATTERNS` |
+| B5 | no file-finder; `search_files` can't scope | ✅ | `maint/phase1` — `find_files` + `glob`/`context_lines` |
+
+---
+
+## B5 — a file-finder, and a scoped content search
+
+**Where:** `maint/phase1`. [02-tool-surface.md](./02-tool-surface.md) §5.
+
+**What shipped:**
+
+- `find_files` (new, in `ALL_TOOLS` after `list_files`): by name or glob, newest first, respecting
+  the same `.gitignore` set. Pure — `runtime.listFiles` + a small `globToRegExp` (`**`, `*`, `?`,
+  `{a,b}`; a slash-free pattern matches the basename anywhere) + sort by `modifiedAt`. `list_files`
+  caps at 400 entries, which a real repo blows past before the answer; a glob answers directly.
+- `search_files`: `glob` → grep `--include`, `context_lines` → `-C`. Removed the per-file `-m`
+  (which meant `max_results: 50` could be "50 from the first file") — `head -n` is now the only,
+  global cap; the budget widens when context is on.
+- `packages/tools/test/find-files.test.ts` (4). Tools suite 56/56.
+
+**Not done:** a `<how_to_work>` line naming the two tools — a prompt change, deferred to the eval
+pass. Tool descriptions carry discovery in the meantime.
 
 ---
 
