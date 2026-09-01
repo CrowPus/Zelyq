@@ -204,7 +204,8 @@ export function providerConnectionRepository(db: ZelyqDb) {
         | "link"
         | "unlink"
         | "migrate"
-        | "deploy_function";
+        | "deploy_function"
+        | "extract";
       outcome: "ok" | "error";
       detail?: Record<string, unknown>;
       actorUserId: string | null;

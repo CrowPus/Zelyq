@@ -175,6 +175,21 @@ export const api = {
 
   auditLog: (teamId: string) => request<{ entries: AuditLogEntry[] }>(`/teams/${teamId}/audit-log`),
 
+  // — Figma integration (proposal 068) —
+
+  figmaConfig: () => request<{ configured: boolean }>("/integrations/figma/config"),
+
+  figmaConnection: () =>
+    request<{ connection: { id: string; grantedScopes: string[]; createdAt: string } | null }>(
+      "/integrations/figma/connection",
+    ),
+
+  startFigmaOAuth: () =>
+    request<{ url: string }>("/integrations/figma/oauth/start", { method: "POST" }),
+
+  disconnectFigma: () =>
+    request<{ ok: true }>("/integrations/figma/connection", { method: "DELETE" }),
+
   // — Supabase integration —
 
   supabaseConfig: () => request<{ oauthConfigured: boolean }>("/integrations/supabase/config"),

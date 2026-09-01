@@ -256,7 +256,7 @@ export const providerConnections = sqliteTable(
   "provider_connections",
   {
     id: text("id").primaryKey(),
-    /** Only `"supabase"` for now. */
+    /** `"supabase"` or `"figma"`. */
     provider: text("provider").notNull(),
     /** `"oauth"` | `"pat"`. */
     credentialType: text("credential_type").notNull(),

@@ -33,6 +33,11 @@ export const SLASH_COMMANDS: SlashMenuCommand[] = [
     blurb: "Rebuild a live website in this project, page for page — you give it the URL.",
     insert: "/clone ",
   },
+  {
+    name: "figma",
+    blurb: "Build a website from a Figma frame — paste the frame's share link.",
+    insert: "/figma ",
+  },
 ];
 
 /**

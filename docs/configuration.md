@@ -258,6 +258,9 @@ Migrations run automatically when the server boots.
 | `ZELYQ_IMAGE_PROVIDER_KEY` | — | API key for `ZELYQ_IMAGE_PROVIDER` when it is `unsplash` (its "Access Key") or `pexels`. Passed only to the download command, never logged. With `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` set, also allow the provider's hosts (`api.openverse.org`; `api.unsplash.com`,`images.unsplash.com`; `api.pexels.com`,`images.pexels.com`). |
 | `ZELYQ_SKILLS_UPLOAD_DIR` | `<data dir>/skills` | Where a skill uploaded through Settings is written. Resolved independently by the server and the agent — must be the same directory for both, same requirement `ZELYQ_WORKSPACE_DIR` already has. See [skills.md](./skills.md). |
 | `ZELYQ_CLONE_ENABLED` | `true` | Set `false` to disable `/clone`: the `capture_reference` tool then refuses with a message the agent relays. The SSRF guard on `capture_reference` (private/loopback/link-local address denylist, per-redirect re-validation, pinned connect, port and byte/time limits) is always on and has no switch. |
+| `ZELYQ_FIGMA_CLIENT_ID` / `ZELYQ_FIGMA_CLIENT_SECRET` | — | A Figma OAuth app registration (create one at figma.com → Settings → Account → OAuth apps). Both set ⇒ the composer offers `/figma <link>` and Settings shows a per-user "Connect Figma" card. The user's token is `SecretBox`-encrypted at rest and used only in-process by `FigmaConnectionService` — it never reaches an env var, a shell, the runtime, or the agent (proposal 068). |
+| `ZELYQ_FIGMA_REDIRECT_URL` | `<ZELYQ_PUBLIC_URL>/api/integrations/figma/oauth/callback` | The OAuth redirect URL registered on the Figma app. |
+| `ZELYQ_FIGMA_ENABLED` | `true` | Set `false` to hide `/figma` and refuse extraction even when a Figma app is configured. |
 
 ### Running agent commands and the preview in a container
 

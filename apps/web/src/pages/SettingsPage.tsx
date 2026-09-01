@@ -12,6 +12,7 @@ import {
 import { useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { CliSessionControl } from "../components/CliSessionControl";
+import { FigmaIntegration } from "../components/FigmaIntegration";
 import { SkillUploadControl } from "../components/SkillUploadControl";
 import { SupabaseIntegration } from "../components/SupabaseIntegration";
 import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../components/ui";
@@ -239,6 +240,8 @@ export function SettingsPage() {
               </div>
             </section>
           ))}
+
+          <FigmaIntegration />
 
           {user?.instanceRole === "admin" && <SupabaseIntegration />}
 

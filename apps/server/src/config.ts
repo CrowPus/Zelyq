@@ -43,6 +43,18 @@ export interface ServerConfig {
    * `example.com` when unset.
    */
   supabaseVerifyEmailDomain?: string;
+  /**
+   * An optional Figma OAuth app registration (proposal 068). When present and
+   * `figmaEnabled`, the composer offers `/figma <link>`. Absent ⇒ the command
+   * is hidden and the extraction tool refuses.
+   */
+  figmaOAuth?: {
+    clientId: string;
+    clientSecret: string;
+    redirectUrl: string;
+  };
+  /** `ZELYQ_FIGMA_ENABLED` — default true, but inert without `figmaOAuth`. */
+  figmaEnabled: boolean;
   model: string;
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   templatesDir: string;
@@ -176,6 +188,17 @@ export function loadServerConfig(): ServerConfig {
         : undefined,
     supabaseVerifyEmailDomain:
       process.env.ZELYQ_SUPABASE_VERIFY_EMAIL_DOMAIN?.trim() || "example.com",
+    figmaOAuth:
+      process.env.ZELYQ_FIGMA_CLIENT_ID && process.env.ZELYQ_FIGMA_CLIENT_SECRET
+        ? {
+            clientId: process.env.ZELYQ_FIGMA_CLIENT_ID,
+            clientSecret: process.env.ZELYQ_FIGMA_CLIENT_SECRET,
+            redirectUrl:
+              process.env.ZELYQ_FIGMA_REDIRECT_URL ??
+              `${(process.env.ZELYQ_PUBLIC_URL ?? "http://localhost:5173").replace(/\/$/, "")}/api/integrations/figma/oauth/callback`,
+          }
+        : undefined,
+    figmaEnabled: process.env.ZELYQ_FIGMA_ENABLED !== "false",
     model: process.env.ZELYQ_MODEL ?? "",
     effort: (process.env.ZELYQ_EFFORT ?? "high") as ServerConfig["effort"],
     templatesDir: resolveFromRepoRoot(process.env.ZELYQ_TEMPLATES_DIR ?? "templates"),

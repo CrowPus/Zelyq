@@ -57,6 +57,26 @@ have permission to reproduce it. Only clone what you're allowed to — the
 assets it copies in are yours to license. An operator can turn the whole
 feature off with `ZELYQ_CLONE_ENABLED=false`.
 
+### `/figma <link>`
+
+`/figma https://figma.com/design/…?node-id=…` builds a website from a Figma
+frame. Connect Figma once in **Settings** (OAuth — the token is held on the
+server and never reaches the agent). Then paste a frame's *Copy link* URL.
+
+The server pulls that frame's node tree, a PNG render, the image assets, and
+the file's Variables + Styles from the Figma REST API, and writes them into the
+project at `design/<file-key>/`. The agent then writes a `REPLICA.md` plan,
+turns the design's tokens into the project's Tailwind theme + a `DESIGN.md`,
+rebuilds the frame in the project's own framework — auto-layout becomes
+flexbox/grid, never absolute positioning — and runs a screenshot-diff loop
+against the render. It finishes with an audit table and says whether the tokens
+came from Figma Variables or were inferred (Variables need an Enterprise seat).
+
+Scope: one file, up to 15 frames, web-style designs. It reads frames, not
+prototype flows, and doesn't wire to your existing code components. `/figma` is
+hidden unless an operator has registered a Figma OAuth app
+(`ZELYQ_FIGMA_CLIENT_ID` / `_SECRET`); `ZELYQ_FIGMA_ENABLED=false` turns it off.
+
 Architect and Engineer Mode are mutually exclusive — turning one on turns
 the other off. All mode toggles are **per conversation**, not saved
 settings: a consequential mode is never silently still on from a session

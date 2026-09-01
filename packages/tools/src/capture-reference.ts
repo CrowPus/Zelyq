@@ -365,8 +365,10 @@ const schema = z.object({
     .string()
     .optional()
     .describe(
-      'With mode:"single": path to the reference page dir to compare against, e.g. ' +
-        '"clone/example.com/reference/index". Writes a pixel diff and reports the changed ratio per width.',
+      'With mode:"single": what to pixel-diff the capture against. Either a reference page ' +
+        'directory holding <width>.png files (e.g. "clone/example.com/reference/index") or a ' +
+        'single image file used for every width (e.g. "design/<key>/render/<frame>.png"). ' +
+        "Writes a diff image and reports the changed ratio.",
     ),
 });
 
@@ -729,12 +731,16 @@ export const captureReferenceTool = defineTool({
       // --- optional diff (mode: "single") ------------------------------
       if (mode === "single" && input.diffAgainst) {
         summary.diffs = [];
+        // `diffAgainst` is either a directory holding `<width>.png` files (the
+        // `/clone` shape) or a single image file (a Figma render, one size for
+        // the frame). A `.png`/`.jpg` suffix ⇒ use that one file for every width.
+        const single = /\.(png|jpe?g|webp)$/i.test(input.diffAgainst);
         for (const width of widths) {
           try {
-            const refFile = await context.runtime.readFile(
-              context.projectId,
-              `${input.diffAgainst.replace(/\/+$/, "")}/${width}.png`,
-            );
+            const refPath = single
+              ? input.diffAgainst
+              : `${input.diffAgainst.replace(/\/+$/, "")}/${width}.png`;
+            const refFile = await context.runtime.readFile(context.projectId, refPath);
             const refB64 =
               refFile.encoding === "base64"
                 ? refFile.content
