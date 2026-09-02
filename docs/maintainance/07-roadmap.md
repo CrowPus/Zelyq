@@ -147,8 +147,12 @@ change it on the number.
 
 Engineer Mode already has a `--engineer-mode` flag and a recorded A/B; what it lacks is checks for
 what the mode uniquely promises (the `Purpose:` marker, the epistemic labelling, the checkpoint
-behaviour) — which is why that A/B returned pure noise: 6/6/8 off versus 7/8/6 on. Add those checks
-and re-run it on `claude-opus-5`.
+behaviour) — which is why that A/B returned pure noise: 6/6/8 off versus 7/8/6 on.
+
+**Partly done 2026-09-02:** `harness.ts` now appends `reply_matches` for `Purpose:` and for
+verified/assumed on an acting Engineer-Mode turn (`eval-engineer-checks.test.ts`). Still open: the
+checkpoint fires / doesn't-fire pair, and re-running the A/B on `claude-opus-5`. Then Expo / `/clone`
+/ specialist-honesty-gate cases.
 
 Then Expo and `/clone`, both shipped in the last two weeks with no behavioural coverage at all. Then
 the specialist honesty gates, which are machine-decidable and are the guarantee the specialists'

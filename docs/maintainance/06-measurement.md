@@ -198,6 +198,17 @@ mode uniquely promises. Add checks for:
 Without these, an Engineer Mode run is scored on the same criteria as a default run, which is
 partly why the A/B above returned nothing.
 
+### Done (the two reply checks) — 2026-09-02
+
+`harness.ts` appends three `reply_matches` checks when `options.engineerMode && changeRequired`:
+`^\s*Purpose:`, `[Aa]ssum(e|ed|ption|ptions)\b`, `[Vv]erif(y|ied|ication)\b` — a plain default-run
+summary fails all three, a well-formed Engineer-Mode summary passes. Prose forms count ("I assumed
+…", "could not verify …"), not only the labelled ones. `apps/agent/test/eval-engineer-checks.test.ts`
+(4). Not appended on a normal run, so nothing there changes.
+
+Still open: the checkpoint-fires / checkpoint-doesn't-fire pair (it needs a case that provokes a
+6-file build and one that stays at 4–5), and the Expo / `/clone` / specialist-honesty-gate cases.
+
 **The Expo template.** `templates/expo-react-native` shipped in `87b883a` with `web.output: static`
 and an Expo-web preview. It has a stack skill force-woven into turn one specifically because
 building with `div` instead of `View` produces a screen that renders nothing. That is a check a

@@ -35,7 +35,8 @@ All on `maint/phase1`, each its own commit, full matrix green. Written up in det
 | E1 §5 | `run_command` injection/exfil denylist | `ecd0452` |
 | B5 | `find_files` + `glob`/`context_lines` on `search_files` | `ee6aa21` |
 | F2 (gate) | prompt-hash CI check (now blocking, `evals/baselines.json`) | `4154d3f`, `25bf362` |
-| D3 | one-shot step-budget warning in the run loop | `<this>` |
+| D3 | one-shot step-budget warning in the run loop | `fc75d28` |
+| 2.3 (part) | Engineer-Mode reply checks in the eval harness | `<this>` |
 
 **Left for the founder** (each noted in its section): the `<scope>` prompt half of F6, G3,
 a `<how_to_work>` mention of `find_files`, and F2's per-PR smoke set (needs a CI key). Provider-beta
@@ -111,6 +112,22 @@ do. `apps/agent/test/turn-budget-warning.test.ts` (3). Agent suite 372/372.
 
 Dispatched children get the same one-shot for now; the continuous `task-budgets` countdown ([03 §4])
 is Anthropic-only and still open.
+
+---
+
+## 2.3 (part) — Engineer-Mode reply checks
+
+**Where:** `maint/phase1`. [06-measurement.md](./06-measurement.md) §3 / F3.
+
+The `--engineer-mode` A/B "returned pure noise" (6/6/8 off vs 7/8/6 on) because nothing in the suite
+checked what the mode adds — an Engineer-Mode run was scored on the same criteria as a default one.
+`harness.ts` now appends, when `engineerMode && changeRequired`, three `reply_matches`:
+`^\s*Purpose:`, `[Aa]ssum(e|ed|ption|ptions)\b`, `[Vv]erif(y|ied|ication)\b`. A plain summary fails
+all three; a real Engineer-Mode summary passes, prose forms included. `eval-engineer-checks.test.ts`
+(4). Normal runs unaffected. Agent suite 376/376.
+
+Still open: the checkpoint fires / doesn't-fire pair (needs two purpose-built cases), the A/B re-run
+on `claude-opus-5`, and Expo / `/clone` / specialist-honesty coverage.
 
 ---
 

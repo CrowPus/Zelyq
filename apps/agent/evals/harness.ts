@@ -186,6 +186,31 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     const wantsPreview = evalCase.checks.some((check) => check.kind === "preview");
     if (wantsPreview) checks.push({ kind: "renders" });
 
+    // Engineer Mode's own promises about the final message, on a turn that
+    // acts (F3 / 06-measurement.md §3). Without these the `--engineer-mode`
+    // A/B measures the model, not the mode — the 2026-08-26 run returned pure
+    // noise (6/6/8 off vs 7/8/6 on) because nothing checked what the mode adds.
+    // Only appended when the mode is on, so a normal run is unaffected.
+    if (options.engineerMode && changeRequired) {
+      checks.push(
+        {
+          kind: "reply_matches",
+          pattern: "^\\s*Purpose:",
+          why: "Engineer Mode: the final message opens with the Purpose line",
+        },
+        {
+          kind: "reply_matches",
+          pattern: "[Aa]ssum(e|ed|ption|ptions)\\b",
+          why: "Engineer Mode: the final message names what was assumed",
+        },
+        {
+          kind: "reply_matches",
+          pattern: "[Vv]erif(y|ied|ication)\\b",
+          why: "Engineer Mode: the final message names what was verified",
+        },
+      );
+    }
+
     for (const check of checks) {
       result.checks.push(await runCheck(check, context));
     }
