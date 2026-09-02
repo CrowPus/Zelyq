@@ -123,3 +123,57 @@ test("commitTurn on a project with no .git at all fails loudly rather than corru
   // contract, not something commitTurn silently repairs on its own.
   await assert.rejects(() => projects.commitTurn("prj_no_git", "oops"));
 });
+
+test("a project inside an enclosing repository gets its own, and never touches the outer one", async () => {
+  // The default workspace directory sits inside the Zelyq checkout, so on the
+  // local runtime every project directory has a git repository above it.
+  // Checking only that *a* repository exists skipped `git init`, wrote Zelyq's
+  // identity into the developer's own config, and committed their whole
+  // working tree under the project's turn prompt. Found by running the e2e
+  // suite, which does exactly that.
+  const outerRoot = path.join(os.tmpdir(), `zelyq-git-outer-${Date.now()}`);
+  const outerWorkspace = path.join(outerRoot, "workspace");
+  await fs.mkdir(outerWorkspace, { recursive: true });
+  const outer = new LocalRuntimeDriver({
+    kind: "local",
+    workspaceDir: outerWorkspace,
+    execTimeoutMs: 15_000,
+    previewPortRange: [4981, 4990],
+    previewHost: "127.0.0.1",
+  });
+  const nested = new ProjectService({} as Store, outer, {} as ServerConfig);
+
+  const git = async (args: string) => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    return promisify(execFile)("git", args.split(" "), { cwd: outerRoot });
+  };
+  await git("init -q");
+  await git("config --local user.name Outer");
+  await git("config --local user.email outer@example.invalid");
+  await fs.writeFile(path.join(outerRoot, "untracked.txt"), "the developer's work in progress");
+
+  try {
+    await outer.ensureProject("prj_nested");
+    await outer.scaffold("prj_nested", [{ path: "index.html", content: "<html></html>" }]);
+    await nested.ensureGitRepo("prj_nested");
+    await nested.commitTurn("prj_nested", "build a landing page");
+
+    const inner = await outer.exec("prj_nested", { command: "git log --oneline" });
+    assert.match(inner.stdout, /Before: build a landing page/, "the project has its own history");
+
+    const outerLog = await git("log --oneline").catch((error: unknown) => ({
+      stdout: String(error),
+    }));
+    assert.doesNotMatch(
+      outerLog.stdout,
+      /Before:/,
+      "the enclosing repository must have no commits from a project's turn",
+    );
+    const identity = await git("config --local user.name");
+    assert.equal(identity.stdout.trim(), "Outer", "the developer's own identity is untouched");
+  } finally {
+    await outer.dispose();
+    await fs.rm(outerRoot, { recursive: true, force: true });
+  }
+});
