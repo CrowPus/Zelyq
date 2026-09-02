@@ -98,6 +98,41 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     turnCacheCreationTokens: z.number().int().nonnegative().optional(),
   }),
 
+  /**
+   * A frame from a browser the agent is driving, so the user can watch a
+   * `/clone` or a page inspection happen instead of waiting on a spinner.
+   *
+   * Relayed to the browser and deliberately never stored: the gateway's switch
+   * has no case for it, so it broadcasts and falls through. Frames are ambient,
+   * not a record — a dropped one costs nothing and there is nothing to replay.
+   * They never reach the model either, so this carries no token cost.
+   */
+  z.object({
+    type: z.literal("browser.frame"),
+    sessionId: z.string(),
+    /** The tool call driving this browser, so a frame can be tied to its tool. */
+    callId: z.string(),
+    /** JPEG bytes, base64. */
+    data: z.string(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+  }),
+
+  /** A browser opened or closed. Brackets the frames so the UI can show and
+   * hide the panel without guessing from a gap in the stream. */
+  z.object({
+    type: z.literal("browser.open"),
+    sessionId: z.string(),
+    callId: z.string(),
+    /** What the tool is doing, for the panel's label. */
+    label: z.string(),
+  }),
+  z.object({
+    type: z.literal("browser.close"),
+    sessionId: z.string(),
+    callId: z.string(),
+  }),
+
   /** The turn is complete. `message` is the persisted assistant message. */
   z.object({
     type: z.literal("turn.end"),

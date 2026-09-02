@@ -27,6 +27,7 @@ import {
 import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
 
 export { PLAN_FILE } from "./plan.js";
+export { type Screencast, type ScreencastSink, startScreencast } from "./screencast.js";
 export * from "./types.js";
 export {
   captureReferenceTool,

@@ -26,6 +26,7 @@ import {
   CLONE_USER_AGENT,
   guardedFetch,
 } from "./capture-fetch-guard.js";
+import { type Screencast, startScreencast } from "./screencast.js";
 import { defineTool, type ToolResult } from "./types.js";
 
 // --- limits (council conditions, §11) ----------------------------------------
@@ -511,9 +512,18 @@ export const captureReferenceTool = defineTool({
         for (const width of widths) {
           if (Date.now() > deadline) break;
           let page: Page | undefined;
+          let cast: Screencast | undefined;
           try {
             page = await ctx.newPage();
             await page.setViewportSize({ width, height: VIEWPORT_HEIGHT });
+            // Show the user what this is looking at. A no-op when the session
+            // did not ask for it, and it never fails the capture either way.
+            cast = await startScreencast(
+              page,
+              context.screencast,
+              context.callId ?? "capture_reference",
+              `${path} @ ${width}px`,
+            );
             page.on("response", (res) => {
               const ct = res.headers()["content-type"];
               if (isAssetType(ct) && /^https?:/i.test(res.url())) {
@@ -615,6 +625,7 @@ export const captureReferenceTool = defineTool({
           } catch (error) {
             notes.push(`${path} @ ${width}px failed: ${(error as Error).message}`);
           } finally {
+            await cast?.stop();
             await page?.close().catch(() => undefined);
           }
         }

@@ -1,5 +1,6 @@
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { z } from "zod";
+import type { ScreencastSink } from "./screencast.js";
 
 /**
  * Everything a tool is allowed to touch. A tool gets no ambient access to the
@@ -26,6 +27,14 @@ export interface ToolContext {
    * `start_preview` merges it so the built app reaches the real backend.
    */
   supabasePreviewEnv?: Record<string, string>;
+  /**
+   * Present when the session wants to show the user what a browser-driving
+   * tool is looking at. Absent means do not stream — a tool must work exactly
+   * the same either way.
+   */
+  screencast?: ScreencastSink;
+  /** The id of the tool call being run, so a frame can be tied to its tool. */
+  callId?: string;
 }
 
 export interface ToolResult {
