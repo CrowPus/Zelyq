@@ -1,5 +1,5 @@
-import type { CSSProperties } from "react";
-import { type Body, POSTURE_LABEL, type Posture } from "../lib/posture";
+import { type CSSProperties, useId } from "react";
+import { type Body, POSTURE_LABEL, type Posture, pace } from "../lib/posture";
 
 /**
  * The agent, as a body rather than a status line.
@@ -112,10 +112,13 @@ export interface AgentBodyProps {
 
 export function AgentBody({ body, size = 64, className = "" }: AgentBodyProps) {
   const pose = POSES[body.posture] ?? REST;
+  // Scoped per instance: two bodies on one page would otherwise share, and
+  // silently take, the first one's gradient.
+  const gradientId = useId();
 
   // Tempo drives the clock, not the choreography: the same pose played faster
   // is the same activity done harder, which is what a rate actually means.
-  const speed = 1 - Math.min(0.65, body.tempo * 0.65);
+  const speed = pace(body.tempo);
   // Tension warms the colour and tightens the stroke. It is deliberately the
   // only thing that changes hue, so strain is never confused with activity.
   const strain = body.tension;
@@ -123,6 +126,7 @@ export function AgentBody({ body, size = 64, className = "" }: AgentBodyProps) {
   const style = {
     "--body-speed": `${speed.toFixed(2)}`,
     "--body-strain": strain.toFixed(2),
+    "--body-stroke": `url(#${gradientId})`,
   } as CSSProperties;
 
   return (
@@ -140,6 +144,24 @@ export function AgentBody({ body, size = 64, className = "" }: AgentBodyProps) {
         {POSTURE_LABEL[body.posture]}
         {body.focus ? `: ${body.focus}` : ""}
       </title>
+      {/* Fixed in the view box rather than to each stroke, so the ramp stays
+          put while the body moves through it — the light is in the room, not
+          painted on. Strain is mixed into the stops themselves, which is what
+          keeps one colour channel saying one thing. */}
+      <defs>
+        <linearGradient
+          id={gradientId}
+          x1="14"
+          y1="14"
+          x2="86"
+          y2="86"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" className="agent-body__stop agent-body__stop--1" />
+          <stop offset="55%" className="agent-body__stop agent-body__stop--2" />
+          <stop offset="100%" className="agent-body__stop agent-body__stop--3" />
+        </linearGradient>
+      </defs>
       {pose.map((segment, i) => (
         <path
           // Index-keyed on purpose: these three are a fixed cast, and reusing

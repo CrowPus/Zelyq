@@ -41,6 +41,22 @@ test("the body is on screen while the agent works, and it changes", async ({ pag
   const body = page.locator("svg.agent-body");
   await expect(body).toBeVisible({ timeout: 60_000 });
 
+  const viewport = page.viewportSize();
+  // It has to stay in view without being chased. It first sat inside the
+  // streaming message, which the turn then grew downward past, so within
+  // seconds you had to scroll up to see what the agent was doing. Checked
+  // every sample below rather than once, because the moment that broke it was
+  // late in a long turn, not first paint.
+  const assertInView = async () => {
+    const box = await body.boundingBox().catch(() => null);
+    if (!box || !viewport) return;
+    expect(box.y, "the body scrolled above the fold").toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height, "the body scrolled below the fold").toBeLessThanOrEqual(
+      viewport.height,
+    );
+  };
+  await assertInView();
+
   // Sample while the turn runs. A body that renders once and then holds one
   // pose for the whole turn is a logo, not a body.
   const stop = page.getByRole("button", { name: "Stop the current turn" });
@@ -48,6 +64,7 @@ test("the body is on screen while the agent works, and it changes", async ({ pag
   while ((await stop.count()) > 0 && (await stop.isVisible().catch(() => false))) {
     const posture = await body.getAttribute("data-posture").catch(() => null);
     if (posture) seen.add(posture);
+    await assertInView();
     if (seen.size >= 3) break;
     await page.waitForTimeout(120);
   }

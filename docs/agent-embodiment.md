@@ -175,9 +175,10 @@ body — is not started, and is worth doing only now that the vocabulary has pro
 |---|---|
 | `apps/web/src/lib/posture.ts` | tool stream → posture, tempo, tension, focus |
 | `apps/web/src/components/AgentBody.tsx` | the nine poses |
-| `apps/web/src/index.css` | breath, per-pose motion, the reduced-motion fallback |
+| `apps/web/src/components/AgentPresence.tsx` | the live strip above the composer |
+| `apps/web/src/index.css` | the brand ramp, breath, per-pose motion, reduced motion |
 | `apps/web/src/hooks/useChatSocket.ts` | `body` folded from the same events as the transcript |
-| `apps/web/src/components/ChatPanel.tsx` | `AgentPresence`, where the spinner was |
+| `apps/web/src/components/ChatPanel.tsx` | where the strip sits |
 
 **The body is the mark.** Zelyq's logo is already one stroke broken at its own corners into three
 segments. Those three segments are the body: they re-pose into what the agent is doing, and nothing
@@ -187,6 +188,33 @@ would be a slideshow.
 
 `ZelyqThinking` is gone, replaced rather than sat beside. It was the same mark animating on a timer;
 this is the same mark animating on the truth.
+
+### Where it sits
+
+Pinned above the composer, not inside the streaming message.
+
+It went in where the spinner had been, which was wrong for exactly the reason a spinner would be:
+the turn grows downward past that point, so within seconds of a real build you had to scroll up to
+find out what the agent was doing. A status you have to go looking for is not ambient, and ambient
+was the whole claim. It now holds one fixed place at the edge of the conversation, the way a status
+bar does, and the e2e test asserts it stays in the viewport for the length of a turn rather than
+only at first paint.
+
+### Colour
+
+The palette is deliberately muted — the tokens' own comment says these sit next to text, not on
+billboards. The body is the one exception: it carries the mark's blue-to-cyan ramp, and only while
+the agent is actually working. The ramp is defined per theme rather than once, because a cyan that
+holds up on the dark ground is far too light on the white one.
+
+The gradient is fixed in the view box rather than to each stroke, so the body moves through the
+light instead of carrying it. Strain is mixed into the gradient's own stops, which keeps a single
+gradient rather than fading a second, redder body in over the first — and keeps one colour channel
+saying exactly one thing.
+
+The strip repeats the tempo where the mark is not being looked at: a hairline along its top edge
+travels on the same clock the body does, so peripheral vision gets the rate even when attention is
+in the editor.
 
 ### Nine postures, not eight
 

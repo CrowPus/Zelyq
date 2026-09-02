@@ -181,6 +181,15 @@ export function onTurnStart(): Body {
   return { ...RESTING, posture: "thinking" };
 }
 
+/**
+ * Tempo as an animation-duration multiplier: working harder plays the same
+ * choreography faster. Shared so the body and the strip it sits in cannot
+ * drift apart — two clocks for one agent would read as two agents.
+ */
+export function pace(tempo: number): number {
+  return 1 - Math.min(0.65, tempo * 0.65);
+}
+
 /** Plain-language name, for the caption and for screen readers. */
 export const POSTURE_LABEL: Record<Posture, string> = {
   idle: "Waiting",
