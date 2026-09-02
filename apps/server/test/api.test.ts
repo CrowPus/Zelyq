@@ -86,7 +86,7 @@ test("templates are discovered from the templates directory", async () => {
   const names = templates.map((template) => template.name);
   assert.ok(names.includes("vite-react"), `expected vite-react in ${names.join(", ")}`);
 
-  // 066 — the Expo template ships with the manifest fields the agent plumb reads.
+  // The Expo template ships with the manifest fields the agent plumb reads.
   assert.ok(
     names.includes("expo-react-native"),
     `expected expo-react-native in ${names.join(", ")}`,

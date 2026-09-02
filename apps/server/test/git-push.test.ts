@@ -283,7 +283,7 @@ test("a push is never a force push — a non-fast-forward is refused, and histor
   );
 
   // The rejected push must not have corrupted or altered the project's own
-  // history — asserted directly, not assumed.
+  // history — asserted directly.
   const afterLog = execFileSync("git", ["log", "--oneline", "-2"], {
     cwd: path.join(workspaceDir, "prj_diverged"),
     encoding: "utf8",

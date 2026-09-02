@@ -55,7 +55,7 @@ const REASONING_EFFORT: Record<Effort, "low" | "medium" | "high"> = {
 };
 
 /**
- * F4 — the routing key that keeps a session on a warm cache.
+ * The routing key that keeps a session on a warm cache.
  *
  * Several servers in this dialect cache repeated prompt prefixes but need a
  * stable key to route a session's requests to the same cache (and, on
@@ -255,7 +255,7 @@ class OpenAICompatibleConversation implements Conversation {
     // Anthropic's single user message, the dialect requires them separate and
     // in the same order the calls were made.
     //
-    // 065 — and CONTIGUOUS. The tool messages answering an assistant's
+    // And CONTIGUOUS. The tool messages answering an assistant's
     // `tool_calls` must follow it with nothing in between, so every one of
     // them is emitted here, in call order, before anything else is pushed.
     for (const result of results) {
@@ -272,7 +272,7 @@ class OpenAICompatibleConversation implements Conversation {
     // `addUserMessage` already uses, labelled so the model understands why a
     // user turn appeared that it never sent.
     //
-    // 065 — this MUST come after the whole batch, never interleaved between
+    // This MUST come after the whole batch, never interleaved between
     // results. Emitting it inline ended the contiguous run of tool messages
     // at the first image, and the server rejected the request with "the
     // following tool_call_ids did not have response messages" for every call
@@ -314,7 +314,7 @@ class OpenAICompatibleConversation implements Conversation {
     if (this.deps.supportsReasoningEffort) {
       body.reasoning_effort = REASONING_EFFORT[this.deps.options.effort];
     }
-    // F4 — keep this session pinned to its warm prefix. Only sent where the
+    // Keep this session pinned to its warm prefix. Only sent where the
     // field name is documented for the server being talked to.
     if (this.deps.cacheKeyField) {
       body[this.deps.cacheKeyField] = promptCacheKey(
@@ -361,7 +361,7 @@ class OpenAICompatibleConversation implements Conversation {
       if (event.usage) {
         // OpenAI's `prompt_tokens` INCLUDES cached tokens; the cached count is
         // in `prompt_tokens_details.cached_tokens`. Split it out so the true
-        // and the uncached figures are both available (finding A4). There is no
+        // and the uncached figures are both available. There is no
         // separate cache-write figure in this dialect.
         const cachedRead = event.usage.prompt_tokens_details?.cached_tokens;
         const prompt = event.usage.prompt_tokens ?? 0;

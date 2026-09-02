@@ -13,7 +13,7 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * D3 — when a turn is near its step cap, the model gets one message telling it
+ * When a turn is near its step cap, the model gets one message telling it
  * to land the work, instead of discovering the cap by being cut off. The
  * message must go into the conversation (not the system prompt, which would
  * blow the cache), fire once, and not fire at all when the cap is small enough

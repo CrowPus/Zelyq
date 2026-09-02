@@ -57,16 +57,14 @@ import type {
  * probe. The second of those was not assumed to work — a host-side TCP
  * connect to the published port turned out to succeed the moment the
  * container exists, whether or not anything inside is listening, because
- * `docker-proxy` accepts the handshake itself. Confirmed against a real
- * container before this was written, not guessed at; see `probeInContainer`.
+ * `docker-proxy` accepts the handshake itself. See `probeInContainer`.
  *
  * Project containers share one dedicated network with inter-container
- * communication disabled, rather than Docker's default bridge. Verified live
- * before this was written, not assumed: on the default bridge, one project's
- * container can reach another's — connect to its internal IP and port
- * directly, no publishing required — which is a cross-*tenant* leak on a
- * multi-project deployment. `enable_icc=false` closes it while leaving each
- * container's own route to the real internet untouched.
+ * communication disabled, rather than Docker's default bridge. On the default
+ * bridge one project's container can reach another's — connect to its internal
+ * IP and port directly, no publishing required — which is a cross-*tenant*
+ * leak on a multi-project deployment. `enable_icc=false` closes it while
+ * leaving each container's own route to the real internet untouched.
  *
  * The cloud metadata endpoint (169.254.169.254) is blocked by default, the
  * same way and for the same reason — see `installMetadataBlock`.
@@ -133,7 +131,7 @@ const EGRESS_REFRESH_INTERVAL_MS = 5 * 60_000;
 /**
  * How long a resolved address stays allowed after its most recent sighting —
  * an `ipset` per-entry timeout, not the refresh interval above. Deliberately
- * a multiple of it, not equal to it: checked live, not assumed, that a
+ * a multiple of it, not equal to it: checked live. that a
  * single refresh's resolution is a *sample* of a round-robin pool, not the
  * complete truth. Three independent queries for `github.com`, minutes
  * apart, returned three different addresses, each one stable for repeated
@@ -697,7 +695,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * published host port the moment the container exists, whether or not
    * anything inside is listening, so the host-side connect succeeds
    * immediately regardless of whether the dev server has even started.
-   * Confirmed against a real container before this was written, not assumed:
+   * Confirmed against a real container, not assumed:
    * a script that never binds the assigned port at all still read as
    * "running" under the host-side check.
    *
@@ -867,7 +865,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         "network",
         "create",
         // The whole point: one project's container must not be able to reach
-        // another's. Verified live before this was written — on the default
+        // another's. Verified live — on the default
         // bridge, a second container could connect to the first's internal
         // port directly, no publishing required, which is a cross-tenant leak
         // on the exact deployment this driver exists for.

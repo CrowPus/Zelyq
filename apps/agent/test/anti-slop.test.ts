@@ -14,7 +14,7 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * 064 — the anti-slop fix.
+ * The anti-slop fix.
  *
  * The founder picked "Designer" from the `/agent` menu in default mode and
  * nothing happened: the specialist pass tools existed only in Architect or

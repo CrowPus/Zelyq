@@ -4,7 +4,7 @@ import { defineTool, type ToolResult, truncate, type ZelyqTool } from "@zelyq/to
 import { z } from "zod";
 
 /**
- * 060 — the AI provider knowledge library.
+ * The AI provider knowledge library.
  *
  * `ai-providers/` is a directory of directories, one per LLM provider, each
  * with a `PROVIDER.md`: the npm package, the client init, the non-streaming

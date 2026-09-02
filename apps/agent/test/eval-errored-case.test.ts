@@ -25,7 +25,7 @@ const base: CaseResult = {
 };
 
 /**
- * `neverRan` gates whether a case's checks are scored at all (F5). The pristine
+ * `neverRan` gates whether a case's checks are scored at all. The pristine
  * template passes every critical check by construction, so a case that never
  * reached the model must be classed `errored`, not `intact` — otherwise an
  * unreachable model reports `intact 100%`.

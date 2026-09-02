@@ -25,7 +25,7 @@ export interface ChatState {
   error: string | null;
   tokensIn: number;
   tokensOut: number;
-  /** Prompt tokens read from the provider cache this session (finding A4). */
+  /** Prompt tokens read from the provider cache this session. */
   cacheReadTokens: number;
 }
 

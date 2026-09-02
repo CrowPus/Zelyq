@@ -111,7 +111,7 @@ test("use_design_ref returns a body for a known slug and errors otherwise", asyn
 });
 
 // ---------------------------------------------------------------------------
-// 064 — the library has to be DISCOVERABLE, not just present.
+// The library has to be DISCOVERABLE, not just present.
 //
 // The tool was in ALL_TOOLS at boot all along, so every session — default mode
 // included — could call it. But its description said "from the

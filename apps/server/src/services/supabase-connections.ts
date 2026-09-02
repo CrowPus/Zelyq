@@ -564,7 +564,7 @@ export class SupabaseConnectionService {
   }
 
   /**
-   * 060 — deploy one single-file Edge Function to the linked development
+   * Deploy one single-file Edge Function to the linked development
    * project through the Management API, so an AI build has no manual
    * `supabase functions deploy` step. Creates the function if it is new,
    * updates it if it exists. On any Management-API failure the caller is told

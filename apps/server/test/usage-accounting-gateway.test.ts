@@ -10,7 +10,7 @@ import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 
 /**
- * R1, end to end — `docs/token-usage/07-review-and-amendments.md`.
+ * Token accounting, end to end.
  *
  * The agent emits a SESSION-CUMULATIVE running total on the `usage` event, for
  * the live gauge. The gateway used to store that on the message row and then

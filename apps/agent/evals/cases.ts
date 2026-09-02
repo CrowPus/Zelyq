@@ -74,7 +74,7 @@ export const CASES: EvalCase[] = [
       // 7, not 6: two 2026-09-02 opus-5 runs both landed a clean decomposition
       // (App + form + item + list + a hook + types + index.css) at exactly 7,
       // all of it requested. `no_unrequested_components` above is the real
-      // restraint guard now; this cap is the loose backstop (F6).
+      // restraint guard now; this cap is the loose backstop.
       { kind: "max_files_changed", count: 7 },
       { kind: "max_file_lines", count: 400 },
     ],
@@ -157,7 +157,7 @@ export const CASES: EvalCase[] = [
       // 5, not 4: two 2026-09-02 opus-5 runs both split App + ContactForm +
       // FormField + a validation module + index.css — all of it requested, none
       // invented. `no_unrequested_components` is the restraint guard; this is
-      // the backstop (F6).
+      // the backstop.
       { kind: "max_files_changed", count: 5 },
       { kind: "max_file_lines", count: 400 },
     ],

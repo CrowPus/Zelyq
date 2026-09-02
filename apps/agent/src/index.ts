@@ -54,7 +54,7 @@ const skillsWithResources = await Promise.all(
   })),
 );
 
-// 056 — the design reference library. `design-md/` sits beside `skills/` in
+// The design reference library. `design-md/` sits beside `skills/` in
 // the repo; an operator can point ZELYQ_DESIGN_REFS_DIR at their own set.
 const designRefs = await loadDesignRefs(
   resolveFromRepoRoot("design-md"),
@@ -62,7 +62,7 @@ const designRefs = await loadDesignRefs(
 );
 if (designRefs.refs.length > 0) ALL_TOOLS.push(buildUseDesignRefTool(designRefs.refs));
 
-// 060 — the AI provider knowledge library. `ai-providers/` sits beside
+// The AI provider knowledge library. `ai-providers/` sits beside
 // `skills/` and `design-md/`; an operator can point ZELYQ_AI_PROVIDERS_DIR at
 // their own set.
 const aiProviders = await loadAiProviders(

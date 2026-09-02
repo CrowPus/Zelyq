@@ -4,7 +4,7 @@ import { defineTool, type ToolResult, truncate, type ZelyqTool } from "@zelyq/to
 import { z } from "zod";
 
 /**
- * 056 — the design reference library.
+ * The design reference library.
  *
  * `design-md/` is a directory of directories, one per reference, each with a
  * `DESIGN.md`: an analysis of a real product's design language — token
@@ -207,7 +207,7 @@ export function buildUseDesignRefTool(refs: DesignRef[]): ZelyqTool {
       "apply, recolour if the personality differs. Never skin the project as the brand; never use " +
       "its logo or wordmark. Starting from a real design language is what separates a designed " +
       "product from the default dark-background-and-purple-gradient look. " +
-      // 064 — the slugs live HERE, not only in a <design_references> prompt
+      // The slugs live HERE, not only in a <design_references> prompt
       // block, so the library is reachable in every mode and in every child
       // that holds this tool. The old description pointed at a list the
       // default-mode prompt never had, so the model read the tool as "not for

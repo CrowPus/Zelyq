@@ -29,7 +29,7 @@ function maxTokensFor(model: string): number {
  * required for the Messages API to accept a subscription token in place of
  * an API key at all. Undocumented as a public API surface (this is what a
  * first-party client sends, not a published contract), so it must be
- * confirmed by trying it against a real account, not assumed. If the vendor
+ * confirmed by trying it against a real account. If the vendor
  * ever changes it, a subscription-mode
  * request starts failing with a normal `unauthorized`, the same as an
  * expired token would — not a silent wrong answer.
@@ -302,7 +302,7 @@ class AnthropicConversation implements Conversation {
     this.longCacheTtl = upgraded;
     this.lastRequestAt = now;
 
-    // A2 / A3 / C5 — optional server-side features, each behind an env flag
+    // Optional server-side features, each behind an env flag
     // (off by default). `extraBody` is `{}` and `betaHeader` is "" unless a
     // flag is set, so a normal request is unchanged.
     const featureBetas = extraBetaHeader();
@@ -375,7 +375,7 @@ class AnthropicConversation implements Conversation {
         outputTokens: response.usage.output_tokens,
         // `input_tokens` above is the UNCACHED remainder. These two are the
         // rest of the prompt — captured so the cache can actually be measured
-        // (finding A4). `?? undefined` keeps an unreported figure honest.
+        //. `?? undefined` keeps an unreported figure honest.
         cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
         cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
       },

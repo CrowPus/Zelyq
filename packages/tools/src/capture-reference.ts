@@ -792,7 +792,7 @@ export const captureReferenceTool = defineTool({
     }
 
     // The summary carries page titles and text harvested from a site the user
-    // does not control — mark it so the session wraps it (finding E1).
+    // does not control — mark it so the session wraps it.
     return { output: summarize(summary), untrusted: { source: entry.hostname } };
   },
 });

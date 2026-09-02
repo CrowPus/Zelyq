@@ -63,7 +63,7 @@ export class AgentClient {
     supabaseBridge?: { url: string; token: string };
     /** Public Supabase config (URL + publishable key) for the preview. */
     supabasePreviewEnv?: Record<string, string>;
-    /** 066 — the project's template, its one-line stack summary, and a
+    /** The project's template, its one-line stack summary, and a
      * skill to force-weave for that stack. Absent ⇒ vite-react defaults. */
     template?: string;
     stack?: string;
@@ -135,7 +135,7 @@ export class AgentClient {
     supabaseBridge?: { url: string; token: string };
     /** Public Supabase config (URL + publishable key) for the preview. */
     supabasePreviewEnv?: Record<string, string>;
-    /** 066 — the project's template, its one-line stack summary, and a
+    /** The project's template, its one-line stack summary, and a
      * skill to force-weave for that stack. Absent ⇒ vite-react defaults. */
     template?: string;
     stack?: string;

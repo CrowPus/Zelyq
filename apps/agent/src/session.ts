@@ -111,7 +111,7 @@ const ARCHITECT_PACKAGE_FILES = new Set([
   "architecture/DESIGN.md",
   // The system design as structured data — rendered as the live diagram.
   "architecture/topology.json",
-  // 060 — the AI-integration spec, when the design uses a language model.
+  // The AI-integration spec, when the design uses a language model.
   "architecture/ai.md",
   // Specialist-owned specs the Architect first-drafts when they apply.
   "architecture/OPERATIONS.md",
@@ -188,7 +188,7 @@ const SUBAGENT_MAX_TURNS = 25;
 const SUBAGENT_MAX_TOKENS = 200_000;
 /** Ceiling for a `cheap`-tier dispatched child — below its context window
  * (Haiku 4.5's is 200K) so it lands its work rather than hitting a
- * context-length 400 first (C3). */
+ * context-length 400 first. */
 const CHEAP_TIER_TOKEN_CAP = 150_000;
 const SUBAGENT_WALLCLOCK_MS = 5 * 60_000;
 const ORCH_MAX_SUBAGENTS = 20;
@@ -244,18 +244,18 @@ export interface SessionOptions {
   projectId: string;
   projectName: string;
   template: string;
-  /** 066 — one-line stack summary for the `<project>` block. Absent ⇒ the
+  /** One-line stack summary for the `<project>` block. Absent ⇒ the
    * built-in `React 19 + Vite + Tailwind` line, so a vite-react session's
    * prompt is byte-identical to before. */
   stack?: string;
-  /** 066 — a stack skill whose body is force-woven into turn one (the same
+  /** A stack skill whose body is force-woven into turn one (the same
    * mechanism Engineer Mode uses for `senior-software-engineering`). Set from
    * `template.json`'s `agentSkill`; absent for vite-react. */
   stackSkill?: { body: string };
-  /** D1 — `AGENTS.md` / `CLAUDE.md` from the project root, read once by the
+  /** `AGENTS.md` / `CLAUDE.md` from the project root, read once by the
    * `/sessions` handler and capped. Woven as `<project_guide>`. */
   projectGuide?: string;
-  /** D2 — `PLAN.md`, the durable task list `update_plan` maintains for
+  /** `PLAN.md`, the durable task list `update_plan` maintains for
    * multi-turn work in default / Engineer Mode. Read the same way, woven as
    * `<plan>`, so a resumed session opens knowing where it stopped. */
   plan?: string;
@@ -306,14 +306,14 @@ export interface SessionOptions {
    * for the report render. */
   architectMode?: boolean;
   architectModeSkill?: { body: string; resources: string[] };
-  /** 056 — the rendered design reference catalog (one line per reference)
+  /** The rendered design reference catalog (one line per reference)
    * and the `Agent.md` UI-craft checklist. The Architect prompt lists the
    * catalog under its DESIGN.md step and inlines `agentMd`; the Engineer
    * prompt inlines `agentMd`; the verifier and Designer children get
    * `agentMd` appended to their system prompt as a gate. */
   designRefCatalogText?: string;
   agentMd?: string;
-  /** 060 — the AI provider knowledge catalog (one line per provider) and the
+  /** The AI provider knowledge catalog (one line per provider) and the
    * integration MUST/SHOULD/NEVER rules. Rendered as `<ai_providers>` in the
    * Architect and Engineer prompts; a lean specialist child does not get it. */
   aiProviderCatalogText?: string;
@@ -336,12 +336,12 @@ export interface SessionOptions {
    * `writeAllowlist` is set; an empty/absent set with `writeAllowlist`
    * present means NO installs are allowed. */
   installAllowlist?: Set<string>;
-  /** 061 — a genuinely-new file whose normalized path this accepts is NOT
+  /** A genuinely-new file whose normalized path this accepts is NOT
    * counted toward Engineer Mode's NEW_FILE_CHECKPOINT. The Cinematic
    * engineer's child sets it so `ffmpeg`'s bulk frame output under
    * `public/cinematic/**` cannot freeze the turn. */
   newFileCheckpointExempt?: (normPath: string) => boolean;
-  /** 061 — a `run_command` whose command matches this is refused at the tool
+  /** A `run_command` whose command matches this is refused at the tool
    * boundary (the Cinematic engineer's scoped shell: no git, no network). */
   cmdDeny?: RegExp;
   /** Overridable so tests can run the loop without a network or an API key. */
@@ -498,10 +498,10 @@ const DESIGNER_TOOL_NAMES = [
   "check_network_failures",
   "typecheck_project",
   "lint_project",
-  // 056 — so the Designer can read the reference the Architect chose (or
+  // So the Designer can read the reference the Architect chose (or
   // pick one, when it authors DESIGN.md from scratch).
   "use_design_ref",
-  // 057 — real imagery without guessing: a searched, downloaded, and
+  // Real imagery without guessing: a searched, downloaded, and
   // shown-back photo, or a labelled placeholder. Only present when the
   // image-assets plugin is loaded; harmless in the filter when it is not.
   "fetch_reference_image",
@@ -699,7 +699,7 @@ type Emit = (event: AgentEvent) => void;
 export const SPECIALIST_KINDS = ["designer", "devops", "security", "cinematic"] as const;
 type SpecialistKind = (typeof SPECIALIST_KINDS)[number];
 
-/** 064 — the pass tool that runs each specialist. An `/agent` pick grants the
+/** The pass tool that runs each specialist. An `/agent` pick grants the
  * matching one for the session (`grantSpecialistTools`), which is what makes
  * `/agent designer` dispatch a real Designer in default mode instead of
  * leaving the model to impersonate one. Keyed by the same names the composer's
@@ -900,7 +900,7 @@ ${QA_MD_TEMPLATE}
 6. Return a QA REVIEW: tests added / passing / failing + coverage; then per security area PASS / FAIL / N-A with the finding; then the NOT CLEARED line if it applies; then any test dependencies the Engineer must add, and any app bugs found (file + symptom). A coverage number with the core flow untested is a NOT DONE line.`;
 
 // ===========================================================================
-// 061 — the Cinematic engineer. The fourth SpecialistKind, on the exact
+// The Cinematic engineer. The fourth SpecialistKind, on the exact
 // Designer/DevOps/Security-QA mechanism. It turns one screen into an
 // intentional scroll-driven experience (frame-scrub hero, pinned reveal,
 // horizontal story, DOM↔canvas hand-off) built to `skills/cinematic-web/`.
@@ -1217,17 +1217,17 @@ interface SpecialistConfig {
   guideNoun: string;
   /** "Design pass" / "DevOps pass" / "QA pass". */
   passNoun: string;
-  /** 061 — a genuinely-new file whose normalized path this predicate accepts
+  /** A genuinely-new file whose normalized path this predicate accepts
    * is NOT counted toward Engineer Mode's NEW_FILE_CHECKPOINT. The Cinematic
    * engineer sets it so `ffmpeg`'s bulk frame output under
    * `public/cinematic/**` cannot freeze the turn. Unset ⇒ every new file
    * counts, exactly as today. */
   newFileCheckpointExempt?: (normPath: string) => boolean;
-  /** 061 — per-kind cap overrides. Absent ⇒ the shared SPECIALIST_MAX_*. */
+  /** Per-kind cap overrides. Absent ⇒ the shared SPECIALIST_MAX_*. */
   maxTurns?: number;
   maxTokens?: number;
   wallclockMs?: number;
-  /** 061 — a `run_command` whose command matches this is refused at the tool
+  /** A `run_command` whose command matches this is refused at the tool
    * boundary. The Cinematic engineer uses it to keep a scoped shell (no git,
    * no network beyond the sandbox) while still running `ffmpeg`-class work. */
   cmdDeny?: RegExp;
@@ -1295,15 +1295,15 @@ const SPECIALISTS: Record<SpecialistKind, SpecialistConfig> = {
     installAllow: CINEMATIC_DEP_ALLOW,
     guideNoun: "scroll storyboard",
     passNoun: "Cinematic pass",
-    // 061 — ffmpeg writes 90–140 frame files in one command; without this the
+    // Ffmpeg writes 90–140 frame files in one command; without this the
     // sixth would freeze the turn before the component could be written.
     newFileCheckpointExempt: (n) => n.startsWith("public/cinematic/"),
-    // 061 — asset processing + storyboard + implementation + a scroll-QA loop
+    // Asset processing + storyboard + implementation + a scroll-QA loop
     // needs more room than the shared specialist caps.
     maxTurns: 50,
     maxTokens: 800_000,
     wallclockMs: 25 * 60_000,
-    // 061 — a scoped shell: ffmpeg-class work and dev commands, no git, no
+    // A scoped shell: ffmpeg-class work and dev commands, no git, no
     // network beyond the sandbox.
     cmdDeny: CINEMATIC_CMD_DENY,
   },
@@ -1345,7 +1345,7 @@ export function shortenCommand(command: string): string {
 }
 
 /**
- * E1 — wraps a tool result whose content came from outside the user's control
+ * Wraps a tool result whose content came from outside the user's control
  * in `<untrusted_content>`, so the model has a structural basis for treating it
  * as data rather than instruction. Any `<untrusted_content>` tags already in
  * the fetched text are defanged first so the block cannot be closed early from
@@ -1368,13 +1368,12 @@ export class AgentSession {
   private readonly options: SessionOptions;
   private readonly conversation: Conversation;
 
-  // 064 — the SAME array the conversation holds, kept by reference so an
+  // The SAME array the conversation holds, kept by reference so an
   // `/agent` pick can add that specialist's pass tool to a live session.
   // Every provider reads `options.tools` when it builds a request
   // (anthropic.ts, google.ts, openai-compatible.ts, chatgpt-responses.ts) —
   // never in a constructor — so a push here is visible on the next turn,
   // uniformly, with no session restart.
-  //
   // INVARIANT: a grant is STICKY for the life of the session and is only ever
   // ADDED, never removed. On Anthropic the tool block sits ahead of the system
   // prompt in the cache prefix, so a tool list that churns per turn would
@@ -1392,7 +1391,7 @@ export class AgentSession {
   // Prompt tokens the provider served from / wrote to its cache this session.
   // `tokensIn` above is only the UNCACHED remainder on Anthropic and OpenAI, so
   // true prompt size is `tokensIn + cacheReadTokens + cacheCreationTokens`
-  // (finding A4). `docs/agent-behaviour.md` explains the display.
+  //. `docs/agent-behaviour.md` explains the display.
   private cacheReadTokens = 0;
   private cacheCreationTokens = 0;
   // The same four figures for THIS user turn only, reset at the top of `run()`.
@@ -1401,7 +1400,7 @@ export class AgentSession {
   // exist because storing a cumulative total per message and then *adding* it
   // to the session total made `sessions.tokens_in` grow with the square of the
   // turn count — the historical figures are inflated ~2.1x and unusable
-  // (`docs/token-usage/07-review-and-amendments.md`, R1).
+
   private turnTokensIn = 0;
   private turnTokensOut = 0;
   private turnCacheReadTokens = 0;
@@ -1415,7 +1414,7 @@ export class AgentSession {
   // building" in one breath.
   private readyDeclaredAtTurn: number | null = null;
 
-  // 061 — set for the current turn when a cinematic pass returned the
+  // Set for the current turn when a cinematic pass returned the
   // ASSETS-NEEDED pause. The only files it wrote are docs / staging (SOURCE.md,
   // a .gitkeep, a draft CINEMATIC.md, a .gitignore line), so the automatic
   // end-of-turn project verify is pure noise on that turn — suppress it.
@@ -1479,7 +1478,7 @@ export class AgentSession {
       "supabase_deploy_function",
     ]);
     const supabaseLinked = Boolean(options.supabaseBridge);
-    // B1 — a plain default-mode session does not need the connector tools or the
+    // A plain default-mode session does not need the connector tools or the
     // task-only inspection families standing by. Architect and Engineer keep the
     // full weave (they hand task tools out per step), and a lean builder is
     // already filtered by `toolNames`.
@@ -1493,7 +1492,6 @@ export class AgentSession {
             ...(options.architectMode ? [dispatchTaskTool] : []),
             // The specialists are callable from Engineer Mode (on the user's
             // ask) and Architect Mode (in the pipeline).
-            //
             // R5 — they are ALSO seeded up front on a provider that pins a
             // prefix cache, even in default mode. On those providers the tool
             // block is the first thing in the cached prefix, so granting a pass
@@ -1502,7 +1500,6 @@ export class AgentSession {
             // ~24k static tokens plus its history at 1.25x instead of reading
             // it at 0.1x. Seeding costs ~1,047 tokens, written once and read at
             // 0.1x thereafter — unconditionally the cheaper side of that trade.
-            //
             // Where there is no pinned prefix cache the trade reverses: those
             // ~1,047 tokens are full price on every round, and a late grant
             // costs nothing extra, so those providers keep granting on demand.
@@ -1514,7 +1511,7 @@ export class AgentSession {
           ]
     )
       .filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name))
-      // D2 — one plan, one owner. Architect Mode's plan is `build-plan.md`;
+      // One plan, one owner. Architect Mode's plan is `build-plan.md`;
       // `update_plan` (which writes `PLAN.md`) belongs to default and Engineer
       // Mode only, so the two never compete.
       .filter((t) => t.name !== "update_plan" || !options.architectMode);
@@ -1526,11 +1523,11 @@ export class AgentSession {
 
     this.conversation = provider.createConversation({
       systemPrompt:
-        // 056 — a lean specialist child (systemPrompt + toolNames) gets
+        // A lean specialist child (systemPrompt + toolNames) gets
         // `Agent.md` appended as a gate; the full prompt for a top-level
         // session gets the catalog + `agentMd` woven in by buildSystemPrompt.
         options.systemPrompt
-          ? // 064 — a child's prompt is assembled here, not by
+          ? // A child's prompt is assembled here, not by
             // buildSystemPrompt: <design_references> first (it is what the
             // Designer's step 2 reads before writing DESIGN.md), then the
             // hand-written prompt, then <ui_guidelines> as the closing gate.
@@ -1827,13 +1824,11 @@ export class AgentSession {
     // Inject the bodies of the skills the task named. The lean child has no
     // use_skill tool, so it gets the text — whatever is not inlined here is
     // simply unavailable to it, which is why the budget is PER SKILL.
-    //
     // It used to be one `slice(0, 14000)` over the concatenation, and that is
     // a trap: `ui-ux-design-intelligence` is 14,944 characters on its own, so
     // the Designer's second skill (`frontend-ui-engineering`, 15,307) was cut
     // in full and the config silently listed a skill the child never saw.
     // Naming a third would have changed nothing at all.
-    //
     // A per-skill share means adding a skill costs tokens instead of quietly
     // erasing the one behind it. Each is trimmed at a boundary it can survive,
     // and says so, rather than stopping mid-sentence.
@@ -1858,7 +1853,7 @@ export class AgentSession {
         : BUILDER_TOOL_NAMES;
     // A specialist authors a spec AND implements it, so it gets more room:
     // 40 turns / 600k tokens / 18 min by default, or a per-kind override on
-    // its SpecialistConfig (061 — the Cinematic engineer runs 50 / 800k / 25m).
+    // its SpecialistConfig (the Cinematic engineer runs 50 / 800k / 25m).
     const wallclockMs = spec
       ? (spec.wallclockMs ?? SPECIALIST_WALLCLOCK_MS)
       : isVerify
@@ -1869,7 +1864,7 @@ export class AgentSession {
       : isVerify
         ? SUBAGENT_MAX_TOKENS * 3
         : SUBAGENT_MAX_TOKENS;
-    // C3 — a `cheap`-tier child's context window is small (Haiku 4.5's is
+    // A `cheap`-tier child's context window is small (Haiku 4.5's is
     // exactly SUBAGENT_MAX_TOKENS), so an un-clamped cap can only be reached by
     // first 400ing on context length. Hold it under the window. Strong /
     // standard / custom models keep the full cap.
@@ -1917,19 +1912,19 @@ export class AgentSession {
       // A specialist has a structural write scope, enforced in the child, and
       // an install allowlist (empty ⇒ no installs).
       ...(spec ? { writeAllowlist: spec.allow, installAllowlist: spec.installAllow } : {}),
-      // 061 — the Cinematic engineer's frame output is exempt from the
+      // The Cinematic engineer's frame output is exempt from the
       // new-file checkpoint, and its shell is scoped (no git / no network).
       ...(spec?.newFileCheckpointExempt
         ? { newFileCheckpointExempt: spec.newFileCheckpointExempt }
         : {}),
       ...(spec?.cmdDeny ? { cmdDeny: spec.cmdDeny } : {}),
-      // 056 — the verifier, the Designer, and (061) the Cinematic engineer
+      // The verifier, the Designer, and (061) the Cinematic engineer
       // check the UI against Agent.md.
       ...(this.options.agentMd &&
       (isVerify || specialistKind === "designer" || specialistKind === "cinematic")
         ? { agentMd: this.options.agentMd }
         : {}),
-      // 064 — the two design-AUTHORING specialists get the reference catalog.
+      // The two design-AUTHORING specialists get the reference catalog.
       // DESIGNER_SYSTEM_PROMPT step 2 has always instructed the child to pick
       // from a <design_references> list; until now nothing ever handed it one,
       // so it fell through to "first principles" — the stock dark-purple — on
@@ -2050,7 +2045,7 @@ export class AgentSession {
           : "";
     const filesChanged = [...changed];
     // Files that are the specialist's own spec doc don't count as
-    // "implementation". 061 — nor does the Cinematic engineer's asset tree
+    // "implementation", nor does the Cinematic engineer's asset tree
     // (SOURCE.md, .gitkeep, the frame sequence, a poster, the manifest): those
     // are inputs and outputs, not the component that implements the storyboard.
     const codeFilesChanged = spec
@@ -2068,7 +2063,7 @@ export class AgentSession {
       : filesChanged;
     const noChanges = isSpecialist && filesChanged.length === 0;
     const specOnly = isSpecialist && !noChanges && codeFilesChanged.length === 0;
-    // 061 — the Cinematic engineer's asset gate. When it blocks for footage it
+    // The Cinematic engineer's asset gate. When it blocks for footage it
     // writes SOURCE.md + .gitkeep + a draft storyboard + a .gitignore entry
     // (all of which `codeFilesChanged` already excludes — none is the
     // component that implements the storyboard) and opens a line of its reply
@@ -2238,7 +2233,7 @@ export class AgentSession {
   }
 
   /**
-   * 064 — an `/agent` pick makes that specialist runnable, in ANY mode.
+   * An `/agent` pick makes that specialist runnable, in ANY mode.
    *
    * Before this, `design_pass` and friends existed only in Architect or
    * Engineer Mode, so a default-mode user who picked "Designer" from the
@@ -2336,17 +2331,17 @@ export class AgentSession {
     // thing" nudge has already been injected this turn. One-shot, so a model
     // that stays empty even with guidance ends the turn instead of looping.
     let emptyRecoveryDone = false;
-    // C1 — how many times this turn a response cut off at the output limit has
+    // How many times this turn a response cut off at the output limit has
     // been continued. Bounded: an output that will not converge in two extra
     // rounds is genuinely too large for one response, and the user is told so.
     let maxTokensContinuations = 0;
-    // D3 — one warning as the step budget runs low, so the model lands its work
+    // One warning as the step budget runs low, so the model lands its work
     // instead of discovering the cap by hitting it (the whole
     // `synthesizeFallbackSummary` path exists to clean up after that). A
     // message, never the system prompt — a per-turn counter in the prompt would
     // invalidate the cache on every request.
     let budgetWarningDone = false;
-    // 064 — one-shot re-nudge when the user picked a specialist from the
+    // One-shot re-nudge when the user picked a specialist from the
     // `/agent` menu and the turn is about to end without that specialist's
     // pass tool ever being called. The grant + the `withAgents` instruction
     // get a capable model (gpt-5.2) to comply on their own; a weak one
@@ -2383,7 +2378,7 @@ export class AgentSession {
     // refusal banner. Also lets `turn.end`'s `stopReason` say "refusal"
     // honestly instead of the generic "end_turn".
     let refused = false;
-    // C1 — set when the turn ends because a response was still being cut off at
+    // Set when the turn ends because a response was still being cut off at
     // the output limit after two continuations. `turn.end` reports it so the UI
     // can say "the answer was too long to finish" instead of showing a
     // truncated response as complete.
@@ -2395,7 +2390,6 @@ export class AgentSession {
     // genuinely-new paths — a file that existed before this turn started
     // never counts, no matter which tool touches it, so a legitimate rewrite
     // of App.tsx is never mistaken for invented scope.
-    //
     // Refusing only the write that crosses the checkpoint, while leaving
     // `edit_file` and everything else open, does not stop the model — it
     // just removes the option to decompose properly, and the model crams
@@ -2480,13 +2474,13 @@ export class AgentSession {
     const withPluginInstruction = pluginNames?.length
       ? withPlugins(userMessage, pluginNames)
       : userMessage;
-    // 064 — an `/agent` pick is a dispatch, not a pointer: grant the named
+    // An `/agent` pick is a dispatch, not a pointer: grant the named
     // specialist's pass tool for the session BEFORE the hint is woven, so the
     // tool `withAgents` names is genuinely in the pool by the time the model
     // reads the instruction. Woven between the plugin line and the skill
     // bodies so a named skill still reads first.
     if (agentNames?.length) this.grantSpecialistTools(agentNames);
-    // 064 — the pass tools this pick is expected to produce a call to, for
+    // The pass tools this pick is expected to produce a call to, for
     // the end-of-turn backstop below. Empty for a lean child (no pick) or an
     // unrecognised name.
     const pickedPassTools =
@@ -2521,7 +2515,7 @@ export class AgentSession {
       for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
         if (signal.aborted) break;
 
-        // D3 — near the step cap, tell the model once so it can wrap up rather
+        // Near the step cap, tell the model once so it can wrap up rather
         // than be cut mid-work. Skipped for tiny caps, where there is nothing
         // to pace. Fires after a tool-result message like the other loop
         // nudges; providers tolerate the consecutive user turn.
@@ -2652,7 +2646,7 @@ export class AgentSession {
           break;
         }
 
-        // C1 — the response was cut off at the output-token limit, not
+        // The response was cut off at the output-token limit, not
         // finished. With no tool calls it would otherwise fall straight into
         // the end-of-turn path and be reported as complete. Ask the model to
         // continue from where it stopped; bounded to two extra rounds.
@@ -2758,7 +2752,7 @@ export class AgentSession {
             continue;
           }
 
-          // 064 — the user picked a specialist from the `/agent` menu, its
+          // The user picked a specialist from the `/agent` menu, its
           // pass tool was granted for this turn, and the turn is ending
           // without a single call to it. One firm re-nudge, then let the
           // turn end — a model that still refuses after this has made its
@@ -2870,7 +2864,7 @@ export class AgentSession {
               toolCall.name === "write_file" &&
               typeof toolCall.input.path === "string" &&
               !existingFilesAtTurnStart.has(toolCall.input.path) &&
-              // 061 — a specialist child may exempt a path prefix from the
+              // A specialist child may exempt a path prefix from the
               // new-file count (the Cinematic engineer's `public/cinematic/**`
               // frame output, which ffmpeg writes in bulk).
               !this.options.newFileCheckpointExempt?.(pathPosix.normalize(toolCall.input.path))
@@ -2884,7 +2878,6 @@ export class AgentSession {
             // whether it did. Read-only tools (`read_file`, `list_files`,
             // `search_files`, preview inspection) stay available so the
             // model can still write an accurate summary of what exists.
-            //
             // The one exception: in the finish phase (a verification tool
             // has run this turn — see `finishPhase`), `edit_file`,
             // `run_command`, and a `write_file` onto a file that already
@@ -2975,7 +2968,7 @@ export class AgentSession {
                   typeof (toolCall.input as { command?: unknown }).command === "string"
                     ? (toolCall.input as { command: string }).command
                     : "";
-                // 061 — a specialist may run a scoped shell: the Cinematic
+                // A specialist may run a scoped shell: the Cinematic
                 // engineer gets `ffmpeg`-class work and dev commands, but no
                 // git and no network beyond the sandbox.
                 if (this.options.cmdDeny?.test(cmd)) return "cmd";
@@ -3201,7 +3194,7 @@ export class AgentSession {
             return {
               id: toolCall.id,
               name: toolCall.name,
-              // E1 — content the tool fetched from outside the user's control
+              // Content the tool fetched from outside the user's control
               // is wrapped so the model treats it as data, not instruction.
               // Done here, once, rather than in each of ~80 tools.
               output: outcome.untrusted
@@ -3252,7 +3245,7 @@ export class AgentSession {
               !existingFilesAtTurnStart.has(filePath) &&
               !newFilesThisTurn.has(filePath) &&
               !GENERATED_LOCKFILE_NAMES.has(filePath) &&
-              // 061 — ffmpeg's bulk frame output under `public/cinematic/**`
+              // Ffmpeg's bulk frame output under `public/cinematic/**`
               // is exempt from the new-file checkpoint count.
               !this.options.newFileCheckpointExempt?.(pathPosix.normalize(filePath)),
           );
@@ -3312,7 +3305,7 @@ export class AgentSession {
           // (no `npm install` in this mode). Running the verify step here
           // just fails every turn and drags the model into explaining a
           // non-problem in its reply. The `files.changed` event still fires
-          // so the UI and the Plan panel refresh. 061 — likewise skip it when
+          // so the UI and the Plan panel refresh. Likewise skip it when
           // a cinematic pass just paused for assets: only docs / staging
           // changed, nothing to verify.
           if (!this.options.architectMode && !this.assetGatePausedThisTurn) {
@@ -3336,7 +3329,6 @@ export class AgentSession {
       // whatever the reason (the step budget ran out mid-work, or a provider
       // returned nothing) the user never sees a silent reply after real work
       // happened. Two related gaps the shape below also closes:
-      //
       // 1. Checking only "is the text empty" misses the near-miss case — a
       //    turn that says one stray sentence ("Working on it.") early and
       //    then goes heads-down calling tools until the budget runs out hits
@@ -3345,7 +3337,6 @@ export class AgentSession {
       //    iteration cap now always appends the reconstructed summary,
       //    whether or not the model said something on the way — real text
       //    already said is kept, never discarded.
-      //
       // 2. Whitespace-only text (a model that streamed nothing but blank
       //    lines) breaks the invariant this exists to protect: replacing
       //    `assistantText` outright makes the DB-persisted copy (built by the
@@ -3355,7 +3346,6 @@ export class AgentSession {
       //    this emits and the final `assistantText` stay identical by
       //    construction — the same property `apps/server/src/ws/gateway.ts`
       //    needs.
-      //
       // A refusal is deliberately excluded (`!refused`): its own `error`
       // event already carries the model's stated reason, and layering
       // "finished without providing a summary" underneath it would read
@@ -3472,7 +3462,7 @@ export class AgentSession {
         emit({ type: "aborted", sessionId: this.id, messageId });
         return;
       }
-      // A3 — a context-window overflow is a product state, not a raw 400. Tell
+      // A context-window overflow is a product state, not a raw 400. Tell
       // the user what to do; the code and the plan are on disk for the next
       // session to pick up.
       if (isContextLengthError(error)) {
@@ -3761,7 +3751,7 @@ export class AgentSession {
           "(schema, grants, RLS, auth, key map, migration plan) before dispatching.",
       };
     }
-    // 060 — a design that uses a language model needs a real ai.md.
+    // A design that uses a language model needs a real ai.md.
     const usesLlm =
       /\b(openai|anthropic|\bgemini\b|mistral|\bgroq\b|\bgrok\b|openrouter|\bLLM\b|language model|chatbot|\bGPT-|\bClaude\b|ai_credentials)\b/i.test(
         `${reqs}\n${(await this.readFileOrNull(`${ARCHITECT_WRITE_ROOT}backend.md`)) ?? ""}`,

@@ -455,7 +455,7 @@ class GoogleConversation implements Conversation {
     for await (const chunk of stream) {
       if (chunk.usageMetadata) {
         // `promptTokenCount` INCLUDES cached content; split it so input is the
-        // uncached remainder, matching the other providers (finding A4).
+        // uncached remainder, matching the other providers.
         cachedTokens = chunk.usageMetadata.cachedContentTokenCount ?? cachedTokens;
         inputTokens = (chunk.usageMetadata.promptTokenCount ?? inputTokens) - cachedTokens;
         outputTokens =

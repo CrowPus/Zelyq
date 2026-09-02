@@ -2,12 +2,12 @@ import { z } from "zod";
 import { defineTool, type ToolContext, type ToolResult, truncate } from "./types.js";
 
 /**
- * B4 — a per-path lock so two mutations to the same file in one parallel batch
+ * A per-path lock so two mutations to the same file in one parallel batch
  * cannot both read the original and both write, silently losing the first.
  * `edit_file` is a read-modify-write; the run loop fires the batch through
  * `Promise.all`. Keyed by project + normalised path; each op chains onto the
  * previous one for that key. `run_command` racing an edit is a wider case left
- * for the batch-partition follow-up (see docs/maintainance).
+ * for the batch-partition follow-up.
  */
 const pathLocks = new Map<string, Promise<unknown>>();
 
@@ -189,7 +189,7 @@ export const editFileTool = defineTool({
       const updated = file.content.replace(input.old_text, input.new_text);
       await context.runtime.writeFile(context.projectId, input.path, updated);
       context.onFileChanged(input.path);
-      // B3 — hand back the resulting region so the model can verify its own
+      // Hand back the resulting region so the model can verify its own
       // edit without a full confirmatory read_file.
       const throughLine = startLine + input.new_text.split("\n").length - 1;
       return {

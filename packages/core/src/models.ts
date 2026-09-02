@@ -109,7 +109,7 @@ export type ToolCall = z.infer<typeof toolCallSchema>;
 /**
  * Tool-input fields that carry whole-file contents. Persisted verbatim in a
  * message's `toolCalls`, `write_file` + `edit_file` inputs are ~68% of every
- * tool-call byte in the database (finding A2), and each one duplicates what is
+ * tool-call byte in the database, and each one duplicates what is
  * on disk and re-readable with `read_file`. `stripHeavyToolInputs` replaces
  * them with a marker before a message is stored, so a session rebuilt from
  * history — after a server restart, or for a subagent — does not recarry them.
@@ -189,7 +189,7 @@ export const messageSchema = z.object({
   /**
    * Usage for THIS turn — not a session running total. Before the R1 fix these
    * held a cumulative figure, which is why `usageSchema: 0` rows must be
-   * excluded from any baseline (`docs/token-usage/07-review-and-amendments.md`).
+   * excluded from any baseline.
    */
   tokensIn: z.number().int().nonnegative().default(0),
   tokensOut: z.number().int().nonnegative().default(0),

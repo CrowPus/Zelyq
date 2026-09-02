@@ -13,7 +13,7 @@ import type {
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * 061 — the Cinematic engineer specialist. Same harness as
+ * The Cinematic engineer specialist. Same harness as
  * designer-agent.test.ts: one scripted provider serves the parent and every
  * dispatched child; script[0] is the parent, script[1..] the children in
  * dispatch order.

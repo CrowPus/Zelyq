@@ -136,7 +136,7 @@ test("ensureInspectorScript: an index.html with no </body> is left unchanged, no
 });
 
 // ---------------------------------------------------------------------------
-// 066 — the Expo web shape: app/+html.tsx + public/zelyq-inspector.js.
+// The Expo web shape: app/+html.tsx + public/zelyq-inspector.js.
 // ---------------------------------------------------------------------------
 
 test("ensureInspectorScript: patches an Expo project's app/+html.tsx and writes the asset", async () => {

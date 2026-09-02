@@ -35,23 +35,16 @@ export interface AgentServerDeps {
    * so an instance admin can confirm a plugin actually loaded from the UI
    * instead of reading the agent's own boot log. */
   pluginNames?: string[];
-  /** Every loaded skill, name/description for the prompt catalog and full
-   * body for the guaranteed `/`-selected weaving. The one existing reader
-   * (`/health`'s badge list) reads `.name` off each entry. `resources` is
-   * each skill's deeper-file listing, resolved once at boot in `index.ts`
-   * (the one place with legitimate access to a skill's directory), used only
-   * when Engineer Mode wires this skill's body straight into a system prompt
-   * instead of through a live `use_skill` call. */
+  /** Loaded skills: name and description for the prompt catalog, body for a
+   * `/`-selected weave. `resources` lists a skill's deeper files, needed only
+   * when Engineer Mode inlines a body instead of using a live `use_skill`. */
   skills?: Array<{ name: string; description: string; body: string; resources?: string[] }>;
-  /** 056 — the design reference catalog (slug + one-liner each), injected
-   * into the Architect's DESIGN.md step and given to the Designer child.
-   * `designRefCatalogText` is the pre-rendered list; `agentMd` is the
-   * brand-neutral UI-craft checklist inlined into the Architect and Engineer
-   * prompts and enforced by the verifier / Designer. */
+  /** Design references for the Architect's DESIGN.md step and the Designer
+   * child. `agentMd` is the UI-craft checklist the verifier enforces. */
   designRefCatalog?: Array<{ slug: string; description: string }>;
   designRefCatalogText?: string;
   agentMd?: string | null;
-  /** 060 — the AI provider knowledge catalog (slug + one-liner each), for an
+  /** The AI provider knowledge catalog (slug + one-liner each), for an
    * AI build. `aiProviderCatalogText` is the pre-rendered list;
    * `aiProvidersAgentMd` is the integration MUST/SHOULD/NEVER checklist, both
    * rendered as `<ai_providers>` in the Architect / Engineer prompts. */
@@ -250,7 +243,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       ? deps.skills?.find((skill) => skill.name === ARCHITECT_MODE_SKILL_NAME)
       : undefined;
 
-    // 066 — the stack skill a template names (`template.json` `agentSkill`),
+    // The stack skill a template names (`template.json` `agentSkill`),
     // force-woven into turn one so RN-vs-DOM rules are never left to chance.
     // Nothing for vite-react (no `agentSkill`), so its prompt is unchanged.
     const stackSkill = input.agentSkill
@@ -259,7 +252,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
 
     await runtime.ensureProject(input.projectId);
 
-    // D1 — the project's own instructions, if it ships any. `AGENTS.md` is the
+    // The project's own instructions, if it ships any. `AGENTS.md` is the
     // cross-tool convention; `CLAUDE.md` is read as a fallback for projects
     // arriving from Claude Code. Read once here, capped, and byte-stable for
     // the session so it sits inside the prompt's cache breakpoint.
@@ -279,7 +272,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       }
     }
 
-    // D2 — the durable plan `update_plan` maintains for multi-turn work in
+    // The durable plan `update_plan` maintains for multi-turn work in
     // default / Engineer Mode. Read the same way as the project guide so a
     // resumed session opens knowing exactly where it stopped.
     const planFile = await runtime
@@ -342,12 +335,12 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       history: input.history,
       skills: deps.skills,
       resolveSkillBody: (name) => skillsByName.get(name),
-      // 056 — the design reference catalog + the UI-craft checklist. Only
+      // The design reference catalog + the UI-craft checklist. Only
       // meaningful in Architect/Engineer Mode (where the prompt renders
       // them), but threaded unconditionally — the constructor decides.
       ...(deps.designRefCatalogText ? { designRefCatalogText: deps.designRefCatalogText } : {}),
       ...(deps.agentMd ? { agentMd: deps.agentMd } : {}),
-      // 060 — the AI provider catalog + integration rules, for an AI build.
+      // The AI provider catalog + integration rules, for an AI build.
       ...(deps.aiProviderCatalogText ? { aiProviderCatalogText: deps.aiProviderCatalogText } : {}),
       ...(deps.aiProvidersAgentMd ? { aiProvidersAgentMd: deps.aiProvidersAgentMd } : {}),
       ...(deps.providerFactory ? { providerFactory: deps.providerFactory } : {}),
