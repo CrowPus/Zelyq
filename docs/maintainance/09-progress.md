@@ -137,20 +137,26 @@ portable halves, 3.4 `update_plan` in full), most of Phase 4 (template, denylist
 budget warning, tool-schema tightening, prompt-hash tool), F4 + F5 + F6 (both eval halves and the
 `<scope>` prompt tightening) + G1/G2/G3 + D1/D2/D3.
 
-**Left, and why it stopped here:**
+**Done since:** the two Anthropic beta features (context editing + refusal fallback / C5),
+live-verified; D4 (nine thin skills dropped).
 
-- **Anthropic-beta only — cannot build without a paid live test:** `compact_20260112`,
-  `clear_tool_uses` live-turn (A2 upper half), the `task-budgets` countdown, `server-side-fallback`
-  (C5), the `models.retrieve` window lookup.
-- **C2 (operator `role:system`)** — assessed and deferred. The safe form needs live testing (it's
-  model-version-gated: Opus 5 yes, Sonnet 5 no) and risks a 400; E1 §2 shipping removed the urgency
-  that made it a prerequisite. The prefix-only fallback is 12 fragile edits for marginal gain.
-- **More 2.3 eval cases** (checkpoint fires/doesn't, Expo, `/clone`, specialist honesty) — writable
-  without a run, but only *meaningful* once run, and the founder has asked not to spend on runs.
-- **D4 (prune the 11 thin skills)** — deleting user-facing capability is a per-skill judgement call
-  that belongs to the founder, not a mechanical cleanup.
-- **C1's three workaround deletions** — cleanup that wants an eval run to confirm nothing regressed.
-- **2.2 effort tuning** — gated on an eval comparison at `high` vs `xhigh`.
+**Left, and why:**
+
+- **Blocked on Anthropic** — the SDK has no flag yet: `compact_20260112` (compaction), the
+  `task_budget` subagent countdown, the `models.retrieve` window lookup. A one-line swap when they
+  ship.
+- **Needs a UI, not just a rule** — E1 §4 per-host fetch confirmation (a per-session consent step).
+- **Needs an eval run the founder controls** — 2.2 effort tuning (`high` vs `xhigh`), the extra 2.3
+  cases (Expo / `/clone` / specialist-honesty / checkpoint pair — writable but only meaningful once
+  run), C1's three workaround deletions (cleanup that wants a run to confirm no regression),
+  F2's per-PR smoke set (a CI API key + spend), F5's pre-flight probe (minor).
+- **C2 (operator `role:system`)** — assessed and left. The safe form is model-version-gated and 400-
+  risky without a live test; E1 §2 shipping removed the reason it was a prerequisite; the
+  prefix-only fallback is churn for marginal gain.
+- **B6 `strict: true`** — needs five all-optional core tools reshaped (optional → nullable-required),
+  which changes the schema the model sees and wants its own eval check.
+
+Everything else across all four phases is done.
 
 ### No eval run is required to merge or ship
 
