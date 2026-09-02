@@ -231,7 +231,18 @@ export function toFunctionDeclarations(tools: ToolDefinition[]) {
   }));
 }
 
-const UNSUPPORTED_SCHEMA_KEYS = new Set(["$schema", "$id", "$ref", "definitions", "$defs"]);
+// `additionalProperties` is dropped for Gemini specifically: `toolDefinitions`
+// sets it `false` on core tools for the Anthropic/OpenAI strict path, and
+// Gemini's `parametersJsonSchema` handling of it has been uneven. Dropping it
+// keeps Gemini on exactly its previous behaviour.
+const UNSUPPORTED_SCHEMA_KEYS = new Set([
+  "$schema",
+  "$id",
+  "$ref",
+  "definitions",
+  "$defs",
+  "additionalProperties",
+]);
 
 function scrubSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(scrubSchema);

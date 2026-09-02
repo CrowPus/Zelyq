@@ -35,6 +35,13 @@ test("every tool produces a valid Messages API definition", () => {
     assert.match(definition.name, /^[a-z_]+$/);
     assert.ok(definition.description.length > 20, `${definition.name} needs a real description`);
     assert.equal((definition.input_schema as { type?: string }).type, "object");
+    // B6 — core tools are closed to unknown keys, so a typo'd argument name is
+    // a visible rejection rather than a key zod silently strips.
+    assert.equal(
+      (definition.input_schema as { additionalProperties?: unknown }).additionalProperties,
+      false,
+      `${definition.name} should forbid extra properties`,
+    );
   }
 });
 

@@ -326,6 +326,19 @@ Two cautions:
   before flipping it globally; they are third-party-shaped and some may rely on pass-through.
   Ship it for the 14 core tools first, where the schemas are known.
 
+### Done (`additionalProperties: false`) — 2026-09-02
+
+`CORE_TOOL_NAMES` in `packages/tools/src/index.ts` (the tools in the literal `ALL_TOOLS`, captured
+before boot mutates it). `toolDefinitions` sets `additionalProperties: false` on those and only
+those — plugin/skill tools are left untouched. `safeParse` stays. Gemini's `scrubSchema` drops the
+key (`parametersJsonSchema` handling of it has been uneven), so Gemini keeps exactly its previous
+behaviour; Anthropic and OpenAI carry it. `tools.test.ts` asserts every core definition has it.
+
+**Still open:** `strict: true` on the Anthropic path. It additionally requires every property in
+`required`, and `list_files` / `start_preview` / `preview_logs` / `view_preview` /
+`supabase_verify_backend` are all-optional — they need reshaping (optional → nullable-required)
+first, which changes the schema the model sees and wants its own eval check.
+
 Related, and independently worth doing: **parse tool inputs, never string-match them.** Opus 5 and
 the 4.6+ family may vary JSON string escaping in `tool_use.input`. Zelyq is already clean here — the
 provider hands back a parsed object — but the guards in `session.ts` do things like

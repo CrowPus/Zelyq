@@ -36,7 +36,8 @@ All on `maint/phase1`, each its own commit, full matrix green. Written up in det
 | B5 | `find_files` + `glob`/`context_lines` on `search_files` | `ee6aa21` |
 | F2 (gate) | prompt-hash CI check (now blocking, `evals/baselines.json`) | `4154d3f`, `25bf362` |
 | D3 | one-shot step-budget warning in the run loop | `fc75d28` |
-| 2.3 (part) | Engineer-Mode reply checks in the eval harness | `<this>` |
+| 2.3 (part) | Engineer-Mode reply checks in the eval harness | `99a637f` |
+| B6 (part) | `additionalProperties: false` on the 14 core tool schemas | `<this>` |
 
 **Left for the founder** (each noted in its section): the `<scope>` prompt half of F6, G3,
 a `<how_to_work>` mention of `find_files`, and F2's per-PR smoke set (needs a CI key). Provider-beta
@@ -128,6 +129,21 @@ all three; a real Engineer-Mode summary passes, prose forms included. `eval-engi
 
 Still open: the checkpoint fires / doesn't-fire pair (needs two purpose-built cases), the A/B re-run
 on `claude-opus-5`, and Expo / `/clone` / specialist-honesty coverage.
+
+---
+
+## B6 (part) — close the core tool schemas
+
+**Where:** `maint/phase1`. [02-tool-surface.md](./02-tool-surface.md) §6.
+
+`CORE_TOOL_NAMES` (the tools in the `ALL_TOOLS` literal, captured before boot mutates it).
+`toolDefinitions` now sets `additionalProperties: false` on those and only those — plugin/skill
+tools stay untouched, `safeParse` stays. A typo'd argument name is now a visible rejection instead
+of a key zod silently strips. Gemini's `scrubSchema` drops the key so Gemini is unchanged; Anthropic
+and OpenAI carry it. `tools.test.ts` asserts it; tools suite 56/56, agent 376/376, server 215/215.
+
+Still open: `strict: true` (Anthropic path) — it also requires every property in `required`, and
+five core tools are all-optional. Needs reshaping + its own eval check.
 
 ---
 
