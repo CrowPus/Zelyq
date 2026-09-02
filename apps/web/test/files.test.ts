@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildSkillUploadFiles } from "../src/lib/files.js";
+import {
+  buildSkillUploadFiles,
+  inlineImageMimeType,
+  MAX_UPLOAD_BYTES,
+  uploadTargetPath,
+} from "../src/lib/files.js";
 
 /**
  * `buildSkillUploadFiles`. Extracted out
@@ -56,4 +61,84 @@ test("every file's data round-trips as real base64 of its actual bytes", async (
 test("an empty file list produces an empty result — never throws, never invents a file", async () => {
   const result = await buildSkillUploadFiles([]);
   assert.deepEqual(result, []);
+});
+
+/**
+ * Upload path building. This value is used to write to a project's disk, and
+ * its inputs come from the browser — a dropped entry's relative path is
+ * whatever the OS handed over. So the traversal cases matter more than the
+ * happy path.
+ */
+
+test("a loose file lands in the folder it was dropped on", () => {
+  assert.equal(uploadTargetPath("public", "logo.png"), "public/logo.png");
+  assert.equal(uploadTargetPath("", "logo.png"), "logo.png");
+  assert.equal(uploadTargetPath("src/assets", "icon.svg"), "src/assets/icon.svg");
+});
+
+test("a dropped folder keeps its internal shape", () => {
+  assert.equal(uploadTargetPath("public", "icons/logo.svg"), "public/icons/logo.svg");
+  assert.equal(uploadTargetPath("", "brand/logo/mark.png"), "brand/logo/mark.png");
+});
+
+test("traversal segments are dropped, not escaped and hoped for", () => {
+  assert.equal(uploadTargetPath("public", "../../etc/passwd"), "public/etc/passwd");
+  assert.equal(uploadTargetPath("../..", "logo.png"), "logo.png");
+  assert.equal(uploadTargetPath("public", "./logo.png"), "public/logo.png");
+});
+
+test("separators and stray slashes are normalised", () => {
+  assert.equal(uploadTargetPath("public/", "/logo.png"), "public/logo.png");
+  assert.equal(uploadTargetPath("public", "icons\\logo.svg"), "public/icons/logo.svg");
+  assert.equal(uploadTargetPath("//public//img//", "a//b.png"), "public/img/a/b.png");
+});
+
+test("an entry with no usable name is skipped rather than written to the folder itself", () => {
+  // "" is the caller's signal to drop the entry — writing to `destDir` would
+  // clobber the folder with a file of the same name.
+  assert.equal(uploadTargetPath("public", ""), "");
+  assert.equal(uploadTargetPath("public", "../.."), "");
+  assert.equal(uploadTargetPath("", "   "), "");
+});
+
+test("the size cap leaves room for base64 inside the server's body limit", () => {
+  // The server accepts 16 MiB. base64 costs 4 bytes per 3, so the raw ceiling
+  // is ~12 MiB before the JSON wrapper — the cap must sit under that.
+  const serverBodyLimit = 16 * 1024 * 1024;
+  assert.ok(
+    MAX_UPLOAD_BYTES * (4 / 3) < serverBodyLimit,
+    "a file at the cap must fit once encoded",
+  );
+});
+
+/**
+ * Image preview. The bytes for a binary file already reach the browser as
+ * base64 — an image was being discarded at the last step and shown as "not
+ * text, so there is nothing to show".
+ */
+
+test("common image formats render inline", () => {
+  for (const [file, mime] of [
+    ["logo.png", "image/png"],
+    ["photo.JPG", "image/jpeg"],
+    ["photo.jpeg", "image/jpeg"],
+    ["anim.gif", "image/gif"],
+    ["shot.webp", "image/webp"],
+    ["icon.ico", "image/x-icon"],
+    ["src/hooks/6641d2ad_shutterstock_1886429491.jpg", "image/jpeg"],
+  ] as const) {
+    assert.equal(inlineImageMimeType(file), mime, file);
+  }
+});
+
+test("SVG is deliberately NOT rendered inline", () => {
+  // A data:image/svg+xml is a script execution context, and a project's own
+  // uploaded SVG is exactly the untrusted input not to run in the editor origin.
+  assert.equal(inlineImageMimeType("logo.svg"), null);
+});
+
+test("non-images are left to the binary-file message", () => {
+  for (const file of ["notes.pdf", "archive.zip", "font.woff2", "App.tsx", "noext"]) {
+    assert.equal(inlineImageMimeType(file), null, file);
+  }
 });

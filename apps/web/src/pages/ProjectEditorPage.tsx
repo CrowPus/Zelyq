@@ -22,6 +22,7 @@ import { PushControl } from "../components/PushControl";
 import { Badge, Button, IconButton, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
+import { fileToBase64, MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
 import type { SelectedElement } from "../lib/inspector";
 
 /** One value drives both layouts: the right-hand pane on desktop, the only
@@ -42,6 +43,8 @@ export function ProjectEditorPage() {
   const [pane, setPane] = useState<Pane>("preview");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   /** Set when a file was opened from a turn, to show what that turn changed. */
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [compareSnapshotId, setCompareSnapshotId] = useState<string | null>(null);
   const [compareAfterSnapshotId, setCompareAfterSnapshotId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -344,7 +347,61 @@ export function ProjectEditorPage() {
                     setSelectedPath(null);
                   }
                 }}
+                uploading={uploading}
+                onUpload={async (dropped, destDir) => {
+                  const tooBig = dropped.filter((d) => d.file.size > MAX_UPLOAD_BYTES);
+                  if (tooBig.length > 0) {
+                    setUploadError(
+                      `${tooBig.length === 1 ? tooBig[0]!.relativePath : `${tooBig.length} files`} ` +
+                        `exceeded the ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB limit and ` +
+                        "was not uploaded.",
+                    );
+                  }
+                  const queue = dropped
+                    .filter((d) => d.file.size <= MAX_UPLOAD_BYTES)
+                    .map((d) => ({
+                      target: uploadTargetPath(destDir, d.relativePath),
+                      file: d.file,
+                    }))
+                    .filter((d) => d.target);
+                  if (queue.length === 0) return;
+
+                  setUploading(true);
+                  try {
+                    // Sequential on purpose: the runtime writes into one
+                    // project directory, and a browser drag can be hundreds of
+                    // files. Firing them all at once buys nothing and risks
+                    // burying the server under a folder drop.
+                    for (const item of queue) {
+                      await api.writeFile(id, item.target, await fileToBase64(item.file), "base64");
+                    }
+                    await queryClient.invalidateQueries({ queryKey: ["files", id] });
+                    // Land on the thing just added, so it is obvious it worked.
+                    const last = queue[queue.length - 1]?.target;
+                    if (last && queue.length === 1) {
+                      setCompareSnapshotId(null);
+                      setCompareAfterSnapshotId(null);
+                      setSelectedPath(last);
+                    }
+                  } catch (error) {
+                    setUploadError((error as Error).message || "Upload failed.");
+                  } finally {
+                    setUploading(false);
+                  }
+                }}
               />
+              {uploadError && (
+                <p className="border-t border-border-default px-3 py-2 text-2xs text-danger">
+                  {uploadError}{" "}
+                  <button
+                    type="button"
+                    className="underline hover:no-underline"
+                    onClick={() => setUploadError(null)}
+                  >
+                    dismiss
+                  </button>
+                </p>
+              )}
             </div>
             <CodeViewer
               projectId={id}

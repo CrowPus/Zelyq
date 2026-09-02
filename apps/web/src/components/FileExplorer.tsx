@@ -7,8 +7,10 @@ import {
   FolderOpen,
   FolderPlus,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { collectDroppedFiles, type DroppedFile } from "../lib/files";
 import { IconButton, Spinner } from "./ui";
 
 interface Props {
@@ -21,6 +23,12 @@ interface Props {
   canEdit?: boolean;
   onCreate?(path: string, isDir: boolean): void;
   onDelete?(path: string): void;
+  /** Editors only. Files dropped onto the tree, or picked with the button —
+   * `destDir` is the folder they landed on, "" for the project root. Folders
+   * arrive flattened into their files, each carrying its own relative path. */
+  onUpload?(files: DroppedFile[], destDir: string): Promise<void> | void;
+  /** True while an upload is in flight, so the tree can say so. */
+  uploading?: boolean;
 }
 
 interface TreeNode {
@@ -39,6 +47,8 @@ export function FileExplorer({
   canEdit = false,
   onCreate,
   onDelete,
+  onUpload,
+  uploading = false,
 }: Props) {
   // null, or the kind of thing being named in the inline input.
   const [creating, setCreating] = useState<"file" | "dir" | null>(null);
@@ -46,6 +56,41 @@ export function FileExplorer({
   const createInputRef = useRef<HTMLInputElement>(null);
 
   const canManage = canEdit && Boolean(onCreate);
+  const canUpload = canEdit && Boolean(onUpload);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  // The folder a drop would land in — also what draws the highlight. `null`
+  // means nothing is being dragged; "" means the project root.
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  // Which folder the file picker will write into. Set by a folder's own upload
+  // action; the header button falls back to the selection's folder.
+  const pickerDirRef = useRef<string>("");
+
+  /**
+   * `dragenter`/`dragleave` fire for every child element the pointer crosses,
+   * so a naive boolean flickers off the moment the cursor moves between two
+   * rows. Counting enters and leaves is what keeps the highlight steady.
+   */
+  const dragDepth = useRef(0);
+
+  async function handleDrop(event: React.DragEvent, destDir: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepth.current = 0;
+    setDropTarget(null);
+    if (!onUpload) return;
+    const files = await collectDroppedFiles(event.dataTransfer);
+    if (files.length > 0) await onUpload(files, destDir);
+  }
+
+  function handleDragOver(event: React.DragEvent, destDir: string) {
+    if (!canUpload) return;
+    // Without preventDefault the browser navigates to the dropped file and the
+    // whole editor is replaced by an image.
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setDropTarget(destDir);
+  }
 
   function beginCreate(kind: "file" | "dir") {
     // Prefill with the selected file's folder so a new sibling is one word.
@@ -133,6 +178,23 @@ export function FileExplorer({
               </IconButton>
             </>
           )}
+          {canUpload && (
+            <IconButton
+              size="sm"
+              label={
+                uploading
+                  ? "Uploading…"
+                  : `Upload into ${uploadDirFor(selected, entries) || "the project root"} — or hover a folder to choose another`
+              }
+              disabled={uploading}
+              onClick={() => {
+                pickerDirRef.current = uploadDirFor(selected, entries);
+                uploadInputRef.current?.click();
+              }}
+            >
+              {uploading ? <Spinner /> : <Upload size={13} strokeWidth={1.75} />}
+            </IconButton>
+          )}
           {allDirectories.length > 0 && (
             <IconButton
               size="sm"
@@ -178,9 +240,43 @@ export function FileExplorer({
         without them is worse for a screen reader than not claiming it. Folders
         announce their state through aria-expanded, which is accurate.
       */}
+      {canUpload && (
+        <input
+          ref={uploadInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            // A plain `File[]`, captured before the reset below — a live
+            // `FileList` is emptied by that reset before an async handler
+            // reads it. Same trap `buildSkillUploadFiles` documents.
+            const picked = Array.from(event.target.files ?? []).map((file) => ({
+              relativePath: file.name,
+              file,
+            }));
+            event.target.value = "";
+            if (picked.length > 0) void onUpload?.(picked, pickerDirRef.current);
+          }}
+        />
+      )}
+
       <nav
         aria-label="Project files"
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1"
+        onDragEnter={() => {
+          if (!canUpload) return;
+          dragDepth.current += 1;
+          if (dragDepth.current === 1) setDropTarget("");
+        }}
+        onDragLeave={() => {
+          if (!canUpload) return;
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDropTarget(null);
+        }}
+        onDragOver={(event) => handleDragOver(event, "")}
+        onDrop={(event) => void handleDrop(event, "")}
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain py-1 ${
+          dropTarget === "" ? "bg-surface-hover ring-1 ring-inset ring-focus" : ""
+        }`}
       >
         {tree.map((node) => (
           <TreeRow
@@ -193,6 +289,17 @@ export function FileExplorer({
             onSelect={onSelect}
             canDelete={canEdit && Boolean(onDelete)}
             onDelete={onDelete}
+            dropTarget={canUpload ? dropTarget : null}
+            {...(canUpload
+              ? {
+                  onFolderDragOver: handleDragOver,
+                  onFolderDrop: (e, d) => void handleDrop(e, d),
+                  onUploadHere: (dir: string) => {
+                    pickerDirRef.current = dir;
+                    uploadInputRef.current?.click();
+                  },
+                }
+              : {})}
           />
         ))}
         {tree.length === 0 && <p className="px-3 py-3 text-xs text-fg-muted">No files yet.</p>}
@@ -210,6 +317,10 @@ function TreeRow({
   onSelect,
   canDelete,
   onDelete,
+  dropTarget,
+  onFolderDragOver,
+  onFolderDrop,
+  onUploadHere,
 }: {
   node: TreeNode;
   depth: number;
@@ -219,22 +330,48 @@ function TreeRow({
   onSelect(path: string): void;
   canDelete?: boolean;
   onDelete?(path: string): void;
+  /** Set only when uploads are available — a folder row is then a drop target
+   * of its own, so an asset can be aimed at `public/` without moving it after. */
+  dropTarget?: string | null;
+  onFolderDragOver?(event: React.DragEvent, dir: string): void;
+  onFolderDrop?(event: React.DragEvent, dir: string): void;
+  /** Opens the file picker aimed at THIS folder. Dragging is not always
+   * practical — a trackpad, a long tree, a file already in a download folder —
+   * and picking a folder was otherwise impossible, because clicking one only
+   * expands it and never becomes a selection the Upload button could read. */
+  onUploadHere?(dir: string): void;
 }) {
   const isDirectory = node.type === "directory";
   const isOpen = isDirectory && expanded.has(node.path);
   const isSelected = node.path === selected;
+  const isDropTarget = isDirectory && dropTarget === node.path;
+  // Each action is a 24px button plus a 2px gap; the strip sits 4px from the
+  // right. Reserving that much padding is what stops a long name sliding
+  // underneath the icons on hover.
+  const actionCount = (isDirectory && onUploadHere ? 1 : 0) + (canDelete && onDelete ? 1 : 0);
+  const actionsWidth = rowActionsWidth(actionCount);
 
   return (
     <>
-      <div className="group/row relative flex items-center">
+      <div
+        className={`group/row relative flex items-center ${
+          isDropTarget ? "bg-surface-hover ring-1 ring-inset ring-focus" : ""
+        }`}
+        {...(isDirectory && onFolderDragOver
+          ? {
+              onDragOver: (event: React.DragEvent) => onFolderDragOver(event, node.path),
+              onDrop: (event: React.DragEvent) => onFolderDrop?.(event, node.path),
+            }
+          : {})}
+      >
         <button
           type="button"
           data-kind={isDirectory ? "directory" : "file"}
           aria-expanded={isDirectory ? isOpen : undefined}
           aria-current={!isDirectory && isSelected ? "true" : undefined}
           onClick={() => (isDirectory ? onToggle(node.path) : onSelect(node.path))}
-          style={{ paddingLeft: `${depth * 12 + 8}px` }}
-          className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left transition-colors ${
+          style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: `${actionsWidth}px` }}
+          className={`flex w-full items-center gap-1.5 py-[3px] text-left transition-colors ${
             isSelected
               ? "bg-surface-active text-fg"
               : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
@@ -260,23 +397,49 @@ function TreeRow({
           )}
           <span className="truncate text-xs">{node.name}</span>
         </button>
-        {canDelete && onDelete && (
-          <IconButton
-            size="sm"
-            label={`Delete ${node.name}`}
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Delete ${node.path}${isDirectory ? " and everything in it" : ""}? This cannot be undone.`,
-                )
-              ) {
-                onDelete(node.path);
-              }
-            }}
-            className="absolute right-1 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
-          >
-            <Trash2 size={12} strokeWidth={1.75} className="text-fg-muted hover:text-danger" />
-          </IconButton>
+        {/*
+          One absolutely-positioned strip, not one absolute button per action:
+          the delete button used to be `absolute right-1` on its own, so adding
+          a second action put it underneath rather than beside it. A flex row
+          here means any number of actions lay out side by side, and the row
+          reserves matching padding above so a long filename truncates before
+          it reaches them instead of running underneath.
+        */}
+        {actionCount > 0 && (
+          <div className="absolute right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
+            {isDirectory && onUploadHere && (
+              <IconButton
+                size="sm"
+                label={`Upload into ${node.path}`}
+                onClick={(event) => {
+                  // The row's own click toggles the folder open; uploading into
+                  // it should not also collapse it.
+                  event.stopPropagation();
+                  onUploadHere(node.path);
+                }}
+              >
+                <Upload size={12} strokeWidth={1.75} className="text-fg-muted hover:text-fg" />
+              </IconButton>
+            )}
+            {canDelete && onDelete && (
+              <IconButton
+                size="sm"
+                label={`Delete ${node.name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (
+                    window.confirm(
+                      `Delete ${node.path}${isDirectory ? " and everything in it" : ""}? This cannot be undone.`,
+                    )
+                  ) {
+                    onDelete(node.path);
+                  }
+                }}
+              >
+                <Trash2 size={12} strokeWidth={1.75} className="text-fg-muted hover:text-danger" />
+              </IconButton>
+            )}
+          </div>
         )}
       </div>
 
@@ -292,10 +455,38 @@ function TreeRow({
             onSelect={onSelect}
             canDelete={canDelete}
             onDelete={onDelete}
+            dropTarget={dropTarget}
+            {...(onFolderDragOver ? { onFolderDragOver, onFolderDrop } : {})}
+            {...(onUploadHere ? { onUploadHere } : {})}
           />
         ))}
     </>
   );
+}
+
+/**
+ * Right padding a row reserves for its hover actions, in pixels.
+ *
+ * Each action is a 24px `size-6` button with a 2px gap, and the strip is inset
+ * 4px from the right. Exported so the arithmetic is checked rather than eyeballed
+ * — getting it wrong is what puts a filename underneath the delete icon.
+ */
+export function rowActionsWidth(actionCount: number): number {
+  return actionCount === 0 ? 8 : actionCount * 26 + 6;
+}
+
+/**
+ * Which folder the Upload button writes into: the selected file's folder, the
+ * selected folder itself, or the project root. Picking a file and hitting
+ * Upload should put the image beside it, which is what someone adding an asset
+ * to a component actually wants.
+ */
+export function uploadDirFor(selected: string | null, entries?: FileEntry[]): string {
+  if (!selected) return "";
+  const isDir = entries?.some((e) => e.path === selected && e.type === "directory");
+  if (isDir) return selected;
+  const cut = selected.lastIndexOf("/");
+  return cut === -1 ? "" : selected.slice(0, cut);
 }
 
 /**
