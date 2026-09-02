@@ -4,6 +4,7 @@ import { ALL_TOOLS } from "@zelyq/tools";
 import { aiProviderCatalogText, buildUseAiProviderTool, loadAiProviders } from "./ai-providers.js";
 import { loadAgentConfig } from "./config.js";
 import { buildUseDesignRefTool, designRefCatalogText, loadDesignRefs } from "./design-refs.js";
+import { loadMcpServers } from "./mcp.js";
 import { loadPlugins } from "./plugins.js";
 import { PROVIDERS } from "./providers/index.js";
 import { buildAgentServer } from "./server.js";
@@ -26,6 +27,10 @@ const config = await loadAgentConfig();
 // so `/health` can report the names back without the agent's own boot log
 // being the only place to see them.
 const plugins = await loadPlugins(process.env.ZELYQ_PLUGIN_DIR, ALL_TOOLS);
+
+// Same idea, same array. A server that is down or misconfigured costs its
+// tools, never the agent's boot.
+const mcp = await loadMcpServers(process.env.ZELYQ_MCP_CONFIG, ALL_TOOLS);
 
 // The same directory the server's upload route writes into. Both are
 // repo-root-anchored (`resolveFromRepoRoot`) so the two processes agree even
@@ -75,6 +80,7 @@ if (aiProviders.providers.length > 0) {
 
 const server = buildAgentServer(config, {
   pluginNames: plugins.loaded,
+  mcpToolNames: mcp.loaded,
   skills: skillsWithResources,
   designRefCatalog: designRefs.refs.map((r) => ({ slug: r.slug, description: r.description })),
   designRefCatalogText: designRefCatalogText(designRefs.refs),
@@ -90,6 +96,12 @@ if (plugins.loaded.length > 0) {
   server.app.log.info(
     `${plugins.loaded.length} plugin tool(s) loaded: ${plugins.loaded.join(", ")}`,
   );
+}
+if (mcp.loaded.length > 0) {
+  server.app.log.info(`${mcp.loaded.length} MCP tool(s) loaded: ${mcp.loaded.join(", ")}`);
+}
+for (const skipped of mcp.skipped) {
+  server.app.log.warn(`MCP server "${skipped.server}" unavailable: ${skipped.reason}`);
 }
 if (skillsResult.skills.length > 0) {
   server.app.log.info(
@@ -110,6 +122,8 @@ if (aiProviders.providers.length > 0 || aiProviders.agentMd) {
 async function shutdown(signal: string): Promise<void> {
   server.app.log.info(`${signal} received, shutting down`);
   await server.close();
+  // stdio servers are child processes; without this a restart accumulates them.
+  await Promise.all(mcp.clients.map((client) => client.close().catch(() => undefined)));
   process.exit(0);
 }
 

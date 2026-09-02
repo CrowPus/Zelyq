@@ -56,3 +56,20 @@ suite("tool relevance gating", () => {
     );
   });
 });
+
+suite("MCP tools are not plugin noise (B1 does not apply to them)", () => {
+  const mcpTool = (name: string): ZelyqTool => ({ ...tool(name), source: "mcp:files" });
+
+  it("an MCP tool survives default-mode gating", () => {
+    assert.equal(isTaskOnlyPluginTool(mcpTool("files__read_file")), false);
+    const pool = [tool("read_file"), mcpTool("files__read_file"), tool("x", "github.mjs")];
+    assert.deepEqual(
+      gateToolsForDefaultMode(pool).map((t) => t.name),
+      ["read_file", "files__read_file"],
+    );
+  });
+
+  it("still drops the bundled connector plugins", () => {
+    assert.equal(isTaskOnlyPluginTool(tool("github_issues", "github.mjs")), true);
+  });
+});

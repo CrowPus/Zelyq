@@ -35,9 +35,15 @@ export interface AgentServerDeps {
    * so an instance admin can confirm a plugin actually loaded from the UI
    * instead of reading the agent's own boot log. */
   pluginNames?: string[];
-  /** Loaded skills: name and description for the prompt catalog, body for a
-   * `/`-selected weave. `resources` lists a skill's deeper files, needed only
-   * when Engineer Mode inlines a body instead of using a live `use_skill`. */
+  /** MCP tool names, already namespaced by server. */
+  mcpToolNames?: string[];
+  /** Every loaded skill, name/description for the prompt catalog and full
+   * body for the guaranteed `/`-selected weaving. The one existing reader
+   * (`/health`'s badge list) reads `.name` off each entry. `resources` is
+   * each skill's deeper-file listing, resolved once at boot in `index.ts`
+   * (the one place with legitimate access to a skill's directory), used only
+   * when Engineer Mode wires this skill's body straight into a system prompt
+   * instead of through a live `use_skill` call. */
   skills?: Array<{ name: string; description: string; body: string; resources?: string[] }>;
   /** Design references for the Architect's DESIGN.md step and the Designer
    * child. `agentMd` is the UI-craft checklist the verifier enforces. */
@@ -117,6 +123,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       model: config.model,
       modelConfigured: Boolean(config.apiKey),
       plugins: deps.pluginNames ?? [],
+      mcpTools: deps.mcpToolNames ?? [],
       // Descriptions too, not just names — the composer's `/` picker needs
       // enough to be worth choosing from; the body stays agent-side, never
       // sent here.
