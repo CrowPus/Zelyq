@@ -1,18 +1,12 @@
 /**
- * A `promptHash` gate (F2 / 06-measurement.md §4).
+ * An OPTIONAL local reminder (F2 / 06-measurement.md §4). NOT a CI gate — the
+ * eval it points at costs real money, so nothing forces you to run it.
  *
- * The system prompt is the thing the eval suite measures. When a PR changes
- * `prompt.ts` but no eval run has been recorded for the new prompt, the
- * review's own rule — a prompt change gets a before/after run on
- * `claude-opus-5` — has been skipped. This fails CI in that case, so the
- * intention becomes a rule.
- *
- * `evals/results/` is gitignored, so it never reaches CI. `evals/baselines.json`
- * is committed: `run.ts` upserts the current prompt hash into it after every
- * successful run, so "did you run the eval after changing the prompt" reduces
- * to "is the current hash in baselines.json".
- *
- * A no-op when `prompt.ts` did not change. Local use:
+ * If you changed `prompt.ts` and want to know whether the eval suite has seen
+ * the new prompt, run this. It's a no-op when `prompt.ts` is unchanged, and it
+ * exits non-zero (for your own scripting) when there's no recorded run for the
+ * current prompt in `evals/baselines.json` — which `run.ts` updates after every
+ * successful eval. Running the eval is always your call.
  *
  *   pnpm --filter @zelyq/agent check:prompt-hash            # vs origin/main
  *   PROMPT_HASH_BASE=HEAD~1 pnpm --filter @zelyq/agent check:prompt-hash

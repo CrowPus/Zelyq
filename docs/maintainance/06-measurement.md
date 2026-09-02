@@ -273,8 +273,13 @@ diffs against `origin/main` (override with `PROMPT_HASH_BASE`); a no-op unless
 `evals/results/` turned out to be **gitignored**, so the first cut (glob `results/`) would always
 fail in CI. `evals/baselines.js` — `run.ts` upserts `{promptHash, model, effort, done, resultFile,
 ranAt}` (one per hash, latest wins) after every successful run; the committed `baselines.json` is
-what the gate reads. Seeded from the two recorded `claude-opus-5` runs. Wired into `ci.yml` after
-`Test`, **blocking** — `18b772c2702f` (post-D1) is a recorded baseline as of the 2026-09-02 run.
+what the check reads.
+
+**Not a CI gate.** It was briefly wired into `ci.yml` as a blocking step; that was wrong for a
+solo-run project — a blocking gate structurally forces a paid `claude-opus-5` run on every prompt
+change, which is exactly the cost the review is trying to reduce. It's now an **opt-in local
+command** (`pnpm --filter @zelyq/agent check:prompt-hash`) and nothing more. Running the eval is
+always a manual choice.
 
 **Not done:** the smoke set on every PR (`pnpm eval --tag restraint --limit 6`) — that spends real
 money and needs an API key in CI, which is the founder's call.

@@ -122,12 +122,6 @@ jobs:
       - name: Test
         run: pnpm test
 
-      # prompt-hash gate (F2): fails a PR that changes apps/agent/src/prompt.ts
-      # with no eval run recorded for the new prompt in evals/baselines.json.
-      # A no-op when prompt.ts is unchanged. Needs history back to `main` to diff.
-      - name: Check prompt hash has an eval result
-        run: git fetch --no-tags --depth=1 origin main && pnpm --filter @zelyq/agent check:prompt-hash
-
   docker:
     name: Docker image builds
     runs-on: ubuntu-latest

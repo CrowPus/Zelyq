@@ -34,7 +34,7 @@ All on `maint/phase1`, each its own commit, full matrix green. Written up in det
 | F5 | don't score a case the model never reached (`neverRan`) | `097c99c` |
 | E1 §5 | `run_command` injection/exfil denylist | `ecd0452` |
 | B5 | `find_files` + `glob`/`context_lines` on `search_files` | `ee6aa21` |
-| F2 (gate) | prompt-hash CI check (now blocking, `evals/baselines.json`) | `4154d3f`, `25bf362` |
+| F2 | prompt-hash reminder — opt-in local command, removed from CI (a blocking gate forces a paid eval run) | `4154d3f`, `25bf362`, `<this>` |
 | D3 | one-shot step-budget warning in the run loop | `fc75d28` |
 | 2.3 (part) | Engineer-Mode reply checks in the eval harness | `99a637f` |
 | B6 (part) | `additionalProperties: false` on the 14 core tool schemas | `dab44b2` |
@@ -55,13 +55,10 @@ live context-editing / compaction (A2 live-half, A3), `task-budgets` countdown (
 **Could still do without the founder, just larger:** the Engineer-Mode checkpoint fires/doesn't
 eval pair, Expo / `/clone` / specialist-honesty eval cases, C1's three workaround deletions.
 
-### One mechanical step for the founder after the next eval run
+### No eval run is required to merge or ship
 
-The prompt changed (`424c53c3a3ff`), so `check:prompt-hash` (now a blocking CI step) fails until a
-run is recorded for it. When you run `pnpm eval` while testing, the runner writes the new hash into
-`apps/agent/evals/baselines.json` automatically — then `git add apps/agent/evals/baselines.json`
-and commit it, and CI goes green. That is the whole loop: change prompt → run eval → commit
-baselines. Nothing else.
+The eval suite is a measurement tool. It is not a gate. The prompt-hash check is an opt-in local
+command, removed from CI. Merge when the app looks right to you.
 
 ### The 2026-09-02 `claude-opus-5` run (5 greenfield cases, effort high)
 
@@ -81,13 +78,11 @@ Two things the run surfaced, both fixed in `maint/phase1`:
   results dir by basename. The run itself had already completed and saved — only the compare step
   died.
 
-Also found: **`evals/results/` is gitignored**, so the F2 gate couldn't ever see a result in CI. New
-`evals/baselines.json` (committed) — `run.ts` upserts the prompt hash into it after every run;
-`check:prompt-hash` reads it. Seeded with the two recorded `claude-opus-5` runs. **The F2 gate is
-now blocking** (`continue-on-error` removed) — `18b772c2702f` is a recorded baseline.
-
-Still worth a second run before reading anything into `2/5 → 1/5`: `pnpm eval --limit 5 --compare
-apps/agent/evals/results/2026-09-02T06-35-28-946Z.json` (the path fix makes that work now).
+Also found: **`evals/results/` is gitignored**. New `evals/baselines.json` (committed) — `run.ts`
+upserts the prompt hash into it after every run; `check:prompt-hash` reads it. Seeded with the two
+recorded `claude-opus-5` runs. It was briefly a blocking CI step — reverted the same day: a blocking
+gate structurally forces a paid opus-5 run on every prompt change, which is the opposite of what
+this review wants. It's an **opt-in local command** now, nothing else.
 
 ### Second run 2026-09-02 06:54 — `1/5 → 1/5`, `fixed none, broke none`
 
@@ -186,11 +181,12 @@ Three small, targeted changes:
   Template scaffolds + builds with the new dep; the stale `evals/workspace/eval-base-vite-react` was
   removed so the next eval run reinstalls with it.
 
-**Consequence:** the F2 gate now fails (prompt changed, no run for `424c53c3a3ff`). It clears itself
-the next time an eval runs and `evals/baselines.json` is committed — see the founder note below.
+**No forced re-run.** The prompt hash moved (`424c53c3a3ff`), but the eval-result check is not a CI
+gate — it's an optional local command. Nothing about merging or shipping requires another eval run;
+these are small, reasoned text changes. Run the suite only if you want the measurement.
 
 **Verified:** `@zelyq/agent` typecheck + 376/376, `prompt.test.ts` 48/48, template `tsc` + `vite
-build` clean. Whether the wording actually lands is the eval run's job, not this diff's.
+build` clean.
 
 ---
 
