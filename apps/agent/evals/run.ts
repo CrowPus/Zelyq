@@ -8,6 +8,7 @@ import { loadAgentConfig } from "../src/config.js";
 import { buildSystemPrompt } from "../src/prompt.js";
 import { PROVIDERS, speaksOpenAIDialect } from "../src/providers/index.js";
 import { listResources, loadSkills } from "../src/skills.js";
+import { upsertBaseline } from "./baselines.js";
 import { selectCases } from "./cases.js";
 import { neverRan, runCase } from "./harness.js";
 import {
@@ -233,6 +234,10 @@ await fs.mkdir(path.dirname(outPath), { recursive: true });
 await fs.writeFile(outPath, `${JSON.stringify(suite, null, 2)}\n`);
 console.log(`\nsaved ${path.relative(process.cwd(), outPath)}`);
 
+// The per-run JSON is gitignored; record the prompt hash in the committed
+// baselines file so the check:prompt-hash gate has something to check.
+await upsertBaseline(suite, path.basename(outPath));
+
 if (values.compare) await compare(suite, values.compare);
 
 // A red suite must fail CI once this is wired in. Keyed on `done`, not
@@ -337,11 +342,36 @@ function report(suite: SuiteResult, elapsedMs: number): void {
 }
 
 /**
+ * `--compare` is run from muscle memory with whatever path the shell tab-completed
+ * — repo-root-relative, package-relative, or a bare filename. `tsx` runs with
+ * cwd at `apps/agent`, so only one of those resolves directly. Try the obvious
+ * places rather than crashing after the run already cost money.
+ */
+async function readComparePath(given: string): Promise<string> {
+  const resultsDir = path.join(EVAL_WORKSPACE, "..", "results");
+  const candidates = [
+    given,
+    path.resolve(import.meta.dirname, "..", "..", "..", given), // repo root
+    path.join(resultsDir, path.basename(given)),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return await fs.readFile(candidate, "utf8");
+    } catch {
+      // try the next
+    }
+  }
+  throw new Error(
+    `--compare: could not find "${given}". Looked in the working directory, the repo root, and ${path.relative(process.cwd(), resultsDir)}/.`,
+  );
+}
+
+/**
  * The reason the harness exists: two runs, one number, and an answer to
  * "did that prompt change help or not".
  */
 async function compare(suite: SuiteResult, previousPath: string): Promise<void> {
-  const previous = JSON.parse(await fs.readFile(previousPath, "utf8")) as SuiteResult;
+  const previous = JSON.parse(await readComparePath(previousPath)) as SuiteResult;
   const before = new Map(previous.cases.map((result) => [result.id, result]));
   const paired = suite.cases.filter((result) => before.has(result.id));
 

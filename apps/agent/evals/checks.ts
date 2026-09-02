@@ -99,6 +99,23 @@ const GENERIC_NAME_WORDS = new Set([
   "bar",
   "widget",
   "component",
+  // Scoping / positioning words — they qualify a requested thing, they never
+  // name a new one. `SiteFooter` is the footer that was asked for; `MainNav`
+  // is the nav. Measured: `SiteFooter.tsx` was a false positive on 2026-09-02.
+  "site",
+  "primary",
+  "secondary",
+  "global",
+  "base",
+  "common",
+  "shared",
+  "default",
+  "top",
+  "bottom",
+  "left",
+  "right",
+  "mobile",
+  "desktop",
 ]);
 
 /** camelCase / PascalCase → lowercase words, with a trailing plural `s` dropped. */

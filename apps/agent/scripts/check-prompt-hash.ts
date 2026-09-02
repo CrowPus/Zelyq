@@ -2,11 +2,17 @@
  * A `promptHash` gate (F2 / 06-measurement.md §4).
  *
  * The system prompt is the thing the eval suite measures. When a PR changes
- * `prompt.ts` but no recorded eval run matches the new prompt, the review's own
- * rule — a prompt change gets a before/after run on `claude-opus-5` — has been
- * skipped. This fails CI in that case, so the intention becomes a rule.
+ * `prompt.ts` but no eval run has been recorded for the new prompt, the
+ * review's own rule — a prompt change gets a before/after run on
+ * `claude-opus-5` — has been skipped. This fails CI in that case, so the
+ * intention becomes a rule.
  *
- * It is a no-op when `prompt.ts` did not change. Local use:
+ * `evals/results/` is gitignored, so it never reaches CI. `evals/baselines.json`
+ * is committed: `run.ts` upserts the current prompt hash into it after every
+ * successful run, so "did you run the eval after changing the prompt" reduces
+ * to "is the current hash in baselines.json".
+ *
+ * A no-op when `prompt.ts` did not change. Local use:
  *
  *   pnpm --filter @zelyq/agent check:prompt-hash            # vs origin/main
  *   PROMPT_HASH_BASE=HEAD~1 pnpm --filter @zelyq/agent check:prompt-hash
@@ -14,14 +20,14 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
+import { BASELINES_FILE, type PromptBaseline } from "../evals/baselines.js";
 import { buildSystemPrompt } from "../src/prompt.js";
 
 const AGENT_DIR = path.resolve(import.meta.dirname, "..");
 const REPO_ROOT = path.resolve(AGENT_DIR, "..", "..");
 const PROMPT_FILE = "apps/agent/src/prompt.ts";
-const RESULTS_DIR = path.join(AGENT_DIR, "evals", "results");
 const BASE = process.env.PROMPT_HASH_BASE ?? "origin/main";
 
 function changedFiles(): string[] | null {
@@ -45,25 +51,12 @@ function currentPromptHash(): string {
   return createHash("sha256").update(prompt).digest("hex").slice(0, 12);
 }
 
-function recordedHashes(): Set<string> {
-  const hashes = new Set<string>();
-  let files: string[] = [];
+function baselines(): PromptBaseline[] {
   try {
-    files = readdirSync(RESULTS_DIR).filter((f) => f.endsWith(".json"));
+    return JSON.parse(readFileSync(BASELINES_FILE, "utf8")) as PromptBaseline[];
   } catch {
-    return hashes;
+    return [];
   }
-  for (const file of files) {
-    try {
-      const parsed = JSON.parse(readFileSync(path.join(RESULTS_DIR, file), "utf8")) as {
-        promptHash?: unknown;
-      };
-      if (typeof parsed.promptHash === "string") hashes.add(parsed.promptHash);
-    } catch {
-      // A malformed result file is not this check's problem.
-    }
-  }
-  return hashes;
 }
 
 const changed = changedFiles();
@@ -73,19 +66,22 @@ if (changed && !changed.includes(PROMPT_FILE)) {
 }
 
 const hash = currentPromptHash();
-const recorded = recordedHashes();
+const recorded = baselines();
+const match = recorded.find((entry) => entry.promptHash === hash);
 
-if (recorded.has(hash)) {
-  console.log(`prompt-hash: ok — an eval result exists for the current prompt (${hash}).`);
+if (match) {
+  console.log(
+    `prompt-hash: ok — ${hash} was evaluated on ${match.model} (${match.effort}) at ${match.ranAt}.`,
+  );
   process.exit(0);
 }
 
 console.error(
-  `prompt-hash: FAIL — the system prompt is at ${hash}, and no file in\n` +
-    `  apps/agent/evals/results/ records that hash.\n\n` +
+  `prompt-hash: FAIL — the system prompt is at ${hash}, and evals/baselines.json\n` +
+    `  has no run recorded for it.\n\n` +
     `  A prompt change gets a before/after eval run (06-measurement.md §4).\n` +
-    `  Run it and commit the result:\n\n` +
-    `    ZELYQ_PROVIDER=anthropic ZELYQ_MODEL=claude-opus-5 pnpm eval --tag restraint --limit 6\n\n` +
-    `  Recorded hashes: ${recorded.size ? [...recorded].join(", ") : "(none)"}`,
+    `  Run it and commit the updated evals/baselines.json:\n\n` +
+    `    ZELYQ_PROVIDER=anthropic ZELYQ_MODEL=claude-opus-5 pnpm eval --limit 5\n\n` +
+    `  Recorded: ${recorded.length ? recorded.map((e) => e.promptHash).join(", ") : "(none)"}`,
 );
 process.exit(1);

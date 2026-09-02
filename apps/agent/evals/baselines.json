@@ -1,0 +1,20 @@
+[
+  {
+    "promptHash": "18b772c2702f",
+    "provider": "anthropic",
+    "model": "claude-opus-5",
+    "effort": "high",
+    "done": "1/5",
+    "resultFile": "2026-09-02T06-35-28-946Z.json",
+    "ranAt": "2026-09-02T06:35:28.946Z"
+  },
+  {
+    "promptHash": "9661a9962ea3",
+    "provider": "anthropic",
+    "model": "claude-opus-5",
+    "effort": "high",
+    "done": "2/5",
+    "resultFile": "2026-09-01T10-54-08-227Z.json",
+    "ranAt": "2026-09-01T10:54:08.227Z"
+  }
+]

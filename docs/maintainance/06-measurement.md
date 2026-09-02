@@ -252,15 +252,18 @@ so plainly. But "run it when someone remembers" always decays to "run it never".
   (`"promptHash": "20711ed13dfd"`). CI can fail a PR that changes `prompt.ts` with no eval result
   recorded for the new hash. That is a small script and it converts a good intention into a rule.
 
-### Done (the gate) — 2026-09-01
+### Done (the gate) — 2026-09-01, finished 2026-09-02
 
 `apps/agent/scripts/check-prompt-hash.ts` + `pnpm --filter @zelyq/agent check:prompt-hash`. It
 diffs against `origin/main` (override with `PROMPT_HASH_BASE`); a no-op unless
 `apps/agent/src/prompt.ts` changed, otherwise it computes the current default-mode hash and fails if
-no file in `evals/results/` records it, printing the `pnpm eval` line to run. Wired into `ci.yml`
-after `Test`, **`continue-on-error: true` for now** — the current prompt (post-D1) has no matching
-result, so making it blocking today would fail the maintenance PR itself. Drop that line once the
-first `claude-opus-5` run for the current prompt is committed.
+`evals/baselines.json` has no run recorded for it, printing the `pnpm eval` line.
+
+`evals/results/` turned out to be **gitignored**, so the first cut (glob `results/`) would always
+fail in CI. `evals/baselines.js` — `run.ts` upserts `{promptHash, model, effort, done, resultFile,
+ranAt}` (one per hash, latest wins) after every successful run; the committed `baselines.json` is
+what the gate reads. Seeded from the two recorded `claude-opus-5` runs. Wired into `ci.yml` after
+`Test`, **blocking** — `18b772c2702f` (post-D1) is a recorded baseline as of the 2026-09-02 run.
 
 **Not done:** the smoke set on every PR (`pnpm eval --tag restraint --limit 6`) — that spends real
 money and needs an API key in CI, which is the founder's call.

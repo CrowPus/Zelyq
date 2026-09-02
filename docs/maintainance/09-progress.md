@@ -36,10 +36,35 @@ All on `maint/phase1`, each its own commit, full matrix green. Written up in det
 | B5 | `find_files` + `glob`/`context_lines` on `search_files` | `ee6aa21` |
 | F2 (gate) | prompt-hash CI check (non-blocking until a baseline exists) | `4154d3f` |
 
-**Left for the founder** (each noted in its section): the `claude-opus-5` eval run — which gates
-G3, the `<scope>` prompt half of F6, a `<how_to_work>` mention of `find_files`, flipping the F2 gate
-to blocking, and F2's per-PR smoke set (needs a CI key). Provider-beta / product-call items
-untouched: C2, C5, D3, 2.2, 2.3, 3.1–3.4, E1 §4.
+**Left for the founder** (each noted in its section): the `<scope>` prompt half of F6, G3,
+a `<how_to_work>` mention of `find_files`, and F2's per-PR smoke set (needs a CI key). Provider-beta
+/ product-call items untouched: C2, C5, D3, 2.2, 2.3, 3.1–3.4, E1 §4.
+
+### The 2026-09-02 `claude-opus-5` run (5 greenfield cases, effort high)
+
+Founder ran `pnpm eval --limit 5`. `2/5 → 1/5 done` vs the pre-D1 baseline (`9661a9962ea3`).
+Non-deterministic model, single run — the README says run twice before believing a flip, and every
+failure here is `max_files_changed` / `no_unrequested_components` (restraint), not correctness.
+`intact 5/5`, `89% cached`, `$2.03`.
+
+Two things the run surfaced, both fixed in `maint/phase1`:
+
+- **`no_unrequested_components` false positive.** `landing-page` flagged `SiteFooter.tsx` — the
+  footer the request asked for, with a scoping prefix. `GENERIC_NAME_WORDS` gained `site`, `primary`,
+  `global`, `top`/`bottom`/`left`/`right`, `mobile`/`desktop` etc. — words that qualify a requested
+  thing and never name a new one. `Wordmark.tsx` is still caught (the real invention). Test added.
+- **`--compare` crashed** with `ENOENT` on a repo-root-relative path, because `tsx` runs with cwd at
+  `apps/agent`. `readComparePath` now tries the path as given, then repo-root-relative, then the
+  results dir by basename. The run itself had already completed and saved — only the compare step
+  died.
+
+Also found: **`evals/results/` is gitignored**, so the F2 gate couldn't ever see a result in CI. New
+`evals/baselines.json` (committed) — `run.ts` upserts the prompt hash into it after every run;
+`check:prompt-hash` reads it. Seeded with the two recorded `claude-opus-5` runs. **The F2 gate is
+now blocking** (`continue-on-error` removed) — `18b772c2702f` is a recorded baseline.
+
+Still worth a second run before reading anything into `2/5 → 1/5`: `pnpm eval --limit 5 --compare
+apps/agent/evals/results/2026-09-02T06-35-28-946Z.json` (the path fix makes that work now).
 
 ---
 

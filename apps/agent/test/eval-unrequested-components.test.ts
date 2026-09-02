@@ -82,6 +82,22 @@ suite("unrequestedComponents", () => {
     ]);
   });
 
+  it("a scoping prefix on a requested thing is not invention (SiteFooter, MainNav)", () => {
+    // Measured false positive, 2026-09-02: landing-page asked for "a footer",
+    // the model named it SiteFooter, and the check flagged it.
+    assert.deepEqual(
+      unrequestedComponents(
+        ["src/components/SiteFooter.tsx", "src/components/MainNav.tsx", "src/components/Hero.tsx"],
+        ["Hero", "Feature", "Footer"],
+      ),
+      [],
+    );
+    // But a scoping word does not launder an actual invented feature.
+    assert.deepEqual(unrequestedComponents(["src/GlobalSearch.tsx"], ["Hero", "Footer"]), [
+      "src/GlobalSearch.tsx",
+    ]);
+  });
+
   it("plurals and stems match: Features ⇄ Feature, Stats ⇄ Stat", () => {
     assert.deepEqual(
       unrequestedComponents(["src/Features.tsx", "src/StatGrid.tsx"], ["Feature", "Stat"]),
