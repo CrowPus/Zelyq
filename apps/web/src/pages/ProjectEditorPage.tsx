@@ -16,6 +16,7 @@ import { AppShell } from "../components/AppShell";
 import { ChatPanel } from "../components/ChatPanel";
 import { CodeViewer } from "../components/CodeViewer";
 import { FileExplorer } from "../components/FileExplorer";
+import { LiveBrowser } from "../components/LiveBrowser";
 import { PlanPanel } from "../components/PlanPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
 import { PushControl } from "../components/PushControl";
@@ -282,7 +283,10 @@ export function ProjectEditorPage() {
           </div>
 
           <div
-            className={`${pane === "preview" ? "grid" : "hidden"} min-h-0 ${
+            // Rows, not one cell: the live browser takes the space it needs
+            // under the preview and collapses to nothing when no tool is
+            // driving one, which is most of the time.
+            className={`${pane === "preview" ? "grid" : "hidden"} min-h-0 grid-rows-[minmax(0,1fr)_auto] ${
               rightPane === "preview" ? "md:grid" : "md:hidden"
             }`}
           >
@@ -302,6 +306,7 @@ export function ProjectEditorPage() {
                 setPane("chat");
               }}
             />
+            <LiveBrowser browser={chat.browser} />
           </div>
 
           <div

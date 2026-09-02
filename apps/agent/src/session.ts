@@ -2505,6 +2505,15 @@ export class AgentSession {
       signal,
       onFileChanged: (path) => changedFiles.add(path),
       log: () => undefined,
+      // Frames ride the same event stream as everything else. The gateway
+      // broadcasts them and its switch has no case for them, so they reach the
+      // browser and are never written to the turn. They never reach the model
+      // either, so this costs no tokens.
+      screencast: {
+        open: (callId, label) => emit({ type: "browser.open", sessionId: this.id, callId, label }),
+        frame: (callId, f) => emit({ type: "browser.frame", sessionId: this.id, callId, ...f }),
+        close: (callId) => emit({ type: "browser.close", sessionId: this.id, callId }),
+      },
       ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
       ...(this.options.supabasePreviewEnv
         ? { supabasePreviewEnv: this.options.supabasePreviewEnv }
@@ -3173,7 +3182,11 @@ export class AgentSession {
                                       "now instead.",
                                 isError: true,
                               }
-                            : await executeTool(toolContext, toolCall.name, toolCall.input);
+                            : await executeTool(
+                                { ...toolContext, callId: toolCall.id },
+                                toolCall.name,
+                                toolCall.input,
+                              );
             // Validate the whole report.html after the write. This is a
             // fail-fast advisory (the render-time sanitiser in PlanPanel is
             // the authoritative control); on a trip it rolls the file back

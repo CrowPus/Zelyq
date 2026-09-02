@@ -27,9 +27,23 @@ export interface ChatState {
   tokensOut: number;
   /** Prompt tokens read from the provider cache this session. */
   cacheReadTokens: number;
+  /**
+   * The browser a tool is driving right now, if any. Only the newest frame is
+   * kept: this is a live view, so a backlog of stale frames is worse than none,
+   * and holding them would grow without bound on a long clone.
+   */
+  browser: {
+    callId: string;
+    label: string;
+    frame: string | null;
+    width: number;
+    height: number;
+    /** False once the tool closed this browser, while the last frame stays up. */
+    live: boolean;
+  } | null;
 }
 
-const INITIAL: ChatState = {
+export const INITIAL: ChatState = {
   status: "connecting",
   messages: [],
   streaming: null,
@@ -38,6 +52,7 @@ const INITIAL: ChatState = {
   tokensIn: 0,
   tokensOut: 0,
   cacheReadTokens: 0,
+  browser: null,
 };
 
 /**
@@ -195,7 +210,7 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
   return useMemo(() => ({ ...state, send, abort }), [state, send, abort]);
 }
 
-function reduce(
+export function reduce(
   state: ChatState,
   message: ServerMessage,
   onFilesChanged?: (paths: string[]) => void,
@@ -210,6 +225,7 @@ function reduce(
         error: null,
         busy: false,
         streaming: null,
+        browser: null,
         messages: message.history,
       };
 
@@ -276,6 +292,42 @@ function reduce(
       onFilesChanged?.(message.paths);
       return state;
 
+    case "browser.open":
+      return {
+        ...state,
+        browser: {
+          callId: message.callId,
+          label: message.label,
+          // One capture opens a page per viewport width, so open/close repeats
+          // several times in a row. Carrying the last frame across means the
+          // panel updates instead of blinking empty between them.
+          frame: state.browser?.frame ?? null,
+          width: state.browser?.width ?? 0,
+          height: state.browser?.height ?? 0,
+          live: true,
+        },
+      };
+
+    case "browser.frame":
+      // A frame from a call the panel is not showing is stale by definition.
+      if (state.browser?.callId !== message.callId) return state;
+      return {
+        ...state,
+        browser: {
+          ...state.browser,
+          frame: message.data,
+          width: message.width,
+          height: message.height,
+        },
+      };
+
+    case "browser.close":
+      // The last frame stays on screen; only the LIVE badge goes out. The panel
+      // itself is cleared when the turn ends, so a finished capture leaves the
+      // page it ended on visible rather than vanishing.
+      if (state.browser?.callId !== message.callId) return state;
+      return { ...state, browser: { ...state.browser, live: false } };
+
     case "usage":
       return {
         ...state,
@@ -301,6 +353,7 @@ function reduce(
         ...state,
         busy: false,
         streaming: null,
+        browser: null,
         messages: [...state.messages, { ...finished, toolCalls: state.streaming?.toolCalls ?? [] }],
       };
     }
@@ -310,6 +363,7 @@ function reduce(
         ...state,
         busy: false,
         streaming: null,
+        browser: null,
         messages: state.streaming
           ? [
               ...state.messages,
