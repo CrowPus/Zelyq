@@ -1,4 +1,0 @@
-interface:
-  display_name: "Test Engineering"
-  short_description: "Design risk-based automated test coverage"
-  default_prompt: "Use $test-engineering to build a focused verification strategy for this change."

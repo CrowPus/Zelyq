@@ -1,4 +1,0 @@
-interface:
-  display_name: "Authentication and Accounts"
-  short_description: "Build secure identity and account lifecycles"
-  default_prompt: "Use $authentication-and-accounts to implement this authentication flow."

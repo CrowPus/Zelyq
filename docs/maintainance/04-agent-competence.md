@@ -251,6 +251,22 @@ The seven deep skills clearly pass. The eleven thin ones need to be looked at on
 either **deepened to the standard the top seven set**, or **removed from the catalog**. Removal is
 not a loss — the model still knows how to debug.
 
+### Done — 2026-09-02
+
+Removed nine: `debugging-and-recovery`, `web-performance`, `observability-and-errors`,
+`third-party-integrations`, `test-engineering`, `database-and-migrations`,
+`authentication-and-accounts`, `deployment-configuration`, `backend-api-engineering`. Each was a
+~1.7–2KB sheet of generic principles a frontier model already holds, and a shallow duplicate of
+material `senior-software-engineering` carries at depth (`references/observability.md`,
+`references/api-and-contracts.md`, its risk profiles). Most also describe backend / infra / migration
+work that Zelyq's frontend-only projects structurally cannot contain. No code referenced them — only
+docs. Catalog: 22 → 13.
+
+Kept: `stripe-checkout` (a concrete recipe for a specific ask, Zelyq-constrained — "without
+inventing a secret key", "into this React + Vite template" — with a matching plugin) and
+`product-requirements` (the one thin skill about turning a vague ask into a slice rather than
+backend mechanics; borderline, left for a later call).
+
 ### Two structural notes while you are in there
 
 - **Naming is inconsistent.** Directories use `frontend_ui_skill` and `report-page-skill` while

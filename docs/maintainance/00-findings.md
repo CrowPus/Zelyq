@@ -543,6 +543,14 @@ of good general advice actually beat a strong model's own priors on that subject
 measurable and unmeasured. Every one of the 22 sits in the always-present catalog, spending prompt
 space and selection attention regardless.
 
+**Acted on — 2026-09-02.** Nine of the eleven removed (all except `stripe-checkout`, a concrete
+Zelyq-constrained recipe, and `product-requirements`). Rationale in
+[04](./04-agent-competence.md) §4: the nine are generic principle sheets a frontier model already
+holds, shallow duplicates of what `senior-software-engineering` carries at depth, and several
+describe backend / migration / deploy work Zelyq's frontend-only projects cannot contain. Catalog
+22 → 13. Whether the *remaining* thin two beat the model's priors is still unmeasured — that needs
+the eval work in [06](./06-measurement.md), not another cut.
+
 → Solution: [04-agent-competence.md](./04-agent-competence.md) §4
 
 ---

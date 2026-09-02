@@ -233,9 +233,9 @@ Worth doing, nothing depends on it.
 | --- | --- | --- |
 | `find_files` + `glob`/`context_lines` on `search_files` **(done 2026-09-01)** | [02](./02-tool-surface.md) §5 | B5 |
 | `additionalProperties: false` on core tools **(done 2026-09-02)**; `strict: true` still open | [02](./02-tool-surface.md) §6 | B6 |
-| Server-side refusal fallbacks | [03](./03-api-alignment.md) §6 | C5 |
+| Server-side refusal fallbacks **(done 2026-09-02 — `ZELYQ_REFUSAL_FALLBACK`, live-verified)** | [03](./03-api-alignment.md) §6 | C5 |
 | One budget warning near the iteration cap **(done 2026-09-02)** | [04](./04-agent-competence.md) §3 | D3 |
-| Deepen or drop the eleven thin skills | [04](./04-agent-competence.md) §4 | D4 |
+| Deepen or drop the eleven thin skills **(done 2026-09-02 — 9 dropped, catalog 22 → 13)** | [04](./04-agent-competence.md) §4 | D4 |
 | Per-host fetch confirmation (open); `run_command` injection denylist **(done 2026-09-01)** | [05](./05-untrusted-content.md) §4, §5 | E1 |
 | `promptHash` reminder — opt-in local command, **not** a CI gate (a blocking gate forces a paid run) | [06](./06-measurement.md) §4 | F2 |
 | Neutral default template; `@theme` tokens in `index.css` **(done 2026-09-01)** | [08](./08-the-starting-point.md) §1, §2 | G1, G2 |

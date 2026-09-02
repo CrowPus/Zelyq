@@ -111,8 +111,21 @@ exported and unit-tested (`anthropic-beta-flags.test.ts`, 5).
 - `ZELYQ_REFUSAL_FALLBACK=1` → `server-side-fallback-2026-07-01` header + `fallbacks: "default"`. C5.
 
 Both flags off → header `""` and body `{}`, so a normal request is byte-identical. Subscription
-mode's OAuth beta header is re-composed with the feature betas appended. Context editing awaits its
-own live turn (refusal fallback commented out in `.env` so that turn tests one thing). **Not done:** the subagent `task_budget` countdown —
+mode's OAuth beta header is re-composed with the feature betas appended.
+
+**Live-verified 2026-09-02** on `claude-opus-5`: two ordinary build turns, one per flag, both clean.
+Context editing and refusal fallback are on in `.env`. The subagent countdown stays out — SDK 0.120
+has no `anthropic-beta` value for `task_budget`.
+
+### D4 — prune the thin skills
+
+Removed nine (`debugging-and-recovery`, `web-performance`, `observability-and-errors`,
+`third-party-integrations`, `test-engineering`, `database-and-migrations`,
+`authentication-and-accounts`, `deployment-configuration`, `backend-api-engineering`) — generic
+principle sheets a frontier model already holds, shallow duplicates of `senior-software-engineering`,
+and mostly about backend/infra work Zelyq's frontend-only projects can't contain. No code referenced
+them. Kept `stripe-checkout` (concrete recipe) and `product-requirements`. Catalog 22 → 13. C5
+(refusal fallback) also lands with this session's beta-features work. **Not done:** the subagent `task_budget` countdown —
 SDK 0.120 has no matching `anthropic-beta` value (the roadmap's `task-budgets-2026-03-13` is not in
 the list), so it is not safe to ship blind; and surfacing which model a fallback used
 (`response.model` exists, no `TurnResult` field yet).
