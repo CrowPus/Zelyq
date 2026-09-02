@@ -1,5 +1,14 @@
 import type { AgentEvent, AttachmentRef, Message, ServerMessage, ToolCall } from "@zelyq/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type Body,
+  onRest,
+  onThinking,
+  onToolEnd,
+  onToolStart,
+  onTurnStart,
+  RESTING,
+} from "../lib/posture";
 
 /** One line of a specialist child agent's live activity (the Designer, the
  * verifier). Shown as a labelled sub-thread under the streaming turn. */
@@ -41,6 +50,12 @@ export interface ChatState {
     /** False once the tool closed this browser, while the last frame stays up. */
     live: boolean;
   } | null;
+  /**
+   * What the agent is doing, as a posture rather than a log line. Derived from
+   * the same tool stream the transcript is built from — it is a reading of the
+   * events, never a separate signal that could disagree with them.
+   */
+  body: Body;
 }
 
 export const INITIAL: ChatState = {
@@ -53,6 +68,7 @@ export const INITIAL: ChatState = {
   tokensOut: 0,
   cacheReadTokens: 0,
   browser: null,
+  body: RESTING,
 };
 
 /**
@@ -226,6 +242,7 @@ export function reduce(
         busy: false,
         streaming: null,
         browser: null,
+        body: RESTING,
         messages: message.history,
       };
 
@@ -237,6 +254,7 @@ export function reduce(
         ...state,
         busy: true,
         error: null,
+        body: onTurnStart(),
         streaming: {
           messageId: message.messageId,
           text: "",
@@ -266,8 +284,15 @@ export function reduce(
         : state;
 
     case "text.delta":
+      // Prose is the model working without a tool, which is the same state as
+      // the gap between two calls: thinking. This is what makes the pause after
+      // the last tool legible instead of looking like the agent has stalled.
       return state.streaming
-        ? { ...state, streaming: { ...state.streaming, text: state.streaming.text + message.text } }
+        ? {
+            ...state,
+            body: onThinking(state.body, Date.now()),
+            streaming: { ...state.streaming, text: state.streaming.text + message.text },
+          }
         : state;
 
     case "thinking.delta":
@@ -285,7 +310,11 @@ export function reduce(
       const index = toolCalls.findIndex((call) => call.id === message.call.id);
       if (index === -1) toolCalls.push(message.call);
       else toolCalls[index] = message.call;
-      return { ...state, streaming: { ...state.streaming, toolCalls } };
+      const body =
+        message.type === "tool.start"
+          ? onToolStart(state.body, message.call, Date.now())
+          : onToolEnd(state.body, message.call);
+      return { ...state, body, streaming: { ...state.streaming, toolCalls } };
     }
 
     case "files.changed":
@@ -354,6 +383,7 @@ export function reduce(
         busy: false,
         streaming: null,
         browser: null,
+        body: onRest(state.body, Date.now()),
         messages: [...state.messages, { ...finished, toolCalls: state.streaming?.toolCalls ?? [] }],
       };
     }
@@ -364,6 +394,7 @@ export function reduce(
         busy: false,
         streaming: null,
         browser: null,
+        body: onRest(state.body, Date.now()),
         messages: state.streaming
           ? [
               ...state.messages,
@@ -384,7 +415,15 @@ export function reduce(
       };
 
     case "error":
-      return { ...state, busy: false, streaming: null, error: message.message };
+      return {
+        ...state,
+        busy: false,
+        streaming: null,
+        // Rest, but keep the strain: a turn that ended in an error should not
+        // look the same as one that ended cleanly.
+        body: { ...onRest(state.body, Date.now()), tension: Math.max(0.5, state.body.tension) },
+        error: message.message,
+      };
 
     default:
       return state;

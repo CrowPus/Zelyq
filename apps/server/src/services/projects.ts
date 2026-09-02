@@ -286,10 +286,20 @@ export class ProjectService {
    * and identity is only set if this repo has none of its own yet — a
    * cloned repository's own configured author, if it somehow already has
    * one, is respected rather than overwritten.
+   *
+   * The check is that the repository's top level *is* this project, not
+   * merely that one exists. `--is-inside-work-tree` succeeds from anywhere
+   * under any enclosing repository, and the default workspace directory sits
+   * inside the Zelyq checkout — so on the local runtime this skipped `git
+   * init`, wrote Zelyq's identity into the developer's own `.git/config`, and
+   * then committed their entire working tree under the project's turn prompt.
+   * Found by running the e2e suite, which does exactly that.
    */
   async ensureGitRepo(id: string): Promise<void> {
-    const isRepo = await this.runtime.exec(id, { command: "git rev-parse --is-inside-work-tree" });
-    if (isRepo.exitCode !== 0) {
+    const top = await this.runtime.exec(id, { command: "git rev-parse --show-toplevel" });
+    const here = await this.runtime.exec(id, { command: "pwd -P" });
+    const ownRepo = top.exitCode === 0 && top.stdout.trim() === here.stdout.trim();
+    if (!ownRepo) {
       const init = await this.runtime.exec(id, { command: "git init -q" });
       if (init.exitCode !== 0) {
         throw new Error(
@@ -318,7 +328,11 @@ export class ProjectService {
    * at all.
    */
   async commitTurn(id: string, prompt: string): Promise<void> {
-    await this.runtime.exec(id, { command: "git add -A" });
+    // Pathspec, not a bare `git add -A`: without one git stages the whole
+    // working tree of whatever repository it finds, which is not necessarily
+    // this directory's. `ensureGitRepo` guarantees it is, and this makes the
+    // damage local even if that guarantee ever slips.
+    await this.runtime.exec(id, { command: "git add -A ." });
     const staged = await this.runtime.exec(id, { command: "git diff --cached --quiet" });
     if (staged.exitCode === 0) return; // nothing staged — nothing changed
     if (staged.exitCode > 1) {

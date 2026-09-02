@@ -51,6 +51,14 @@
 
   --focus: #2563a8;
   --shadow-overlay: 0 8px 24px -6px rgb(0 0 0 / 0.12), 0 2px 6px -2px rgb(0 0 0 / 0.08);
+
+  /* The agent body's own ramp: the mark's blue-to-cyan, pulled down until it
+     holds its own against text on this ground. The rest of the palette is
+     deliberately muted; this is the one place the brand shows, and only while
+     the agent is actually working. */
+  --agent-1: #1b3fa8;
+  --agent-2: #1b6fb0;
+  --agent-3: #1f9aa8;
 }
 
 /* Explicit dark selection wins in both directions, so the toggle always works. */
@@ -87,6 +95,10 @@
 
   --focus: #58a6ff;
   --shadow-overlay: 0 8px 24px -6px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+
+  --agent-1: #4b7bff;
+  --agent-2: #45a8f0;
+  --agent-3: #3fdcd8;
 }
 
 /* No explicit choice: follow the operating system. */
@@ -124,6 +136,10 @@
 
     --focus: #58a6ff;
     --shadow-overlay: 0 8px 24px -6px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+
+    --agent-1: #4b7bff;
+    --agent-2: #45a8f0;
+    --agent-3: #3fdcd8;
   }
 }
 
@@ -289,5 +305,288 @@ h3 {
   .td-flow {
     animation: none;
     stroke-dasharray: none;
+  }
+}
+
+/* AgentBody: the mark's own three strokes, re-posed into what the agent is
+   doing. `d` interpolates because every pose is three points, so a change of
+   activity is a movement rather than a swap. */
+.agent-body__seg {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    d 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    stroke 600ms ease,
+    stroke-width 400ms ease;
+  stroke: var(--body-stroke, var(--color-fg-secondary));
+  stroke-width: calc(7px - var(--body-strain, 0) * 1.6px);
+}
+
+/* The ramp, and the one place strain touches hue — mixed into the stops so a
+   struggling body is never confused with a busy one, and so there is still
+   only one gradient rather than a second, redder body fading in over the
+   first. */
+.agent-body__stop {
+  stop-color: color-mix(
+    in oklab,
+    var(--agent-stop) calc((1 - var(--body-strain, 0)) * 100%),
+    var(--color-danger)
+  );
+  transition: stop-color 600ms ease;
+}
+.agent-body__stop--1 {
+  --agent-stop: var(--agent-1);
+}
+.agent-body__stop--2 {
+  --agent-stop: var(--agent-2);
+}
+.agent-body__stop--3 {
+  --agent-stop: var(--agent-3);
+}
+
+/* Breath. Something alive is never perfectly still, and this is the difference
+   between "waiting" and "hung". */
+.agent-body {
+  overflow: visible;
+  animation: body-breathe calc(4200ms * var(--body-speed, 1)) ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+.agent-body[data-posture="idle"] {
+  animation-duration: 6000ms;
+}
+@keyframes body-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+
+/* Per-pose motion. Each is the characteristic movement of that activity, and
+   each runs on the shared clock so tempo speeds all of them together. */
+.body-scan {
+  animation: body-scan calc(1500ms * var(--body-speed, 1)) ease-in-out infinite;
+}
+@keyframes body-scan {
+  0% {
+    transform: translateY(-14px);
+    opacity: 0.4;
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(30px);
+    opacity: 0.3;
+  }
+}
+
+.body-write {
+  animation: body-write calc(1400ms * var(--body-speed, 1)) steps(1, end) infinite;
+}
+@keyframes body-write {
+  0% {
+    transform: translate(-10px, -12px);
+  }
+  25% {
+    transform: translate(12px, -12px);
+  }
+  50% {
+    transform: translate(-10px, 2px);
+  }
+  75% {
+    transform: translate(12px, 2px);
+  }
+  100% {
+    transform: translate(-10px, 16px);
+  }
+}
+
+.agent-body:has(.body-scan) .agent-body__seg:not(.body-scan),
+.agent-body:has(.body-write) .agent-body__seg:not(.body-write) {
+  opacity: 0.7;
+}
+
+/* Running: the three spokes turn as one, so the rotation belongs to the whole
+   figure and replaces the breath rather than fighting it. */
+.agent-body[data-posture="running"] {
+  animation: body-turn calc(2200ms * var(--body-speed, 1)) linear infinite;
+}
+@keyframes body-turn {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.body-sweep {
+  animation: body-sweep calc(2000ms * var(--body-speed, 1)) ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes body-sweep {
+  0%,
+  100% {
+    transform: translateX(-6px) rotate(-6deg);
+  }
+  50% {
+    transform: translateX(10px) rotate(6deg);
+  }
+}
+
+.body-horizon {
+  animation: body-horizon calc(2600ms * var(--body-speed, 1)) linear infinite;
+}
+@keyframes body-horizon {
+  0% {
+    transform: translateX(-16px);
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(16px);
+    opacity: 0.45;
+  }
+}
+
+/* The ribbon's tail lifts and settles, as if the page were just turned to. */
+.body-leaf-l,
+.body-leaf-r {
+  transform-origin: 50% 20%;
+  animation: body-leaf calc(3200ms * var(--body-speed, 1)) ease-in-out infinite;
+}
+.body-leaf-r {
+  animation-name: body-leaf-r;
+}
+@keyframes body-leaf {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-2.5deg);
+  }
+}
+@keyframes body-leaf-r {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}
+
+.body-handoff {
+  animation: body-handoff calc(2400ms * var(--body-speed, 1)) ease-in-out infinite;
+}
+@keyframes body-handoff {
+  0% {
+    transform: translateX(-14px);
+    opacity: 0.35;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(8px);
+    opacity: 0.55;
+  }
+}
+
+.body-drift-a,
+.body-drift-b,
+.body-drift-c {
+  animation: body-drift calc(5200ms * var(--body-speed, 1)) ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+.body-drift-b {
+  animation-delay: -1700ms;
+}
+.body-drift-c {
+  animation-delay: -3400ms;
+}
+@keyframes body-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate(2px, -3px) rotate(-3deg);
+    opacity: 1;
+  }
+}
+
+/* Motion is how this speaks, so reduced-motion keeps the posture and drops the
+   movement rather than removing the body. The pose alone still says what the
+   agent is doing. */
+@media (prefers-reduced-motion: reduce) {
+  /* Matched on the attribute rather than with `!important`, so this outranks
+     the per-posture rules above on specificity alone. */
+  .agent-body[data-posture],
+  .agent-body[data-posture] .agent-body__seg,
+  .agent-body[data-posture] [class*="body-"] {
+    animation: none;
+  }
+  .agent-body[data-posture] .agent-body__seg {
+    transition:
+      d 200ms linear,
+      stroke 200ms linear;
+  }
+}
+
+/* The presence bar. A live strip between the transcript and the composer: a
+   wash that fades out to the right so the mark sits in it rather than on a
+   panel, and a hairline along the top that travels on the agent's own clock —
+   the tempo is already in the body, and this repeats it where peripheral
+   vision can pick it up without the mark being in view at all. */
+.agent-presence {
+  position: relative;
+  border-top: 1px solid var(--color-border-default);
+  background: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--agent-1) 7%, transparent),
+    transparent 55%
+  );
+}
+
+.agent-presence::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--agent-1) 35%,
+    var(--agent-3) 50%,
+    var(--agent-1) 65%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: agent-presence-sheen calc(2600ms * var(--presence-speed, 1)) linear infinite;
+}
+
+@keyframes agent-presence-sheen {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -160% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-presence::after {
+    animation: none;
+    background: linear-gradient(90deg, transparent, var(--agent-2), transparent);
   }
 }

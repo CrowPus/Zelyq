@@ -44,9 +44,9 @@ import {
 } from "../lib/slash-menu";
 import { SPECIALISTS, type Specialist } from "../lib/specialists";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
+import { AgentPresence } from "./AgentPresence";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, Spinner, StatusDot } from "./ui";
-import { ZelyqThinking } from "./ZelyqThinking";
 
 /**
  * The markdown parser is ~170 KB — larger than the rest of the application put
@@ -806,6 +806,8 @@ export function ChatPanel({
         </div>
       </div>
 
+      <AgentPresence body={chat.body} active={Boolean(chat.streaming)} />
+
       <form onSubmit={submit} className="relative shrink-0 border-t border-border-default p-2.5">
         {showSlashMenu && (
           <div
@@ -1444,15 +1446,6 @@ function MessageRow({
 
   return (
     <div className="border-b border-border-default px-4 py-3 last:border-b-0">
-      {streaming && (
-        <ZelyqThinking
-          size={22}
-          // active, not conditionally rendered: once a tool call or the
-          // first token arrives the indicator should finish assembling and
-          // dissolve on its own next loop boundary, not vanish mid-frame.
-          active={message.toolCalls.length === 0 && !message.content}
-        />
-      )}
       {activity && activity.length > 0 && <SpecialistActivity items={activity} />}
       {message.toolCalls.length > 0 && (
         <div className="mb-2.5 flex flex-col gap-px">
