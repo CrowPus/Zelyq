@@ -201,7 +201,7 @@ test("a genuinely empty turn still resolves after the retry ceiling, not forever
 });
 
 // ---------------------------------------------------------------------------
-// C1 — a response cut off at the output-token limit is a truncated answer,
+// A response cut off at the output-token limit is a truncated answer,
 // not a finished turn. The loop asks the model to continue (bounded to two
 // extra rounds), and if it still cannot finish, ends with stopReason
 // "max_tokens" and a plain error rather than presenting the partial text as

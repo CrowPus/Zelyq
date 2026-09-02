@@ -12,7 +12,7 @@ const tool = (name: string, source?: string): ZelyqTool => ({
   ...(source ? { source } : {}),
 });
 
-suite("tool relevance gating (B1)", () => {
+suite("tool relevance gating", () => {
   it("keeps every built-in tool", () => {
     const builtins = [tool("read_file"), tool("write_file"), tool("run_command")];
     assert.deepEqual(gateToolsForDefaultMode(builtins), builtins);

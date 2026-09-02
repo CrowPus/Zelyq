@@ -459,7 +459,7 @@ function buildOpenAICompatibleProvider(config: {
     // name so a free-text non-reasoning model still works instead of
     // failing outright.
     supportsReasoningEffort: config.provider === "openai" && /^(o\d|gpt-5)/i.test(config.model),
-    // F4 — a stable prompt-cache routing key, only where the field name is in
+    // A stable prompt-cache routing key, only where the field name is in
     // the provider's own docs. OpenAI and Mistral read `prompt_cache_key`;
     // OpenRouter reads `session_id`, which also pins the backing provider so a
     // request cannot wander off its warm cache. DeepSeek and Groq cache
@@ -477,7 +477,7 @@ function buildOpenAICompatibleProvider(config: {
 /**
  * The registry's tier for a model, or `undefined` when it isn't a listed model
  * (a custom endpoint, or a name typed straight into Settings). Used to keep a
- * dispatched `cheap`-tier child's token budget under its context window (C3).
+ * dispatched `cheap`-tier child's token budget under its context window.
  */
 export function modelTierFor(provider: ProviderId, model: string): ModelTier | undefined {
   return PROVIDERS[provider]?.models?.find((entry) => entry.value === model)?.tier;
@@ -494,7 +494,7 @@ export function classifyProviderError(provider: ProviderId, error: unknown): Pro
 }
 
 /**
- * The conversation no longer fits the model's context window (A3). Every vendor
+ * The conversation no longer fits the model's context window. Every vendor
  * phrases it differently and none give a clean error code, so this matches the
  * message text — deliberately broad, since the fallback ("some 400") is worse.
  */

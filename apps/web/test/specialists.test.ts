@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { SPECIALISTS } from "../src/lib/specialists.js";
 
 // ---------------------------------------------------------------------------
-// 062 — the composer's `/agent` list must not drift from the agent's own
+// The composer's `/agent` list must not drift from the agent's own
 // set of specialists. The agent is the source of truth (`SPECIALIST_KINDS`
 // in `apps/agent/src/session.ts`); this list only needs a label and a
 // blurb for the menu. Read the agent source directly rather than importing

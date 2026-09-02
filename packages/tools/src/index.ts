@@ -80,7 +80,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
  * boot by plugins and skills. Their schemas are known and fixed-shape, so
  * `toolDefinitions` can close them to unknown keys. Plugin schemas are
  * third-party-shaped and some may rely on pass-through, so they are left as-is
- * (B6 / 02-tool-surface.md §6).
+ *.
  */
 export const CORE_TOOL_NAMES: ReadonlySet<string> = new Set(ALL_TOOLS.map((tool) => tool.name));
 

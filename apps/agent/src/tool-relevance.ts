@@ -1,7 +1,7 @@
 import type { ZelyqTool } from "@zelyq/tools";
 
 /**
- * B1 — a default-mode session was handed all ~90 tools, including
+ * A default-mode session was handed all ~90 tools, including
  * `stripe_prices`, `cloudflare_pages_deployments` and `figma_file_comments`
  * while building a landing page. Every unused schema is selection noise and a
  * wrong turn waiting to happen.

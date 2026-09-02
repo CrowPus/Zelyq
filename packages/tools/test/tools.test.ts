@@ -35,7 +35,7 @@ test("every tool produces a valid Messages API definition", () => {
     assert.match(definition.name, /^[a-z_]+$/);
     assert.ok(definition.description.length > 20, `${definition.name} needs a real description`);
     assert.equal((definition.input_schema as { type?: string }).type, "object");
-    // B6 — core tools are closed to unknown keys, so a typo'd argument name is
+    // Core tools are closed to unknown keys, so a typo'd argument name is
     // a visible rejection rather than a key zod silently strips.
     assert.equal(
       (definition.input_schema as { additionalProperties?: unknown }).additionalProperties,
@@ -259,7 +259,7 @@ test("ordinary git commands still work", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// B2 / B3 / B4 — read_file paging, edit/write diffs, same-path serialisation
+// read_file paging, edit/write diffs, same-path serialisation
 // ---------------------------------------------------------------------------
 
 test("B2: read_file pages a long file from the end, never elides the middle", async () => {

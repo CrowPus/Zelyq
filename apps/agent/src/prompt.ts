@@ -20,30 +20,30 @@ export function buildSystemPrompt(options: {
    * `architecture/report.html` render; absent means it wasn't found at boot
    * and the mode still runs, degraded on the report step only. */
   architectMode?: { skill?: { body: string; resources: string[] } };
-  /** 056 — the design reference catalog (one line per reference, already
+  /** The design reference catalog (one line per reference, already
    * rendered) and the `Agent.md` UI-craft checklist. The catalog is listed
    * under the Architect's DESIGN.md step; `agentMd` is inlined as
    * `<ui_guidelines>` in the Architect and Engineer addenda. Both sit inside
    * the prompt's cache breakpoint — paid once per session. */
   designRefCatalogText?: string;
   agentMd?: string;
-  /** 060 — the AI provider knowledge catalog (one line per provider) and the
+  /** The AI provider knowledge catalog (one line per provider) and the
    * `ai-providers/Agent.md` integration rules. Rendered as `<ai_providers>`
    * in the Architect and Engineer addenda; sits inside the cache breakpoint. */
   aiProviderCatalogText?: string;
   aiProvidersAgentMd?: string;
-  /** 066 — one-line stack summary for the `<project>` block. Absent ⇒ the
+  /** One-line stack summary for the `<project>` block. Absent ⇒ the
    * built-in Vite line, so a vite-react prompt is byte-identical to before. */
   stack?: string;
-  /** 066 — a stack skill (`template.json` `agentSkill`) whose body is woven
+  /** A stack skill (`template.json` `agentSkill`) whose body is woven
    * as `<stack_guide>` right after the skills catalog. Absent for vite-react. */
   stackSkill?: { body: string };
-  /** D1 — `AGENTS.md` (or `CLAUDE.md`) from the project root: the people who
+  /** `AGENTS.md` (or `CLAUDE.md`) from the project root: the people who
    * own the project telling the agent about it. Read once at session
    * construction, capped, byte-stable for the session so it sits inside the
    * cache breakpoint. Woven as `<project_guide>` after `<stack_guide>`. */
   projectGuide?: string;
-  /** D2 — `PLAN.md`, the task list `update_plan` maintains across turns in
+  /** `PLAN.md`, the task list `update_plan` maintains across turns in
    * default / Engineer Mode. Woven as `<plan>` after `<project_guide>` so a
    * resumed session opens knowing where it stopped. */
   plan?: string;
@@ -981,7 +981,7 @@ ${list}
 }
 
 /**
- * 066 — the stack skill a template declares (`template.json` `agentSkill`),
+ * The stack skill a template declares (`template.json` `agentSkill`),
  * woven into the prompt so its rules are present on turn one rather than
  * left to a `use_skill` call the model might not make. Only the Expo template
  * sets one today; a vite-react session passes `undefined` here and this
@@ -1001,7 +1001,7 @@ ${stackSkill.body.trim()}
 }
 
 /**
- * D1 — `AGENTS.md` / `CLAUDE.md` from the project root: the project's own
+ * `AGENTS.md` / `CLAUDE.md` from the project root: the project's own
  * instructions, written by whoever owns it. Placed after `<stack_guide>` and
  * before the mode addenda: the project's conventions beat the generic advice,
  * the mode's discipline beats both. Absent ⇒ `""`, byte-identical prompt.
@@ -1029,7 +1029,7 @@ ${body}
 }
 
 /**
- * D2 — the current `PLAN.md`, if a past turn recorded one with `update_plan`.
+ * The current `PLAN.md`, if a past turn recorded one with `update_plan`.
  * A resumed session opens with this in the prompt so it knows where it stopped
  * instead of re-deriving intent from a conversation that may since have been
  * compacted. It does not expand scope — `<scope>` still governs the size of the
@@ -1117,7 +1117,7 @@ const AGENT_HINTS: Record<string, string> = {
 
 export const AGENT_HINT_NAMES = Object.keys(AGENT_HINTS);
 
-/** 064 — the tool each named specialist runs behind. Mirrors
+/** The tool each named specialist runs behind. Mirrors
  * `SPECIALIST_PASS_TOOLS` in `session.ts` (which does the granting); the drift
  * check keeps the two, plus the composer's `/agent` list, on one set. */
 const AGENT_PASS_TOOLS: Record<string, string> = {
@@ -1128,7 +1128,7 @@ const AGENT_PASS_TOOLS: Record<string, string> = {
 };
 
 /**
- * 064 — the one renderer for the `<design_references>` block, exported so the
+ * The one renderer for the `<design_references>` block, exported so the
  * top-level prompt (`buildSystemPrompt`) and a specialist child's prompt
  * (`session.ts`) cannot drift apart.
  *

@@ -6,7 +6,7 @@ import { after, before, test } from "node:test";
 import { createStore, runMigrations, type Store } from "../src/index.js";
 
 /**
- * Regression cover for R1 (`docs/token-usage/07-review-and-amendments.md`).
+ * Regression cover for the token counter.
  *
  * The agent used to emit a session-cumulative token total on every turn; the
  * gateway stored that on the message row and then *added* it to the session

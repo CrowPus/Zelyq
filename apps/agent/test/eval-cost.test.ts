@@ -9,7 +9,7 @@ import {
 } from "../evals/rates.js";
 
 /**
- * The eval report's cost axis (F4 / 06-measurement.md §2). The point of these:
+ * The eval report's cost axis. The point of these:
  * on Anthropic `tokensIn` is the *uncached* remainder, so the report must add
  * the cache reads and the cache write back to show the real prompt size, and
  * the dollar figure has to price cache reads at 0.1× — otherwise a working

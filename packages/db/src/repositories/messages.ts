@@ -111,7 +111,7 @@ export function messageRepository(db: ZelyqDb) {
     },
 
     /**
-     * The history a resumed session replays (A5). Takes the **newest**
+     * The history a resumed session replays. Takes the **newest**
      * messages, not the oldest — an old cut kept turn 1 and silently dropped
      * everything recent, which is amnesia, not a window. Bounded by an
      * approximate token budget as well as a hard count, because tokens are the

@@ -29,7 +29,7 @@ const NO_CACHE = { cacheReadFactor: 0, cacheCreationFactor: 0 };
 
 /**
  * Anchors: `claude-opus-5` at $5 / $25 per MTok is the figure
- * `docs/maintainance/06-measurement.md` §2 costs the suite against. The rest of
+ * the eval suite is costed against. The rest of
  * the Claude family follows Anthropic's long-standing list ratios. Non-Anthropic
  * entries are estimates for the models that actually appear in recorded runs.
  */

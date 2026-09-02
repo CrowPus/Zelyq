@@ -5,7 +5,7 @@ import { runCheck } from "../evals/checks.js";
 
 /**
  * The Engineer-Mode reply checks the harness appends on an acting turn
- * (F3 / 06-measurement.md §3). These lock the regexes — the likely bug is a
+ *. These lock the regexes — the likely bug is a
  * pattern that never matches a real reply, or one that matches everything.
  */
 function ctx(reply: string): CheckContext {

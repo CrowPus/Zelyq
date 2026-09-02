@@ -206,7 +206,7 @@ export const createAgentSessionSchema = z.object({
    */
   supabasePreviewEnv: z.record(z.string(), z.string()).optional(),
   /**
-   * 066 — the stack this project is on. `template` is the project row's own
+   * The stack this project is on. `template` is the project row's own
    * value; `stack` is the one-line summary the `<project>` prompt block
    * describes; `agentSkill` names a loaded skill whose body is force-woven
    * for this stack (e.g. `expo-react-native`). All optional — absent means

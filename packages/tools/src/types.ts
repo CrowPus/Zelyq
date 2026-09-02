@@ -46,7 +46,7 @@ export interface ToolResult {
    * issue tracker, a database row. The session wraps such output in
    * `<untrusted_content>` before the model sees it, and the base prompt tells
    * the model to treat anything inside those tags as data, never as
-   * instruction (finding E1). A tool that returns only its own summary of such
+   * instruction. A tool that returns only its own summary of such
    * content leaves this unset; a tool that passes the content through must set
    * it. `source` is a short, honest label — a URL, a repo name, a service.
    */
@@ -62,7 +62,7 @@ export interface ZelyqTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
   /**
    * The plugin file a tool was loaded from (`github.mjs`), set by the loader.
    * Absent on the built-in tools. Used to gate task-only plugin families out of
-   * the default-mode tool pool (B1).
+   * the default-mode tool pool.
    */
   source?: string;
   /**

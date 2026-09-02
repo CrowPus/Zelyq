@@ -323,7 +323,7 @@ test("056: no catalog and no agentMd leaves the Architect/Engineer prompts uncha
 });
 
 // ---------------------------------------------------------------------------
-// 062 — withAgents (the `/agent` menu's hint weaving)
+// WithAgents (the `/agent` menu's hint weaving)
 // ---------------------------------------------------------------------------
 
 test("062: withAgents leaves the message untouched when nothing is named", () => {
@@ -377,7 +377,7 @@ test("062: withAgents' hint table covers exactly the specialist kinds, no drift"
 });
 
 // ---------------------------------------------------------------------------
-// 064 — the art-direction floor. Default mode used to get four generic lines
+// The art-direction floor. Default mode used to get four generic lines
 // ("sensible visual design"), which every model resolves to the same
 // near-black page with one purple gradient. These assert the floor is in the
 // DEFAULT prompt — not only behind Architect or Engineer Mode, which is where
@@ -424,7 +424,7 @@ test("064: the art-direction floor is in every mode, not just Architect/Engineer
 });
 
 // ---------------------------------------------------------------------------
-// 064 — designReferencesBlock: one renderer, so the top-level prompt and a
+// DesignReferencesBlock: one renderer, so the top-level prompt and a
 // specialist child's prompt cannot drift. They did drift, and the Designer
 // child spent every pass without the library it was told to use.
 // ---------------------------------------------------------------------------
@@ -455,7 +455,7 @@ test("064: the top-level prompt renders the catalog through the same helper", ()
 });
 
 // ---------------------------------------------------------------------------
-// 066 — the <project> stack line and the woven <stack_guide>.
+// The <project> stack line and the woven <stack_guide>.
 // ---------------------------------------------------------------------------
 
 test("066: no stack option keeps the built-in Vite stack line, byte-identical", () => {

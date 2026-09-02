@@ -8,7 +8,7 @@ import type { Conversation, ConversationOptions, ModelProvider } from "../src/pr
 import { buildAgentServer } from "../src/server.js";
 
 /**
- * 066 — a project on the Expo stack must reach the agent as Expo: the
+ * A project on the Expo stack must reach the agent as Expo: the
  * <project> Stack line, and the RN skill force-woven as <stack_guide>. A
  * vite-react project (no template/stack/agentSkill on the request) must be
  * byte-identical to before. The system prompt is the only place this is

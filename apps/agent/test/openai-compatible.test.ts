@@ -204,7 +204,7 @@ test("text and usage come back from a streamed turn", async () => {
   assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 3 });
 });
 
-test("cached prompt tokens are split out of the input figure (A4)", async () => {
+test("cached prompt tokens are split out of the input figure", async () => {
   replies.push({
     events: [
       textDelta("ok"),
@@ -537,7 +537,7 @@ test("malformed tool arguments end the turn, rather than crashing it", async () 
 });
 
 // ---------------------------------------------------------------------------
-// 065 — the tool messages answering an assistant's tool_calls must be
+// The tool messages answering an assistant's tool_calls must be
 // CONTIGUOUS. The image carrier above used to be pushed inline, right after
 // the result it belonged to, which ended that run at the first image: a live
 // gpt-5.2 turn that called view_preview in parallel with four audit tools came

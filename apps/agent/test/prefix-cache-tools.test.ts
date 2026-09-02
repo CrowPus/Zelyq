@@ -157,7 +157,7 @@ test("the pinned block is keyed on the tool set, so a mid-session grant cannot s
 });
 
 /**
- * F4 — the OpenAI-dialect adapter sent no cache-routing key, so a session could
+ * The OpenAI-dialect adapter sent no cache-routing key, so a session could
  * lose its warm prefix (and on OpenRouter, wander to a different backing
  * provider) between requests.
  */

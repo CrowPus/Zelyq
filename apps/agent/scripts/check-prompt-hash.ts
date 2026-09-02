@@ -1,5 +1,5 @@
 /**
- * An OPTIONAL local reminder (F2 / 06-measurement.md §4). NOT a CI gate — the
+ * An OPTIONAL local reminder. NOT a CI gate — the
  * eval it points at costs real money, so nothing forces you to run it.
  *
  * If you changed `prompt.ts` and want to know whether the eval suite has seen

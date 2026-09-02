@@ -56,7 +56,7 @@ export function PlanPanel({ projectId }: { projectId: string }) {
     retry: false,
     refetchOnMount: "always",
   });
-  // D2 — the durable checklist `update_plan` maintains in default / Engineer Mode.
+  // The durable checklist `update_plan` maintains in default / Engineer Mode.
   const planMd = useQuery({
     queryKey: ["plan-md", projectId],
     queryFn: () => api.readFile(projectId, PLAN_MD_PATH),

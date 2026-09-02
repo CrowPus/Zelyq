@@ -193,7 +193,7 @@ export const messages = sqliteTable(
      * 0 = written before the R1 fix, when `tokens_in` held a session-cumulative
      * running total instead of this turn's usage. Those rows are inflated and
      * must be excluded from any baseline; there is no backfill. 1 = per-turn,
-     * trustworthy. See `docs/token-usage/07-review-and-amendments.md`.
+     * trustworthy.
      */
     usageSchema: integer("usage_schema").notNull().default(1),
     createdAt: text("created_at").notNull(),

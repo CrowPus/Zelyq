@@ -388,7 +388,7 @@ export class ChatGateway {
         this.supabase.resolvePreviewEnv(room.projectId),
       ]);
 
-      // 066 — which stack this project is on, so the agent's prompt describes
+      // Which stack this project is on, so the agent's prompt describes
       // the right one and (for Expo) force-weaves the RN skill. A vite-react
       // project resolves to `{ template: "vite-react" }` with no `stack` and
       // the agent's default line, byte-identical to before.
@@ -540,7 +540,7 @@ export class ChatGateway {
       });
     } finally {
       // Persist without the whole-file bodies in write_file / edit_file inputs
-      // (A2): the transcript never shows them, and a session rebuilt from this
+      //: the transcript never shows them, and a session rebuilt from this
       // history would otherwise recarry ~68% of the tool-call bytes for content
       // that is already on disk. The live broadcast above kept the full copy.
       assistant.toolCalls = stripHeavyToolInputs([...toolCalls.values()]);
