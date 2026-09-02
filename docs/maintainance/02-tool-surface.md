@@ -83,6 +83,22 @@ Do both. Option B is a day's work and portable; Option A is the durable answer o
 Bring the default-mode pool to **under 30**. That is roughly where selection accuracy stops
 degrading, and it is still double what Claude Code ships.
 
+### Done (Option B) — 2026-09-02
+
+`apps/agent/src/tool-relevance.ts`. `loadPlugins` tags each plugin tool with its `source` file
+(`ZelyqTool.source`, absent on built-ins). A **default top-level** session — not lean, not Architect,
+not Engineer — now gets `gateToolsForDefaultMode(ALL_TOOLS)`: the 14 built-ins plus the plugin
+families a UI build actually uses (`ai-docs`, `image-assets`, `browser-qa`), and nothing else.
+Connectors and the other inspection families (`static-analysis`, `test-intelligence`,
+`git-inspector`, `database-inspector`, `container-inspector`, `deployment-readiness`,
+`design-system-auditor`, `documentation-generator`, `api-tester`, `project-intelligence`) drop out —
+Architect names them per build-plan step, specialists get them via `SpecialistConfig`, `/agent`
+grants them, and Architect/Engineer top-level sessions keep the full weave. Default-mode pool: ~98 →
+~25. `tool-relevance.test.ts` (4). Option A (Anthropic `defer_loading`) is still the durable form.
+
+Left as-is: the "this instance may load extra tools" prompt paragraph — still true for the power
+modes, and not worth a prompt-hash change to trim.
+
 ---
 
 ## 2. Let the agent read a file in pages

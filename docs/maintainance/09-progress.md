@@ -38,10 +38,24 @@ All on `maint/phase1`, each its own commit, full matrix green. Written up in det
 | D3 | one-shot step-budget warning in the run loop | `fc75d28` |
 | 2.3 (part) | Engineer-Mode reply checks in the eval harness | `99a637f` |
 | B6 (part) | `additionalProperties: false` on the 14 core tool schemas | `dab44b2` |
+| F6 (`<scope>`) + G3 | prompt tightening + `lucide-react` in the template | `69e4354` |
+| **B1 / 3.1** | relevance gating — default mode ~98 → ~25 tools | `<this>` |
 
 Plus the two eval runs the founder did (`baselines.json` `18b772c2702f`), the `--compare` /
-`SiteFooter` / caps fixes those surfaced (`25bf362`, `6303a45`, `5a3de6c`), and the D3 warning
-(`fc75d28`).
+`SiteFooter` / caps fixes those surfaced (`25bf362`, `6303a45`, `5a3de6c`), the D3 warning
+(`fc75d28`), and dropping the prompt-hash CI gate (`b424e97` — a blocking eval gate forces paid
+runs; it is an opt-in local command now).
+
+## Phase 3 — started 2026-09-02
+
+### 3.1 / B1 — relevance-gate the tool pool
+
+`apps/agent/src/tool-relevance.ts` + `ZelyqTool.source` (set by `loadPlugins`). A **default
+top-level** session (not lean, not Architect, not Engineer) now gets the 14 built-ins plus the
+`ai-docs` / `image-assets` / `browser-qa` plugin families only — connectors and the other inspection
+families drop out. Architect names them per build step, specialists get them via `SpecialistConfig`,
+`/agent` grants them, and Architect / Engineer keep the full weave. `tool-relevance.test.ts` (4).
+Option A (Anthropic `defer_loading`) is the durable form and stays open.
 
 **Left for the founder / a decision:** the `<scope>` prompt half of F6 (data now supports it); G3
 (needs an eval run); `pricing-toggle`'s non-`<button>` toggle; a `<how_to_work>` mention of

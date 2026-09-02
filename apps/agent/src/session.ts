@@ -45,6 +45,7 @@ import {
   type ProviderFactory,
   type ProviderId,
 } from "./providers/index.js";
+import { gateToolsForDefaultMode } from "./tool-relevance.js";
 
 /** Every tool that can change the project, refused once Engineer Mode's
  * new-file checkpoint is reached — see the `checkpointReached` comment in
@@ -1412,11 +1413,16 @@ export class AgentSession {
       "supabase_deploy_function",
     ]);
     const supabaseLinked = Boolean(options.supabaseBridge);
+    // B1 — a plain default-mode session does not need the connector tools or the
+    // task-only inspection families standing by. Architect and Engineer keep the
+    // full weave (they hand task tools out per step), and a lean builder is
+    // already filtered by `toolNames`.
+    const defaultMode = !leanBuilder && !options.architectMode && !options.engineerMode;
     const toolPool = (
       leanBuilder
         ? ALL_TOOLS.filter((t) => options.toolNames?.includes(t.name))
         : [
-            ...ALL_TOOLS,
+            ...(defaultMode ? gateToolsForDefaultMode(ALL_TOOLS) : ALL_TOOLS),
             // The Architect orchestrates builders.
             ...(options.architectMode ? [dispatchTaskTool] : []),
             // The specialists are callable from Engineer Mode (on the user's

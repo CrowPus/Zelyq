@@ -109,6 +109,7 @@ export async function loadPlugins(
         continue;
       }
 
+      tool.source = entry;
       tools.push(tool);
       knownNames.add(tool.name);
       result.loaded.push(tool.name);

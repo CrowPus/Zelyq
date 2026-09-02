@@ -185,6 +185,10 @@ Bigger changes that need design decisions, not just implementation.
 Anthropic-only) versus relevance gating at session construction (portable, ships sooner). The
 recommendation is both, gating first.
 
+**Gating done 2026-09-02** — `tool-relevance.ts`: a default top-level session gets the built-ins
+plus `ai-docs` / `image-assets` / `browser-qa` only (~98 → ~25). Architect / Engineer / lean
+builders unchanged. Option A (`defer_loading`) is still the durable Anthropic form, open.
+
 ### 3.2 — Compaction and the history window
 
 [01](./01-context-and-cost.md) §3, §5 · fixes **A3**, **A5** · medium
