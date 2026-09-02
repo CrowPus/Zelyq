@@ -254,6 +254,10 @@ export interface SessionOptions {
   /** D1 — `AGENTS.md` / `CLAUDE.md` from the project root, read once by the
    * `/sessions` handler and capped. Woven as `<project_guide>`. */
   projectGuide?: string;
+  /** D2 — `PLAN.md`, the durable task list `update_plan` maintains for
+   * multi-turn work in default / Engineer Mode. Read the same way, woven as
+   * `<plan>`, so a resumed session opens knowing where it stopped. */
+  plan?: string;
   provider: ProviderId;
   model: string;
   effort: Effort;
@@ -1437,7 +1441,12 @@ export class AgentSession {
               ? [designPassTool, opsPassTool, qaPassTool, cinematicPassTool]
               : []),
           ]
-    ).filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name));
+    )
+      .filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name))
+      // D2 — one plan, one owner. Architect Mode's plan is `build-plan.md`;
+      // `update_plan` (which writes `PLAN.md`) belongs to default and Engineer
+      // Mode only, so the two never compete.
+      .filter((t) => t.name !== "update_plan" || !options.architectMode);
 
     // Held by reference (see `liveTools` on the class) so a later `/agent`
     // pick can grant a specialist's pass tool without rebuilding the session.
@@ -1466,6 +1475,7 @@ export class AgentSession {
               ...(options.stack ? { stack: options.stack } : {}),
               ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
               ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
+              ...(options.plan ? { plan: options.plan } : {}),
               ...(options.agentMd ? { agentMd: options.agentMd } : {}),
               ...(options.designRefCatalogText
                 ? { designRefCatalogText: options.designRefCatalogText }

@@ -80,6 +80,21 @@ model)` reads the registry tier; in `dispatch`, a `cheap` child's `tokenCap` is
 full cap — nothing large-window regresses. `providers.test.ts` (+1). The visible `task-budgets`
 countdown and the live `models.retrieve` lookup stay open (Anthropic-only).
 
+### 3.4 / D2 — `update_plan`
+
+`update_plan` (`packages/tools/src/plan.ts`) writes `PLAN.md` as a `- [ ] / [~] / [x]` checklist —
+chosen over a `sessions.plan` column because a file needs no migration, survives a restart, and
+matches `build-plan.md`. In `ALL_TOOLS`; `session.ts` filters it out of Architect Mode (one plan,
+one owner). `server.ts` reads `PLAN.md` into `SessionOptions.plan` the way `AGENTS.md` is read;
+`buildSystemPrompt` weaves `<plan>`; one `<how_to_work>` line + the Engineer-checkpoint text point
+at it. `PlanPanel` gained a checklist view (done / in-progress / pending icons, `N/M done` header)
+shown when `PLAN.md` exists and there's no architecture package. `plan.test.ts` (2). tools 58/58,
+agent 383/383, server 215/215, web typecheck + build clean. `sessions.plan`, a protocol event, and
+interactive checkboxes deferred.
+
+**Phase 3 is now done** (portable halves of 3.2/3.3; 3.1 gating; 3.4 in full). Only the
+Anthropic-beta pieces remain across the roadmap.
+
 **Left for the founder / a decision:** the `<scope>` prompt half of F6 (data now supports it); G3
 (needs an eval run); `pricing-toggle`'s non-`<button>` toggle; a `<how_to_work>` mention of
 `find_files`; F2's per-PR smoke set (needs a CI key); D4 (which of the 11 thin skills to keep);

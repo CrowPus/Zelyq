@@ -43,6 +43,10 @@ export function buildSystemPrompt(options: {
    * construction, capped, byte-stable for the session so it sits inside the
    * cache breakpoint. Woven as `<project_guide>` after `<stack_guide>`. */
   projectGuide?: string;
+  /** D2 — `PLAN.md`, the task list `update_plan` maintains across turns in
+   * default / Engineer Mode. Woven as `<plan>` after `<project_guide>` so a
+   * resumed session opens knowing where it stopped. */
+  plan?: string;
 }): string {
   // `</communication>${...}` deliberately has no newline between them —
   // the addendum's own body supplies its leading newline when it renders,
@@ -58,7 +62,7 @@ Name: ${options.projectName}
 Template: ${options.template}
 Stack: ${options.stack ?? "React 19 + TypeScript + Vite + Tailwind CSS"}
 </project>
-${buildSkillsSection(options.skills)}${buildStackGuide(options.stackSkill)}${buildProjectGuide(options.projectGuide)}
+${buildSkillsSection(options.skills)}${buildStackGuide(options.stackSkill)}${buildProjectGuide(options.projectGuide)}${buildPlanBlock(options.plan)}
 
 <how_to_work>
 - Look before you touch. Use list_files and read_file to learn the actual structure. Never assume a \
@@ -68,6 +72,10 @@ come back together, so ask for everything you already know you need at once. Rea
 at a time costs five round-trips and tells you nothing that one step would not have. Wait for a \
 result only when the next call genuinely depends on it.
 - Prefer edit_file over write_file on files that already exist. A full rewrite loses work.
+- When a request needs several steps, or you are stopping with work left, record the steps with \
+update_plan and mark them done as you go — the next turn resumes from PLAN.md instead of re-reading \
+the conversation. Skip it for a single-step change; a plan for a one-line edit is just ceremony, and \
+it never licenses more scope than was asked.
 - Make the smallest change that fully satisfies the request, then verify it. Verification means \
 running the typecheck or build, and starting the preview to confirm the app still loads.
 - To see a screen that is not the app's landing route, pass its \`path\` to view_preview or \
@@ -898,9 +906,11 @@ You will not be allowed to invent your way past this: after six new files in one
 and no delete runs for the rest of it — whether or not this section convinced you not to. That is a \
 backstop, not the first line of defense — the judgment above is. Reaching it is not a failure on \
 real, larger work: stop, say plainly what you built and, if there's more to do, that there's more to \
-do — the user's next message continues it with a fresh checkpoint of its own. Do not respond to the \
-checkpoint by cramming what's left into a file you can still touch; a file that grows to hold work \
-six other files were meant for is worse than stopping honestly.
+do. Record where you are with update_plan (mark done what is done, leave the rest pending) so the \
+next turn resumes from PLAN.md rather than re-reading the whole conversation — then the user's next \
+message continues with a fresh checkpoint of its own. Do not respond to the checkpoint by cramming \
+what's left into a file you can still touch; a file that grows to hold work six other files were \
+meant for is worse than stopping honestly.
 
 There is one deliberate opening. Once you have run a verification tool this turn — started or viewed \
 the preview, inspected a page, run the typecheck — you are in the finish phase, and edit_file plus \
@@ -1000,6 +1010,27 @@ not apply.
 
 ${body}
 </project_guide>
+`;
+}
+
+/**
+ * D2 — the current `PLAN.md`, if a past turn recorded one with `update_plan`.
+ * A resumed session opens with this in the prompt so it knows where it stopped
+ * instead of re-deriving intent from a conversation that may since have been
+ * compacted. It does not expand scope — `<scope>` still governs the size of the
+ * plan itself.
+ */
+function buildPlanBlock(plan?: string): string {
+  const body = plan?.trim();
+  if (!body) return "";
+  return `
+<plan>
+The plan for this work, from an earlier turn. Continue it: do the next unchecked step, and call
+update_plan to mark steps done or revise the list as things change. If the request has moved on,
+replace the plan; do not keep working an obsolete one.
+
+${body}
+</plan>
 `;
 }
 

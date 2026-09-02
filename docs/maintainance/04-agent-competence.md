@@ -154,6 +154,28 @@ stays authoritative and `update_plan` should be unavailable — one plan, one ow
 Engineer Mode, `update_plan` is the plan. Enforce that at the tool boundary the same way every other
 mode boundary in this codebase is enforced: structurally, in `session.ts`, not by asking.
 
+### Done — 2026-09-02
+
+`update_plan` (`packages/tools/src/plan.ts`) takes `{ items: [{ step, status }] }` and writes
+`PLAN.md` at the project root as a `- [ ] / [~] / [x]` checklist. Chosen over a `sessions.plan`
+column: a file needs no migration, survives a restart on its own, is readable through the files API,
+and matches how `build-plan.md` already works. Per-project rather than per-session — a fresh task
+calls `update_plan` with new items and overwrites.
+
+- **Boundary:** in `ALL_TOOLS`, but `session.ts` filters it out when `options.architectMode`
+  (`build-plan.md` is the plan there) and lean builders never name it.
+- **Prompt:** `server.ts` reads `PLAN.md` the same way it reads `AGENTS.md`, passes it as
+  `SessionOptions.plan`; `buildSystemPrompt` weaves `<plan>` after `<project_guide>`, so a resumed
+  session opens knowing where it stopped. One `<how_to_work>` line points at it (skip for a
+  single-step change); the Engineer-Mode checkpoint text now says to record progress with it.
+- **UI:** `PlanPanel` gained a checklist view — when `PLAN.md` exists and there's no architecture
+  package, it renders the steps with done / in-progress / pending icons and an `N/M done` header,
+  refreshed on the `PLAN.md`-touched file event.
+- `plan.test.ts` (2), `tools` 58/58, `agent` 383/383, `server` 215/215, web typecheck + build clean.
+
+The `sessions.plan` column, a dedicated protocol event, and interactive checkboxes (tick a step
+from the UI) are all deferred — the file + the read-only panel are the working v1.
+
 ---
 
 ## 3. Tell the model what budget it has left

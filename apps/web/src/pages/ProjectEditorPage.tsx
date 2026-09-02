@@ -92,6 +92,10 @@ export function ProjectEditorPage() {
         queryClient.invalidateQueries({ queryKey: ["plan", id] });
         queryClient.invalidateQueries({ queryKey: ["topology", id] });
       }
+      // D2 — update_plan writes PLAN.md; refresh the checklist view.
+      if (paths.includes("PLAN.md")) {
+        queryClient.invalidateQueries({ queryKey: ["plan-md", id] });
+      }
       setReloadToken((token) => token + 1);
     },
     [id, queryClient, selectedPath],

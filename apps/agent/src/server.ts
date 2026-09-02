@@ -279,6 +279,19 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       }
     }
 
+    // D2 — the durable plan `update_plan` maintains for multi-turn work in
+    // default / Engineer Mode. Read the same way as the project guide so a
+    // resumed session opens knowing exactly where it stopped.
+    const planFile = await runtime
+      .readFile(input.projectId, "PLAN.md")
+      .then((f) => (f.encoding === "utf8" ? f.content : null))
+      .catch(() => null);
+    const plan = planFile?.trim()
+      ? planFile.length > PROJECT_GUIDE_CAP
+        ? `${planFile.slice(0, PROJECT_GUIDE_CAP)}\n\n[truncated]`
+        : planFile
+      : undefined;
+
     const session = new AgentSession({
       sessionId: input.sessionId,
       projectId: input.projectId,
@@ -287,6 +300,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       ...(input.stack ? { stack: input.stack } : {}),
       ...(stackSkill ? { stackSkill: { body: stackSkill.body } } : {}),
       ...(projectGuide ? { projectGuide } : {}),
+      ...(plan ? { plan } : {}),
       provider,
       model:
         input.model ?? (provider === config.provider ? config.model : defaultModelFor(provider)),

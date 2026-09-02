@@ -214,12 +214,14 @@ turn 25. Derive the caps from the child's actual model rather than shared consta
 (`modelTierFor` + `CHEAP_TIER_TOKEN_CAP`); larger models are untouched. The visible `task-budgets`
 countdown and the live `models.retrieve` window lookup are still open (Anthropic-only).
 
-### 3.4 — `update_plan`
+### 3.4 — `update_plan` — **done 2026-09-02**
 
 [04](./04-agent-competence.md) §2 · fixes **D2** · medium
 
-Durable plan state for default and Engineer Mode. Deserves its own proposal — it is a real feature
-with a UI surface, and it needs a clean boundary against `build-plan.md` so the two never compete.
+`update_plan` writes `PLAN.md` (a `- [ ] / [~] / [x]` checklist); `server.ts` reads it into `<plan>`
+the way `AGENTS.md` is read; `session.ts` filters the tool out of Architect Mode so `build-plan.md`
+stays the one plan there; `PlanPanel` renders the checklist. `sessions.plan` column + interactive
+checkboxes deferred.
 
 ---
 

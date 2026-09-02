@@ -16,6 +16,7 @@ import {
   opsPassTool,
   qaPassTool,
 } from "./orchestrate.js";
+import { updatePlanTool } from "./plan.js";
 import { previewLogsTool, startPreviewTool, viewPreviewTool } from "./preview.js";
 import { runCommandTool } from "./shell.js";
 import {
@@ -25,6 +26,7 @@ import {
 } from "./supabase.js";
 import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
 
+export { PLAN_FILE } from "./plan.js";
 export * from "./types.js";
 export {
   captureReferenceTool,
@@ -45,6 +47,7 @@ export {
   supabaseApplyMigrationTool,
   supabaseDeployFunctionTool,
   supabaseVerifyBackendTool,
+  updatePlanTool,
   viewPreviewTool,
   writeFileTool,
 };
@@ -62,6 +65,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   editFileTool,
   deleteFileTool,
   runCommandTool,
+  updatePlanTool,
   startPreviewTool,
   previewLogsTool,
   viewPreviewTool,
