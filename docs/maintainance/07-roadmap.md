@@ -34,6 +34,10 @@ Gemini's numbers.
 restraint flips are single runs on a non-deterministic model, and this suite's own README says to
 run twice before believing one.
 
+**F6 both halves now fixed in the suite** (`scopeRelevant()` #125; `no_unrequested_components`
+2026-09-01 — see [06](./06-measurement.md) §6). The re-run above now also produces a direct
+restraint number, not just a file count. The `<scope>` prompt half stays gated on that number.
+
 ---
 
 ## Phase 1 — The five that matter most
@@ -114,17 +118,18 @@ disconnected products — the Architect writes the file, every later session rea
 Phase 1 is defensible on reasoning alone. Phase 2 is not, and should not be attempted without
 numbers.
 
-### 2.1 — Cache tokens and a dollar figure in the eval report
+### 2.1 — Cache tokens and a dollar figure in the eval report — **done 2026-09-01**
 
 [06](./06-measurement.md) §2 · fixes **F4** · small
 
-Tokens are already measured and `--compare` already shows a delta — that part was wrong in an
-earlier draft. What is missing is the cache read/creation fields (blocked on 1.1) and a rate table.
+`CaseResult.cacheReadTokens` / `cacheCreationTokens` (from the A4 fields), `evals/rates.ts` with
+`estimateCostUsd`, the report's `tokens` line switched to the total prompt size with a cached-%
+note, a new `cost` line, and cost + total-token deltas in `--compare`. `eval-cost.test.ts` (7);
+replaying the 2026-09-01 `claude-opus-5` run reproduces the doc's $2.94.
 
-**This is not optional alongside 1.1, it is part of it.** On Anthropic, `input_tokens` excludes
-cached tokens, so shipping the caching work without this makes the suite report `tokensIn` falling
-~90% while the real request size is unchanged — a spectacular-looking number measuring the wrong
-quantity.
+Shipping the caching work without this would have made the suite report `tokensIn` falling ~90%
+while the real request size was unchanged — the number now reported is the total, so that trap is
+closed.
 
 ### 2.2 — Effort tuning
 
@@ -142,8 +147,12 @@ change it on the number.
 
 Engineer Mode already has a `--engineer-mode` flag and a recorded A/B; what it lacks is checks for
 what the mode uniquely promises (the `Purpose:` marker, the epistemic labelling, the checkpoint
-behaviour) — which is why that A/B returned pure noise: 6/6/8 off versus 7/8/6 on. Add those checks
-and re-run it on `claude-opus-5`.
+behaviour) — which is why that A/B returned pure noise: 6/6/8 off versus 7/8/6 on.
+
+**Partly done 2026-09-02:** `harness.ts` now appends `reply_matches` for `Purpose:` and for
+verified/assumed on an acting Engineer-Mode turn (`eval-engineer-checks.test.ts`). Still open: the
+checkpoint fires / doesn't-fire pair, and re-running the A/B on `claude-opus-5`. Then Expo / `/clone`
+/ specialist-honesty-gate cases.
 
 Then Expo and `/clone`, both shipped in the last two weeks with no behavioural coverage at all. Then
 the specialist honesty gates, which are machine-decidable and are the guarantee the specialists'
@@ -153,9 +162,12 @@ credibility rests on.
 
 [01](./01-context-and-cost.md) §2 · fixes **A2** · small
 
-`clear_tool_uses_20250919` with `clear_tool_inputs: true`, plus capping persisted
-`write_file`/`edit_file` inputs locally. ~1.27M tokens of measured dead weight — 68.5% of every
-tool-call byte in the database — gone.
+**Companion change done — 2026-09-01.** `stripHeavyToolInputs` shrinks the persisted
+`write_file` / `edit_file` inputs to a marker before `ChatGateway` stores the message, so every
+session rebuilt from history drops the ~1.27M tokens of dead file-body weight — provider-agnostic,
+no beta header. **Still open:** the Anthropic-only `clear_tool_uses_20250919` /
+`clear_tool_inputs: true` for the *live* turn, which trims the same weight before the window fills
+rather than only on rebuild.
 
 Ships after 2.1 so the effect is visible as a step change rather than noise.
 
@@ -173,6 +185,10 @@ Bigger changes that need design decisions, not just implementation.
 Anthropic-only) versus relevance gating at session construction (portable, ships sooner). The
 recommendation is both, gating first.
 
+**Gating done 2026-09-02** — `tool-relevance.ts`: a default top-level session gets the built-ins
+plus `ai-docs` / `image-assets` / `browser-qa` only (~98 → ~25). Architect / Engineer / lean
+builders unchanged. Option A (`defer_loading`) is still the durable Anthropic form, open.
+
 ### 3.2 — Compaction and the history window
 
 [01](./01-context-and-cost.md) §3, §5 · fixes **A3**, **A5** · medium
@@ -180,6 +196,11 @@ recommendation is both, gating first.
 Server-side compaction, an honest exhaustion message when the window is genuinely gone, and a
 newest-N token-bounded history window. Removes a hard failure that will hit `cheap`-tier builders on
 Haiku 4.5 first — three live sessions on this machine already exceed its 200K window.
+
+**Portable halves done 2026-09-02:** the honest exhaustion message (`isContextLengthError` →
+`context_exhausted`) and the newest-N token-bounded window (`listForSession` → `historyWindow`).
+Anthropic-native `compact_20260112` and a per-provider "drop oldest tool inputs" degrade are still
+open.
 
 ### 3.3 — Task budgets and per-model caps
 
@@ -189,12 +210,18 @@ Give dispatched children a budget they can see, so they land their work instead 
 turn 25. Derive the caps from the child's actual model rather than shared constants —
 `SUBAGENT_MAX_TOKENS = 200_000` is currently *exactly* Haiku 4.5's entire context window.
 
-### 3.4 — `update_plan`
+**Collision fixed 2026-09-02:** a `cheap`-tier child's `tokenCap` is clamped to 150K
+(`modelTierFor` + `CHEAP_TIER_TOKEN_CAP`); larger models are untouched. The visible `task-budgets`
+countdown and the live `models.retrieve` window lookup are still open (Anthropic-only).
+
+### 3.4 — `update_plan` — **done 2026-09-02**
 
 [04](./04-agent-competence.md) §2 · fixes **D2** · medium
 
-Durable plan state for default and Engineer Mode. Deserves its own proposal — it is a real feature
-with a UI surface, and it needs a clean boundary against `build-plan.md` so the two never compete.
+`update_plan` writes `PLAN.md` (a `- [ ] / [~] / [x]` checklist); `server.ts` reads it into `<plan>`
+the way `AGENTS.md` is read; `session.ts` filters the tool out of Architect Mode so `build-plan.md`
+stays the one plan there; `PlanPanel` renders the checklist. `sessions.plan` column + interactive
+checkboxes deferred.
 
 ---
 
@@ -204,16 +231,16 @@ Worth doing, nothing depends on it.
 
 | item | file | fixes |
 | --- | --- | --- |
-| `find_files` + `glob`/`context_lines` on `search_files` | [02](./02-tool-surface.md) §5 | B5 |
-| `strict: true` on the 14 core tools | [02](./02-tool-surface.md) §6 | B6 |
-| Server-side refusal fallbacks | [03](./03-api-alignment.md) §6 | C5 |
-| One budget warning near the iteration cap | [04](./04-agent-competence.md) §3 | D3 |
-| Deepen or drop the eleven thin skills | [04](./04-agent-competence.md) §4 | D4 |
-| Per-host fetch confirmation; `run_command` injection denylist | [05](./05-untrusted-content.md) §4, §5 | E1 |
-| Eval smoke set per PR + `promptHash` CI gate | [06](./06-measurement.md) §4 | F2 |
-| Neutral default template; `@theme` tokens in `index.css` | [08](./08-the-starting-point.md) §1, §2 | G1, G2 |
-| Icons-in-one-file rule; `lucide-react` in the template | [08](./08-the-starting-point.md) §3 | G3 |
-| Errored eval cases skip checks; abort on repeated config error | [06](./06-measurement.md) §5 | F5 |
+| `find_files` + `glob`/`context_lines` on `search_files` **(done 2026-09-01)** | [02](./02-tool-surface.md) §5 | B5 |
+| `additionalProperties: false` on core tools **(done 2026-09-02)**; `strict: true` still open | [02](./02-tool-surface.md) §6 | B6 |
+| Server-side refusal fallbacks **(done 2026-09-02 — `ZELYQ_REFUSAL_FALLBACK`, live-verified)** | [03](./03-api-alignment.md) §6 | C5 |
+| One budget warning near the iteration cap **(done 2026-09-02)** | [04](./04-agent-competence.md) §3 | D3 |
+| Deepen or drop the eleven thin skills **(done 2026-09-02 — 9 dropped, catalog 22 → 13)** | [04](./04-agent-competence.md) §4 | D4 |
+| Per-host fetch confirmation (open); `run_command` injection denylist **(done 2026-09-01)** | [05](./05-untrusted-content.md) §4, §5 | E1 |
+| `promptHash` reminder — opt-in local command, **not** a CI gate (a blocking gate forces a paid run) | [06](./06-measurement.md) §4 | F2 |
+| Neutral default template; `@theme` tokens in `index.css` **(done 2026-09-01)** | [08](./08-the-starting-point.md) §1, §2 | G1, G2 |
+| Icons-in-one-file rule; `lucide-react` in the template **(done 2026-09-02, rides the eval run)** | [08](./08-the-starting-point.md) §3 | G3 |
+| Errored eval cases skip checks; abort on repeated config error **(done 2026-09-01; pre-flight probe still open)** | [06](./06-measurement.md) §5 | F5 |
 
 ---
 

@@ -429,6 +429,15 @@ function buildOpenAICompatibleProvider(config: {
   });
 }
 
+/**
+ * The registry's tier for a model, or `undefined` when it isn't a listed model
+ * (a custom endpoint, or a name typed straight into Settings). Used to keep a
+ * dispatched `cheap`-tier child's token budget under its context window (C3).
+ */
+export function modelTierFor(provider: ProviderId, model: string): ModelTier | undefined {
+  return PROVIDERS[provider]?.models?.find((entry) => entry.value === model)?.tier;
+}
+
 export function classifyProviderError(provider: ProviderId, error: unknown): ProviderErrorCode {
   // Checked by the error's own type, not the provider id — a Codex session
   // error is never an OpenAICompatibleError even though `provider` says
@@ -437,6 +446,26 @@ export function classifyProviderError(provider: ProviderId, error: unknown): Pro
   if (error instanceof ChatGptResponsesError) return classifyChatGptResponsesError(error);
   if (speaksOpenAIDialect(provider)) return classifyOpenAICompatibleError(error);
   return provider === "google" ? classifyGoogleError(error) : classifyAnthropicError(error);
+}
+
+/**
+ * The conversation no longer fits the model's context window (A3). Every vendor
+ * phrases it differently and none give a clean error code, so this matches the
+ * message text — deliberately broad, since the fallback ("some 400") is worse.
+ */
+export function isContextLengthError(error: unknown): boolean {
+  const message = ((error as Error)?.message ?? String(error)).toLowerCase();
+  return (
+    message.includes("context_length_exceeded") ||
+    message.includes("maximum context length") ||
+    message.includes("context window") ||
+    message.includes("prompt is too long") ||
+    message.includes("input length and `max_tokens` exceed context limit") ||
+    message.includes("exceeds the maximum number of tokens") ||
+    message.includes("input token count") ||
+    (message.includes("too many tokens") && message.includes("context")) ||
+    (message.includes("reduce the length") && message.includes("messages"))
+  );
 }
 
 /** The message a user should read, with vendor envelopes unwrapped. */

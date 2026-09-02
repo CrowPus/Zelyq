@@ -107,6 +107,45 @@ export const toolCallSchema = z.object({
 export type ToolCall = z.infer<typeof toolCallSchema>;
 
 /**
+ * Tool-input fields that carry whole-file contents. Persisted verbatim in a
+ * message's `toolCalls`, `write_file` + `edit_file` inputs are ~68% of every
+ * tool-call byte in the database (finding A2), and each one duplicates what is
+ * on disk and re-readable with `read_file`. `stripHeavyToolInputs` replaces
+ * them with a marker before a message is stored, so a session rebuilt from
+ * history — after a server restart, or for a subagent — does not recarry them.
+ *
+ * The transcript UI never renders these (it shows `input.path` and `result`),
+ * so nothing user-facing is lost. Small values are kept as-is: a one-line edit
+ * is still worth seeing inline, and the saving is all in the large ones.
+ */
+const HEAVY_TOOL_INPUT_FIELDS: Record<string, readonly string[]> = {
+  write_file: ["content"],
+  edit_file: ["old_text", "new_text"],
+};
+
+export const OMITTED_TOOL_INPUT_MARKER = "[omitted from history — on disk, use read_file]";
+
+/** A heavy field longer than this is replaced; shorter ones stay inline. */
+const HEAVY_TOOL_INPUT_KEEP = 200;
+
+export function stripHeavyToolInputs(calls: ToolCall[]): ToolCall[] {
+  return calls.map((call) => {
+    const heavy = HEAVY_TOOL_INPUT_FIELDS[call.name];
+    if (!heavy) return call;
+    let changed = false;
+    const input = { ...call.input };
+    for (const field of heavy) {
+      const value = input[field];
+      if (typeof value === "string" && value.length > HEAVY_TOOL_INPUT_KEEP) {
+        input[field] = OMITTED_TOOL_INPUT_MARKER;
+        changed = true;
+      }
+    }
+    return changed ? { ...call, input } : call;
+  });
+}
+
+/**
  * What a message's attachment refers to — never the bytes themselves. The
  * browser fetches those separately when it actually needs to render one;
  * a transcript that always carried them inline would make every history

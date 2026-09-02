@@ -83,6 +83,22 @@ Do both. Option B is a day's work and portable; Option A is the durable answer o
 Bring the default-mode pool to **under 30**. That is roughly where selection accuracy stops
 degrading, and it is still double what Claude Code ships.
 
+### Done (Option B) — 2026-09-02
+
+`apps/agent/src/tool-relevance.ts`. `loadPlugins` tags each plugin tool with its `source` file
+(`ZelyqTool.source`, absent on built-ins). A **default top-level** session — not lean, not Architect,
+not Engineer — now gets `gateToolsForDefaultMode(ALL_TOOLS)`: the 14 built-ins plus the plugin
+families a UI build actually uses (`ai-docs`, `image-assets`, `browser-qa`), and nothing else.
+Connectors and the other inspection families (`static-analysis`, `test-intelligence`,
+`git-inspector`, `database-inspector`, `container-inspector`, `deployment-readiness`,
+`design-system-auditor`, `documentation-generator`, `api-tester`, `project-intelligence`) drop out —
+Architect names them per build-plan step, specialists get them via `SpecialistConfig`, `/agent`
+grants them, and Architect/Engineer top-level sessions keep the full weave. Default-mode pool: ~98 →
+~25. `tool-relevance.test.ts` (4). Option A (Anthropic `defer_loading`) is still the durable form.
+
+Left as-is: the "this instance may load extra tools" prompt paragraph — still true for the power
+modes, and not worth a prompt-hash change to trim.
+
 ---
 
 ## 2. Let the agent read a file in pages
@@ -280,6 +296,22 @@ then pipes to `head -n ${max}`. So `max_results: 50` can mean "50 matches from t
 happened to reach". The `head` saves it from being unbounded, but the semantics are not what the
 description promises. Fix the description or the flag; do not leave them disagreeing.
 
+### Done — 2026-09-01
+
+`find_files` added to `packages/tools/src/files.ts` and `ALL_TOOLS` (right after `list_files`). Pure —
+`runtime.listFiles({ depth: 32 })` filtered through the same `gitIgnored` set `list_files` uses, a
+small `globToRegExp` (`**`, `*`, `?`, `{a,b}`; a slash-free pattern matches the basename anywhere),
+sorted by `modifiedAt` descending, capped with a "showing the N newest of M" note. No shell.
+
+`search_files` gained `glob` (→ grep `--include`) and `context_lines` (→ `-C`). The per-file `-m`
+was **removed** — `head -n` is now the only cap and it is a true global limit; the line budget
+widens when context is on so ~`max_results` matches still come back. Description updated to "up to
+`max_results` matching lines". `packages/tools/test/find-files.test.ts` (4) plus the existing
+`tools.test.ts`; tools suite 56/56.
+
+Not touched: a `<how_to_work>` mention of the two tools. That is a prompt change and waits for the
+eval pass — the tool descriptions carry enough for discovery in the meantime.
+
 ---
 
 ## 6. Make tool schemas strict
@@ -309,6 +341,19 @@ Two cautions:
 - **Not every schema is ready for `additionalProperties: false`.** Audit the 78 plugin schemas
   before flipping it globally; they are third-party-shaped and some may rely on pass-through.
   Ship it for the 14 core tools first, where the schemas are known.
+
+### Done (`additionalProperties: false`) — 2026-09-02
+
+`CORE_TOOL_NAMES` in `packages/tools/src/index.ts` (the tools in the literal `ALL_TOOLS`, captured
+before boot mutates it). `toolDefinitions` sets `additionalProperties: false` on those and only
+those — plugin/skill tools are left untouched. `safeParse` stays. Gemini's `scrubSchema` drops the
+key (`parametersJsonSchema` handling of it has been uneven), so Gemini keeps exactly its previous
+behaviour; Anthropic and OpenAI carry it. `tools.test.ts` asserts every core definition has it.
+
+**Still open:** `strict: true` on the Anthropic path. It additionally requires every property in
+`required`, and `list_files` / `start_preview` / `preview_logs` / `view_preview` /
+`supabase_verify_backend` are all-optional — they need reshaping (optional → nullable-required)
+first, which changes the schema the model sees and wants its own eval check.
 
 Related, and independently worth doing: **parse tool inputs, never string-match them.** Opus 5 and
 the 4.6+ family may vary JSON string escaping in `tool_use.input`. Zelyq is already clean here — the

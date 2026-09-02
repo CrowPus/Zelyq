@@ -42,9 +42,12 @@ import {
   describeAvailableModels,
   describeProviderError,
   type Effort,
+  isContextLengthError,
+  modelTierFor,
   type ProviderFactory,
   type ProviderId,
 } from "./providers/index.js";
+import { gateToolsForDefaultMode } from "./tool-relevance.js";
 
 /** Every tool that can change the project, refused once Engineer Mode's
  * new-file checkpoint is reached — see the `checkpointReached` comment in
@@ -182,6 +185,10 @@ function architectModeBlock(
 // builder is bounded; the whole run is bounded on top of that.
 const SUBAGENT_MAX_TURNS = 25;
 const SUBAGENT_MAX_TOKENS = 200_000;
+/** Ceiling for a `cheap`-tier dispatched child — below its context window
+ * (Haiku 4.5's is 200K) so it lands its work rather than hitting a
+ * context-length 400 first (C3). */
+const CHEAP_TIER_TOKEN_CAP = 150_000;
 const SUBAGENT_WALLCLOCK_MS = 5 * 60_000;
 const ORCH_MAX_SUBAGENTS = 20;
 const ORCH_MAX_TOKENS = 2_000_000;
@@ -247,6 +254,10 @@ export interface SessionOptions {
   /** D1 — `AGENTS.md` / `CLAUDE.md` from the project root, read once by the
    * `/sessions` handler and capped. Woven as `<project_guide>`. */
   projectGuide?: string;
+  /** D2 — `PLAN.md`, the durable task list `update_plan` maintains for
+   * multi-turn work in default / Engineer Mode. Read the same way, woven as
+   * `<plan>`, so a resumed session opens knowing where it stopped. */
+  plan?: string;
   provider: ProviderId;
   model: string;
   effort: Effort;
@@ -1412,11 +1423,16 @@ export class AgentSession {
       "supabase_deploy_function",
     ]);
     const supabaseLinked = Boolean(options.supabaseBridge);
+    // B1 — a plain default-mode session does not need the connector tools or the
+    // task-only inspection families standing by. Architect and Engineer keep the
+    // full weave (they hand task tools out per step), and a lean builder is
+    // already filtered by `toolNames`.
+    const defaultMode = !leanBuilder && !options.architectMode && !options.engineerMode;
     const toolPool = (
       leanBuilder
         ? ALL_TOOLS.filter((t) => options.toolNames?.includes(t.name))
         : [
-            ...ALL_TOOLS,
+            ...(defaultMode ? gateToolsForDefaultMode(ALL_TOOLS) : ALL_TOOLS),
             // The Architect orchestrates builders.
             ...(options.architectMode ? [dispatchTaskTool] : []),
             // The specialists are callable from Engineer Mode (on the user's
@@ -1425,7 +1441,12 @@ export class AgentSession {
               ? [designPassTool, opsPassTool, qaPassTool, cinematicPassTool]
               : []),
           ]
-    ).filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name));
+    )
+      .filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name))
+      // D2 — one plan, one owner. Architect Mode's plan is `build-plan.md`;
+      // `update_plan` (which writes `PLAN.md`) belongs to default and Engineer
+      // Mode only, so the two never compete.
+      .filter((t) => t.name !== "update_plan" || !options.architectMode);
 
     // Held by reference (see `liveTools` on the class) so a later `/agent`
     // pick can grant a specialist's pass tool without rebuilding the session.
@@ -1454,6 +1475,7 @@ export class AgentSession {
               ...(options.stack ? { stack: options.stack } : {}),
               ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
               ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
+              ...(options.plan ? { plan: options.plan } : {}),
               ...(options.agentMd ? { agentMd: options.agentMd } : {}),
               ...(options.designRefCatalogText
                 ? { designRefCatalogText: options.designRefCatalogText }
@@ -1767,11 +1789,19 @@ export class AgentSession {
       : isVerify
         ? 10 * 60_000
         : SUBAGENT_WALLCLOCK_MS;
-    const tokenCap = spec
+    const rawTokenCap = spec
       ? (spec.maxTokens ?? SPECIALIST_MAX_TOKENS)
       : isVerify
         ? SUBAGENT_MAX_TOKENS * 3
         : SUBAGENT_MAX_TOKENS;
+    // C3 — a `cheap`-tier child's context window is small (Haiku 4.5's is
+    // exactly SUBAGENT_MAX_TOKENS), so an un-clamped cap can only be reached by
+    // first 400ing on context length. Hold it under the window. Strong /
+    // standard / custom models keep the full cap.
+    const tokenCap =
+      modelTierFor(this.options.provider, model) === "cheap"
+        ? Math.min(rawTokenCap, CHEAP_TIER_TOKEN_CAP)
+        : rawTokenCap;
     const childTurnCap = spec
       ? (spec.maxTurns ?? SPECIALIST_MAX_TURNS)
       : isVerify
@@ -2226,6 +2256,12 @@ export class AgentSession {
     // been continued. Bounded: an output that will not converge in two extra
     // rounds is genuinely too large for one response, and the user is told so.
     let maxTokensContinuations = 0;
+    // D3 — one warning as the step budget runs low, so the model lands its work
+    // instead of discovering the cap by hitting it (the whole
+    // `synthesizeFallbackSummary` path exists to clean up after that). A
+    // message, never the system prompt — a per-turn counter in the prompt would
+    // invalidate the cache on every request.
+    let budgetWarningDone = false;
     // 064 — one-shot re-nudge when the user picked a specialist from the
     // `/agent` menu and the turn is about to end without that specialist's
     // pass tool ever being called. The grant + the `withAgents` instruction
@@ -2400,6 +2436,24 @@ export class AgentSession {
     try {
       for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
         if (signal.aborted) break;
+
+        // D3 — near the step cap, tell the model once so it can wrap up rather
+        // than be cut mid-work. Skipped for tiny caps, where there is nothing
+        // to pace. Fires after a tool-result message like the other loop
+        // nudges; providers tolerate the consecutive user turn.
+        if (
+          !budgetWarningDone &&
+          this.options.maxIterations >= 12 &&
+          iteration >= Math.floor(this.options.maxIterations * 0.8)
+        ) {
+          budgetWarningDone = true;
+          this.conversation.addUserMessage(
+            `You have used ${iteration} of this turn's ${this.options.maxIterations} steps. Bring the ` +
+              `work to a safe stopping point: finish or revert whatever is half-done so the app still ` +
+              `builds, then write your summary. If there is more to do, say so — the user's next ` +
+              `message continues it with a fresh budget.`,
+          );
+        }
 
         // A model call that comes back wrong transiently is retried a few
         // times with backoff before it becomes a visible error or a wasted
@@ -3316,13 +3370,29 @@ export class AgentSession {
         emit({ type: "aborted", sessionId: this.id, messageId });
         return;
       }
-      emit({
-        type: "error",
-        sessionId: this.id,
-        code: classifyProviderError(this.options.provider, error),
-        message: describeProviderError(this.options.provider, error),
-        fatal: false,
-      });
+      // A3 — a context-window overflow is a product state, not a raw 400. Tell
+      // the user what to do; the code and the plan are on disk for the next
+      // session to pick up.
+      if (isContextLengthError(error)) {
+        emit({
+          type: "error",
+          sessionId: this.id,
+          code: "context_exhausted",
+          message:
+            `This conversation has grown too large for ${this.options.model}. Start a new ` +
+            "session on this project — the code and any plan are on disk, and the new session " +
+            "reads them.",
+          fatal: false,
+        });
+      } else {
+        emit({
+          type: "error",
+          sessionId: this.id,
+          code: classifyProviderError(this.options.provider, error),
+          message: describeProviderError(this.options.provider, error),
+          fatal: false,
+        });
+      }
     } finally {
       this.busy = false;
       this.abortController = null;

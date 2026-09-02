@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { parseTopology, TOPOLOGY_PATH } from "@zelyq/core";
-import { Compass, RotateCw } from "lucide-react";
+import { CheckCircle2, Circle, CircleDashed, Compass, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { buildSafeReportDoc } from "./planReportSanitizer";
@@ -8,6 +8,27 @@ import { TopologyDiagram } from "./TopologyDiagram";
 import { IconButton } from "./ui";
 
 const REPORT_PATH = "architecture/report.html";
+const PLAN_MD_PATH = "PLAN.md";
+
+interface PlanStep {
+  status: "pending" | "in_progress" | "done";
+  text: string;
+}
+
+/** Parse the `- [ ] / [~] / [x] step` lines `update_plan` writes into PLAN.md. */
+function parsePlanChecklist(markdown: string): PlanStep[] {
+  const steps: PlanStep[] = [];
+  for (const line of markdown.split("\n")) {
+    const match = /^\s*-\s*\[([ x~])\]\s*(.+?)\s*$/.exec(line);
+    if (!match) continue;
+    const mark = match[1];
+    steps.push({
+      status: mark === "x" ? "done" : mark === "~" ? "in_progress" : "pending",
+      text: match[2]!,
+    });
+  }
+  return steps;
+}
 
 /**
  * Architect Mode's output. Two views:
@@ -35,6 +56,18 @@ export function PlanPanel({ projectId }: { projectId: string }) {
     retry: false,
     refetchOnMount: "always",
   });
+  // D2 — the durable checklist `update_plan` maintains in default / Engineer Mode.
+  const planMd = useQuery({
+    queryKey: ["plan-md", projectId],
+    queryFn: () => api.readFile(projectId, PLAN_MD_PATH),
+    retry: false,
+    refetchOnMount: "always",
+  });
+
+  const checklist = useMemo(() => {
+    const raw = planMd.data?.encoding === "utf8" ? planMd.data.content : null;
+    return raw ? parsePlanChecklist(raw) : [];
+  }, [planMd.data]);
 
   const topology = useMemo(() => {
     const raw = topologyFile.data?.encoding === "utf8" ? topologyFile.data.content : null;
@@ -51,18 +84,20 @@ export function PlanPanel({ projectId }: { projectId: string }) {
     else if (topology) setTab("diagram");
   }, [topology, srcDoc]);
 
-  const hasAnything = topology || srcDoc;
-
   function refresh() {
     report.refetch();
     topologyFile.refetch();
+    planMd.refetch();
   }
+
+  const architecturePackage = topology || srcDoc;
+  const done = checklist.filter((step) => step.status === "done").length;
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas">
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border-default bg-surface px-2.5">
         <Compass size={13} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
-        {hasAnything ? (
+        {architecturePackage ? (
           <div className="flex items-center gap-0.5">
             <TabButton
               active={tab === "diagram"}
@@ -79,6 +114,10 @@ export function PlanPanel({ projectId }: { projectId: string }) {
               Report
             </TabButton>
           </div>
+        ) : checklist.length > 0 ? (
+          <span className="truncate text-2xs font-medium text-fg-secondary">
+            Plan · {done}/{checklist.length} done
+          </span>
         ) : (
           <span className="truncate font-mono text-2xs text-fg-muted">no plan yet</span>
         )}
@@ -89,8 +128,8 @@ export function PlanPanel({ projectId }: { projectId: string }) {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1">
-        {hasAnything ? (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {architecturePackage ? (
           tab === "diagram" && topology ? (
             <TopologyDiagram topology={topology} />
           ) : srcDoc ? (
@@ -106,6 +145,8 @@ export function PlanPanel({ projectId }: { projectId: string }) {
           ) : (
             <TopologyDiagram topology={topology!} />
           )
+        ) : checklist.length > 0 ? (
+          <PlanChecklist steps={checklist} />
         ) : (
           <div className="grid h-full place-items-center p-8 text-center">
             <div className="max-w-sm space-y-2">
@@ -121,6 +162,31 @@ export function PlanPanel({ projectId }: { projectId: string }) {
         )}
       </div>
     </section>
+  );
+}
+
+function PlanChecklist({ steps }: { steps: PlanStep[] }) {
+  return (
+    <ol className="space-y-0.5 p-3">
+      {steps.map((step) => (
+        <li key={step.text} className="flex items-start gap-2 rounded px-1.5 py-1 text-xs">
+          {step.status === "done" ? (
+            <CheckCircle2 size={14} strokeWidth={1.75} className="mt-px shrink-0 text-success" />
+          ) : step.status === "in_progress" ? (
+            <CircleDashed
+              size={14}
+              strokeWidth={1.75}
+              className="mt-px shrink-0 animate-pulse text-fg-secondary"
+            />
+          ) : (
+            <Circle size={14} strokeWidth={1.75} className="mt-px shrink-0 text-fg-muted" />
+          )}
+          <span className={step.status === "done" ? "text-fg-muted line-through" : "text-fg"}>
+            {step.text}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 

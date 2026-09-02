@@ -145,4 +145,8 @@ export type ProviderErrorCode =
   | "bad_request"
   | "connection"
   | "model_error"
-  | "internal";
+  | "internal"
+  /** The conversation no longer fits the model's context window (A3). A
+   * product state, not a raw 400 — the UI tells the user to start a new
+   * session on the same project. */
+  | "context_exhausted";

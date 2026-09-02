@@ -113,6 +113,13 @@ with *how much code the agent writes*, which is exactly the workload the product
 stateless replay of a tool-use conversation looks like. The API grew a feature for it
 (`clear_tool_uses_20250919` with `clear_tool_inputs: true`) and Zelyq has not adopted it.
 
+**Companion change shipped — 2026-09-01.** `stripHeavyToolInputs` (`packages/core/src/models.ts`)
+replaces `write_file.content` and `edit_file.old_text` / `new_text` over 200 chars with a marker
+before `ChatGateway` persists an assistant message. The live turn keeps the full copy; every session
+rebuilt from history after that — a restart, a subagent — no longer recarries the bodies. The
+transcript UI never rendered them (it shows `input.path` and `result`). Provider-agnostic, no beta
+header. The API-side `clear_tool_uses_20250919` (Anthropic-only, live turns) is still open.
+
 → Solution: [01-context-and-cost.md](./01-context-and-cost.md) §2
 
 ---
@@ -536,6 +543,14 @@ of good general advice actually beat a strong model's own priors on that subject
 measurable and unmeasured. Every one of the 22 sits in the always-present catalog, spending prompt
 space and selection attention regardless.
 
+**Acted on — 2026-09-02.** Nine of the eleven removed (all except `stripe-checkout`, a concrete
+Zelyq-constrained recipe, and `product-requirements`). Rationale in
+[04](./04-agent-competence.md) §4: the nine are generic principle sheets a frontier model already
+holds, shallow duplicates of what `senior-software-engineering` carries at depth, and several
+describe backend / migration / deploy work Zelyq's frontend-only projects cannot contain. Catalog
+22 → 13. Whether the *remaining* thin two beat the model's priors is still unmeasured — that needs
+the eval work in [06](./06-measurement.md), not another cut.
+
 → Solution: [04-agent-competence.md](./04-agent-competence.md) §4
 
 ---
@@ -711,6 +726,15 @@ signed token delta between two runs. That is most of the axis, and it was alread
 change doubled the token count. It cannot yet tell you whether a caching change worked, or what any
 of it costs.
 
+**Fixed — 2026-09-01.** A4 landed the cache fields on `TurnResult.usage` and the `usage` event.
+`CaseResult` now carries `cacheReadTokens` / `cacheCreationTokens`; the report's `tokens` line shows
+the **total** prompt size (`in + cache_read + cache_creation`) with a `· NN% cached` note, and a new
+`cost` line prices it — cache reads at 0.1×, the cache write at 1.25× — from a hand-maintained
+`evals/rates.ts`. `--compare` gained a cost delta and its token delta switched to the total, so a
+caching change no longer reads as a 90% token drop that never happened. Replayed against the
+2026-09-01 `claude-opus-5` run it reproduces the doc's $2.94. An unpriced model prints `—`, not a
+guess.
+
 → Solutions: [06-measurement.md](./06-measurement.md)
 
 ### F5 — A provider error is scored as agent failure, and the suite runs on regardless `high`
@@ -764,6 +788,13 @@ them real. Worse, a run like this is saved to `evals/results/` and is indistingu
 a rate limit, a dropped connection — where scoring the rest of the suite is right. A configuration
 error that fails every case identically is a different thing, and the harness cannot currently tell
 them apart.
+
+**Fixed — 2026-09-01.** `neverRan(result)` = `error && rounds === 0 && tokensIn === 0`. `harness.ts`
+returns before the check loop when it's true — no checks, so no `intact 100%` on a pristine
+template. `run.ts` gained an `errored N/total` line and a `⚠` mark; when the same never-ran error
+happens twice it stops starting cases (`abortReason`) and the rest come back `skipped`; a run where
+nothing reached the model is not saved and exits non-zero with the config-mismatch hint. A case that
+ran partway and *then* failed is still scored — the line is whether anything ran at all.
 
 → Solution: [06-measurement.md](./06-measurement.md) §5
 
@@ -832,7 +863,7 @@ limitation, not purely a prompt one."* Opus 5 failing the same case refutes that
 is live on the strongest model available, on the prompt's own worked example. It is a prompt
 problem, and Phase 1 should not be read as having addressed it.
 
-→ Solution: [06-measurement.md](./06-measurement.md) §6. **The manifest half is fixed** (`scopeRelevant()` in `evals/checks.ts`, 2026-09-01); naming the invention directly is still open.
+→ Solution: [06-measurement.md](./06-measurement.md) §6. **Both eval halves are fixed** — the manifest discount (`scopeRelevant()`, #125) and the direct check (`no_unrequested_components` / `unrequestedComponents()`, 2026-09-01). **Prompt half attempted 2026-09-02**: two `claude-opus-5` runs confirmed the failure (`Wordmark.tsx`, `NoteSpecimen.tsx` on the worked example), so `<scope>` gained a "supporting pieces are still invented scope" bullet and `<quality>` a real-control line. Whether it lands is the next eval run's to say.
 
 ## Group G — The starting point
 
@@ -860,6 +891,11 @@ project unless the agent fights it.
 `text-neutral-900` with no accent at all. The newer template already got it right, which is good
 evidence the old one is a legacy artifact rather than a decision.
 
+**Fixed — 2026-09-01.** `templates/vite-react/src/App.tsx` now opens on `bg-white text-neutral-900`
+(with `dark:` variants), no accent colour, no `font-mono`, no uppercase tracked label. The `<h1>Your
+app starts here.</h1>` copy is unchanged. Scaffold + `tsc` + `vite build` clean. No prompt change,
+so no eval run needed — a screenshot is the test.
+
 → Solution: [08-the-starting-point.md](./08-the-starting-point.md) §1
 
 ---
@@ -875,6 +911,12 @@ carrying real colour roles, a type scale, and spacing/radius/elevation.
 inlines one-off values in every component — the thing the prompt forbids — or invents a new file,
 which costs it a slot against the restraint budget. It is also the missing link between the
 Architect writing a design system and the build actually implementing one.
+
+**Fixed — 2026-09-01.** `templates/vite-react/src/index.css` now carries a Tailwind v4 `@theme`
+block, pre-filled with a neutral brand ramp (`--color-brand-*`), a display/body font pair and
+`--radius-card` / `--radius-control`, commented as the place to commit a scale rather than sizing
+one-off. Values are deliberately neutral so setting them is an identity decision, not a default.
+`vite build` compiles it clean.
 
 → Solution: [08-the-starting-point.md](./08-the-starting-point.md) §2
 

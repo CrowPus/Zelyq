@@ -6,6 +6,15 @@ import { runCheck } from "./checks.js";
 import type { CaseResult, Check, EvalCase } from "./types.js";
 import { diff, fingerprint, linkModules, loadTemplateFiles } from "./workspace.js";
 
+/**
+ * The turn produced nothing measurable: the model was never reached. A case
+ * that ran partway and *then* hit a rate limit did real work and is still
+ * scored — the line that matters is whether anything ran at all.
+ */
+export function neverRan(result: CaseResult): boolean {
+  return result.error !== null && result.rounds === 0 && result.tokensIn === 0;
+}
+
 export interface RunOptions {
   runtime: RuntimeDriver;
   baseRoot: string;
@@ -55,6 +64,8 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     toolErrors: 0,
     tokensIn: 0,
     tokensOut: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
     filesChanged: [],
     reply: "",
     durationMs: 0,
@@ -104,6 +115,10 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
           result.rounds += 1;
           result.tokensIn = event.tokensIn;
           result.tokensOut = event.tokensOut;
+          // Absent on providers without prompt caching — keep the last non-zero
+          // rather than clobbering with an undefined-coalesced 0.
+          result.cacheReadTokens = event.cacheReadTokens ?? result.cacheReadTokens;
+          result.cacheCreationTokens = event.cacheCreationTokens ?? result.cacheCreationTokens;
           break;
         case "text.delta":
           result.reply += event.text;
@@ -127,6 +142,16 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
       await session.run(evalCase.prompt, emit);
     } finally {
       clearTimeout(timer);
+    }
+
+    // The model was never reached — a bad key, a provider/model mismatch, an
+    // endpoint that 404s. Every critical check passes on the pristine template
+    // by construction, so running them here would report `intact 100%` about a
+    // model that did nothing. `errored` is a distinct outcome from done /
+    // intact / clean; leave the checks empty and let the report classify it.
+    if (result.error && neverRan(result)) {
+      result.durationMs = Date.now() - startedAt;
+      return result;
     }
 
     const after = await fingerprint(runtime, projectId);
@@ -160,6 +185,31 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     // has to be remembered is one that will be missed.
     const wantsPreview = evalCase.checks.some((check) => check.kind === "preview");
     if (wantsPreview) checks.push({ kind: "renders" });
+
+    // Engineer Mode's own promises about the final message, on a turn that
+    // acts (F3 / 06-measurement.md §3). Without these the `--engineer-mode`
+    // A/B measures the model, not the mode — the 2026-08-26 run returned pure
+    // noise (6/6/8 off vs 7/8/6 on) because nothing checked what the mode adds.
+    // Only appended when the mode is on, so a normal run is unaffected.
+    if (options.engineerMode && changeRequired) {
+      checks.push(
+        {
+          kind: "reply_matches",
+          pattern: "^\\s*Purpose:",
+          why: "Engineer Mode: the final message opens with the Purpose line",
+        },
+        {
+          kind: "reply_matches",
+          pattern: "[Aa]ssum(e|ed|ption|ptions)\\b",
+          why: "Engineer Mode: the final message names what was assumed",
+        },
+        {
+          kind: "reply_matches",
+          pattern: "[Vv]erif(y|ied|ication)\\b",
+          why: "Engineer Mode: the final message names what was verified",
+        },
+      );
+    }
 
     for (const check of checks) {
       result.checks.push(await runCheck(check, context));

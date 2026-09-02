@@ -1,4 +1,0 @@
-interface:
-  display_name: "Backend API Engineering"
-  short_description: "Build reliable server endpoints and webhooks"
-  default_prompt: "Use $backend-api-engineering to implement this server-side API safely."

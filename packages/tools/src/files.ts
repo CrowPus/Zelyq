@@ -304,26 +304,135 @@ export const deleteFileTool = defineTool({
 export const searchFilesTool = defineTool({
   name: "search_files",
   description:
-    "Search file contents with a regular expression. Returns matching lines with their file and " +
-    "line number. Much cheaper than reading files to find something.",
+    "Search file contents with a regular expression. Returns up to `max_results` matching lines " +
+    "with their file and line number. Much cheaper than reading files to find something.",
   schema: z.object({
     pattern: z.string().describe("Regular expression, passed to grep -E"),
     path: z.string().optional().describe("Restrict the search to this subdirectory"),
+    glob: z
+      .string()
+      .optional()
+      .describe('Only search files matching this shell glob, e.g. "*.tsx" or "*.{ts,tsx}"'),
+    context_lines: z
+      .number()
+      .int()
+      .min(0)
+      .max(5)
+      .optional()
+      .describe("Lines of surrounding context to include with each match (grep -C)"),
     max_results: z.number().int().min(1).max(200).optional(),
   }),
   async run(context, input): Promise<ToolResult> {
     const max = input.max_results ?? 50;
+    const ctx = input.context_lines ?? 0;
     // Quote for the shell, and exclude the directories the file tree hides too.
     const pattern = input.pattern.replaceAll("'", "'\\''");
     const target = input.path ? input.path.replaceAll("'", "'\\''") : ".";
     const excludes =
       "--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build";
-    const command = `grep -rnE --binary-files=without-match ${excludes} -m ${max} '${pattern}' '${target}' | head -n ${max}`;
+    const include = input.glob ? ` --include='${input.glob.replaceAll("'", "'\\''")}'` : "";
+    const contextFlag = ctx > 0 ? ` -C ${ctx}` : "";
+    // No -m: that is grep's PER-FILE limit, so `-m 50` could mean "50 matches
+    // from the first file". `head` is the real global cap. With context on, a
+    // match is up to `2*ctx + 1` lines plus a `--` separator, so widen the
+    // line budget to still deliver ~`max` matches.
+    const lineBudget = ctx > 0 ? max * (2 * ctx + 2) : max;
+    const command =
+      `grep -rnE --binary-files=without-match ${excludes}${include}${contextFlag} ` +
+      `'${pattern}' '${target}' | head -n ${lineBudget}`;
 
     const result = await context.runtime.exec(context.projectId, { command, timeoutMs: 30_000 });
     if (result.exitCode !== 0 && result.stdout.trim() === "") {
       return { output: `No matches for /${input.pattern}/.` };
     }
     return { output: truncate(result.stdout, 15_000) };
+  },
+});
+
+/**
+ * A shell-style glob → anchored RegExp over a POSIX path. Supports `**`
+ * (any run of segments), `*` (within a segment), `?`, and `{a,b}` alternation.
+ * A pattern with no `/` matches the basename anywhere in the tree.
+ */
+export function globToRegExp(glob: string): RegExp {
+  const normalized = glob.includes("/") ? glob : `**/${glob}`;
+  let re = "";
+  for (let i = 0; i < normalized.length; i++) {
+    const c = normalized[i] as string;
+    if (c === "*") {
+      if (normalized[i + 1] === "*") {
+        i++;
+        if (normalized[i + 1] === "/") i++;
+        re += "(?:.*/)?";
+      } else {
+        re += "[^/]*";
+      }
+    } else if (c === "?") {
+      re += "[^/]";
+    } else if (c === "{") {
+      const end = normalized.indexOf("}", i);
+      if (end === -1) {
+        re += "\\{";
+      } else {
+        const alts = normalized.slice(i + 1, end).split(",");
+        re += `(?:${alts.map((a) => a.replace(/[.+^${}()|[\]\\]/g, "\\$&")).join("|")})`;
+        i = end;
+      }
+    } else if (".+^$()|[]\\".includes(c)) {
+      re += `\\${c}`;
+    } else {
+      re += c;
+    }
+  }
+  return new RegExp(`^${re}$`);
+}
+
+export const findFilesTool = defineTool({
+  name: "find_files",
+  description:
+    "Find files by name or glob, newest first. Much cheaper than listing a whole project when you " +
+    'know roughly what a file is called. Use "**" to cross directories, e.g. "**/*.test.tsx" or ' +
+    '"**/Button*". A plain name with no slash matches anywhere. Use search_files to look inside ' +
+    "files.",
+  schema: z.object({
+    pattern: z.string().describe('Glob, e.g. "**/*.test.tsx", "**/Button*", or "vite.config.*"'),
+    path: z.string().optional().describe("Restrict the search to this subdirectory"),
+    max_results: z.number().int().min(1).max(200).optional(),
+  }),
+  async run(context, input): Promise<ToolResult> {
+    const max = input.max_results ?? 50;
+    const entries = await context.runtime.listFiles(context.projectId, {
+      path: input.path,
+      depth: 32,
+    });
+    const ignored = await gitIgnored(context, input.path);
+    const hidden = (candidate: string): boolean => {
+      if (ignored.has(candidate)) return true;
+      for (const entry of ignored) {
+        if (candidate.startsWith(`${entry}/`)) return true;
+      }
+      return false;
+    };
+
+    let regexp: RegExp;
+    try {
+      regexp = globToRegExp(input.pattern);
+    } catch {
+      return { output: `Not a usable glob: ${input.pattern}`, isError: true };
+    }
+
+    const matches = entries
+      .filter((entry) => entry.type === "file" && !hidden(entry.path) && regexp.test(entry.path))
+      .sort((a, b) => (b.modifiedAt ?? "").localeCompare(a.modifiedAt ?? ""));
+
+    if (matches.length === 0) return { output: `No files match ${input.pattern}.` };
+
+    const shown = matches.slice(0, max);
+    const rendered = shown.map((entry) => `${entry.path}  (${entry.size ?? 0}b)`).join("\n");
+    const note =
+      matches.length > shown.length
+        ? `\n\n[showing the ${shown.length} newest of ${matches.length}. Narrow the pattern.]`
+        : "";
+    return { output: truncate(rendered, 12_000) + note };
   },
 });

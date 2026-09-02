@@ -98,7 +98,7 @@ prompt size and the cached fraction, not just the uncached remainder.
 
 ### A dollar figure
 
-`PROVIDERS` carries `models[].tier` but no rates. Add `inputPer1M` / `outputPer1M` and compute:
+`PROVIDERS` carries `models[].tier` but no rates. Compute:
 
 ```
 (input × in) + (cache_read × in × 0.1) + (cache_creation × in × 1.25) + (output × out)
@@ -110,6 +110,26 @@ get cheaper".
 
 Anchored on the last full run, `claude-opus-5` at $5/$25 per MTok puts a 22-case suite at roughly
 **$8–15**.
+
+### Done — 2026-09-01
+
+A4 shipped the cache fields (`TurnResult.usage`, the `usage` event). On top of that:
+
+- `CaseResult` gained `cacheReadTokens` / `cacheCreationTokens`, accumulated in `harness.ts`
+  alongside `tokensIn` / `tokensOut`.
+- `evals/rates.ts` — a hand-maintained per-model rate table (not in `PROVIDERS`; the eval report is
+  its only consumer). `estimateCostUsd`, `totalPromptTokens`, `cachedFraction`, `formatUsd`. A model
+  with no entry returns `null` and the report shows `—` rather than a fabricated number.
+- The report's `tokens` line now reads the **total** prompt size with a `· NN% cached` note, not the
+  uncached remainder. New `cost` line. `--compare` gained a `cost` delta, and its token delta
+  switched from `tokensIn` to the total — so shipping conversation caching no longer shows up as a
+  spurious ~90% token drop.
+- `apps/agent/test/eval-cost.test.ts` — 7 cases. Replayed against the recorded 2026-09-01
+  `claude-opus-5` run, the suite figure comes out at $2.94, matching this doc.
+
+The rate table is best-effort and dated by its own comment. `claude-opus-5` is anchored to the
+$5/$25 above; the rest of the Claude family follows Anthropic's list ratios; non-Anthropic entries
+are estimates for the models the suite has actually run on.
 
 ### One caution
 
@@ -178,6 +198,17 @@ mode uniquely promises. Add checks for:
 Without these, an Engineer Mode run is scored on the same criteria as a default run, which is
 partly why the A/B above returned nothing.
 
+### Done (the two reply checks) — 2026-09-02
+
+`harness.ts` appends three `reply_matches` checks when `options.engineerMode && changeRequired`:
+`^\s*Purpose:`, `[Aa]ssum(e|ed|ption|ptions)\b`, `[Vv]erif(y|ied|ication)\b` — a plain default-run
+summary fails all three, a well-formed Engineer-Mode summary passes. Prose forms count ("I assumed
+…", "could not verify …"), not only the labelled ones. `apps/agent/test/eval-engineer-checks.test.ts`
+(4). Not appended on a normal run, so nothing there changes.
+
+Still open: the checkpoint-fires / checkpoint-doesn't-fire pair (it needs a case that provokes a
+6-file build and one that stays at 4–5), and the Expo / `/clone` / specialist-honesty-gate cases.
+
 **The Expo template.** `templates/expo-react-native` shipped in `87b883a` with `web.output: static`
 and an Expo-web preview. It has a stack skill force-woven into turn one specifically because
 building with `div` instead of `View` produces a screen that renders nothing. That is a check a
@@ -232,6 +263,27 @@ so plainly. But "run it when someone remembers" always decays to "run it never".
   (`"promptHash": "20711ed13dfd"`). CI can fail a PR that changes `prompt.ts` with no eval result
   recorded for the new hash. That is a small script and it converts a good intention into a rule.
 
+### Done (the gate) — 2026-09-01, finished 2026-09-02
+
+`apps/agent/scripts/check-prompt-hash.ts` + `pnpm --filter @zelyq/agent check:prompt-hash`. It
+diffs against `origin/main` (override with `PROMPT_HASH_BASE`); a no-op unless
+`apps/agent/src/prompt.ts` changed, otherwise it computes the current default-mode hash and fails if
+`evals/baselines.json` has no run recorded for it, printing the `pnpm eval` line.
+
+`evals/results/` turned out to be **gitignored**, so the first cut (glob `results/`) would always
+fail in CI. `evals/baselines.js` — `run.ts` upserts `{promptHash, model, effort, done, resultFile,
+ranAt}` (one per hash, latest wins) after every successful run; the committed `baselines.json` is
+what the check reads.
+
+**Not a CI gate.** It was briefly wired into `ci.yml` as a blocking step; that was wrong for a
+solo-run project — a blocking gate structurally forces a paid `claude-opus-5` run on every prompt
+change, which is exactly the cost the review is trying to reduce. It's now an **opt-in local
+command** (`pnpm --filter @zelyq/agent check:prompt-hash`) and nothing more. Running the eval is
+always a manual choice.
+
+**Not done:** the smoke set on every PR (`pnpm eval --tag restraint --limit 6`) — that spends real
+money and needs an API key in CI, which is the founder's call.
+
 ### The gap the harness names about itself
 
 The README is honest about what it does not measure:
@@ -254,6 +306,24 @@ is more than zero and is currently unmeasured.
 ## 5. Do not score a case the model never reached
 
 **Fixes F5. Small, and it prevents a whole category of wasted run.**
+
+### Done — 2026-09-01
+
+- `neverRan(result)` in `harness.ts` (`error && rounds === 0 && tokensIn === 0`), exported.
+  `runCase` returns before the check loop when it's true — the pristine template no longer scores
+  `intact` for a model that did nothing.
+- `run.ts`: an `errored N/total` line in the report and a `⚠` mark in the per-case line. When the
+  same never-ran error occurs twice, `abortReason` is set and every remaining case comes back
+  `skipped` (also never-ran). A run where **nothing** reached the model prints the config hint and
+  exits 1 **without saving** — so `--compare` can't read it as a collapse.
+- `apps/agent/test/eval-errored-case.test.ts` — 5 cases.
+
+Not done: the pre-flight `models.retrieve` / trivial-completion probe before the first `npm install`.
+The post-hoc abort saves the wasted API spend on the *rest* of the suite but not the first two
+cases; a pre-flight check would catch it before any scaffold. Left as a follow-up — it needs
+per-provider plumbing the abort path doesn't.
+
+Original plan below.
 
 Three changes to `harness.ts` and `run.ts`.
 
@@ -367,20 +437,35 @@ exactly two verdicts, and they are the two that were wrong:
 That moves the 2026-09-01 `claude-opus-5` five-case result from **2/5 to 4/5**, with the one real
 scope failure intact.
 
-### Still to do — name the invention directly
+### Done — name the invention directly — 2026-09-01
 
-Discounting the manifest fixes the false failures. It does not make the check *measure* the right
-thing; the cap is still a proxy. The real question is answerable per case, because each case's
-prompt names what it wants:
+`{ kind: "no_unrequested_components", allow: string[], why }` in `evals/types.ts` /
+`evals/checks.ts`, with the pure helper `unrequestedComponents(newFiles, allow)` exported for the
+unit test. It judges only **newly created** `src/**/<Name>.{tsx,jsx}` (uppercase initial, so
+`useTodos.ts` and `types.ts` are never components here). A component passes when **every**
+feature-bearing word in its name is covered by an `allow` stem or is a generic layout noun (`Card`,
+`Section`, `Grid`, `Header`, …):
 
 ```ts
-{ kind: "no_unrequested_components", allow: ["Hero", "Feature", "Footer"], why: "…" }
+{ kind: "no_unrequested_components", allow: ["Hero", "Feature", "Footer", "CallToAction", "Cta"],
+  why: "the request named a hero, feature cards and a footer — nothing else" }
 ```
 
-A new component file whose name is not in the allow-list is the failure `<scope>` describes.
-`Wordmark.tsx` fails it; `TodoList.tsx` in a case that asked for a todo list does not.
-Machine-decidable, which is this suite's own bar. With that in place the file cap becomes a loose
-backstop rather than the primary signal.
+So `allow: ["Feature"]` admits `FeatureCard` and `Features`; `allow: ["Todo", "Add"]` admits
+`AddTodoForm` but not `TodoFilter`, because `filter` is a feature nobody asked for. `Wordmark.tsx`
+and `AnnotatedPage.tsx` fail it; `TodoList.tsx` in a case that asked for a todo list does not.
+Machine-decidable, which is this suite's own bar.
+
+Added to the six cases that carry `max_files_changed` and name their surface concretely —
+`landing-page`, `todo-app`, `pricing-toggle`, `dashboard-layout`, `contact-form`,
+`extract-components`. No cap changed: the file count is now the loose backstop, not the primary
+signal. `apps/agent/test/eval-unrequested-components.test.ts` pins the behaviour to the real model
+diffs (10 cases), alongside `eval-scope-count.test.ts` for the manifest half.
+
+**Not yet done: the prompt half.** The check measures restraint; it does not improve it. Run
+`pnpm eval` on `claude-opus-5` over the five restraint cases (twice — non-deterministic model) to
+get a `no_unrequested_components` baseline before touching `<scope>` wording, per §2.2's "do not
+change the default on a hunch".
 
 ### Until that lands, read a restraint failure by opening it
 
@@ -398,7 +483,7 @@ dissolve under thirty seconds of that inspection; the third does not, and is the
 | change | fixes | effort | payoff |
 | --- | --- | --- | --- |
 | Run the suite on `claude-opus-5` | F1 | **one command** | the first real baseline for the shipped product |
-| Cache tokens + a dollar figure (tokens already there) | F4 | small | makes [01](./01-context-and-cost.md) §1 verifiable at all |
+| Cache tokens + a dollar figure **(done)** | F4 | small | makes [01](./01-context-and-cost.md) §1 verifiable at all |
 | Engineer-Mode-specific checks (`Purpose:`, checkpoint, labelling) | F3 | small | the existing `--engineer-mode` A/B starts measuring the mode, not the model |
 | Expo + `/clone` cases | F3 | medium | two shipped features with zero behavioural coverage |
 | Specialist honesty-gate cases | F3 | medium | protects the guarantee the specialists rest on |
@@ -406,7 +491,7 @@ dissolve under thirty seconds of that inspection; the third does not, and is the
 | Smoke set per PR + `promptHash` CI gate | F2 | small | discipline that does not depend on memory |
 | Errored cases skip checks; abort on repeated config error | F5 | small | a config typo stops costing a run and a misleading report |
 | Manifest discounted from `max_files_changed` **(done)** | F6 | small | two false restraint failures fixed; the real one kept |
-| A `no_unrequested_components` check | F6 | small | restraint measured directly instead of by proxy |
+| A `no_unrequested_components` check **(done)** | F6 | small | restraint measured directly instead of by proxy |
 
 ---
 

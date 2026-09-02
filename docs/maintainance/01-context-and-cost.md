@@ -156,6 +156,16 @@ history-reconstruction path that runs after a server restart.
 no longer show what the agent wrote in that call. Decide whether the UI needs it. If it does, store
 it in a separate column the agent never reads back, rather than in the block that gets replayed.
 
+**Shipped — 2026-09-01.** `stripHeavyToolInputs(calls)` in `packages/core/src/models.ts`: for
+`write_file` (`content`) and `edit_file` (`old_text` / `new_text`), any value over 200 chars becomes
+`OMITTED_TOOL_INPUT_MARKER`; shorter values and every other tool are untouched; it is a pure copy.
+`ChatGateway` calls it on `assistant.toolCalls` immediately before `store.messages.append`, in the
+`finally` — the `turn.end` broadcast just above still carries the full copy for the live client. The
+transcript's `ToolRow` only reads `input.path` and `result`, so nothing on screen changes. The
+history-rebuild path (`buildAnthropicHistory` and its OpenAI/Google equivalents) pairs the shortened
+`tool_use` input with its existing `tool_result` summary unchanged; a model that needs the current
+bytes calls `read_file`. Verified: `@zelyq/core` 6 new tests, `@zelyq/server` 215/215.
+
 ---
 
 ## 3. Add compaction as the backstop
@@ -185,6 +195,16 @@ Zelyq's `AnthropicConversation` already does the right thing here — `stream()`
 `{ role: "assistant", content: response.content }` verbatim, with the comment *"Echoed back
 unchanged — thinking blocks included."* The pattern is in place; compaction just needs turning on.
 
+**Wired, off by default — 2026-09-02.** First tried as `ZELYQ_COMPACTION` with
+`context_management: { edits: [{ type: "compact_20260112" }] }` — a live turn on 2026-09-02 returned
+`Input tag 'compact_20260112' ... does not match any of the expected tags`, so `compact_20260112` is
+not live under the `context-management-2025-06-27` beta yet. Pivoted to what the API *does* accept:
+**`ZELYQ_CONTEXT_EDITING=1`** → same beta header, `context_management: { edits: [{ type:
+"clear_tool_uses_20250919", clear_tool_inputs: true }] }`. This is A2's live half — the API drops old
+`tool_use` inputs / `tool_result` blocks (the ~1.27M-token re-sent-file waste) while keeping the
+recency window. Header and body param are absent when the flag is off. `anthropic-beta-flags.test.ts`
+pins the strings. Live-verify pending.
+
 ### Cross-provider parity
 
 `compact_20260112` and `clear_tool_uses_20250919` are Anthropic features. Zelyq supports Google,
@@ -211,6 +231,13 @@ When the window is genuinely exhausted and nothing else helps, the failure must 
 state, not a raw provider error. Something like: *"This conversation has grown too large for
 `<model>`. Start a new session on this project — the code and the plan are on disk and the new
 session will read them."* That message is honest and actionable; the current one is neither.
+
+**Done (the honest message) — 2026-09-02.** `isContextLengthError(error)` in `providers/index.ts`
+matches the window-overflow wording from every vendor (there is no clean code). `session.ts`'s
+top-level catch emits `code: "context_exhausted"` with exactly that message instead of the raw 400.
+The web already renders `message.message` as the error state, so it reads as a product state without
+a UI branch. `providers.test.ts` (2). The Anthropic-native `compact_20260112` and the per-provider
+"drop oldest tool inputs" degrade are still open — this is the floor, not the ceiling.
 
 ---
 
@@ -282,6 +309,13 @@ Two things to get right:
   the same budget the compaction threshold uses.
 
 This is latent today (largest real session: 73 messages). Fix it while it is cheap.
+
+**Done — 2026-09-02.** `listForSession` now orders `desc(createdAt)`, `limit` the newest rows, then
+`historyWindow(rows, maxTokens)` (exported, pure): walk from newest spending an approximate token
+budget (`estimateRowTokens` = chars/4 over content + thinking + tool-call JSON), stop when
+`maxTokens` (default 180K) is exceeded with at least one kept, reverse to chronological, then shed
+leading non-`user` rows so the window can't open on an assistant turn. Defaults `limit 400 /
+maxTokens 180_000`; both gateway callers use them unchanged. `history-window.test.ts` (5).
 
 ---
 

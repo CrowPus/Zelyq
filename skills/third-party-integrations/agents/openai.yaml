@@ -1,4 +1,0 @@
-interface:
-  display_name: "Third-Party Integrations"
-  short_description: "Integrate external APIs and webhooks safely"
-  default_prompt: "Use $third-party-integrations to connect this application to the external service."

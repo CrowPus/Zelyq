@@ -154,6 +154,28 @@ stays authoritative and `update_plan` should be unavailable — one plan, one ow
 Engineer Mode, `update_plan` is the plan. Enforce that at the tool boundary the same way every other
 mode boundary in this codebase is enforced: structurally, in `session.ts`, not by asking.
 
+### Done — 2026-09-02
+
+`update_plan` (`packages/tools/src/plan.ts`) takes `{ items: [{ step, status }] }` and writes
+`PLAN.md` at the project root as a `- [ ] / [~] / [x]` checklist. Chosen over a `sessions.plan`
+column: a file needs no migration, survives a restart on its own, is readable through the files API,
+and matches how `build-plan.md` already works. Per-project rather than per-session — a fresh task
+calls `update_plan` with new items and overwrites.
+
+- **Boundary:** in `ALL_TOOLS`, but `session.ts` filters it out when `options.architectMode`
+  (`build-plan.md` is the plan there) and lean builders never name it.
+- **Prompt:** `server.ts` reads `PLAN.md` the same way it reads `AGENTS.md`, passes it as
+  `SessionOptions.plan`; `buildSystemPrompt` weaves `<plan>` after `<project_guide>`, so a resumed
+  session opens knowing where it stopped. One `<how_to_work>` line points at it (skip for a
+  single-step change); the Engineer-Mode checkpoint text now says to record progress with it.
+- **UI:** `PlanPanel` gained a checklist view — when `PLAN.md` exists and there's no architecture
+  package, it renders the steps with done / in-progress / pending icons and an `N/M done` header,
+  refreshed on the `PLAN.md`-touched file event.
+- `plan.test.ts` (2), `tools` 58/58, `agent` 383/383, `server` 215/215, web typecheck + build clean.
+
+The `sessions.plan` column, a dedicated protocol event, and interactive checkboxes (tick a step
+from the UI) are all deferred — the file + the read-only panel are the working v1.
+
 ---
 
 ## 3. Tell the model what budget it has left
@@ -187,6 +209,19 @@ whole caching change saves.
 [03-api-alignment.md](./03-api-alignment.md) §4. The server-injected countdown is better than a
 one-shot warning because the model sees it continuously.
 
+### Done (the main-loop warning) — 2026-09-02
+
+`session.ts` run loop: `budgetWarningDone`, a one-shot `addUserMessage` at
+`iteration >= floor(maxIterations * 0.8)`, skipped when `maxIterations < 12` (nothing to pace). Text
+is the wording above. It fires after a tool-result message like the other loop nudges — providers
+tolerate the consecutive user turn (the codebase already does this for the Engineer-Mode checkpoint
+nudges). `apps/agent/test/turn-budget-warning.test.ts` — 3 cases (fires once near the cap; silent
+when the model lands early; silent for a small cap). Not in the system prompt: a per-turn counter
+there would invalidate the cache every request.
+
+Dispatched children get the same one-shot warning for now (they run the same loop); the continuous
+`task-budgets` countdown is still [03 §4], and Anthropic-only.
+
 ---
 
 ## 4. Prune the thin skills
@@ -215,6 +250,22 @@ had. That is a net negative, not a neutral.
 The seven deep skills clearly pass. The eleven thin ones need to be looked at one at a time and
 either **deepened to the standard the top seven set**, or **removed from the catalog**. Removal is
 not a loss — the model still knows how to debug.
+
+### Done — 2026-09-02
+
+Removed nine: `debugging-and-recovery`, `web-performance`, `observability-and-errors`,
+`third-party-integrations`, `test-engineering`, `database-and-migrations`,
+`authentication-and-accounts`, `deployment-configuration`, `backend-api-engineering`. Each was a
+~1.7–2KB sheet of generic principles a frontier model already holds, and a shallow duplicate of
+material `senior-software-engineering` carries at depth (`references/observability.md`,
+`references/api-and-contracts.md`, its risk profiles). Most also describe backend / infra / migration
+work that Zelyq's frontend-only projects structurally cannot contain. No code referenced them — only
+docs. Catalog: 22 → 13.
+
+Kept: `stripe-checkout` (a concrete recipe for a specific ask, Zelyq-constrained — "without
+inventing a secret key", "into this React + Vite template" — with a matching plugin) and
+`product-requirements` (the one thin skill about turning a vague ask into a slice rather than
+backend mechanics; borderline, left for a later call).
 
 ### Two structural notes while you are in there
 

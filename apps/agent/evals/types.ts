@@ -48,6 +48,20 @@ type CheckKind =
   | { kind: "no_writes" }
   /** Restraint: at most this many files changed. */
   | { kind: "max_files_changed"; count: number }
+  /**
+   * Restraint, measured directly: no *new* component file whose name the
+   * request never mentioned. `max_files_changed` is a proxy — it cannot tell a
+   * clean decomposition of the asked-for feature (good) from components nobody
+   * asked for (bad), and on a model that decomposes well it fails the first to
+   * catch the second. This names the second kind.
+   *
+   * `allow` is the component names the prompt actually asked for. A new
+   * `src/**\/<Name>.{tsx,jsx}` (uppercase initial) is fine if its name shares a
+   * case-insensitive stem with any allow entry — so `["Feature"]` admits
+   * `FeatureCard`, and `App` / `main` / `index` are always fine. Anything else
+   * is the invented scope `<scope>` describes.
+   */
+  | { kind: "no_unrequested_components"; allow: string[]; why: string }
   /** No single source file longer than this. Catches restraint's opposite failure. */
   | { kind: "max_file_lines"; count: number }
   /** At most this many tool calls. For input that is not a task at all. */
@@ -151,8 +165,19 @@ export interface CaseResult {
   rounds: number;
   toolCalls: number;
   toolErrors: number;
+  /**
+   * On Anthropic and OpenAI this is the **uncached** part of the prompt only —
+   * the true prompt size is `tokensIn + cacheReadTokens + cacheCreationTokens`.
+   * See `evals/rates.ts`. A working conversation cache makes this fall ~90%
+   * while the request is unchanged, so it must never be read on its own.
+   */
   tokensIn: number;
   tokensOut: number;
+  /** Prompt tokens served from the cache at ~0.1×. 0 when the provider has no
+   * prompt caching or the field was absent. */
+  cacheReadTokens: number;
+  /** Prompt tokens written to the cache at ~1.25×, the one-time cost of a miss. */
+  cacheCreationTokens: number;
   filesChanged: string[];
   /** The agent's final message. Some requests are answered, not built. */
   reply: string;

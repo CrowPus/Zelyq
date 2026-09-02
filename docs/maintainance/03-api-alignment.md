@@ -219,6 +219,13 @@ knows the tier; it should also know the window. `client.models.retrieve(id)` ret
 `max_input_tokens` and `max_tokens` live, which is a better source than a hardcoded table that will
 drift.
 
+**Done (the collision fix) — 2026-09-02.** `modelTierFor(provider, model)` reads the registry tier.
+In `dispatch`, a `cheap`-tier child's `tokenCap` is `min(rawCap, CHEAP_TIER_TOKEN_CAP=150_000)` —
+under Haiku 4.5's 200K window, so it lands its work rather than 400ing on context length first.
+Strong / standard / custom (unlisted) models keep the full cap untouched, so no large-window model
+regresses. `providers.test.ts` (1). The live `models.retrieve` window lookup and the advisory
+`task-budgets` countdown are still open (Anthropic-only).
+
 ---
 
 ## 5. Tune effort in both directions
@@ -293,6 +300,13 @@ Three things to keep:
 Whether to enable this by default is a product call, not an engineering one. Recommendation: enable
 it, and surface it — a user who picked Opus 5 and got a Sonnet answer deserves to know, and a user
 who got nothing at all deserves it less.
+
+**Wired, off by default — 2026-09-02.** `ZELYQ_REFUSAL_FALLBACK=1` adds the
+`server-side-fallback-2026-07-01` beta header and `fallbacks: "default"` to the request. Off → both
+absent, request unchanged. The refusal path is untouched (a `refusal` stop reason still means the
+whole chain declined). **Not yet done:** surfacing which model answered — `response.model` is
+available but there is no `TurnResult` field for it; that is a small follow-up. Not verified against
+a live turn.
 
 ---
 

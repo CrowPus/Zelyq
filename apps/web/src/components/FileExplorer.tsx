@@ -1,6 +1,14 @@
 import type { FileEntry } from "@zelyq/core";
-import { ChevronRight, File, FolderClosed, FolderOpen } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  ChevronRight,
+  File,
+  FilePlus,
+  FolderClosed,
+  FolderOpen,
+  FolderPlus,
+  Trash2,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { IconButton, Spinner } from "./ui";
 
 interface Props {
@@ -8,6 +16,11 @@ interface Props {
   selected: string | null;
   loading: boolean;
   onSelect(path: string): void;
+  /** Editors only. When set, the tree shows new-file / new-folder / delete
+   * controls. `isDir` create makes an empty folder (a `.gitkeep` under it). */
+  canEdit?: boolean;
+  onCreate?(path: string, isDir: boolean): void;
+  onDelete?(path: string): void;
 }
 
 interface TreeNode {
@@ -18,7 +31,39 @@ interface TreeNode {
   children: TreeNode[];
 }
 
-export function FileExplorer({ entries, selected, loading, onSelect }: Props) {
+export function FileExplorer({
+  entries,
+  selected,
+  loading,
+  onSelect,
+  canEdit = false,
+  onCreate,
+  onDelete,
+}: Props) {
+  // null, or the kind of thing being named in the inline input.
+  const [creating, setCreating] = useState<"file" | "dir" | null>(null);
+  const [draftPath, setDraftPath] = useState("");
+  const createInputRef = useRef<HTMLInputElement>(null);
+
+  const canManage = canEdit && Boolean(onCreate);
+
+  function beginCreate(kind: "file" | "dir") {
+    // Prefill with the selected file's folder so a new sibling is one word.
+    const prefix = selected?.includes("/")
+      ? `${selected.slice(0, selected.lastIndexOf("/"))}/`
+      : "";
+    setDraftPath(prefix);
+    setCreating(kind);
+    requestAnimationFrame(() => createInputRef.current?.focus());
+  }
+
+  function commitCreate() {
+    const path = draftPath.trim().replace(/^\/+|\/+$/g, "");
+    if (path && onCreate) onCreate(path, creating === "dir");
+    setCreating(null);
+    setDraftPath("");
+  }
+
   // The API returns a flat list of paths; the hierarchy is rebuilt here so the
   // server never has to model a tree.
   const tree = useMemo(() => buildTree(entries), [entries]);
@@ -77,20 +122,55 @@ export function FileExplorer({ entries, selected, loading, onSelect }: Props) {
         <span className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
           Files
         </span>
-        {allDirectories.length > 0 && (
-          <IconButton
-            size="sm"
-            label={anyExpanded ? "Collapse all folders" : "Expand all folders"}
-            onClick={() => setExpanded(anyExpanded ? new Set() : new Set(allDirectories))}
-          >
-            <ChevronRight
-              size={13}
-              strokeWidth={1.75}
-              className={`transition-transform ${anyExpanded ? "rotate-90" : ""}`}
-            />
-          </IconButton>
-        )}
+        <div className="flex items-center gap-0.5">
+          {canManage && (
+            <>
+              <IconButton size="sm" label="New file" onClick={() => beginCreate("file")}>
+                <FilePlus size={13} strokeWidth={1.75} />
+              </IconButton>
+              <IconButton size="sm" label="New folder" onClick={() => beginCreate("dir")}>
+                <FolderPlus size={13} strokeWidth={1.75} />
+              </IconButton>
+            </>
+          )}
+          {allDirectories.length > 0 && (
+            <IconButton
+              size="sm"
+              label={anyExpanded ? "Collapse all folders" : "Expand all folders"}
+              onClick={() => setExpanded(anyExpanded ? new Set() : new Set(allDirectories))}
+            >
+              <ChevronRight
+                size={13}
+                strokeWidth={1.75}
+                className={`transition-transform ${anyExpanded ? "rotate-90" : ""}`}
+              />
+            </IconButton>
+          )}
+        </div>
       </div>
+
+      {creating && (
+        <div className="border-b border-border-default px-2 py-1.5">
+          <input
+            ref={createInputRef}
+            value={draftPath}
+            onChange={(event) => setDraftPath(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commitCreate();
+              if (event.key === "Escape") {
+                setCreating(null);
+                setDraftPath("");
+              }
+            }}
+            onBlur={() => {
+              setCreating(null);
+              setDraftPath("");
+            }}
+            placeholder={creating === "dir" ? "path/to/new-folder" : "path/to/new-file.tsx"}
+            className="w-full rounded border border-border-default bg-surface px-2 py-1 font-mono text-xs text-fg placeholder:text-fg-muted focus:border-focus focus:outline-none"
+          />
+        </div>
+      )}
 
       {/*
         A list of disclosure buttons rather than role="tree". A real ARIA tree
@@ -111,6 +191,8 @@ export function FileExplorer({ entries, selected, loading, onSelect }: Props) {
             selected={selected}
             onToggle={toggle}
             onSelect={onSelect}
+            canDelete={canEdit && Boolean(onDelete)}
+            onDelete={onDelete}
           />
         ))}
         {tree.length === 0 && <p className="px-3 py-3 text-xs text-fg-muted">No files yet.</p>}
@@ -126,6 +208,8 @@ function TreeRow({
   selected,
   onToggle,
   onSelect,
+  canDelete,
+  onDelete,
 }: {
   node: TreeNode;
   depth: number;
@@ -133,6 +217,8 @@ function TreeRow({
   selected: string | null;
   onToggle(path: string): void;
   onSelect(path: string): void;
+  canDelete?: boolean;
+  onDelete?(path: string): void;
 }) {
   const isDirectory = node.type === "directory";
   const isOpen = isDirectory && expanded.has(node.path);
@@ -140,39 +226,59 @@ function TreeRow({
 
   return (
     <>
-      <button
-        type="button"
-        data-kind={isDirectory ? "directory" : "file"}
-        aria-expanded={isDirectory ? isOpen : undefined}
-        aria-current={!isDirectory && isSelected ? "true" : undefined}
-        onClick={() => (isDirectory ? onToggle(node.path) : onSelect(node.path))}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left transition-colors ${
-          isSelected
-            ? "bg-surface-active text-fg"
-            : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
-        }`}
-      >
-        {isDirectory ? (
-          <ChevronRight
-            size={12}
-            strokeWidth={2}
-            className={`shrink-0 text-fg-muted transition-transform duration-100 ${isOpen ? "rotate-90" : ""}`}
-          />
-        ) : (
-          <span className="w-3 shrink-0" aria-hidden />
-        )}
-        {isDirectory ? (
-          isOpen ? (
-            <FolderOpen size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+      <div className="group/row relative flex items-center">
+        <button
+          type="button"
+          data-kind={isDirectory ? "directory" : "file"}
+          aria-expanded={isDirectory ? isOpen : undefined}
+          aria-current={!isDirectory && isSelected ? "true" : undefined}
+          onClick={() => (isDirectory ? onToggle(node.path) : onSelect(node.path))}
+          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left transition-colors ${
+            isSelected
+              ? "bg-surface-active text-fg"
+              : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
+          }`}
+        >
+          {isDirectory ? (
+            <ChevronRight
+              size={12}
+              strokeWidth={2}
+              className={`shrink-0 text-fg-muted transition-transform duration-100 ${isOpen ? "rotate-90" : ""}`}
+            />
           ) : (
-            <FolderClosed size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
-          )
-        ) : (
-          <File size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+            <span className="w-3 shrink-0" aria-hidden />
+          )}
+          {isDirectory ? (
+            isOpen ? (
+              <FolderOpen size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+            ) : (
+              <FolderClosed size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+            )
+          ) : (
+            <File size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+          )}
+          <span className="truncate text-xs">{node.name}</span>
+        </button>
+        {canDelete && onDelete && (
+          <IconButton
+            size="sm"
+            label={`Delete ${node.name}`}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Delete ${node.path}${isDirectory ? " and everything in it" : ""}? This cannot be undone.`,
+                )
+              ) {
+                onDelete(node.path);
+              }
+            }}
+            className="absolute right-1 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
+          >
+            <Trash2 size={12} strokeWidth={1.75} className="text-fg-muted hover:text-danger" />
+          </IconButton>
         )}
-        <span className="truncate text-xs">{node.name}</span>
-      </button>
+      </div>
 
       {isOpen &&
         node.children.map((child) => (
@@ -184,6 +290,8 @@ function TreeRow({
             selected={selected}
             onToggle={onToggle}
             onSelect={onSelect}
+            canDelete={canDelete}
+            onDelete={onDelete}
           />
         ))}
     </>

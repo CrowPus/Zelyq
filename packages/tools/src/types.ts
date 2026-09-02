@@ -59,6 +59,12 @@ export interface ZelyqTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
   description: string;
   schema: TSchema;
   run(context: ToolContext, input: z.infer<TSchema>): Promise<ToolResult>;
+  /**
+   * The plugin file a tool was loaded from (`github.mjs`), set by the loader.
+   * Absent on the built-in tools. Used to gate task-only plugin families out of
+   * the default-mode tool pool (B1).
+   */
+  source?: string;
 }
 
 export function defineTool<TSchema extends z.ZodTypeAny>(

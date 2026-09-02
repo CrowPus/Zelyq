@@ -197,6 +197,19 @@ boundary; it is bypassable by anyone who is trying. The real boundary is contain
 filtering, and `SECURITY.md` should keep saying so. This is the layer that catches the
 unsophisticated case cheaply, which is most of them.
 
+### Done — 2026-09-01
+
+`INJECTION_PATTERNS` in `packages/tools/src/shell.ts`, checked after `DESTRUCTIVE_PATTERNS`, refusing
+with an explanation that also tells the model: if the instruction came from something it read, say
+so and quote it. Covers pipe-download-to-shell (`curl … | sh`), sending `.env` / SSH / AWS
+credentials to a remote host, uploading a local file (`curl -T` / `-d @` / `--upload-file`), and
+installing/running from a git URL or raw tarball. `tools.test.ts` gained a refuse list and an
+allow list (`npm install <pkg>`, `curl -sO <asset>`, `cat .env.example` still pass). `SECURITY.md`
+"Enforced today" names both denylists and repeats that neither is a boundary.
+
+§4 (per-host fetch confirmation, and the interim "show what was fetched" transcript row) is still
+open — it needs the per-session consent UI, not just a rule.
+
 ---
 
 ## 6. Put it in the threat model

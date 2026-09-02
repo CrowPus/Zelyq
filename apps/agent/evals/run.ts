@@ -8,9 +8,17 @@ import { loadAgentConfig } from "../src/config.js";
 import { buildSystemPrompt } from "../src/prompt.js";
 import { PROVIDERS, speaksOpenAIDialect } from "../src/providers/index.js";
 import { listResources, loadSkills } from "../src/skills.js";
+import { upsertBaseline } from "./baselines.js";
 import { selectCases } from "./cases.js";
-import { runCase } from "./harness.js";
-import type { CaseResult, SuiteResult } from "./types.js";
+import { neverRan, runCase } from "./harness.js";
+import {
+  cachedFraction,
+  estimateCostUsd,
+  formatUsd,
+  type TokenCounts,
+  totalPromptTokens,
+} from "./rates.js";
+import type { CaseResult, EvalCase, SuiteResult } from "./types.js";
 import { EVAL_WORKSPACE, prepareBaseProject } from "./workspace.js";
 
 loadEnvFile();
@@ -127,7 +135,16 @@ console.log(
 const baseRoot = await prepareBaseProject(runtime, values.template, log);
 
 const started = Date.now();
+
+// Five identical `model not found` errors is one configuration problem, not
+// five measurements. Count never-ran failures by their message; once the same
+// one has happened twice, stop starting cases and report the cause.
+const configErrors = new Map<string, number>();
+let abortReason: string | null = null;
+
 const results = await pool(cases, Number.parseInt(values.concurrency, 10), async (evalCase) => {
+  if (abortReason) return skipped(evalCase);
+
   const result = await runCase(evalCase, {
     runtime,
     baseRoot,
@@ -144,7 +161,14 @@ const results = await pool(cases, Number.parseInt(values.concurrency, 10), async
     ...(values["engineer-mode"] ? { engineerMode: true } : {}),
     ...(engineerModeSkill ? { engineerModeSkill } : {}),
   });
-  console.log(line(result));
+
+  if (neverRan(result) && result.error) {
+    const seen = (configErrors.get(result.error) ?? 0) + 1;
+    configErrors.set(result.error, seen);
+    if (seen >= 2 && !abortReason) abortReason = result.error;
+  }
+
+  console.log(line(result, config.model));
   return result;
 });
 
@@ -171,6 +195,33 @@ const suite: SuiteResult = {
   cases: results,
 };
 
+// A run where nothing reached the model measures the configuration, not the
+// agent. Don't print a `done 0%` / `intact 100%` table that invites the wrong
+// reading, don't save it where `--compare` would read it as a collapse.
+const ran = results.filter((result) => !neverRan(result));
+if (ran.length === 0) {
+  const cause = abortReason ?? results.find((r) => r.error)?.error ?? "unknown";
+  console.error(`
+─────────────────────────────────────────────
+ Nothing reached the model. This run measures nothing and was not saved.
+
+   ${cause}
+${
+  config.provider === "google" || config.provider === "openai" || config.provider === "anthropic"
+    ? `   Check ZELYQ_PROVIDER=${config.provider} and ZELYQ_MODEL=${config.model} name the\n   same vendor, and that the key is valid.`
+    : `   Check ZELYQ_PROVIDER / ZELYQ_MODEL / ZELYQ_BASE_URL / the key.`
+}
+─────────────────────────────────────────────`);
+  process.exit(1);
+}
+if (abortReason) {
+  console.error(
+    `\n Aborted after 2 cases failed identically before reaching the model:\n\n   ${abortReason}\n\n` +
+      ` ${ran.length}/${results.length} cases ran; the rest were skipped. Not saved.`,
+  );
+  process.exit(1);
+}
+
 report(suite, Date.now() - started);
 
 const outPath = path.join(
@@ -183,6 +234,10 @@ await fs.mkdir(path.dirname(outPath), { recursive: true });
 await fs.writeFile(outPath, `${JSON.stringify(suite, null, 2)}\n`);
 console.log(`\nsaved ${path.relative(process.cwd(), outPath)}`);
 
+// The per-run JSON is gitignored; record the prompt hash in the committed
+// baselines file so the check:prompt-hash gate has something to check.
+await upsertBaseline(suite, path.basename(outPath));
+
 if (values.compare) await compare(suite, values.compare);
 
 // A red suite must fail CI once this is wired in. Keyed on `done`, not
@@ -191,19 +246,53 @@ process.exit(results.every((result) => result.done) ? 0 : 1);
 
 // ---------------------------------------------------------------------------
 
-function line(result: CaseResult): string {
+/** A case that never started because the suite aborted first. Scored as errored. */
+function skipped(evalCase: EvalCase): CaseResult {
+  return {
+    id: evalCase.id,
+    title: evalCase.title,
+    tags: evalCase.tags,
+    intact: false,
+    done: false,
+    clean: false,
+    checks: [],
+    rounds: 0,
+    toolCalls: 0,
+    toolErrors: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    filesChanged: [],
+    reply: "",
+    durationMs: 0,
+    error: "skipped — suite aborted on a repeated config error",
+  };
+}
+
+function line(result: CaseResult, model: string): string {
   const failed = result.checks.filter((check) => !check.ok);
-  const mark = result.clean ? "✓" : result.done ? "◑" : result.intact ? "~" : "✗";
+  const mark = neverRan(result)
+    ? "⚠"
+    : result.clean
+      ? "✓"
+      : result.done
+        ? "◑"
+        : result.intact
+          ? "~"
+          : "✗";
   const detail = result.error
     ? result.error
     : failed.length
       ? failed.map((check) => check.label).join(", ")
       : "";
+  const cost = estimateCostUsd(model, tokenCountsOf(result));
   return [
     ` ${mark} ${result.id.padEnd(22)}`,
     `${String(result.rounds).padStart(2)} rounds`,
     `${String(result.toolCalls).padStart(3)} tools`,
     `${String(Math.round(result.durationMs / 1000)).padStart(4)}s`,
+    cost !== null && `${formatUsd(cost).padStart(6)}`,
     detail && ` — ${detail}`,
   ]
     .filter(Boolean)
@@ -215,6 +304,7 @@ function report(suite: SuiteResult, elapsedMs: number): void {
   const intact = suite.cases.filter((result) => result.intact).length;
   const done = suite.cases.filter((result) => result.done).length;
   const clean = suite.cases.filter((result) => result.clean).length;
+  const errored = suite.cases.filter((result) => neverRan(result)).length;
   const checks = suite.cases.flatMap((result) => result.checks);
   const passed = checks.filter((check) => check.ok).length;
 
@@ -222,12 +312,17 @@ function report(suite: SuiteResult, elapsedMs: number): void {
 ─────────────────────────────────────────────
  done     ${done}/${total}  (${pct(done, total)})   the work was actually done
  intact   ${intact}/${total}  (${pct(intact, total)})   still typechecks, builds and previews
- clean    ${clean}/${total}  (${pct(clean, total)})   every check passed, cosmetic included
+ clean    ${clean}/${total}  (${pct(clean, total)})   every check passed, cosmetic included${
+   errored > 0
+     ? `\n errored  ${errored}/${total}  (${pct(errored, total)})   the model was never reached — measures nothing`
+     : ""
+}
  checks   ${passed}/${checks.length}  (${pct(passed, checks.length)})
 
  rounds   median ${median(suite.cases.map((r) => r.rounds))}
  tools    median ${median(suite.cases.map((r) => r.toolCalls))}   ${suite.cases.reduce((sum, r) => sum + r.toolErrors, 0)} tool errors total
- tokens   ${fmt(suite.cases.reduce((sum, r) => sum + r.tokensIn, 0))} in · ${fmt(suite.cases.reduce((sum, r) => sum + r.tokensOut, 0))} out
+ tokens   ${fmt(totalPromptTokens(suiteTokens(suite.cases)))} in · ${fmt(suiteTokens(suite.cases).tokensOut)} out${cachedNote(suiteTokens(suite.cases))}
+ cost     ${formatUsd(suiteCostUsd(suite))}${costCaveat(suite.model)}
  wall     ${Math.round(elapsedMs / 1000)}s
  prompt   ${suite.promptHash}
 ─────────────────────────────────────────────`);
@@ -247,11 +342,36 @@ function report(suite: SuiteResult, elapsedMs: number): void {
 }
 
 /**
+ * `--compare` is run from muscle memory with whatever path the shell tab-completed
+ * — repo-root-relative, package-relative, or a bare filename. `tsx` runs with
+ * cwd at `apps/agent`, so only one of those resolves directly. Try the obvious
+ * places rather than crashing after the run already cost money.
+ */
+async function readComparePath(given: string): Promise<string> {
+  const resultsDir = path.join(EVAL_WORKSPACE, "..", "results");
+  const candidates = [
+    given,
+    path.resolve(import.meta.dirname, "..", "..", "..", given), // repo root
+    path.join(resultsDir, path.basename(given)),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return await fs.readFile(candidate, "utf8");
+    } catch {
+      // try the next
+    }
+  }
+  throw new Error(
+    `--compare: could not find "${given}". Looked in the working directory, the repo root, and ${path.relative(process.cwd(), resultsDir)}/.`,
+  );
+}
+
+/**
  * The reason the harness exists: two runs, one number, and an answer to
  * "did that prompt change help or not".
  */
 async function compare(suite: SuiteResult, previousPath: string): Promise<void> {
-  const previous = JSON.parse(await fs.readFile(previousPath, "utf8")) as SuiteResult;
+  const previous = JSON.parse(await readComparePath(previousPath)) as SuiteResult;
   const before = new Map(previous.cases.map((result) => [result.id, result]));
   const paired = suite.cases.filter((result) => before.has(result.id));
 
@@ -293,8 +413,14 @@ async function compare(suite: SuiteResult, previousPath: string): Promise<void> 
 
   const roundsBefore = sum(wasPaired, (r) => r.rounds);
   const roundsAfter = sum(paired, (r) => r.rounds);
-  const tokensBefore = sum(wasPaired, (r) => r.tokensIn);
-  const tokensAfter = sum(paired, (r) => r.tokensIn);
+  // Total prompt size, not the uncached remainder — `tokensIn` alone falls ~90%
+  // the day conversation caching ships while the real request is unchanged, and
+  // `--compare` would report that as the biggest win in the project's history.
+  // Results recorded before the cache fields existed coalesce to `tokensIn`.
+  const tokensBefore = sum(wasPaired, promptTokensOf);
+  const tokensAfter = sum(paired, promptTokensOf);
+  const costBefore = sum(wasPaired, (r) => estimateCostUsd(previous.model, tokenCountsOf(r)) ?? 0);
+  const costAfter = sum(paired, (r) => estimateCostUsd(suite.model, tokenCountsOf(r)) ?? 0);
   const timeBefore = sum(wasPaired, (r) => r.durationMs);
   const timeAfter = sum(paired, (r) => r.durationMs);
 
@@ -317,6 +443,7 @@ async function compare(suite: SuiteResult, previousPath: string): Promise<void> 
 
    rounds   ${roundsBefore} → ${roundsAfter}  (${delta(roundsBefore, roundsAfter)})
    tokens   ${fmt(tokensBefore)} → ${fmt(tokensAfter)} in  (${delta(tokensBefore, tokensAfter)})
+   cost     ${formatUsd(costBefore || null)} → ${formatUsd(costAfter || null)}  (${delta(costBefore, costAfter)})
    wall     ${Math.round(timeBefore / 1000)}s → ${Math.round(timeAfter / 1000)}s  (${delta(timeBefore, timeAfter)})
 
    biggest movers (rounds)
@@ -356,4 +483,59 @@ function median(values: number[]): number {
 
 function fmt(value: number): string {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
+}
+
+/** The four token counts summed across a run. */
+function suiteTokens(cases: CaseResult[]): TokenCounts {
+  return cases.reduce<TokenCounts>(
+    (sum, r) => ({
+      tokensIn: sum.tokensIn + r.tokensIn,
+      tokensOut: sum.tokensOut + r.tokensOut,
+      cacheReadTokens: sum.cacheReadTokens + r.cacheReadTokens,
+      cacheCreationTokens: sum.cacheCreationTokens + r.cacheCreationTokens,
+    }),
+    { tokensIn: 0, tokensOut: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
+  );
+}
+
+/** `  · 94% cached`, or nothing when the provider served nothing from cache. */
+function cachedNote(counts: TokenCounts): string {
+  const fraction = cachedFraction(counts);
+  return fraction && fraction > 0 ? `   · ${Math.round(fraction * 100)}% cached` : "";
+}
+
+/** A CaseResult's token counts, tolerant of results saved before the cache
+ * fields existed. */
+function tokenCountsOf(r: CaseResult): TokenCounts {
+  return {
+    tokensIn: r.tokensIn,
+    tokensOut: r.tokensOut,
+    cacheReadTokens: r.cacheReadTokens ?? 0,
+    cacheCreationTokens: r.cacheCreationTokens ?? 0,
+  };
+}
+
+function promptTokensOf(r: CaseResult): number {
+  return totalPromptTokens(tokenCountsOf(r));
+}
+
+function suiteCostUsd(suite: SuiteResult): number | null {
+  let total = 0;
+  for (const result of suite.cases) {
+    const cost = estimateCostUsd(suite.model, tokenCountsOf(result));
+    if (cost === null) return null; // no rate for this model → no honest figure
+    total += cost;
+  }
+  return total;
+}
+
+function costCaveat(model: string): string {
+  return estimateCostUsd(model, {
+    tokensIn: 1,
+    tokensOut: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  }) === null
+    ? `   (no rate for ${model} — see evals/rates.ts)`
+    : "   (est., evals/rates.ts)";
 }

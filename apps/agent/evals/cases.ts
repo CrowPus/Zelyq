@@ -44,6 +44,11 @@ export const CASES: EvalCase[] = [
         pattern: "sm:|md:|lg:",
         why: "has at least one responsive breakpoint",
       },
+      {
+        kind: "no_unrequested_components",
+        allow: ["Hero", "Feature", "Footer", "CallToAction", "Cta"],
+        why: "the request named a hero, feature cards and a footer — nothing else",
+      },
       { kind: "max_files_changed", count: 7 },
       { kind: "max_file_lines", count: 400 },
     ],
@@ -61,7 +66,16 @@ export const CASES: EvalCase[] = [
       { kind: "preview" },
       { kind: "project_matches", pattern: "localStorage", why: "persists across a refresh" },
       { kind: "project_matches", pattern: "useState", why: "holds list state" },
-      { kind: "max_files_changed", count: 6 },
+      {
+        kind: "no_unrequested_components",
+        allow: ["Todo", "Add", "Item", "Input"],
+        why: "a todo list and nothing beyond it — no filters, no stats, no tabs",
+      },
+      // 7, not 6: two 2026-09-02 opus-5 runs both landed a clean decomposition
+      // (App + form + item + list + a hook + types + index.css) at exactly 7,
+      // all of it requested. `no_unrequested_components` above is the real
+      // restraint guard now; this cap is the loose backstop (F6).
+      { kind: "max_files_changed", count: 7 },
       { kind: "max_file_lines", count: 400 },
     ],
   },
@@ -82,6 +96,11 @@ export const CASES: EvalCase[] = [
         pattern: "<button",
         why: "the toggle is a real button, not a clickable div",
       },
+      {
+        kind: "no_unrequested_components",
+        allow: ["Pricing", "Plan", "Tier", "Toggle", "Billing"],
+        why: "three tiers and a billing toggle — no comparison table, no FAQ",
+      },
       { kind: "max_files_changed", count: 7 },
       { kind: "max_file_lines", count: 400 },
     ],
@@ -99,6 +118,11 @@ export const CASES: EvalCase[] = [
       { kind: "preview" },
       { kind: "project_matches", pattern: "<nav|<aside", why: "uses semantic landmarks" },
       { kind: "project_matches", pattern: "grid|flex", why: "lays the cards out" },
+      {
+        kind: "no_unrequested_components",
+        allow: ["Dashboard", "Sidebar", "Nav", "Top", "Stat"],
+        why: "a sidebar, a top bar and four stat cards — no charts, no data layer",
+      },
       { kind: "max_files_changed", count: 7 },
       { kind: "max_file_lines", count: 400 },
     ],
@@ -125,7 +149,16 @@ export const CASES: EvalCase[] = [
         expect: "absent",
         why: "was told not to submit anywhere",
       },
-      { kind: "max_files_changed", count: 4 },
+      {
+        kind: "no_unrequested_components",
+        allow: ["Contact", "Form", "Field"],
+        why: "one contact form — no multi-step wizard, no success page",
+      },
+      // 5, not 4: two 2026-09-02 opus-5 runs both split App + ContactForm +
+      // FormField + a validation module + index.css — all of it requested, none
+      // invented. `no_unrequested_components` is the restraint guard; this is
+      // the backstop (F6).
+      { kind: "max_files_changed", count: 5 },
       { kind: "max_file_lines", count: 400 },
     ],
   },
@@ -189,6 +222,11 @@ export const CASES: EvalCase[] = [
       { kind: "preview" },
       { kind: "project_matches", pattern: "12,400", why: "kept the existing content" },
       { kind: "no_new_dependency" },
+      {
+        kind: "no_unrequested_components",
+        allow: ["Header", "Stat"],
+        why: "pull out the header and the stat card — not a whole component kit",
+      },
       { kind: "max_files_changed", count: 4 },
       { kind: "max_file_lines", count: 400 },
     ],

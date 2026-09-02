@@ -6,7 +6,9 @@ import {
   apiKeyFromEnv,
   createProvider,
   defaultModelFor,
+  isContextLengthError,
   isProviderId,
+  modelTierFor,
   PROVIDERS,
 } from "../src/providers/index.js";
 
@@ -146,4 +148,37 @@ test("scrubbing keeps nested property schemas intact", () => {
   };
   assert.equal(schema.properties.path.type, "string");
   assert.ok(schema.required?.includes("path"));
+});
+
+test("isContextLengthError recognises the window-overflow message from each vendor", () => {
+  const overflow = [
+    '400 {"error":{"message":"prompt is too long: 210000 tokens > 200000 maximum"}}',
+    "This model's maximum context length is 200000 tokens. However, your messages resulted in 240000 tokens.",
+    "context_length_exceeded",
+    "input length and `max_tokens` exceed context limit",
+    "The input token count (1050000) exceeds the maximum number of tokens allowed (1048576).",
+    "Please reduce the length of the messages.",
+  ];
+  for (const message of overflow) {
+    assert.equal(isContextLengthError(new Error(message)), true, message);
+  }
+});
+
+test("isContextLengthError does not fire on ordinary errors", () => {
+  for (const message of [
+    "401 Unauthorized",
+    "429 rate limit exceeded",
+    "fetch failed: ECONNREFUSED",
+    "the response was too long to finish in one turn",
+  ]) {
+    assert.equal(isContextLengthError(new Error(message)), false, message);
+  }
+});
+
+test("modelTierFor reads the registry tier, and is undefined for unlisted models", () => {
+  assert.equal(modelTierFor("anthropic", "claude-haiku-4-5"), "cheap");
+  assert.equal(modelTierFor("anthropic", "claude-opus-5"), "strong");
+  assert.equal(modelTierFor("anthropic", "claude-sonnet-5"), "standard");
+  assert.equal(modelTierFor("anthropic", "some-model-typed-into-settings"), undefined);
+  assert.equal(modelTierFor("custom", "whatever"), undefined);
 });

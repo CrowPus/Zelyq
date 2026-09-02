@@ -157,6 +157,12 @@ Enforced today:
 - Path traversal defence — every file operation resolves inside the project root and rejects
   escapes and symlinks that leave it.
 - Command timeouts and captured output limits.
+- **`run_command` denylists.** One list refuses commands that would destroy work no snapshot can
+  restore (`git reset --hard`, `git clean -fx`, `rm -rf` outside the project). A second refuses the
+  shape of an injection payload — piping a download into a shell, sending `.env` or an SSH/AWS
+  credential to a remote host, uploading a local file, installing from a git URL or raw tarball. A
+  regex denylist over shell strings is defence in depth, not a boundary (see below); it catches the
+  unsophisticated case, which is most of them.
 - Model API keys read from the environment; never logged and never returned by the API.
 - **Fetched content is marked as data.** Text Zelyq pulls from outside your project — a website you
   clone (`/clone`), a repository you open, an issue tracker, a database row, an API response, a docs
@@ -174,9 +180,10 @@ Not provided by the core (supply it in your deployment):
 - **Prompt injection is not fully solved, and cannot be.** The agent reads content you point it at.
   Any of that text can try to instruct the agent; Zelyq marks it as untrusted and the agent is told
   not to act on it, but a determined injection can still succeed. The agent has `run_command` with a
-  real shell — in `local` mode that shell runs as your own user on your own machine. If you point the
-  agent at content you do not trust, run it in `container` mode with an egress allowlist, and read
-  what it did before you deploy it.
+  real shell — in `local` mode that shell runs as your own user on your own machine. The command
+  denylist above raises the bar but is bypassable by anyone trying. If you point the agent at content
+  you do not trust, run it in `container` mode with an egress allowlist, and read what it did before
+  you deploy it.
 
 ## Handling credentials
 
