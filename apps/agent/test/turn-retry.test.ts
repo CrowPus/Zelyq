@@ -199,3 +199,120 @@ test("a genuinely empty turn still resolves after the retry ceiling, not forever
     await server.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// C1 — a response cut off at the output-token limit is a truncated answer,
+// not a finished turn. The loop asks the model to continue (bounded to two
+// extra rounds), and if it still cannot finish, ends with stopReason
+// "max_tokens" and a plain error rather than presenting the partial text as
+// complete.
+// ---------------------------------------------------------------------------
+
+test("C1: a max_tokens response is continued, then reported honestly if it still won't finish", async () => {
+  const server = buildAgentServer(config, {
+    providerFactory: () =>
+      scripted([
+        {
+          events: [{ type: "text", text: "First half of a very long answer" }],
+          result: {
+            toolCalls: [],
+            stopReason: "max_tokens",
+            usage: { inputTokens: 5, outputTokens: 64_000 },
+          },
+        },
+        {
+          events: [{ type: "text", text: " — still going" }],
+          result: {
+            toolCalls: [],
+            stopReason: "max_tokens",
+            usage: { inputTokens: 6, outputTokens: 64_000 },
+          },
+        },
+        {
+          events: [{ type: "text", text: " — and still" }],
+          result: {
+            toolCalls: [],
+            stopReason: "max_tokens",
+            usage: { inputTokens: 7, outputTokens: 64_000 },
+          },
+        },
+      ]),
+  });
+  await server.app.listen({ host: "127.0.0.1", port: 0 });
+  const addr = server.app.server.address();
+  const base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+  try {
+    await fetch(`${base}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: "ses_maxtok", projectId: "prj_maxtok" }),
+    });
+    const events = await collectTurn(`${base}/sessions/ses_maxtok/prompt`);
+
+    const err = events.find(
+      (e) => e.type === "error" && (e as { code?: string }).code === "max_tokens",
+    );
+    assert.ok(err, "a max_tokens error was surfaced after the continuations were exhausted");
+
+    const end = events.find((e) => e.type === "turn.end") as { stopReason?: string } | undefined;
+    assert.equal(end?.stopReason, "max_tokens");
+
+    // The partial text the model did produce is still streamed, not swallowed.
+    const text = events
+      .filter((e) => e.type === "text.delta")
+      .map((e) => (e as { text: string }).text)
+      .join("");
+    assert.match(text, /First half of a very long answer/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("C1: a max_tokens response that finishes on continuation ends normally", async () => {
+  const server = buildAgentServer(config, {
+    providerFactory: () =>
+      scripted([
+        {
+          events: [{ type: "text", text: "Part one" }],
+          result: {
+            toolCalls: [],
+            stopReason: "max_tokens",
+            usage: { inputTokens: 5, outputTokens: 64_000 },
+          },
+        },
+        {
+          events: [{ type: "text", text: " — part two, complete." }],
+          result: {
+            toolCalls: [],
+            stopReason: "end_turn",
+            usage: { inputTokens: 6, outputTokens: 40 },
+          },
+        },
+      ]),
+  });
+  await server.app.listen({ host: "127.0.0.1", port: 0 });
+  const addr = server.app.server.address();
+  const base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+  try {
+    await fetch(`${base}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: "ses_maxtok2", projectId: "prj_maxtok2" }),
+    });
+    const events = await collectTurn(`${base}/sessions/ses_maxtok2/prompt`);
+
+    assert.ok(
+      !events.some((e) => e.type === "error"),
+      "no error when the continuation finished the answer",
+    );
+    const end = events.find((e) => e.type === "turn.end") as { stopReason?: string } | undefined;
+    assert.equal(end?.stopReason, "end_turn");
+    const text = events
+      .filter((e) => e.type === "text.delta")
+      .map((e) => (e as { text: string }).text)
+      .join("");
+    assert.match(text, /Part one — part two, complete\./);
+  } finally {
+    await server.close();
+  }
+});

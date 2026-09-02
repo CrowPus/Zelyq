@@ -245,15 +245,22 @@ class OpenAICompatibleConversation implements Conversation {
     let text = "";
     const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
     let stopReason: TurnResult["stopReason"] = "other";
-    let usage = { inputTokens: 0, outputTokens: 0 };
+    let usage: TurnResult["usage"] = { inputTokens: 0, outputTokens: 0 };
 
     for await (const event of readServerSentEvents(response.body, signal)) {
       const choice = event.choices?.[0];
 
       if (event.usage) {
+        // OpenAI's `prompt_tokens` INCLUDES cached tokens; the cached count is
+        // in `prompt_tokens_details.cached_tokens`. Split it out so the true
+        // and the uncached figures are both available (finding A4). There is no
+        // separate cache-write figure in this dialect.
+        const cachedRead = event.usage.prompt_tokens_details?.cached_tokens;
+        const prompt = event.usage.prompt_tokens ?? 0;
         usage = {
-          inputTokens: event.usage.prompt_tokens ?? 0,
+          inputTokens: cachedRead != null ? Math.max(0, prompt - cachedRead) : prompt,
           outputTokens: event.usage.completion_tokens ?? 0,
+          ...(cachedRead != null ? { cacheReadInputTokens: cachedRead } : {}),
         };
       }
       if (!choice) continue;
@@ -353,7 +360,12 @@ interface StreamChunk {
     };
     finish_reason?: string | null;
   }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    /** OpenAI: prompt tokens served from the automatic prefix cache. */
+    prompt_tokens_details?: { cached_tokens?: number } | null;
+  } | null;
 }
 
 /**

@@ -158,6 +158,12 @@ Enforced today:
   escapes and symlinks that leave it.
 - Command timeouts and captured output limits.
 - Model API keys read from the environment; never logged and never returned by the API.
+- **Fetched content is marked as data.** Text Zelyq pulls from outside your project — a website you
+  clone (`/clone`), a repository you open, an issue tracker, a database row, an API response, a docs
+  page — is wrapped in `<untrusted_content>` before the model sees it, and the base prompt instructs
+  the agent to treat anything inside those tags as data it is looking at, never as instruction it is
+  receiving. If fetched content tries to instruct the agent, the agent is told to say so and carry
+  on with your request.
 
 Not provided by the core (supply it in your deployment):
 
@@ -165,6 +171,12 @@ Not provided by the core (supply it in your deployment):
   maintain the list yourself; there is no Zelyq-maintained default.
 - Rate limiting and quota enforcement.
 - Secret scanning of generated files.
+- **Prompt injection is not fully solved, and cannot be.** The agent reads content you point it at.
+  Any of that text can try to instruct the agent; Zelyq marks it as untrusted and the agent is told
+  not to act on it, but a determined injection can still succeed. The agent has `run_command` with a
+  real shell — in `local` mode that shell runs as your own user on your own machine. If you point the
+  agent at content you do not trust, run it in `container` mode with an egress allowlist, and read
+  what it did before you deploy it.
 
 ## Handling credentials
 

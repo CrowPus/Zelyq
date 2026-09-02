@@ -44,7 +44,25 @@ export interface TurnResult {
   stopReason: "end_turn" | "tool_use" | "max_tokens" | "refusal" | "other";
   /** Present when the provider explains a refusal. */
   refusalReason?: string;
-  usage: { inputTokens: number; outputTokens: number };
+  usage: TokenUsage;
+}
+
+/**
+ * Per-round token accounting. `inputTokens` is what the vendor calls "input" —
+ * and on Anthropic and OpenAI that figure **excludes** cached tokens, so it is
+ * the uncached remainder, not the request size. `cacheReadInputTokens` /
+ * `cacheCreationInputTokens` are the rest of the prompt: absent when the
+ * provider does not report them (an optional field is honest; a `0` would be a
+ * claim). True prompt size is `inputTokens + cacheReadInputTokens +
+ * cacheCreationInputTokens`.
+ */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** Prompt tokens served from the cache this round. ~0.1× input price. */
+  cacheReadInputTokens?: number;
+  /** Prompt tokens written to the cache this round. ~1.25× input price. */
+  cacheCreationInputTokens?: number;
 }
 
 export interface ProviderToolCall {

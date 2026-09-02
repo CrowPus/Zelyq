@@ -12,7 +12,17 @@ import type {
   TurnResult,
 } from "./types.js";
 
-const MAX_TOKENS = 64_000;
+/**
+ * Output-token ceiling per model. Opus 5 / Sonnet 5 / Sonnet 4.6 support
+ * 128,000 with streaming (which this provider always uses); Haiku 4.5 and the
+ * older families do not, so they stay at 64,000. Raising it costs nothing on a
+ * response that does not need it — output is billed on what is produced — and
+ * it is half of the fix for a turn silently truncated at the limit (finding
+ * C1); the run loop's continuation is the other half.
+ */
+function maxTokensFor(model: string): number {
+  return /opus-5|sonnet-5|sonnet-4-6/.test(model) ? 128_000 : 64_000;
+}
 
 /**
  * The header Claude Code's own CLI sends alongside an OAuth session token —
@@ -187,7 +197,7 @@ class AnthropicConversation implements Conversation {
     const stream = this.client.messages.stream(
       {
         model: this.model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: maxTokensFor(this.model),
         system: [
           // Prompt and tool list are stable for the session, so this breakpoint
           // is what keeps a long turn affordable.
@@ -239,38 +249,51 @@ class AnthropicConversation implements Conversation {
       usage: {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
+        // `input_tokens` above is the UNCACHED remainder. These two are the
+        // rest of the prompt — captured so the cache can actually be measured
+        // (finding A4). `?? undefined` keeps an unreported figure honest.
+        cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
+        cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
       },
     };
   }
 }
 
 /**
- * Returns a copy of `messages` with a single `cache_control` breakpoint on the
- * last message's last content block. Everything before it — the full
- * conversation prefix — is then served from Anthropic's prompt cache on the
- * next step at ~10% of the input price, instead of being re-charged in full on
- * every agentic iteration.
+ * Returns a copy of `messages` with `cache_control` breakpoints on the last
+ * TWO message boundaries. The conversation prefix up to the earlier of them is
+ * then served from Anthropic's prompt cache on the next step at ~10% of the
+ * input price, instead of being re-charged in full on every agentic iteration.
  *
- * `messages` itself is never mutated: no breakpoint is ever stored, so there is
- * always exactly one message breakpoint (plus the system one) and never the
- * stale, accumulating breakpoints that would blow past Anthropic's limit of
- * four.
+ * Two, not one: the cache is written on request N and read on request N+1. The
+ * array grows by one or two messages per round (an assistant turn, then its
+ * tool-results message), so request N+1's own tail sits *past* request N's
+ * breakpoint. Marking the previous boundary as well as the current one means
+ * request N+1 reads everything up to that previous mark from cache and writes a
+ * fresh one at its new tail — the standard incremental pattern, and why the API
+ * allows four breakpoints. System is the third; one is left spare.
+ *
+ * `messages` itself is never mutated, so no stale breakpoints accumulate.
  */
 export function withConversationCacheBreakpoint(
   messages: Anthropic.MessageParam[],
 ): Anthropic.MessageParam[] {
   if (messages.length === 0) return messages;
-  const last = messages[messages.length - 1];
-  if (!last) return messages;
-  const blocks: Anthropic.ContentBlockParam[] =
-    typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...last.content];
-  if (blocks.length === 0) return messages;
-  const tail = blocks[blocks.length - 1];
-  blocks[blocks.length - 1] = {
-    ...tail,
-    cache_control: { type: "ephemeral" },
-  } as Anthropic.ContentBlockParam;
-  return [...messages.slice(0, -1), { role: last.role, content: blocks }];
+  // Mark the last block of the last message, and of the one before it.
+  const markAt = new Set([messages.length - 1, messages.length - 2].filter((i) => i >= 0));
+  return messages.map((message, index) => {
+    if (!markAt.has(index)) return message;
+    const blocks: Anthropic.ContentBlockParam[] =
+      typeof message.content === "string"
+        ? [{ type: "text", text: message.content }]
+        : [...message.content];
+    if (blocks.length === 0) return message;
+    blocks[blocks.length - 1] = {
+      ...blocks[blocks.length - 1],
+      cache_control: { type: "ephemeral" },
+    } as Anthropic.ContentBlockParam;
+    return { role: message.role, content: blocks };
+  });
 }
 
 function toAnthropicTools(tools: ToolDefinition[]): Anthropic.Tool[] {

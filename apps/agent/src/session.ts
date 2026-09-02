@@ -244,6 +244,9 @@ export interface SessionOptions {
    * mechanism Engineer Mode uses for `senior-software-engineering`). Set from
    * `template.json`'s `agentSkill`; absent for vite-react. */
   stackSkill?: { body: string };
+  /** D1 — `AGENTS.md` / `CLAUDE.md` from the project root, read once by the
+   * `/sessions` handler and capped. Woven as `<project_guide>`. */
+  projectGuide?: string;
   provider: ProviderId;
   model: string;
   effort: Effort;
@@ -1285,6 +1288,23 @@ export function shortenCommand(command: string): string {
   return flat.length > 72 ? `${flat.slice(0, 71)}…` : flat;
 }
 
+/**
+ * E1 — wraps a tool result whose content came from outside the user's control
+ * in `<untrusted_content>`, so the model has a structural basis for treating it
+ * as data rather than instruction. Any `<untrusted_content>` tags already in
+ * the fetched text are defanged first so the block cannot be closed early from
+ * inside. Pure; covered by `untrusted-content.test.ts`.
+ */
+export function wrapUntrusted(output: string, via: string, source: string): string {
+  const safeSource = source.replace(/["<>]/g, "").slice(0, 200);
+  const body = output.replace(/<\/?untrusted_content/gi, "&lt;untrusted_content");
+  return (
+    `<untrusted_content source="${safeSource}" via="${via}">\n` +
+    `${body}\n` +
+    `</untrusted_content>`
+  );
+}
+
 export class AgentSession {
   readonly id: string;
   readonly projectId: string;
@@ -1313,6 +1333,12 @@ export class AgentSession {
   private turns = 0;
   private tokensIn = 0;
   private tokensOut = 0;
+  // Prompt tokens the provider served from / wrote to its cache this session.
+  // `tokensIn` above is only the UNCACHED remainder on Anthropic and OpenAI, so
+  // true prompt size is `tokensIn + cacheReadTokens + cacheCreationTokens`
+  // (finding A4). `docs/agent-behaviour.md` explains the display.
+  private cacheReadTokens = 0;
+  private cacheCreationTokens = 0;
 
   // The turn number on which the Architect first declared the package ready
   // (or 0 if a resumed session's history already contains that declaration).
@@ -1427,6 +1453,7 @@ export class AgentSession {
               skills: options.skills,
               ...(options.stack ? { stack: options.stack } : {}),
               ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
+              ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
               ...(options.agentMd ? { agentMd: options.agentMd } : {}),
               ...(options.designRefCatalogText
                 ? { designRefCatalogText: options.designRefCatalogText }
@@ -2195,6 +2222,10 @@ export class AgentSession {
     // thing" nudge has already been injected this turn. One-shot, so a model
     // that stays empty even with guidance ends the turn instead of looping.
     let emptyRecoveryDone = false;
+    // C1 — how many times this turn a response cut off at the output limit has
+    // been continued. Bounded: an output that will not converge in two extra
+    // rounds is genuinely too large for one response, and the user is told so.
+    let maxTokensContinuations = 0;
     // 064 — one-shot re-nudge when the user picked a specialist from the
     // `/agent` menu and the turn is about to end without that specialist's
     // pass tool ever being called. The grant + the `withAgents` instruction
@@ -2232,6 +2263,11 @@ export class AgentSession {
     // refusal banner. Also lets `turn.end`'s `stopReason` say "refusal"
     // honestly instead of the generic "end_turn".
     let refused = false;
+    // C1 — set when the turn ends because a response was still being cut off at
+    // the output limit after two continuations. `turn.end` reports it so the UI
+    // can say "the answer was too long to finish" instead of showing a
+    // truncated response as complete.
+    let truncatedByMaxTokens = false;
     // Structural cap on invented scope. Correct decomposition for a
     // reasonably-scoped small feature runs about 6-7 files; a vague prompt
     // that turns into three imagined subsystems blows past that by an order
@@ -2436,11 +2472,17 @@ export class AgentSession {
         })();
         this.tokensIn += result.usage.inputTokens;
         this.tokensOut += result.usage.outputTokens;
+        this.cacheReadTokens += result.usage.cacheReadInputTokens ?? 0;
+        this.cacheCreationTokens += result.usage.cacheCreationInputTokens ?? 0;
         emit({
           type: "usage",
           sessionId: this.id,
           tokensIn: this.tokensIn,
           tokensOut: this.tokensOut,
+          ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
+          ...(this.cacheCreationTokens > 0
+            ? { cacheCreationTokens: this.cacheCreationTokens }
+            : {}),
         });
 
         if (result.stopReason === "refusal") {
@@ -2455,6 +2497,35 @@ export class AgentSession {
           });
           stoppedByBreak = true;
           refused = true;
+          break;
+        }
+
+        // C1 — the response was cut off at the output-token limit, not
+        // finished. With no tool calls it would otherwise fall straight into
+        // the end-of-turn path and be reported as complete. Ask the model to
+        // continue from where it stopped; bounded to two extra rounds.
+        if (result.stopReason === "max_tokens" && result.toolCalls.length === 0) {
+          if (maxTokensContinuations < 2) {
+            maxTokensContinuations += 1;
+            this.conversation.addUserMessage(
+              "Your previous response was cut off at the output length limit before it finished. " +
+                "Continue from exactly where you stopped — do not repeat anything you already wrote " +
+                "and do not restart. If the remaining output is inherently too large for one " +
+                "response, produce a shorter version that is complete instead.",
+            );
+            continue;
+          }
+          emit({
+            type: "error",
+            sessionId: this.id,
+            code: "max_tokens",
+            message:
+              "The response was too long to finish in one turn, even after continuing. " +
+              "What is above is partial — ask for a shorter version or break the request up.",
+            fatal: false,
+          });
+          stoppedByBreak = true;
+          truncatedByMaxTokens = true;
           break;
         }
 
@@ -2978,7 +3049,12 @@ export class AgentSession {
             return {
               id: toolCall.id,
               name: toolCall.name,
-              output: outcome.output,
+              // E1 — content the tool fetched from outside the user's control
+              // is wrapped so the model treats it as data, not instruction.
+              // Done here, once, rather than in each of ~80 tools.
+              output: outcome.untrusted
+                ? wrapUntrusted(outcome.output, toolCall.name, outcome.untrusted.source)
+                : outcome.output,
               isError: outcome.isError ?? false,
               images: outcome.images,
             };
@@ -3212,7 +3288,13 @@ export class AgentSession {
         type: "turn.end",
         sessionId: this.id,
         messageId,
-        stopReason: refused ? "refusal" : hitIterationCap ? "max_iterations" : "end_turn",
+        stopReason: refused
+          ? "refusal"
+          : truncatedByMaxTokens
+            ? "max_tokens"
+            : hitIterationCap
+              ? "max_iterations"
+              : "end_turn",
         message: {
           id: messageId,
           sessionId: this.id,

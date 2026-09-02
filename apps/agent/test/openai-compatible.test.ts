@@ -204,6 +204,32 @@ test("text and usage come back from a streamed turn", async () => {
   assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 3 });
 });
 
+test("cached prompt tokens are split out of the input figure (A4)", async () => {
+  replies.push({
+    events: [
+      textDelta("ok"),
+      { choices: [{ delta: {}, finish_reason: "stop" }] },
+      {
+        choices: [],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 5,
+          prompt_tokens_details: { cached_tokens: 900 },
+        },
+      },
+    ],
+  });
+
+  const conversation = conversationFor();
+  conversation.addUserMessage("go");
+  const { result } = await runTurn(conversation);
+
+  // `inputTokens` is the uncached remainder; the cached 900 is reported apart.
+  assert.equal(result.usage.inputTokens, 100);
+  assert.equal(result.usage.cacheReadInputTokens, 900);
+  assert.equal(result.usage.outputTokens, 5);
+});
+
 test("tool call arguments are assembled from the fragments they arrive in", async () => {
   // This is the part every server does and the easiest thing to get wrong: the
   // id arrives once, on the first fragment, and the arguments are a JSON string

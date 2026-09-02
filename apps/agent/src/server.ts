@@ -259,6 +259,26 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
 
     await runtime.ensureProject(input.projectId);
 
+    // D1 — the project's own instructions, if it ships any. `AGENTS.md` is the
+    // cross-tool convention; `CLAUDE.md` is read as a fallback for projects
+    // arriving from Claude Code. Read once here, capped, and byte-stable for
+    // the session so it sits inside the prompt's cache breakpoint.
+    const PROJECT_GUIDE_CAP = 8_000;
+    let projectGuide: string | undefined;
+    for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+      const found = await runtime
+        .readFile(input.projectId, name)
+        .then((f) => (f.encoding === "utf8" ? f.content : null))
+        .catch(() => null);
+      if (found?.trim()) {
+        projectGuide =
+          found.length > PROJECT_GUIDE_CAP
+            ? `${found.slice(0, PROJECT_GUIDE_CAP)}\n\n[truncated — keep ${name} under ${PROJECT_GUIDE_CAP} characters]`
+            : found;
+        break;
+      }
+    }
+
     const session = new AgentSession({
       sessionId: input.sessionId,
       projectId: input.projectId,
@@ -266,6 +286,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       template: input.template ?? "vite-react",
       ...(input.stack ? { stack: input.stack } : {}),
       ...(stackSkill ? { stackSkill: { body: stackSkill.body } } : {}),
+      ...(projectGuide ? { projectGuide } : {}),
       provider,
       model:
         input.model ?? (provider === config.provider ? config.model : defaultModelFor(provider)),

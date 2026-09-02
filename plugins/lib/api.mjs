@@ -44,5 +44,18 @@ export async function request(
   ]
     .filter(Boolean)
     .join("\n\n");
-  return { output, ...(result.exitCode === 0 ? {} : { isError: true }) };
+  // The response body is text from a third-party service — issue bodies,
+  // comments, row data, doc pages — none of it under the user's control. Mark
+  // it so the agent session wraps it as data, not instruction (finding E1).
+  let source;
+  try {
+    source = new URL(url, "https://x").hostname || "external service";
+  } catch {
+    source = "external service";
+  }
+  return {
+    output,
+    untrusted: { source },
+    ...(result.exitCode === 0 ? {} : { isError: true }),
+  };
 }

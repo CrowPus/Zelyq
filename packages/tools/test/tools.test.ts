@@ -197,3 +197,106 @@ test("ordinary git commands still work", async () => {
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// B2 / B3 / B4 — read_file paging, edit/write diffs, same-path serialisation
+// ---------------------------------------------------------------------------
+
+test("B2: read_file pages a long file from the end, never elides the middle", async () => {
+  const content = `${Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+  const context = stubContext({
+    readFile: async () => ({ path: "big.ts", content, encoding: "utf8", truncated: false }),
+  });
+
+  const first = await executeTool(context, "read_file", { path: "big.ts", limit: 100 });
+  assert.match(first.output, /\s+1\tline 1/);
+  assert.match(first.output, /\s+100\tline 100/);
+  assert.ok(!first.output.includes("line 101"), "stops at the limit");
+  assert.match(first.output, /offset: 101 for the rest/);
+  assert.ok(!/characters omitted/.test(first.output), "no middle elision");
+
+  const middle = await executeTool(context, "read_file", {
+    path: "big.ts",
+    offset: 240,
+    limit: 20,
+  });
+  assert.match(middle.output, /\s+240\tline 240/);
+  assert.match(middle.output, /\s+259\tline 259/);
+});
+
+test("B3: edit_file hands back the changed region with line numbers", async () => {
+  let written = "";
+  const context = stubContext({
+    readFile: async () => ({
+      path: "f.ts",
+      content: "a\nb\nTARGET\nd\ne\n",
+      encoding: "utf8",
+      truncated: false,
+    }),
+    writeFile: async (_p: string, _path: string, c: string) => {
+      written = c;
+    },
+  });
+  const result = await executeTool(context, "edit_file", {
+    path: "f.ts",
+    old_text: "TARGET",
+    new_text: "REPLACED\nEXTRA",
+  });
+  assert.match(result.output, /Edited f\.ts \(1 replacement at line 3\)/);
+  assert.match(result.output, /\s+3\tREPLACED/);
+  assert.match(result.output, /\s+4\tEXTRA/);
+  assert.equal(written, "a\nb\nREPLACED\nEXTRA\nd\ne\n");
+});
+
+test("B3: write_file over an existing file returns a brief diff", async () => {
+  const context = stubContext({
+    readFile: async () => ({
+      path: "f.ts",
+      content: "keep\nold line\nkeep2\n",
+      encoding: "utf8",
+      truncated: false,
+    }),
+    writeFile: async () => undefined,
+  });
+  const result = await executeTool(context, "write_file", {
+    path: "f.ts",
+    content: "keep\nnew line\nkeep2\n",
+  });
+  assert.match(result.output, /Wrote f\.ts \(4 → 4 lines\)/);
+  assert.match(result.output, /- old line/);
+  assert.match(result.output, /\+ new line/);
+});
+
+test("B4: two edit_file calls on the same path in one batch both land", async () => {
+  const workspace = path.join(os.tmpdir(), `zelyq-tools-b4-${Date.now()}`);
+  const runtime = new LocalRuntimeDriver({
+    kind: "local",
+    workspaceDir: workspace,
+    execTimeoutMs: 30_000,
+    previewPortRange: [4905, 4908],
+    previewHost: "127.0.0.1",
+  });
+  try {
+    await runtime.ensureProject("prj_b4");
+    await runtime.scaffold("prj_b4", [{ path: "x.ts", content: "AAA\nBBB\n" }]);
+    const ctx = {
+      projectId: "prj_b4",
+      runtime,
+      signal: new AbortController().signal,
+      onFileChanged: () => undefined,
+      log: () => undefined,
+    } as unknown as ToolContext;
+
+    // Fired concurrently, the pre-lock behaviour lost one of these.
+    await Promise.all([
+      executeTool(ctx, "edit_file", { path: "x.ts", old_text: "AAA", new_text: "111" }),
+      executeTool(ctx, "edit_file", { path: "x.ts", old_text: "BBB", new_text: "222" }),
+    ]);
+
+    const after = await runtime.readFile("prj_b4", "x.ts");
+    assert.equal(after.content, "111\n222\n", "both edits survived the concurrent batch");
+  } finally {
+    await runtime.dispose();
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});

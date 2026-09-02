@@ -70,12 +70,17 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     paths: z.array(z.string()),
   }),
 
-  /** Token accounting for the turn so far. */
+  /** Token accounting for the turn so far. `tokensIn` is the UNCACHED prompt
+   * remainder on Anthropic/OpenAI; add the two cache fields for true size. */
   z.object({
     type: z.literal("usage"),
     sessionId: z.string(),
     tokensIn: z.number().int().nonnegative(),
     tokensOut: z.number().int().nonnegative(),
+    /** Prompt tokens served from the provider's cache this session (~0.1×). */
+    cacheReadTokens: z.number().int().nonnegative().optional(),
+    /** Prompt tokens written to the provider's cache this session (~1.25×). */
+    cacheCreationTokens: z.number().int().nonnegative().optional(),
   }),
 
   /** The turn is complete. `message` is the persisted assistant message. */

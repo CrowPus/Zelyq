@@ -61,6 +61,15 @@ neither, so its prompt is byte-identical to before. The Expo template
 (`skills/expo-react-native`) is the first user: it's what makes the agent build `View`/`Text`,
 not `div`, on a React Native project.
 
+A project can also carry its own instructions. `AGENTS.md` (or `CLAUDE.md` as a fallback) at the
+project root is read once by the `/sessions` handler, capped at 8,000 characters, and woven as
+`<project_guide>` right after `<stack_guide>` — the project's conventions beat the generic advice,
+the mode's discipline beats both. It is read once, byte-stable for the session so it stays inside
+the cache breakpoint; an edit to it is picked up on the next session, not mid-session. It is
+subordinated in the prompt to `<scope>` and the guardrails, because on the "open an existing
+repository" path it comes from a repo the user cloned rather than wrote. `templates/vite-react`
+ships one as an example.
+
 **2. The tool descriptions** (`packages/tools`) are prompt text too. `search_files` says it is
 "much cheaper than reading files to find something" because otherwise the model reads files it does
 not need. When a tool is misused, the description is usually the fix.
@@ -271,10 +280,18 @@ with `Error: no match`. The first tells the model what to do next.
 
 ## Caching
 
-The system prompt carries a cache breakpoint. Prompt and tool list are stable across a session, so
-after the first request each turn re-reads them from cache. If you make the system prompt dynamic —
-injecting a timestamp, say — you invalidate that on every request and pay full price for it. Check
-`usage.cache_read_input_tokens` if costs look wrong.
+Two cache breakpoints on Anthropic: one on the system block (prompt + tool list, stable across a
+session), and — via `withConversationCacheBreakpoint` in `providers/anthropic.ts` — a rolling pair
+on the last two message boundaries, so the growing conversation prefix is re-read from cache on
+every step rather than re-charged in full. If you make the system prompt dynamic — injecting a
+timestamp, a turn counter, a budget figure — you invalidate all of it on every request. Surface
+budget in a *message*, never in the system prompt.
+
+The `usage` event carries `cacheReadTokens` / `cacheCreationTokens` when the provider reports them
+(`TokenUsage` in `providers/types.ts`). `tokensIn` on Anthropic and OpenAI is the **uncached
+remainder** — true prompt size is `tokensIn + cacheReadTokens + cacheCreationTokens`, and the
+cached fraction is `cacheReadTokens / (that total)`. A working cache makes `tokensIn` drop ~90%
+while the real request is unchanged; check the cache fields, not `tokensIn`, when costs look wrong.
 
 ## Adding a tool
 
