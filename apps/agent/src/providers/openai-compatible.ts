@@ -1,5 +1,14 @@
+import { createHash } from "node:crypto";
 import type { PromptAttachment } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
+import {
+  REDUCTION_TAIL_KEEP,
+  REDUCTION_THRESHOLD_CHARS,
+  recoverableCharsJson,
+  recoverableResultChars,
+  reduceToolArgumentsJson,
+  reduceToolResultText,
+} from "./history-reduction.js";
 import type {
   Conversation,
   ConversationOptions,
@@ -45,6 +54,44 @@ const REASONING_EFFORT: Record<Effort, "low" | "medium" | "high"> = {
   max: "high",
 };
 
+/**
+ * F4 — the routing key that keeps a session on a warm cache.
+ *
+ * Several servers in this dialect cache repeated prompt prefixes but need a
+ * stable key to route a session's requests to the same cache (and, on
+ * OpenRouter, to the same backing provider — without it a request can move
+ * between providers and lose the warm prefix entirely). The field name differs,
+ * and an unknown top-level field is a hard 400 on a strict server, so this is
+ * an allowlist of names that are documented, never a guess.
+ *
+ * `undefined` means send nothing. That is the right answer for a custom
+ * endpoint, for the servers that cache automatically off an exact prefix and
+ * need no key (DeepSeek, Groq), and for any provider whose field name has not
+ * been confirmed against its own docs.
+ */
+export type CacheKeyField = "prompt_cache_key" | "session_id";
+
+/**
+ * An opaque, stable key for one session's prompt prefix.
+ *
+ * Derived from the system prompt and the tool names — the part of a request
+ * that does not change for the life of a session, which is exactly the part a
+ * prefix cache holds. Two sessions on the same project and mode hash the same,
+ * so they share a warm prefix rather than each paying to build one.
+ *
+ * A hash, never the text: a routing key travels in the request body and is
+ * retained by the provider, so it must not carry prompt content, a project
+ * path, or anything else identifying.
+ */
+export function promptCacheKey(systemPrompt: string, toolNames: string[]): string {
+  return createHash("sha256")
+    .update(systemPrompt)
+    .update("\u0000")
+    .update(toolNames.join(","))
+    .digest("hex")
+    .slice(0, 32);
+}
+
 export interface OpenAICompatibleOptions {
   id: ProviderId;
   model: string;
@@ -56,6 +103,8 @@ export interface OpenAICompatibleOptions {
    * setting is better than a provider that cannot complete a request.
    */
   supportsReasoningEffort?: boolean;
+  /** The body field this server reads a prompt-cache routing key from, if any. */
+  cacheKeyField?: CacheKeyField;
 }
 
 export class OpenAICompatibleProvider implements ModelProvider {
@@ -65,12 +114,14 @@ export class OpenAICompatibleProvider implements ModelProvider {
   private readonly endpoint: string;
   private readonly apiKey: string;
   private readonly supportsReasoningEffort: boolean;
+  private readonly cacheKeyField: CacheKeyField | undefined;
 
   constructor(options: OpenAICompatibleOptions) {
     this.id = options.id;
     this.model = options.model;
     this.apiKey = options.apiKey;
     this.supportsReasoningEffort = options.supportsReasoningEffort ?? false;
+    this.cacheKeyField = options.cacheKeyField;
     this.endpoint = chatCompletionsUrl(options.baseUrl);
   }
 
@@ -80,6 +131,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
       apiKey: this.apiKey,
       model: this.model,
       supportsReasoningEffort: this.supportsReasoningEffort,
+      ...(this.cacheKeyField ? { cacheKeyField: this.cacheKeyField } : {}),
       options,
     });
   }
@@ -91,6 +143,50 @@ type ChatMessage =
   | { role: "user"; content: string | ChatContentPart[] }
   | { role: "assistant"; content: string | null; tool_calls?: ChatToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
+
+/**
+ * R7 — drop superseded whole-file payloads from the dialect's native history.
+ *
+ * Pure and exported so the rewrite is testable without a server. Returns the
+ * same array when nothing crossed the threshold, so the caller can tell whether
+ * the request prefix actually moved.
+ */
+export function reduceChatHistory(messages: ChatMessage[]): ChatMessage[] {
+  const end = Math.max(0, messages.length - REDUCTION_TAIL_KEEP);
+  let recoverable = 0;
+  for (let i = 0; i < end; i++) {
+    const message = messages[i];
+    if (message?.role === "tool") {
+      recoverable += recoverableResultChars(message.content);
+      continue;
+    }
+    if (message?.role !== "assistant") continue;
+    for (const call of message.tool_calls ?? []) {
+      recoverable += recoverableCharsJson(call.function.name, call.function.arguments);
+    }
+  }
+  if (recoverable < REDUCTION_THRESHOLD_CHARS) return messages;
+
+  return messages.map((message, i) => {
+    if (i >= end) return message;
+    // Tool RESULTS are where the weight is — 25x the inputs on a measured turn.
+    // This dialect has no error flag on a `tool` message, so an excerpt keeps
+    // both ends: an error's identity is at the start, its exit line at the end.
+    if (message.role === "tool") {
+      const reduced = reduceToolResultText(message.content);
+      return reduced ? { ...message, content: reduced } : message;
+    }
+    if (message.role !== "assistant" || !message.tool_calls) return message;
+    let changed = false;
+    const tool_calls = message.tool_calls.map((call) => {
+      const reduced = reduceToolArgumentsJson(call.function.name, call.function.arguments);
+      if (!reduced) return call;
+      changed = true;
+      return { ...call, function: { ...call.function, arguments: reduced } };
+    });
+    return changed ? { ...message, tool_calls } : message;
+  });
+}
 
 /** A user message's own multi-part shape — the dialect's vision format. */
 type ChatContentPart =
@@ -124,7 +220,7 @@ interface ChatToolCall {
 }
 
 class OpenAICompatibleConversation implements Conversation {
-  private readonly messages: ChatMessage[] = [];
+  private messages: ChatMessage[] = [];
 
   constructor(
     private readonly deps: {
@@ -132,6 +228,7 @@ class OpenAICompatibleConversation implements Conversation {
       apiKey: string;
       model: string;
       supportsReasoningEffort: boolean;
+      cacheKeyField?: CacheKeyField;
       options: ConversationOptions;
     },
   ) {
@@ -200,6 +297,9 @@ class OpenAICompatibleConversation implements Conversation {
   }
 
   async *stream(signal: AbortSignal): AsyncGenerator<ProviderEvent, TurnResult, undefined> {
+    // R7 — no server-side context editing in this dialect, so old file bodies
+    // ride along at full price on every iteration until they are swept.
+    this.messages = reduceChatHistory(this.messages);
     const body: Record<string, unknown> = {
       model: this.deps.model,
       messages: this.messages,
@@ -213,6 +313,14 @@ class OpenAICompatibleConversation implements Conversation {
     }
     if (this.deps.supportsReasoningEffort) {
       body.reasoning_effort = REASONING_EFFORT[this.deps.options.effort];
+    }
+    // F4 — keep this session pinned to its warm prefix. Only sent where the
+    // field name is documented for the server being talked to.
+    if (this.deps.cacheKeyField) {
+      body[this.deps.cacheKeyField] = promptCacheKey(
+        this.deps.options.systemPrompt,
+        this.deps.options.tools.map((t) => t.name),
+      );
     }
 
     const headers: Record<string, string> = { "content-type": "application/json" };

@@ -46,6 +46,7 @@ import {
   modelTierFor,
   type ProviderFactory,
   type ProviderId,
+  pinsToolPrefixCache,
 } from "./providers/index.js";
 import { gateToolsForDefaultMode } from "./tool-relevance.js";
 
@@ -1350,6 +1351,17 @@ export class AgentSession {
   // (finding A4). `docs/agent-behaviour.md` explains the display.
   private cacheReadTokens = 0;
   private cacheCreationTokens = 0;
+  // The same four figures for THIS user turn only, reset at the top of `run()`.
+  // The cumulative fields above drive the live UI gauge; these are what the
+  // gateway persists on the message row and sums into the session total. They
+  // exist because storing a cumulative total per message and then *adding* it
+  // to the session total made `sessions.tokens_in` grow with the square of the
+  // turn count — the historical figures are inflated ~2.1x and unusable
+  // (`docs/token-usage/07-review-and-amendments.md`, R1).
+  private turnTokensIn = 0;
+  private turnTokensOut = 0;
+  private turnCacheReadTokens = 0;
+  private turnCacheCreationTokens = 0;
 
   // The turn number on which the Architect first declared the package ready
   // (or 0 if a resumed session's history already contains that declaration).
@@ -1437,7 +1449,22 @@ export class AgentSession {
             ...(options.architectMode ? [dispatchTaskTool] : []),
             // The specialists are callable from Engineer Mode (on the user's
             // ask) and Architect Mode (in the pipeline).
-            ...(options.architectMode || options.engineerMode
+            //
+            // R5 — they are ALSO seeded up front on a provider that pins a
+            // prefix cache, even in default mode. On those providers the tool
+            // block is the first thing in the cached prefix, so granting a pass
+            // tool mid-session (`grantSpecialistTools`) invalidates the system
+            // prompt AND the whole transcript: an Architect session re-writes
+            // ~24k static tokens plus its history at 1.25x instead of reading
+            // it at 0.1x. Seeding costs ~1,047 tokens, written once and read at
+            // 0.1x thereafter — unconditionally the cheaper side of that trade.
+            //
+            // Where there is no pinned prefix cache the trade reverses: those
+            // ~1,047 tokens are full price on every round, and a late grant
+            // costs nothing extra, so those providers keep granting on demand.
+            ...(options.architectMode ||
+            options.engineerMode ||
+            pinsToolPrefixCache(options.provider)
               ? [designPassTool, opsPassTool, qaPassTool, cinematicPassTool]
               : []),
           ]
@@ -2178,6 +2205,11 @@ export class AgentSession {
    * asks", and a session where nobody ever types `/agent` keeps a byte-
    * identical tool block.
    *
+   * R5 — on a provider that pins a prefix cache (`pinsToolPrefixCache`) the
+   * four pass tools are already in the pool from session construction, so this
+   * finds nothing to grant and the tool block never changes. It only does work
+   * on providers where a late grant is free, which is the point.
+   *
    * A lean child (its own prompt + a curated `toolNames`) is never granted:
    * specialists do not spawn specialists.
    */
@@ -2220,6 +2252,10 @@ export class AgentSession {
 
     this.busy = true;
     this.turns += 1;
+    this.turnTokensIn = 0;
+    this.turnTokensOut = 0;
+    this.turnCacheReadTokens = 0;
+    this.turnCacheCreationTokens = 0;
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
     // This flag reflects only the turn about to run; Auto Mode reads it after
@@ -2528,14 +2564,28 @@ export class AgentSession {
         this.tokensOut += result.usage.outputTokens;
         this.cacheReadTokens += result.usage.cacheReadInputTokens ?? 0;
         this.cacheCreationTokens += result.usage.cacheCreationInputTokens ?? 0;
+        this.turnTokensIn += result.usage.inputTokens;
+        this.turnTokensOut += result.usage.outputTokens;
+        this.turnCacheReadTokens += result.usage.cacheReadInputTokens ?? 0;
+        this.turnCacheCreationTokens += result.usage.cacheCreationInputTokens ?? 0;
         emit({
           type: "usage",
           sessionId: this.id,
+          // Cumulative — the live gauge.
           tokensIn: this.tokensIn,
           tokensOut: this.tokensOut,
           ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
           ...(this.cacheCreationTokens > 0
             ? { cacheCreationTokens: this.cacheCreationTokens }
+            : {}),
+          // This turn only — what the gateway stores and sums.
+          turnTokensIn: this.turnTokensIn,
+          turnTokensOut: this.turnTokensOut,
+          ...(this.turnCacheReadTokens > 0
+            ? { turnCacheReadTokens: this.turnCacheReadTokens }
+            : {}),
+          ...(this.turnCacheCreationTokens > 0
+            ? { turnCacheCreationTokens: this.turnCacheCreationTokens }
             : {}),
         });
 
@@ -3360,8 +3410,12 @@ export class AgentSession {
           // attachments of its own; those belong to the user message the
           // server already persisted, which this does not replace.
           attachments: [],
-          tokensIn: this.tokensIn,
-          tokensOut: this.tokensOut,
+          // This turn's usage, not the session running total (R1).
+          tokensIn: this.turnTokensIn,
+          tokensOut: this.turnTokensOut,
+          cacheReadTokens: this.turnCacheReadTokens,
+          cacheCreationTokens: this.turnCacheCreationTokens,
+          usageSchema: 1,
           createdAt: new Date().toISOString(),
         },
       });

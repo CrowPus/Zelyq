@@ -58,6 +58,9 @@ function toMessage(row: Row): Message {
     snapshotId: row.snapshotId,
     tokensIn: row.tokensIn,
     tokensOut: row.tokensOut,
+    cacheReadTokens: row.cacheReadTokens,
+    cacheCreationTokens: row.cacheCreationTokens,
+    usageSchema: row.usageSchema,
     createdAt: row.createdAt,
   };
 }
@@ -77,6 +80,9 @@ export function messageRepository(db: ZelyqDb) {
         snapshotId: message.snapshotId ?? null,
         tokensIn: message.tokensIn,
         tokensOut: message.tokensOut,
+        cacheReadTokens: message.cacheReadTokens ?? 0,
+        cacheCreationTokens: message.cacheCreationTokens ?? 0,
+        usageSchema: message.usageSchema ?? 1,
         createdAt: message.createdAt,
       });
       return message;

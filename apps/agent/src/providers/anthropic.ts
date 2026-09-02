@@ -78,6 +78,50 @@ export function extraRequestBody(env: NodeJS.ProcessEnv = process.env): Record<s
 }
 
 /**
+ * R6 — cache lifetime.
+ *
+ * A `cache_control` breakpoint defaults to a 5-minute TTL, and a Zelyq turn
+ * routinely takes longer than that between model requests: a `run_command`
+ * install, a preview build, or simply the user reading a plan before replying.
+ * Every gap past the TTL drops the ENTIRE transcript out of cache and re-pays
+ * it cold on the next request.
+ *
+ * The 1-hour TTL writes at 2x instead of 1.25x and still reads at 0.1x, so for
+ * a stable prefix of `S` tokens:
+ *
+ *   5m, one expiry:   1.25*S (write) + 1.25*S (re-write) = 2.50*S
+ *   1h, no expiry:    2.00*S (write) + 0.10*S (read)     = 2.10*S
+ *   5m, no expiry:    1.25*S (write) + 0.10*S (read)     = 1.35*S
+ *
+ * So 1h is the cheaper bet exactly when a gap would have expired the 5m entry,
+ * and costs 0.75*S when it would not have. That is a fact about THIS session's
+ * cadence, not something to guess at up front — so measure it: start at 5m and
+ * upgrade for the rest of the session the first time an observed gap between
+ * requests approaches the 5-minute limit. One miss is the tuition; there is no
+ * second one.
+ *
+ * `ZELYQ_CACHE_TTL` pins it: `5m` or `1h` for a controlled measurement, `auto`
+ * (the default, and what any unrecognised value falls back to) to let the
+ * session decide from what it has observed.
+ */
+const CACHE_TTL_UPGRADE_MS = 4 * 60 * 1000;
+
+export function resolveCacheTtl(
+  observedGapMs: number | null,
+  alreadyUpgraded: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): { ttl: "5m" | "1h"; upgraded: boolean } {
+  // Anything that is not an exact pin — including "auto" and a typo — means
+  // measure. A misspelled value must not silently disable the measurement.
+  const pinned = env.ZELYQ_CACHE_TTL;
+  if (pinned === "5m") return { ttl: "5m", upgraded: false };
+  if (pinned === "1h") return { ttl: "1h", upgraded: true };
+  const upgraded =
+    alreadyUpgraded || (observedGapMs !== null && observedGapMs >= CACHE_TTL_UPGRADE_MS);
+  return { ttl: upgraded ? "1h" : "5m", upgraded };
+}
+
+/**
  * Rebuilds Anthropic's native message history from persisted turns — a pure
  * function of `history` so it is testable without a real client, the same
  * way `stream()` and `addToolResults()` build the identical shape for a
@@ -213,6 +257,11 @@ export class AnthropicProvider implements ModelProvider {
 
 class AnthropicConversation implements Conversation {
   private readonly messages: Anthropic.MessageParam[];
+  /** When the previous request went out, for the R6 cache-TTL measurement. */
+  private lastRequestAt: number | null = null;
+  /** Sticky once set: this session has seen a gap long enough to expire a
+   * 5-minute cache entry, so it pays the 1-hour write multiplier from here. */
+  private longCacheTtl = false;
 
   constructor(
     private readonly client: Anthropic,
@@ -244,6 +293,15 @@ class AnthropicConversation implements Conversation {
   }
 
   async *stream(signal: AbortSignal): AsyncGenerator<ProviderEvent, TurnResult, undefined> {
+    // R6 — how long this session's prefix should live in the cache. Measured
+    // from the gap since the previous request, so a slow session upgrades
+    // itself once and a fast one never pays the higher write multiplier.
+    const now = Date.now();
+    const gapMs = this.lastRequestAt === null ? null : now - this.lastRequestAt;
+    const { ttl, upgraded } = resolveCacheTtl(gapMs, this.longCacheTtl);
+    this.longCacheTtl = upgraded;
+    this.lastRequestAt = now;
+
     // A2 / A3 / C5 — optional server-side features, each behind an env flag
     // (off by default). `extraBody` is `{}` and `betaHeader` is "" unless a
     // flag is set, so a normal request is unchanged.
@@ -260,7 +318,11 @@ class AnthropicConversation implements Conversation {
         system: [
           // Prompt and tool list are stable for the session, so this breakpoint
           // is what keeps a long turn affordable.
-          { type: "text", text: this.options.systemPrompt, cache_control: { type: "ephemeral" } },
+          {
+            type: "text",
+            text: this.options.systemPrompt,
+            cache_control: { type: "ephemeral", ttl },
+          },
         ],
         thinking: { type: "adaptive", display: "summarized" },
         output_config: { effort: this.options.effort },
@@ -270,7 +332,7 @@ class AnthropicConversation implements Conversation {
         // agentic turn re-pays full input price for the entire growing
         // transcript on every step, which on an expensive model is the
         // difference between cents and tens of dollars for one build.
-        messages: withConversationCacheBreakpoint(this.messages),
+        messages: withConversationCacheBreakpoint(this.messages, ttl),
         // Beta body params (compaction, refusal fallback) when their flags are
         // set. Cast: the non-beta SDK types do not carry them.
         ...extraRequestBody(),
@@ -339,6 +401,7 @@ class AnthropicConversation implements Conversation {
  */
 export function withConversationCacheBreakpoint(
   messages: Anthropic.MessageParam[],
+  ttl: "5m" | "1h" = "5m",
 ): Anthropic.MessageParam[] {
   if (messages.length === 0) return messages;
   // Mark the last block of the last message, and of the one before it.
@@ -352,7 +415,7 @@ export function withConversationCacheBreakpoint(
     if (blocks.length === 0) return message;
     blocks[blocks.length - 1] = {
       ...blocks[blocks.length - 1],
-      cache_control: { type: "ephemeral" },
+      cache_control: { type: "ephemeral", ttl },
     } as Anthropic.ContentBlockParam;
     return { role: message.role, content: blocks };
   });

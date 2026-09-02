@@ -6,7 +6,12 @@ import {
   describeChatGptResponsesError,
   unpackCodexCredential,
 } from "./chatgpt-responses.js";
-import { classifyGoogleError, describeGoogleError, GoogleProvider } from "./google.js";
+import {
+  classifyGoogleError,
+  describeGoogleError,
+  explicitCacheEnabled,
+  GoogleProvider,
+} from "./google.js";
 import { classifyOpenAICompatibleError, OpenAICompatibleProvider } from "./openai-compatible.js";
 import type { AuthMode, ModelProvider, ProviderErrorCode, ProviderId } from "./types.js";
 
@@ -257,6 +262,34 @@ export function speaksOpenAIDialect(provider: ProviderId): boolean {
 }
 
 /**
+ * Providers where Zelyq pins an explicit prefix cache that the TOOL BLOCK sits
+ * at the front of — so changing the tool list mid-session invalidates the
+ * system prompt and the entire transcript along with it, not just the tools.
+ *
+ * Anthropic is one today: `cache_control` on the system block caches
+ * `tools -> system`, and the conversation breakpoints hang off that. Google
+ * joins the set the moment explicit `cachedContent` covers
+ * `systemInstruction + tools`.
+ *
+ * The providers NOT in this set either cache automatically off an exact prefix
+ * (where a changed tool block simply misses on that one request, at no
+ * multiplier) or do not cache at all. Callers use this to decide whether to pay
+ * for a stable tool block up front or to add tools on demand — see the
+ * specialist pass tools in `session.ts` (R5).
+ */
+export function pinsToolPrefixCache(
+  provider: ProviderId,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (provider === "anthropic") return true;
+  // Google is in the set while explicit `cachedContent` is on — that is what
+  // puts the tool block inside a pinned prefix. One source of truth for the
+  // flag, so the two cannot drift apart.
+  if (provider === "google") return explicitCacheEnabled(env);
+  return false;
+}
+
+/**
  * The address for a provider: an explicit value, then its environment
  * variable, then the registry default. `custom` has no default on purpose.
  */
@@ -426,6 +459,18 @@ function buildOpenAICompatibleProvider(config: {
     // name so a free-text non-reasoning model still works instead of
     // failing outright.
     supportsReasoningEffort: config.provider === "openai" && /^(o\d|gpt-5)/i.test(config.model),
+    // F4 — a stable prompt-cache routing key, only where the field name is in
+    // the provider's own docs. OpenAI and Mistral read `prompt_cache_key`;
+    // OpenRouter reads `session_id`, which also pins the backing provider so a
+    // request cannot wander off its warm cache. DeepSeek and Groq cache
+    // automatically off an exact prefix and need no key. xAI documents a key
+    // but the field name is not confirmed here, and a custom endpoint could be
+    // anything — both send nothing rather than risk a 400 on every turn.
+    ...(config.provider === "openai" || config.provider === "mistral"
+      ? { cacheKeyField: "prompt_cache_key" as const }
+      : config.provider === "openrouter"
+        ? { cacheKeyField: "session_id" as const }
+        : {}),
   });
 }
 

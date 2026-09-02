@@ -186,8 +186,23 @@ export const messageSchema = z.object({
    * Null on user messages and on turns taken before snapshots were automatic.
    */
   snapshotId: z.string().nullable().optional(),
+  /**
+   * Usage for THIS turn — not a session running total. Before the R1 fix these
+   * held a cumulative figure, which is why `usageSchema: 0` rows must be
+   * excluded from any baseline (`docs/token-usage/07-review-and-amendments.md`).
+   */
   tokensIn: z.number().int().nonnegative().default(0),
   tokensOut: z.number().int().nonnegative().default(0),
+  /**
+   * Prompt tokens served from / written to the provider's cache this turn
+   * (~0.1x and ~1.25x of the input price). Optional rather than defaulted: a
+   * message built client-side, or one from a provider that reports no cache
+   * figures, genuinely has no value here, and a `0` would be a claim.
+   */
+  cacheReadTokens: z.number().int().nonnegative().optional(),
+  cacheCreationTokens: z.number().int().nonnegative().optional(),
+  /** 0 = pre-R1 cumulative figures, unusable. 1 = per-turn, trustworthy. */
+  usageSchema: z.number().int().nonnegative().optional(),
   createdAt: z.string().datetime(),
 });
 export type Message = z.infer<typeof messageSchema>;
