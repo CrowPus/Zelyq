@@ -37,9 +37,9 @@ function maxTokensFor(model: string): number {
 const OAUTH_BETA_HEADER = "claude-code-20250219,oauth-2025-04-20";
 
 /**
- * Two Anthropic server-side features, each behind an env flag and OFF by
- * default. Both are betas: the request shape is enabled by an `anthropic-beta`
- * header and a body param the non-beta SDK types do not know, so the param is
+ * Opt-in Anthropic server-side features, each behind an env flag and OFF by
+ * default. Each is a beta: the request shape is enabled by an `anthropic-beta`
+ * header and/or a body param the non-beta SDK types do not know, so the param is
  * cast. A wrong shape is a 400 on the whole turn, which is why they ship dark
  * until run against a live project.
  *
@@ -52,7 +52,9 @@ const OAUTH_BETA_HEADER = "claude-code-20250219,oauth-2025-04-20";
  * - `ZELYQ_REFUSAL_FALLBACK=1` — a policy-declined request is re-run on a
  *   fallback model inside the same call rather than ending on the refusal.
  *   `server-side-fallback-2026-07-01`.
+ * - `ZELYQ_TASK_BUDGET=1` — a probe (see `taskBudgetConfig`).
  */
+
 /** The `anthropic-beta` values the enabled flags require, or "" if none. */
 export function extraBetaHeader(env: NodeJS.ProcessEnv = process.env): string {
   const betas: string[] = [];
@@ -75,6 +77,17 @@ export function extraRequestBody(env: NodeJS.ProcessEnv = process.env): Record<s
     body.fallbacks = "default";
   }
   return body;
+}
+
+/**
+ * `ZELYQ_TASK_BUDGET=1` — a probe. The SDK carries `output_config.task_budget`
+ * (`BetaTokenTaskBudget`) but no `anthropic-beta` value is documented for it, so
+ * this is "does the API accept the param bare". If it does, the follow-up wires
+ * a real per-child budget; for now `total` is a generous fixed value so it never
+ * actually constrains a turn. `{}` when the flag is off.
+ */
+export function taskBudgetConfig(env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
+  return env.ZELYQ_TASK_BUDGET === "1" ? { task_budget: { type: "tokens", total: 1_000_000 } } : {};
 }
 
 /**
@@ -263,7 +276,7 @@ class AnthropicConversation implements Conversation {
           { type: "text", text: this.options.systemPrompt, cache_control: { type: "ephemeral" } },
         ],
         thinking: { type: "adaptive", display: "summarized" },
-        output_config: { effort: this.options.effort },
+        output_config: { effort: this.options.effort, ...taskBudgetConfig() },
         tools: toAnthropicTools(this.options.tools),
         // A second breakpoint on the last message caches the whole conversation
         // prefix — every prior assistant turn and tool result. Without it an
