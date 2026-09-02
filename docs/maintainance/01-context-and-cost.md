@@ -222,6 +222,13 @@ state, not a raw provider error. Something like: *"This conversation has grown t
 `<model>`. Start a new session on this project — the code and the plan are on disk and the new
 session will read them."* That message is honest and actionable; the current one is neither.
 
+**Done (the honest message) — 2026-09-02.** `isContextLengthError(error)` in `providers/index.ts`
+matches the window-overflow wording from every vendor (there is no clean code). `session.ts`'s
+top-level catch emits `code: "context_exhausted"` with exactly that message instead of the raw 400.
+The web already renders `message.message` as the error state, so it reads as a product state without
+a UI branch. `providers.test.ts` (2). The Anthropic-native `compact_20260112` and the per-provider
+"drop oldest tool inputs" degrade are still open — this is the floor, not the ceiling.
+
 ---
 
 ## 4. Capture cache usage, and correct the token counter
@@ -292,6 +299,13 @@ Two things to get right:
   the same budget the compaction threshold uses.
 
 This is latent today (largest real session: 73 messages). Fix it while it is cheap.
+
+**Done — 2026-09-02.** `listForSession` now orders `desc(createdAt)`, `limit` the newest rows, then
+`historyWindow(rows, maxTokens)` (exported, pure): walk from newest spending an approximate token
+budget (`estimateRowTokens` = chars/4 over content + thinking + tool-call JSON), stop when
+`maxTokens` (default 180K) is exceeded with at least one kept, reverse to chronological, then shed
+leading non-`user` rows so the window can't open on an assistant turn. Defaults `limit 400 /
+maxTokens 180_000`; both gateway callers use them unchanged. `history-window.test.ts` (5).
 
 ---
 

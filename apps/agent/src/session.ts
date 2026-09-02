@@ -42,6 +42,7 @@ import {
   describeAvailableModels,
   describeProviderError,
   type Effort,
+  isContextLengthError,
   type ProviderFactory,
   type ProviderId,
 } from "./providers/index.js";
@@ -3346,13 +3347,29 @@ export class AgentSession {
         emit({ type: "aborted", sessionId: this.id, messageId });
         return;
       }
-      emit({
-        type: "error",
-        sessionId: this.id,
-        code: classifyProviderError(this.options.provider, error),
-        message: describeProviderError(this.options.provider, error),
-        fatal: false,
-      });
+      // A3 — a context-window overflow is a product state, not a raw 400. Tell
+      // the user what to do; the code and the plan are on disk for the next
+      // session to pick up.
+      if (isContextLengthError(error)) {
+        emit({
+          type: "error",
+          sessionId: this.id,
+          code: "context_exhausted",
+          message:
+            `This conversation has grown too large for ${this.options.model}. Start a new ` +
+            "session on this project — the code and any plan are on disk, and the new session " +
+            "reads them.",
+          fatal: false,
+        });
+      } else {
+        emit({
+          type: "error",
+          sessionId: this.id,
+          code: classifyProviderError(this.options.provider, error),
+          message: describeProviderError(this.options.provider, error),
+          fatal: false,
+        });
+      }
     } finally {
       this.busy = false;
       this.abortController = null;

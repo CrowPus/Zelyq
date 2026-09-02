@@ -1,5 +1,5 @@
 import type { AttachmentRef, Message, MessageRole, ToolCall } from "@zelyq/core";
-import { asc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { messages } from "../schema/sqlite.js";
 
@@ -104,16 +104,66 @@ export function messageRepository(db: ZelyqDb) {
         .where(eq(messages.id, id));
     },
 
-    async listForSession(sessionId: string, limit = 500): Promise<Message[]> {
+    /**
+     * The history a resumed session replays (A5). Takes the **newest**
+     * messages, not the oldest — an old cut kept turn 1 and silently dropped
+     * everything recent, which is amnesia, not a window. Bounded by an
+     * approximate token budget as well as a hard count, because tokens are the
+     * quantity that actually matters and a single `write_file` turn can be
+     * worth fifty greetings.
+     *
+     * The returned window is trimmed forward to start on a `user` message:
+     * every provider 400s on a history that opens with an assistant turn, and
+     * `buildAnthropicHistory` can pair tool calls correctly only given a clean
+     * start.
+     */
+    async listForSession(
+      sessionId: string,
+      { limit = 400, maxTokens = 180_000 }: { limit?: number; maxTokens?: number } = {},
+    ): Promise<Message[]> {
       const rows = await db
         .select()
         .from(messages)
         .where(eq(messages.sessionId, sessionId))
-        .orderBy(asc(messages.createdAt))
+        .orderBy(desc(messages.createdAt))
         .limit(limit);
-      return rows.map(toMessage);
+
+      return historyWindow(rows, maxTokens).map(toMessage);
     },
   };
+}
+
+/** Rough token count for one row — chars/4 over the text it carries. */
+export function estimateRowTokens(row: {
+  content?: string | null;
+  thinking?: string | null;
+  toolCalls?: string | null;
+}): number {
+  const text =
+    (row.content?.length ?? 0) + (row.thinking?.length ?? 0) + (row.toolCalls?.length ?? 0);
+  return Math.ceil(text / 4);
+}
+
+/**
+ * Given rows newest-first, return a valid replay window in chronological order:
+ * take rows back from the newest until `maxTokens` is spent (always at least
+ * one), then drop any leading non-`user` rows so the window does not open on an
+ * assistant turn — which every provider rejects.
+ */
+export function historyWindow<T extends { role: string } & Parameters<typeof estimateRowTokens>[0]>(
+  rowsNewestFirst: T[],
+  maxTokens: number,
+): T[] {
+  const kept: T[] = [];
+  let tokens = 0;
+  for (const row of rowsNewestFirst) {
+    tokens += estimateRowTokens(row);
+    if (tokens > maxTokens && kept.length > 0) break;
+    kept.push(row);
+  }
+  kept.reverse();
+  while (kept.length > 0 && kept[0]!.role !== "user") kept.shift();
+  return kept;
 }
 
 export type MessageRepository = ReturnType<typeof messageRepository>;

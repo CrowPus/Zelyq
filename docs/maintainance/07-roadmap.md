@@ -197,6 +197,11 @@ Server-side compaction, an honest exhaustion message when the window is genuinel
 newest-N token-bounded history window. Removes a hard failure that will hit `cheap`-tier builders on
 Haiku 4.5 first — three live sessions on this machine already exceed its 200K window.
 
+**Portable halves done 2026-09-02:** the honest exhaustion message (`isContextLengthError` →
+`context_exhausted`) and the newest-N token-bounded window (`listForSession` → `historyWindow`).
+Anthropic-native `compact_20260112` and a per-provider "drop oldest tool inputs" degrade are still
+open.
+
 ### 3.3 — Task budgets and per-model caps
 
 [03](./03-api-alignment.md) §4 · fixes **C3** · medium

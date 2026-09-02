@@ -57,6 +57,20 @@ families drop out. Architect names them per build step, specialists get them via
 `/agent` grants them, and Architect / Engineer keep the full weave. `tool-relevance.test.ts` (4).
 Option A (Anthropic `defer_loading`) is the durable form and stays open.
 
+### 3.2 / A3 + A5 — history window + honest exhaustion (portable halves)
+
+- **A5** — `messages.listForSession` was taking the **oldest** 500 rows (keep turn 1, drop
+  everything recent — amnesia). Now `desc(createdAt)` + `historyWindow(rows, maxTokens)` (exported,
+  pure): spend an approximate token budget from the newest back (`estimateRowTokens` = chars/4),
+  reverse to chronological, shed leading non-`user` rows so the replay can't open on an assistant
+  turn. Defaults `limit 400 / maxTokens 180_000`. `history-window.test.ts` (5).
+- **A3** — `isContextLengthError(error)` matches the window-overflow message from every vendor (no
+  clean code exists); `session.ts` emits `context_exhausted` with "start a new session, the code and
+  plan are on disk" instead of a raw 400. `providers.test.ts` (2).
+
+Still open (Anthropic-native): `compact_20260112`, and a per-provider "drop the oldest tool inputs"
+degrade for the non-Anthropic providers.
+
 **Left for the founder / a decision:** the `<scope>` prompt half of F6 (data now supports it); G3
 (needs an eval run); `pricing-toggle`'s non-`<button>` toggle; a `<how_to_work>` mention of
 `find_files`; F2's per-PR smoke set (needs a CI key); D4 (which of the 11 thin skills to keep);
