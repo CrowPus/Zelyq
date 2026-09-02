@@ -66,6 +66,35 @@ now blocking** (`continue-on-error` removed) — `18b772c2702f` is a recorded ba
 Still worth a second run before reading anything into `2/5 → 1/5`: `pnpm eval --limit 5 --compare
 apps/agent/evals/results/2026-09-02T06-35-28-946Z.json` (the path fix makes that work now).
 
+### Second run 2026-09-02 06:54 — `1/5 → 1/5`, `fixed none, broke none`
+
+`--compare` worked this time. `done` is **stable at 1/5**, not noise. (The exit code is 1 by design —
+`run.ts` exits non-zero unless every case is `done`, so CI fails a red suite; it is not a crash.)
+`dashboard-layout` reliably passes; the other four reliably fail, and the split is clear:
+
+| case | consistent failure | kind |
+| --- | --- | --- |
+| `dashboard-layout` | — (passes) | — |
+| `contact-form` | 5 files vs cap 4 — App + ContactForm + FormField + `validateContact.ts` + `index.css`, **all requested, none invented** | restraint, false |
+| `todo-app` | 7 files vs cap 6 — clean decomposition, all requested | restraint, false |
+| `landing-page` | `Wordmark.tsx` (run 1) / `NoteSpecimen.tsx` (run 2) — **genuine invented scope**, caught by `no_unrequested_components`; also over the 7-file cap even without them | restraint, real |
+| `pricing-toggle` | `no match for /<button/` — **real correctness miss**, both runs: the monthly/annual toggle is built as something other than a `<button>`. Plus a hand-rolled `CheckIcon.tsx` (G3) | correctness + G3 |
+
+So after two runs the F6 thesis holds on the strongest model: it decomposes past the caps AND
+invents components (`Wordmark`, `NoteSpecimen`, `CheckIcon`, `Icon`). `no_unrequested_components` is
+doing its job on the real inventions.
+
+**Calibration done (`maint/phase1`):** `contact-form` cap 4→5 and `todo-app` cap 6→7. Both runs
+landed a clean, fully-requested decomposition at exactly those counts, and `no_unrequested_components`
+is now the restraint guard — F6's own solution says the file cap becomes "a loose backstop" once it
+exists. `landing-page` (7) and `pricing-toggle` (7) unchanged: they fail on real invention / a real
+bug, not on the cap. Revert the two if you disagree — it's a judgement call, well inside eval
+tuning.
+
+**Not touched (founder's):** the `<scope>` prompt wording — the data now justifies it; `pricing-toggle`'s
+non-`<button>` toggle; G3 (the repeated hand-rolled icon files). Run-to-run token/cost variance at a
+fixed prompt was ~+22% here (65→70 rounds) — the reason the README says run twice.
+
 ---
 
 ## A4 — capture cache tokens, correct the counter, 2-breakpoint upgrade
