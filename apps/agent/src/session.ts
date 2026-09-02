@@ -43,6 +43,7 @@ import {
   describeProviderError,
   type Effort,
   isContextLengthError,
+  modelTierFor,
   type ProviderFactory,
   type ProviderId,
 } from "./providers/index.js";
@@ -184,6 +185,10 @@ function architectModeBlock(
 // builder is bounded; the whole run is bounded on top of that.
 const SUBAGENT_MAX_TURNS = 25;
 const SUBAGENT_MAX_TOKENS = 200_000;
+/** Ceiling for a `cheap`-tier dispatched child — below its context window
+ * (Haiku 4.5's is 200K) so it lands its work rather than hitting a
+ * context-length 400 first (C3). */
+const CHEAP_TIER_TOKEN_CAP = 150_000;
 const SUBAGENT_WALLCLOCK_MS = 5 * 60_000;
 const ORCH_MAX_SUBAGENTS = 20;
 const ORCH_MAX_TOKENS = 2_000_000;
@@ -1774,11 +1779,19 @@ export class AgentSession {
       : isVerify
         ? 10 * 60_000
         : SUBAGENT_WALLCLOCK_MS;
-    const tokenCap = spec
+    const rawTokenCap = spec
       ? (spec.maxTokens ?? SPECIALIST_MAX_TOKENS)
       : isVerify
         ? SUBAGENT_MAX_TOKENS * 3
         : SUBAGENT_MAX_TOKENS;
+    // C3 — a `cheap`-tier child's context window is small (Haiku 4.5's is
+    // exactly SUBAGENT_MAX_TOKENS), so an un-clamped cap can only be reached by
+    // first 400ing on context length. Hold it under the window. Strong /
+    // standard / custom models keep the full cap.
+    const tokenCap =
+      modelTierFor(this.options.provider, model) === "cheap"
+        ? Math.min(rawTokenCap, CHEAP_TIER_TOKEN_CAP)
+        : rawTokenCap;
     const childTurnCap = spec
       ? (spec.maxTurns ?? SPECIALIST_MAX_TURNS)
       : isVerify

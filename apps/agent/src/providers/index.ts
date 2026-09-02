@@ -429,6 +429,15 @@ function buildOpenAICompatibleProvider(config: {
   });
 }
 
+/**
+ * The registry's tier for a model, or `undefined` when it isn't a listed model
+ * (a custom endpoint, or a name typed straight into Settings). Used to keep a
+ * dispatched `cheap`-tier child's token budget under its context window (C3).
+ */
+export function modelTierFor(provider: ProviderId, model: string): ModelTier | undefined {
+  return PROVIDERS[provider]?.models?.find((entry) => entry.value === model)?.tier;
+}
+
 export function classifyProviderError(provider: ProviderId, error: unknown): ProviderErrorCode {
   // Checked by the error's own type, not the provider id — a Codex session
   // error is never an OpenAICompatibleError even though `provider` says

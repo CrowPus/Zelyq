@@ -8,6 +8,7 @@ import {
   defaultModelFor,
   isContextLengthError,
   isProviderId,
+  modelTierFor,
   PROVIDERS,
 } from "../src/providers/index.js";
 
@@ -172,4 +173,12 @@ test("isContextLengthError does not fire on ordinary errors", () => {
   ]) {
     assert.equal(isContextLengthError(new Error(message)), false, message);
   }
+});
+
+test("modelTierFor reads the registry tier, and is undefined for unlisted models", () => {
+  assert.equal(modelTierFor("anthropic", "claude-haiku-4-5"), "cheap");
+  assert.equal(modelTierFor("anthropic", "claude-opus-5"), "strong");
+  assert.equal(modelTierFor("anthropic", "claude-sonnet-5"), "standard");
+  assert.equal(modelTierFor("anthropic", "some-model-typed-into-settings"), undefined);
+  assert.equal(modelTierFor("custom", "whatever"), undefined);
 });

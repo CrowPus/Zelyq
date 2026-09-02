@@ -210,6 +210,10 @@ Give dispatched children a budget they can see, so they land their work instead 
 turn 25. Derive the caps from the child's actual model rather than shared constants —
 `SUBAGENT_MAX_TOKENS = 200_000` is currently *exactly* Haiku 4.5's entire context window.
 
+**Collision fixed 2026-09-02:** a `cheap`-tier child's `tokenCap` is clamped to 150K
+(`modelTierFor` + `CHEAP_TIER_TOKEN_CAP`); larger models are untouched. The visible `task-budgets`
+countdown and the live `models.retrieve` window lookup are still open (Anthropic-only).
+
 ### 3.4 — `update_plan`
 
 [04](./04-agent-competence.md) §2 · fixes **D2** · medium

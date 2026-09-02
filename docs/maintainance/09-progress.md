@@ -71,6 +71,15 @@ Option A (Anthropic `defer_loading`) is the durable form and stays open.
 Still open (Anthropic-native): `compact_20260112`, and a per-provider "drop the oldest tool inputs"
 degrade for the non-Anthropic providers.
 
+### 3.3 / C3 — the Haiku token-cap collision
+
+`SUBAGENT_MAX_TOKENS = 200_000` is exactly Haiku 4.5's context window, so a `cheap`-tier dispatched
+child could only reach its token cap by first 400ing on context length. `modelTierFor(provider,
+model)` reads the registry tier; in `dispatch`, a `cheap` child's `tokenCap` is
+`min(rawCap, CHEAP_TIER_TOKEN_CAP=150_000)`. Strong / standard / unlisted (custom) models keep the
+full cap — nothing large-window regresses. `providers.test.ts` (+1). The visible `task-budgets`
+countdown and the live `models.retrieve` lookup stay open (Anthropic-only).
+
 **Left for the founder / a decision:** the `<scope>` prompt half of F6 (data now supports it); G3
 (needs an eval run); `pricing-toggle`'s non-`<button>` toggle; a `<how_to_work>` mention of
 `find_files`; F2's per-PR smoke set (needs a CI key); D4 (which of the 11 thin skills to keep);

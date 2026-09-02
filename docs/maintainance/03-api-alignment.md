@@ -219,6 +219,13 @@ knows the tier; it should also know the window. `client.models.retrieve(id)` ret
 `max_input_tokens` and `max_tokens` live, which is a better source than a hardcoded table that will
 drift.
 
+**Done (the collision fix) — 2026-09-02.** `modelTierFor(provider, model)` reads the registry tier.
+In `dispatch`, a `cheap`-tier child's `tokenCap` is `min(rawCap, CHEAP_TIER_TOKEN_CAP=150_000)` —
+under Haiku 4.5's 200K window, so it lands its work rather than 400ing on context length first.
+Strong / standard / custom (unlisted) models keep the full cap untouched, so no large-window model
+regresses. `providers.test.ts` (1). The live `models.retrieve` window lookup and the advisory
+`task-budgets` countdown are still open (Anthropic-only).
+
 ---
 
 ## 5. Tune effort in both directions
