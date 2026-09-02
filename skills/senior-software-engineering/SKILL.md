@@ -117,7 +117,7 @@ Inspect the project structure, framework/runtime versions, conventions, tests, l
 
 Do not introduce a new library or architecture before understanding what already exists.
 
-If available, run `scripts/project-audit` as a discovery aid. Its output is advisory, not proof of quality.
+If available, run `node scripts/project-audit` as a discovery aid. Its output is advisory, not proof of quality.
 
 ### 2. Restate the real requirement
 

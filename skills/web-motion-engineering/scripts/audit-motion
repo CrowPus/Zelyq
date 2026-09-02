@@ -1,0 +1,146 @@
+#!/usr/bin/env node
+/**
+ * Static risk scan for web motion code.
+ *
+ * The scan is intentionally conservative. Findings are review leads, not proof
+ * that an animation is defective — a `will-change` that a human profiled and
+ * kept is a finding here and still correct in the code.
+ *
+ * Node, no dependencies: the project runtime is a `node:22-bookworm-slim`
+ * container with no Python interpreter, so the earlier `audit_motion.py` could
+ * never actually run there.
+ *
+ *   node scripts/audit-motion <project>
+ *   node scripts/audit-motion <project> --json
+ *   node scripts/audit-motion <project> --fail-on medium
+ */
+import fs from 'node:fs'
+import path from 'node:path'
+
+const EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less', '.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte', '.html'])
+const SKIP_DIRS = new Set(['.git', '.next', '.nuxt', 'build', 'coverage', 'node_modules', 'out', 'vendor', 'dist'])
+const SEVERITY_RANK = { info: 0, low: 1, medium: 2, high: 3 }
+
+/** Per-line patterns. Each is a lead to look at, never a verdict. */
+const LINE_RULES = [
+  ['medium', 'transition-all', /(?:transition\s*:\s*all\b|\btransition-all\b)/i,
+    'Broad transitions can animate unexpected properties; list the intended properties.'],
+  ['medium', 'layout-transition', /transition(?:-property)?\s*:[^;]*(?:width|height|top|left|right|bottom|margin|padding)\b/i,
+    'This transition may trigger layout; confirm it is necessary and profile it.'],
+  ['low', 'persistent-will-change', /will-change\s*:/i,
+    'Treat will-change as a measured, limited optimization and check layer/GPU cost.'],
+  ['medium', 'infinite-motion', /(?:animation[^;\n]*\binfinite\b|animation-iteration-count\s*:\s*infinite)/i,
+    'Continuous motion needs purpose, a stop strategy, and a reduced-motion branch.'],
+  ['low', 'scroll-handler', /(?:addEventListener\s*\(\s*['"]scroll['"]|\bonScroll\s*=)/i,
+    'Review scroll work for passive handling, frame batching, and unnecessary per-event state.'],
+  ['medium', 'expensive-visual-transition', /transition(?:-property)?\s*:[^;]*(?:filter|backdrop-filter|box-shadow|clip-path|mask)\b/i,
+    'Paint-heavy visual property is transitioned; profile the painted area on mobile.'],
+]
+
+function* sourceFiles(root) {
+  const stack = [root]
+  while (stack.length) {
+    const dir = stack.pop()
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue // an unreadable directory is not worth failing the scan over
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name)
+      // Symlinks are not followed: a link into node_modules would make the
+      // scan walk a dependency tree and report on code nobody here owns.
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) stack.push(full)
+      } else if (entry.isFile() && EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        yield full
+      }
+    }
+  }
+}
+
+function scan(root) {
+  const findings = []
+  const corpus = []
+
+  for (const file of sourceFiles(root)) {
+    const rel = path.relative(root, file)
+    let content
+    try {
+      content = fs.readFileSync(file, 'utf8')
+    } catch (error) {
+      findings.push({ severity: 'low', rule: 'read-error', path: rel, line: 0, message: `Could not read file: ${error.message}` })
+      continue
+    }
+    corpus.push(content)
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      for (const [severity, rule, pattern, message] of LINE_RULES) {
+        if (pattern.test(lines[i])) findings.push({ severity, rule, path: rel, line: i + 1, message })
+      }
+    }
+  }
+
+  // Whole-project checks: these ask whether something is MISSING, which no
+  // single line can answer.
+  const all = corpus.join('\n').toLowerCase()
+  const has = (...tokens) => tokens.some((t) => all.includes(t))
+  const project = (severity, rule, message) => findings.push({ severity, rule, path: '.', line: 0, message })
+
+  const motionMarkers = ['@keyframes', 'animation:', 'transition:', 'motion/', 'framer-motion', 'gsap', 'scrolltrigger', 'requestanimationframe', 'startviewtransition']
+  if (has(...motionMarkers) && !has('prefers-reduced-motion', 'usereducedmotion', 'reducedmotion')) {
+    project('high', 'missing-reduced-motion', 'Motion code was found but no reduced-motion policy was detected in scanned source.')
+  }
+  if (has('requestanimationframe') && !has('cancelanimationframe')) {
+    project('medium', 'animation-frame-cleanup', 'requestAnimationFrame is used but cancelAnimationFrame was not detected; verify lifecycle cleanup.')
+  }
+  if (has('scrolltrigger', 'gsap.') && !has('context.revert', '.revert()', '.kill()', 'usegsap')) {
+    project('medium', 'gsap-cleanup', 'GSAP usage was detected without an obvious scoped cleanup marker; verify unmount and breakpoint cleanup.')
+  }
+  if (has("from 'three'", 'from "three"', '@react-three/fiber') && !all.includes('.dispose(')) {
+    project('medium', 'webgl-disposal', 'Three.js/R3F usage was detected without explicit disposal; verify GPU resource ownership and cleanup.')
+  }
+  if (all.includes('startviewtransition') && !has('if (!document.startviewtransition', 'if (document.startviewtransition', "'startviewtransition' in document", '"startviewtransition" in document')) {
+    project('medium', 'view-transition-fallback', 'View Transition API usage was detected without an obvious feature-detection branch.')
+  }
+
+  return findings.sort((a, b) =>
+    SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] ||
+    a.path.localeCompare(b.path) ||
+    a.line - b.line ||
+    a.rule.localeCompare(b.rule))
+}
+
+const args = process.argv.slice(2)
+const flags = new Set(args.filter((a) => a.startsWith('--')))
+const failOnIndex = args.indexOf('--fail-on')
+const failOn = failOnIndex === -1 ? null : args[failOnIndex + 1]
+const target = args.find((a) => !a.startsWith('--') && a !== failOn) ?? '.'
+
+if (failOnIndex !== -1 && !(failOn in SEVERITY_RANK)) {
+  console.error(`--fail-on must be one of: ${Object.keys(SEVERITY_RANK).join(', ')}`)
+  process.exit(2)
+}
+const root = path.resolve(target)
+if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+  console.error(`not a directory: ${root}`)
+  process.exit(2)
+}
+
+const findings = scan(root)
+
+if (flags.has('--json')) {
+  console.log(JSON.stringify({ root, findings }, null, 2))
+} else if (findings.length === 0) {
+  console.log('No static motion risks detected. Browser and accessibility testing are still required.')
+} else {
+  for (const f of findings) {
+    const where = f.line ? `${f.path}:${f.line}` : f.path
+    console.log(`[${f.severity.toUpperCase().padEnd(6)}] ${f.rule.padEnd(28)} ${where} — ${f.message}`)
+  }
+  console.log(`\n${findings.length} finding(s). Treat these as review leads, not proof of defects.`)
+}
+
+if (failOn && findings.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK[failOn])) process.exit(1)
