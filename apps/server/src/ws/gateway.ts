@@ -473,6 +473,9 @@ export class ChatGateway {
       snapshotId,
       tokensIn: 0,
       tokensOut: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      usageSchema: 1,
       createdAt: new Date().toISOString(),
     };
     const toolCalls = new Map<string, ToolCall>();
@@ -510,8 +513,18 @@ export class ChatGateway {
             toolCalls.set(event.call.id, event.call);
             break;
           case "usage":
-            assistant.tokensIn = event.tokensIn;
-            assistant.tokensOut = event.tokensOut;
+            // This turn's figures, NOT the session-cumulative `tokensIn` /
+            // `tokensOut` the live gauge uses. Storing the cumulative here and
+            // then ADDING it to the session total below made
+            // `sessions.tokens_in` grow with the square of the turn count —
+            // historical rows are ~2.1x inflated and cannot be rebaselined.
+            // The `??` keeps an older agent talking to a newer server working,
+            // at the old (wrong) behaviour rather than at zero.
+            assistant.tokensIn = event.turnTokensIn ?? event.tokensIn;
+            assistant.tokensOut = event.turnTokensOut ?? event.tokensOut;
+            assistant.cacheReadTokens = event.turnCacheReadTokens ?? 0;
+            assistant.cacheCreationTokens = event.turnCacheCreationTokens ?? 0;
+            assistant.usageSchema = event.turnTokensIn === undefined ? 0 : 1;
             break;
           default:
             break;

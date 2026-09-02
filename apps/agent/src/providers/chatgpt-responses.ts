@@ -1,5 +1,13 @@
 import type { PromptAttachment } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
+import {
+  REDUCTION_TAIL_KEEP,
+  REDUCTION_THRESHOLD_CHARS,
+  recoverableCharsJson,
+  recoverableResultChars,
+  reduceToolArgumentsJson,
+  reduceToolResultText,
+} from "./history-reduction.js";
 import { readServerSentEvents } from "./openai-compatible.js";
 import type {
   Conversation,
@@ -66,6 +74,36 @@ type InputContentPart =
   | { type: "input_text"; text: string }
   | { type: "output_text"; text: string }
   | { type: "input_image"; image_url: string };
+
+/**
+ * R7 — drop superseded whole-file payloads from the Responses API's `input`
+ * array. Pure and exported so it is testable without a live session.
+ */
+export function reduceChatGptHistory(items: InputItem[]): InputItem[] {
+  const end = Math.max(0, items.length - REDUCTION_TAIL_KEEP);
+  let recoverable = 0;
+  for (let i = 0; i < end; i++) {
+    const item = items[i];
+    if (item?.type === "function_call") {
+      recoverable += recoverableCharsJson(item.name, item.arguments);
+    } else if (item?.type === "function_call_output") {
+      recoverable += recoverableResultChars(item.output);
+    }
+  }
+  if (recoverable < REDUCTION_THRESHOLD_CHARS) return items;
+
+  return items.map((item, i) => {
+    if (i >= end) return item;
+    // Results, not arguments, are the bulk of a long turn's history.
+    if (item.type === "function_call_output") {
+      const reduced = reduceToolResultText(item.output);
+      return reduced ? { ...item, output: reduced } : item;
+    }
+    if (item.type !== "function_call") return item;
+    const reduced = reduceToolArgumentsJson(item.name, item.arguments);
+    return reduced ? { ...item, arguments: reduced } : item;
+  });
+}
 
 export function buildChatGptUserContent(
   text: string,
@@ -169,7 +207,7 @@ interface ResponsesStreamEvent {
 }
 
 class ChatGptResponsesConversation implements Conversation {
-  private readonly items: InputItem[];
+  private items: InputItem[];
 
   constructor(
     private readonly model: string,
@@ -205,6 +243,9 @@ class ChatGptResponsesConversation implements Conversation {
   }
 
   async *stream(signal: AbortSignal): AsyncGenerator<ProviderEvent, TurnResult, undefined> {
+    // R7 — old file bodies ride in `input` at full price on every iteration
+    // until they are swept out.
+    this.items = reduceChatGptHistory(this.items);
     const body: Record<string, unknown> = {
       model: this.model,
       instructions: this.options.systemPrompt,

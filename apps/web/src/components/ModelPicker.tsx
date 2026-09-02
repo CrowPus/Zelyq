@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { AvailableProviders } from "@zelyq/core";
 import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { api } from "../lib/api";
@@ -17,6 +18,44 @@ interface Props {
   onChange(value: ModelChoice | null): void;
 }
 
+type Provider = AvailableProviders["providers"][number];
+
+/**
+ * What the picker should do, given the state of the `/providers` query.
+ *
+ * Split out from the component because the three cases below are easy to
+ * collapse into one and expensive to get wrong. This used to be a single
+ * `if (groups.length === 0) return null`, which meant a picker with nothing to
+ * offer and a picker that could not *find out* looked identical: the control
+ * silently deleted itself from the composer. `/api/providers` reaches the agent
+ * with no fallback, so any agent restart made the model switch appear to have
+ * been removed from the product.
+ *
+ * Only a successful answer of "nothing is configured" justifies hiding it.
+ */
+export type PickerState =
+  | { kind: "ready"; groups: Provider[] }
+  | { kind: "unavailable"; reason: "loading" | "error" }
+  | { kind: "hidden" };
+
+export function modelPickerState(query: {
+  data?: AvailableProviders | undefined;
+  isError: boolean;
+  isSuccess: boolean;
+}): PickerState {
+  const groups = (query.data?.providers ?? []).filter(
+    (provider) => provider.configured && provider.id !== "custom" && provider.models?.length,
+  );
+  // Stale data from a previous success is still worth offering while a
+  // background refetch is failing — the models did not stop existing.
+  if (groups.length > 0) return { kind: "ready", groups };
+  if (query.isError) return { kind: "unavailable", reason: "error" };
+  // Nothing with a real model catalog is configured — most instances run one
+  // provider, and a picker with nothing to switch to is just noise.
+  if (query.isSuccess) return { kind: "hidden" };
+  return { kind: "unavailable", reason: "loading" };
+}
+
 /**
  * A per-conversation model switch, styled after Copilot's own `/model`
  * picker. Picking a *model*, not just a vendor: Claude Opus, Sonnet, and
@@ -33,15 +72,45 @@ export function ModelPicker({ value, onChange }: Props) {
     queryKey: ["providers"],
     queryFn: api.getProviders,
     staleTime: 60_000,
+    // The agent going away for a few seconds (a restart, a redeploy) is the
+    // common failure here, not a permanent one — so retry rather than settling
+    // into the error state on the first miss.
+    retry: 3,
   });
 
-  const groups = (providers.data?.providers ?? []).filter(
-    (provider) => provider.configured && provider.id !== "custom" && provider.models?.length,
-  );
+  const state = modelPickerState(providers);
 
-  // Nothing with a real model catalog is configured — most instances run one
-  // provider, and a picker with nothing to switch to is just noise.
-  if (groups.length === 0) return null;
+  if (state.kind === "hidden") return null;
+
+  // Loading, or the providers call failed. Keep the control in place at its
+  // fixed width so the button row does not reflow, and say which it is —
+  // vanishing here is what made an agent restart look like a removed feature.
+  if (state.kind === "unavailable") {
+    const failed = state.reason === "error";
+    return (
+      <div className="relative shrink-0">
+        <button
+          type="button"
+          disabled={!failed}
+          onClick={failed ? () => void providers.refetch() : undefined}
+          aria-label={failed ? "Model list unavailable — click to retry" : "Loading the model list"}
+          title={
+            failed
+              ? "Could not load the model list. The agent may be restarting — click to retry."
+              : "Loading models…"
+          }
+          className="flex w-[7.5rem] items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors disabled:cursor-default enabled:hover:bg-surface-hover enabled:hover:text-fg"
+        >
+          <span className="min-w-0 flex-1 truncate text-left">
+            {value?.label ?? (failed ? "Unavailable" : "Default")}
+          </span>
+          <ChevronDown size={11} strokeWidth={2} className="shrink-0 opacity-40" />
+        </button>
+      </div>
+    );
+  }
+
+  const { groups } = state;
 
   return (
     // shrink-0 + a fixed-width trigger: the button row must not move when the

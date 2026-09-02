@@ -175,6 +175,20 @@ export const messages = pgTable(
     snapshotId: text("snapshot_id"),
     tokensIn: integer("tokens_in").notNull().default(0),
     tokensOut: integer("tokens_out").notNull().default(0),
+    /**
+     * Prompt tokens this turn read from / wrote to the provider's cache. A
+     * cache read bills at ~0.1x and a write at ~1.25x, so without these two the
+     * stored `tokens_in` cannot be turned into money at all.
+     */
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),
+    /**
+     * 0 = written before the R1 fix, when `tokens_in` held a session-cumulative
+     * running total instead of this turn's usage. Those rows are inflated and
+     * must be excluded from any baseline; there is no backfill. 1 = per-turn,
+     * trustworthy. See `docs/token-usage/07-review-and-amendments.md`.
+     */
+    usageSchema: integer("usage_schema").notNull().default(1),
     createdAt: text("created_at").notNull(),
   },
   (table) => ({

@@ -70,8 +70,13 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     paths: z.array(z.string()),
   }),
 
-  /** Token accounting for the turn so far. `tokensIn` is the UNCACHED prompt
-   * remainder on Anthropic/OpenAI; add the two cache fields for true size. */
+  /** Token accounting. The `tokens*` fields are SESSION-CUMULATIVE running
+   * totals, for the live gauge; the `turn*` fields are this user turn only,
+   * and are what gets persisted and summed. Mixing the two is what made
+   * `sessions.tokens_in` quadratic before (R1) — a cumulative total was being
+   * added to a cumulative total on every turn. `tokensIn` is the UNCACHED
+   * prompt remainder on Anthropic/OpenAI; add the two cache fields for true
+   * prompt size. */
   z.object({
     type: z.literal("usage"),
     sessionId: z.string(),
@@ -81,6 +86,16 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     cacheReadTokens: z.number().int().nonnegative().optional(),
     /** Prompt tokens written to the provider's cache this session (~1.25×). */
     cacheCreationTokens: z.number().int().nonnegative().optional(),
+    /** This turn's uncached prompt tokens. Optional so an older agent talking
+     * to a newer server still parses; the server falls back to the cumulative
+     * field, which is what it always used. */
+    turnTokensIn: z.number().int().nonnegative().optional(),
+    /** This turn's output tokens. */
+    turnTokensOut: z.number().int().nonnegative().optional(),
+    /** This turn's cache reads. */
+    turnCacheReadTokens: z.number().int().nonnegative().optional(),
+    /** This turn's cache writes. */
+    turnCacheCreationTokens: z.number().int().nonnegative().optional(),
   }),
 
   /** The turn is complete. `message` is the persisted assistant message. */

@@ -11,6 +11,10 @@ build/
 .env
 .env.local
 .env.*.local
+# A hand-made backup of .env holds the same live keys it does. `.env` alone
+# does not match these, so one `git add -A` would have committed them.
+.env.bak*
+.env.backup*
 
 # Runtime data
 workspace/

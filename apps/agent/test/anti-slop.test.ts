@@ -92,7 +92,10 @@ const CATALOG =
 
 async function setup(
   scripts: Array<Array<{ events: ProviderEvent[]; result: TurnResult }>>,
-  { mode }: { mode?: "engineer" | "architect" } = {},
+  {
+    mode,
+    providerId = "anthropic",
+  }: { mode?: "engineer" | "architect"; providerId?: "anthropic" | "openai" } = {},
 ) {
   const built: Built[] = [];
   const workspaceDir = path.join(os.tmpdir(), `zelyq-antislop-${Date.now()}-${Math.random()}`);
@@ -108,7 +111,7 @@ async function setup(
     logLevel: "silent",
     isProduction: true,
     corsOrigin: ["*"],
-    provider: "anthropic",
+    provider: providerId,
     model: "scripted",
     effort: "high",
     apiKey: "k",
@@ -165,7 +168,11 @@ test("064: default mode with no /agent pick has no specialist pass tools", async
   // The contract: a user who never types `/agent` sees an unchanged tool
   // block. If this fails, every default turn is paying for four tools it was
   // never meant to have.
-  const { base, built, close } = await setup([[say("done")]]);
+  //
+  // R5 narrowed this to providers where a late grant is actually free. On a
+  // provider that pins a prefix cache the arithmetic reverses — see the next
+  // test — so this asserts the original contract where it still holds.
+  const { base, built, close } = await setup([[say("done")]], { providerId: "openai" });
   try {
     await prompt(base, "build me a page");
     const names = toolNames(built[0]!);
@@ -178,11 +185,31 @@ test("064: default mode with no /agent pick has no specialist pass tools", async
   }
 });
 
+test("R5: a prefix-cached provider seeds the pass tools instead, so /agent never churns the prefix", async () => {
+  // On Anthropic the tool block is the FIRST thing in the cached prefix, so
+  // adding a tool mid-session invalidates the system prompt and the entire
+  // transcript behind it: an Architect session re-writes ~24k static tokens
+  // plus its history at 1.25x rather than reading it at 0.1x. The four pass
+  // tools are ~1,047 tokens, written once and read at 0.1x thereafter — the
+  // cheaper side of that trade in every case, so they are seeded up front.
+  const { base, built, close } = await setup([[say("done")]]);
+  try {
+    await prompt(base, "build me a page");
+    const names = toolNames(built[0]!);
+    for (const t of ["design_pass", "ops_pass", "qa_pass", "cinematic_pass"]) {
+      assert.ok(names.includes(t), `${t} should be seeded on a prefix-cached provider`);
+    }
+  } finally {
+    await close();
+  }
+});
+
 test("064: /agent designer grants design_pass in DEFAULT mode", async () => {
   // The founder's exact case. Before 064 the tool was gated on
   // architectMode || engineerMode, so this list came back without it and the
-  // model could not comply with its own instruction.
-  const { base, built, close } = await setup([[say("done")]]);
+  // model could not comply with its own instruction. Asserted on a provider
+  // that still grants on demand, which is where the grant path lives (R5).
+  const { base, built, close } = await setup([[say("done")]], { providerId: "openai" });
   try {
     await prompt(base, "make it look designed", ["designer"]);
     const names = toolNames(built[0]!);
@@ -216,7 +243,9 @@ test("064: the grant is sticky across turns and never duplicates a tool", async 
   // prompt in the cache prefix, so a list that churns per turn would
   // invalidate the cache_control breakpoint on every turn after the pick.
   // Adding once costs one invalidation, then the prefix is stable again.
-  const { base, built, close } = await setup([[say("one"), say("two"), say("three")]]);
+  const { base, built, close } = await setup([[say("one"), say("two"), say("three")]], {
+    providerId: "openai",
+  });
   try {
     await prompt(base, "make it look designed", ["designer"]);
     await prompt(base, "and again", ["designer"]);
@@ -234,7 +263,7 @@ test("064: the grant is sticky across turns and never duplicates a tool", async 
 });
 
 test("064: an unknown /agent name is dropped, not a failed turn", async () => {
-  const { base, built, close } = await setup([[say("done")]]);
+  const { base, built, close } = await setup([[say("done")]], { providerId: "openai" });
   try {
     await prompt(base, "do the thing", ["not-a-specialist"]);
     const names = toolNames(built[0]!);
