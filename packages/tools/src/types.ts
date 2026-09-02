@@ -65,6 +65,14 @@ export interface ZelyqTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
    * the default-mode tool pool (B1).
    */
   source?: string;
+  /**
+   * Shown to the model instead of converting `schema`, for a tool that arrived
+   * already described in JSON Schema (an MCP server's). A zod round trip would
+   * drop what zod cannot express — `oneOf`, `$ref`, tuples. `schema` stays the
+   * execution-time gate and stays permissive for these; the owning server does
+   * the real validation.
+   */
+  jsonSchema?: Record<string, unknown>;
 }
 
 export function defineTool<TSchema extends z.ZodTypeAny>(

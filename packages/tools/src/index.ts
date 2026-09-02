@@ -105,10 +105,13 @@ export interface ToolDefinition {
  */
 export function toolDefinitions(tools: ZelyqTool[] = ALL_TOOLS): ToolDefinition[] {
   return tools.map((tool) => {
-    const { $schema, ...schema } = z.toJSONSchema(tool.schema, {
-      io: "input",
-    }) as Record<string, unknown>;
-    if (CORE_TOOL_NAMES.has(tool.name) && schema.type === "object") {
+    // An MCP tool's own JSON Schema passes through untouched; a zod round trip
+    // would drop what zod cannot express. `additionalProperties` is not forced
+    // either — that is the owning server's contract to state.
+    const { $schema, ...schema } = tool.jsonSchema
+      ? tool.jsonSchema
+      : (z.toJSONSchema(tool.schema, { io: "input" }) as Record<string, unknown>);
+    if (!tool.jsonSchema && CORE_TOOL_NAMES.has(tool.name) && schema.type === "object") {
       schema.additionalProperties = false;
     }
     return {
