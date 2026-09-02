@@ -37,11 +37,23 @@ All on `maint/phase1`, each its own commit, full matrix green. Written up in det
 | F2 (gate) | prompt-hash CI check (now blocking, `evals/baselines.json`) | `4154d3f`, `25bf362` |
 | D3 | one-shot step-budget warning in the run loop | `fc75d28` |
 | 2.3 (part) | Engineer-Mode reply checks in the eval harness | `99a637f` |
-| B6 (part) | `additionalProperties: false` on the 14 core tool schemas | `<this>` |
+| B6 (part) | `additionalProperties: false` on the 14 core tool schemas | `dab44b2` |
 
-**Left for the founder** (each noted in its section): the `<scope>` prompt half of F6, G3,
-a `<how_to_work>` mention of `find_files`, and F2's per-PR smoke set (needs a CI key). Provider-beta
-/ product-call items untouched: C2, C5, D3, 2.2, 2.3, 3.1–3.4, E1 §4.
+Plus the two eval runs the founder did (`baselines.json` `18b772c2702f`), the `--compare` /
+`SiteFooter` / caps fixes those surfaced (`25bf362`, `6303a45`, `5a3de6c`), and the D3 warning
+(`fc75d28`).
+
+**Left for the founder / a decision:** the `<scope>` prompt half of F6 (data now supports it); G3
+(needs an eval run); `pricing-toggle`'s non-`<button>` toggle; a `<how_to_work>` mention of
+`find_files`; F2's per-PR smoke set (needs a CI key); D4 (which of the 11 thin skills to keep);
+effort tuning (2.2); tool-search vs gating (3.1); `update_plan` scope (3.4).
+
+**Needs a Claude beta API or bigger design:** C2 (operator `role:system`), C5 (refusal rescue),
+live context-editing / compaction (A2 live-half, A3), `task-budgets` countdown (3.3), E1 §4
+(per-host fetch confirmation — needs consent UI).
+
+**Could still do without the founder, just larger:** the Engineer-Mode checkpoint fires/doesn't
+eval pair, Expo / `/clone` / specialist-honesty eval cases, C1's three workaround deletions.
 
 ### The 2026-09-02 `claude-opus-5` run (5 greenfield cases, effort high)
 
