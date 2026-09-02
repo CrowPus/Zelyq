@@ -3,6 +3,7 @@ import type { FileContent } from "@zelyq/core";
 import { CircleAlert, Save } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { inlineImageMimeType } from "../lib/files";
 import { DiffView } from "./DiffView";
 import { Button, EmptyState, Spinner } from "./ui";
 
@@ -176,6 +177,29 @@ export function CodeViewer({
         </div>
       ) : !file ? (
         <EmptyState title="Could not open file" description={path} />
+      ) : file.encoding === "base64" && inlineImageMimeType(path) ? (
+        // The bytes already arrived as base64 for every binary file; an image
+        // was being thrown away at the last step and shown as "nothing to
+        // show". Checkerboard behind it so a transparent PNG reads as
+        // transparent rather than as a white rectangle.
+        <div
+          // Centred in both axes, and `min-h-0` so it is the image that
+          // scrolls when one is larger than the pane, not the whole editor.
+          className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4"
+          style={{
+            backgroundImage:
+              "linear-gradient(45deg,var(--color-surface-hover) 25%,transparent 25%,transparent 75%,var(--color-surface-hover) 75%)," +
+              "linear-gradient(45deg,var(--color-surface-hover) 25%,transparent 25%,transparent 75%,var(--color-surface-hover) 75%)",
+            backgroundSize: "16px 16px",
+            backgroundPosition: "0 0, 8px 8px",
+          }}
+        >
+          <img
+            src={`data:${inlineImageMimeType(path)};base64,${file.content}`}
+            alt={path}
+            className="max-h-full max-w-full rounded border border-border-default bg-surface object-contain shadow-overlay"
+          />
+        </div>
       ) : file.encoding === "base64" ? (
         <EmptyState
           title="Binary file"

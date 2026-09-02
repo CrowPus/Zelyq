@@ -9,6 +9,6 @@
     "newArchEnabled": true,
     "plugins": ["expo-router"],
     "experiments": { "typedRoutes": true },
-    "web": { "bundler": "metro", "output": "static" }
+    "web": { "bundler": "metro", "output": "static", "favicon": "./public/favicon.ico" }
   }
 }

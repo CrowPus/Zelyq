@@ -298,10 +298,12 @@ export const api = {
   readFile: (id: string, path: string) =>
     request<FileContent>(`/projects/${id}/files/${encodeURI(path)}`),
 
-  writeFile: (id: string, path: string, content: string) =>
+  /** `encoding` is how `content` is packed, not how the file is stored: an
+   * uploaded image travels as base64 and the runtime writes the real bytes. */
+  writeFile: (id: string, path: string, content: string, encoding: "utf8" | "base64" = "utf8") =>
     request<{ written: boolean }>(`/projects/${id}/files/${encodeURI(path)}`, {
       method: "PUT",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, encoding }),
     }),
 
   deleteFile: (id: string, path: string) =>
