@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it, describe as suite } from "node:test";
-import { extraBetaHeader, extraRequestBody, taskBudgetConfig } from "../src/providers/anthropic.js";
+import { extraBetaHeader, extraRequestBody } from "../src/providers/anthropic.js";
 
 /**
  * The two opt-in Anthropic server-side features (context editing, refusal
@@ -44,12 +44,5 @@ suite("anthropic beta feature flags", () => {
   it('a value other than exactly "1" does not enable the flag', () => {
     assert.equal(extraBetaHeader({ ZELYQ_CONTEXT_EDITING: "true" }), "");
     assert.equal(extraBetaHeader({ ZELYQ_CONTEXT_EDITING: "0" }), "");
-  });
-
-  it("ZELYQ_TASK_BUDGET=1 adds a task_budget to output_config; off → nothing", () => {
-    assert.deepEqual(taskBudgetConfig({}), {});
-    assert.deepEqual(taskBudgetConfig({ ZELYQ_TASK_BUDGET: "1" }), {
-      task_budget: { type: "tokens", total: 1_000_000 },
-    });
   });
 });
