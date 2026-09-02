@@ -35,6 +35,8 @@ export interface AgentServerDeps {
    * so an instance admin can confirm a plugin actually loaded from the UI
    * instead of reading the agent's own boot log. */
   pluginNames?: string[];
+  /** MCP tool names, already namespaced by server. */
+  mcpToolNames?: string[];
   /** Every loaded skill, name/description for the prompt catalog and full
    * body for the guaranteed `/`-selected weaving. The one existing reader
    * (`/health`'s badge list) reads `.name` off each entry. `resources` is
@@ -124,6 +126,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       model: config.model,
       modelConfigured: Boolean(config.apiKey),
       plugins: deps.pluginNames ?? [],
+      mcpTools: deps.mcpToolNames ?? [],
       // Descriptions too, not just names — the composer's `/` picker needs
       // enough to be worth choosing from; the body stays agent-side, never
       // sent here.

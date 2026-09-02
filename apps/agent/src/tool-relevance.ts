@@ -25,9 +25,20 @@ import type { ZelyqTool } from "@zelyq/tools";
  */
 const DEFAULT_MODE_PLUGIN_FILES = new Set(["ai-docs.mjs", "image-assets.mjs", "browser-qa.mjs"]);
 
+/**
+ * MCP tools carry `source: "mcp:<server>"` and are never gated. The rule above
+ * is for the plugins that ship in the box; an MCP server was named in a config
+ * file by hand, and gating it would leave it configured but unreachable in the
+ * mode most sessions run in.
+ */
+export function isMcpTool(tool: ZelyqTool): boolean {
+  return tool.source?.startsWith("mcp:") === true;
+}
+
 /** A tool loaded from a plugin file we do not surface in default mode. */
 export function isTaskOnlyPluginTool(tool: ZelyqTool): boolean {
-  return tool.source !== undefined && !DEFAULT_MODE_PLUGIN_FILES.has(tool.source);
+  if (tool.source === undefined || isMcpTool(tool)) return false;
+  return !DEFAULT_MODE_PLUGIN_FILES.has(tool.source);
 }
 
 /**
