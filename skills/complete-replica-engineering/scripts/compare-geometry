@@ -1,0 +1,58 @@
+#!/usr/bin/env node
+/**
+ * Compares two geometry snapshots produced by `snapshot-reference` and reports
+ * every box that moved or resized beyond a pixel tolerance.
+ *
+ * A non-zero exit means differences were found, not that the script failed —
+ * that is what makes it usable as a gate in a replica loop.
+ *
+ * Node, no dependencies: the sandbox this runs in has no Python interpreter.
+ *
+ *   node scripts/compare-geometry <reference.json> <replica.json> [tolerance_px]
+ */
+import fs from 'node:fs'
+
+const [refPath, repPath, tolArg] = process.argv.slice(2)
+if (!refPath || !repPath) {
+  console.error('Usage: compare-geometry <reference.json> <replica.json> [tolerance_px]')
+  process.exit(2)
+}
+const tolerance = tolArg === undefined ? 1.0 : Number(tolArg)
+if (!Number.isFinite(tolerance)) {
+  console.error(`tolerance_px must be a number, got: ${tolArg}`)
+  process.exit(2)
+}
+
+const load = (file) => {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (error) {
+    console.error(`could not read ${file}: ${error.message}`)
+    process.exit(2)
+  }
+}
+const ref = load(refPath)
+const rep = load(repPath)
+
+const issues = []
+for (const [selector, refItems] of Object.entries(ref.data ?? {})) {
+  const repItems = rep.data?.[selector] ?? []
+  if (refItems.length !== repItems.length) {
+    issues.push({ selector, type: 'count', reference: refItems.length, replica: repItems.length })
+  }
+  // Only the overlapping range: a count difference is already reported above,
+  // and pairing past it would compare unrelated elements.
+  for (let i = 0; i < Math.min(refItems.length, repItems.length); i++) {
+    for (const key of ['x', 'y', 'width', 'height']) {
+      const a = Number(refItems[i].rect[key])
+      const b = Number(repItems[i].rect[key])
+      const delta = b - a
+      if (Math.abs(delta) > tolerance) {
+        issues.push({ selector, index: i, property: key, reference: a, replica: b, delta })
+      }
+    }
+  }
+}
+
+console.log(JSON.stringify({ tolerance_px: tolerance, issue_count: issues.length, issues }, null, 2))
+process.exit(issues.length ? 1 : 0)

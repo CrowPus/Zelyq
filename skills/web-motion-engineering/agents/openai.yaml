@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web Motion Engineering"
+  short_description: "Design polished, purposeful web motion systems"
+  default_prompt: "Use $web-motion-engineering to design and implement a polished motion system for this website or product UI."

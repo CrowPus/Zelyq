@@ -1,0 +1,26 @@
+:root {
+  /* Tune to the product after browser review; do not scatter one-off values. */
+  --motion-duration-instant: 90ms;
+  --motion-duration-fast: 160ms;
+  --motion-duration-standard: 220ms;
+  --motion-duration-deliberate: 300ms;
+  --motion-duration-expressive: 480ms;
+
+  --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  --motion-distance-1: 0.25rem;
+  --motion-distance-2: 0.5rem;
+  --motion-distance-3: 1rem;
+  --motion-stagger-1: 30ms;
+  --motion-stagger-2: 50ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-distance-1: 0rem;
+    --motion-distance-2: 0rem;
+    --motion-distance-3: 0rem;
+  }
+}

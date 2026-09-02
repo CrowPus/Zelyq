@@ -284,6 +284,13 @@ ${
 The UI-quality bar for everything built from this plan. Its MUST/SHOULD/NEVER rules are non-negotiable for a UI to be "done". Reference them in build-plan.md's Definition of Done, and the verification and design passes check the observable ones against the running app — a failing MUST blocks "done".
 
 ${agentMd}
+
+MOTION: when the product has a motion story worth deciding — an entrance language, scroll
+behaviour, state transitions, a cinematic hero — call \`use_skill("web-motion-engineering")\` and
+settle it in \`DESIGN.md\` as named tokens (durations, easings, the reduced-motion rule), not as
+adjectives. A builder given "make it feel premium" invents its own curves in every component and
+they never agree. Name \`web-motion-engineering\` in the \`skills\` of any build-plan task whose
+acceptance criteria mention animation, transition or scroll behaviour.
 </ui_guidelines>
 `
     : "";
@@ -815,6 +822,14 @@ MUST/SHOULD/NEVER rules; the automatic verification checks the observable ones (
 semantics, reduced-motion, CLS, empty/error states) against the running preview.
 
 ${agentMd}
+
+MOTION: before you write a transition, an entrance, a scroll effect, a loading state or any
+\`@keyframes\`, call \`use_skill("web-motion-engineering")\` and build to it. Motion is the part of
+UI most often shipped by feel and it is the part that most reliably breaks people — vestibular
+triggers, dropped frames on mid-range phones, animations that survive unmount. That skill carries
+the timing/easing figures, the \`prefers-reduced-motion\` obligation and a static risk scan
+(\`node scripts/audit-motion <project>\`) you can run in this sandbox. Do not reinvent easing
+curves or durations from memory when the numbers are one call away.
 </ui_guidelines>
 `
     : "";

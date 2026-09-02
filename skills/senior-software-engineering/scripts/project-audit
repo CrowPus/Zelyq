@@ -1,95 +1,106 @@
-#!/usr/bin/env python3
-"""Advisory repository discovery for the senior-software-engineering skill.
+#!/usr/bin/env node
+/**
+ * Advisory repository discovery for the senior-software-engineering skill.
+ *
+ * This script intentionally does not claim compliance. It identifies common
+ * engineering signals so an agent can inspect the right parts of a repository
+ * before changing it. Absence of a signal is a prompt to go and look, never a
+ * finding on its own — plenty of good projects test in ways this cannot see.
+ *
+ * Node, no dependencies: a project sandbox is a `node:22-bookworm-slim`
+ * container with no Python interpreter, so the earlier Python version could
+ * never run where this skill is actually used.
+ *
+ *   node scripts/project-audit [project]
+ */
+import fs from 'node:fs'
+import path from 'node:path'
 
-This script intentionally does not claim compliance. It identifies common engineering
-signals so an agent can inspect the right parts of a repository before changing it.
-"""
-from pathlib import Path
-import json, os, sys
-
-root = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
-if not root.exists() or not root.is_dir():
-    print(json.dumps({"error": f"not a directory: {root}"}, indent=2))
-    raise SystemExit(2)
-
-IGNORE = {".git", "node_modules", ".next", "dist", "build", "target", "vendor", ".venv", "venv", "__pycache__"}
-
-def exists_any(paths):
-    return [p for p in paths if (root / p).exists()]
-
-def find_names(names, limit=40):
-    found = []
-    for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in IGNORE]
-        relbase = Path(base).relative_to(root)
-        for f in files:
-            if f in names:
-                found.append(str(relbase / f))
-                if len(found) >= limit:
-                    return found
-    return found
-
-manifests = exists_any([
-    "package.json", "pnpm-lock.yaml", "yarn.lock", "package-lock.json", "bun.lock", "bun.lockb",
-    "pyproject.toml", "requirements.txt", "poetry.lock", "uv.lock",
-    "go.mod", "Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts",
-    "composer.json", "Gemfile", ".csproj", "mix.exs"
-])
-
-ci = exists_any([
-    ".github/workflows", ".gitlab-ci.yml", "Jenkinsfile", "azure-pipelines.yml", ".circleci", "bitbucket-pipelines.yml"
-])
-
-containers = exists_any(["Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "k8s", "kubernetes", "helm"])
-
-docs = exists_any(["README.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "LICENSE", "docs"])
-
-config = exists_any([".env.example", ".env.sample", "config", "config.example.json"])
-
-web_signals = exists_any(["next.config.js", "next.config.mjs", "next.config.ts", "vite.config.js", "vite.config.ts", "astro.config.mjs", "nuxt.config.ts", "public/robots.txt", "public/sitemap.xml"])
-
-migrations = []
-for candidate in ["migrations", "db/migrations", "prisma/migrations", "alembic", "database/migrations"]:
-    if (root / candidate).exists(): migrations.append(candidate)
-
-contracts = exists_any(["openapi.yaml", "openapi.yml", "openapi.json", "swagger.yaml", "swagger.json", "asyncapi.yaml", "graphql.schema", "schema.graphql"])
-
-tests = find_names({"pytest.ini", "vitest.config.ts", "vitest.config.js", "jest.config.js", "jest.config.ts", "playwright.config.ts", "playwright.config.js", "cypress.config.ts", "cypress.config.js"})
-
-env_files = []
-for p in root.glob(".env*"):
-    if p.is_file(): env_files.append(p.name)
-
-result = {
-    "root": str(root),
-    "signals": {
-        "manifests_and_lockfiles": manifests,
-        "ci_cd": ci,
-        "containers_or_orchestration": containers,
-        "documentation": docs,
-        "configuration_examples": config,
-        "web": web_signals,
-        "database_migrations": migrations,
-        "api_contracts": contracts,
-        "test_configs": tests,
-        "environment_files_present": env_files,
-    },
-    "review_prompts": []
+const root = path.resolve(process.argv[2] ?? '.')
+if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+  console.log(JSON.stringify({ error: `not a directory: ${root}` }, null, 2))
+  process.exit(2)
 }
 
-if not ci:
-    result["review_prompts"].append("No common CI configuration detected; verify how tests/builds are enforced.")
-if not tests:
-    result["review_prompts"].append("No common test configuration detected; inspect project-specific test commands before assuming tests are absent.")
-if migrations:
-    result["review_prompts"].append("Database migrations detected; activate stateful-data and migration review.")
-if contracts:
-    result["review_prompts"].append("API/event contract detected; review backward compatibility and contract tests.")
-if web_signals:
-    result["review_prompts"].append("Web project signals detected; determine whether public-web SEO/accessibility profile applies.")
-if any(x in env_files for x in [".env", ".env.production", ".env.local"]):
-    result["review_prompts"].append("Environment files exist; never print or commit secret values during analysis.")
-if not (root / "SECURITY.md").exists():
-    result["review_prompts"].append("No SECURITY.md detected. This is not automatically a defect; consider it for public/open-source projects.")
+const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', 'build', 'target', 'vendor', '.venv', 'venv', '__pycache__'])
 
-print(json.dumps(result, indent=2))
+const existsAny = (paths) => paths.filter((p) => fs.existsSync(path.join(root, p)))
+
+/** Walk for known filenames, breadth-limited: this is discovery, not a census. */
+function findNames(names, limit = 40) {
+  const found = []
+  const stack = [root]
+  while (stack.length) {
+    const dir = stack.pop()
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!IGNORE.has(entry.name)) stack.push(path.join(dir, entry.name))
+      } else if (names.has(entry.name)) {
+        found.push(path.relative(root, path.join(dir, entry.name)))
+        if (found.length >= limit) return found
+      }
+    }
+  }
+  return found
+}
+
+const manifests = existsAny([
+  'package.json', 'pnpm-lock.yaml', 'yarn.lock', 'package-lock.json', 'bun.lock', 'bun.lockb',
+  'pyproject.toml', 'requirements.txt', 'poetry.lock', 'uv.lock',
+  'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle', 'build.gradle.kts',
+  'composer.json', 'Gemfile', '.csproj', 'mix.exs',
+])
+const ci = existsAny(['.github/workflows', '.gitlab-ci.yml', 'Jenkinsfile', 'azure-pipelines.yml', '.circleci', 'bitbucket-pipelines.yml'])
+const containers = existsAny(['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml', 'k8s', 'kubernetes', 'helm'])
+const docs = existsAny(['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'LICENSE', 'docs'])
+const config = existsAny(['.env.example', '.env.sample', 'config', 'config.example.json'])
+const web = existsAny(['next.config.js', 'next.config.mjs', 'next.config.ts', 'vite.config.js', 'vite.config.ts', 'astro.config.mjs', 'nuxt.config.ts', 'public/robots.txt', 'public/sitemap.xml'])
+const migrations = existsAny(['migrations', 'db/migrations', 'prisma/migrations', 'alembic', 'database/migrations'])
+const contracts = existsAny(['openapi.yaml', 'openapi.yml', 'openapi.json', 'swagger.yaml', 'swagger.json', 'asyncapi.yaml', 'graphql.schema', 'schema.graphql'])
+const tests = findNames(new Set([
+  'pytest.ini', 'vitest.config.ts', 'vitest.config.js', 'jest.config.js', 'jest.config.ts',
+  'playwright.config.ts', 'playwright.config.js', 'cypress.config.ts', 'cypress.config.js',
+]))
+
+let envFiles = []
+try {
+  envFiles = fs.readdirSync(root, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.startsWith('.env'))
+    .map((e) => e.name)
+} catch { /* an unreadable root is already reported by the signals above */ }
+
+const reviewPrompts = []
+if (!ci.length) reviewPrompts.push('No common CI configuration detected; verify how tests/builds are enforced.')
+if (!tests.length) reviewPrompts.push('No common test configuration detected; inspect project-specific test commands before assuming tests are absent.')
+if (migrations.length) reviewPrompts.push('Database migrations detected; activate stateful-data and migration review.')
+if (contracts.length) reviewPrompts.push('API/event contract detected; review backward compatibility and contract tests.')
+if (web.length) reviewPrompts.push('Web project signals detected; determine whether public-web SEO/accessibility profile applies.')
+if (['.env', '.env.production', '.env.local'].some((f) => envFiles.includes(f))) {
+  reviewPrompts.push('Environment files exist; never print or commit secret values during analysis.')
+}
+if (!fs.existsSync(path.join(root, 'SECURITY.md'))) {
+  reviewPrompts.push('No SECURITY.md detected. This is not automatically a defect; consider it for public/open-source projects.')
+}
+
+console.log(JSON.stringify({
+  root,
+  signals: {
+    manifests_and_lockfiles: manifests,
+    ci_cd: ci,
+    containers_or_orchestration: containers,
+    documentation: docs,
+    configuration_examples: config,
+    web,
+    database_migrations: migrations,
+    api_contracts: contracts,
+    test_configs: tests,
+    environment_files_present: envFiles,
+  },
+  review_prompts: reviewPrompts,
+}, null, 2))

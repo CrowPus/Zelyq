@@ -435,6 +435,48 @@ Then return a COMPLETION CHECKLIST — one line per Definition-of-Done item AND 
 // second pass continues against the now-written spec (cheaper).
 const SPECIALIST_MAX_TURNS = 40;
 const SPECIALIST_MAX_TOKENS = 600_000;
+
+/**
+ * Characters of each named skill's body inlined into a dispatched specialist.
+ *
+ * Per skill, not per prompt. A lean child has no `use_skill`, so anything cut
+ * here it simply never learns — and a shared budget meant the last skill named
+ * was invisible while the config claimed otherwise.
+ *
+ * 12,000 fits `web-motion-engineering` (10,462) whole and trims the two larger
+ * design skills lightly. The Designer's three skills come to roughly 8.6k
+ * tokens, against a 600k-token specialist budget — about 1.4% of the pass, to
+ * stop it guessing at guidance it was supposed to have been given.
+ */
+const SPECIALIST_SKILL_BODY_CHARS = 12_000;
+
+/**
+ * The `GUIDANCE FROM SKILLS THIS TASK NEEDS` block for a dispatched child.
+ *
+ * Pure and exported so the budgeting is testable without a live session — the
+ * bug it replaces was invisible precisely because nothing could see this
+ * string. Returns "" when nothing resolves, so the caller adds no empty header.
+ */
+export function buildSkillsBlock(
+  names: string[],
+  resolveBody: (name: string) => { body: string } | undefined,
+): string {
+  const bodies = names
+    .map((name) => {
+      const body = resolveBody(name)?.body;
+      if (!body) return "";
+      const kept =
+        body.length <= SPECIALIST_SKILL_BODY_CHARS
+          ? body
+          : `${body.slice(0, SPECIALIST_SKILL_BODY_CHARS)}\n\n[${
+              body.length - SPECIALIST_SKILL_BODY_CHARS
+            } more characters of this skill were not included]`;
+      return `### Skill: ${name}\n${kept}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  return bodies ? `\n\nGUIDANCE FROM SKILLS THIS TASK NEEDS:\n${bodies}` : "";
+}
 const SPECIALIST_WALLCLOCK_MS = 18 * 60_000;
 
 // The builder's file/shell set minus delete_file (a polish pass does not
@@ -1199,7 +1241,9 @@ const SPECIALISTS: Record<SpecialistKind, SpecialistConfig> = {
     toolNames: DESIGNER_TOOL_NAMES,
     allow: designerPathAllowed,
     specPaths: DESIGN_MD_PATHS,
-    skills: ["ui-ux-design-intelligence", "frontend-ui-engineering"],
+    // Motion is part of designing, not a separate pass: states, transitions
+    // and reduced-motion belong in the same decision as colour and spacing.
+    skills: ["ui-ux-design-intelligence", "frontend-ui-engineering", "web-motion-engineering"],
     dod: DESIGN_DOD,
     installAllow: DESIGNER_DEP_ALLOW,
     guideNoun: "design guide",
@@ -1781,21 +1825,25 @@ export class AgentSession {
       : "\n\nThe project has no source files yet — you are laying the first ones.";
 
     // Inject the bodies of the skills the task named. The lean child has no
-    // use_skill tool, so it gets the text. The Designer always gets the two
-    // design skills, whatever else was named.
+    // use_skill tool, so it gets the text — whatever is not inlined here is
+    // simply unavailable to it, which is why the budget is PER SKILL.
+    //
+    // It used to be one `slice(0, 14000)` over the concatenation, and that is
+    // a trap: `ui-ux-design-intelligence` is 14,944 characters on its own, so
+    // the Designer's second skill (`frontend-ui-engineering`, 15,307) was cut
+    // in full and the config silently listed a skill the child never saw.
+    // Naming a third would have changed nothing at all.
+    //
+    // A per-skill share means adding a skill costs tokens instead of quietly
+    // erasing the one behind it. Each is trimmed at a boundary it can survive,
+    // and says so, rather than stopping mid-sentence.
     const skillsBlock = (() => {
       const names = spec
         ? [...new Set([...spec.skills, ...(input.skills ?? [])])]
         : (input.skills ?? []);
-      if (!names.length || !this.options.resolveSkillBody) return "";
-      const bodies = names
-        .map((name) => {
-          const body = this.options.resolveSkillBody?.(name)?.body;
-          return body ? `### Skill: ${name}\n${body}` : "";
-        })
-        .filter(Boolean)
-        .join("\n\n");
-      return bodies ? `\n\nGUIDANCE FROM SKILLS THIS TASK NEEDS:\n${bodies.slice(0, 14000)}` : "";
+      const resolve = this.options.resolveSkillBody;
+      if (!names.length || !resolve) return "";
+      return buildSkillsBlock(names, resolve);
     })();
 
     // The verifier gets the preview tools and the named plugin tools on top
