@@ -39,7 +39,10 @@ All on `maint/phase1`, each its own commit, full matrix green. Written up in det
 | 2.3 (part) | Engineer-Mode reply checks in the eval harness | `99a637f` |
 | B6 (part) | `additionalProperties: false` on the 14 core tool schemas | `dab44b2` |
 | F6 (`<scope>`) + G3 | prompt tightening + `lucide-react` in the template | `69e4354` |
-| **B1 / 3.1** | relevance gating — default mode ~98 → ~25 tools | `<this>` |
+| **B1 / 3.1** | relevance gating — default mode ~98 → ~25 tools | `c7f5572` |
+| **A5 + A3 / 3.2** | newest-N token-bounded history window + `context_exhausted` error | `b0b657b` |
+| **C3 / 3.3** | clamp a cheap-tier subagent's token cap under its window | `ef95116` |
+| **D2 / 3.4** | `update_plan` — `PLAN.md` checklist + `<plan>` prompt block + `PlanPanel` view | `f1d1c66` |
 
 Plus the two eval runs the founder did (`baselines.json` `18b772c2702f`), the `--compare` /
 `SiteFooter` / caps fixes those surfaced (`25bf362`, `6303a45`, `5a3de6c`), the D3 warning
@@ -95,17 +98,27 @@ interactive checkboxes deferred.
 **Phase 3 is now done** (portable halves of 3.2/3.3; 3.1 gating; 3.4 in full). Only the
 Anthropic-beta pieces remain across the roadmap.
 
-**Left for the founder / a decision:** the `<scope>` prompt half of F6 (data now supports it); G3
-(needs an eval run); `pricing-toggle`'s non-`<button>` toggle; a `<how_to_work>` mention of
-`find_files`; F2's per-PR smoke set (needs a CI key); D4 (which of the 11 thin skills to keep);
-effort tuning (2.2); tool-search vs gating (3.1); `update_plan` scope (3.4).
+### Where it stands after 2026-09-02
 
-**Needs a Claude beta API or bigger design:** C2 (operator `role:system`), C5 (refusal rescue),
-live context-editing / compaction (A2 live-half, A3), `task-budgets` countdown (3.3), E1 §4
-(per-host fetch confirmation — needs consent UI).
+**Done:** Phase 0, Phase 1 (in PR #127), all of Phase 3's portable content (3.1 gating, 3.2 + 3.3
+portable halves, 3.4 `update_plan` in full), most of Phase 4 (template, denylist, `find_files`,
+budget warning, tool-schema tightening, prompt-hash tool), F4 + F5 + F6 (both eval halves and the
+`<scope>` prompt tightening) + G1/G2/G3 + D1/D2/D3.
 
-**Could still do without the founder, just larger:** the Engineer-Mode checkpoint fires/doesn't
-eval pair, Expo / `/clone` / specialist-honesty eval cases, C1's three workaround deletions.
+**Left, and why it stopped here:**
+
+- **Anthropic-beta only — cannot build without a paid live test:** `compact_20260112`,
+  `clear_tool_uses` live-turn (A2 upper half), the `task-budgets` countdown, `server-side-fallback`
+  (C5), the `models.retrieve` window lookup.
+- **C2 (operator `role:system`)** — assessed and deferred. The safe form needs live testing (it's
+  model-version-gated: Opus 5 yes, Sonnet 5 no) and risks a 400; E1 §2 shipping removed the urgency
+  that made it a prerequisite. The prefix-only fallback is 12 fragile edits for marginal gain.
+- **More 2.3 eval cases** (checkpoint fires/doesn't, Expo, `/clone`, specialist honesty) — writable
+  without a run, but only *meaningful* once run, and the founder has asked not to spend on runs.
+- **D4 (prune the 11 thin skills)** — deleting user-facing capability is a per-skill judgement call
+  that belongs to the founder, not a mechanical cleanup.
+- **C1's three workaround deletions** — cleanup that wants an eval run to confirm nothing regressed.
+- **2.2 effort tuning** — gated on an eval comparison at `high` vs `xhigh`.
 
 ### No eval run is required to merge or ship
 
