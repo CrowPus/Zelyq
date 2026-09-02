@@ -195,13 +195,15 @@ Zelyq's `AnthropicConversation` already does the right thing here — `stream()`
 `{ role: "assistant", content: response.content }` verbatim, with the comment *"Echoed back
 unchanged — thinking blocks included."* The pattern is in place; compaction just needs turning on.
 
-**Wired, off by default — 2026-09-02.** `ZELYQ_COMPACTION=1` adds the
-`context-management-2025-06-27` beta header and `context_management: { edits: [{ type:
-"compact_20260112" }] }` to the request (cast — the non-beta SDK types do not carry it). Both the
-header and the body param are absent when the flag is off, so a normal request is unchanged. The
-`response.content` echo-back already keeps the compaction block. `anthropic-beta-flags.test.ts` pins
-the exact strings (a wrong one is a 400 with no typecheck to catch it). Not verified against a live
-turn yet — that is the one test to run before setting the flag in `.env`.
+**Wired, off by default — 2026-09-02.** First tried as `ZELYQ_COMPACTION` with
+`context_management: { edits: [{ type: "compact_20260112" }] }` — a live turn on 2026-09-02 returned
+`Input tag 'compact_20260112' ... does not match any of the expected tags`, so `compact_20260112` is
+not live under the `context-management-2025-06-27` beta yet. Pivoted to what the API *does* accept:
+**`ZELYQ_CONTEXT_EDITING=1`** → same beta header, `context_management: { edits: [{ type:
+"clear_tool_uses_20250919", clear_tool_inputs: true }] }`. This is A2's live half — the API drops old
+`tool_use` inputs / `tool_result` blocks (the ~1.27M-token re-sent-file waste) while keeping the
+recency window. Header and body param are absent when the flag is off. `anthropic-beta-flags.test.ts`
+pins the strings. Live-verify pending.
 
 ### Cross-provider parity
 

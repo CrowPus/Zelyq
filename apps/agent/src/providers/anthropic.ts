@@ -43,8 +43,12 @@ const OAUTH_BETA_HEADER = "claude-code-20250219,oauth-2025-04-20";
  * cast. A wrong shape is a 400 on the whole turn, which is why they ship dark
  * until run against a live project.
  *
- * - `ZELYQ_COMPACTION=1` — the API summarises earlier context when the window
- *   fills, instead of the session hard-failing. `context-management-2025-06-27`.
+ * - `ZELYQ_CONTEXT_EDITING=1` — the API drops old `tool_use` inputs and
+ *   `tool_result` blocks from the request before the model sees them (keeping
+ *   the recency window itself). ~1.27M tokens of re-sent file content across
+ *   the measured corpus. `context-management-2025-06-27` +
+ *   `clear_tool_uses_20250919`. (`compact_20260112` was tried first — the API
+ *   rejected the tag on 2026-09-02, it is not live under that beta yet.)
  * - `ZELYQ_REFUSAL_FALLBACK=1` — a policy-declined request is re-run on a
  *   fallback model inside the same call rather than ending on the refusal.
  *   `server-side-fallback-2026-07-01`.
@@ -52,7 +56,7 @@ const OAUTH_BETA_HEADER = "claude-code-20250219,oauth-2025-04-20";
 /** The `anthropic-beta` values the enabled flags require, or "" if none. */
 export function extraBetaHeader(env: NodeJS.ProcessEnv = process.env): string {
   const betas: string[] = [];
-  if (env.ZELYQ_COMPACTION === "1") betas.push("context-management-2025-06-27");
+  if (env.ZELYQ_CONTEXT_EDITING === "1") betas.push("context-management-2025-06-27");
   if (env.ZELYQ_REFUSAL_FALLBACK === "1") betas.push("server-side-fallback-2026-07-01");
   return betas.join(",");
 }
@@ -62,8 +66,10 @@ export function extraBetaHeader(env: NodeJS.ProcessEnv = process.env): string {
  * byte-identical to what it has always been. */
 export function extraRequestBody(env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
   const body: Record<string, unknown> = {};
-  if (env.ZELYQ_COMPACTION === "1") {
-    body.context_management = { edits: [{ type: "compact_20260112" }] };
+  if (env.ZELYQ_CONTEXT_EDITING === "1") {
+    body.context_management = {
+      edits: [{ type: "clear_tool_uses_20250919", clear_tool_inputs: true }],
+    };
   }
   if (env.ZELYQ_REFUSAL_FALLBACK === "1") {
     body.fallbacks = "default";

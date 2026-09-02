@@ -3,10 +3,11 @@ import { it, describe as suite } from "node:test";
 import { extraBetaHeader, extraRequestBody } from "../src/providers/anthropic.js";
 
 /**
- * The two opt-in Anthropic server-side features (compaction, refusal fallback).
- * Both are betas passed as a header + a body param the non-beta SDK types do
- * not know, so this pins the exact strings — a wrong one is a 400 on the whole
- * turn, and there is no typecheck to catch it.
+ * The two opt-in Anthropic server-side features (context editing, refusal
+ * fallback). Both are betas passed as a header + a body param the non-beta SDK
+ * types do not know, so this pins the exact strings — a wrong one is a 400 on
+ * the whole turn (confirmed live: `compact_20260112` was rejected 2026-09-02),
+ * and there is no typecheck to catch it.
  */
 suite("anthropic beta feature flags", () => {
   it("both off — nothing is added, so a normal request is unchanged", () => {
@@ -14,11 +15,13 @@ suite("anthropic beta feature flags", () => {
     assert.deepEqual(extraRequestBody({}), {});
   });
 
-  it("ZELYQ_COMPACTION=1 adds context-management + compact_20260112", () => {
-    const env = { ZELYQ_COMPACTION: "1" };
+  it("ZELYQ_CONTEXT_EDITING=1 adds context-management + clear_tool_uses_20250919", () => {
+    const env = { ZELYQ_CONTEXT_EDITING: "1" };
     assert.equal(extraBetaHeader(env), "context-management-2025-06-27");
     assert.deepEqual(extraRequestBody(env), {
-      context_management: { edits: [{ type: "compact_20260112" }] },
+      context_management: {
+        edits: [{ type: "clear_tool_uses_20250919", clear_tool_inputs: true }],
+      },
     });
   });
 
@@ -29,7 +32,7 @@ suite("anthropic beta feature flags", () => {
   });
 
   it("both flags on — both betas, comma-joined, and both body params", () => {
-    const env = { ZELYQ_COMPACTION: "1", ZELYQ_REFUSAL_FALLBACK: "1" };
+    const env = { ZELYQ_CONTEXT_EDITING: "1", ZELYQ_REFUSAL_FALLBACK: "1" };
     assert.equal(
       extraBetaHeader(env),
       "context-management-2025-06-27,server-side-fallback-2026-07-01",
@@ -39,7 +42,7 @@ suite("anthropic beta feature flags", () => {
   });
 
   it('a value other than exactly "1" does not enable the flag', () => {
-    assert.equal(extraBetaHeader({ ZELYQ_COMPACTION: "true" }), "");
-    assert.equal(extraBetaHeader({ ZELYQ_COMPACTION: "0" }), "");
+    assert.equal(extraBetaHeader({ ZELYQ_CONTEXT_EDITING: "true" }), "");
+    assert.equal(extraBetaHeader({ ZELYQ_CONTEXT_EDITING: "0" }), "");
   });
 });
