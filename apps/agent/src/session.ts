@@ -2226,6 +2226,12 @@ export class AgentSession {
     // been continued. Bounded: an output that will not converge in two extra
     // rounds is genuinely too large for one response, and the user is told so.
     let maxTokensContinuations = 0;
+    // D3 — one warning as the step budget runs low, so the model lands its work
+    // instead of discovering the cap by hitting it (the whole
+    // `synthesizeFallbackSummary` path exists to clean up after that). A
+    // message, never the system prompt — a per-turn counter in the prompt would
+    // invalidate the cache on every request.
+    let budgetWarningDone = false;
     // 064 — one-shot re-nudge when the user picked a specialist from the
     // `/agent` menu and the turn is about to end without that specialist's
     // pass tool ever being called. The grant + the `withAgents` instruction
@@ -2400,6 +2406,24 @@ export class AgentSession {
     try {
       for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
         if (signal.aborted) break;
+
+        // D3 — near the step cap, tell the model once so it can wrap up rather
+        // than be cut mid-work. Skipped for tiny caps, where there is nothing
+        // to pace. Fires after a tool-result message like the other loop
+        // nudges; providers tolerate the consecutive user turn.
+        if (
+          !budgetWarningDone &&
+          this.options.maxIterations >= 12 &&
+          iteration >= Math.floor(this.options.maxIterations * 0.8)
+        ) {
+          budgetWarningDone = true;
+          this.conversation.addUserMessage(
+            `You have used ${iteration} of this turn's ${this.options.maxIterations} steps. Bring the ` +
+              `work to a safe stopping point: finish or revert whatever is half-done so the app still ` +
+              `builds, then write your summary. If there is more to do, say so — the user's next ` +
+              `message continues it with a fresh budget.`,
+          );
+        }
 
         // A model call that comes back wrong transiently is retried a few
         // times with backoff before it becomes a visible error or a wasted

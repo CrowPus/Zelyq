@@ -187,6 +187,19 @@ whole caching change saves.
 [03-api-alignment.md](./03-api-alignment.md) §4. The server-injected countdown is better than a
 one-shot warning because the model sees it continuously.
 
+### Done (the main-loop warning) — 2026-09-02
+
+`session.ts` run loop: `budgetWarningDone`, a one-shot `addUserMessage` at
+`iteration >= floor(maxIterations * 0.8)`, skipped when `maxIterations < 12` (nothing to pace). Text
+is the wording above. It fires after a tool-result message like the other loop nudges — providers
+tolerate the consecutive user turn (the codebase already does this for the Engineer-Mode checkpoint
+nudges). `apps/agent/test/turn-budget-warning.test.ts` — 3 cases (fires once near the cap; silent
+when the model lands early; silent for a small cap). Not in the system prompt: a per-turn counter
+there would invalidate the cache every request.
+
+Dispatched children get the same one-shot warning for now (they run the same loop); the continuous
+`task-budgets` countdown is still [03 §4], and Anthropic-only.
+
 ---
 
 ## 4. Prune the thin skills

@@ -34,7 +34,8 @@ All on `maint/phase1`, each its own commit, full matrix green. Written up in det
 | F5 | don't score a case the model never reached (`neverRan`) | `097c99c` |
 | E1 §5 | `run_command` injection/exfil denylist | `ecd0452` |
 | B5 | `find_files` + `glob`/`context_lines` on `search_files` | `ee6aa21` |
-| F2 (gate) | prompt-hash CI check (non-blocking until a baseline exists) | `4154d3f` |
+| F2 (gate) | prompt-hash CI check (now blocking, `evals/baselines.json`) | `4154d3f`, `25bf362` |
+| D3 | one-shot step-budget warning in the run loop | `<this>` |
 
 **Left for the founder** (each noted in its section): the `<scope>` prompt half of F6, G3,
 a `<how_to_work>` mention of `find_files`, and F2's per-PR smoke set (needs a CI key). Provider-beta
@@ -94,6 +95,22 @@ tuning.
 **Not touched (founder's):** the `<scope>` prompt wording — the data now justifies it; `pricing-toggle`'s
 non-`<button>` toggle; G3 (the repeated hand-rolled icon files). Run-to-run token/cost variance at a
 fixed prompt was ~+22% here (65→70 rounds) — the reason the README says run twice.
+
+---
+
+## D3 — step-budget warning
+
+**Where:** `maint/phase1`. [04-agent-competence.md](./04-agent-competence.md) §3.
+
+`maxIterations` was a `for` loop the model couldn't see — it found the cap by hitting it, and
+`synthesizeFallbackSummary` exists only to clean up after that. Now: one `addUserMessage` at 80% of
+the cap (`budgetWarningDone`, skipped when `maxIterations < 12`), telling it to land or revert and
+write its summary. In a message, not the system prompt — a per-turn counter there would invalidate
+the cache every request. Fires after a tool-result like the Engineer-Mode checkpoint nudges already
+do. `apps/agent/test/turn-budget-warning.test.ts` (3). Agent suite 372/372.
+
+Dispatched children get the same one-shot for now; the continuous `task-budgets` countdown ([03 §4])
+is Anthropic-only and still open.
 
 ---
 
