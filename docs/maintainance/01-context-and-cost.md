@@ -195,6 +195,14 @@ Zelyq's `AnthropicConversation` already does the right thing here — `stream()`
 `{ role: "assistant", content: response.content }` verbatim, with the comment *"Echoed back
 unchanged — thinking blocks included."* The pattern is in place; compaction just needs turning on.
 
+**Wired, off by default — 2026-09-02.** `ZELYQ_COMPACTION=1` adds the
+`context-management-2025-06-27` beta header and `context_management: { edits: [{ type:
+"compact_20260112" }] }` to the request (cast — the non-beta SDK types do not carry it). Both the
+header and the body param are absent when the flag is off, so a normal request is unchanged. The
+`response.content` echo-back already keeps the compaction block. `anthropic-beta-flags.test.ts` pins
+the exact strings (a wrong one is a 400 with no typecheck to catch it). Not verified against a live
+turn yet — that is the one test to run before setting the flag in `.env`.
+
 ### Cross-provider parity
 
 `compact_20260112` and `clear_tool_uses_20250919` are Anthropic features. Zelyq supports Google,

@@ -301,6 +301,13 @@ Whether to enable this by default is a product call, not an engineering one. Rec
 it, and surface it — a user who picked Opus 5 and got a Sonnet answer deserves to know, and a user
 who got nothing at all deserves it less.
 
+**Wired, off by default — 2026-09-02.** `ZELYQ_REFUSAL_FALLBACK=1` adds the
+`server-side-fallback-2026-07-01` beta header and `fallbacks: "default"` to the request. Off → both
+absent, request unchanged. The refusal path is untouched (a `refusal` stop reason still means the
+whole chain declined). **Not yet done:** surfacing which model answered — `response.model` is
+available but there is no `TurnResult` field for it; that is a small follow-up. Not verified against
+a live turn.
+
 ---
 
 ## What this adds up to

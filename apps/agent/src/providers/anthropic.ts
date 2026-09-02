@@ -37,6 +37,41 @@ function maxTokensFor(model: string): number {
 const OAUTH_BETA_HEADER = "claude-code-20250219,oauth-2025-04-20";
 
 /**
+ * Two Anthropic server-side features, each behind an env flag and OFF by
+ * default. Both are betas: the request shape is enabled by an `anthropic-beta`
+ * header and a body param the non-beta SDK types do not know, so the param is
+ * cast. A wrong shape is a 400 on the whole turn, which is why they ship dark
+ * until run against a live project.
+ *
+ * - `ZELYQ_COMPACTION=1` — the API summarises earlier context when the window
+ *   fills, instead of the session hard-failing. `context-management-2025-06-27`.
+ * - `ZELYQ_REFUSAL_FALLBACK=1` — a policy-declined request is re-run on a
+ *   fallback model inside the same call rather than ending on the refusal.
+ *   `server-side-fallback-2026-07-01`.
+ */
+/** The `anthropic-beta` values the enabled flags require, or "" if none. */
+export function extraBetaHeader(env: NodeJS.ProcessEnv = process.env): string {
+  const betas: string[] = [];
+  if (env.ZELYQ_COMPACTION === "1") betas.push("context-management-2025-06-27");
+  if (env.ZELYQ_REFUSAL_FALLBACK === "1") betas.push("server-side-fallback-2026-07-01");
+  return betas.join(",");
+}
+
+/** Body params the enabled flags add. Cast at the call site — the non-beta SDK
+ * types do not carry them. `{}` when both flags are off, so a normal request is
+ * byte-identical to what it has always been. */
+export function extraRequestBody(env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (env.ZELYQ_COMPACTION === "1") {
+    body.context_management = { edits: [{ type: "compact_20260112" }] };
+  }
+  if (env.ZELYQ_REFUSAL_FALLBACK === "1") {
+    body.fallbacks = "default";
+  }
+  return body;
+}
+
+/**
  * Rebuilds Anthropic's native message history from persisted turns — a pure
  * function of `history` so it is testable without a real client, the same
  * way `stream()` and `addToolResults()` build the identical shape for a
@@ -128,6 +163,11 @@ export class AnthropicProvider implements ModelProvider {
   readonly id = "anthropic" as const;
 
   private readonly client: Anthropic;
+  /** The `anthropic-beta` header a request must carry to keep working — set
+   * for a subscription token, empty for an ordinary API key. A per-request
+   * beta header replaces this rather than adding to it, so the conversation
+   * has to re-compose it. */
+  private readonly baseBetaHeader: string;
 
   constructor(
     readonly model: string,
@@ -147,6 +187,7 @@ export class AnthropicProvider implements ModelProvider {
     // sending it with an ordinary API key would be harmless but is left off
     // to keep a normal request looking exactly like it always has.
     const workspaceHeader = workspaceId ? { "anthropic-workspace-id": workspaceId } : {};
+    this.baseBetaHeader = authMode === "subscription" ? OAUTH_BETA_HEADER : "";
     this.client =
       authMode === "subscription"
         ? new Anthropic({
@@ -160,7 +201,7 @@ export class AnthropicProvider implements ModelProvider {
   }
 
   createConversation(options: ConversationOptions): Conversation {
-    return new AnthropicConversation(this.client, this.model, options);
+    return new AnthropicConversation(this.client, this.model, options, this.baseBetaHeader);
   }
 }
 
@@ -171,6 +212,9 @@ class AnthropicConversation implements Conversation {
     private readonly client: Anthropic,
     private readonly model: string,
     private readonly options: ConversationOptions,
+    /** `anthropic-beta` header this request must always carry (subscription
+     * mode). A feature flag's own beta value is appended to it. */
+    private readonly baseBetaHeader = "",
   ) {
     this.messages = buildAnthropicHistory(options.history ?? []);
   }
@@ -194,6 +238,15 @@ class AnthropicConversation implements Conversation {
   }
 
   async *stream(signal: AbortSignal): AsyncGenerator<ProviderEvent, TurnResult, undefined> {
+    // A2 / A3 / C5 — optional server-side features, each behind an env flag
+    // (off by default). `extraBody` is `{}` and `betaHeader` is "" unless a
+    // flag is set, so a normal request is unchanged.
+    const featureBetas = extraBetaHeader();
+    const betaHeader = [this.baseBetaHeader, featureBetas].filter(Boolean).join(",");
+    const requestOptions = betaHeader
+      ? { signal, headers: { "anthropic-beta": betaHeader } }
+      : { signal };
+
     const stream = this.client.messages.stream(
       {
         model: this.model,
@@ -212,8 +265,11 @@ class AnthropicConversation implements Conversation {
         // transcript on every step, which on an expensive model is the
         // difference between cents and tens of dollars for one build.
         messages: withConversationCacheBreakpoint(this.messages),
-      },
-      { signal },
+        // Beta body params (compaction, refusal fallback) when their flags are
+        // set. Cast: the non-beta SDK types do not carry them.
+        ...extraRequestBody(),
+      } as Anthropic.MessageStreamParams,
+      requestOptions,
     );
 
     for await (const event of stream) {

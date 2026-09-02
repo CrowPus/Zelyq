@@ -98,6 +98,24 @@ interactive checkboxes deferred.
 **Phase 3 is now done** (portable halves of 3.2/3.3; 3.1 gating; 3.4 in full). Only the
 Anthropic-beta pieces remain across the roadmap.
 
+### Anthropic beta features — compaction + refusal fallback (off by default)
+
+`apps/agent/src/providers/anthropic.ts`: `extraBetaHeader(env)` / `extraRequestBody(env)`, both
+exported and unit-tested (`anthropic-beta-flags.test.ts`, 5).
+
+- `ZELYQ_COMPACTION=1` → `context-management-2025-06-27` header + `context_management: { edits: [{
+  type: "compact_20260112" }] }` body (cast — non-beta SDK types lack it). A3 hard-fail becomes a
+  server-side summarise.
+- `ZELYQ_REFUSAL_FALLBACK=1` → `server-side-fallback-2026-07-01` header + `fallbacks: "default"`. C5.
+
+Both flags off → header `""` and body `{}`, so a normal request is byte-identical. Subscription
+mode's OAuth beta header is re-composed with the feature betas appended. Not run against a live turn
+— the founder does that once: set both flags, one build turn; a wrong param shape shows as a 400
+naming the field, then one fix + one re-run. **Not done:** the subagent `task_budget` countdown —
+SDK 0.120 has no matching `anthropic-beta` value (the roadmap's `task-budgets-2026-03-13` is not in
+the list), so it is not safe to ship blind; and surfacing which model a fallback used
+(`response.model` exists, no `TurnResult` field yet).
+
 ### Where it stands after 2026-09-02
 
 **Done:** Phase 0, Phase 1 (in PR #127), all of Phase 3's portable content (3.1 gating, 3.2 + 3.3
