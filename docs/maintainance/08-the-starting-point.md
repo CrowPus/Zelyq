@@ -197,11 +197,14 @@ minutes, and the baselines already exist (`2026-09-01T10-54-08-227Z.json`,
 | --- | --- | --- | --- |
 | Neutral default scaffold — no dark, no accent, no mono **(done)** | G1 | small | the agent stops having to undo its own starting point |
 | `@theme` token block in `index.css` **(done)** | G2 | small | "commit to a scale" and `DESIGN.md` finally have somewhere to land |
-| Icons-in-one-file prompt rule | G3 | one line | removes a measured false restraint failure |
-| `lucide-react` in the template | G3 | small | removes the bind entirely |
+| Icons-in-one-file prompt rule **(done 2026-09-02)** | G3 | one line | removes a measured false restraint failure |
+| `lucide-react` in the template **(done 2026-09-02)** | G3 | small | removes the bind entirely |
 
-**G3 is not done** — both its options are prompt/dependency changes and this folder's rule is that
-those get a before/after eval run on `claude-opus-5` first. Left for that pass.
+**G3 done — 2026-09-02.** The no-emoji rule in `prompt.ts` now points at the project's icon library
+first (`lucide-react` added to `templates/vite-react/package.json`) and says hand-drawn icons live in
+one `src/components/icons.tsx`. Shipped alongside the `<scope>` / `<quality>` tightening the two
+2026-09-02 opus-5 runs justified; the prompt hash moved, so it rides the same eval run as those. The
+stale `evals/workspace/eval-base-vite-react` was removed so the run reinstalls with the new dep.
 
 Four files. No agent logic, no API change, no new abstraction. Of everything in this folder, this is
 the highest ratio of user-visible quality to effort — because it changes what *every* project looks

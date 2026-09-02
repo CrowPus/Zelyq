@@ -55,6 +55,14 @@ live context-editing / compaction (A2 live-half, A3), `task-budgets` countdown (
 **Could still do without the founder, just larger:** the Engineer-Mode checkpoint fires/doesn't
 eval pair, Expo / `/clone` / specialist-honesty eval cases, C1's three workaround deletions.
 
+### One mechanical step for the founder after the next eval run
+
+The prompt changed (`424c53c3a3ff`), so `check:prompt-hash` (now a blocking CI step) fails until a
+run is recorded for it. When you run `pnpm eval` while testing, the runner writes the new hash into
+`apps/agent/evals/baselines.json` automatically — then `git add apps/agent/evals/baselines.json`
+and commit it, and CI goes green. That is the whole loop: change prompt → run eval → commit
+baselines. Nothing else.
+
 ### The 2026-09-02 `claude-opus-5` run (5 greenfield cases, effort high)
 
 Founder ran `pnpm eval --limit 5`. `2/5 → 1/5 done` vs the pre-D1 baseline (`9661a9962ea3`).
@@ -156,6 +164,33 @@ and OpenAI carry it. `tools.test.ts` asserts it; tools suite 56/56, agent 376/37
 
 Still open: `strict: true` (Anthropic path) — it also requires every property in `required`, and
 five core tools are all-optional. Needs reshaping + its own eval check.
+
+---
+
+## F6 (`<scope>` half) + G3 — the prompt/template changes the two opus-5 runs justified
+
+**Where:** `maint/phase1`. Prompt hash `18b772c2702f` → `424c53c3a3ff`.
+
+Both 2026-09-02 runs showed the strongest model inventing components on the prompt's own worked
+example (`Wordmark.tsx`, `NoteSpecimen.tsx` on a "hero, feature cards, footer" brief), hand-rolling
+icon files (`Icon.tsx`, `CheckIcon.tsx`), and building `pricing-toggle`'s toggle as a non-`<button>`.
+Three small, targeted changes:
+
+- **`<scope>`** — a new bullet: "supporting" pieces (a logo/wordmark, a mock specimen of the
+  product, a decorative section) are still invented scope; sitting next to the hero or footer does
+  not make them part of it.
+- **`<quality>`** — the "real buttons" line now names toggles / switches / tabs / segmented controls
+  explicitly: a real element, never a styled `div` with an onClick.
+- **G3** — the no-emoji rule now points at the project's icon library first (`lucide-react` added to
+  `templates/vite-react/package.json`), and says hand-drawn icons go in one `src/components/icons.tsx`.
+  Template scaffolds + builds with the new dep; the stale `evals/workspace/eval-base-vite-react` was
+  removed so the next eval run reinstalls with it.
+
+**Consequence:** the F2 gate now fails (prompt changed, no run for `424c53c3a3ff`). It clears itself
+the next time an eval runs and `evals/baselines.json` is committed — see the founder note below.
+
+**Verified:** `@zelyq/agent` typecheck + 376/376, `prompt.test.ts` 48/48, template `tsc` + `vite
+build` clean. Whether the wording actually lands is the eval run's job, not this diff's.
 
 ---
 

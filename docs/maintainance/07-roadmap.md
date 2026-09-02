@@ -224,7 +224,7 @@ Worth doing, nothing depends on it.
 | Per-host fetch confirmation (open); `run_command` injection denylist **(done 2026-09-01)** | [05](./05-untrusted-content.md) §4, §5 | E1 |
 | `promptHash` CI gate **(done 2026-09-01, non-blocking)**; smoke set per PR still needs a CI key | [06](./06-measurement.md) §4 | F2 |
 | Neutral default template; `@theme` tokens in `index.css` **(done 2026-09-01)** | [08](./08-the-starting-point.md) §1, §2 | G1, G2 |
-| Icons-in-one-file rule; `lucide-react` in the template — *needs the eval run* | [08](./08-the-starting-point.md) §3 | G3 |
+| Icons-in-one-file rule; `lucide-react` in the template **(done 2026-09-02, rides the eval run)** | [08](./08-the-starting-point.md) §3 | G3 |
 | Errored eval cases skip checks; abort on repeated config error **(done 2026-09-01; pre-flight probe still open)** | [06](./06-measurement.md) §5 | F5 |
 
 ---

@@ -855,7 +855,7 @@ limitation, not purely a prompt one."* Opus 5 failing the same case refutes that
 is live on the strongest model available, on the prompt's own worked example. It is a prompt
 problem, and Phase 1 should not be read as having addressed it.
 
-→ Solution: [06-measurement.md](./06-measurement.md) §6. **Both eval halves are fixed** — the manifest discount (`scopeRelevant()`, #125) and the direct check (`no_unrequested_components` / `unrequestedComponents()`, 2026-09-01). The prompt half — whether `<scope>` wording lands on strong models — is open and gated on running the new check for a baseline.
+→ Solution: [06-measurement.md](./06-measurement.md) §6. **Both eval halves are fixed** — the manifest discount (`scopeRelevant()`, #125) and the direct check (`no_unrequested_components` / `unrequestedComponents()`, 2026-09-01). **Prompt half attempted 2026-09-02**: two `claude-opus-5` runs confirmed the failure (`Wordmark.tsx`, `NoteSpecimen.tsx` on the worked example), so `<scope>` gained a "supporting pieces are still invented scope" bullet and `<quality>` a real-control line. Whether it lands is the next eval run's to say.
 
 ## Group G — The starting point
 
