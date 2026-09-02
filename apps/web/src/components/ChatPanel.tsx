@@ -35,6 +35,7 @@ import { continueLabel, detectContinuePrompt } from "../lib/continuePrompt";
 import { parseFigmaCommand, parseFigmaMessage } from "../lib/figma-command";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
+import { type Body, POSTURE_LABEL } from "../lib/posture";
 import {
   findSlashCommand,
   matchByPrefix,
@@ -44,9 +45,9 @@ import {
 } from "../lib/slash-menu";
 import { SPECIALISTS, type Specialist } from "../lib/specialists";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
+import { AgentBody } from "./AgentBody";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
 import { IconButton, Kbd, Spinner, StatusDot } from "./ui";
-import { ZelyqThinking } from "./ZelyqThinking";
 
 /**
  * The markdown parser is ~170 KB — larger than the rest of the application put
@@ -734,6 +735,7 @@ export function ChatPanel({
               <MessageRow
                 streaming
                 activity={chat.streaming.activity}
+                body={chat.body}
                 nextSnapshotId={null}
                 projectId={projectId}
                 canEdit={canEdit}
@@ -1386,10 +1388,32 @@ function UserMessageBody({ content }: { content: string }) {
   );
 }
 
+/**
+ * The agent, present in the turn rather than described by it.
+ *
+ * This replaced a spinner and a status word. A spinner says only that
+ * something is happening; the body says what, how hard, and whether it is
+ * going well — and it says it peripherally, which is the point. The label
+ * stays because a shape alone is not accessible, and because the first few
+ * times you meet a posture you want it named.
+ */
+function AgentPresence({ body }: { body: Body }) {
+  return (
+    <div className="mb-2 flex items-center gap-2">
+      <AgentBody body={body} size={30} />
+      <span className="text-xs text-fg-secondary">{POSTURE_LABEL[body.posture]}</span>
+      {body.focus && (
+        <span className="max-w-[60%] truncate font-mono text-2xs text-fg-muted">{body.focus}</span>
+      )}
+    </div>
+  );
+}
+
 function MessageRow({
   message,
   streaming,
   activity,
+  body,
   nextSnapshotId,
   projectId,
   canEdit,
@@ -1399,6 +1423,7 @@ function MessageRow({
   message: Message;
   streaming?: boolean;
   activity?: AgentActivity[];
+  body?: Body;
   nextSnapshotId: string | null;
   projectId: string;
   canEdit: boolean;
@@ -1444,15 +1469,7 @@ function MessageRow({
 
   return (
     <div className="border-b border-border-default px-4 py-3 last:border-b-0">
-      {streaming && (
-        <ZelyqThinking
-          size={22}
-          // active, not conditionally rendered: once a tool call or the
-          // first token arrives the indicator should finish assembling and
-          // dissolve on its own next loop boundary, not vanish mid-frame.
-          active={message.toolCalls.length === 0 && !message.content}
-        />
-      )}
+      {streaming && body && <AgentPresence body={body} />}
       {activity && activity.length > 0 && <SpecialistActivity items={activity} />}
       {message.toolCalls.length > 0 && (
         <div className="mb-2.5 flex flex-col gap-px">
