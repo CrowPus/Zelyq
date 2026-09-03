@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { browsePageTool } from "./browse-page.js";
 import { captureReferenceTool } from "./capture-reference.js";
 import {
   deleteFileTool,
@@ -30,6 +31,7 @@ export { PLAN_FILE } from "./plan.js";
 export { type Screencast, type ScreencastSink, startScreencast } from "./screencast.js";
 export * from "./types.js";
 export {
+  browsePageTool,
   captureReferenceTool,
   cinematicPassTool,
   deleteFileTool,
@@ -70,6 +72,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   startPreviewTool,
   previewLogsTool,
   viewPreviewTool,
+  browsePageTool,
   captureReferenceTool,
   supabaseApplyMigrationTool,
   supabaseDeployFunctionTool,

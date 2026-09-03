@@ -26,7 +26,10 @@ export type Posture =
 const FAMILIES: Array<[Posture, RegExp]> = [
   ["delegating", /^(dispatch_task|.*_pass)$/],
   ["consulting", /^(use_skill|use_design_ref|use_ai_provider|fetch_provider_docs)$/],
-  ["browsing", /^(capture_reference|http_request|fetch_reference_image|.*_image_asset)$/],
+  [
+    "browsing",
+    /^(browse_page|capture_reference|http_request|fetch_reference_image|.*_image_asset)$/,
+  ],
   [
     "inspecting",
     /^(verify|view_preview|inspect_|check_|accessibility_|test_|security_|quality_|.*_report$|.*_audit$)/,

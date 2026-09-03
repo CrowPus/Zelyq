@@ -35,6 +35,7 @@ test("every tool the agent actually uses lands in a posture", () => {
     accessibility_audit: "inspecting",
     check_console_errors: "inspecting",
     test_responsive_layout: "inspecting",
+    browse_page: "browsing",
     capture_reference: "browsing",
     http_request: "browsing",
     fetch_reference_image: "browsing",
