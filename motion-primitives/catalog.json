@@ -1,0 +1,203 @@
+{
+  "source": "https://motion-primitives.com",
+  "components": [
+    {
+      "name": "accordion",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 197
+    },
+    {
+      "name": "animated-background",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 89
+    },
+    {
+      "name": "animated-group",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 143
+    },
+    {
+      "name": "animated-number",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 35
+    },
+    {
+      "name": "border-trail",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 43
+    },
+    {
+      "name": "carousel",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 351
+    },
+    {
+      "name": "cursor",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 134
+    },
+    {
+      "name": "dialog",
+      "dependencies": ["motion"],
+      "hooks": ["usePreventScroll"],
+      "lines": 335
+    },
+    {
+      "name": "disclosure",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 191
+    },
+    {
+      "name": "dock",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 226
+    },
+    {
+      "name": "glow-effect",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 151
+    },
+    {
+      "name": "image-comparison",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 147
+    },
+    {
+      "name": "in-view",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 61
+    },
+    {
+      "name": "infinite-slider",
+      "dependencies": ["motion", "react-use-measure"],
+      "hooks": [],
+      "lines": 112
+    },
+    {
+      "name": "magnetic",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 112
+    },
+    {
+      "name": "morphing-dialog",
+      "dependencies": ["motion"],
+      "hooks": ["useClickOutside"],
+      "lines": 422
+    },
+    {
+      "name": "morphing-popover",
+      "dependencies": ["motion"],
+      "hooks": ["useClickOutside"],
+      "lines": 224
+    },
+    {
+      "name": "progressive-blur",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 63
+    },
+    {
+      "name": "scroll-progress",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 41
+    },
+    {
+      "name": "sliding-number",
+      "dependencies": ["motion", "react-use-measure"],
+      "hooks": [],
+      "lines": 122
+    },
+    {
+      "name": "spinning-text",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 104
+    },
+    {
+      "name": "spotlight",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 85
+    },
+    {
+      "name": "text-effect",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 294
+    },
+    {
+      "name": "text-loop",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 72
+    },
+    {
+      "name": "text-morph",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 73
+    },
+    {
+      "name": "text-roll",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 102
+    },
+    {
+      "name": "text-scramble",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 85
+    },
+    {
+      "name": "text-shimmer",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 57
+    },
+    {
+      "name": "text-shimmer-wave",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 88
+    },
+    {
+      "name": "tilt",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 92
+    },
+    {
+      "name": "toolbar-dynamic",
+      "dependencies": ["motion"],
+      "hooks": ["useClickOutside"],
+      "lines": 90
+    },
+    {
+      "name": "toolbar-expandable",
+      "dependencies": ["motion", "react-use-measure"],
+      "hooks": ["useClickOutside"],
+      "lines": 186
+    },
+    {
+      "name": "transition-panel",
+      "dependencies": ["motion"],
+      "hooks": [],
+      "lines": 48
+    }
+  ]
+}

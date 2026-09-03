@@ -18,12 +18,18 @@ export interface ParsedFigma {
  * `{ fileKey, nodeId }` — good.
  */
 export function parseFigmaCommand(draft: string): ParsedFigma | { error: string } | null {
-  const trimmed = draft.trimStart();
-  if (!/^\/figma(\s|$)/i.test(trimmed)) return null;
+  // Recognised anywhere, for the reason `parseCloneCommand` explains: the `/`
+  // menu offers it mid-sentence, so accepting it only at the start made the
+  // menu a liar.
+  const command = draft.match(/(^|\s)\/figma(\s|$)/i);
+  if (!command || command.index === undefined) return null;
 
-  const after = trimmed.replace(/^\/figma\s*/i, "");
+  const after = draft.slice(command.index + command[0].length);
   const urlMatch = after.match(/https?:\/\/[^\s]*figma\.com\/[^\s]+/i);
   if (!urlMatch) {
+    // Same rule as `/clone`: unfinished is unfinished, wherever it sits. The
+    // link is pasted after the command, so at the moment it is picked there is
+    // never one yet.
     return {
       error: "/figma needs a Figma frame link — Copy link to a frame in Figma and paste it.",
     };
@@ -54,4 +60,18 @@ export function parseFigmaCommand(draft: string): ParsedFigma | { error: string 
 export function parseFigmaMessage(content: string): ParsedFigma | null {
   const parsed = parseFigmaCommand(content);
   return parsed && !("error" in parsed) ? parsed : null;
+}
+
+/** The `/figma` counterpart of `cloneChip`, on the same rule. */
+export function figmaChip(draft: string): { ready: true } | { needsLink: true } | null {
+  const parsed = parseFigmaCommand(draft);
+  if (!parsed) return null;
+  return "error" in parsed ? { needsLink: true } : { ready: true };
+}
+
+export function withoutFigmaCommand(draft: string): string {
+  return draft
+    .replace(/(^|\s)\/figma(\s|$)/i, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trimStart();
 }

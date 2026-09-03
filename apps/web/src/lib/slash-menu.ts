@@ -34,6 +34,11 @@ export const SLASH_COMMANDS: SlashMenuCommand[] = [
     insert: "/clone ",
   },
   {
+    name: "motion",
+    blurb: "Give this project a motion system — optionally the one a site you name already has.",
+    insert: "/motion ",
+  },
+  {
     name: "figma",
     blurb: "Build a website from a Figma frame — paste the frame's share link.",
     insert: "/figma ",

@@ -26,6 +26,14 @@ import {
   CLONE_USER_AGENT,
   guardedFetch,
 } from "./capture-fetch-guard.js";
+import {
+  type Checkpoint,
+  gotoSettled,
+  type PageWalk,
+  pickCheckpoints,
+  summarizeWalk,
+  walkPage,
+} from "./page-walk.js";
 import { type Screencast, startScreencast } from "./screencast.js";
 import { defineTool, type ToolResult } from "./types.js";
 
@@ -179,6 +187,8 @@ export interface CaptureSummary {
   bundleDir: string;
   diffs?: Array<{ width: number; changedRatio: number; diffFile: string }>;
   notes: string[];
+  /** What the entry page *does*, from walking it. See `page-walk.ts`. */
+  motion?: { page: string; text: string };
 }
 
 /** The < 4 KB string the model actually receives. */
@@ -194,6 +204,11 @@ export function summarize(s: CaptureSummary): string {
       `(see ${s.bundleDir}/manifest.json; failures → substitute + log in ${s.bundleDir}/asset-gaps.md)`,
   );
   if (s.fonts.length) lines.push(`Fonts seen: ${s.fonts.slice(0, 8).join(", ")}`);
+  if (s.motion) {
+    lines.push("");
+    lines.push(`Behaviour of ${s.motion.page} (full record in reference/<page>/motion.json):`);
+    lines.push(s.motion.text);
+  }
   if (s.robotsSkipped.length) lines.push(`robots.txt skipped: ${s.robotsSkipped.join(", ")}`);
   if (s.diffs?.length) {
     lines.push("Diff vs reference:");
@@ -203,8 +218,10 @@ export function summarize(s: CaptureSummary): string {
   for (const n of s.notes) lines.push(`Note: ${n}`);
   lines.push("");
   lines.push(
-    "Next: read manifest.json + reference/<page>/geometry.json, write clone/<host>/REPLICA.md " +
-      "(the build plan) BEFORE any component code, then build macro-geometry first.",
+    "Next: read manifest.json + reference/<page>/geometry.json + motion.json, write " +
+      "clone/<host>/REPLICA.md (the build plan) BEFORE any component code, then build " +
+      "macro-geometry first and the motion system with it — a clone with the right layout and " +
+      "no motion is the one people can tell is a copy.",
   );
   return lines.join("\n");
 }
@@ -439,6 +456,7 @@ export const captureReferenceTool = defineTool({
       }
     }
 
+    let entryFrames: Checkpoint[] = [];
     const assetUrls = new Map<string, { contentType?: string }>();
     const allFonts = new Set<string>();
     let firstHtml = "";
@@ -530,10 +548,7 @@ export const captureReferenceTool = defineTool({
                 assetUrls.set(res.url().split("#")[0] ?? res.url(), { contentType: ct });
               }
             });
-            const resp = await page.goto(pageUrl, {
-              waitUntil: "networkidle",
-              timeout: NAV_TIMEOUT_MS,
-            });
+            const { response: resp } = await gotoSettled(page, pageUrl, NAV_TIMEOUT_MS);
             const status = resp?.status() ?? 0;
 
             if (visited.size === 1 && width === widths[0]) {
@@ -558,8 +573,25 @@ export const captureReferenceTool = defineTool({
             await page
               .evaluate("document.fonts ? document.fonts.ready : Promise.resolve()")
               .catch(() => undefined);
-            // Trigger lazy content, then settle.
-            await page.evaluate(`(${SCROLL_THROUGH})()`).catch(() => undefined);
+
+            // At the widest width, walk the page properly instead of the
+            // lazy-load flick: same scrolling, but pausing long enough that
+            // whatever each position triggers actually runs, and watching it.
+            // Everything below still gets the settled screenshot it always did.
+            const detailWidth = width === widths[widths.length - 1];
+            const entryPage = visited.size === 1;
+            let walk: PageWalk | undefined;
+            if (detailWidth) {
+              walk = await walkPage(page, {
+                checkpoints: entryPage,
+                playMedia: true,
+                signal: context.signal,
+              }).catch(() => undefined);
+            }
+            if (!walk) {
+              // Trigger lazy content, then settle.
+              await page.evaluate(`(${SCROLL_THROUGH})()`).catch(() => undefined);
+            }
             await page.waitForTimeout(500);
 
             const shot = await page.screenshot({ fullPage: true, animations: "disabled" });
@@ -571,8 +603,35 @@ export const captureReferenceTool = defineTool({
             );
             perPageWidths.push(width);
 
+            if (walk) {
+              await context.runtime.writeFile(
+                context.projectId,
+                `${pageDir}/motion.json`,
+                JSON.stringify(
+                  {
+                    url: pageUrl,
+                    width,
+                    pageHeight: walk.pageHeight,
+                    stops: walk.stops,
+                    motions: walk.motions,
+                    sticky: walk.sticky,
+                    media: walk.media,
+                  },
+                  null,
+                  2,
+                ),
+              );
+              if (entryPage) {
+                summary.motion = { page: path, text: summarizeWalk(walk) };
+                // Only the entry page's frames, and only a handful: this is so
+                // the model can look at what it is copying, which it never
+                // could, not a filmstrip of the whole crawl.
+                entryFrames = pickCheckpoints(walk.checkpoints);
+              }
+            }
+
             // Full detail only at the widest capture.
-            if (width === widths[widths.length - 1]) {
+            if (detailWidth) {
               const html = await page.content();
               if (!firstHtml) firstHtml = html;
               await context.runtime.writeFile(context.projectId, `${pageDir}/dom.html`, html);
@@ -804,7 +863,18 @@ export const captureReferenceTool = defineTool({
 
     // The summary carries page titles and text harvested from a site the user
     // does not control — mark it so the session wraps it.
-    return { output: summarize(summary), untrusted: { source: entry.hostname } };
+    return {
+      output: summarize(summary),
+      ...(entryFrames.length
+        ? {
+            images: entryFrames.map((frame) => ({
+              mimeType: "image/jpeg",
+              data: frame.jpeg,
+            })),
+          }
+        : {}),
+      untrusted: { source: entry.hostname },
+    };
   },
 });
 
