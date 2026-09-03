@@ -1,6 +1,6 @@
 # `/motion` — turning a built site into a moving one
 
-**Status:** step 1 done — the stack is proven and the template is ready. Written 2026-09-03.
+**Status:** built. Written and implemented 2026-09-03.
 
 `/clone` points at somebody else's site and rebuilds it. `/motion` points at **the project you already
 have** and gives it a motion system. Different direction, different problem: nothing is being copied,
@@ -372,3 +372,74 @@ should not carry it. `/motion` adds it when it runs.
 
 Verified by generating a project from the changed template, importing `@/lib/utils`, and running
 typecheck and build.
+
+---
+
+## What was built
+
+| | |
+|---|---|
+| `motion-primitives/` | 33 components + 2 hooks, vendored, patched, with `PROVENANCE.md` and `refresh.mjs` |
+| `packages/tools/src/motion-install.ts` | `add_motion` — copies components into a project with their hooks and packages |
+| `packages/tools/src/walk-preview.ts` | `walk_preview` — walks the project's own preview |
+| `skills/motion-system/` | the catalogue, the placement heuristics, four recipes |
+| `apps/web/src/lib/motion-command.ts` | `/motion` and `/motion <url>` in the composer |
+| `templates/vite-react/` | the `@/` alias, the `cn` helper, `clsx` + `tailwind-merge` |
+
+### Vendoring took eleven transforms, not one
+
+Step 1 found that `animated-group` did not typecheck under React 19. Vendoring all 33 found that
+**none of them did** — 26 errors across 15 files, none of which upstream sees, because upstream
+targets React 18 with a looser config and Zelyq runs `tsc` with `strict` and `noUnusedLocals` on
+every turn.
+
+`refresh.mjs` applies every fix as a named transform, so the directory is reproducible rather than
+hand-edited:
+
+| | |
+|---|---|
+| React 19 removed the global `JSX` namespace | 5 files |
+| `motion.create` then loses the element's props, taking `className` | 1 |
+| `cloneElement` on `ReactElement<unknown>` no longer matches an overload | 4 |
+| Spreading `child.props` is a spread of `unknown` | 2 |
+| The `JSX` type import is unused once the namespace patch lands | 3 |
+| `React` need not be in scope for JSX in React 19 | 2 |
+| `useRef<T>(null)` is `RefObject<T \| null>` | the hooks |
+| `type: 'spring'` infers as `string` and will not narrow | 7 |
+| `layoutEffect` was removed from `UseScrollOptions` after v11 | 1 |
+| `'use client'` — a Next directive, and these are Vite projects | 33 |
+
+Two components needed a fix that is genuinely about them, recorded as explicit overrides.
+**An override that stops matching fails the refresh**, which caught one of my own wrong assumptions
+within a minute of writing it.
+
+Three mistakes worth recording, all mine, all caught by the same loop:
+
+- Stripping `React` unconditionally broke every component calling `React.Children`. The import was
+  unused *as a value in JSX*, which is not the same as unused.
+- The "is `JSX` still used?" guard matched `React.JSX`, which the previous transform had just
+  created — so it never fired.
+- Downgrading `motion` to the version upstream builds against was the obvious theory and it was
+  wrong: 15 errors at v11, 22 at v12, 26 at v13. These are strict-TypeScript failures, not version
+  drift. Measuring it took two minutes and saved pinning to an old major for no reason.
+
+**Result: all 33 typecheck and build clean** against React 19.2.8, `motion` 13.2.0, Tailwind 4.
+
+### Verified end to end
+
+Scaffold a project from the template → `add_motion(["in-view", "animated-group", "text-effect"])` →
+write a page that *wraps* its sections → `npm install` → `npm run typecheck` **exit 0** →
+`start_preview` → `walk_preview`:
+
+```
+Motion: 19 animations, 3 distinct.
+  ×9  300ms cubic-bezier(0.25, 0.1, 0.35, 1) → opacity, staggered 300–500ms
+  ×9  300ms cubic-bezier(0.25, 0.1, 0.35, 1) → filter, staggered 300–500ms
+  ×1  300ms ease-out → opacity, 300ms delay, e.g. span.inline-block.whitespace-pre
+```
+
+`add_motion` added only `motion` — the template already had `clsx`, `tailwind-merge` and `cn`, and it
+did not overwrite them.
+
+That is the loop closed: write motion, walk your own page, read the real numbers back. The last line
+is `TextEffect` splitting the headline into per-word spans, measured rather than assumed.

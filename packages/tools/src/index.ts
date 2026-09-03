@@ -10,6 +10,7 @@ import {
   searchFilesTool,
   writeFileTool,
 } from "./files.js";
+import { addMotionTool } from "./motion-install.js";
 import {
   cinematicPassTool,
   designPassTool,
@@ -26,11 +27,13 @@ import {
   supabaseVerifyBackendTool,
 } from "./supabase.js";
 import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
+import { walkPreviewTool } from "./walk-preview.js";
 
 export { PLAN_FILE } from "./plan.js";
 export { type Screencast, type ScreencastSink, startScreencast } from "./screencast.js";
 export * from "./types.js";
 export {
+  addMotionTool,
   browsePageTool,
   captureReferenceTool,
   cinematicPassTool,
@@ -52,6 +55,7 @@ export {
   supabaseVerifyBackendTool,
   updatePlanTool,
   viewPreviewTool,
+  walkPreviewTool,
   writeFileTool,
 };
 
@@ -72,8 +76,10 @@ export const ALL_TOOLS: ZelyqTool[] = [
   startPreviewTool,
   previewLogsTool,
   viewPreviewTool,
+  walkPreviewTool,
   browsePageTool,
   captureReferenceTool,
+  addMotionTool,
   supabaseApplyMigrationTool,
   supabaseDeployFunctionTool,
   supabaseVerifyBackendTool,

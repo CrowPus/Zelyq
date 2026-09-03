@@ -43,6 +43,13 @@ import {
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import {
+  buildMotionDirective,
+  MOTION_SKILL,
+  motionChip,
+  parseMotionCommand,
+  withoutMotionCommand,
+} from "../lib/motion-command";
+import {
   findSlashCommand,
   matchByPrefix,
   replaceSlashCommand,
@@ -273,6 +280,7 @@ export function ChatPanel({
   // text, so a separate piece of state could disagree with what is typed.
   const activeClone = cloneChip(draft);
   const activeFigma = figmaChip(draft);
+  const activeMotion = motionChip(draft);
 
   const matchingCommands = slashCommand
     ? matchByPrefix(SLASH_COMMANDS, slashCommand.query, (command) => command.name)
@@ -432,17 +440,23 @@ export function ChatPanel({
       setCommandError(clone.error);
       return;
     }
-    const skillNames = clone
-      ? [...new Set([...selectedSkills.map((skill) => skill.name), CLONE_SKILL])]
+    // `/motion` never errors — the command is complete on its own, with or
+    // without a reference site.
+    const motion = clone ? null : parseMotionCommand(draft);
+    const forced = clone ? CLONE_SKILL : motion ? MOTION_SKILL : null;
+    const skillNames = forced
+      ? [...new Set([...selectedSkills.map((skill) => skill.name), forced])]
       : selectedSkills.map((skill) => skill.name);
 
     // Woven in client-side, ahead of what was typed — the exact same string
     // field chat.send() already carries, nothing new downstream.
     const finalMessage = clone
       ? buildCloneDirective(clone.url, clone.rest)
-      : pointedElement
-        ? withPointedElement(message, pointedElement)
-        : message;
+      : motion
+        ? buildMotionDirective(motion.url, motion.rest)
+        : pointedElement
+          ? withPointedElement(message, pointedElement)
+          : message;
     chat.send(finalMessage, {
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(attachments.length ? { attachments } : {}),
@@ -942,6 +956,7 @@ export function ChatPanel({
             uploading > 0 ||
             activeClone !== null ||
             activeFigma !== null ||
+            activeMotion !== null ||
             selectedSkills.length > 0 ||
             selectedPlugins.length > 0 ||
             selectedAgents.length > 0) && (
@@ -953,6 +968,18 @@ export function ChatPanel({
                   hint={"host" in activeClone ? undefined : "add a URL"}
                   onRemove={() => {
                     const next = withoutCloneCommand(draft);
+                    setDraft(next);
+                    setCursor(next.length);
+                    setCommandError(null);
+                  }}
+                />
+              )}
+              {activeMotion && (
+                <CommandChip
+                  icon={Sparkles}
+                  label={"host" in activeMotion ? `motion like ${activeMotion.host}` : "motion"}
+                  onRemove={() => {
+                    const next = withoutMotionCommand(draft);
                     setDraft(next);
                     setCursor(next.length);
                     setCommandError(null);

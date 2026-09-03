@@ -12,7 +12,9 @@
       "!**/node_modules",
       "!**/templates",
       "!**/drizzle",
-      "!**/workspace"
+      "!**/workspace",
+      "!**/motion-primitives/components",
+      "!**/motion-primitives/hooks"
     ]
   },
   "formatter": {
