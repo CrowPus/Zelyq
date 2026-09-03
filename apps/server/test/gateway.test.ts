@@ -233,7 +233,9 @@ before(async () => {
 after(async () => {
   await server.close();
   await new Promise<void>((resolve) => agent.server.close(() => resolve()));
-  await fs.rm(tmp, { recursive: true, force: true });
+  // Retried for the same reason as live-browser-gateway.test.ts: the snapshot
+  // git runs after `turn.end` is sent, so removal can race it.
+  await fs.rm(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   delete process.env.ZELYQ_PROVIDER;
   delete process.env.GEMINI_API_KEY;
 });

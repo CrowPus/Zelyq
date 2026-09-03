@@ -146,7 +146,12 @@ before(async () => {
 after(async () => {
   await server?.close();
   await new Promise<void>((r) => agent.server.close(() => r()));
-  await fs.rm(tmp, { recursive: true, force: true });
+  // Retried: the gateway's snapshot is best-effort and detached — it runs
+  // `git add`/`git commit` in a `finally` *after* `turn.end` has already been
+  // sent, so the test can reach this line while git is still writing
+  // `.git/objects` and the removal fails with ENOTEMPTY. Seen in CI, not
+  // reproducible on demand.
+  await fs.rm(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   delete process.env.ZELYQ_PROVIDER;
   delete process.env.GEMINI_API_KEY;
 });
