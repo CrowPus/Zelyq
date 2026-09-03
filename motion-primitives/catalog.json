@@ -77,7 +77,7 @@
       "name": "in-view",
       "dependencies": ["motion"],
       "hooks": [],
-      "lines": 58
+      "lines": 61
     },
     {
       "name": "infinite-slider",

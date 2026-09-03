@@ -180,6 +180,23 @@ const OVERRIDES = {
       to: "import { motion, Transition, type TargetAndTransition } from 'motion/react';",
     },
   ],
+  "in-view": [
+    {
+      why: "AnimatedGroup takes a className and InView does not, which is an upstream inconsistency rather than a decision. Wrapping a section that carries layout classes is impossible without it, and the first real /motion pass hit that within minutes and patched its own copy — which the next add_motion would have overwritten.",
+      from: "  as?: React.ElementType;",
+      to: "  as?: React.ElementType;\n  className?: string;",
+    },
+    {
+      why: "…and the prop has to be destructured and passed on.",
+      from: "  as = 'div',\n  once\n}: InViewProps) {",
+      to: "  as = 'div',\n  once,\n  className,\n}: InViewProps) {",
+    },
+    {
+      why: "…onto the element itself.",
+      from: "      variants={variants}\n      transition={transition}",
+      to: "      variants={variants}\n      transition={transition}\n      className={className}",
+    },
+  ],
   "spinning-text": [
     {
       why: "`finalTransition` is a union of object literals; `transition` wants the Transition union.",
