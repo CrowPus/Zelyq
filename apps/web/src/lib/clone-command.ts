@@ -45,13 +45,16 @@ export function parseCloneCommand(draft: string): ParsedClone | { error: string 
   const after = draft.slice(command.index + command[0].length);
   const match = after.match(/https?:\/\/[^\s]+/i);
   if (!match || match.index === undefined) {
-    // Position decides what a missing URL means. Opening the message, it is a
-    // command someone is still typing, and blocking the send with a hint is
-    // help. Buried in a sentence, it is someone talking *about* the command —
-    // "the /clone isn't working" — and blocking that send would be absurd.
-    return before.trim() === ""
-      ? { error: "/clone needs a URL — for example  /clone https://example.com" }
-      : null;
+    // A missing URL means the same thing wherever the command sits: it is not
+    // finished yet. An earlier version treated a mid-sentence command with no
+    // URL as someone merely *talking* about the command and stayed silent —
+    // which broke the only way anyone actually types one. You write a few
+    // words, reach for `/clone`, pick it from the menu, and only then paste
+    // the link. At the moment you pick it there is never a URL, so the one
+    // state that most needs feedback was the one state that gave none.
+    // Talking about the command is rarer than using it, and the chip's own
+    // dismiss button is the way out of a false positive.
+    return { error: "/clone needs a URL — for example  /clone https://example.com" };
   }
 
   let url: URL;
@@ -136,12 +139,9 @@ function safeHost(url: string): string {
  * chip, because nothing is going to happen.
  */
 export function cloneChip(draft: string): { host: string } | { needsUrl: true } | null {
-  const command = draft.match(/(^|\s)\/clone(\s|$)/i);
-  if (!command || command.index === undefined) return null;
   const parsed = parseCloneCommand(draft);
-  if (parsed && !("error" in parsed)) return { host: safeHost(parsed.url) };
-  if (parsed && "error" in parsed) return { needsUrl: true };
-  return null;
+  if (!parsed) return null;
+  return "error" in parsed ? { needsUrl: true } : { host: safeHost(parsed.url) };
 }
 
 /** The draft with the command taken out, for the chip's dismiss button. */

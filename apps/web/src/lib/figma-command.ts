@@ -27,13 +27,12 @@ export function parseFigmaCommand(draft: string): ParsedFigma | { error: string 
   const after = draft.slice(command.index + command[0].length);
   const urlMatch = after.match(/https?:\/\/[^\s]*figma\.com\/[^\s]+/i);
   if (!urlMatch) {
-    // Same rule as `/clone`: a hint when the command opens the message, and
-    // silence when someone is only talking about it.
-    return draft.slice(0, command.index).trim() === ""
-      ? {
-          error: "/figma needs a Figma frame link — Copy link to a frame in Figma and paste it.",
-        }
-      : null;
+    // Same rule as `/clone`: unfinished is unfinished, wherever it sits. The
+    // link is pasted after the command, so at the moment it is picked there is
+    // never one yet.
+    return {
+      error: "/figma needs a Figma frame link — Copy link to a frame in Figma and paste it.",
+    };
   }
 
   let url: URL;
@@ -65,12 +64,9 @@ export function parseFigmaMessage(content: string): ParsedFigma | null {
 
 /** The `/figma` counterpart of `cloneChip`, on the same rule. */
 export function figmaChip(draft: string): { ready: true } | { needsLink: true } | null {
-  const command = draft.match(/(^|\s)\/figma(\s|$)/i);
-  if (!command || command.index === undefined) return null;
   const parsed = parseFigmaCommand(draft);
-  if (parsed && !("error" in parsed)) return { ready: true };
-  if (parsed && "error" in parsed) return { needsLink: true };
-  return null;
+  if (!parsed) return null;
+  return "error" in parsed ? { needsLink: true } : { ready: true };
 }
 
 export function withoutFigmaCommand(draft: string): string {

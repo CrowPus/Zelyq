@@ -51,10 +51,17 @@ test("a command picked mid-sentence arms, and says so", async ({ page }) => {
     "a command picked mid-sentence has to arm — the menu offered it there",
   ).toBeVisible();
 
-  // And talking *about* the command still arms nothing.
-  await box.fill("the /clone is not working for me");
-  await expect(page.getByText("clone noth.in")).toBeHidden();
-  await expect(page.getByText("add a URL")).toBeHidden();
+  // The exact draft from the bug report: a word, then the command picked from
+  // the menu, and no URL yet — because the URL is always pasted afterwards.
+  await box.fill("new /clone");
+  await expect(
+    page.getByText("add a URL"),
+    "picking the command mid-sentence has to say it needs a URL, not go silent",
+  ).toBeVisible();
+
+  // Finishing it arms, without retyping anything.
+  await box.fill("new /clone https://www.noth.in/");
+  await expect(page.getByText("clone noth.in")).toBeVisible();
 });
 
 test("the chip cancels the command without clearing the message", async ({ page }) => {
