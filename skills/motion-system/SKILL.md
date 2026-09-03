@@ -27,6 +27,12 @@ you find yourself retyping the contents of a section, stop — that is not this 
 
 ## Hard boundaries
 
+- **Never weaken the project's configuration to make an error go away.** Turning off
+  `noUnusedLocals`, loosening `strict`, adding a `ts-ignore` — these are not fixes, they are the
+  error moved somewhere nobody looks. Seen on a real run: a pass added `InView`, `AnimatedGroup` and
+  `Tilt` to a file, never wrapped anything with them, and then switched off `noUnusedLocals` so the
+  unused imports stopped complaining. An unused import means you did not finish the wrap. **Finish
+  it, or take the import out.**
 - **Never restructure the page.** No pinning, no scroll-scrubbed video, no canvas hand-off, no
   reordering sections. If the work needs any of that, say so and stop: it is `cinematic_pass`, which
   owns one screen, takes footage, and rebuilds it. This owns the whole project and rebuilds nothing.
@@ -49,7 +55,9 @@ their hooks, writes the `cn` helper if absent, and adds packages. Then `npm inst
 the catalogue.
 
 **4. The wrapper layer, everywhere.** This is most of the perceived difference and it is the safe
-part.
+part. Work **one file at a time, finishing it before opening the next**: add the import and the wrap
+in the same edit. Importing across several files first and wrapping later is how a file ends up with
+three unused imports and no motion.
 
 **5. Replacements, sparingly.** One or two per page.
 
@@ -59,6 +67,12 @@ part.
 durations, easings and staggers the page runs. **If it reports no motion, the pass failed** — the
 components are not imported, not rendered, or you edited a page the route does not use. Never report
 success from having written the code; report it from what the walk measured, and quote the numbers.
+
+**Verification is not the step you drop when you run short.** A pass that ran out of room before
+walking the page has not been checked at all, and the failure it would have caught is exactly the
+one that is easy to make: imports added, nothing wrapped. If the project is large, **do fewer
+sections and still verify** — one page with measured motion beats four pages of unverified edits.
+Say which sections you left for a second pass.
 
 ## Choosing what moves
 
@@ -160,6 +174,7 @@ using one you have not used before. Read
 ## Definition of done
 
 - One grammar, applied throughout, written down in the summary.
+- No import added that is not used, and the project's `tsconfig.json` no less strict than it was.
 - Every reveal has a reduced-motion branch, and the page is complete without motion.
 - `npm run typecheck` and the build pass.
 - `walk_preview` reports motion, and the summary **quotes what it measured** — durations, easings,

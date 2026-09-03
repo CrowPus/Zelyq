@@ -23,6 +23,47 @@ const COMPONENT_DIR = "src/components/motion";
 const HOOK_DIR = "src/hooks";
 const UTILS_PATH = "src/lib/utils.ts";
 
+/**
+ * Make `@/…` resolve, in both halves.
+ *
+ * Every component this tool writes imports `@/lib/utils`, and the page that
+ * uses them imports `@/components/motion/…`. A project generated before the
+ * template carried the alias has neither half, so the install lands code that
+ * cannot resolve. Watched live: the agent spent six tool calls discovering
+ * that and patching it by hand, and TypeScript and the bundler need telling
+ * separately, so half-doing it is the likely outcome.
+ */
+export function withTsconfigAlias(source: string): string | null {
+  let config: { compilerOptions?: Record<string, unknown> };
+  try {
+    config = JSON.parse(source.replace(/^\s*\/\/.*$/gm, ""));
+  } catch {
+    return null;
+  }
+  config.compilerOptions ??= {};
+  const options = config.compilerOptions;
+  const paths = options.paths as Record<string, string[]> | undefined;
+  if (paths?.["@/*"]) return null;
+  options.baseUrl ??= ".";
+  options.paths = { ...(paths ?? {}), "@/*": ["./src/*"] };
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+/** The vite half. Left alone if anything already aliases `@`. */
+export function withViteAlias(source: string): string | null {
+  if (/alias\s*:/.test(source) && /["'`]@["'`]\s*:/.test(source)) return null;
+  if (!/defineConfig\s*\(\s*\{/.test(source)) return null;
+  const withImport = /from ["']node:path["']/.test(source)
+    ? source
+    : `import path from "node:path";\n${source}`;
+  return withImport.replace(
+    /(defineConfig\s*\(\s*\{)/,
+    "$1\n  // `@/…` means `src/…`, for components that are copied in rather than\n" +
+      "  // installed. TypeScript is told the same thing in tsconfig.json.\n" +
+      '  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },',
+  );
+}
+
 /** The `cn` helper every component imports. Written only if absent. */
 const CN_HELPER = `import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -159,11 +200,15 @@ export const addMotionTool = defineTool({
       written.push(UTILS_PATH);
     }
 
+    const configured = await ensureAlias(context);
     const added = await ensurePackages(context, plan.packages);
 
     const lines = [`Added ${plan.components.length} component(s) to ${COMPONENT_DIR}/:`];
     for (const entry of plan.components) lines.push(`  ${entry.name}`);
     if (plan.hooks.length) lines.push(`Hooks: ${plan.hooks.join(", ")}`);
+    if (configured.length) {
+      lines.push(`Configured the \`@/\` import alias in ${configured.join(" and ")}.`);
+    }
     if (added.length) {
       lines.push(`package.json: added ${added.join(", ")} — run \`npm install\` before building.`);
     } else {
@@ -177,6 +222,31 @@ export const addMotionTool = defineTool({
     return { output: lines.join("\n") };
   },
 });
+
+/** Both halves of the alias, each only if it is not already there. */
+async function ensureAlias(context: {
+  projectId: string;
+  runtime: {
+    readFile(projectId: string, path: string): Promise<{ content: string }>;
+    writeFile(projectId: string, path: string, content: string): Promise<unknown>;
+  };
+  onFileChanged(path: string): void;
+}): Promise<string[]> {
+  const done: string[] = [];
+  for (const [file, transform] of [
+    ["tsconfig.json", withTsconfigAlias],
+    ["vite.config.ts", withViteAlias],
+  ] as const) {
+    const existing = await context.runtime.readFile(context.projectId, file).catch(() => null);
+    if (!existing) continue;
+    const next = transform(existing.content);
+    if (!next) continue;
+    await context.runtime.writeFile(context.projectId, file, next);
+    context.onFileChanged(file);
+    done.push(file);
+  }
+  return done;
+}
 
 /** Versions pinned here, not read from upstream: these are what was verified. */
 const VERSIONS: Record<string, string> = {

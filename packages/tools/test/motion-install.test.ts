@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type MotionCatalogEntry, readCatalog, resolveInstall } from "../src/motion-install.js";
+import {
+  type MotionCatalogEntry,
+  readCatalog,
+  resolveInstall,
+  withTsconfigAlias,
+  withViteAlias,
+} from "../src/motion-install.js";
 
 /**
  * What a set of components actually needs.
@@ -77,4 +83,62 @@ test("the real vendored catalogue is present and complete", async () => {
   for (const hook of new Set(components.flatMap((c) => c.hooks))) {
     await fs.access(path.join(root, "hooks", `${hook}.tsx`));
   }
+});
+
+/**
+ * The import alias.
+ *
+ * Watched on a live run: the project predated the template carrying `@/`, so
+ * every component this tool wrote imported a path that did not resolve. The
+ * agent spent six tool calls working that out and patching both files by hand
+ * — which it should never have had to do, because the tool is what put the
+ * imports there.
+ */
+
+test("a tsconfig without the alias gets it, with a baseUrl", () => {
+  const out = withTsconfigAlias('{ "compilerOptions": { "strict": true }, "include": ["src"] }');
+  const parsed = JSON.parse(out ?? "{}");
+  assert.deepEqual(parsed.compilerOptions.paths, { "@/*": ["./src/*"] });
+  assert.equal(parsed.compilerOptions.baseUrl, ".");
+  assert.equal(parsed.compilerOptions.strict, true, "nothing else is touched");
+  assert.deepEqual(parsed.include, ["src"]);
+});
+
+test("a tsconfig that already has the alias is left alone", () => {
+  const source = '{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }';
+  assert.equal(withTsconfigAlias(source), null);
+});
+
+test("another project's own paths survive", () => {
+  const out = withTsconfigAlias('{ "compilerOptions": { "paths": { "~/*": ["./lib/*"] } } }');
+  const paths = JSON.parse(out ?? "{}").compilerOptions.paths;
+  assert.deepEqual(paths["~/*"], ["./lib/*"]);
+  assert.deepEqual(paths["@/*"], ["./src/*"]);
+});
+
+test("a tsconfig that cannot be parsed is not rewritten", () => {
+  // Better to leave it and let typecheck complain than to write over a file
+  // whose shape we did not understand.
+  assert.equal(withTsconfigAlias("{ not json"), null);
+});
+
+test("the vite half is added, with its import", () => {
+  const out = withViteAlias(
+    'import { defineConfig } from "vite";\nexport default defineConfig({\n  plugins: [],\n});\n',
+  );
+  assert.match(out ?? "", /import path from "node:path";/);
+  assert.match(out ?? "", /alias: \{ "@": path\.resolve/);
+});
+
+test("a vite config that already aliases @ is left alone", () => {
+  const source =
+    'import path from "node:path";\nexport default defineConfig({\n  resolve: { alias: { "@": path.resolve("src") } },\n});\n';
+  assert.equal(withViteAlias(source), null);
+});
+
+test("path is not imported twice", () => {
+  const out = withViteAlias(
+    'import path from "node:path";\nimport { defineConfig } from "vite";\nexport default defineConfig({\n  plugins: [],\n});\n',
+  );
+  assert.equal((out ?? "").match(/from "node:path"/g)?.length, 1);
 });
