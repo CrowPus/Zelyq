@@ -35,3 +35,12 @@ test("parseFigmaMessage round-trips a sent /figma message and ignores others", (
   assert.equal(parseFigmaMessage("just a normal message"), null);
   assert.equal(parseFigmaMessage("/figma no-link-here"), null);
 });
+
+test("/figma fires mid-sentence too, matching what the menu offers", () => {
+  const parsed = parseFigmaCommand(
+    "build this /figma https://www.figma.com/design/abc123/Site?node-id=12-34",
+  );
+  assert.ok(parsed && !("error" in parsed));
+  assert.equal(parsed.fileKey, "abc123");
+  assert.equal(parsed.nodeId, "12:34");
+});

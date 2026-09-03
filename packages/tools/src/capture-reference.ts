@@ -28,6 +28,7 @@ import {
 } from "./capture-fetch-guard.js";
 import {
   type Checkpoint,
+  gotoSettled,
   type PageWalk,
   pickCheckpoints,
   summarizeWalk,
@@ -547,10 +548,7 @@ export const captureReferenceTool = defineTool({
                 assetUrls.set(res.url().split("#")[0] ?? res.url(), { contentType: ct });
               }
             });
-            const resp = await page.goto(pageUrl, {
-              waitUntil: "networkidle",
-              timeout: NAV_TIMEOUT_MS,
-            });
+            const { response: resp } = await gotoSettled(page, pageUrl, NAV_TIMEOUT_MS);
             const status = resp?.status() ?? 0;
 
             if (visited.size === 1 && width === widths[0]) {

@@ -35,6 +35,8 @@ const walk = (over: Partial<PageWalk> = {}): PageWalk => ({
   viewportHeight: 800,
   stops: 8,
   motions: [],
+  scriptMotions: [],
+  runtime: { libraries: [], inlineTransforms: 0 },
   sticky: [],
   media: [],
   checkpoints: [],
@@ -234,4 +236,32 @@ test("audio is never a background video", () => {
     }),
     "inline",
   );
+});
+
+test("motion the animation API cannot see is reported, and says so", () => {
+  // noth.in is a Webflow site driven by GSAP: `getAnimations()` returns almost
+  // nothing while 449 elements carry a JS-written inline transform. Reporting
+  // only the first number was true and deeply misleading.
+  const text = summarizeWalk(
+    walk({
+      runtime: { libraries: ["gsap", "Webflow"], inlineTransforms: 449 },
+      scriptMotions: [
+        {
+          selector: "div.line-child",
+          kind: "slide",
+          detail: "translateY 73.6px → 27.6px",
+          count: 81,
+          firstSeenAtY: 1359,
+        },
+      ],
+    }),
+  );
+  assert.match(text, /Driven from script by gsap, Webflow/);
+  assert.match(text, /449 elements/);
+  assert.match(text, /×81 {2}slide — translateY 73\.6px → 27\.6px/);
+  assert.match(text, /the animation API does not see/, "it has to explain the empty section above");
+});
+
+test("a page with no script-driven motion says nothing about it", () => {
+  assert.doesNotMatch(summarizeWalk(walk()), /Driven from script/);
 });

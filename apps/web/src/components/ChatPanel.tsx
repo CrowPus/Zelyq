@@ -28,11 +28,18 @@ import { api } from "../lib/api";
 import {
   buildCloneDirective,
   CLONE_SKILL,
+  cloneChip,
   parseCloneCommand,
   parseCloneMessage,
+  withoutCloneCommand,
 } from "../lib/clone-command";
 import { continueLabel, detectContinuePrompt } from "../lib/continuePrompt";
-import { parseFigmaCommand, parseFigmaMessage } from "../lib/figma-command";
+import {
+  figmaChip,
+  parseFigmaCommand,
+  parseFigmaMessage,
+  withoutFigmaCommand,
+} from "../lib/figma-command";
 import { fileToBase64 } from "../lib/files";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import {
@@ -262,6 +269,11 @@ export function ChatPanel({
         (specialist) => specialist.name,
       )
     : [];
+  // Derived from the draft, like the menu itself: the command lives in the
+  // text, so a separate piece of state could disagree with what is typed.
+  const activeClone = cloneChip(draft);
+  const activeFigma = figmaChip(draft);
+
   const matchingCommands = slashCommand
     ? matchByPrefix(SLASH_COMMANDS, slashCommand.query, (command) => command.name)
     : [];
@@ -928,10 +940,38 @@ export function ChatPanel({
           {(pointedElement ||
             attachments.length > 0 ||
             uploading > 0 ||
+            activeClone !== null ||
+            activeFigma !== null ||
             selectedSkills.length > 0 ||
             selectedPlugins.length > 0 ||
             selectedAgents.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2.5 pt-2">
+              {activeClone && (
+                <CommandChip
+                  icon={Compass}
+                  label={"host" in activeClone ? `clone ${activeClone.host}` : "clone"}
+                  hint={"host" in activeClone ? undefined : "add a URL"}
+                  onRemove={() => {
+                    const next = withoutCloneCommand(draft);
+                    setDraft(next);
+                    setCursor(next.length);
+                    setCommandError(null);
+                  }}
+                />
+              )}
+              {activeFigma && (
+                <CommandChip
+                  icon={Sparkles}
+                  label="figma"
+                  hint={"ready" in activeFigma ? undefined : "paste the frame link"}
+                  onRemove={() => {
+                    const next = withoutFigmaCommand(draft);
+                    setDraft(next);
+                    setCursor(next.length);
+                    setCommandError(null);
+                  }}
+                />
+              )}
               {selectedSkills.map((skill) => (
                 <span
                   key={skill.name}
@@ -1385,6 +1425,48 @@ function UserMessageBody({ content }: { content: string }) {
   }
   return (
     <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">{content}</p>
+  );
+}
+
+/**
+ * A `/` command, shown the way a picked skill is shown.
+ *
+ * Without it the only sign that `/clone` had registered was the word sitting in
+ * the textarea, which reads exactly like text somebody typed — so the command
+ * looked dead even when it was armed. `hint` carries what is still missing, so
+ * a half-typed command says so instead of looking ready.
+ */
+function CommandChip({
+  icon: Icon,
+  label,
+  hint,
+  onRemove,
+}: {
+  icon: typeof Compass;
+  label: string;
+  hint?: string;
+  onRemove(): void;
+}) {
+  return (
+    <span
+      className={`flex items-center gap-1.5 rounded-md border py-1 pr-1 pl-2 text-2xs ${
+        hint
+          ? "border-warning/40 bg-warning-subtle text-warning"
+          : "border-focus/40 bg-info-subtle text-info"
+      }`}
+    >
+      <Icon size={11} strokeWidth={2} className="shrink-0" />
+      <span className="max-w-56 truncate font-mono">{label}</span>
+      {hint && <span className="opacity-80">· {hint}</span>}
+      <button
+        type="button"
+        aria-label={`Cancel the ${label} command`}
+        onClick={onRemove}
+        className="rounded-sm p-0.5 opacity-70 hover:bg-surface-hover hover:opacity-100"
+      >
+        <X size={11} strokeWidth={2.5} />
+      </button>
+    </span>
   );
 }
 

@@ -24,14 +24,34 @@ export interface ParsedClone {
  * `{error}` — it is, but the URL is missing or unusable; block the send.
  * `{url,rest}` — good to go.
  */
+/**
+ * Where the command may appear.
+ *
+ * It used to have to open the message. The `/` menu, though, offers the command
+ * wherever `/` follows a space — so typing a sentence and reaching for `/clone`
+ * partway through pops the menu, the user picks it, sends, and *nothing
+ * happens*: the menu promised a command the submit path then ignored, silently.
+ * Two days of "the agent is not seeing /clone" were exactly this.
+ *
+ * So the command is now recognised anywhere, and the URL must follow it. A bare
+ * mention with no URL after it — "don't /clone anything" — still does nothing,
+ * which is what keeps this from firing on a sentence that merely says the word.
+ */
 export function parseCloneCommand(draft: string): ParsedClone | { error: string } | null {
-  const trimmed = draft.trimStart();
-  if (!/^\/clone(\s|$)/i.test(trimmed)) return null;
+  const command = draft.match(/(^|\s)\/clone(\s|$)/i);
+  if (!command || command.index === undefined) return null;
 
-  const after = trimmed.replace(/^\/clone\s*/i, "");
+  const before = draft.slice(0, command.index);
+  const after = draft.slice(command.index + command[0].length);
   const match = after.match(/https?:\/\/[^\s]+/i);
   if (!match || match.index === undefined) {
-    return { error: "/clone needs a URL — for example  /clone https://example.com" };
+    // Position decides what a missing URL means. Opening the message, it is a
+    // command someone is still typing, and blocking the send with a hint is
+    // help. Buried in a sentence, it is someone talking *about* the command —
+    // "the /clone isn't working" — and blocking that send would be absurd.
+    return before.trim() === ""
+      ? { error: "/clone needs a URL — for example  /clone https://example.com" }
+      : null;
   }
 
   let url: URL;
@@ -44,9 +64,12 @@ export function parseCloneCommand(draft: string): ParsedClone | { error: string 
     return { error: "/clone only works with an http:// or https:// URL" };
   }
 
-  const rest = (after.slice(0, match.index) + after.slice(match.index + match[0].length))
-    .replace(/\s+/g, " ")
-    .trim();
+  // Everything the user typed either side of the command, kept: it is usually
+  // the actual instruction — "start with the hero", "match the video".
+  const rest =
+    `${before} ${after.slice(0, match.index)} ${after.slice(match.index + match[0].length)}`
+      .replace(/\s+/g, " ")
+      .trim();
   return { url: url.href, rest };
 }
 
@@ -97,4 +120,34 @@ function safeHost(url: string): string {
   } catch {
     return "site";
   }
+}
+
+/**
+ * What the composer should show above the box for a `/clone` in the draft.
+ *
+ * Picking a skill from the `/` menu produces a chip; picking `/clone` only
+ * dropped the word into the textarea, so there was nothing to say it had taken
+ * — and "it did not add, look when i add the other its added" is exactly that,
+ * reported by someone who had every reason to think the command was dead.
+ *
+ * Deliberately the same condition the submit path uses: a chip appears only
+ * when the command will actually fire, or when it is the start of the message
+ * and only the URL is missing. Someone writing *about* the command gets no
+ * chip, because nothing is going to happen.
+ */
+export function cloneChip(draft: string): { host: string } | { needsUrl: true } | null {
+  const command = draft.match(/(^|\s)\/clone(\s|$)/i);
+  if (!command || command.index === undefined) return null;
+  const parsed = parseCloneCommand(draft);
+  if (parsed && !("error" in parsed)) return { host: safeHost(parsed.url) };
+  if (parsed && "error" in parsed) return { needsUrl: true };
+  return null;
+}
+
+/** The draft with the command taken out, for the chip's dismiss button. */
+export function withoutCloneCommand(draft: string): string {
+  return draft
+    .replace(/(^|\s)\/clone(\s|$)/i, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trimStart();
 }

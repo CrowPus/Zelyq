@@ -4,6 +4,7 @@ import { assertRequestAllowed, CLONE_USER_AGENT } from "./capture-fetch-guard.js
 import {
   DEFAULT_DWELL_MS,
   DEFAULT_STOPS,
+  gotoSettled,
   MAX_STOPS,
   pickCheckpoints,
   summarizeWalk,
@@ -131,10 +132,7 @@ export const browsePageTool = defineTool({
         `${target.host} @ ${width}px`,
       );
       try {
-        const response = await page.goto(target.href, {
-          waitUntil: "networkidle",
-          timeout: NAV_TIMEOUT_MS,
-        });
+        const { response, settledOn } = await gotoSettled(page, target.href, NAV_TIMEOUT_MS);
         const status = response?.status() ?? 0;
         if (status >= 400) {
           return { output: `${target.href} responded ${status}.`, isError: true };
@@ -150,7 +148,13 @@ export const browsePageTool = defineTool({
         });
 
         const frames = wantImages ? pickCheckpoints(walk.checkpoints) : [];
-        const lines = [`Read ${target.href} at ${width}px.`, summarizeWalk(walk)];
+        const lines = [
+          `Read ${target.href} at ${width}px.`,
+          ...(settledOn === "load"
+            ? ["The network never fell idle — a streaming background video, most likely."]
+            : []),
+          summarizeWalk(walk),
+        ];
         if (frames.length) {
           lines.push(
             `\nAttached: ${frames.length} frames, from ${frames[0]?.atY}px down to ` +
