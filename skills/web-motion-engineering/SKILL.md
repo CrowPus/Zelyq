@@ -1,6 +1,9 @@
 ---
 name: web-motion-engineering
 description: Design, implement, review, and debug professional web motion systems for product interfaces and marketing experiences. Use for UI transitions, microinteractions, layout or shared-element animation, page transitions, scroll choreography, animated heroes, SVG/canvas/WebGL motion, gestures, easing, timing, reduced-motion behavior, or animation performance. Do not use for offline video editing or character animation that is not part of a web experience.
+metadata:
+  author: Zelyq
+  version: "1.1.0"
 ---
 
 # Web Motion Engineering
@@ -21,6 +24,18 @@ The final experience must remain clear and complete when animation is unavailabl
 | Cinematic product story | Immersive and scroll-linked | Storyboard, pinned scenes, camera/object choreography, robust static/mobile fallback |
 
 When a page mixes surfaces, apply the posture per region. Never make a dashboard behave like a showreel.
+
+## Choose an editorial transition grammar
+
+For a motion-led marketing site, choose the dominant grammar before choosing effects:
+
+| Grammar | Character | Best fit |
+| --- | --- | --- |
+| Continuity | Restrained, luxurious, image-led, seamless | Heritage, fashion, architecture, hospitality, premium products |
+| Rupture | Experimental, surprising, collage-led, deliberately unstable | Creative studios, culture, entertainment, campaigns |
+| Hybrid | Calm foundation with one bounded disruptive scene | Brands that need trust first and memorability second |
+
+Do not mix continuity and rupture effect-by-effect. A hybrid must change grammar at an explicit scene boundary and then settle back into a stable system. For the evidence-derived patterns, decision rules, and scene vocabulary, read [references/editorial-transition-systems.md](references/editorial-transition-systems.md).
 
 ## Working method
 
@@ -77,7 +92,12 @@ Prefer curves with a decisive start and controlled settlement. Use linear motion
 - Read and write layout in batches. Avoid per-frame React state, layout thrashing, and uncleaned observers, timelines, animation frames, or WebGL resources.
 - A loading animation reflects real state. Never hide an unknown wait behind a fake fixed-duration sequence.
 
-For component behaviors read [references/product-patterns.md](references/product-patterns.md). For narrative pages, read [references/marketing-scroll-and-cinematic.md](references/marketing-scroll-and-cinematic.md).
+For component behaviors read [references/product-patterns.md](references/product-patterns.md). For narrative pages, read [references/marketing-scroll-and-cinematic.md](references/marketing-scroll-and-cinematic.md). For premium editorial or experimental studio transitions, also read [references/editorial-transition-systems.md](references/editorial-transition-systems.md) and load only the recipe needed:
+
+- [recipes/luxury-editorial-reveal.md](recipes/luxury-editorial-reveal.md)
+- [recipes/experimental-collage.md](recipes/experimental-collage.md)
+- [recipes/media-takeover.md](recipes/media-takeover.md)
+- [recipes/route-curtain.md](recipes/route-curtain.md)
 
 ## Accessibility is a design branch
 
@@ -104,7 +124,7 @@ Motion quality includes loading cost and responsiveness. A beautiful hero that d
 - Profile before and after. Inspect frame rendering, main-thread work, paint flashing, layer count/GPU memory, scroll handlers, and Core Web Vitals.
 - Test representative low-power mobile hardware, not only a desktop development machine.
 
-Use [references/performance.md](references/performance.md) for budgets and diagnosis. Run `node scripts/audit-motion <project>` for a fast static risk scan; treat findings as review leads, not proof of defects. It takes `--json` and `--fail-on <severity>`.
+Use [references/performance.md](references/performance.md) for budgets and diagnosis. Run `node scripts/audit-motion.mjs <project>` for a fast, dependency-free static risk scan in Node.js 18+; treat findings as review leads, not proof of defects. It takes `--json` and `--fail-on <severity>`.
 
 ## Definition of done
 
