@@ -16,9 +16,9 @@
     "check:prompt-hash": "tsx scripts/check-prompt-hash.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.122.0",
+    "@anthropic-ai/sdk": "^0.123.0",
     "@fastify/cors": "^11.3.0",
-    "@google/genai": "^2.19.0",
+    "@google/genai": "^2.21.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@zelyq/core": "workspace:*",
     "@zelyq/db": "workspace:*",

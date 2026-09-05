@@ -24,7 +24,7 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@libsql/client": "^0.17.4",
+    "@libsql/client": "^0.18.0",
     "@zelyq/core": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.5"
