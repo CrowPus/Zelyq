@@ -234,6 +234,15 @@ export const createAgentSessionSchema = z.object({
    */
   supabaseBridge: z.object({ url: z.string(), token: z.string() }).optional(),
   /**
+   * Present only when this project has agent image generation switched on and
+   * the instance has an image provider configured. A short-lived capability to
+   * generate and read images *through the server*, which holds the image API
+   * key and records each image against the connecting user — which is what
+   * makes it appear in that person's Image Studio. Absent means the agent gets
+   * no image tools at all.
+   */
+  imageBridge: z.object({ url: z.string(), token: z.string() }).optional(),
+  /**
    * The linked project's public Supabase config — URL + publishable key only.
    * Merged into the preview environment so the app the agent builds connects
    * to the real backend. Both values are public (they ship in the browser

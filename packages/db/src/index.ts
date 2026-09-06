@@ -1,6 +1,7 @@
 import { createDatabase, type DatabaseHandle } from "./client.js";
 import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
+import { imageRepository } from "./repositories/images.js";
 import { messageRepository } from "./repositories/messages.js";
 import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
 import { projectRepository } from "./repositories/projects.js";
@@ -15,6 +16,7 @@ export * from "./client.js";
 export { runMigrations } from "./migrate.js";
 export type { AuditLogRepository } from "./repositories/audit-log.js";
 export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
+export type { ImageJobRow } from "./repositories/images.js";
 export type { MessageRepository } from "./repositories/messages.js";
 export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
 export type { ProjectRepository } from "./repositories/projects.js";
@@ -28,6 +30,7 @@ export * from "./schema/index.js";
 export { resolveSetting, type SettingsReader } from "./settings-resolver.js";
 
 export interface Store extends DatabaseHandle {
+  images: ReturnType<typeof imageRepository>;
   users: ReturnType<typeof userRepository>;
   teams: ReturnType<typeof teamRepository>;
   authSessions: ReturnType<typeof authSessionRepository>;
@@ -50,6 +53,7 @@ export function createStore(url: string): Store {
   const handle = createDatabase(url);
   return {
     ...handle,
+    images: imageRepository(handle.db),
     users: userRepository(handle.db),
     teams: teamRepository(handle.db),
     authSessions: authSessionRepository(handle.db),

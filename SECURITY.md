@@ -195,6 +195,17 @@ laptop install working with no setup, but it puts the key on the same disk as th
 protects, which defends against a stolen database file and not against a stolen machine. Zelyq redacts values matching known key formats from log
 output, but that is defence in depth, not a guarantee: treat agent transcripts as sensitive.
 
+An **image API key is a spending credential**, and the build agent can spend it once a project is
+given permission. The key itself never leaves the server: the agent's image tools call back over a
+short-lived, session-scoped bridge token, and the server makes the provider call. What the
+permission grants is the ability to *incur cost*, so it is off for every project until a person
+turns it on, and bounded by two ceilings you set — `ZELYQ_IMAGE_HOURLY_LIMIT` per user and
+`ZELYQ_IMAGE_SESSION_LIMIT` per conversation. The second one exists specifically because a cloned
+repository can contain text telling the agent to generate images; the cap is what stops such an
+instruction from being expensive. Generated images and the reference images uploaded with them are
+private authenticated files under `ZELYQ_IMAGE_ASSETS_DIR`, served only to their owner — do not put
+that directory behind a static file handler.
+
 ## Repository scanning
 
 Two layers, both required before a pull request can merge, neither a substitute for the other:

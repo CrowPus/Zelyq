@@ -15,6 +15,7 @@ function toProject(row: Row): Project {
     template: row.template,
     status: row.status as ProjectStatus,
     statusMessage: row.statusMessage,
+    imageGenerationEnabled: row.imageGenerationEnabled ?? false,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -22,9 +23,21 @@ function toProject(row: Row): Project {
 
 export function projectRepository(db: ZelyqDb) {
   return {
-    async create(input: Omit<Project, "createdAt" | "updatedAt">): Promise<Project> {
+    async create(
+      // The permission defaults off rather than being required at every call
+      // site: a project that forgets to mention it must not be one that can
+      // spend money.
+      input: Omit<Project, "createdAt" | "updatedAt" | "imageGenerationEnabled"> & {
+        imageGenerationEnabled?: boolean;
+      },
+    ): Promise<Project> {
       const now = new Date().toISOString();
-      const row = { ...input, createdAt: now, updatedAt: now };
+      const row = {
+        ...input,
+        imageGenerationEnabled: input.imageGenerationEnabled ?? false,
+        createdAt: now,
+        updatedAt: now,
+      };
       await db.insert(projects).values(row);
       return toProject(row as Row);
     },
@@ -65,7 +78,12 @@ export function projectRepository(db: ZelyqDb) {
 
     async update(
       id: string,
-      patch: Partial<Pick<Project, "name" | "description" | "status" | "statusMessage">>,
+      patch: Partial<
+        Pick<
+          Project,
+          "name" | "description" | "status" | "statusMessage" | "imageGenerationEnabled"
+        >
+      >,
     ): Promise<Project | null> {
       await db
         .update(projects)

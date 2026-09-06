@@ -9,6 +9,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Image Studio** — a signed-in page at `/image-studio` for generating original images from a
+  prompt, independent of any project or agent session. OpenAI (GPT Image), Google (Nano Banana) or
+  xAI (Grok Imagine), each with its own key and model, configured in Settings or by environment.
+  Aspect ratio and quality limited to what the chosen provider actually supports, up to three
+  reference images on OpenAI and Google, a private per-user library with history and PNG downloads,
+  and durable jobs that survive a refresh or a restart. Images are private authenticated assets in
+  `ZELYQ_IMAGE_ASSETS_DIR`, not public static files — back that directory up with the database. See
+  [Image Studio](docs/Image-gen/implementation.md).
+- **The build agent can generate and place images.** Switch it on for a project (a toggle in the
+  chat toolbar, persisted, **off by default**) and the agent gets `generate_image`,
+  `place_generated_image` and `list_generated_images`. It never holds the image API key: the tools
+  call the server over a short-lived session bridge, the same pattern the Supabase migration tools
+  use. The server generates as the connecting user, so anything the agent makes appears in that
+  person's own Image Studio library, labelled with the project that made it. Reuse of an image you
+  generated yourself costs nothing. Spending is bounded by `ZELYQ_IMAGE_HOURLY_LIMIT` per user
+  (shared with Studio) and `ZELYQ_IMAGE_SESSION_LIMIT` per conversation, so a retry loop — or an
+  instruction hidden in a cloned repository — cannot drain an hour's budget in one turn. The prompt
+  keeps generated artwork away from anything the copy claims is real; a generated landmark is not a
+  photograph of it. See [agent integration](docs/Image-gen/agent-integration.md).
+
 - An eval harness (`pnpm eval`) that runs the agent against a suite of realistic prompts in throwaway
   projects and scores the result on machine-checkable facts: does the typecheck pass, does the build
   pass, does the dev server serve an app whose every module compiles, and did the agent change more

@@ -11,6 +11,7 @@ import {
   Film,
   GraduationCap,
   HardHat,
+  Image as ImageIcon,
   Infinity as InfinityIcon,
   Info,
   Mic,
@@ -119,6 +120,14 @@ interface Props {
    * this is the newest turn, where "as it left it" is simply the file now.
    */
   onOpenDiff(path: string, before: string, after: string | null): void;
+  /** Whether this project's agent may generate images. Persisted, unlike the
+   *  mode toggles beside it: it authorises spending, so it must still be
+   *  visibly on tomorrow rather than quietly resetting. */
+  imageGeneration: {
+    enabled: boolean;
+    available: boolean;
+    onToggle(next: boolean): Promise<void>;
+  };
 }
 
 export function ChatPanel({
@@ -132,6 +141,7 @@ export function ChatPanel({
   onClearPointedElement,
   onReverted,
   onOpenDiff,
+  imageGeneration,
 }: Props) {
   const [draft, setDraft] = useState("");
   /** Picked from the composer's own model control. Null means the instance
@@ -1176,13 +1186,21 @@ export function ChatPanel({
             style={{ height: COMPOSER_HEIGHT }}
             className="w-full resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-fg placeholder:text-fg-muted focus:outline-none"
           />
-          <div className="flex items-center justify-between gap-2 px-2 pb-2">
+          <div className="flex items-end justify-between gap-2 px-2 pb-2">
             {/* min-w-0 is load-bearing: a flex child's default min-width is
                 its own content width, which silently blocks it from ever
                 shrinking — exactly what let a long model name push the send
                 button out of the panel entirely instead of the row giving
-                way here first. */}
-            <div className="flex min-w-0 items-center gap-2">
+                way here first.
+
+                flex-wrap is the other half. Every control in here is shrink-0,
+                so once the model picker has given up all the width it has, the
+                row has nothing left to yield: the controls stop fitting and
+                simply overflow, and the last of them lands on top of Send.
+                Adding a toggle is what tipped it over. Wrapping to a second
+                line keeps every control reachable at any panel width, which
+                hiding or scrolling them would not. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <IconButton
                 size="sm"
                 label="Attach a file"
@@ -1216,6 +1234,32 @@ export function ChatPanel({
                 )}
               </IconButton>
               <ModelPicker value={modelChoice} onChange={setModelChoice} />
+              {/* Persisted per project, unlike the mode toggles beside it:
+                  turning this on lets the agent spend real money against the
+                  instance's image key, so it should not silently reset.
+
+                  Absent, not disabled, when the instance has no image provider
+                  configured. This row has very little spare width, and a
+                  permanently dead control on every instance without an image
+                  key — which is most of them — is not worth a slot. The place
+                  that explains how to configure it is Settings. */}
+              {imageGeneration.available && (
+                <IconButton
+                  size="sm"
+                  variant={imageGeneration.enabled ? "primary" : "ghost"}
+                  disabled={!canEdit}
+                  label={
+                    imageGeneration.enabled
+                      ? "The agent may generate images for this project — click to turn off"
+                      : "Let the agent generate images for this project (this spends money)"
+                  }
+                  aria-pressed={imageGeneration.enabled}
+                  onClick={() => void imageGeneration.onToggle(!imageGeneration.enabled)}
+                  className="shrink-0"
+                >
+                  <ImageIcon size={13} strokeWidth={2} />
+                </IconButton>
+              )}
               {/* Per-conversation, not persisted — see the engineerMode
                   state declaration above. */}
               <IconButton

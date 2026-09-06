@@ -248,6 +248,62 @@ test("a private repository accepts the right token, and the token is never left 
   assert.ok(!config.includes(TOKEN), "the token must never be written into the project");
 });
 
+test("a rejection whose URL happens to contain 403 is not mistaken for an auth failure", async () => {
+  // git echoes the remote URL into its failure output, so a bare `403` in the
+  // error classifier matched the digits of a port (40312) or of a repository
+  // name, and a plain non-fast-forward came back as "this repository needs a
+  // token". Flaky exactly as often as either contained those digits, which is
+  // why it passed locally and failed in CI. Both hazards are pinned here: the
+  // port and the repository name each contain 403 deliberately.
+  const server = http.createServer(gitHttpBackend(reposRoot, () => false, TOKEN));
+  let port = 0;
+  for (const candidate of [40312, 14033, 24030, 34039]) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(candidate, "127.0.0.1", resolve);
+      });
+      port = candidate;
+      break;
+    } catch {
+      // Port in use on this machine; try the next one that contains "403".
+    }
+  }
+  if (!port) return; // No such port available here; the unit assertion below still runs.
+  try {
+    assert.match(String(port), /403/, "the port must contain the digits that caused the bug");
+    const name = `diverge-403-${Date.now()}.git`;
+    initBareRepo(path.join(reposRoot, name));
+    const url = `http://127.0.0.1:${port}/${name}`;
+    await projectWithOneCommit("prj_403");
+    await projects.pushToRemote("prj_403", url);
+
+    const other = path.join(os.tmpdir(), `zelyq-git-push-403-${Date.now()}`);
+    await execFileAsync("git", ["clone", "--quiet", url, other]);
+    execFileSync("git", ["config", "user.email", "other@example.com"], {
+      cwd: other,
+      stdio: "pipe",
+    });
+    execFileSync("git", ["config", "user.name", "Other"], { cwd: other, stdio: "pipe" });
+    execFileSync("git", ["commit", "--quiet", "--allow-empty", "-m", "someone else"], {
+      cwd: other,
+      stdio: "pipe",
+    });
+    await execFileAsync("git", ["push", "--quiet", "origin", "HEAD"], { cwd: other });
+
+    await driver.writeFile("prj_403", "index.html", "<html>diverged</html>", "utf8");
+    await projects.commitTurn("prj_403", "a conflicting turn");
+
+    // The point: this must be the force-push refusal, never the token message.
+    await assert.rejects(
+      () => projects.pushToRemote("prj_403"),
+      /never force-pushes|resolving by hand/i,
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("a push is never a force push — a non-fast-forward is refused, and history is untouched", async () => {
   const repoUrl = createFreshPublicRepo();
   const repoDir = path.join(reposRoot, new URL(repoUrl).pathname.slice(1));

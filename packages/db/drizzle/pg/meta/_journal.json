@@ -92,6 +92,34 @@
       "when": 1788200000000,
       "tag": "0012_message_cache_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788714078115,
+      "tag": "0013_image_studio",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788715494696,
+      "tag": "0014_image_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1788717600000,
+      "tag": "0015_image_references",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788730000000,
+      "tag": "0016_agent_images",
+      "breakpoints": true
     }
   ]
 }

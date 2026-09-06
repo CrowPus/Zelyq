@@ -23,6 +23,13 @@ export interface ToolContext {
    */
   supabaseBridge?: { url: string; token: string };
   /**
+   * Present only when the project allows the agent to generate images. A
+   * capability to generate and fetch images by calling the Zelyq server, which
+   * holds the image API key and owns the library. The tool never sees a
+   * credential beyond this session-scoped token.
+   */
+  imageBridge?: { url: string; token: string };
+  /**
    * The linked project's public Supabase config (URL + publishable key).
    * `start_preview` merges it so the built app reaches the real backend.
    */

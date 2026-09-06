@@ -113,6 +113,54 @@ test("a long message does not move the send button", async ({ page }) => {
   expect(Math.abs(after.x - before.x), "the send button moved horizontally").toBeLessThanOrEqual(1);
 });
 
+test("the composer's controls never overlap the send button", async ({ page }) => {
+  // Adding one more toggle to this row is what broke it: every control is
+  // shrink-0, so once they no longer fit, they stop giving way and start
+  // sitting on top of Send instead. Narrow the window to put the row under
+  // real pressure rather than trusting a wide desktop to hide it.
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await signUp(page);
+  const projectId = await createProject(page, "composer-overlap");
+
+  await page.goto(`/projects/${projectId}`);
+  const composer = page.getByLabel("Message the agent");
+  await expect(composer).toBeVisible();
+
+  const send = page.getByRole("button", { name: "Send message" });
+  await expect(send).toBeVisible();
+  const sendBox = await send.boundingBox();
+  expect(sendBox).not.toBeNull();
+  if (!sendBox) return;
+
+  // Every control that shares the row with Send.
+  const controls = ["Attach a file", "Keyboard shortcuts", "Turn on Engineer Mode"];
+  for (const name of controls) {
+    const control = page.getByRole("button", { name, exact: false }).first();
+    if ((await control.count()) === 0) continue;
+    const box = await control.boundingBox();
+    if (!box) continue;
+    expect(
+      box.x + box.width,
+      `"${name}" ends at ${box.x + box.width}, but Send begins at ${sendBox.x}`,
+    ).toBeLessThanOrEqual(sendBox.x + 0.5);
+  }
+
+  // And nothing in the row may hang outside the composer that contains it.
+  const spill = await composer.evaluate((node) => {
+    const form = node.closest("form");
+    const row = form?.querySelector("form > div > div:last-child");
+    if (!form || !row) return null;
+    const rowBox = row.getBoundingClientRect();
+    const formBox = form.getBoundingClientRect();
+    return { right: rowBox.right, limit: formBox.right };
+  });
+  if (spill)
+    expect(
+      spill.right,
+      `the control row reaches ${spill.right}px, past the composer's ${spill.limit}px edge`,
+    ).toBeLessThanOrEqual(spill.limit + 0.5);
+});
+
 test("the editor's focus ring is not clipped by the window", async ({ page }) => {
   // Reported from a screenshot: the editor fills its pane to the window edge,
   // and the global focus ring is drawn 1px *outside* the element, so the

@@ -22,6 +22,9 @@ export const projectSchema = z.object({
   template: z.string(),
   status: projectStatusSchema,
   statusMessage: z.string().nullable(),
+  /** Whether this project's agent may generate images. Off until someone
+   *  turns it on — generating spends money against the instance's image key. */
+  imageGenerationEnabled: z.boolean().default(false),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -84,6 +87,10 @@ export type PushToRemoteInput = z.infer<typeof pushToRemoteSchema>;
 export const updateProjectSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   description: z.string().max(2000).nullable().optional(),
+  /** Permission for this project's agent to generate images. Any member of the
+   *  team may set it: they can already spend model tokens and run code through
+   *  the agent, so images are the same kind of decision. */
+  imageGenerationEnabled: z.boolean().optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 

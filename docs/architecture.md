@@ -82,6 +82,17 @@ receives a `ToolContext`. A tool gets no ambient access to anything — only wha
 command: all come back as a `ToolResult` with `isError: true`, because that is information the model
 should recover from rather than a reason to end the turn.
 
+**Bridges** are how a tool does something it is not trusted to do itself. When a capability needs a
+credential the agent must never hold — a Supabase Management token, an image API key — the server
+mints a random token scoped to one session, project and user, and puts it on the `ToolContext`. The
+tool calls back to `/api/internal/...` with it and the server performs the privileged work. Two
+properties follow. The credential stays in one process; and because the grant carries a `userId`,
+whatever the tool produces is owned by a real person rather than by the agent — which is why an
+image the agent generates appears in that user's own Image Studio library. Minting is also where a
+permission is enforced: no token is minted when the project has not granted the capability, and
+`apps/agent` hides the corresponding tools entirely, so the model is never offered something that
+could only refuse.
+
 ## `apps/agent` — the model loop
 
 One `AgentSession` per project conversation. The loop is hand-written rather than using a vendor's

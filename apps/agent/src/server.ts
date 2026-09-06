@@ -336,6 +336,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       // and the linked project's public config for the preview. Absent unless
       // a Supabase resource is linked to this project.
       ...(input.supabaseBridge ? { supabaseBridge: input.supabaseBridge } : {}),
+      ...(input.imageBridge ? { imageBridge: input.imageBridge } : {}),
       ...(input.supabasePreviewEnv ? { supabasePreviewEnv: input.supabasePreviewEnv } : {}),
       runtime,
       maxIterations: config.maxTurnIterations,

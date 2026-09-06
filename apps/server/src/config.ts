@@ -69,6 +69,7 @@ export interface ServerConfig {
    * this feature's call to make.
    */
   attachmentsDir: string;
+  imageAssetsDir?: string;
   /**
    * Where a skill uploaded through Settings is written. The agent reads this
    * same directory as its own
@@ -207,6 +208,10 @@ export function loadServerConfig(): ServerConfig {
     secretKeyFile: resolveFromRepoRoot(
       process.env.ZELYQ_SECRET_KEY_FILE ??
         path.join(dataDirFrom(process.env.DATABASE_URL), "secret.key"),
+    ),
+    imageAssetsDir: resolveFromRepoRoot(
+      process.env.ZELYQ_IMAGE_ASSETS_DIR ??
+        path.join(dataDirFrom(process.env.DATABASE_URL), "images"),
     ),
     attachmentsDir: resolveFromRepoRoot(
       process.env.ZELYQ_ATTACHMENTS_DIR ??

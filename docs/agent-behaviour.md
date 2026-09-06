@@ -123,6 +123,21 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   and returns it so the model confirms the subject before captioning it.
   No provider or no network ⇒ a labelled SVG placeholder. The prompt
   bans hardcoding a remote photo ID from memory.
+- **Generated images** — `generate_image`, `place_generated_image` and
+  `list_generated_images`, present **only** when the server mints an
+  image bridge token: the project has image generation switched on
+  (persisted per project, off by default) and the instance has an image
+  provider configured. The tools call the server, which holds the API
+  key, applies the same limits Image Studio applies, and records the row
+  against the connecting user — so anything the agent generates appears
+  in that person's Image Studio library. The model gets a downscaled
+  preview back, not the full PNG. Two ceilings apply:
+  `ZELYQ_IMAGE_HOURLY_LIMIT` per user (shared with Studio) and
+  `ZELYQ_IMAGE_SESSION_LIMIT` per conversation. The prompt draws the
+  line against `fetch_reference_image` above: generate original artwork,
+  but a real place, person, company or landmark must come from stock —
+  a generated Kyoto is not a photograph of Kyoto. See
+  [agent integration](./Image-gen/agent-integration.md).
 - **Auto Mode** — `session.autoNextPass(emit)` decides between passes
   (kill switch → stuck detection → three ceilings: `AUTO_MAX_PASSES` /
   `AUTO_MAX_TOKENS` / `AUTO_MAX_WALLCLOCK_MS`). The agent's prompt route
