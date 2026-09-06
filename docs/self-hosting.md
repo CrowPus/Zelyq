@@ -138,9 +138,14 @@ Two things hold state:
 | --- | --- | --- |
 | Database | `DATABASE_URL` | `pg_dump`, or copy the SQLite file while the server is stopped |
 | Project files | `ZELYQ_WORKSPACE_DIR` | Volume snapshot or `rsync` |
+| Generated images | `ZELYQ_IMAGE_ASSETS_DIR` | Volume snapshot or `rsync` |
+| Encryption key | `ZELYQ_SECRET_KEY` / `ZELYQ_SECRET_KEY_FILE` | Your secret store — without it, stored API keys cannot be read |
 
 They are only loosely coupled: a project row without its directory shows as an error rather than
-crashing, and an orphaned directory is ignored. Still, back them up together.
+crashing, and an orphaned directory is ignored. Still, back them up together. Image assets are the
+exception that is *tightly* coupled: a generation row whose PNG is missing is a broken library
+entry, so back that directory up with the database, not separately. Every API replica sharing a
+database must also share that directory.
 
 ## Resource planning
 
@@ -156,7 +161,13 @@ crashing, and an orphaned directory is ignored. Still, back them up together.
 git pull
 pnpm install
 pnpm build
-# restart; migrations run on boot
+# restart BOTH the server and the agent; migrations run on the server's boot
 ```
+
+Restart **both processes**. They are separate, neither watches the filesystem, and the agent is the
+one that owns the tools — so a server-only restart leaves the agent running whatever code it started
+with, and a new tool simply does not exist as far as the model is concerned. The failure is quiet:
+no error, just an agent that never calls the thing you deployed. If you build to `dist/`, confirm
+the build is newer than the source before restarting, or you will restart onto stale output.
 
 Pre-1.0 releases may include breaking changes — read [CHANGELOG.md](../CHANGELOG.md) first.

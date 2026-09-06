@@ -22,6 +22,7 @@ export const ID_PREFIXES = {
   tool: "tol",
   audit: "adt",
   attachment: "atc",
+  imageGeneration: "img",
   providerConnection: "pcn",
   providerResource: "prs",
   providerOperation: "pop",

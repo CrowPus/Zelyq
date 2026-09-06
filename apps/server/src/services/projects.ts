@@ -33,6 +33,9 @@ export class ProjectService {
       teamId: input.teamId,
       name: input.name,
       slug: slugify(input.name),
+      // Off until someone turns it on: generating images spends real money
+      // against the instance's image key.
+      imageGenerationEnabled: false,
       description: input.description ?? null,
       template: input.template,
       status: "creating",

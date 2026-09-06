@@ -7,6 +7,10 @@ import type {
   CreateProjectInput,
   FileContent,
   FileEntry,
+  ImageCapabilities,
+  ImageGeneration,
+  ImageGenerationInput,
+  ImageHistory,
   Preview,
   Project,
   PushToRemoteInput,
@@ -100,6 +104,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  imageCapabilities: () => request<ImageCapabilities>("/images/capabilities"),
+  imageHistory: (cursor?: string) =>
+    request<ImageHistory>(
+      `/images/generations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  imageGeneration: (id: string) =>
+    request<{ generation: ImageGeneration }>(`/images/generations/${id}`),
+  generateImage: (input: ImageGenerationInput) =>
+    request<{ generation: ImageGeneration }>("/images/generations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteImage: (id: string) => request<void>(`/images/generations/${id}`, { method: "DELETE" }),
+
   authStatus: () => request<{ firstRun: boolean; oidcEnabled: boolean }>("/auth/status"),
 
   me: () => request<SessionResponse>("/auth/me"),
@@ -290,6 +308,12 @@ export const api = {
 
   createProject: (input: CreateProjectInput) =>
     request<{ project: Project }>("/projects", { method: "POST", body: JSON.stringify(input) }),
+
+  updateProject: (id: string, input: { imageGenerationEnabled?: boolean; name?: string }) =>
+    request<{ project: Project }>(`/projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
 
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),
 

@@ -177,6 +177,15 @@ built so that nothing about it is magic and nothing is locked in:
   first, then the screens, with the real images and fonts mirrored in (substitutes logged where
   it couldn't get one), and a screenshot-diff loop against the original. Every fetch is
   SSRF-guarded — public hosts only. Only clone what you own or have permission to reproduce.
+- **Image Studio, and an agent that can use it.** A signed-in page for generating original images
+  from a prompt (OpenAI, Google, or xAI — your key, billed to you), with a private library, reference
+  images, and durable history. Switch it on for a project and the agent can generate artwork for the
+  app it is building, reuse an image you made yourself, and place either into the project. Anything
+  it generates lands in your own library. It is **off by default per project**, because each image
+  spends money, and bounded by a per-hour and a per-conversation limit you set. The agent is told to
+  use real stock photography for anything your copy claims is real — a generated landmark is not a
+  photograph of it. See [Image Studio](./docs/Image-gen/implementation.md) and
+  [agent integration](./docs/Image-gen/agent-integration.md).
 - **`/figma <link>` — build from a Figma frame.** Connect Figma in Settings (OAuth; the token
   stays on the server). Paste a frame's link and the agent pulls its node tree, a render, the
   assets, and the design tokens, then rebuilds it in your project — auto-layout becomes

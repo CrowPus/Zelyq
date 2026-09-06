@@ -1,5 +1,5 @@
 import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core";
-import { ZelyqError } from "@zelyq/core";
+import { imageProviderCatalog, ZelyqError } from "@zelyq/core";
 import { resolveSetting, type Store } from "@zelyq/db";
 import {
   DEFAULT_CLAUDE_CREDENTIALS_PATH,
@@ -49,6 +49,11 @@ interface Definition {
 
 const GROUPS: Array<{ name: string; description: string }> = [
   {
+    name: "Image Studio",
+    description:
+      "Choose image providers and add their API keys. Image generation is independent of your coding model.",
+  },
+  {
     name: "Model",
     description:
       "Which model builds your projects, and the key it uses. Only the selected provider's key is needed.",
@@ -75,6 +80,116 @@ const GROUPS: Array<{ name: string; description: string }> = [
 ];
 
 const DEFINITIONS: Definition[] = [
+  {
+    key: "imageProvider",
+    label: "Default image provider",
+    description:
+      "The provider selected when you open Image Studio. You can also choose a configured provider in Studio.",
+    kind: "select",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_GENERATION_PROVIDER",
+    fallback: "openai",
+    envOverridable: true,
+    options: Object.entries(imageProviderCatalog).map(([value, provider]) => ({
+      value,
+      label: provider.label,
+    })),
+  },
+  {
+    key: "imageGoogleApiKey",
+    label: "Google image API key",
+    description:
+      "A Gemini API key from Google AI Studio. Used only for image generation; stored encrypted.",
+    kind: "secret",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_GOOGLE_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "AIza…",
+  },
+  {
+    key: "imageGoogleModel",
+    label: "Google image model",
+    description: "The Gemini image model used by Image Studio.",
+    kind: "select",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_GOOGLE_MODEL",
+    fallback: "gemini-3.1-flash-image",
+    envOverridable: true,
+    options: [...imageProviderCatalog.google.models],
+  },
+  {
+    key: "imageXaiApiKey",
+    label: "xAI image API key",
+    description:
+      "An xAI API key with image access. Used only for image generation; stored encrypted.",
+    kind: "secret",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_XAI_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "xai-…",
+  },
+  {
+    key: "imageXaiModel",
+    label: "xAI image model",
+    description: "The Grok image model used by Image Studio.",
+    kind: "select",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_XAI_MODEL",
+    fallback: "grok-imagine-image-2.0",
+    envOverridable: true,
+    options: [...imageProviderCatalog.xai.models],
+  },
+
+  {
+    key: "imageHourlyLimit",
+    label: "Image requests per hour",
+    description:
+      "How many images one user may request each hour, counting both Image Studio and the build agent. This is the spending limit; the right number depends on your provider's prices.",
+    kind: "text",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_HOURLY_LIMIT",
+    fallback: "30",
+    envOverridable: true,
+    placeholder: "30",
+  },
+  {
+    key: "imageSessionLimit",
+    label: "Agent images per conversation",
+    description:
+      "How many images the build agent may generate in a single conversation. Stops a retry loop, or an instruction hidden in a cloned repository, from spending an hour's budget in one turn.",
+    kind: "text",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_SESSION_LIMIT",
+    fallback: "6",
+    envOverridable: true,
+    placeholder: "6",
+  },
+  {
+    key: "imageApiKey",
+    label: "OpenAI image API key",
+    description:
+      "An OpenAI API key with image model access. Billed to this key; independent of chat subscriptions. Stored encrypted.",
+    kind: "secret",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_API_KEY",
+    fallback: "",
+    secret: true,
+    placeholder: "sk-…",
+  },
+  {
+    key: "imageModel",
+    label: "OpenAI image model",
+    description: "The image model used for new generations.",
+    kind: "select",
+    group: "Image Studio",
+    envVar: "ZELYQ_IMAGE_MODEL",
+    fallback: "gpt-image-2",
+    envOverridable: true,
+    options: [...imageProviderCatalog.openai.models],
+  },
+
   {
     key: "provider",
     label: "Provider",

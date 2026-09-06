@@ -11,6 +11,7 @@ import * as sqlite from "../src/schema/sqlite.js";
  * whichever dialect you do not run locally.
  */
 const TABLES = [
+  "imageGenerations",
   "users",
   "teams",
   "teamMembers",

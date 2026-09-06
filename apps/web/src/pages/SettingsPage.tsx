@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SettingField } from "@zelyq/core";
+import type { SettingField, SettingsGroup } from "@zelyq/core";
 import {
   CircleAlert,
   GraduationCap,
@@ -9,7 +9,8 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { CliSessionControl } from "../components/CliSessionControl";
 import { FigmaIntegration } from "../components/FigmaIntegration";
@@ -30,6 +31,7 @@ type Draft = Record<string, string | number | boolean>;
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { user } = useSession();
+  const { hash } = useLocation();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
   const users = useQuery({ queryKey: ["users"], queryFn: api.listUsers });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
@@ -47,6 +49,7 @@ export function SettingsPage() {
     mutationFn: () => api.updateSettings(draft),
     onSuccess: (next) => {
       queryClient.setQueryData(["settings"], next);
+      void queryClient.invalidateQueries({ queryKey: ["image-capabilities"] });
       setDraft({});
       setError(null);
       setSaved(true);
@@ -56,6 +59,73 @@ export function SettingsPage() {
   });
 
   const dirty = Object.keys(draft).length > 0;
+  useEffect(() => {
+    if (hash === "#image-generation" && settings.data)
+      document.getElementById("image-generation")?.scrollIntoView({ block: "start" });
+  }, [hash, settings.data]);
+
+  function renderGroup(group: SettingsGroup) {
+    return (
+      <section
+        key={group.name}
+        id={group.name === "Image Studio" ? "image-generation" : undefined}
+        aria-label={group.name === "Image Studio" ? "Image generation settings" : undefined}
+        className="mt-7 scroll-mt-6"
+      >
+        <h2 className="text-sm font-medium text-fg">
+          {group.name === "Image Studio" ? "Image generation" : group.name}
+        </h2>
+        <p className="mt-0.5 text-xs text-fg-secondary">{group.description}</p>
+        {group.name === "Image Studio" && (
+          <Link
+            to="/image-studio"
+            className="mt-2 inline-block text-xs text-fg underline underline-offset-4"
+          >
+            Open Image Studio
+          </Link>
+        )}
+
+        <div className="mt-3 divide-y divide-border-default overflow-hidden rounded-lg border border-border-default bg-surface">
+          {group.fields.map((field) => (
+            <FieldRow
+              key={field.key}
+              field={field}
+              draft={draft}
+              onChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))}
+            />
+          ))}
+          {group.name === "Model" && (
+            <>
+              <CliSessionControl
+                provider="anthropic"
+                onUsed={() => queryClient.invalidateQueries({ queryKey: ["settings"] })}
+              />
+              <CliSessionControl
+                provider="openai"
+                onUsed={() => queryClient.invalidateQueries({ queryKey: ["settings"] })}
+              />
+            </>
+          )}
+        </div>
+        {group.name === "Image Studio" && (
+          <div className="mt-3 flex items-center gap-3">
+            <Button
+              variant="primary"
+              disabled={!dirty || save.isPending}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending ? "Saving…" : "Save changes"}
+            </Button>
+            {saved && (
+              <span role="status" className="text-xs text-success">
+                Saved
+              </span>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  }
 
   if (settings.isLoading) {
     return (
@@ -100,6 +170,8 @@ export function SettingsPage() {
               Some changes need the server restarted before they take effect.
             </p>
           )}
+
+          {settings.data?.groups.filter((group) => group.name === "Image Studio").map(renderGroup)}
 
           <section className="mt-7">
             <h2 className="text-sm font-medium text-fg">Instance status</h2>
@@ -209,37 +281,7 @@ export function SettingsPage() {
             </div>
           </section>
 
-          {settings.data?.groups.map((group) => (
-            <section key={group.name} className="mt-7">
-              <h2 className="text-sm font-medium text-fg">{group.name}</h2>
-              <p className="mt-0.5 text-xs text-fg-secondary">{group.description}</p>
-
-              <div className="mt-3 divide-y divide-border-default overflow-hidden rounded-lg border border-border-default bg-surface">
-                {group.fields.map((field) => (
-                  <FieldRow
-                    key={field.key}
-                    field={field}
-                    draft={draft}
-                    onChange={(value) =>
-                      setDraft((current) => ({ ...current, [field.key]: value }))
-                    }
-                  />
-                ))}
-                {group.name === "Model" && (
-                  <>
-                    <CliSessionControl
-                      provider="anthropic"
-                      onUsed={() => queryClient.invalidateQueries({ queryKey: ["settings"] })}
-                    />
-                    <CliSessionControl
-                      provider="openai"
-                      onUsed={() => queryClient.invalidateQueries({ queryKey: ["settings"] })}
-                    />
-                  </>
-                )}
-              </div>
-            </section>
-          ))}
+          {settings.data?.groups.filter((group) => group.name !== "Image Studio").map(renderGroup)}
 
           <FigmaIntegration />
 

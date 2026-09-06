@@ -61,6 +61,7 @@ export class AgentClient {
     history?: Message[];
     /** Capability to apply Supabase migrations via the server. */
     supabaseBridge?: { url: string; token: string };
+    imageBridge?: { url: string; token: string };
     /** Public Supabase config (URL + publishable key) for the preview. */
     supabasePreviewEnv?: Record<string, string>;
     /** The project's template, its one-line stack summary, and a
@@ -133,6 +134,7 @@ export class AgentClient {
     history?: Message[];
     /** Capability to apply Supabase migrations via the server. */
     supabaseBridge?: { url: string; token: string };
+    imageBridge?: { url: string; token: string };
     /** Public Supabase config (URL + publishable key) for the preview. */
     supabasePreviewEnv?: Record<string, string>;
     /** The project's template, its one-line stack summary, and a

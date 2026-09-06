@@ -15,6 +15,8 @@ import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
 import { registerFigmaRoutes } from "./routes/figma.js";
 import { registerFileRoutes } from "./routes/files.js";
+import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
+import { registerImageRoutes } from "./routes/images.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerProviderRoutes } from "./routes/providers.js";
@@ -32,6 +34,9 @@ import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
 import { FigmaConnectionService } from "./services/figma-connections.js";
 import { FigmaExtractService } from "./services/figma-extract.js";
+import { ImageAssetStore } from "./services/image-assets.js";
+import { ImageBridge } from "./services/image-bridge.js";
+import { ImageGenerationService } from "./services/image-generation.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
 import { ProjectService } from "./services/projects.js";
 import { resolveSecretKey, SecretBox } from "./services/secrets.js";
@@ -53,6 +58,9 @@ export interface ZelyqServer {
   app: FastifyInstance;
   store: Store;
   runtime: RuntimeDriver;
+  /** The agent's image capability channel. Exposed so tests can mint a grant
+   *  the way the websocket gateway does. */
+  imageBridge: ImageBridge;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -113,7 +121,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     oauth: config.figmaOAuth,
   });
   const figmaExtract = new FigmaExtractService(figmaConnections, runtime, store);
-  const accounts = new AccountService(store, projects);
+  const imageAssets = new ImageAssetStore(
+    config.imageAssetsDir ?? path.join(path.dirname(config.attachmentsDir), "images"),
+  );
+  const images = new ImageGenerationService(store, settings, imageAssets, undefined, () =>
+    app.log.error("Image job processing failed; jobs will be reconciled on the next pass."),
+  );
+  const imageBridge = new ImageBridge(store, images);
+  const accounts = new AccountService(store, projects, (id) => imageAssets.removeUser(id));
   const attachments = new AttachmentService(config.attachmentsDir);
   const skillUploads = new SkillUploadService(config.uploadedSkillsDir);
   const speech = new SpeechService();
@@ -229,6 +244,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSnapshotRoutes(app, { projects, runtime, store, access });
   registerAttachmentRoutes(app, { attachments, access });
   registerVoiceRoutes(app, { speech, settings, access });
+  registerImageRoutes(app, { images, access });
+  registerImageBridgeRoutes(app, { bridge: imageBridge, images, assets: imageAssets, store });
+  app.addHook("onReady", async () => {
+    images.start();
+  });
+  app.addHook("onClose", async () => {
+    await images.close();
+  });
 
   const gateway = new ChatGateway(
     store,
@@ -246,6 +269,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       resolvePreviewEnv,
       serverInternalUrl: config.serverInternalUrl,
     },
+    { bridge: imageBridge, serverInternalUrl: config.serverInternalUrl },
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
 
@@ -279,6 +303,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
 
   return {
     app,
+    imageBridge,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

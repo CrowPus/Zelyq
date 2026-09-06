@@ -15,6 +15,7 @@ import {
   designPassTool,
   dispatchTaskTool,
   executeTool,
+  IMAGE_TOOL_NAMES,
   opsPassTool,
   qaPassTool,
   type ToolContext,
@@ -278,6 +279,7 @@ export interface SessionOptions {
    * project. Inherited by dispatched builders/verifiers.
    */
   supabaseBridge?: { url: string; token: string };
+  imageBridge?: { url: string; token: string };
   /**
    * The linked project's public Supabase config (URL + publishable key) —
    * merged into the preview env so the built app connects to the real
@@ -1478,6 +1480,12 @@ export class AgentSession {
       "supabase_deploy_function",
     ]);
     const supabaseLinked = Boolean(options.supabaseBridge);
+    // The image tools exist only when this project has been given permission to
+    // generate images and the instance has a provider configured; the server
+    // says so by minting a bridge token. Without one they could only refuse, so
+    // they are not offered at all rather than spending context explaining a
+    // capability the user has not switched on.
+    const imagesAllowed = Boolean(options.imageBridge);
     // A plain default-mode session does not need the connector tools or the
     // task-only inspection families standing by. Architect and Engineer keep the
     // full weave (they hand task tools out per step), and a lean builder is
@@ -1511,6 +1519,7 @@ export class AgentSession {
           ]
     )
       .filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name))
+      .filter((t) => imagesAllowed || !IMAGE_TOOL_NAMES.includes(t.name as never))
       // One plan, one owner. Architect Mode's plan is `build-plan.md`;
       // `update_plan` (which writes `PLAN.md`) belongs to default and Engineer
       // Mode only, so the two never compete.
@@ -1896,6 +1905,7 @@ export class AgentSession {
       // Supabase bridge and the preview config, so a backend build task can
       // apply its migration and the verifier can check it.
       ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
+      ...(this.options.imageBridge ? { imageBridge: this.options.imageBridge } : {}),
       ...(this.options.supabasePreviewEnv
         ? { supabasePreviewEnv: this.options.supabasePreviewEnv }
         : {}),
@@ -2515,6 +2525,7 @@ export class AgentSession {
         close: (callId) => emit({ type: "browser.close", sessionId: this.id, callId }),
       },
       ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
+      ...(this.options.imageBridge ? { imageBridge: this.options.imageBridge } : {}),
       ...(this.options.supabasePreviewEnv
         ? { supabasePreviewEnv: this.options.supabasePreviewEnv }
         : {}),

@@ -2,6 +2,7 @@ import {
   Boxes,
   ChevronRight,
   CircleHelp,
+  ImagePlus,
   LogOut,
   Monitor,
   Moon,
@@ -52,6 +53,12 @@ export function AppShell({
 function Rail() {
   const { pathname } = useLocation();
   const items = [
+    {
+      to: "/image-studio",
+      label: "Image Studio",
+      icon: ImagePlus,
+      match: (p: string) => p.startsWith("/image-studio"),
+    },
     {
       to: "/",
       label: "Projects",
@@ -262,6 +269,14 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
 
       <div className="ml-auto flex items-center gap-1">
         {actions}
+        <Link
+          to="/image-studio"
+          aria-label="Image Studio"
+          title="Image Studio"
+          className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
+        >
+          <ImagePlus size={16} />
+        </Link>
         <ThemeToggle />
         <AccountMenu />
       </div>

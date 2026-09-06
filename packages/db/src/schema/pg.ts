@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
  * PostgreSQL mirror of `sqlite.ts`. Column names, nullability, and defaults
@@ -116,6 +116,9 @@ export const projects = pgTable(
     slug: text("slug").notNull(),
     description: text("description"),
     template: text("template").notNull().default("vite-react"),
+    /** Whether this project's agent may generate images. Off until a person
+     * turns it on: generating spends real money against the instance's key. */
+    imageGenerationEnabled: boolean("image_generation_enabled").notNull().default(false),
     status: text("status").notNull().default("creating"),
     statusMessage: text("status_message"),
     createdAt: text("created_at").notNull(),
@@ -367,7 +370,61 @@ export const providerOperations = pgTable(
   }),
 );
 
+export const imageGenerations = pgTable(
+  "image_generations",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    prompt: text("prompt").notNull(),
+    provider: text("provider").notNull().default("openai"),
+    model: text("model").notNull(),
+    size: text("size").notNull(),
+    quality: text("quality").notNull(),
+    referenceCount: integer("reference_count").notNull().default(0),
+    referenceDigest: text("reference_digest").notNull().default(""),
+    /** "studio" when a person asked, "agent" when the build agent did. */
+    source: text("source").notNull().default("studio"),
+    /**
+     * Where an agent generation came from. Deliberately NOT a foreign key, and
+     * `projectName` is a snapshot rather than a join: a user's library is their
+     * own and outlives any project, so deleting a project must not delete their
+     * images or erase where they came from.
+     */
+    projectId: text("project_id").notNull().default(""),
+    projectName: text("project_name").notNull().default(""),
+    sessionId: text("session_id").notNull().default(""),
+    status: text("status").notNull().default("queued"),
+    // One outstanding request per user; NULL releases the slot.
+    activeOwner: text("active_owner"),
+    // Two instance-wide worker slots, protected by a unique index.
+    workerSlot: integer("worker_slot"),
+    leaseUntil: text("lease_until"),
+    createdAt: text("created_at").notNull(),
+    completedAt: text("completed_at"),
+    deletedAt: text("deleted_at"),
+    error: text("error"),
+    providerRequestId: text("provider_request_id"),
+    usage: text("usage"),
+    width: integer("width"),
+    height: integer("height"),
+    sizeBytes: integer("size_bytes"),
+  },
+  (table) => ({
+    requestIdx: uniqueIndex("image_generations_request_idx").on(
+      table.ownerId,
+      table.idempotencyKey,
+    ),
+    activeIdx: uniqueIndex("image_generations_active_idx").on(table.activeOwner),
+    slotIdx: uniqueIndex("image_generations_slot_idx").on(table.workerSlot),
+    historyIdx: index("image_generations_history_idx").on(table.ownerId, table.createdAt),
+  }),
+);
+
 export const schema = {
+  imageGenerations,
   users,
   teams,
   teamMembers,

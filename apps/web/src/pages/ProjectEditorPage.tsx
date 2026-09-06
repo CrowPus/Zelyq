@@ -60,6 +60,10 @@ export function ProjectEditorPage() {
   const [pointedElement, setPointedElement] = useState<SelectedElement | null>(null);
 
   const project = useQuery({ queryKey: ["project", id], queryFn: () => api.getProject(id) });
+  const imageCapabilities = useQuery({
+    queryKey: ["image-capabilities"],
+    queryFn: () => api.imageCapabilities(),
+  });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: 60_000 });
   const files = useQuery({ queryKey: ["files", id], queryFn: () => api.listFiles(id) });
   // Saving a file takes editor. The server enforces it; this decides whether to
@@ -265,6 +269,17 @@ export function ProjectEditorPage() {
               plugins={health.data?.agent.plugins ?? []}
               projectId={id}
               canEdit={canEdit}
+              imageGeneration={{
+                enabled: current.imageGenerationEnabled,
+                // No provider key on the instance means the permission can be
+                // set but nothing could come of it; say so instead of offering
+                // a switch that does nothing.
+                available: imageCapabilities.data?.configured ?? false,
+                async onToggle(next) {
+                  await api.updateProject(id, { imageGenerationEnabled: next });
+                  await queryClient.invalidateQueries({ queryKey: ["project", id] });
+                },
+              }}
               pointedElement={pointedElement}
               onClearPointedElement={() => setPointedElement(null)}
               onOpenDiff={(diffPath, before, after) => {

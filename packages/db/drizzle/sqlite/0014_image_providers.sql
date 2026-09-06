@@ -1,0 +1,1 @@
+ALTER TABLE `image_generations` ADD `provider` text DEFAULT 'openai' NOT NULL;

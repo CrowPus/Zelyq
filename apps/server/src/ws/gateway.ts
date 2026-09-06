@@ -18,6 +18,7 @@ import type { AgentClient } from "../services/agent-client.js";
 import type { AttachmentService } from "../services/attachments.js";
 import type { FigmaExtractService } from "../services/figma-extract.js";
 import { parseFigmaLink } from "../services/figma-link.js";
+import type { ImageBridge } from "../services/image-bridge.js";
 import type { PreviewEnvResolver } from "../services/preview-env.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
@@ -65,6 +66,9 @@ export class ChatGateway {
       resolvePreviewEnv: PreviewEnvResolver;
       serverInternalUrl: string;
     },
+    /** Image bridge (agent generates images via the server, when the project
+     * allows it). `mint` returns null when it does not. */
+    private readonly imageGeneration: { bridge: ImageBridge; serverInternalUrl: string },
     /** `/figma` extraction (proposal 068). `enabled` is false when no Figma
      * OAuth app is configured — a `/figma` message then gets a plain reply. */
     private readonly figma: { extract: FigmaExtractService; enabled: boolean },
@@ -383,9 +387,12 @@ export class ChatGateway {
       // If this project has a linked Supabase resource, hand
       // the agent a session-scoped capability to apply migrations through the
       // server, plus the project's PUBLIC config for its preview. No secret.
-      const [bridgeToken, supabasePreviewEnv] = await Promise.all([
+      const [bridgeToken, supabasePreviewEnv, imageToken] = await Promise.all([
         this.supabase.bridge.mint(room.sessionId, room.projectId, userId),
         this.supabase.resolvePreviewEnv(room.projectId),
+        // Null unless this project has image generation switched on AND the
+        // instance has a provider configured. No token, no tools.
+        this.imageGeneration.bridge.mint(room.sessionId, room.projectId, userId),
       ]);
 
       // Which stack this project is on, so the agent's prompt describes
@@ -409,6 +416,9 @@ export class ChatGateway {
         ...(anthropicWorkspaceId ? { anthropicWorkspaceId } : {}),
         ...(bridgeToken
           ? { supabaseBridge: { url: this.supabase.serverInternalUrl, token: bridgeToken } }
+          : {}),
+        ...(imageToken
+          ? { imageBridge: { url: this.imageGeneration.serverInternalUrl, token: imageToken } }
           : {}),
         ...(Object.keys(supabasePreviewEnv).length > 0 ? { supabasePreviewEnv } : {}),
         template: stackInfo.template,

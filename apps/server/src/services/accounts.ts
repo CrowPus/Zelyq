@@ -17,6 +17,7 @@ export class AccountService {
   constructor(
     private readonly store: Store,
     private readonly projects: ProjectService,
+    private readonly removeImageAssets?: (userId: string) => Promise<void>,
   ) {}
 
   async list(): Promise<User[]> {
@@ -76,5 +77,6 @@ export class AccountService {
     }
 
     await this.store.users.remove(targetId);
+    await this.removeImageAssets?.(targetId);
   }
 }

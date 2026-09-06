@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Spinner } from "./components/ui";
 import { useSession } from "./hooks/useSession";
+import { ImageStudioPage } from "./pages/ImageStudioPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { ProjectEditorPage } from "./pages/ProjectEditorPage";
 import { ProjectListPage } from "./pages/ProjectListPage";
@@ -71,6 +72,7 @@ function Gate() {
       <Route path="/" element={<ProjectListPage />} />
       <Route path="/projects/:id" element={<ProjectEditorPage />} />
       <Route path="/teams/:id" element={<TeamPage />} />
+      <Route path="/image-studio" element={<ImageStudioPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/account" element={<ProfilePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
