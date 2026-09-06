@@ -213,7 +213,16 @@ export class ProjectService {
       // A private repository refuses in several dialects, and none of them tell
       // somebody what to do about it. Repeating git's wording here would be
       // accurate and useless.
-      if (/authentication failed|could not read username|invalid credentials|403/i.test(output)) {
+      // `403` is matched only as an HTTP status. git echoes the remote URL
+      // back in its failure output, so a bare `403` matched the digits of a
+      // port (40312) or a repository name, and a plain non-fast-forward came
+      // back as "this repository needs a token" — flaky exactly as often as
+      // either happened to contain those digits.
+      if (
+        /authentication failed|could not read username|invalid credentials|http\W{0,3}403\b/i.test(
+          output,
+        )
+      ) {
         throw ZelyqError.badRequest(
           token
             ? "That token was refused. Check it has read access to this repository and has not expired."
@@ -413,7 +422,16 @@ export class ProjectService {
     if (result.exitCode !== 0) {
       const output = result.stderr || result.stdout;
 
-      if (/authentication failed|could not read username|invalid credentials|403/i.test(output)) {
+      // `403` is matched only as an HTTP status. git echoes the remote URL
+      // back in its failure output, so a bare `403` matched the digits of a
+      // port (40312) or a repository name, and a plain non-fast-forward came
+      // back as "this repository needs a token" — flaky exactly as often as
+      // either happened to contain those digits.
+      if (
+        /authentication failed|could not read username|invalid credentials|http\W{0,3}403\b/i.test(
+          output,
+        )
+      ) {
         throw ZelyqError.badRequest(
           token
             ? "That token was refused. Check it has write access to this repository and has not expired."
