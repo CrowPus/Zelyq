@@ -11,6 +11,7 @@ import { settingsRepository } from "./repositories/settings.js";
 import { snapshotRepository } from "./repositories/snapshots.js";
 import { teamRepository } from "./repositories/teams.js";
 import { userRepository } from "./repositories/users.js";
+import { videoRepository } from "./repositories/videos.js";
 
 export * from "./client.js";
 export { runMigrations } from "./migrate.js";
@@ -26,10 +27,12 @@ export type { SettingsRepository } from "./repositories/settings.js";
 export type { SnapshotRepository } from "./repositories/snapshots.js";
 export type { TeamRepository } from "./repositories/teams.js";
 export type { UserRepository } from "./repositories/users.js";
+export type { VideoJobRow, VideoReferenceRow } from "./repositories/videos.js";
 export * from "./schema/index.js";
 export { resolveSetting, type SettingsReader } from "./settings-resolver.js";
 
 export interface Store extends DatabaseHandle {
+  videos: ReturnType<typeof videoRepository>;
   images: ReturnType<typeof imageRepository>;
   users: ReturnType<typeof userRepository>;
   teams: ReturnType<typeof teamRepository>;
@@ -54,6 +57,7 @@ export function createStore(url: string): Store {
   return {
     ...handle,
     images: imageRepository(handle.db),
+    videos: videoRepository(handle.db),
     users: userRepository(handle.db),
     teams: teamRepository(handle.db),
     authSessions: authSessionRepository(handle.db),

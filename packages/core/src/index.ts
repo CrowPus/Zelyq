@@ -7,3 +7,4 @@ export * from "./protocol.js";
 export * from "./settings.js";
 export * from "./skill-file.js";
 export * from "./topology.js";
+export * from "./videos.js";

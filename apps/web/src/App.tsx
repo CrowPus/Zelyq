@@ -9,6 +9,7 @@ import { ProjectListPage } from "./pages/ProjectListPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { TeamPage } from "./pages/TeamPage";
+import { VideoStudioPage } from "./pages/VideoStudioPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,6 +74,7 @@ function Gate() {
       <Route path="/projects/:id" element={<ProjectEditorPage />} />
       <Route path="/teams/:id" element={<TeamPage />} />
       <Route path="/image-studio" element={<ImageStudioPage />} />
+      <Route path="/video-studio" element={<VideoStudioPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/account" element={<ProfilePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />

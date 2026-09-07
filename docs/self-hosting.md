@@ -139,6 +139,7 @@ Two things hold state:
 | Database | `DATABASE_URL` | `pg_dump`, or copy the SQLite file while the server is stopped |
 | Project files | `ZELYQ_WORKSPACE_DIR` | Volume snapshot or `rsync` |
 | Generated images | `ZELYQ_IMAGE_ASSETS_DIR` | Volume snapshot or `rsync` |
+| Generated videos | `ZELYQ_VIDEO_ASSETS_DIR` | Volume snapshot or `rsync` — the largest of these by far |
 | Encryption key | `ZELYQ_SECRET_KEY` / `ZELYQ_SECRET_KEY_FILE` | Your secret store — without it, stored API keys cannot be read |
 
 They are only loosely coupled: a project row without its directory shows as an error rather than
@@ -154,6 +155,10 @@ database must also share that directory.
 - **Runtime:** the expensive one. Every previewed project runs `npm install` and a dev server —
   budget roughly 500 MB and a shared core per active project, plus disk for `node_modules`.
 - **Ports:** `ZELYQ_PREVIEW_PORT_MIN..MAX` caps concurrent previews. Widen it before you hit it.
+- **Video storage:** the one that grows without anyone noticing. A clip is capped at 200 MiB and a
+  user's library at 5 GiB, so plan capacity per user rather than per instance, and watch the disk
+  holding `ZELYQ_VIDEO_ASSETS_DIR`. Video jobs are long-running: `ZELYQ_VIDEO_CONCURRENCY` bounds how
+  many are in flight at once, and it is separate from image capacity on purpose.
 
 ## Upgrading
 

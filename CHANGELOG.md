@@ -9,6 +9,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Video Studio** — a signed-in page at `/video-studio` for generating short clips from a prompt or
+  animating a still image, with Google (Veo) and xAI (Grok Imagine) adapters, each with its own key
+  and model. Ratio, duration, resolution and audio are offered only where the selected model supports
+  them, and rejected server-side otherwise. A starting frame can be uploaded or chosen from your
+  Image Studio library, in which case it is copied into video storage so deleting the original image
+  cannot break an accepted job. Video generation is long and asynchronous, so the work is built
+  around that rather than around the image contract: the provider's operation handle is persisted
+  before it is needed, polling resumes after a restart, leases are fenced so two workers cannot both
+  commit, and a submission whose outcome cannot be established is reported as unconfirmed instead of
+  being silently retried — it may already have been billed. Finished clips are saved to private
+  storage and keep playing after the provider's temporary URL expires, streamed to their owner with
+  HTTP range support so seeking works. Queued jobs can be cancelled; submitted ones say plainly that
+  they cannot. Capacity and spending are bounded by `ZELYQ_VIDEO_CONCURRENCY` and
+  `ZELYQ_VIDEO_HOURLY_LIMIT`, both separate from images so a slow clip cannot occupy an image slot.
+  See [Video Studio](docs/Video-gen/README.md).
+
 - **Image Studio** — a signed-in page at `/image-studio` for generating original images from a
   prompt, independent of any project or agent session. OpenAI (GPT Image), Google (Nano Banana) or
   xAI (Grok Imagine), each with its own key and model, configured in Settings or by environment.

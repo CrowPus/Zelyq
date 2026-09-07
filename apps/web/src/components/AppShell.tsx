@@ -2,6 +2,7 @@ import {
   Boxes,
   ChevronRight,
   CircleHelp,
+  Clapperboard,
   ImagePlus,
   LogOut,
   Monitor,
@@ -58,6 +59,12 @@ function Rail() {
       label: "Image Studio",
       icon: ImagePlus,
       match: (p: string) => p.startsWith("/image-studio"),
+    },
+    {
+      to: "/video-studio",
+      label: "Video Studio",
+      icon: Clapperboard,
+      match: (p: string) => p.startsWith("/video-studio"),
     },
     {
       to: "/",
@@ -278,6 +285,14 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
           <ImagePlus size={16} />
         </Link>
         <ThemeToggle />
+        <Link
+          to="/video-studio"
+          aria-label="Video Studio"
+          title="Video Studio"
+          className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
+        >
+          <Clapperboard size={16} />
+        </Link>
         <AccountMenu />
       </div>
     </header>

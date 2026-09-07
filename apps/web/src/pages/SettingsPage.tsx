@@ -50,6 +50,7 @@ export function SettingsPage() {
     onSuccess: (next) => {
       queryClient.setQueryData(["settings"], next);
       void queryClient.invalidateQueries({ queryKey: ["image-capabilities"] });
+      void queryClient.invalidateQueries({ queryKey: ["video-capabilities"] });
       setDraft({});
       setError(null);
       setSaved(true);
@@ -60,22 +61,42 @@ export function SettingsPage() {
 
   const dirty = Object.keys(draft).length > 0;
   useEffect(() => {
-    if (hash === "#image-generation" && settings.data)
-      document.getElementById("image-generation")?.scrollIntoView({ block: "start" });
+    if (["#image-generation", "#video-generation"].includes(hash) && settings.data)
+      document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
   }, [hash, settings.data]);
 
   function renderGroup(group: SettingsGroup) {
     return (
       <section
         key={group.name}
-        id={group.name === "Image Studio" ? "image-generation" : undefined}
-        aria-label={group.name === "Image Studio" ? "Image generation settings" : undefined}
+        id={
+          group.name === "Image Studio"
+            ? "image-generation"
+            : group.name === "Video Studio"
+              ? "video-generation"
+              : undefined
+        }
+        aria-label={
+          group.name === "Image Studio"
+            ? "Image generation settings"
+            : group.name === "Video Studio"
+              ? "Video generation settings"
+              : undefined
+        }
         className="mt-7 scroll-mt-6"
       >
         <h2 className="text-sm font-medium text-fg">
           {group.name === "Image Studio" ? "Image generation" : group.name}
         </h2>
         <p className="mt-0.5 text-xs text-fg-secondary">{group.description}</p>
+        {group.name === "Video Studio" && (
+          <Link
+            to="/video-studio"
+            className="mt-2 inline-block text-xs text-fg underline underline-offset-4"
+          >
+            Open Video Studio
+          </Link>
+        )}
         {group.name === "Image Studio" && (
           <Link
             to="/image-studio"
@@ -107,7 +128,7 @@ export function SettingsPage() {
             </>
           )}
         </div>
-        {group.name === "Image Studio" && (
+        {["Image Studio", "Video Studio"].includes(group.name) && (
           <div className="mt-3 flex items-center gap-3">
             <Button
               variant="primary"
@@ -172,6 +193,7 @@ export function SettingsPage() {
           )}
 
           {settings.data?.groups.filter((group) => group.name === "Image Studio").map(renderGroup)}
+          {settings.data?.groups.filter((group) => group.name === "Video Studio").map(renderGroup)}
 
           <section className="mt-7">
             <h2 className="text-sm font-medium text-fg">Instance status</h2>
@@ -281,7 +303,9 @@ export function SettingsPage() {
             </div>
           </section>
 
-          {settings.data?.groups.filter((group) => group.name !== "Image Studio").map(renderGroup)}
+          {settings.data?.groups
+            .filter((group) => !["Image Studio", "Video Studio"].includes(group.name))
+            .map(renderGroup)}
 
           <FigmaIntegration />
 

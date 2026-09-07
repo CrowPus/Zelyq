@@ -120,6 +120,13 @@
       "when": 1788730000000,
       "tag": "0016_agent_images",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788759531193,
+      "tag": "0017_video_studio",
+      "breakpoints": true
     }
   ]
 }

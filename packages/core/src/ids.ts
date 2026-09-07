@@ -23,6 +23,8 @@ export const ID_PREFIXES = {
   audit: "adt",
   attachment: "atc",
   imageGeneration: "img",
+  videoGeneration: "vid",
+  videoReference: "vrf",
   providerConnection: "pcn",
   providerResource: "prs",
   providerOperation: "pop",
