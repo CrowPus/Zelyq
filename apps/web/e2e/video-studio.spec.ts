@@ -38,6 +38,24 @@ test("standalone video settings, both providers, references, refresh, playback, 
   await expect(page.getByRole("heading", { name: "Your films", exact: true })).toBeInViewport();
 
   await page.getByRole("link", { name: "Video settings" }).click();
+  // Settings is a menu, not one long column: every section is one click away
+  // and the page does not scroll to reach the navigation itself.
+  const sectionNav = page.getByRole("navigation", { name: "Settings sections" });
+  await expect(sectionNav).toBeVisible();
+  await expect(sectionNav.getByRole("button", { name: "Model", exact: true })).toBeVisible();
+  await expect(sectionNav.getByRole("button", { name: "Users", exact: true })).toBeVisible();
+  // A deep link selects its section rather than scrolling to it.
+  await expect(
+    sectionNav.getByRole("button", { name: "Video generation", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  // Only the chosen section is on screen, so switching genuinely swaps the
+  // content rather than scrolling a single long column.
+  await expect(page.getByRole("heading", { name: "Model", exact: true })).toHaveCount(0);
+  await sectionNav.getByRole("button", { name: "Model", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Model", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Video generation settings" })).toHaveCount(0);
+  await sectionNav.getByRole("button", { name: "Video generation", exact: true }).click();
+
   const settings = page.getByRole("region", { name: "Video generation settings" });
   await settings
     .getByLabel("Google video API key", { exact: true })
