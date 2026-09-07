@@ -150,7 +150,7 @@ After standalone acceptance, an authorized agent tool can call the same service,
 
 Recorded so the document stays an honest description of what exists, rather than of what was intended.
 
-**No poster route.** `GET /api/videos/assets/:id/poster` is not implemented and no poster is generated. Extracting a frame needs a media tool in the request path, which this design itself said to budget and sandbox before enabling. History cards and the player use a labelled placeholder instead, which the product document already permits. The route can be added later without changing the stored contract.
+**Posters arrived with frame export.** `GET /api/videos/assets/:id/poster` was initially left out because extracting a frame needs a media tool in the request path, which this design said to budget and sandbox first. [Frame export](frame-export.md) packaged `ffmpeg` for exactly that, so the reason expired and the route now exists: a still from the middle of the clip, generated on first request and kept. It is made lazily rather than at save time, so clips that predate posters get one the moment a card is shown, with no backfill and no migration. The mid-point is deliberate — an opening frame is often a fade from black, which makes every card look the same.
 
 **One provider module rather than a directory of adapters.** `video-providers/index.ts` holds the capability table, both adapters and the guarded download. It is one file because the two adapters are small and share the request-shaping and error-mapping helpers; splitting it per provider is a refactor to do when a third arrives, not a change in the boundary the design describes.
 

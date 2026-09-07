@@ -97,6 +97,60 @@ test("standalone video settings, both providers, references, refresh, playback, 
   await expect(preview.getByRole("status")).not.toHaveText("Ready to play");
   await expect(preview.getByRole("link", { name: "Download MP4" })).toBeVisible({ timeout: 45000 });
   await page.screenshot({ path: "/tmp/zelyq-video-studio-result.png", fullPage: true });
+  const videoId = new URL(page.url()).searchParams.get("video") as string;
+  // Frame export: split the finished clip into the numbered sequence a
+  // scroll-scrubbed hero reads, and prove the files are really there.
+  const frameSection = page.getByRole("region", { name: "Frame export" });
+  await expect(frameSection).toBeVisible();
+  // A half-typed number must never reach the server. Typing toward "120"
+  // passes through "1", and clearing the field reads as NaN; both used to be
+  // sent verbatim and came back as a bare "Request validation failed".
+  const countField = frameSection.getByLabel("Frame count", { exact: true });
+  await countField.fill("1");
+  await expect(frameSection.getByRole("alert")).toContainText("between");
+  await expect(frameSection.getByRole("button", { name: "Extract", exact: true })).toBeDisabled();
+  await countField.fill("");
+  await expect(frameSection.getByRole("button", { name: "Extract", exact: true })).toBeDisabled();
+  // Leaving the field snaps it back into range rather than stranding the user.
+  await countField.blur();
+  await expect(countField).not.toHaveValue("");
+  await expect(frameSection.getByRole("button", { name: "Extract", exact: true })).toBeEnabled();
+
+  await countField.fill("12");
+  await frameSection.getByLabel("Frame width", { exact: true }).fill("320");
+  await frameSection.getByRole("button", { name: "Extract", exact: true }).click();
+  await expect(frameSection.getByRole("link", { name: "Download frames" })).toBeVisible({
+    timeout: 60000,
+  });
+  await expect(frameSection.getByAltText("Frame sample 1")).toBeVisible();
+  const set = await (await page.request.get(`/api/videos/generations/${videoId}/frames`)).json();
+  expect(set.frames.count).toBeGreaterThan(1);
+  const manifest = await (
+    await page.request.get(`/api/videos/generations/${videoId}/frames/manifest.json`)
+  ).json();
+  expect(manifest.frames[0]).toBe("frame_0001.webp");
+  expect(manifest.poster).toBe("poster.webp");
+  expect(manifest.frames).toHaveLength(set.frames.count);
+  const zip = await page.request.get(`/api/videos/generations/${videoId}/frames.zip`);
+  expect(zip.status()).toBe(200);
+  expect((await zip.body()).length).toBeGreaterThan(1000);
+
+  // A text-to-video clip has no starting image; its library card must still
+  // show a real frame rather than a grey placeholder icon.
+  const card = page.locator("button", { hasText: "A ceramic vase in gentle motion" }).first();
+  await card.scrollIntoViewIfNeeded();
+  const thumb = card.locator("img").first();
+  await expect(thumb).toBeVisible();
+  await expect(thumb).toHaveJSProperty("naturalWidth", 640);
+
+  await page.evaluate(() => {
+    const sc = document.querySelector("main")!.firstElementChild as HTMLElement;
+    sc.scrollTop = sc.scrollHeight;
+  });
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: "/tmp/zelyq-library.png" });
+  await frameSection.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "/tmp/zelyq-frames-desktop.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: "/tmp/zelyq-video-studio-mobile.png", fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(

@@ -1,5 +1,8 @@
+import { createReadStream } from "node:fs";
 import multipart from "@fastify/multipart";
 import {
+  frameExportInputSchema,
+  frameExtensions,
   maxVideoReferenceBytes,
   videoGenerationInputSchema,
   videoIdSchema,
@@ -11,6 +14,7 @@ import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { ImageGenerationService } from "../services/image-generation.js";
 import type { VideoGenerationService } from "../services/video-generation.js";
+import { buildZip } from "../services/zip.js";
 
 export function videoRange(header: string | undefined, size: number) {
   if (!header) return undefined;
@@ -115,6 +119,89 @@ export async function registerVideoRoutes(
           ),
         }),
       );
+    // --- Frames -------------------------------------------------------------
+    // Splitting a finished clip into the numbered sequence a scroll-scrub hero
+    // needs. No provider, nothing billed; the limits are disk and CPU.
+    scope.post<{ Params: { id: string } }>(
+      "/api/videos/generations/:id/frames",
+      async (request, reply) => {
+        const owner = access.requireUser(request);
+        const id = videoIdSchema.parse(request.params.id);
+        const input = frameExportInputSchema.parse(request.body ?? {});
+        const set = await videos.extractFrames(owner.id, id, input);
+        return reply.code(201).send({ frames: set });
+      },
+    );
+    scope.get<{ Params: { id: string } }>("/api/videos/generations/:id/frames", async (request) => {
+      const owner = access.requireUser(request);
+      const id = videoIdSchema.parse(request.params.id);
+      const set = await videos.frameSet(owner.id, id);
+      if (!set) throw ZelyqError.notFound("Frames", id);
+      return { frames: set };
+    });
+    scope.delete<{ Params: { id: string } }>(
+      "/api/videos/generations/:id/frames",
+      async (request, reply) => {
+        const owner = access.requireUser(request);
+        await videos.removeFrames(owner.id, videoIdSchema.parse(request.params.id));
+        return reply.code(204).send();
+      },
+    );
+    // The whole set as one download. Store-only: these bytes are already
+    // compressed, so deflating them would cost CPU to save nothing.
+    scope.get<{ Params: { id: string } }>(
+      "/api/videos/generations/:id/frames.zip",
+      async (request, reply) => {
+        const owner = access.requireUser(request);
+        const id = videoIdSchema.parse(request.params.id);
+        const set = await videos.frameSet(owner.id, id);
+        if (!set) throw ZelyqError.notFound("Frames", id);
+        const ext = frameExtensions[set.format];
+        const names = [
+          "manifest.json",
+          `poster.${ext}`,
+          ...Array.from(
+            { length: set.count },
+            (_, i) => `frame_${String(i + 1).padStart(4, "0")}.${ext}`,
+          ),
+        ];
+        const entries = await Promise.all(
+          names.map(async (name) => ({
+            name,
+            data: await videos.frames.read(owner.id, id, name, set.format),
+          })),
+        );
+        return reply
+          .type("application/zip")
+          .header("x-content-type-options", "nosniff")
+          .header("content-disposition", `attachment; filename="zelyq-${id}-frames.zip"`)
+          .send(buildZip(entries));
+      },
+    );
+    // One file from the set. `:name` is matched against the permitted shapes
+    // before it is ever joined onto a path.
+    scope.get<{ Params: { id: string; name: string } }>(
+      "/api/videos/generations/:id/frames/:name",
+      async (request, reply) => {
+        const owner = access.requireUser(request);
+        const id = videoIdSchema.parse(request.params.id);
+        const set = await videos.frameSet(owner.id, id);
+        if (!set) throw ZelyqError.notFound("Frames", id);
+        const name = request.params.name;
+        const type =
+          name === "manifest.json"
+            ? "application/json"
+            : set.format === "jpeg"
+              ? "image/jpeg"
+              : `image/${set.format}`;
+        return reply
+          .type(type)
+          .header("x-content-type-options", "nosniff")
+          .header("cache-control", "private, max-age=3600")
+          .send(videos.frames.stream(owner.id, id, name, set.format));
+      },
+    );
+
     scope.delete<{ Params: { id: string } }>(
       "/api/videos/generations/:id",
       async (request, reply) => {
@@ -127,6 +214,21 @@ export async function registerVideoRoutes(
           acknowledge === "1",
         );
         return reply.code(204).send();
+      },
+    );
+    // The library thumbnail. Made on demand the first time a card is shown, so
+    // clips generated before posters existed get one with no backfill.
+    scope.get<{ Params: { id: string } }>(
+      "/api/videos/assets/:id/poster",
+      async (request, reply) => {
+        const owner = access.requireUser(request);
+        const id = videoIdSchema.parse(request.params.id);
+        const file = await videos.poster(owner.id, id);
+        return reply
+          .type("image/webp")
+          .header("x-content-type-options", "nosniff")
+          .header("cache-control", "private, max-age=86400")
+          .send(createReadStream(file));
       },
     );
     scope.route<{ Params: { id: string } }>({

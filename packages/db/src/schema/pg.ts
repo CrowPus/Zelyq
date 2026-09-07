@@ -441,6 +441,24 @@ export const videoReferences = pgTable("video_references", {
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at"),
 });
+export const videoFrameSets = pgTable("video_frame_sets", {
+  /** One set per video, so the generation IS the key. Re-extracting replaces
+   *  it rather than accumulating sets nobody deletes. */
+  generationId: text("generation_id")
+    .primaryKey()
+    .references(() => videoGenerations.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  format: text("format").notNull(),
+  count: integer("count").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  fps: text("fps").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 export const videoGenerations = pgTable(
   "video_generations",
   {
@@ -483,6 +501,7 @@ export const videoGenerations = pgTable(
 
 export const schema = {
   videoAccounts,
+  videoFrameSets,
   videoReferences,
   videoGenerations,
   imageGenerations,

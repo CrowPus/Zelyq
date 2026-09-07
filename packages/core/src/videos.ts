@@ -30,6 +30,68 @@ export const videoGenerationInputSchema = z
   })
   .strict();
 export type VideoGenerationInput = z.infer<typeof videoGenerationInputSchema>;
+/**
+ * Frame export. The shape here is dictated by what the scroll-scrub recipe
+ * already reads (skills/cinematic-web/recipes/scroll-video-scrub.md) — a
+ * numbered sequence, a poster, and a manifest — so the two halves fit without
+ * a translation step.
+ */
+export const frameFormats = ["webp", "jpeg", "png", "avif"] as const;
+export type FrameFormat = (typeof frameFormats)[number];
+export const frameExtensions: Record<FrameFormat, string> = {
+  webp: "webp",
+  jpeg: "jpg",
+  png: "png",
+  avif: "avif",
+};
+/** The recipe targets 90-140; below ~90 the scrub visibly steps. */
+export const defaultFrameCount = 120;
+export const minFrameCount = 8;
+export const maxFrameCount = 240;
+/** "Size to the largest canvas box the layout renders, capped ~1600-1920." */
+export const defaultFrameWidth = 1600;
+export const minFrameWidth = 320;
+export const maxFrameWidth = 1920;
+/** A set that exceeds this is discarded rather than half-kept. */
+export const maxFrameSetBytes = 250 * 1024 * 1024;
+
+export const frameExportInputSchema = z
+  .object({
+    format: z.enum(frameFormats).default("webp"),
+    count: z.number().int().min(minFrameCount).max(maxFrameCount).default(defaultFrameCount),
+    width: z.number().int().min(minFrameWidth).max(maxFrameWidth).default(defaultFrameWidth),
+  })
+  .strict();
+export type FrameExportInput = z.infer<typeof frameExportInputSchema>;
+
+export interface VideoFrameSet {
+  generationId: string;
+  format: FrameFormat;
+  count: number;
+  width: number;
+  height: number;
+  fps: number;
+  sizeBytes: number;
+  createdAt: string;
+  /** Application URLs, all owner-authenticated. */
+  manifestUrl: string;
+  posterUrl: string;
+  zipUrl: string;
+  /** Every frame's URL, in order. */
+  frameUrls: string[];
+}
+
+/** The file a `:name` route segment may address. Never build a path from raw
+ *  user input — match it against this first. */
+export function frameFileName(name: string, format: FrameFormat): boolean {
+  const ext = frameExtensions[format];
+  return (
+    name === "manifest.json" ||
+    name === `poster.${ext}` ||
+    new RegExp(`^frame_\\d{4}\\.${ext}$`).test(name)
+  );
+}
+
 export type VideoStatus =
   | "queued"
   | "submitting"
@@ -104,6 +166,9 @@ export interface VideoGeneration {
   reference: VideoReference | null;
   asset: {
     url: string;
+    /** A still from the middle of the clip, generated on first request. Every
+     *  finished video has one, including text-to-video with no starting image. */
+    posterUrl: string;
     width: number;
     height: number;
     durationSeconds: number;

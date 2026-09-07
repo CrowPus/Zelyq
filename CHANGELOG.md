@@ -9,6 +9,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Frame export in Video Studio** — split a finished clip into a numbered image sequence, in WebP,
+  JPEG, PNG or AVIF, at a chosen frame count and width. The output is deliberately the exact shape
+  the bundled `cinematic-web` scroll-scrub recipe already reads: `frame_0001.webp…`, a `poster`, and
+  a `manifest.json` carrying the count and dimensions, so a scroll-scrubbed hero can be built from a
+  generated clip without hand-extracting anything. That recipe previously had to tell the agent to
+  ask the user for a pre-extracted sequence, because no `ffmpeg` was available; `ffmpeg-static` is
+  now packaged the same way `ffprobe-static` already was. Download the whole set as one ZIP, or fetch
+  frames individually. Re-extracting replaces the previous set, frame bytes count against the same
+  storage budget as clips, and deleting the video takes its frames with it. See
+  [frame export](docs/Video-gen/frame-export.md). Packaging ffmpeg also gave every finished video a
+  real **poster**, taken from the middle of the clip — a text-to-video result previously showed a
+  grey film icon in the library, because the only picture it could offer was a starting image it
+  never had.
+
 - **Video Studio** — a signed-in page at `/video-studio` for generating short clips from a prompt or
   animating a still image, with Google (Veo) and xAI (Grok Imagine) adapters, each with its own key
   and model. Ratio, duration, resolution and audio are offered only where the selected model supports

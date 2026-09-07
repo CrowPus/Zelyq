@@ -7,6 +7,7 @@ import type {
   CreateProjectInput,
   FileContent,
   FileEntry,
+  FrameExportInput,
   ImageCapabilities,
   ImageGeneration,
   ImageGenerationInput,
@@ -25,6 +26,7 @@ import type {
   UploadSkillInput,
   User,
   VideoCapabilities,
+  VideoFrameSet,
   VideoGeneration,
   VideoGenerationInput,
   VideoHistory,
@@ -140,6 +142,16 @@ export const api = {
     request<void>(`/videos/generations/${id}${acknowledge ? "?acknowledge=1" : ""}`, {
       method: "DELETE",
     }),
+  videoFrames: (id: string) =>
+    request<{ frames: VideoFrameSet }>(`/videos/generations/${id}/frames`),
+  extractVideoFrames: (id: string, input: FrameExportInput) =>
+    request<{ frames: VideoFrameSet }>(`/videos/generations/${id}/frames`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteVideoFrames: (id: string) =>
+    request<void>(`/videos/generations/${id}/frames`, { method: "DELETE" }),
+
   cancelVideo: (id: string) =>
     request<{ generation: VideoGeneration }>(`/videos/generations/${id}/cancel`, {
       method: "POST",

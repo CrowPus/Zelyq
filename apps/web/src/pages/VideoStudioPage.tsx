@@ -1,7 +1,18 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  defaultFrameCount,
+  defaultFrameWidth,
+  type FrameExportInput,
+  type FrameFormat,
+  frameExtensions,
+  frameFormats,
   isVideoActive,
+  maxFrameCount,
+  maxFrameWidth,
   maxVideoReferenceBytes,
+  minFrameCount,
+  minFrameWidth,
+  type VideoFrameSet,
   type VideoGeneration,
   type VideoGenerationInput,
   type VideoProviderId,
@@ -16,6 +27,7 @@ import {
   ImagePlus,
   Play,
   RotateCw,
+  Scissors,
   Settings2,
   Sparkles,
   Trash2,
@@ -28,6 +40,13 @@ import { AppShell } from "../components/AppShell";
 import { Button, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { ApiError, api } from "../lib/api";
+
+/** A half-typed number field must not become a failed request: an empty field
+ *  reads as NaN, and "1" on the way to "120" is briefly out of range. */
+function clamp(value: number, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
 
 const control =
   "mt-2 w-full rounded-lg border border-border-default bg-canvas px-3 py-2.5 text-sm text-fg outline-none focus:border-border-strong focus:ring-2 focus:ring-primary/20 disabled:opacity-50";
@@ -190,6 +209,52 @@ export function VideoStudioPage() {
       if (status !== 404 && status !== 409) setError((e as Error).message);
     }
   };
+  /** Frame export for the video currently in the preview. */
+  const [frameFormat, setFrameFormat] = useState<FrameFormat>("webp");
+  const [frameCount, setFrameCount] = useState(defaultFrameCount);
+  const [frameWidth, setFrameWidth] = useState(defaultFrameWidth);
+  const frames = useQuery({
+    queryKey: ["video-frames", selectedId],
+    enabled: Boolean(selectedId),
+    retry: false,
+    queryFn: async () => {
+      try {
+        return (await api.videoFrames(selectedId as string)).frames;
+      } catch (error) {
+        // No set yet is the normal state, not a failure to report.
+        if (error instanceof ApiError && error.status === 404) return null;
+        throw error;
+      }
+    },
+  });
+  /** Said here, in the panel, rather than left to a generic server rejection. */
+  const frameProblem =
+    !Number.isFinite(frameCount) || frameCount < minFrameCount || frameCount > maxFrameCount
+      ? `Choose between ${minFrameCount} and ${maxFrameCount} frames.`
+      : !Number.isFinite(frameWidth) || frameWidth < minFrameWidth || frameWidth > maxFrameWidth
+        ? `Choose a width between ${minFrameWidth} and ${maxFrameWidth} pixels.`
+        : null;
+  const extract = useMutation({
+    mutationFn: (input: FrameExportInput) => api.extractVideoFrames(selectedId as string, input),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["video-frames", selectedId] }),
+    onError: (error) => {
+      // The server names the offending fields in `details.issues`; showing only
+      // "Request validation failed" tells the user nothing they can act on.
+      const issues = (error as ApiError).details?.issues as
+        | Array<{ path: string; message: string }>
+        | undefined;
+      setError(
+        issues?.length
+          ? `${(error as Error).message}: ${issues.map((i) => `${i.path} ${i.message}`).join(", ")}`
+          : (error as Error).message,
+      );
+    },
+  });
+  const dropFrames = useMutation({
+    mutationFn: () => api.deleteVideoFrames(selectedId as string),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["video-frames", selectedId] }),
+  });
+
   const action = useMutation({
     mutationFn: async ({ id, kind }: { id: string; kind: "delete" | "cancel" | "reconcile" }) => {
       if (kind === "delete") {
@@ -568,6 +633,7 @@ export function VideoStudioPage() {
                       key={current.id}
                       aria-label="Generated video"
                       src={current.asset.url}
+                      poster={current.asset.posterUrl}
                       controls
                       playsInline
                       preload="metadata"
@@ -686,6 +752,186 @@ export function VideoStudioPage() {
                         </div>
                       </div>
                     )}
+                    {/* Splitting the clip into the numbered sequence a
+                        scroll-scrubbed hero needs. Nothing is billed here. */}
+                    {current.status === "succeeded" && current.asset && (
+                      <section
+                        aria-label="Frame export"
+                        className="mt-4 rounded-xl border border-border-default p-4"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-sm font-medium text-fg">Split into frames</h3>
+                          <span className="text-[11px] text-fg-muted">
+                            For a scroll-scrubbed hero
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-3 gap-2">
+                          <label className="text-xs text-fg-secondary">
+                            Format
+                            <select
+                              aria-label="Frame format"
+                              className={control}
+                              value={frameFormat}
+                              disabled={extract.isPending}
+                              onChange={(e) => setFrameFormat(e.target.value as FrameFormat)}
+                            >
+                              {frameFormats.map((f) => (
+                                <option key={f} value={f}>
+                                  {f.toUpperCase()}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-xs text-fg-secondary">
+                            Frames{" "}
+                            <span className="text-fg-muted">
+                              ({minFrameCount}–{maxFrameCount})
+                            </span>
+                            <input
+                              aria-label="Frame count"
+                              type="number"
+                              className={control}
+                              min={minFrameCount}
+                              max={maxFrameCount}
+                              value={Number.isFinite(frameCount) ? frameCount : ""}
+                              disabled={extract.isPending}
+                              onChange={(e) => setFrameCount(Number(e.target.value))}
+                              onBlur={() =>
+                                setFrameCount(
+                                  clamp(
+                                    frameCount,
+                                    minFrameCount,
+                                    maxFrameCount,
+                                    defaultFrameCount,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="text-xs text-fg-secondary">
+                            Width{" "}
+                            <span className="text-fg-muted">
+                              ({minFrameWidth}–{maxFrameWidth})
+                            </span>
+                            <input
+                              aria-label="Frame width"
+                              type="number"
+                              className={control}
+                              min={minFrameWidth}
+                              max={maxFrameWidth}
+                              step={80}
+                              value={Number.isFinite(frameWidth) ? frameWidth : ""}
+                              disabled={extract.isPending}
+                              onChange={(e) => setFrameWidth(Number(e.target.value))}
+                              onBlur={() =>
+                                setFrameWidth(
+                                  clamp(
+                                    frameWidth,
+                                    minFrameWidth,
+                                    maxFrameWidth,
+                                    defaultFrameWidth,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <Button
+                            disabled={extract.isPending || Boolean(frameProblem)}
+                            onClick={() =>
+                              extract.mutate({
+                                format: frameFormat,
+                                // Clamped, not trusted: a half-typed number in
+                                // the field must never become a failed request.
+                                count: clamp(
+                                  frameCount,
+                                  minFrameCount,
+                                  maxFrameCount,
+                                  defaultFrameCount,
+                                ),
+                                width: clamp(
+                                  frameWidth,
+                                  minFrameWidth,
+                                  maxFrameWidth,
+                                  defaultFrameWidth,
+                                ),
+                              })
+                            }
+                          >
+                            {extract.isPending ? (
+                              <>
+                                <Spinner /> Extracting…
+                              </>
+                            ) : (
+                              <>
+                                <Scissors size={13} /> {frames.data ? "Re-extract" : "Extract"}
+                              </>
+                            )}
+                          </Button>
+                          {frames.data && (
+                            <>
+                              <a
+                                href={frames.data.zipUrl}
+                                download
+                                className="inline-flex items-center gap-2 rounded-lg bg-fg px-3 py-2 text-xs font-medium text-canvas"
+                              >
+                                <ArrowDownToLine size={14} /> Download frames
+                              </a>
+                              <Button
+                                disabled={dropFrames.isPending}
+                                onClick={() => dropFrames.mutate()}
+                                aria-label="Delete frames"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                        {frameProblem && (
+                          <p role="alert" className="mt-2 text-xs text-danger">
+                            {frameProblem}
+                          </p>
+                        )}
+                        {frames.data && (
+                          <>
+                            <p className="mt-3 text-xs text-fg-secondary">
+                              {frames.data.count} frames · {frames.data.width}×{frames.data.height}{" "}
+                              · {frames.data.format.toUpperCase()} ·{" "}
+                              {(frames.data.sizeBytes / 1024 / 1024).toFixed(1)} MB ·{" "}
+                              {frames.data.fps} fps
+                            </p>
+                            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                              {frames.data.frameUrls
+                                .filter(
+                                  (_, i) =>
+                                    i %
+                                      Math.max(
+                                        1,
+                                        Math.floor((frames.data as VideoFrameSet).count / 8),
+                                      ) ===
+                                    0,
+                                )
+                                .slice(0, 8)
+                                .map((url, i) => (
+                                  <img
+                                    key={url}
+                                    src={url}
+                                    alt={`Frame sample ${i + 1}`}
+                                    loading="lazy"
+                                    className="h-14 w-auto shrink-0 rounded border border-border-default"
+                                  />
+                                ))}
+                            </div>
+                            <p className="mt-2 text-[11px] text-fg-muted">
+                              Numbered <code>frame_0001.{frameExtensions[frames.data.format]}</code>{" "}
+                              with a poster and <code>manifest.json</code> — the shape a
+                              scroll-scrub canvas reads.
+                            </p>
+                          </>
+                        )}
+                      </section>
+                    )}
                   </div>
                 )}
               </section>
@@ -745,7 +991,17 @@ export function VideoStudioPage() {
                     className={`overflow-hidden rounded-xl border bg-surface text-left transition-colors ${current?.id === entry.id ? "border-fg" : "border-border-default hover:border-border-strong"}`}
                   >
                     <div className="relative grid aspect-video place-items-center bg-canvas text-fg-muted">
-                      {entry.reference ? (
+                      {/* A frame from the finished clip is the truest thumbnail;
+                          fall back to the starting image, then to the icon for
+                          work that has not produced anything yet. */}
+                      {entry.asset ? (
+                        <img
+                          src={entry.asset.posterUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : entry.reference ? (
                         <img
                           src={entry.reference.url}
                           alt=""
@@ -756,7 +1012,7 @@ export function VideoStudioPage() {
                         <Film size={25} strokeWidth={1.2} />
                       )}
                       <span className="absolute left-2 top-2 rounded bg-surface/90 px-1.5 py-1 text-[9px]">
-                        {entry.reference ? "Starting image" : "Video"}
+                        {entry.asset ? "Video" : entry.reference ? "Starting image" : "Video"}
                       </span>
                       <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">
                         {entry.asset

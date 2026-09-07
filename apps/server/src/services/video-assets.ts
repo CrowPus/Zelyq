@@ -19,7 +19,8 @@ export interface VideoMetadata {
 }
 
 export class VideoAssetStore {
-  constructor(private readonly root: string) {}
+  /** Public so the frame store can place sets beside the clips they came from. */
+  constructor(readonly root: string) {}
   directory(ownerId: string) {
     if (!/^usr_[a-f0-9]{32}$/.test(ownerId)) throw ZelyqError.badRequest("Invalid video owner.");
     return path.join(this.root, ownerId);
