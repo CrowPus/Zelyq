@@ -194,7 +194,10 @@ built so that nothing about it is magic and nothing is locked in:
   is persisted, polling resumes on boot, and a submission whose outcome cannot be established says
   so rather than quietly generating (and billing) a second time. Finished clips are saved to your own
   storage — they keep playing after the provider's temporary URL expires — and stream back with HTTP
-  range support so seeking works. See [Video Studio](./docs/Video-gen/README.md).
+  range support so seeking works. A finished clip can also be **split into a numbered image
+  sequence** — WebP, JPEG, PNG or AVIF, with a poster and a manifest — which is exactly what a
+  scroll-scrubbed hero paints onto a canvas. See [Video Studio](./docs/Video-gen/README.md) and
+  [frame export](./docs/Video-gen/frame-export.md).
 - **`/figma <link>` — build from a Figma frame.** Connect Figma in Settings (OAuth; the token
   stays on the server). Paste a frame's link and the agent pulls its node tree, a render, the
   assets, and the design tokens, then rebuilds it in your project — auto-layout becomes

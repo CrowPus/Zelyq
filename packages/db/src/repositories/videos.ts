@@ -4,11 +4,13 @@ import { and, asc, count, desc, eq, isNull, lt, lte, or, sql, sum } from "drizzl
 import type { ZelyqDb } from "../client.js";
 import {
   videoAccounts as accounts,
+  videoFrameSets as frameSets,
   videoGenerations as jobs,
   videoReferences as refs,
 } from "../schema/sqlite.js";
 
 export type VideoJobRow = typeof jobs.$inferSelect;
+export type VideoFrameSetRow = typeof frameSets.$inferSelect;
 export type VideoReferenceRow = typeof refs.$inferSelect;
 type Patch = Partial<typeof jobs.$inferInsert>;
 export function videoRepository(db: ZelyqDb) {
@@ -303,6 +305,66 @@ export function videoRepository(db: ZelyqDb) {
           )[0] ?? null
         );
       });
+    },
+    /** The frame set for a video, or null. Owner-scoped without a join,
+     *  because the row carries its owner. */
+    async frameSet(generationId: string, ownerId: string) {
+      return (
+        (
+          await db
+            .select()
+            .from(frameSets)
+            .where(and(eq(frameSets.generationId, generationId), eq(frameSets.ownerId, ownerId)))
+            .limit(1)
+        )[0] ?? null
+      );
+    },
+    /** Replaces any existing set for this video — one set per video, so a
+     *  re-extraction cannot quietly accumulate storage. */
+    async saveFrameSet(
+      generationId: string,
+      ownerId: string,
+      set: {
+        format: string;
+        count: number;
+        width: number;
+        height: number;
+        fps: number;
+        sizeBytes: number;
+      },
+    ) {
+      const row = {
+        generationId,
+        ownerId,
+        ...set,
+        fps: String(set.fps),
+        createdAt: new Date().toISOString(),
+      };
+      await db.delete(frameSets).where(eq(frameSets.generationId, generationId));
+      await db.insert(frameSets).values(row);
+      return row;
+    },
+    async removeFrameSet(generationId: string, ownerId: string) {
+      return (
+        (
+          await db
+            .delete(frameSets)
+            .where(and(eq(frameSets.generationId, generationId), eq(frameSets.ownerId, ownerId)))
+            .returning()
+        ).length > 0
+      );
+    },
+    /** Frame bytes count against the same storage budget as clips, so a set
+     *  cannot be used to sidestep the library cap. */
+    async frameBytes(ownerId: string) {
+      return Number(
+        (
+          await db
+            .select({ total: sum(frameSets.sizeBytes) })
+            .from(frameSets)
+            .where(eq(frameSets.ownerId, ownerId))
+        )[0]?.total ?? 0,
+      );
     },
     async expiredReferences() {
       return db.select().from(refs).where(lt(refs.expiresAt, new Date().toISOString())).limit(20);

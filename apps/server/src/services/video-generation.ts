@@ -1,9 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  type FrameExportInput,
+  type FrameFormat,
+  frameExtensions,
   maxVideoBytes,
   maxVideoReferenceBytes,
   newId,
   type VideoCapabilities,
+  type VideoFrameSet,
   type VideoGeneration,
   type VideoGenerationInput,
   type VideoProviderId,
@@ -20,6 +24,7 @@ import type { Store, VideoJobRow, VideoReferenceRow } from "@zelyq/db";
 import sharp from "sharp";
 import type { SettingsService } from "./settings.js";
 import type { VideoAssetStore, VideoMetadata } from "./video-assets.js";
+import { VideoFrameStore } from "./video-frames.js";
 import { type VideoProvider, VideoProviderError, videoProviders } from "./video-providers/index.js";
 
 const digest = (text: string | Buffer) => createHash("sha256").update(text).digest("hex");
@@ -49,7 +54,85 @@ export class VideoGenerationService {
     private readonly providers: Record<VideoProviderId, VideoProvider> = videoProviders,
     private readonly pollMs = 10000,
     private readonly reportError: () => void = () => undefined,
+    readonly frames: VideoFrameStore = new VideoFrameStore(assets.root),
   ) {}
+
+  /** One extraction at a time per user: ffmpeg is CPU-bound, and a second
+   *  concurrent run buys nothing but contention. */
+  private readonly extracting = new Set<string>();
+
+  /**
+   * Split a finished clip into a numbered image sequence, replacing any
+   * previous set. No provider and nothing billed — the limits here are disk
+   * and CPU, not money.
+   */
+  async extractFrames(ownerId: string, id: string, input: FrameExportInput) {
+    const row = await this.owned(ownerId, id);
+    if (row.status !== "succeeded")
+      throw new ZelyqError("conflict", "Only a finished video can be split into frames.");
+    if (this.extracting.has(ownerId))
+      throw new ZelyqError(
+        "conflict",
+        "Another frame export is already running. Wait for it to finish.",
+      );
+    this.extracting.add(ownerId);
+    try {
+      const metadata = await this.assets.existing(ownerId, id);
+      if (!metadata) throw ZelyqError.notFound("Video", id);
+      const extracted = await this.frames.extract(
+        ownerId,
+        id,
+        this.assets.file(ownerId, id),
+        metadata,
+        input,
+      );
+      await this.store.videos.saveFrameSet(id, ownerId, extracted);
+      return (await this.frameSet(ownerId, id))!;
+    } finally {
+      this.extracting.delete(ownerId);
+    }
+  }
+
+  async frameSet(ownerId: string, id: string): Promise<VideoFrameSet | null> {
+    await this.owned(ownerId, id);
+    const row = await this.store.videos.frameSet(id, ownerId);
+    if (!row) return null;
+    const format = row.format as FrameFormat;
+    const ext = frameExtensions[format];
+    const base = `/api/videos/generations/${id}/frames`;
+    return {
+      generationId: id,
+      format,
+      count: row.count,
+      width: row.width,
+      height: row.height,
+      fps: Number(row.fps),
+      sizeBytes: row.sizeBytes,
+      createdAt: row.createdAt,
+      manifestUrl: `${base}/manifest.json`,
+      posterUrl: `${base}/poster.${ext}`,
+      zipUrl: `${base}.zip`,
+      frameUrls: Array.from(
+        { length: row.count },
+        (_, i) => `${base}/frame_${String(i + 1).padStart(4, "0")}.${ext}`,
+      ),
+    };
+  }
+
+  /** The library thumbnail, made on demand and then kept. */
+  async poster(ownerId: string, id: string) {
+    await this.owned(ownerId, id);
+    const metadata = await this.assets.existing(ownerId, id);
+    if (!metadata) throw ZelyqError.notFound("Video", id);
+    return this.frames.ensurePoster(ownerId, id, this.assets.file(ownerId, id), metadata);
+  }
+
+  async removeFrames(ownerId: string, id: string) {
+    await this.owned(ownerId, id);
+    if (!(await this.store.videos.removeFrameSet(id, ownerId)))
+      throw ZelyqError.notFound("Frames", id);
+    await this.frames.remove(ownerId, id);
+  }
   private async hourlyLimit() {
     const n = await this.settings.numberValue("videoHourlyLimit");
     return Number.isInteger(n) && n > 0 ? Math.min(n, 1000) : 5;
@@ -97,7 +180,14 @@ export class VideoGenerationService {
       reference: ref ? referenceView(ref) : null,
       asset:
         row.status === "succeeded" && meta
-          ? { ...meta, url: `/api/videos/assets/${row.id}`, mimeType: "video/mp4" }
+          ? {
+              ...meta,
+              url: `/api/videos/assets/${row.id}`,
+              // Generated on first request, so a text-to-video clip has a real
+              // thumbnail instead of a grey film icon.
+              posterUrl: `/api/videos/assets/${row.id}/poster`,
+              mimeType: "video/mp4",
+            }
           : null,
     };
   }
@@ -240,6 +330,8 @@ export class VideoGenerationService {
         "Wait for the video to finish, or acknowledge the unconfirmed outcome before dismissing it.",
       );
     await this.assets.remove(ownerId, id);
+    // The frame set belongs to the clip; the row cascades, the files do not.
+    await this.frames.remove(ownerId, id);
     if (row.referenceId) {
       try {
         await this.removeReference(ownerId, row.referenceId);

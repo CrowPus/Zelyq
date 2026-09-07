@@ -15,6 +15,7 @@ Read these documents in order:
 2. [Providers](providers.md): current API findings, candidate providers, and capability rules.
 3. [Technical design](technical-design.md): reuse, API, jobs, settings, storage, and recovery.
 4. [Delivery and acceptance](delivery-plan.md): implementation sequence and verification criteria.
+5. [Frame export](frame-export.md): splitting a clip into the image sequence a scroll-scrubbed hero needs.
 
 ## What carries over from Image Studio
 

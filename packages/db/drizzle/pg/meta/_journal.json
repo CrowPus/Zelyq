@@ -127,6 +127,13 @@
       "when": 1788759531193,
       "tag": "0017_video_studio",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788800000000,
+      "tag": "0018_video_frames",
+      "breakpoints": true
     }
   ]
 }

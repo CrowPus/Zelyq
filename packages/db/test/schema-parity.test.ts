@@ -12,6 +12,7 @@ import * as sqlite from "../src/schema/sqlite.js";
  */
 const TABLES = [
   "videoAccounts",
+  "videoFrameSets",
   "videoReferences",
   "videoGenerations",
   "imageGenerations",

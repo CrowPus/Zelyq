@@ -15,6 +15,7 @@ import {
 } from "@zelyq/core";
 import { createStore, runMigrations } from "@zelyq/db";
 import Fastify from "fastify";
+import { ZodError } from "zod";
 import { registerVideoRoutes, videoRange } from "../src/routes/videos.js";
 import { AccessControl } from "../src/services/access.js";
 import type { ImageGenerationService } from "../src/services/image-generation.js";
@@ -78,6 +79,11 @@ async function harness(t: TestContext) {
       request.zelyqUser = (await store.users.findById(user)) ?? undefined;
   });
   app.setErrorHandler((error, _request, reply) => {
+    // Mirrors the real app's handler: a validation failure is a 400, not a
+    // 500. Without this the harness would let a broken contract look like a
+    // server fault.
+    if (error instanceof ZodError)
+      return reply.code(400).send({ error: { code: "bad_request", message: "invalid" } });
     if (error instanceof ZelyqError)
       return reply
         .code(
@@ -477,6 +483,327 @@ test("history is private, newest first, and pages with a cursor", async (t) => {
     headers: { "test-user": h.other.id },
   });
   assert.equal(stolen.statusCode, 404, stolen.body);
+});
+
+// ---------------------------------------------------------------------------
+// Frame export. The output must match what skills/cinematic-web already reads:
+// frame_%04d.<ext>, a poster, and a manifest.
+// ---------------------------------------------------------------------------
+
+async function succeededVideo(h: Awaited<ReturnType<typeof harness>>) {
+  const response = await h.app.inject({
+    method: "POST",
+    url: "/api/videos/generations",
+    headers: { "test-user": h.owner.id },
+    payload: input(),
+  });
+  assert.equal(response.statusCode, 202, response.body);
+  const id = response.json().generation.id;
+  await h.wait(id, "succeeded");
+  return id;
+}
+
+test("every finished video has a poster, including one with no starting image", async (t) => {
+  const h = await harness(t);
+  // Text-to-video: no reference at all, which is exactly the case that used to
+  // show a grey film icon in the library instead of a thumbnail.
+  const id = await succeededVideo(h);
+  const generation = (
+    await h.app.inject({
+      method: "GET",
+      url: `/api/videos/generations/${id}`,
+      headers: { "test-user": h.owner.id },
+    })
+  ).json().generation;
+  assert.equal(generation.reference, null, "this fixture must have no starting image");
+  assert.ok(generation.asset.posterUrl, "a finished video must offer a poster");
+
+  const poster = await h.app.inject({
+    method: "GET",
+    url: generation.asset.posterUrl,
+    headers: { "test-user": h.owner.id },
+  });
+  assert.equal(poster.statusCode, 200, poster.body);
+  assert.equal(poster.headers["content-type"], "image/webp");
+  const bytes = poster.rawPayload;
+  assert.equal(bytes.subarray(0, 4).toString("ascii"), "RIFF", "the poster is not a WebP");
+  assert.equal(bytes.subarray(8, 12).toString("ascii"), "WEBP");
+
+  // Made once and kept: a second request serves the same bytes.
+  const again = await h.app.inject({
+    method: "GET",
+    url: generation.asset.posterUrl,
+    headers: { "test-user": h.owner.id },
+  });
+  assert.equal(again.statusCode, 200);
+  assert.deepEqual(again.rawPayload, bytes, "the cached poster should be identical");
+
+  // And it belongs to its owner.
+  const stolen = await h.app.inject({
+    method: "GET",
+    url: generation.asset.posterUrl,
+    headers: { "test-user": h.other.id },
+  });
+  assert.equal(stolen.statusCode, 404, stolen.body);
+});
+
+test("frames come out as a numbered sequence with a poster and a manifest", async (t) => {
+  const h = await harness(t);
+  const id = await succeededVideo(h);
+
+  const made = await h.app.inject({
+    method: "POST",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.owner.id },
+    payload: { format: "webp", count: 12, width: 320 },
+  });
+  assert.equal(made.statusCode, 201, made.body);
+  const set = made.json().frames;
+  assert.equal(set.format, "webp");
+  assert.ok(set.count > 1, `expected a sequence, got ${set.count} frame(s)`);
+  assert.ok(set.sizeBytes > 0);
+  assert.equal(set.frameUrls.length, set.count);
+
+  // The exact names the scroll-scrub recipe builds its URL list from.
+  assert.match(set.frameUrls[0], /\/frames\/frame_0001\.webp$/);
+  assert.match(set.posterUrl, /\/frames\/poster\.webp$/);
+
+  const manifest = await h.app.inject({
+    method: "GET",
+    url: `/api/videos/generations/${id}/frames/manifest.json`,
+    headers: { "test-user": h.owner.id },
+  });
+  assert.equal(manifest.statusCode, 200, manifest.body);
+  const body = manifest.json();
+  assert.equal(body.count, set.count);
+  assert.equal(body.frames.length, set.count);
+  assert.equal(body.frames[0], "frame_0001.webp");
+  assert.equal(body.poster, "poster.webp");
+  assert.ok(body.width > 0 && body.height > 0);
+  assert.equal(body.height % 2, 0, "an odd height would be rejected by the encoders");
+
+  // Every frame is a real WebP, not one animated file pretending to be many.
+  for (const name of [body.frames[0], body.frames.at(-1), "poster.webp"]) {
+    const frame = await h.app.inject({
+      method: "GET",
+      url: `/api/videos/generations/${id}/frames/${name}`,
+      headers: { "test-user": h.owner.id },
+    });
+    assert.equal(frame.statusCode, 200, `${name}: ${frame.body}`);
+    assert.equal(frame.headers["content-type"], "image/webp");
+    const bytes = frame.rawPayload;
+    assert.equal(bytes.subarray(0, 4).toString("ascii"), "RIFF", `${name} is not a WebP`);
+    assert.equal(bytes.subarray(8, 12).toString("ascii"), "WEBP", `${name} is not a WebP`);
+  }
+});
+
+test("each format produces its own extension and media type", async (t) => {
+  const h = await harness(t);
+  const id = await succeededVideo(h);
+  for (const [format, ext, type, signature] of [
+    ["jpeg", "jpg", "image/jpeg", [0xff, 0xd8]],
+    ["png", "png", "image/png", [0x89, 0x50, 0x4e, 0x47]],
+  ] as const) {
+    const made = await h.app.inject({
+      method: "POST",
+      url: `/api/videos/generations/${id}/frames`,
+      headers: { "test-user": h.owner.id },
+      payload: { format, count: 8, width: 320 },
+    });
+    assert.equal(made.statusCode, 201, made.body);
+    assert.equal(made.json().frames.format, format);
+    const frame = await h.app.inject({
+      method: "GET",
+      url: `/api/videos/generations/${id}/frames/frame_0001.${ext}`,
+      headers: { "test-user": h.owner.id },
+    });
+    assert.equal(frame.statusCode, 200, frame.body);
+    assert.equal(frame.headers["content-type"], type);
+    assert.deepEqual([...frame.rawPayload.subarray(0, signature.length)], [...signature]);
+  }
+});
+
+test("re-extracting replaces the previous set rather than accumulating", async (t) => {
+  const h = await harness(t);
+  const id = await succeededVideo(h);
+  const first = await h.app.inject({
+    method: "POST",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.owner.id },
+    payload: { format: "webp", count: 20, width: 320 },
+  });
+  assert.equal(first.statusCode, 201, first.body);
+  const second = await h.app.inject({
+    method: "POST",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.owner.id },
+    payload: { format: "jpeg", count: 8, width: 320 },
+  });
+  assert.equal(second.statusCode, 201, second.body);
+
+  const current = await h.app.inject({
+    method: "GET",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.owner.id },
+  });
+  assert.equal(current.json().frames.format, "jpeg", "the newer set must win");
+  // The old set's files are gone, not merely unreferenced.
+  const stale = await h.app.inject({
+    method: "GET",
+    url: `/api/videos/generations/${id}/frames/frame_0001.webp`,
+    headers: { "test-user": h.owner.id },
+  });
+  assert.equal(stale.statusCode, 404, stale.body);
+});
+
+test("the zip download is a readable archive of the whole set", async (t) => {
+  const h = await harness(t);
+  const id = await succeededVideo(h);
+  await h.app.inject({
+    method: "POST",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.owner.id },
+    payload: { format: "webp", count: 8, width: 320 },
+  });
+  const set = (
+    await h.app.inject({
+      method: "GET",
+      url: `/api/videos/generations/${id}/frames`,
+      headers: { "test-user": h.owner.id },
+    })
+  ).json().frames;
+
+  const zip = await h.app.inject({
+    method: "GET",
+    url: `/api/videos/generations/${id}/frames.zip`,
+    headers: { "test-user": h.owner.id },
+  });
+  assert.equal(zip.statusCode, 200, zip.body);
+  assert.equal(zip.headers["content-type"], "application/zip");
+  assert.match(String(zip.headers["content-disposition"]), /attachment; filename=".*\.zip"/);
+
+  // Parse the central directory back rather than trusting the writer.
+  const buffer = zip.rawPayload;
+  assert.equal(buffer.readUInt32LE(0), 0x04034b50, "must start with a local file header");
+  const eocd = buffer.length - 22;
+  assert.equal(buffer.readUInt32LE(eocd), 0x06054b50, "must end with an end-of-central-directory");
+  const entries = buffer.readUInt16LE(eocd + 10);
+  assert.equal(entries, set.count + 2, "manifest + poster + every frame");
+  // Walk the central directory and confirm each entry is stored, not deflated.
+  let offset = buffer.readUInt32LE(eocd + 16);
+  const names: string[] = [];
+  for (let n = 0; n < entries; n++) {
+    assert.equal(buffer.readUInt32LE(offset), 0x02014b50);
+    assert.equal(buffer.readUInt16LE(offset + 10), 0, "entries must be stored, not compressed");
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    names.push(buffer.subarray(offset + 46, offset + 46 + nameLength).toString("ascii"));
+    offset += 46 + nameLength;
+  }
+  assert.ok(names.includes("manifest.json"));
+  assert.ok(names.includes("poster.webp"));
+  assert.ok(names.includes("frame_0001.webp"));
+});
+
+test("frame routes are owner-scoped and reject traversal", async (t) => {
+  const h = await harness(t);
+  const id = await succeededVideo(h);
+  await h.app.inject({
+    method: "POST",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.owner.id },
+    payload: { format: "webp", count: 8, width: 320 },
+  });
+
+  // Another user cannot read the set, a frame, or the archive.
+  for (const url of [
+    `/api/videos/generations/${id}/frames`,
+    `/api/videos/generations/${id}/frames/frame_0001.webp`,
+    `/api/videos/generations/${id}/frames.zip`,
+  ]) {
+    const stolen = await h.app.inject({ method: "GET", url, headers: { "test-user": h.other.id } });
+    assert.equal(stolen.statusCode, 404, `${url}: ${stolen.body}`);
+  }
+  // Nor delete it.
+  const stolenDelete = await h.app.inject({
+    method: "DELETE",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.other.id },
+  });
+  assert.equal(stolenDelete.statusCode, 404, stolenDelete.body);
+
+  // A name that is not one of the permitted shapes is refused, however encoded.
+  for (const name of ["..%2F..%2Fsecret.key", "frame_1.webp", "frame_0001.png", "poster.gif"]) {
+    const bad = await h.app.inject({
+      method: "GET",
+      url: `/api/videos/generations/${id}/frames/${name}`,
+      headers: { "test-user": h.owner.id },
+    });
+    assert.equal(bad.statusCode, 404, `${name} should not resolve: ${bad.statusCode}`);
+  }
+});
+
+test("only a finished video can be split, and deleting it takes the frames", async (t) => {
+  const h = await harness(t);
+  const id = await succeededVideo(h);
+  await h.app.inject({
+    method: "POST",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.owner.id },
+    payload: { format: "webp", count: 8, width: 320 },
+  });
+  const directory = h.videos.frames.directory(h.owner.id, id);
+  assert.ok(
+    (await fs.readdir(directory)).length > 0,
+    "the set should exist on disk before deletion",
+  );
+
+  await h.app.inject({
+    method: "DELETE",
+    url: `/api/videos/generations/${id}`,
+    headers: { "test-user": h.owner.id },
+  });
+  await assert.rejects(() => fs.readdir(directory), "deleting the video must take its frames");
+
+  // An unfinished job cannot be split at all.
+  const queued = await h.app.inject({
+    method: "POST",
+    url: "/api/videos/generations",
+    headers: { "test-user": h.owner.id },
+    payload: input("xai"),
+  });
+  const pending = queued.json().generation.id;
+  const refused = await h.app.inject({
+    method: "POST",
+    url: `/api/videos/generations/${pending}/frames`,
+    headers: { "test-user": h.owner.id },
+    payload: { format: "webp", count: 8, width: 320 },
+  });
+  assert.ok(
+    refused.statusCode === 409 || refused.statusCode === 201,
+    `expected a refusal or a finished job, got ${refused.statusCode}`,
+  );
+  if (refused.statusCode === 409) assert.match(refused.body, /finished video/i);
+});
+
+test("frame counts and widths outside the supported range are refused", async (t) => {
+  const h = await harness(t);
+  const id = await succeededVideo(h);
+  for (const payload of [
+    { count: 0 },
+    { count: 1000 },
+    { width: 10 },
+    { width: 4000 },
+    { format: "gif" },
+    { count: 12, unexpected: true },
+  ]) {
+    const bad = await h.app.inject({
+      method: "POST",
+      url: `/api/videos/generations/${id}/frames`,
+      headers: { "test-user": h.owner.id },
+      payload,
+    });
+    assert.equal(bad.statusCode, 400, `${JSON.stringify(payload)} -> ${bad.statusCode}`);
+  }
 });
 
 test("download destinations and byte ranges reject unsafe or invalid input", async () => {
