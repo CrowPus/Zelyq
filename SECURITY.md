@@ -206,6 +206,15 @@ instruction from being expensive. Generated images and the reference images uplo
 private authenticated files under `ZELYQ_IMAGE_ASSETS_DIR`, served only to their owner — do not put
 that directory behind a static file handler.
 
+Video generation is the same credential in a more expensive form, and adds two concerns of its own.
+A clip's outcome can be genuinely unconfirmed — the provider may have accepted and charged for a job
+whose result Zelyq never saw — so those requests still count against the hourly limit rather than
+being quietly forgiven, and they are never automatically resubmitted. And because the provider hands
+back a temporary URL to fetch, that retrieval is restricted to the provider's own hosts, over HTTPS,
+with redirects and resolved addresses checked; it is not a general URL fetcher. Clips and their
+starting images live under `ZELYQ_VIDEO_ASSETS_DIR` and are streamed to their owner with range
+requests — never served as static files.
+
 ## Repository scanning
 
 Two layers, both required before a pull request can merge, neither a substitute for the other:

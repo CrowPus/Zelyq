@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import { isZelyqError, toError, type User, ZelyqError } from "@zelyq/core";
@@ -26,6 +27,7 @@ import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerSupabaseBridgeRoutes } from "./routes/supabase-bridge.js";
 import { registerSupabaseConnectionRoutes } from "./routes/supabase-connections.js";
 import { registerTeamRoutes } from "./routes/teams.js";
+import { registerVideoRoutes } from "./routes/videos.js";
 import { registerVoiceRoutes } from "./routes/voice.js";
 import { AccessControl } from "./services/access.js";
 import { AccountService } from "./services/accounts.js";
@@ -45,6 +47,8 @@ import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
+import { VideoAssetStore } from "./services/video-assets.js";
+import { VideoGenerationService } from "./services/video-generation.js";
 import { ChatGateway } from "./ws/gateway.js";
 
 declare module "fastify" {
@@ -128,7 +132,20 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     app.log.error("Image job processing failed; jobs will be reconciled on the next pass."),
   );
   const imageBridge = new ImageBridge(store, images);
-  const accounts = new AccountService(store, projects, (id) => imageAssets.removeUser(id));
+  const videoAssets = new VideoAssetStore(
+    config.videoAssetsDir ?? path.join(path.dirname(config.attachmentsDir), "videos"),
+  );
+  const videos = new VideoGenerationService(
+    store,
+    settings,
+    videoAssets,
+    undefined,
+    undefined,
+    () => app.log.error("Video job processing failed; persisted jobs will be checked again."),
+  );
+  const accounts = new AccountService(store, projects, async (id) => {
+    await Promise.all([imageAssets.removeUser(id), videoAssets.removeUser(id)]);
+  });
   const attachments = new AttachmentService(config.attachmentsDir);
   const skillUploads = new SkillUploadService(config.uploadedSkillsDir);
   const speech = new SpeechService();
@@ -138,6 +155,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     credentials: true,
   });
   await app.register(cookie);
+  await app.register(rateLimit, { global: false });
   await app.register(websocket);
 
   /**
@@ -245,12 +263,15 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerAttachmentRoutes(app, { attachments, access });
   registerVoiceRoutes(app, { speech, settings, access });
   registerImageRoutes(app, { images, access });
+  await registerVideoRoutes(app, { videos, images, access });
   registerImageBridgeRoutes(app, { bridge: imageBridge, images, assets: imageAssets, store });
   app.addHook("onReady", async () => {
     images.start();
+    videos.start();
   });
   app.addHook("onClose", async () => {
     await images.close();
+    await videos.close();
   });
 
   const gateway = new ChatGateway(

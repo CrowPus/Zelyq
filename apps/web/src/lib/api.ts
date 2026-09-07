@@ -24,6 +24,11 @@ import type {
   UpdateSettingsInput,
   UploadSkillInput,
   User,
+  VideoCapabilities,
+  VideoGeneration,
+  VideoGenerationInput,
+  VideoHistory,
+  VideoReference,
 } from "@zelyq/core";
 
 /** Supabase integration — response shapes. */
@@ -78,7 +83,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // for anything other than a same-origin default.
     credentials: "same-origin",
     headers: {
-      ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...(init?.body && !(init.body instanceof FormData)
+        ? { "content-type": "application/json" }
+        : {}),
       ...init?.headers,
     },
   });
@@ -105,6 +112,42 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   imageCapabilities: () => request<ImageCapabilities>("/images/capabilities"),
+  videoCapabilities: () => request<VideoCapabilities>("/videos/capabilities"),
+  videoHistory: (cursor?: string) =>
+    request<VideoHistory>(
+      `/videos/generations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  videoGeneration: (id: string) =>
+    request<{ generation: VideoGeneration }>(`/videos/generations/${id}`),
+  generateVideo: (input: VideoGenerationInput) =>
+    request<{ generation: VideoGeneration }>("/videos/generations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  uploadVideoReference: (file: File) => {
+    const body = new FormData();
+    body.append("image", file);
+    return request<{ reference: VideoReference }>("/videos/references", { method: "POST", body });
+  },
+  videoReferenceFromImage: (imageId: string) =>
+    request<{ reference: VideoReference }>("/videos/references/from-image", {
+      method: "POST",
+      body: JSON.stringify({ imageId }),
+    }),
+  deleteVideoReference: (id: string) =>
+    request<void>(`/videos/references/${id}`, { method: "DELETE" }),
+  deleteVideo: (id: string, acknowledge = false) =>
+    request<void>(`/videos/generations/${id}${acknowledge ? "?acknowledge=1" : ""}`, {
+      method: "DELETE",
+    }),
+  cancelVideo: (id: string) =>
+    request<{ generation: VideoGeneration }>(`/videos/generations/${id}/cancel`, {
+      method: "POST",
+    }),
+  reconcileVideo: (id: string) =>
+    request<{ generation: VideoGeneration }>(`/videos/generations/${id}/reconcile`, {
+      method: "POST",
+    }),
   imageHistory: (cursor?: string) =>
     request<ImageHistory>(
       `/images/generations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,

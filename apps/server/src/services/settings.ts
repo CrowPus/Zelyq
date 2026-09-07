@@ -1,5 +1,5 @@
 import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core";
-import { imageProviderCatalog, ZelyqError } from "@zelyq/core";
+import { imageProviderCatalog, videoProviderCatalog, ZelyqError } from "@zelyq/core";
 import { resolveSetting, type Store } from "@zelyq/db";
 import {
   DEFAULT_CLAUDE_CREDENTIALS_PATH,
@@ -49,6 +49,11 @@ interface Definition {
 
 const GROUPS: Array<{ name: string; description: string }> = [
   {
+    name: "Video Studio",
+    description:
+      "Choose video providers and add their API keys. Video generation is billed separately from images and your coding model.",
+  },
+  {
     name: "Image Studio",
     description:
       "Choose image providers and add their API keys. Image generation is independent of your coding model.",
@@ -80,6 +85,70 @@ const GROUPS: Array<{ name: string; description: string }> = [
 ];
 
 const DEFINITIONS: Definition[] = [
+  {
+    key: "videoProvider",
+    label: "Default video provider",
+    description: "The provider selected when you open Video Studio.",
+    kind: "select",
+    group: "Video Studio",
+    envVar: "ZELYQ_VIDEO_GENERATION_PROVIDER",
+    fallback: "google",
+    envOverridable: true,
+    options: Object.entries(videoProviderCatalog).map(([value, provider]) => ({
+      value,
+      label: provider.label,
+    })),
+  },
+  ...(["google", "xai"] as const).flatMap((id): Definition[] => {
+    const provider = videoProviderCatalog[id];
+    const name = id === "google" ? "Google" : "Xai";
+    return [
+      {
+        key: `video${name}ApiKey`,
+        label: `${provider.label} video API key`,
+        description:
+          "Dedicated video API credential. Stored encrypted; generated clips are billed to this account.",
+        kind: "secret",
+        group: "Video Studio",
+        envVar: `ZELYQ_VIDEO_${id.toUpperCase()}_API_KEY`,
+        fallback: "",
+        secret: true,
+      },
+      {
+        key: `video${name}Model`,
+        label: `${provider.label} video model`,
+        description: "The supported model for new video generations.",
+        kind: "select",
+        group: "Video Studio",
+        envVar: `ZELYQ_VIDEO_${id.toUpperCase()}_MODEL`,
+        fallback: provider.models[0].value,
+        envOverridable: true,
+        options: [...provider.models],
+      },
+    ];
+  }),
+  {
+    key: "videoHourlyLimit",
+    label: "Video requests per hour",
+    description:
+      "Maximum submitted clips per user per rolling hour, including unconfirmed requests.",
+    kind: "text",
+    group: "Video Studio",
+    envVar: "ZELYQ_VIDEO_HOURLY_LIMIT",
+    fallback: "5",
+    envOverridable: true,
+  },
+  {
+    key: "videoConcurrency",
+    label: "Concurrent video jobs",
+    description:
+      "Outstanding provider jobs across this instance (1–10). Video slots are separate from image slots.",
+    kind: "text",
+    group: "Video Studio",
+    envVar: "ZELYQ_VIDEO_CONCURRENCY",
+    fallback: "2",
+    envOverridable: true,
+  },
   {
     key: "imageProvider",
     label: "Default image provider",
@@ -876,6 +945,13 @@ export class SettingsService {
   }
 
   private validate(definition: Definition, value: string): void {
+    if (["videoHourlyLimit", "videoConcurrency"].includes(definition.key)) {
+      const max = definition.key === "videoConcurrency" ? 10 : 1000;
+      if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > max)
+        throw ZelyqError.badRequest(
+          `${definition.label} must be a whole number between 1 and ${max}.`,
+        );
+    }
     if (definition.options && !definition.options.some((option) => option.value === value)) {
       throw ZelyqError.badRequest(
         `${definition.label} must be one of: ${definition.options.map((o) => o.value).join(", ")}`,

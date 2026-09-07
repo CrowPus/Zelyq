@@ -186,6 +186,15 @@ built so that nothing about it is magic and nothing is locked in:
   use real stock photography for anything your copy claims is real — a generated landmark is not a
   photograph of it. See [Image Studio](./docs/Image-gen/implementation.md) and
   [agent integration](./docs/Image-gen/agent-integration.md).
+- **Video Studio.** A signed-in page for generating short clips from a prompt, or animating a still
+  image — Google (Veo) or xAI (Grok Imagine), your key, billed to you. Text-to-video and
+  image-to-video, with the ratio, duration, resolution and audio options each model actually
+  supports; a starting frame can be uploaded or picked from your Image Studio library. Jobs are long
+  and asynchronous, so they survive a refresh and a server restart: the provider's operation handle
+  is persisted, polling resumes on boot, and a submission whose outcome cannot be established says
+  so rather than quietly generating (and billing) a second time. Finished clips are saved to your own
+  storage — they keep playing after the provider's temporary URL expires — and stream back with HTTP
+  range support so seeking works. See [Video Studio](./docs/Video-gen/README.md).
 - **`/figma <link>` — build from a Figma frame.** Connect Figma in Settings (OAuth; the token
   stays on the server). Paste a frame's link and the agent pulls its node tree, a render, the
   assets, and the design tokens, then rebuilds it in your project — auto-layout becomes

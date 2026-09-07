@@ -423,7 +423,68 @@ export const imageGenerations = pgTable(
   }),
 );
 
+export const videoAccounts = pgTable("video_accounts", {
+  ownerId: text("owner_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  lock: text("lock").notNull(),
+});
+export const videoReferences = pgTable("video_references", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  digest: text("digest").notNull(),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at"),
+});
+export const videoGenerations = pgTable(
+  "video_generations",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    input: text("input").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    credentialDigest: text("credential_digest").notNull(),
+    referenceId: text("reference_id"),
+    status: text("status").notNull().default("queued"),
+    activeOwner: text("active_owner"),
+    workerSlot: integer("worker_slot"),
+    leaseToken: text("lease_token"),
+    leaseUntil: text("lease_until"),
+    nextPollAt: text("next_poll_at").notNull(),
+    operation: text("operation"),
+    createdAt: text("created_at").notNull(),
+    completedAt: text("completed_at"),
+    deletedAt: text("deleted_at"),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
+    storageBytes: integer("storage_bytes").notNull(),
+    metadata: text("metadata"),
+  },
+  (table) => ({
+    requestIdx: uniqueIndex("video_generations_request_idx").on(
+      table.ownerId,
+      table.idempotencyKey,
+    ),
+    activeIdx: uniqueIndex("video_generations_active_idx").on(table.activeOwner),
+    slotIdx: uniqueIndex("video_generations_slot_idx").on(table.workerSlot),
+    historyIdx: index("video_generations_history_idx").on(table.ownerId, table.createdAt),
+  }),
+);
+
 export const schema = {
+  videoAccounts,
+  videoReferences,
+  videoGenerations,
   imageGenerations,
   users,
   teams,

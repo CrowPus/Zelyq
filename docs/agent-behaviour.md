@@ -138,6 +138,10 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   but a real place, person, company or landmark must come from stock —
   a generated Kyoto is not a photograph of Kyoto. See
   [agent integration](./Image-gen/agent-integration.md).
+- **Video** — the agent has **no** video tools. Video Studio is a standalone
+  user feature; the image permission does not authorise video spending, and a
+  separate permission and budget would have to be designed first. See the
+  [video agent boundary](./Video-gen/technical-design.md#future-agent-boundary).
 - **Auto Mode** — `session.autoNextPass(emit)` decides between passes
   (kill switch → stuck detection → three ceilings: `AUTO_MAX_PASSES` /
   `AUTO_MAX_TOKENS` / `AUTO_MAX_WALLCLOCK_MS`). The agent's prompt route
