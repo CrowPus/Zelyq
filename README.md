@@ -8,21 +8,15 @@
 
 ### [Try it live → zelyq.com](https://zelyq.com)
 
-<video src="https://github.com/user-attachments/assets/3debd0aa-6858-4017-a40f-feb6f293b9ef" autoplay loop muted playsinline controls width="900"></video>
+<video src="https://github.com/user-attachments/assets/499f90a6-0749-472c-a711-a2f3b5247f9e" autoplay loop muted playsinline controls width="900"></video>
 
-<sub>▶ Watch it happen — one prompt in, and the agent built a working commerce admin: analytics, a discount engine, a live theme customizer, multi-currency and tax settings, and an encrypted checkout simulation, with its own typecheck and preview passing before it called the turn done.</sub>
-
-<br />
-
-<video src="https://github.com/user-attachments/assets/1cba3b43-4be1-4940-83dd-0465017ba502" controls muted loop playsinline width="900"></video>
-
-<sub>▶ And the agent connecting a Supabase backend and building a working AI agent, with the provider key in the backend.</sub>
+<sub>▶ <b>Video Studio</b> — create videos from a prompt or animate a starting image, then preview and download your results.</sub>
 
 <br />
 
-<video src="https://github.com/user-attachments/assets/11e110aa-be4b-4e34-be07-a7c820ce8a81" controls muted loop playsinline width="900"></video>
+<video src="https://github.com/user-attachments/assets/e34e9ca2-c99d-463a-b459-8475f343bd69" controls muted loop playsinline width="900"></video>
 
-<sub>▶ And the <b>Cinematic engineer</b> turning a supplied clip into a scroll-scrubbed hero.</sub>
+<sub>▶ <b>Image Studio</b> — generate original images with prompts, reference images, and creative controls.</sub>
 
 <br />
 
