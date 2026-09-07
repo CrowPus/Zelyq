@@ -39,6 +39,16 @@ export const SLASH_COMMANDS: SlashMenuCommand[] = [
     insert: "/motion ",
   },
   {
+    name: "video",
+    blurb: "Put ambient video motion in a section — a muted loop behind the copy.",
+    insert: "/video ",
+  },
+  {
+    name: "cinematic",
+    blurb: "Make a section play as you scroll — footage scrubbed frame by frame.",
+    insert: "/cinematic ",
+  },
+  {
     name: "figma",
     blurb: "Build a website from a Figma frame — paste the frame's share link.",
     insert: "/figma ",

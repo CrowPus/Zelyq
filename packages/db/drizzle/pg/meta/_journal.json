@@ -134,6 +134,13 @@
       "when": 1788800000000,
       "tag": "0018_video_frames",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788810000000,
+      "tag": "0019_agent_videos",
+      "breakpoints": true
     }
   ]
 }

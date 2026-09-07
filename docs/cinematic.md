@@ -20,7 +20,15 @@ of the automatic Architect build — you trigger it, on one screen at a time.
 ## It will ask you for footage
 
 A scroll hero *is* the footage, so the pass will not fake it with a
-placeholder. The first time you ask, it:
+placeholder — but it no longer has to stop for one.
+
+**If this project has video generation switched on** (the clapperboard in the
+chat toolbar, off by default because a clip costs real money), the pass
+generates the footage its storyboard calls for, extracts the frame sequence,
+and carries on. Its review says the footage is generated — never that it is
+real. See [video agent integration](./Video-gen/agent-integration.md).
+
+**Otherwise** it asks you, exactly as before. The first time you ask, it:
 
 1. looks at the screen and works out what footage the effect needs;
 2. creates a folder in your project — **`cinematic/<name>/`** — with a file

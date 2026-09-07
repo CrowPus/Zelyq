@@ -16,10 +16,12 @@ import {
 import { createStore, runMigrations } from "@zelyq/db";
 import Fastify from "fastify";
 import { ZodError } from "zod";
+import { registerVideoBridgeRoutes } from "../src/routes/video-bridge.js";
 import { registerVideoRoutes, videoRange } from "../src/routes/videos.js";
 import { AccessControl } from "../src/services/access.js";
 import type { ImageGenerationService } from "../src/services/image-generation.js";
 import { VideoAssetStore } from "../src/services/video-assets.js";
+import { VideoBridge } from "../src/services/video-bridge.js";
 import { VideoGenerationService } from "../src/services/video-generation.js";
 import { downloadVideo, videoProviders } from "../src/services/video-providers/index.js";
 import { imageFixture, largeImageFixture } from "./helpers/image-fixture.js";
@@ -109,6 +111,27 @@ async function harness(t: TestContext) {
     },
   } as unknown as ImageGenerationService;
   await registerVideoRoutes(app, { videos, images, access: new AccessControl(store) });
+  // The agent's side of the same service: a project with the permission on,
+  // and the bridge that mints its grant.
+  const team = await store.teams.create({
+    id: newId("team"),
+    name: "t",
+    slug: `t-${newId("team")}`,
+  });
+  await store.teams.addMember(team.id, owner.id, "owner");
+  const project = await store.projects.create({
+    id: newId("project"),
+    teamId: team.id,
+    name: "Agent project",
+    slug: `p-${newId("project")}`,
+    description: null,
+    template: "vite-react",
+    status: "ready",
+    statusMessage: null,
+    videoGenerationEnabled: true,
+  });
+  const videoBridge = new VideoBridge(store, videos);
+  registerVideoBridgeRoutes(app, { bridge: videoBridge, videos, store });
   await app.ready();
   videos.start();
   t.after(async () => {
@@ -139,6 +162,8 @@ async function harness(t: TestContext) {
     videos,
     app,
     wait,
+    project,
+    videoBridge,
   };
 }
 
@@ -367,6 +392,98 @@ test("account deletion during generation discards its pending work and reference
   await h.videos.tick();
   assert.equal(await h.store.videos.find(job.id), null);
   await assert.rejects(fs.stat(h.assets.directory(h.owner.id)), /ENOENT/);
+});
+
+test("the agent's request is made valid for whichever model this instance runs", async (t) => {
+  // Shipped bug: the agent tool asked for `audio: false` because a background
+  // loop is muted in the page. Veo always generates audio, so every
+  // generate_video came back in ~10ms with "This model always generates
+  // audio" — five times in a row. A tool must not encode one vendor's rules;
+  // the server reconciles intent with the configured model.
+  const h = await harness(t);
+  const { videoBridge } = h;
+  const token = (await videoBridge.mint("ses_norm", h.project.id, h.owner.id)) as string;
+  assert.ok(token, "the project should have the video permission in this harness");
+
+  const response = await h.app.inject({
+    method: "POST",
+    url: "/api/internal/videos/generations",
+    headers: { "x-zelyq-video-bridge": token },
+    payload: {
+      prompt: "soft light drifting over a dark surface",
+      mode: "text-to-video",
+      // Everything here is what the tool actually sends, and every one of them
+      // is wrong for Veo: it cannot be silent, has no 1:1, no 5s, no 480p.
+      audio: false,
+      aspectRatio: "1:1",
+      durationSeconds: 5,
+      resolution: "480p",
+      idempotencyKey: randomUUID(),
+    },
+  });
+  assert.equal(response.statusCode, 202, response.body);
+  const stored = JSON.parse((await h.store.videos.find(response.json().generation.id))!.input);
+  assert.equal(stored.audio, true, "a model that always has audio must get audio: true");
+  assert.ok(
+    videoModelCapability("google").ratios.includes(stored.aspectRatio),
+    `aspect ratio ${stored.aspectRatio} is not supported by the model`,
+  );
+  assert.ok(videoModelCapability("google").durations.includes(stored.durationSeconds));
+  assert.ok(videoModelCapability("google").resolutions.includes(stored.resolution));
+});
+
+test("the agent can animate an image from the project as a starting frame", async (t) => {
+  const h = await harness(t);
+  const token = (await h.videoBridge.mint("ses_ref", h.project.id, h.owner.id)) as string;
+
+  const uploaded = await h.app.inject({
+    method: "POST",
+    url: "/api/internal/videos/references",
+    headers: { "x-zelyq-video-bridge": token },
+    payload: { data: imageFixture().toString("base64") },
+  });
+  assert.equal(uploaded.statusCode, 201, uploaded.body);
+  const referenceId = uploaded.json().reference.id;
+  assert.match(referenceId, /^vrf_[a-f0-9]{32}$/);
+
+  const submit = await h.app.inject({
+    method: "POST",
+    url: "/api/internal/videos/generations",
+    headers: { "x-zelyq-video-bridge": token },
+    payload: {
+      prompt: "animate this still gently",
+      mode: "image-to-video",
+      referenceId,
+      audio: false,
+      aspectRatio: "16:9",
+      durationSeconds: 8,
+      resolution: "720p",
+      idempotencyKey: randomUUID(),
+    },
+  });
+  assert.equal(submit.statusCode, 202, submit.body);
+  const row = await h.wait(submit.json().generation.id, "succeeded");
+  assert.equal(row.referenceId, referenceId, "the clip is bound to the still it animated");
+  const stored = JSON.parse(row.input);
+  assert.equal(stored.mode, "image-to-video");
+
+  // Bytes that are not a usable image are refused rather than sent onward.
+  const bad = await h.app.inject({
+    method: "POST",
+    url: "/api/internal/videos/references",
+    headers: { "x-zelyq-video-bridge": token },
+    payload: { data: Buffer.from("not an image at all").toString("base64") },
+  });
+  assert.equal(bad.statusCode, 400, bad.body);
+
+  // And the route needs a real grant like every other.
+  const forged = await h.app.inject({
+    method: "POST",
+    url: "/api/internal/videos/references",
+    headers: { "x-zelyq-video-bridge": "forged" },
+    payload: { data: imageFixture().toString("base64") },
+  });
+  assert.equal(forged.statusCode, 401, forged.body);
 });
 
 test("cancelling is atomic: it wins before submission and is refused afterwards", async (t) => {

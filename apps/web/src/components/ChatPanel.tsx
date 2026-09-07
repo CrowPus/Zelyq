@@ -5,6 +5,7 @@ import {
   ArrowUp,
   ChevronRight,
   CircleAlert,
+  Clapperboard,
   Compass,
   Copy,
   Crosshair,
@@ -58,6 +59,15 @@ import {
   type SlashMenuCommand,
 } from "../lib/slash-menu";
 import { SPECIALISTS, type Specialist } from "../lib/specialists";
+import {
+  buildCinematicDirective,
+  buildVideoDirective,
+  CINEMATIC_SKILL,
+  parseCinematicCommand,
+  parseCinematicMessage,
+  parseVideoCommand,
+  parseVideoMessage,
+} from "../lib/video-command";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { AgentPresence } from "./AgentPresence";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
@@ -128,6 +138,13 @@ interface Props {
     available: boolean;
     onToggle(next: boolean): Promise<void>;
   };
+  /** The same, for video. A separate permission on purpose: a clip costs far
+   *  more than a picture, so allowing one must not allow the other. */
+  videoGeneration: {
+    enabled: boolean;
+    available: boolean;
+    onToggle(next: boolean): Promise<void>;
+  };
 }
 
 export function ChatPanel({
@@ -142,6 +159,7 @@ export function ChatPanel({
   onReverted,
   onOpenDiff,
   imageGeneration,
+  videoGeneration,
 }: Props) {
   const [draft, setDraft] = useState("");
   /** Picked from the composer's own model control. Null means the instance
@@ -453,7 +471,13 @@ export function ChatPanel({
     // `/motion` never errors — the command is complete on its own, with or
     // without a reference site.
     const motion = clone ? null : parseMotionCommand(draft);
-    const forced = clone ? CLONE_SKILL : motion ? MOTION_SKILL : null;
+    // `/cinematic` routes to the scroll specialist and forces its skill;
+    // `/video` is ordinary front-end work with one generated asset, so it
+    // forces nothing. Both exist so the user says which technique they mean
+    // rather than the agent guessing it from adjectives.
+    const cinematic = clone || motion ? null : parseCinematicCommand(draft);
+    const video = clone || motion || cinematic ? null : parseVideoCommand(draft);
+    const forced = clone ? CLONE_SKILL : motion ? MOTION_SKILL : cinematic ? CINEMATIC_SKILL : null;
     const skillNames = forced
       ? [...new Set([...selectedSkills.map((skill) => skill.name), forced])]
       : selectedSkills.map((skill) => skill.name);
@@ -464,9 +488,13 @@ export function ChatPanel({
       ? buildCloneDirective(clone.url, clone.rest)
       : motion
         ? buildMotionDirective(motion.url, motion.rest)
-        : pointedElement
-          ? withPointedElement(message, pointedElement)
-          : message;
+        : cinematic
+          ? buildCinematicDirective(cinematic.brief, cinematic.rest)
+          : video
+            ? buildVideoDirective(video.brief, video.rest)
+            : pointedElement
+              ? withPointedElement(message, pointedElement)
+              : message;
     chat.send(finalMessage, {
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(attachments.length ? { attachments } : {}),
@@ -1200,7 +1228,7 @@ export function ChatPanel({
                 Adding a toggle is what tipped it over. Wrapping to a second
                 line keeps every control reachable at any panel width, which
                 hiding or scrolling them would not. */}
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
               <IconButton
                 size="sm"
                 label="Attach a file"
@@ -1258,6 +1286,23 @@ export function ChatPanel({
                   className="shrink-0"
                 >
                   <ImageIcon size={13} strokeWidth={2} />
+                </IconButton>
+              )}
+              {videoGeneration.available && (
+                <IconButton
+                  size="sm"
+                  variant={videoGeneration.enabled ? "primary" : "ghost"}
+                  disabled={!canEdit}
+                  label={
+                    videoGeneration.enabled
+                      ? "The agent may generate video for this project — click to turn off"
+                      : "Let the agent generate video for this project (a clip costs far more than an image)"
+                  }
+                  aria-pressed={videoGeneration.enabled}
+                  onClick={() => void videoGeneration.onToggle(!videoGeneration.enabled)}
+                  className="shrink-0"
+                >
+                  <Clapperboard size={13} strokeWidth={2} />
                 </IconButton>
               )}
               {/* Per-conversation, not persisted — see the engineerMode
@@ -1477,6 +1522,28 @@ function UserMessageBody({ content }: { content: string }) {
         {clone.rest && (
           <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
             {clone.rest}
+          </p>
+        )}
+      </div>
+    );
+  }
+  // `/video` and `/cinematic` carry a long workflow directive the agent needs
+  // and a person does not want to read back. Show the command and the words
+  // they actually typed; the machinery stays out of the transcript.
+  for (const [command, parsed] of [
+    ["video", parseVideoMessage(content)],
+    ["cinematic", parseCinematicMessage(content)],
+  ] as const) {
+    if (!parsed) continue;
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="flex w-fit items-center gap-1.5 rounded-md border border-border-default bg-surface px-2 py-1 text-2xs text-fg-secondary">
+          <Clapperboard size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+          <span className="font-mono">{command}</span>
+        </span>
+        {parsed.brief && (
+          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
+            {parsed.brief}
           </p>
         )}
       </div>

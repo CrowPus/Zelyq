@@ -27,6 +27,9 @@ import type { VideoAssetStore, VideoMetadata } from "./video-assets.js";
 import { VideoFrameStore } from "./video-frames.js";
 import { type VideoProvider, VideoProviderError, videoProviders } from "./video-providers/index.js";
 
+/** A clip is far more expensive than an image, and a hero needs one, not six.
+ *  This is the runaway guard; the hourly cap is the spending one. */
+const DEFAULT_VIDEO_SESSION_LIMIT = 2;
 const digest = (text: string | Buffer) => createHash("sha256").update(text).digest("hex");
 const iso = (offset = 0) => new Date(Date.now() + offset).toISOString();
 const keySetting = (id: VideoProviderId) =>
@@ -125,6 +128,30 @@ export class VideoGenerationService {
     const metadata = await this.assets.existing(ownerId, id);
     if (!metadata) throw ZelyqError.notFound("Video", id);
     return this.frames.ensurePoster(ownerId, id, this.assets.file(ownerId, id), metadata);
+  }
+
+  /**
+   * Every file of a frame set, base64, in the order a project needs them
+   * written: the manifest, the poster, then the frames. The agent writes these
+   * into `public/cinematic/<slug>/` verbatim — the names are already the ones
+   * the scroll-scrub recipe reads.
+   */
+  async frameFiles(ownerId: string, id: string, set: VideoFrameSet) {
+    const ext = frameExtensions[set.format];
+    const names = [
+      "manifest.json",
+      `poster.${ext}`,
+      ...Array.from(
+        { length: set.count },
+        (_, i) => `frame_${String(i + 1).padStart(4, "0")}.${ext}`,
+      ),
+    ];
+    return Promise.all(
+      names.map(async (name) => ({
+        name,
+        data: (await this.frames.read(ownerId, id, name, set.format)).toString("base64"),
+      })),
+    );
   }
 
   async removeFrames(ownerId: string, id: string) {
@@ -257,7 +284,43 @@ export class VideoGenerationService {
     if (!ref) throw ZelyqError.notFound("Starting image", id);
     await this.assets.remove(ownerId, id);
   }
-  async submit(ownerId: string, input: VideoGenerationInput) {
+  private async sessionLimit() {
+    const n = await this.settings.numberValue("videoSessionLimit");
+    return Number.isInteger(n) && n > 0 ? Math.min(n, 50) : DEFAULT_VIDEO_SESSION_LIMIT;
+  }
+
+  /**
+   * The agent's way in. Same service, same limits, same library as Video
+   * Studio; what differs is the provenance recorded on the row and a
+   * per-conversation cap. Clips are expensive, so this cap is much tighter
+   * than the image one — a hero needs one clip, not six.
+   */
+  async submitForAgent(
+    ownerId: string,
+    input: VideoGenerationInput,
+    origin: { projectId: string; projectName: string; sessionId: string },
+  ) {
+    const limit = await this.sessionLimit();
+    const used = await this.store.videos.countSession(origin.sessionId);
+    if (used >= limit)
+      throw new ZelyqError(
+        "rate_limited",
+        `This conversation has already generated ${limit} video${limit === 1 ? "" : "s"}, its limit. Reuse one with place_video, or start a new conversation.`,
+      );
+    const generation = await this.submit(ownerId, input, { ...origin, source: "agent" });
+    return { generation, used: used + 1, limit };
+  }
+
+  async submit(
+    ownerId: string,
+    input: VideoGenerationInput,
+    origin: {
+      source?: "studio" | "agent";
+      projectId?: string;
+      projectName?: string;
+      sessionId?: string;
+    } = {},
+  ) {
     input = videoGenerationInputSchema.parse(input);
     // The request schema supplies a stable key order; include every accepted
     // field in the digest, independent of current provider defaults.
@@ -292,6 +355,10 @@ export class VideoGenerationService {
         model: input.model,
         credentialDigest: digest(key),
         referenceId: input.referenceId ?? null,
+        source: origin.source ?? "studio",
+        projectId: origin.projectId ?? "",
+        projectName: origin.projectName ?? "",
+        sessionId: origin.sessionId ?? "",
         activeOwner: ownerId,
         storageBytes: maxVideoBytes,
         createdAt: iso(),

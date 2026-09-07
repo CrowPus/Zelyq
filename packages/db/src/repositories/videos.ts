@@ -306,6 +306,13 @@ export function videoRepository(db: ZelyqDb) {
         );
       });
     },
+    /** How many clips one conversation has asked for, deleted ones included:
+     *  the cap exists to stop a runaway, and deleting does not refund a spend. */
+    async countSession(sessionId: string) {
+      return (
+        (await db.select({ n: count() }).from(jobs).where(eq(jobs.sessionId, sessionId)))[0]?.n ?? 0
+      );
+    },
     /** The frame set for a video, or null. Owner-scoped without a join,
      *  because the row carries its owner. */
     async frameSet(generationId: string, ownerId: string) {

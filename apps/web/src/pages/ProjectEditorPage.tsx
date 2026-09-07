@@ -64,6 +64,10 @@ export function ProjectEditorPage() {
     queryKey: ["image-capabilities"],
     queryFn: () => api.imageCapabilities(),
   });
+  const videoCapabilities = useQuery({
+    queryKey: ["video-capabilities"],
+    queryFn: () => api.videoCapabilities(),
+  });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: 60_000 });
   const files = useQuery({ queryKey: ["files", id], queryFn: () => api.listFiles(id) });
   // Saving a file takes editor. The server enforces it; this decides whether to
@@ -269,6 +273,14 @@ export function ProjectEditorPage() {
               plugins={health.data?.agent.plugins ?? []}
               projectId={id}
               canEdit={canEdit}
+              videoGeneration={{
+                enabled: current.videoGenerationEnabled,
+                available: videoCapabilities.data?.providers.some((p) => p.configured) ?? false,
+                async onToggle(next) {
+                  await api.updateProject(id, { videoGenerationEnabled: next });
+                  await queryClient.invalidateQueries({ queryKey: ["project", id] });
+                },
+              }}
               imageGeneration={{
                 enabled: current.imageGenerationEnabled,
                 // No provider key on the instance means the permission can be

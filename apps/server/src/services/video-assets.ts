@@ -33,6 +33,11 @@ export class VideoAssetStore {
     await fs.mkdir(this.directory(ownerId), { recursive: true, mode: 0o700 });
     await fs.writeFile(this.file(ownerId, id), bytes, { mode: 0o600, flag: "wx" });
   }
+  /** The whole clip in memory. Only for handing bytes to the agent bridge,
+   *  which must write them into a project; playback streams instead. */
+  readVideo(ownerId: string, id: string) {
+    return fs.readFile(this.file(ownerId, id));
+  }
   readReference(ownerId: string, id: string) {
     return fs.readFile(this.file(ownerId, id));
   }

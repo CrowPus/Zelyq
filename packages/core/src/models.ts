@@ -25,6 +25,9 @@ export const projectSchema = z.object({
   /** Whether this project's agent may generate images. Off until someone
    *  turns it on — generating spends money against the instance's image key. */
   imageGenerationEnabled: z.boolean().default(false),
+  /** Permission for this project's agent to generate video. Separate from the
+   *  image permission: a clip costs far more than a picture. */
+  videoGenerationEnabled: z.boolean().default(false),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -91,6 +94,7 @@ export const updateProjectSchema = z.object({
    *  team may set it: they can already spend model tokens and run code through
    *  the agent, so images are the same kind of decision. */
   imageGenerationEnabled: z.boolean().optional(),
+  videoGenerationEnabled: z.boolean().optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 

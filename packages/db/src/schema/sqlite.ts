@@ -127,6 +127,12 @@ export const projects = sqliteTable(
     imageGenerationEnabled: integer("image_generation_enabled", { mode: "boolean" })
       .notNull()
       .default(false),
+    /** Whether this project's agent may generate video. Separate from the
+     * image permission on purpose: an image costs cents, a clip costs
+     * dollars, so one does not imply the other. */
+    videoGenerationEnabled: integer("video_generation_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
     status: text("status").notNull().default("creating"),
     statusMessage: text("status_message"),
     createdAt: text("created_at").notNull(),
@@ -489,6 +495,13 @@ export const videoGenerations = sqliteTable(
     leaseUntil: text("lease_until"),
     nextPollAt: text("next_poll_at").notNull(),
     operation: text("operation"),
+    /** Who asked: a person in Video Studio, or the build agent in a project.
+     *  `projectName` is a snapshot and there is no foreign key — a user's
+     *  library outlives any project, exactly as it does for images. */
+    source: text("source").notNull().default("studio"),
+    projectId: text("project_id").notNull().default(""),
+    projectName: text("project_name").notNull().default(""),
+    sessionId: text("session_id").notNull().default(""),
     createdAt: text("created_at").notNull(),
     completedAt: text("completed_at"),
     deletedAt: text("deleted_at"),

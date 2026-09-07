@@ -105,6 +105,11 @@ export class VideoFrameStore {
     return createReadStream(this.file(ownerId, generationId, name, format));
   }
 
+  /** An already-resolved path from this store (a poster). */
+  readFile(file: string) {
+    return fs.readFile(file);
+  }
+
   async read(ownerId: string, generationId: string, name: string, format: FrameFormat) {
     return fs.readFile(this.file(ownerId, generationId, name, format));
   }

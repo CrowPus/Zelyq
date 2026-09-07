@@ -99,7 +99,7 @@ export function ModelPicker({ value, onChange }: Props) {
               ? "Could not load the model list. The agent may be restarting — click to retry."
               : "Loading models…"
           }
-          className="flex w-24 min-w-14 max-w-24 items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors disabled:cursor-default enabled:hover:bg-surface-hover enabled:hover:text-fg"
+          className="flex w-20 min-w-14 max-w-20 items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors disabled:cursor-default enabled:hover:bg-surface-hover enabled:hover:text-fg"
         >
           <span className="min-w-0 flex-1 truncate text-left">
             {value?.label ?? (failed ? "Unavailable" : "Default")}
@@ -124,7 +124,7 @@ export function ModelPicker({ value, onChange }: Props) {
         aria-expanded={open}
         aria-label="Choose a model for this conversation"
         title={value?.label ?? "Default"}
-        className="flex w-24 min-w-14 max-w-24 items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
+        className="flex w-20 min-w-14 max-w-20 items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
       >
         <span className="min-w-0 flex-1 truncate text-left">{value?.label ?? "Default"}</span>
         <ChevronDown size={11} strokeWidth={2} className="shrink-0" />

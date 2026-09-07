@@ -28,12 +28,19 @@ import {
   supabaseVerifyBackendTool,
 } from "./supabase.js";
 import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
+import {
+  generateVideoTool,
+  listGeneratedVideosTool,
+  placeVideoFramesTool,
+  placeVideoTool,
+} from "./videos.js";
 import { walkPreviewTool } from "./walk-preview.js";
 
 export { IMAGE_TOOL_NAMES } from "./images.js";
 export { PLAN_FILE } from "./plan.js";
 export { type Screencast, type ScreencastSink, startScreencast } from "./screencast.js";
 export * from "./types.js";
+export { VIDEO_TOOL_NAMES } from "./videos.js";
 export {
   addMotionTool,
   browsePageTool,
@@ -88,6 +95,10 @@ export const ALL_TOOLS: ZelyqTool[] = [
   listGeneratedImagesTool,
   generateImageTool,
   placeGeneratedImageTool,
+  listGeneratedVideosTool,
+  generateVideoTool,
+  placeVideoTool,
+  placeVideoFramesTool,
 ];
 
 /**

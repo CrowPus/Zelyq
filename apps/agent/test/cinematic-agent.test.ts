@@ -42,6 +42,34 @@ function queuedProvider(
   };
 }
 
+/** Same as `queuedProvider`, but records the tool names each session is
+ *  offered — the child's pool is what decides whether it can make footage. */
+function recordingProvider(
+  scripts: Array<Array<{ events: ProviderEvent[]; result: TurnResult }>>,
+  offered: string[][],
+): ModelProvider {
+  let session = 0;
+  return {
+    id: "anthropic",
+    model: "scripted",
+    createConversation(options) {
+      const index = session++;
+      offered[index] = options.tools.map((tool) => tool.name);
+      const script = scripts[Math.min(index, scripts.length - 1)]!;
+      let i = 0;
+      return {
+        addUserMessage: () => undefined,
+        addToolResults: () => undefined,
+        async *stream() {
+          const step = script[Math.min(i++, script.length - 1)]!;
+          for (const e of step.events) yield e;
+          return step.result;
+        },
+      };
+    },
+  };
+}
+
 const text = (t: string) => ({ type: "text" as const, text: t });
 const say = (t: string): { events: ProviderEvent[]; result: TurnResult } => ({
   events: [text(t)],
@@ -65,7 +93,15 @@ const call = (name: string, input: Record<string, unknown>, id = `c_${name}_${Ma
 
 async function setup(
   scripts: Array<Array<{ events: ProviderEvent[]; result: TurnResult }>>,
-  { seedSource = false }: { seedSource?: boolean } = {},
+  {
+    seedSource = false,
+    provider: providerOverride,
+    videoBridge,
+  }: {
+    seedSource?: boolean;
+    provider?: ModelProvider;
+    videoBridge?: { url: string; token: string };
+  } = {},
 ) {
   const workspaceDir = path.join(os.tmpdir(), `zelyq-cinematic-${Date.now()}-${Math.random()}`);
   const projectId = "prj_cinematic";
@@ -100,7 +136,7 @@ async function setup(
       previewHost: "127.0.0.1",
     },
   };
-  const provider = queuedProvider(scripts);
+  const provider = providerOverride ?? queuedProvider(scripts);
   const server = buildAgentServer(config, { providerFactory: () => provider });
   await server.app.listen({ host: "127.0.0.1", port: 0 });
   const addr = server.app.server.address();
@@ -109,7 +145,12 @@ async function setup(
   const created = await fetch(`${base}/sessions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionId: "s_c", projectId, engineerMode: true }),
+    body: JSON.stringify({
+      sessionId: "s_c",
+      projectId,
+      engineerMode: true,
+      ...(videoBridge ? { videoBridge } : {}),
+    }),
   });
   assert.equal(created.status, 201, await created.text());
   return { base, workspaceDir, projectId, close: () => server.app.close() };
@@ -493,6 +534,56 @@ test("a cinematic pass that writes code but never a storyboard is rejected as un
       end.call.result,
       /NEVER wrote the scroll storyboard|none exists in the project|must write the .* first/i,
     );
+  } finally {
+    await close();
+  }
+});
+
+test("the Cinematic child is given the video tools, so it can make its own footage", async () => {
+  // The bug this guards: the video tools shipped and `cinematic_pass` still
+  // returned ASSETS NEEDED, because a specialist's pool comes from its
+  // toolNames allowlist — not from the project permission. The permission was
+  // on, the bridge was inherited, and the tools were filtered out anyway.
+  const parent = [call("cinematic_pass", { scope: "the landing hero" }), say("relayed")];
+  const child = [say("CINEMATIC REVIEW\nnothing to do")];
+  const offered: string[][] = [];
+  const { base, close } = await setup([parent, child], {
+    provider: recordingProvider([parent, child], offered),
+    videoBridge: { url: "http://server.local", token: "vid_test" },
+  });
+  try {
+    await turn(base);
+    const childTools = offered[1];
+    assert.ok(childTools, "the child session should have been created");
+    for (const name of [
+      "generate_video",
+      "place_video_frames",
+      "list_generated_videos",
+      "place_video",
+    ])
+      assert.ok(
+        childTools?.includes(name),
+        `the Cinematic child must be offered ${name}; it had: ${childTools?.join(", ")}`,
+      );
+  } finally {
+    await close();
+  }
+});
+
+test("without the permission the Cinematic child gets no video tools at all", async () => {
+  // The other half: an instance that has not switched video on must be
+  // completely unchanged, and the pass keeps its ask-for-footage path.
+  const parent = [call("cinematic_pass", { scope: "the landing hero" }), say("relayed")];
+  const child = [say("CINEMATIC REVIEW\nnothing to do")];
+  const offered: string[][] = [];
+  const { base, close } = await setup([parent, child], {
+    provider: recordingProvider([parent, child], offered),
+  });
+  try {
+    await turn(base);
+    const childTools = offered[1] ?? [];
+    for (const name of ["generate_video", "place_video_frames", "place_video"])
+      assert.ok(!childTools.includes(name), `${name} must not be offered without the permission`);
   } finally {
     await close();
   }

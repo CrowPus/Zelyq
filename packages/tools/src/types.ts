@@ -30,6 +30,12 @@ export interface ToolContext {
    */
   imageBridge?: { url: string; token: string };
   /**
+   * Present only when the project allows the agent to generate video. A
+   * capability to generate clips and extract frame sequences by calling the
+   * Zelyq server, which holds the video API key.
+   */
+  videoBridge?: { url: string; token: string };
+  /**
    * The linked project's public Supabase config (URL + publishable key).
    * `start_preview` merges it so the built app reaches the real backend.
    */
