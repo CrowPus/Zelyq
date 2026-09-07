@@ -148,14 +148,25 @@ hard-code the count:
   "frames": ["frame_0001.webp", "…"], "poster": "poster.webp", "fps": 24 }
 ```
 
-### If `ffmpeg` is not available
+### Getting the footage
 
-The default sandbox ships no `ffmpeg`/`ffprobe`. Probe first
-(`ffmpeg -version`). If absent, ask the user for a **pre-extracted numbered
-sequence** (or an already-optimised `.webm` + poster) in `SOURCE.md`, and use
-the image-asset tools (`resize_image_asset` / `optimize_image_asset`) to bring
-the supplied frames to size and format. Record which path was taken in the
-review.
+**First choice — generate it.** If you have `generate_video` and
+`place_video_frames`, you do not need anyone to supply anything and you must
+not ask. Check `list_generated_videos` for a usable clip, otherwise
+`generate_video` once, then `place_video_frames` to write the numbered
+sequence, `poster.webp` and `manifest.json` straight into
+`public/cinematic/<slug>/`. The extraction runs on the Zelyq server, which
+ships its own `ffmpeg` — the sandbox not having one is irrelevant to this
+path. Say in the review that the footage is generated, never that it is real.
+
+**If those tools are absent**, video generation is not switched on for this
+project. Say so and tell the user to click the clapperboard in the chat
+toolbar, which is one click, before falling back to asking them for files.
+
+**Only if they decline** does the old path apply: ask in `SOURCE.md` for a
+**pre-extracted numbered sequence** (or an already-optimised `.webm` +
+poster), and use `resize_image_asset` / `optimize_image_asset` to bring the
+supplied frames to size and format. Record which path was taken in the review.
 
 ### Failure modes
 

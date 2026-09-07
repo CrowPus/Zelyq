@@ -5,7 +5,9 @@ import {
   buildVideoDirective,
   CINEMATIC_SKILL,
   parseCinematicCommand,
+  parseCinematicMessage,
   parseVideoCommand,
+  parseVideoMessage,
 } from "../src/lib/video-command";
 
 /**
@@ -23,14 +25,11 @@ test("each command matches only itself", () => {
 test("a bare command is complete — there is nothing missing to error about", () => {
   const video = parseVideoCommand("/video");
   assert.deepEqual(video, { brief: "", rest: "" });
-  assert.match(buildVideoDirective(video!.brief, video!.rest), /the hero section/);
+  assert.match(buildVideoDirective(video!.brief, video!.rest), /ambient looping video motion/);
 
   const cinematic = parseCinematicCommand("/cinematic");
   assert.deepEqual(cinematic, { brief: "", rest: "" });
-  assert.match(
-    buildCinematicDirective(cinematic!.brief, cinematic!.rest),
-    /the hero of the current screen/,
-  );
+  assert.match(buildCinematicDirective(cinematic!.brief, cinematic!.rest), /cinematic scroll pass/);
 });
 
 test("text on either side of the command is preserved", () => {
@@ -39,7 +38,7 @@ test("text on either side of the command is preserved", () => {
   assert.equal(parsed?.rest, "keep the copy");
   const directive = buildVideoDirective(parsed!.brief, parsed!.rest);
   assert.match(directive, /soft light on the pricing section/);
-  assert.match(directive, /The user also said: keep the copy/);
+  assert.match(directive, /keep the copy/);
 });
 
 test("a slash inside a word or a URL is not a command", () => {
@@ -72,4 +71,62 @@ test("/cinematic routes to the specialist and removes the footage stall", () => 
   // And points back at the cheaper command when scroll coupling is not needed.
   assert.match(directive, /\/video/);
   assert.equal(CINEMATIC_SKILL, "cinematic-web");
+});
+
+test("the opening sentence never swallows what the user typed", () => {
+  // The bug this guards: `Put ambient video motion into ${brief}` produced
+  // "Put ambient video motion into i want you to generate a video and add in
+  // to the hero section…" — a broken sentence that ran the instruction and the
+  // request together. The prefix must be a complete sentence on its own.
+  const brief =
+    "i want you to generate a video and add in to the hero section, not wher the image is";
+  for (const build of [buildVideoDirective, buildCinematicDirective]) {
+    const first = build(brief, "").split("\n")[0];
+    assert.ok(first.endsWith("."), `the opening line must be a whole sentence: ${first}`);
+    assert.ok(
+      !first.includes(brief),
+      `the opening line must not interpolate the user's words: ${first}`,
+    );
+  }
+});
+
+test("the transcript shows the command and only what the user typed", () => {
+  const brief = "soft light drifting over the blue hero background";
+  const sent = buildVideoDirective(brief, "");
+  const shown = parseVideoMessage(sent);
+  assert.equal(shown?.brief, brief, "the bubble shows the user's words verbatim");
+  // And none of the machinery a person did not write.
+  assert.ok(!shown?.brief.includes("LOOPING treatment"));
+  assert.ok(!shown?.brief.includes("place_video"));
+  assert.ok(!shown?.brief.includes("prefers-reduced-motion"));
+
+  const cine = buildCinematicDirective("the hero turning as you scroll", "");
+  assert.equal(parseCinematicMessage(cine)?.brief, "the hero turning as you scroll");
+  // Each parser matches only its own command.
+  assert.equal(parseCinematicMessage(sent), null);
+  assert.equal(parseVideoMessage(cine), null);
+  // A bare command has nothing to show but the chip.
+  assert.equal(parseVideoMessage(buildVideoDirective("", ""))?.brief, "");
+});
+
+test("a missing permission is explained where the user can act on it", () => {
+  // The agent reported "tools are not enabled" without saying where the switch
+  // is, because it never called a tool and so never read a tool description.
+  for (const directive of [buildVideoDirective("x", ""), buildCinematicDirective("x", "")]) {
+    assert.match(directive, /clapperboard in the chat toolbar/);
+  }
+  assert.match(buildVideoDirective("x", ""), /Do not build a placeholder/);
+});
+
+test("/video forbids the scroll specialist, however the request is worded", () => {
+  // Shipped bug: a request that said "so we will get the cinamatic view" made
+  // the agent call cinematic_pass — the scroll-scrub treatment — which then
+  // stopped to stage assets. The adjective describes the look, not the
+  // technique, and the directive now says so.
+  const directive = buildVideoDirective(
+    "add video in the background of the hero so we will get the cinamatic view",
+    "",
+  );
+  assert.match(directive, /Do NOT call `cinematic_pass`/);
+  assert.match(directive, /describe how it should LOOK, not which technique/);
 });

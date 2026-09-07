@@ -106,35 +106,87 @@ export const generateVideoTool = defineTool({
     "and a hero captioned as such is a lie the user ships — use fetch_reference_image for anything " +
     "the copy claims is real. After it succeeds, decide how the clip should be USED: " +
     "place_video for ambient looping motion, or place_video_frames when it should play as the " +
-    "user scrolls.",
+    "user scrolls. If the section already has a still image that sets the look, pass its path as " +
+    "`reference_path` and the clip is animated FROM that image rather than from an unrelated " +
+    "scene — this is almost always what someone means by 'use the image we already have'.",
   schema: z.object({
     prompt: z
       .string()
       .min(1)
       .max(4000)
       .describe("The scene and its motion: subject, camera move, lighting, pace"),
+    reference_path: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "A PNG/JPEG/WebP already in the project to animate FROM — the hero image, a product " +
+          "shot. Strongly preferred when the page already has a still that sets the look.",
+      ),
     aspect_ratio: z.enum(["16:9", "9:16", "1:1"]).optional(),
     duration_seconds: z.number().int().min(1).max(15).optional(),
     resolution: z.enum(["480p", "720p", "1080p"]).optional(),
   }),
   async run(context, input): Promise<ToolResult> {
+    // Animate the still that is already on the page, when one was named. The
+    // file is read through the runtime and normalised server-side; the model
+    // then moves THAT image instead of inventing something similar.
+    let referenceId: string | undefined;
+    if (input.reference_path) {
+      let file: { content: string; encoding?: string };
+      try {
+        file = await context.runtime.readFile(context.projectId, input.reference_path);
+      } catch {
+        return {
+          output: `Could not read ${input.reference_path}. Give a path to an image inside the project.`,
+          isError: true,
+        };
+      }
+      const data =
+        file.encoding === "base64"
+          ? file.content
+          : Buffer.from(file.content, "utf8").toString("base64");
+      const uploaded = await call(context, "POST", "references", { data });
+      if (!uploaded.ok)
+        return {
+          output: serverMessage(
+            uploaded.json,
+            `Could not use ${input.reference_path} as a starting frame.`,
+          ),
+          isError: true,
+        };
+      referenceId = (uploaded.json.reference as { id?: string } | undefined)?.id;
+    }
+
     const submit = await call(context, "POST", "generations", {
       prompt: input.prompt,
-      mode: "text-to-video",
+      mode: referenceId ? "image-to-video" : "text-to-video",
+      ...(referenceId ? { referenceId } : {}),
       aspectRatio: input.aspect_ratio ?? "16:9",
       durationSeconds: input.duration_seconds ?? 8,
       resolution: input.resolution ?? "720p",
+      // An ambient background loop is muted in the page, so sound is not
+      // wanted — but some models cannot generate silence, so this is a
+      // preference the server reconciles with the model, not a demand.
       audio: false,
-      // Provider and model are deliberately absent: the server resolves the
-      // instance's configured default. Choosing a vendor is not the agent's
-      // decision, and a wrong one would be a billing surprise.
+      // Provider, model and any setting the chosen model cannot honour are
+      // resolved server-side. Choosing a vendor is not the agent's decision,
+      // and encoding one vendor's rules here is how a tool ends up asking for
+      // something the configured model refuses.
       idempotencyKey: crypto.randomUUID(),
     });
-    if (!submit.ok)
+    if (!submit.ok) {
+      // A 400 means the request itself is wrong, not that the service is busy.
+      // Repeating it verbatim burns turns and, after submission, would burn
+      // money — five identical retries is exactly what happened once.
+      const retryable = submit.status !== 400;
       return {
-        output: serverMessage(submit.json, "The video could not be requested."),
+        output:
+          serverMessage(submit.json, "The video could not be requested.") +
+          (retryable ? "" : " Do not retry this request unchanged — change the settings or stop."),
         isError: true,
       };
+    }
 
     const generation = (submit.json.generation ?? {}) as { id?: string };
     const id = generation.id;
@@ -178,6 +230,8 @@ export const generateVideoTool = defineTool({
       };
 
     const budget = used && limit ? ` (${used} of ${limit} for this conversation)` : "";
+    // A model that always generates audio still produces a clip a page mutes;
+    // say so rather than letting it look like the request was ignored.
     return {
       output:
         `Generated a clip, id ${id}${budget}. It is saved in the user's Video Studio library. ` +

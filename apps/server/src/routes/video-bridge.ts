@@ -1,7 +1,9 @@
 import {
   frameExportInputSchema,
+  maxVideoReferenceBytes,
   videoGenerationInputSchema,
   videoIdSchema,
+  videoInputError,
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
@@ -55,11 +57,36 @@ export function registerVideoBridgeRoutes(
         "model_error",
         "No video provider is configured. An administrator sets one up in Settings.",
       );
+    // The agent states intent; the server makes it valid for whichever model
+    // this instance runs. Hardcoding a vendor's rules in a tool is how five
+    // generate_video calls in a row came back in 10ms with "this model always
+    // generates audio" — the tool had asked for silence, which Veo cannot do.
+    const nearest = (wanted: number, allowed: readonly number[]) =>
+      [...allowed].sort((a, b) => Math.abs(a - wanted) - Math.abs(b - wanted))[0] ?? allowed[0];
+    const durationSeconds = provider.durations.includes(requested.durationSeconds)
+      ? requested.durationSeconds
+      : (nearest(requested.durationSeconds, provider.durations) as number);
     const input = videoGenerationInputSchema.parse({
       ...requested,
       provider: provider.id,
       model: provider.model,
+      aspectRatio: provider.ratios.includes(requested.aspectRatio)
+        ? requested.aspectRatio
+        : provider.ratios[0],
+      durationSeconds,
+      resolution: provider.resolutions.includes(requested.resolution)
+        ? requested.resolution
+        : provider.resolutions[0],
+      // "always" means the model cannot be silent; "optional" respects the ask.
+      audio: provider.audio === "always" ? true : requested.audio,
+      // Veo's own rule, and the only combination the capability table cannot
+      // express on its own.
+      ...(provider.id === "google" && requested.resolution === "1080p" && durationSeconds !== 8
+        ? { resolution: "720p" }
+        : {}),
     });
+    const invalid = videoInputError(input);
+    if (invalid) throw ZelyqError.badRequest(invalid);
     const result = await videos.submitForAgent(grant.userId, input, {
       projectId: grant.projectId,
       projectName: grant.projectName,
@@ -68,6 +95,26 @@ export function registerVideoBridgeRoutes(
     reply.code(202);
     return result;
   });
+
+  /**
+   * A starting frame from a file already in the project — the hero image, a
+   * product shot — so the agent can animate what is on the page rather than
+   * inventing a scene that merely resembles it. The bytes are validated and
+   * normalised by the same path Studio uploads take.
+   */
+  app.post<{ Body: unknown }>(
+    "/api/internal/videos/references",
+    { bodyLimit: maxVideoReferenceBytes * 2 },
+    async (request, reply) => {
+      const grant = await context(request);
+      const { data } = z
+        .object({ data: z.string().min(1) })
+        .strict()
+        .parse(request.body);
+      const reference = await videos.addReference(grant.userId, Buffer.from(data, "base64"));
+      return reply.code(201).send({ reference });
+    },
+  );
 
   app.get<{ Params: { id: string } }>("/api/internal/videos/generations/:id", async (request) => {
     const grant = await context(request);

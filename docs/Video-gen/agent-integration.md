@@ -62,7 +62,7 @@ Four, on the same bridge pattern as images: the agent never holds the video API 
 | Tool | Cost | Purpose |
 | --- | --- | --- |
 | `list_generated_videos` | Free | What is already in the library. Checked first — reuse is free, a near-duplicate is not. |
-| `generate_video` | **Billed** | One clip from a prompt, optionally from a starting image. Waits for the job and reports honestly on an unconfirmed outcome. |
+| `generate_video` | **Billed** | One clip from a prompt, or from a still already in the project via `reference_path` — the hero image, a product shot. Waits for the job and reports honestly on an unconfirmed outcome. |
 | `place_video` | Free | Copy a finished clip into the project (`public/media/<name>.mp4`) and its poster beside it. |
 | `place_video_frames` | Free | Extract a sequence and write `public/cinematic/<slug>/` — `frame_0001.webp…`, `poster.webp`, `manifest.json` — the exact shape the scroll-scrub recipe reads. |
 
@@ -141,3 +141,15 @@ Adding the toolbar toggle put the composer row back to nine controls and it wrap
 ## Still outstanding
 
 A live `/cinematic` run on a real project with a real key: generate, extract, write, and scroll the result in a browser. Everything above establishes that the plumbing is right, not that the finished hero looks good.
+
+## Corrections after the first live runs
+
+Three things this got wrong in practice, each found by running it rather than reading it.
+
+**The specialist had no video tools.** `cinematic_pass` kept returning ASSETS NEEDED even with the permission on, because a specialist's pool comes from its `toolNames` allowlist, not from the project permission. The bridge was inherited and the tools were filtered out anyway. The claim that this change removed the stall was false as first shipped; `CINEMATIC_TOOL_NAMES` now carries the video tools, and a test asserts the child is offered them with a bridge and denied them without one.
+
+**The skill told it to ask for files.** `asset-pipeline.md` said the sandbox ships no `ffmpeg`, so ask the user for a pre-extracted sequence — which is why the pass reported "ffmpeg is absent in this environment". Extraction runs on the server, which ships its own; the sandbox is irrelevant to that path. Generating is now the first choice and asking for files the last.
+
+**The tool encoded one vendor's rules.** It hardcoded `audio: false`, reasoning that a background loop is muted anyway. Veo always generates audio, so every request was refused in about ten milliseconds — five times in a row before the agent gave up. Settings a model cannot honour are now reconciled server-side, the same way provider and model already were, and a 400 tells the agent not to repeat the request unchanged.
+
+The pattern in all three: the agent's *description* said it could do something its *wiring* did not allow. Descriptions are not capabilities.

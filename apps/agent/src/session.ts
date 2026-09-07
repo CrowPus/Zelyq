@@ -932,6 +932,12 @@ const CINEMATIC_TOOL_NAMES = [
   "inspect_image_asset",
   "resize_image_asset",
   "optimize_image_asset",
+  // The footage tools. Without these the pass can only write SOURCE.md and
+  // stop — which is exactly what it did after the video tools shipped, because
+  // this allowlist is what decides a specialist's pool, not the permission.
+  // They are still gated: the session filter drops them when the project has
+  // no video bridge, so an instance without the permission is unchanged.
+  ...VIDEO_TOOL_NAMES,
 ];
 
 // The only dependencies the Cinematic engineer may install — the motion /

@@ -64,7 +64,9 @@ import {
   buildVideoDirective,
   CINEMATIC_SKILL,
   parseCinematicCommand,
+  parseCinematicMessage,
   parseVideoCommand,
+  parseVideoMessage,
 } from "../lib/video-command";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { AgentPresence } from "./AgentPresence";
@@ -1520,6 +1522,28 @@ function UserMessageBody({ content }: { content: string }) {
         {clone.rest && (
           <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
             {clone.rest}
+          </p>
+        )}
+      </div>
+    );
+  }
+  // `/video` and `/cinematic` carry a long workflow directive the agent needs
+  // and a person does not want to read back. Show the command and the words
+  // they actually typed; the machinery stays out of the transcript.
+  for (const [command, parsed] of [
+    ["video", parseVideoMessage(content)],
+    ["cinematic", parseCinematicMessage(content)],
+  ] as const) {
+    if (!parsed) continue;
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="flex w-fit items-center gap-1.5 rounded-md border border-border-default bg-surface px-2 py-1 text-2xs text-fg-secondary">
+          <Clapperboard size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+          <span className="font-mono">{command}</span>
+        </span>
+        {parsed.brief && (
+          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
+            {parsed.brief}
           </p>
         )}
       </div>

@@ -180,3 +180,106 @@ test("an unconfirmed generation is reported as such, never as done", async () =>
     globalThis.fetch = realFetch;
   }
 });
+
+test("a named image in the project becomes the clip's starting frame", async () => {
+  // "use the image we already have in the hero" was asked for three times and
+  // silently dropped, because the tool was text-only. Now the still is read
+  // from the project, uploaded, and the request switches to image-to-video.
+  const posted: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    posted.push({ url: String(url), body });
+    if (String(url).endsWith("/references"))
+      return new Response(JSON.stringify({ reference: { id: "vrf_abc" } }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    if (String(url).endsWith("/generations"))
+      return new Response(JSON.stringify({ generation: { id: ID }, used: 1, limit: 2 }), {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      });
+    return new Response(JSON.stringify({ generation: { id: ID, status: "succeeded" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    const result = await generateVideoTool.run(
+      ctx({
+        videoBridge: bridge,
+        runtime: {
+          readFile: async () => ({
+            path: "public/hero.png",
+            content: Buffer.from("png-bytes").toString("base64"),
+            encoding: "base64",
+          }),
+        } as unknown as ToolContext["runtime"],
+      }),
+      { prompt: "animate this gently", reference_path: "public/hero.png" },
+    );
+    assert.equal(result.isError, undefined, result.output);
+
+    const upload = posted.find((p) => p.url.endsWith("/references"));
+    assert.ok(upload, "the still must be uploaded as a starting frame");
+    assert.equal(
+      Buffer.from(String(upload?.body.data), "base64").toString(),
+      "png-bytes",
+      "the project's own bytes are sent, not a re-render",
+    );
+
+    const submit = posted.find((p) => p.url.endsWith("/generations"));
+    assert.equal(submit?.body.mode, "image-to-video", "naming a still switches the mode");
+    assert.equal(submit?.body.referenceId, "vrf_abc");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("without a starting frame it stays text-to-video", async () => {
+  const posted: Array<Record<string, unknown>> = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (String(url).endsWith("/generations"))
+      posted.push(init?.body ? JSON.parse(String(init.body)) : {});
+    if (String(url).endsWith("/generations"))
+      return new Response(JSON.stringify({ generation: { id: ID } }), {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      });
+    return new Response(JSON.stringify({ generation: { id: ID, status: "succeeded" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    await generateVideoTool.run(ctx({ videoBridge: bridge }), { prompt: "abstract light" });
+    assert.equal(posted[0]?.mode, "text-to-video");
+    assert.equal(posted[0]?.referenceId, undefined);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("a rejected request is not offered up for another identical try", async () => {
+  // Five identical generate_video calls came back in ~10ms each with the same
+  // 400. A refusal the server calls invalid must say so, or the model keeps
+  // trying — and after submission that would be five billable clips.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: { code: "bad_request", message: "This model always generates audio." },
+      }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+  try {
+    const result = await generateVideoTool.run(ctx({ videoBridge: bridge }), { prompt: "x" });
+    assert.equal(result.isError, true);
+    assert.match(result.output, /always generates audio/);
+    assert.match(result.output, /Do not retry this request unchanged/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
