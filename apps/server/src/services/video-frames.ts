@@ -77,11 +77,24 @@ export class VideoFrameStore {
       throw ZelyqError.badRequest("Invalid video asset.");
     return path.join(this.ownerDirectory(ownerId), `${generationId}.frames`);
   }
-  /** A file inside the set. `name` is matched against the permitted shapes
-   *  before it is ever joined onto a path. */
+  /**
+   * A file inside the set. Two independent guards, because one of them being
+   * loosened later should not be enough to escape the directory:
+   *
+   * 1. `name` must match a permitted shape — `frame_%04d.<ext>`, `poster.<ext>`
+   *    or `manifest.json` — an allowlist, not a denylist of bad characters.
+   * 2. The resolved path must still be inside the set's own directory. This
+   *    holds whatever the first check admits, and is what actually makes the
+   *    traversal impossible rather than merely unlikely.
+   */
   file(ownerId: string, generationId: string, name: string, format: FrameFormat) {
     if (!frameFileName(name, format)) throw ZelyqError.notFound("Frame", name);
-    return path.join(this.directory(ownerId, generationId), name);
+    const directory = path.resolve(this.directory(ownerId, generationId));
+    const resolved = path.resolve(directory, name);
+    if (resolved !== path.join(directory, path.basename(resolved)))
+      throw ZelyqError.notFound("Frame", name);
+    if (!resolved.startsWith(`${directory}${path.sep}`)) throw ZelyqError.notFound("Frame", name);
+    return resolved;
   }
 
   async remove(ownerId: string, generationId: string) {

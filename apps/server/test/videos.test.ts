@@ -742,6 +742,46 @@ test("frame routes are owner-scoped and reject traversal", async (t) => {
   }
 });
 
+test("no frame name can escape its own directory", async (t) => {
+  const h = await harness(t);
+  const id = await succeededVideo(h);
+  await h.app.inject({
+    method: "POST",
+    url: `/api/videos/generations/${id}/frames`,
+    headers: { "test-user": h.owner.id },
+    payload: { format: "webp", count: 8, width: 320 },
+  });
+  const directory = path.resolve(h.videos.frames.directory(h.owner.id, id));
+
+  // Straight at the guard, not through the router — the router's own decoding
+  // would mask whether this holds for any other caller of `file()`.
+  const attacks = [
+    "../../../../etc/passwd",
+    "..%2F..%2Fsecret.key",
+    "frame_0001.webp/../../../escape.webp",
+    "./../../frame_0001.webp",
+    "/etc/passwd",
+    "\\..\\..\\windows",
+    "frame_0001.webp\u0000.txt",
+    "....//frame_0001.webp",
+  ];
+  for (const name of attacks) {
+    assert.throws(
+      () => h.videos.frames.file(h.owner.id, id, name, "webp"),
+      /not found/i,
+      `"${name}" must be refused`,
+    );
+  }
+
+  // A permitted name still resolves, and stays inside the directory.
+  const good = h.videos.frames.file(h.owner.id, id, "frame_0001.webp", "webp");
+  assert.ok(
+    good.startsWith(`${directory}${path.sep}`),
+    `a valid frame resolved outside its directory: ${good}`,
+  );
+  assert.equal(path.basename(good), "frame_0001.webp");
+});
+
 test("only a finished video can be split, and deleting it takes the frames", async (t) => {
   const h = await harness(t);
   const id = await succeededVideo(h);
