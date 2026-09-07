@@ -9,6 +9,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The build agent can make and place video, and `/cinematic` no longer stalls.** `cinematic_pass`
+  could already build a scroll-driven hero, but it stopped and asked a human for footage, because
+  Zelyq could not make any — every cinematic build waited on someone finding a clip and dragging it
+  in. With video generation switched on for a project the pass now produces its own footage,
+  extracts the frame sequence, and carries on, saying in its review that the footage is generated
+  rather than real. Four tools — `list_generated_videos`, `generate_video`, `place_video`,
+  `place_video_frames` — on the same bridge pattern as images: the agent never holds the video API
+  key, and each clip is recorded against the connecting user, so it appears in their own Video
+  Studio library.
+- **Two new slash commands, `/video` and `/cinematic`.** They exist because the two techniques are
+  the ones people confuse and both directions are expensive to get wrong. `/video` puts ambient
+  motion in a section — one clip, muted and looping behind the copy. `/cinematic` makes a section
+  play as you scroll — a frame sequence painted onto a canvas. Each directive names the other, so
+  when the agent has been asked for the wrong one it can say so. The prompt carries the full
+  four-way choice: stock photography for anything real, a loop for ambient motion, a scrubbed
+  sequence for motion driven by scroll position, WebGL for real-time 3D.
+- Agent video is **off per project** until someone turns it on, with its own toolbar toggle and its
+  own permission — the image permission does not authorise video spending, because a clip costs far
+  more than a picture. Bounded by `ZELYQ_VIDEO_SESSION_LIMIT` (2 per conversation, against images'
+  6) and the hourly cap already shared with Video Studio.
+
 - **Frame export in Video Studio** — split a finished clip into a numbered image sequence, in WebP,
   JPEG, PNG or AVIF, at a chosen frame count and width. The output is deliberately the exact shape
   the bundled `cinematic-web` scroll-scrub recipe already reads: `frame_0001.webp…`, a `poster`, and

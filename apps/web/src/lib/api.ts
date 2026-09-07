@@ -364,7 +364,10 @@ export const api = {
   createProject: (input: CreateProjectInput) =>
     request<{ project: Project }>("/projects", { method: "POST", body: JSON.stringify(input) }),
 
-  updateProject: (id: string, input: { imageGenerationEnabled?: boolean; name?: string }) =>
+  updateProject: (
+    id: string,
+    input: { imageGenerationEnabled?: boolean; videoGenerationEnabled?: boolean; name?: string },
+  ) =>
     request<{ project: Project }>(`/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify(input),

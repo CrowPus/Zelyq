@@ -198,6 +198,13 @@ built so that nothing about it is magic and nothing is locked in:
   sequence** — WebP, JPEG, PNG or AVIF, with a poster and a manifest — which is exactly what a
   scroll-scrubbed hero paints onto a canvas. See [Video Studio](./docs/Video-gen/README.md) and
   [frame export](./docs/Video-gen/frame-export.md).
+- **`/video` and `/cinematic` — moving footage in a page, built the right way.** `/video` puts a
+  muted loop behind a section; `/cinematic` makes a section play as you scroll, frame by frame on a
+  canvas. The agent generates the footage itself and knows which technique the request calls for —
+  a loop when the motion is ambient, a scrubbed sequence when it must follow scroll position, and
+  real stock photography for anything the copy claims is real. Off per project until you switch it
+  on, because clips cost real money. See
+  [video agent integration](./docs/Video-gen/agent-integration.md).
 - **`/figma <link>` — build from a Figma frame.** Connect Figma in Settings (OAuth; the token
   stays on the server). Paste a frame's link and the agent pulls its node tree, a render, the
   assets, and the design tokens, then rebuilds it in your project — auto-layout becomes

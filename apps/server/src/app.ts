@@ -27,6 +27,7 @@ import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerSupabaseBridgeRoutes } from "./routes/supabase-bridge.js";
 import { registerSupabaseConnectionRoutes } from "./routes/supabase-connections.js";
 import { registerTeamRoutes } from "./routes/teams.js";
+import { registerVideoBridgeRoutes } from "./routes/video-bridge.js";
 import { registerVideoRoutes } from "./routes/videos.js";
 import { registerVoiceRoutes } from "./routes/voice.js";
 import { AccessControl } from "./services/access.js";
@@ -48,6 +49,7 @@ import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
 import { VideoAssetStore } from "./services/video-assets.js";
+import { VideoBridge } from "./services/video-bridge.js";
 import { VideoGenerationService } from "./services/video-generation.js";
 import { ChatGateway } from "./ws/gateway.js";
 
@@ -65,6 +67,8 @@ export interface ZelyqServer {
   /** The agent's image capability channel. Exposed so tests can mint a grant
    *  the way the websocket gateway does. */
   imageBridge: ImageBridge;
+  /** The agent's video capability channel, exposed for tests the same way. */
+  videoBridge: VideoBridge;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -143,6 +147,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     undefined,
     () => app.log.error("Video job processing failed; persisted jobs will be checked again."),
   );
+  const videoBridge = new VideoBridge(store, videos);
   const accounts = new AccountService(store, projects, async (id) => {
     await Promise.all([imageAssets.removeUser(id), videoAssets.removeUser(id)]);
   });
@@ -265,6 +270,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerImageRoutes(app, { images, access });
   await registerVideoRoutes(app, { videos, images, access });
   registerImageBridgeRoutes(app, { bridge: imageBridge, images, assets: imageAssets, store });
+  registerVideoBridgeRoutes(app, { bridge: videoBridge, videos, store });
   app.addHook("onReady", async () => {
     images.start();
     videos.start();
@@ -291,6 +297,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       serverInternalUrl: config.serverInternalUrl,
     },
     { bridge: imageBridge, serverInternalUrl: config.serverInternalUrl },
+    { bridge: videoBridge, serverInternalUrl: config.serverInternalUrl },
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
 
@@ -325,6 +332,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   return {
     app,
     imageBridge,
+    videoBridge,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

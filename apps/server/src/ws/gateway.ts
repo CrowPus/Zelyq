@@ -23,6 +23,7 @@ import type { PreviewEnvResolver } from "../services/preview-env.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
 import type { SupabaseBridge } from "../services/supabase-bridge.js";
+import type { VideoBridge } from "../services/video-bridge.js";
 
 /** What a provider actually knows how to embed as an image. */
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -69,6 +70,9 @@ export class ChatGateway {
     /** Image bridge (agent generates images via the server, when the project
      * allows it). `mint` returns null when it does not. */
     private readonly imageGeneration: { bridge: ImageBridge; serverInternalUrl: string },
+    /** Video bridge (the agent generates clips and frame sequences via the
+     * server, when the project allows it). Separate permission from images. */
+    private readonly videoGeneration: { bridge: VideoBridge; serverInternalUrl: string },
     /** `/figma` extraction (proposal 068). `enabled` is false when no Figma
      * OAuth app is configured — a `/figma` message then gets a plain reply. */
     private readonly figma: { extract: FigmaExtractService; enabled: boolean },
@@ -387,12 +391,15 @@ export class ChatGateway {
       // If this project has a linked Supabase resource, hand
       // the agent a session-scoped capability to apply migrations through the
       // server, plus the project's PUBLIC config for its preview. No secret.
-      const [bridgeToken, supabasePreviewEnv, imageToken] = await Promise.all([
+      const [bridgeToken, supabasePreviewEnv, imageToken, videoToken] = await Promise.all([
         this.supabase.bridge.mint(room.sessionId, room.projectId, userId),
         this.supabase.resolvePreviewEnv(room.projectId),
         // Null unless this project has image generation switched on AND the
         // instance has a provider configured. No token, no tools.
         this.imageGeneration.bridge.mint(room.sessionId, room.projectId, userId),
+        // Null unless this project has video generation switched on AND a
+        // provider is configured. No token, no video tools.
+        this.videoGeneration.bridge.mint(room.sessionId, room.projectId, userId),
       ]);
 
       // Which stack this project is on, so the agent's prompt describes
@@ -419,6 +426,9 @@ export class ChatGateway {
           : {}),
         ...(imageToken
           ? { imageBridge: { url: this.imageGeneration.serverInternalUrl, token: imageToken } }
+          : {}),
+        ...(videoToken
+          ? { videoBridge: { url: this.videoGeneration.serverInternalUrl, token: videoToken } }
           : {}),
         ...(Object.keys(supabasePreviewEnv).length > 0 ? { supabasePreviewEnv } : {}),
         template: stackInfo.template,

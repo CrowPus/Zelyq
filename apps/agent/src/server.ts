@@ -337,6 +337,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       // a Supabase resource is linked to this project.
       ...(input.supabaseBridge ? { supabaseBridge: input.supabaseBridge } : {}),
       ...(input.imageBridge ? { imageBridge: input.imageBridge } : {}),
+      ...(input.videoBridge ? { videoBridge: input.videoBridge } : {}),
       ...(input.supabasePreviewEnv ? { supabasePreviewEnv: input.supabasePreviewEnv } : {}),
       runtime,
       maxIterations: config.maxTurnIterations,

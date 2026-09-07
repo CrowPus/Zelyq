@@ -16,6 +16,7 @@ function toProject(row: Row): Project {
     status: row.status as ProjectStatus,
     statusMessage: row.statusMessage,
     imageGenerationEnabled: row.imageGenerationEnabled ?? false,
+    videoGenerationEnabled: row.videoGenerationEnabled ?? false,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -27,14 +28,19 @@ export function projectRepository(db: ZelyqDb) {
       // The permission defaults off rather than being required at every call
       // site: a project that forgets to mention it must not be one that can
       // spend money.
-      input: Omit<Project, "createdAt" | "updatedAt" | "imageGenerationEnabled"> & {
+      input: Omit<
+        Project,
+        "createdAt" | "updatedAt" | "imageGenerationEnabled" | "videoGenerationEnabled"
+      > & {
         imageGenerationEnabled?: boolean;
+        videoGenerationEnabled?: boolean;
       },
     ): Promise<Project> {
       const now = new Date().toISOString();
       const row = {
         ...input,
         imageGenerationEnabled: input.imageGenerationEnabled ?? false,
+        videoGenerationEnabled: input.videoGenerationEnabled ?? false,
         createdAt: now,
         updatedAt: now,
       };
@@ -81,7 +87,12 @@ export function projectRepository(db: ZelyqDb) {
       patch: Partial<
         Pick<
           Project,
-          "name" | "description" | "status" | "statusMessage" | "imageGenerationEnabled"
+          | "name"
+          | "description"
+          | "status"
+          | "statusMessage"
+          | "imageGenerationEnabled"
+          | "videoGenerationEnabled"
         >
       >,
     ): Promise<Project | null> {

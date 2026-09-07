@@ -243,6 +243,13 @@ export const createAgentSessionSchema = z.object({
    */
   imageBridge: z.object({ url: z.string(), token: z.string() }).optional(),
   /**
+   * Present only when this project has agent video generation switched on and
+   * a provider is configured. A separate grant from `imageBridge`, because a
+   * clip costs far more than a picture and one permission must not imply the
+   * other.
+   */
+  videoBridge: z.object({ url: z.string(), token: z.string() }).optional(),
+  /**
    * The linked project's public Supabase config — URL + publishable key only.
    * Merged into the preview environment so the app the agent builds connects
    * to the real backend. Both values are public (they ship in the browser

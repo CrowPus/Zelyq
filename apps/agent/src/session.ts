@@ -22,6 +22,7 @@ import {
   type ToolDefinition,
   type ToolResult,
   toolDefinitions,
+  VIDEO_TOOL_NAMES,
   type ZelyqTool,
 } from "@zelyq/tools";
 import {
@@ -280,6 +281,7 @@ export interface SessionOptions {
    */
   supabaseBridge?: { url: string; token: string };
   imageBridge?: { url: string; token: string };
+  videoBridge?: { url: string; token: string };
   /**
    * The linked project's public Supabase config (URL + publishable key) —
    * merged into the preview env so the built app connects to the real
@@ -1486,6 +1488,9 @@ export class AgentSession {
     // they are not offered at all rather than spending context explaining a
     // capability the user has not switched on.
     const imagesAllowed = Boolean(options.imageBridge);
+    // Video is a separate permission and a separate grant: a clip costs far
+    // more than a picture, so being allowed one does not allow the other.
+    const videosAllowed = Boolean(options.videoBridge);
     // A plain default-mode session does not need the connector tools or the
     // task-only inspection families standing by. Architect and Engineer keep the
     // full weave (they hand task tools out per step), and a lean builder is
@@ -1520,6 +1525,7 @@ export class AgentSession {
     )
       .filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name))
       .filter((t) => imagesAllowed || !IMAGE_TOOL_NAMES.includes(t.name as never))
+      .filter((t) => videosAllowed || !VIDEO_TOOL_NAMES.includes(t.name as never))
       // One plan, one owner. Architect Mode's plan is `build-plan.md`;
       // `update_plan` (which writes `PLAN.md`) belongs to default and Engineer
       // Mode only, so the two never compete.
@@ -1906,6 +1912,7 @@ export class AgentSession {
       // apply its migration and the verifier can check it.
       ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
       ...(this.options.imageBridge ? { imageBridge: this.options.imageBridge } : {}),
+      ...(this.options.videoBridge ? { videoBridge: this.options.videoBridge } : {}),
       ...(this.options.supabasePreviewEnv
         ? { supabasePreviewEnv: this.options.supabasePreviewEnv }
         : {}),
@@ -2526,6 +2533,7 @@ export class AgentSession {
       },
       ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
       ...(this.options.imageBridge ? { imageBridge: this.options.imageBridge } : {}),
+      ...(this.options.videoBridge ? { videoBridge: this.options.videoBridge } : {}),
       ...(this.options.supabasePreviewEnv
         ? { supabasePreviewEnv: this.options.supabasePreviewEnv }
         : {}),

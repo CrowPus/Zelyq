@@ -139,6 +139,17 @@ const DEFINITIONS: Definition[] = [
     envOverridable: true,
   },
   {
+    key: "videoSessionLimit",
+    label: "Agent videos per conversation",
+    description:
+      "How many clips the build agent may generate in a single conversation. Deliberately much lower than the image limit: a clip costs far more, and a hero needs one, not six.",
+    kind: "text",
+    group: "Video Studio",
+    envVar: "ZELYQ_VIDEO_SESSION_LIMIT",
+    fallback: "2",
+    envOverridable: true,
+  },
+  {
     key: "videoConcurrency",
     label: "Concurrent video jobs",
     description:

@@ -138,10 +138,18 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   but a real place, person, company or landmark must come from stock —
   a generated Kyoto is not a photograph of Kyoto. See
   [agent integration](./Image-gen/agent-integration.md).
-- **Video** — the agent has **no** video tools. Video Studio is a standalone
-  user feature; the image permission does not authorise video spending, and a
-  separate permission and budget would have to be designed first. See the
-  [video agent boundary](./Video-gen/technical-design.md#future-agent-boundary).
+- **Video** — `generate_video`, `place_video`, `place_video_frames` and
+  `list_generated_videos`, present only when the project has **video**
+  generation switched on. That is a separate permission from images on
+  purpose: a clip costs far more than a picture, so one does not imply the
+  other. Bounded by `ZELYQ_VIDEO_SESSION_LIMIT` (2 clips per conversation,
+  against images' 6) and the per-user hourly cap shared with Video Studio.
+  The prompt carries the four-way choice — stock photo for anything real, a
+  muted loop for ambient motion, a frame sequence for motion driven by scroll
+  position, WebGL for real-time 3D — because picking wrong is either a lie or
+  wasted money. `cinematic_pass` uses these to generate its own footage
+  instead of stopping to ask for it. See
+  [video agent integration](./Video-gen/agent-integration.md).
 - **Auto Mode** — `session.autoNextPass(emit)` decides between passes
   (kill switch → stuck detection → three ceilings: `AUTO_MAX_PASSES` /
   `AUTO_MAX_TOKENS` / `AUTO_MAX_WALLCLOCK_MS`). The agent's prompt route
