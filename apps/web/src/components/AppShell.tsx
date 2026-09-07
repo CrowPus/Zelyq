@@ -7,12 +7,14 @@ import {
   LogOut,
   Monitor,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   Sun,
   UserRound,
   Users,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useSession } from "../hooks/useSession";
 import { useTheme } from "../hooks/useTheme";
@@ -31,6 +33,16 @@ export interface Crumb {
  * Both are fixed height and never scroll. Everything a page renders lives in
  * the remaining area, which is where scrolling belongs.
  */
+const RAIL_KEY = "zelyq.rail";
+/** Collapsed by default: the rail is navigation, not the work. */
+function readRailOpen(): boolean {
+  try {
+    return localStorage.getItem(RAIL_KEY) === "open";
+  } catch {
+    return false;
+  }
+}
+
 export function AppShell({
   crumbs,
   actions,
@@ -40,9 +52,26 @@ export function AppShell({
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  const [railOpen, setRailOpen] = useState(readRailOpen);
+  // Remembered per browser, because it is a preference about this person's
+  // screen rather than anything the server should know. Storage can throw
+  // outright in a private window or a thumbnail capture, so every touch of it
+  // is guarded and the default stands if it fails.
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAIL_KEY, railOpen ? "open" : "closed");
+    } catch {
+      // A preference that cannot be remembered is not worth an error.
+    }
+  }, [railOpen]);
+
   return (
-    <div className="grid h-dvh grid-cols-[minmax(0,1fr)] overflow-hidden bg-canvas md:grid-cols-[48px_minmax(0,1fr)]">
-      <Rail />
+    <div
+      className={`grid h-dvh grid-cols-[minmax(0,1fr)] overflow-hidden bg-canvas ${
+        railOpen ? "md:grid-cols-[13rem_minmax(0,1fr)]" : "md:grid-cols-[48px_minmax(0,1fr)]"
+      }`}
+    >
+      <Rail open={railOpen} onToggle={() => setRailOpen((value) => !value)} />
       <div className="grid min-w-0 grid-rows-[40px_minmax(0,1fr)] overflow-hidden">
         <TopBar crumbs={crumbs} actions={actions} />
         <main className="min-h-0 overflow-hidden">{children}</main>
@@ -51,9 +80,65 @@ export function AppShell({
   );
 }
 
-function Rail() {
+/**
+ * One rail entry, in both shapes. Collapsed it is an icon with its name in the
+ * tooltip; open it is the icon and the name. Everything in the rail goes
+ * through this so the two states cannot drift apart.
+ */
+function RailLink({
+  to,
+  href,
+  label,
+  icon: Icon,
+  active,
+  open,
+}: {
+  to?: string;
+  href?: string;
+  label: string;
+  icon: typeof Boxes;
+  active?: boolean;
+  open: boolean;
+}) {
+  const className = `flex items-center rounded-md transition-colors ${
+    open ? "h-8 w-full gap-2.5 px-2" : "size-8 justify-center"
+  } ${active ? "bg-surface-active text-fg" : "text-fg-muted hover:bg-surface-hover hover:text-fg"}`;
+  const content = (
+    <>
+      <Icon size={16} strokeWidth={1.75} className="shrink-0" />
+      {open && <span className="truncate text-xs">{label}</span>}
+    </>
+  );
+  // The name is on screen when open, so the tooltip is only useful collapsed.
+  const shared = {
+    "aria-label": label,
+    ...(open ? {} : { title: label }),
+    className,
+  };
+  if (href)
+    return (
+      <a href={href} target="_blank" rel="noreferrer" {...shared}>
+        {content}
+      </a>
+    );
+  return (
+    <Link to={to as string} aria-current={active ? "page" : undefined} {...shared}>
+      {content}
+    </Link>
+  );
+}
+
+function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const { pathname } = useLocation();
+  // Projects first: it is what this product is for. The studios are tools you
+  // reach for while building one.
   const items = [
+    {
+      to: "/",
+      label: "Projects",
+      icon: Boxes,
+      match: (p: string) => p === "/" || p.startsWith("/projects"),
+    },
     {
       to: "/image-studio",
       label: "Image Studio",
@@ -66,68 +151,75 @@ function Rail() {
       icon: Clapperboard,
       match: (p: string) => p.startsWith("/video-studio"),
     },
-    {
-      to: "/",
-      label: "Projects",
-      icon: Boxes,
-      match: (p: string) => p === "/" || p.startsWith("/projects"),
-    },
   ];
 
   return (
     <nav
       aria-label="Primary"
-      className="hidden flex-col items-center gap-1 border-r border-border-default bg-surface py-2 md:flex"
+      className={`hidden flex-col gap-1 border-r border-border-default bg-surface py-2 md:flex ${
+        open ? "items-stretch px-2" : "items-center"
+      }`}
     >
-      <Link
-        to="/"
-        aria-label="Zelyq home"
-        className="mb-1 grid size-8 place-items-center rounded-md text-fg transition-colors hover:bg-surface-hover"
-      >
-        <Mark />
-      </Link>
-
-      {items.map((item) => {
-        const active = item.match(pathname);
-        return (
-          <Link
-            key={item.to}
-            to={item.to}
-            aria-label={item.label}
-            title={item.label}
-            aria-current={active ? "page" : undefined}
-            className={`grid size-8 place-items-center rounded-md transition-colors ${
-              active
-                ? "bg-surface-active text-fg"
-                : "text-fg-muted hover:bg-surface-hover hover:text-fg"
-            }`}
+      <div className={`mb-1 flex items-center ${open ? "justify-between" : "justify-center"}`}>
+        <Link
+          to="/"
+          aria-label="Zelyq home"
+          className="grid size-8 place-items-center rounded-md text-fg transition-colors hover:bg-surface-hover"
+        >
+          <Mark />
+        </Link>
+        {open && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label="Collapse sidebar"
+            aria-expanded={true}
+            className="grid size-7 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
           >
-            <item.icon size={16} strokeWidth={1.75} />
-          </Link>
-        );
-      })}
+            <PanelLeftClose size={15} strokeWidth={1.75} />
+          </button>
+        )}
+      </div>
 
-      <TeamLinks />
+      {items.map((item) => (
+        <RailLink
+          key={item.to}
+          to={item.to}
+          label={item.label}
+          icon={item.icon}
+          active={item.match(pathname)}
+          open={open}
+        />
+      ))}
+
+      <TeamLinks open={open} />
 
       <div className="flex-1" />
 
-      <a
+      {!open && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label="Expand sidebar"
+          aria-expanded={false}
+          className="grid size-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
+        >
+          <PanelLeftOpen size={16} strokeWidth={1.75} />
+        </button>
+      )}
+      <RailLink
         href="https://github.com/CrowPus/Zelyq#readme"
-        target="_blank"
-        rel="noreferrer"
-        aria-label="Documentation"
-        title="Documentation"
-        className="grid size-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
-      >
-        <CircleHelp size={16} strokeWidth={1.75} />
-      </a>
-      <SettingsLink />
+        label="Documentation"
+        icon={CircleHelp}
+        open={open}
+      />
+      <SettingsLink open={open} />
     </nav>
   );
 }
 
 /** One entry per team the user belongs to, for managing its members. */
-function TeamLinks() {
+function TeamLinks({ open }: { open: boolean }) {
   const { teams } = useSession();
   const { pathname } = useLocation();
 
@@ -136,19 +228,14 @@ function TeamLinks() {
       {teams.map((team) => {
         const active = pathname === `/teams/${team.id}`;
         return (
-          <Link
+          <RailLink
             key={team.id}
             to={`/teams/${team.id}`}
-            aria-label={`${team.name} members`}
-            title={`${team.name} · ${team.role}`}
-            className={`grid size-8 place-items-center rounded-md transition-colors ${
-              active
-                ? "bg-surface-active text-fg"
-                : "text-fg-muted hover:bg-surface-hover hover:text-fg"
-            }`}
-          >
-            <Users size={16} strokeWidth={1.75} />
-          </Link>
+            label={team.name}
+            icon={Users}
+            active={active}
+            open={open}
+          />
         );
       })}
     </>
@@ -156,24 +243,18 @@ function TeamLinks() {
 }
 
 /** Instance settings are administrator-only, so the entry point is too. */
-function SettingsLink() {
+function SettingsLink({ open }: { open: boolean }) {
   const { user } = useSession();
   const { pathname } = useLocation();
   if (user?.instanceRole !== "admin") return null;
-
-  const active = pathname === "/settings";
   return (
-    <Link
+    <RailLink
       to="/settings"
-      aria-label="Settings"
-      title="Settings"
-      aria-current={active ? "page" : undefined}
-      className={`grid size-8 place-items-center rounded-md transition-colors ${
-        active ? "bg-surface-active text-fg" : "text-fg-muted hover:bg-surface-hover hover:text-fg"
-      }`}
-    >
-      <Settings size={16} strokeWidth={1.75} />
-    </Link>
+      label="Settings"
+      icon={Settings}
+      active={pathname === "/settings"}
+      open={open}
+    />
   );
 }
 
