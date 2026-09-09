@@ -32,6 +32,12 @@ export interface ChatState {
   } | null;
   busy: boolean;
   error: string | null;
+  /**
+   * Something worth knowing that is not a failure — a collaborator's commits
+   * arriving while a turn ran, say. Separate from `error` so a successful turn
+   * is not painted as a broken one, which is how people learn to ignore both.
+   */
+  notice: string | null;
   tokensIn: number;
   tokensOut: number;
   /** Prompt tokens read from the provider cache this session. */
@@ -64,6 +70,7 @@ export const INITIAL: ChatState = {
   streaming: null,
   busy: false,
   error: null,
+  notice: null,
   tokensIn: 0,
   tokensOut: 0,
   cacheReadTokens: 0,
@@ -413,6 +420,9 @@ export function reduce(
             ]
           : state.messages,
       };
+
+    case "notice":
+      return { ...state, notice: message.message };
 
     case "error":
       return {

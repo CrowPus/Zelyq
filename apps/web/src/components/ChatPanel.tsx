@@ -20,6 +20,7 @@ import {
   Puzzle,
   Sparkles,
   Square,
+  TriangleAlert,
   Users,
   X,
 } from "lucide-react";
@@ -860,6 +861,13 @@ export function ChatPanel({
               }
               return null;
             })()}
+
+          {chat.notice && !chat.error && (
+            <p className="mx-3 my-3 flex items-start gap-2 rounded-md border border-warning/25 bg-warning/5 px-2.5 py-2 text-xs break-words text-warning">
+              <TriangleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+              {chat.notice}
+            </p>
+          )}
 
           {chat.error && (
             <p className="mx-3 my-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs break-words text-danger">

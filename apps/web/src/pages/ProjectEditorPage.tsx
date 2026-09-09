@@ -16,10 +16,10 @@ import { AppShell } from "../components/AppShell";
 import { ChatPanel } from "../components/ChatPanel";
 import { CodeViewer } from "../components/CodeViewer";
 import { FileExplorer } from "../components/FileExplorer";
+import { GitPanel } from "../components/GitPanel";
 import { LiveBrowser } from "../components/LiveBrowser";
 import { PlanPanel } from "../components/PlanPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
-import { PushControl } from "../components/PushControl";
 import { Badge, Button, IconButton, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
@@ -240,7 +240,7 @@ export function ProjectEditorPage() {
           </Button>
           {/* Same role the route itself already requires — editing and
               pushing are the same trust level. */}
-          {canEdit && <PushControl projectId={id} />}
+          {canEdit && <GitPanel projectId={id} />}
         </>
       }
     >

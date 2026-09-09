@@ -177,6 +177,19 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     message: z.string(),
     fatal: z.boolean().default(false),
   }),
+
+  /**
+   * Something the user should know, that is not a failure. Separate from
+   * `error` on purpose: "the remote moved on while you were working" is worth
+   * saying at the moment it becomes true, but the turn it follows succeeded,
+   * and colouring it like a failure would teach people to ignore both.
+   */
+  z.object({
+    type: z.literal("notice"),
+    sessionId: z.string(),
+    code: z.string(),
+    message: z.string(),
+  }),
 ]);
 export type AgentEvent = z.infer<typeof agentEventSchema>;
 export type AgentEventType = AgentEvent["type"];

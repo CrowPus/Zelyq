@@ -482,6 +482,28 @@ export class ChatGateway {
       this.log.error(error, "could not initialise git for the project");
     }
 
+    // The one git condition that *does* stop a turn. An unfinished merge or a
+    // tree with conflict markers in it is not a state to let an agent write
+    // into: it would edit half-merged files, and the commit at the end of the
+    // turn would put the markers into the history and then into a
+    // collaborator's checkout. Best-effort everywhere else, deliberately
+    // blocking here.
+    try {
+      await this.projects.git.assertCommittable(room.projectId);
+    } catch (error) {
+      this.broadcast(room, {
+        type: "error",
+        sessionId: room.sessionId,
+        code: "git_conflict",
+        message: (error as Error).message,
+        fatal: false,
+      });
+      await this.store.sessions.setStatus(room.sessionId, "idle");
+      await this.store.projects.setStatus(room.projectId, "ready");
+      room.turn = null;
+      return;
+    }
+
     const assistant: Message = {
       id: newId("message"),
       sessionId: room.sessionId,
@@ -571,7 +593,22 @@ export class ChatGateway {
       // Best-effort, same as ensureGitRepo above — a commit is a courtesy
       // on top of the turn, never a reason to have failed it.
       try {
-        await this.projects.commitTurn(room.projectId, prompt);
+        const commit = await this.projects.commitTurn(room.projectId, prompt);
+        // Said now rather than discovered at push time. The count costs no
+        // network — it reads refs already fetched — so a turn never waits on a
+        // git host to produce it, and somebody collaborating finds out that the
+        // remote moved on while they still have the context of what they just
+        // asked for.
+        if (commit.committed && commit.behind > 0) {
+          this.broadcast(room, {
+            type: "notice",
+            sessionId: room.sessionId,
+            code: "git_behind",
+            message:
+              `The remote has ${commit.behind} commit(s) this project does not have yet. Pull ` +
+              "them in before pushing, or the push will be refused.",
+          });
+        }
       } catch (error) {
         this.log.error(error, "could not commit the turn's changes");
       }

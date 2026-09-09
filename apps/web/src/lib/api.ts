@@ -5,18 +5,25 @@ import type {
   AvailableProviders,
   ChangePasswordInput,
   CreateProjectInput,
+  CreatePullRequestInput,
   FileContent,
   FileEntry,
   FrameExportInput,
+  GitBranchInput,
+  GitFetchInput,
+  GitPullInput,
+  GitStatus,
   ImageCapabilities,
   ImageGeneration,
   ImageGenerationInput,
   ImageHistory,
   Preview,
   Project,
+  PullRequestResult,
   PushToRemoteInput,
   Role,
   SessionResponse,
+  SetGitRemoteInput,
   SettingsResponse,
   Snapshot,
   TeamMember,
@@ -418,12 +425,50 @@ export const api = {
       body: JSON.stringify({ label }),
     }),
 
-  /** Manual, on-demand. `gitUrl` only matters the first time, before a remote exists. */
-  pushToRemote: (id: string, input: PushToRemoteInput) =>
-    request<{ pushed: boolean }>(`/projects/${id}/git/push`, {
+  /** No network on the server side either — safe to call whenever the panel opens. */
+  gitStatus: (id: string) => request<{ status: GitStatus }>(`/projects/${id}/git`),
+
+  /**
+   * Changing an existing remote is refused unless `replace` is set. The refusal
+   * carries `details.currentRemote`, which is what lets the UI ask "replace X
+   * with Y?" instead of guessing.
+   */
+  setGitRemote: (id: string, input: SetGitRemoteInput) =>
+    request<{ status: GitStatus }>(`/projects/${id}/git/remote`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+
+  gitFetch: (id: string, input: GitFetchInput = {}) =>
+    request<{ status: GitStatus }>(`/projects/${id}/git/fetch`, {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  gitPull: (id: string, input: GitPullInput) =>
+    request<{ status: GitStatus & { pulled: boolean } }>(`/projects/${id}/git/pull`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  /** Manual, on-demand. `gitUrl` only matters the first time, before a remote exists. */
+  pushToRemote: (id: string, input: PushToRemoteInput) =>
+    request<{ pushed: boolean; branch: string; remote: string; status: GitStatus }>(
+      `/projects/${id}/git/push`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  gitBranch: (id: string, input: GitBranchInput) =>
+    request<{ status: GitStatus }>(`/projects/${id}/git/branch`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  createPullRequest: (id: string, input: CreatePullRequestInput) =>
+    request<{ pullRequest: PullRequestResult; status: GitStatus }>(
+      `/projects/${id}/git/pull-request`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
 
   /** `data` is base64. 8MB cap, enforced again server-side. */
   uploadAttachment: (

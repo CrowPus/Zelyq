@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import type { Store } from "@zelyq/db";
-import { LocalRuntimeDriver } from "@zelyq/runtime";
+import { LocalRuntimeDriver, type RuntimeDriver } from "@zelyq/runtime";
 import type { ServerConfig } from "../src/config.js";
 import { ProjectService } from "../src/services/projects.js";
 
@@ -176,4 +176,128 @@ test("a project inside an enclosing repository gets its own, and never touches t
     await outer.dispose();
     await fs.rm(outerRoot, { recursive: true, force: true });
   }
+});
+
+/**
+ * Git integration, part B: the environment has no git in it at all.
+ *
+ * This is not hypothetical. Project containers ran on `node:22-bookworm-slim`,
+ * which ships no git, so `git init` and every per-turn commit failed with the
+ * shell's own "command not found" — and because `gateway.ts` treats both as
+ * best-effort, silently. What the user eventually saw was that raw shell line
+ * pasted into a push dialog, which explains nothing and names no fix.
+ *
+ * A fake runtime rather than a real one, deliberately: the only way to get a
+ * real driver to have no git is to uninstall git from the machine running the
+ * tests.
+ */
+function runtimeWithoutGit(): RuntimeDriver {
+  const notFound = {
+    stdout: "",
+    stderr: "/bin/bash: line 1: git: command not found",
+    exitCode: 127,
+    durationMs: 1,
+    truncated: false,
+    timedOut: false,
+  };
+  return {
+    exec: async (_id: string, options: { command: string }) =>
+      options.command.startsWith("git") ? notFound : { ...notFound, stderr: "", exitCode: 0 },
+  } as unknown as RuntimeDriver;
+}
+
+test("a project environment with no git says so, rather than repeating the shell's error", async () => {
+  const service = new ProjectService({} as Store, runtimeWithoutGit(), {} as ServerConfig);
+
+  await assert.rejects(
+    () => service.ensureGitRepo("prj_nogit"),
+    (error: Error) => {
+      assert.match(error.message, /git is not installed/i);
+      assert.doesNotMatch(error.message, /command not found/i);
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    () => service.commitTurn("prj_nogit", "build a landing page"),
+    /git is not installed/i,
+  );
+
+  await assert.rejects(
+    () => service.pushToRemote("prj_nogit", "https://example.invalid/repo.git"),
+    /git is not installed/i,
+  );
+});
+
+/**
+ * Git integration, part C: pushing a project that has never had a turn.
+ *
+ * `ensureGitRepo` runs at the *start of a turn*, so a project built before
+ * Zelyq kept histories — or one simply not prompted since — has no `.git` at
+ * all. Push assumed one was there, and what the user got was git's own "fatal:
+ * not a git repository", from a dialog that had just asked them for a
+ * repository address. The push has to be able to stand on its own.
+ *
+ * Pushing for real needs a remote, so this stops at the point the old code
+ * failed: the repository, and a first commit for `HEAD` to name.
+ */
+test("pushing a project that has never had a turn prepares its history first", async () => {
+  await driver.ensureProject("prj_neverturned");
+  await driver.scaffold("prj_neverturned", [{ path: "index.html", content: "<html></html>" }]);
+
+  const before = await driver.exec("prj_neverturned", { command: "git rev-parse --show-toplevel" });
+  assert.notEqual(before.exitCode, 0, "this project must genuinely have no repository yet");
+
+  // The remote is unreachable, so the push itself fails — after the part that
+  // used to fail first has already succeeded.
+  await projects
+    .pushToRemote("prj_neverturned", "https://example.invalid/nope.git")
+    .catch(() => undefined);
+
+  const log = await driver.exec("prj_neverturned", { command: "git log --oneline" });
+  assert.equal(log.exitCode, 0, "the project now has a repository");
+  assert.match(log.stdout, /Initial commit/);
+});
+
+test("pushing an empty project says there is nothing to push", async () => {
+  await driver.ensureProject("prj_emptypush");
+
+  await assert.rejects(
+    () => projects.pushToRemote("prj_emptypush", "https://example.invalid/nope.git"),
+    /no files yet/i,
+  );
+});
+
+test("a project with no .gitignore of its own does not commit node_modules", async () => {
+  await driver.ensureProject("prj_noignore");
+  await driver.scaffold("prj_noignore", [
+    { path: "index.html", content: "<html></html>" },
+    { path: "node_modules/left-pad/index.js", content: "module.exports = 1;" },
+    { path: ".env", content: "SECRET=hunter2" },
+  ]);
+
+  await projects.ensureGitRepo("prj_noignore");
+  await projects.commitTurn("prj_noignore", "build a landing page");
+
+  const files = await driver.exec("prj_noignore", { command: "git ls-files" });
+  assert.match(files.stdout, /index\.html/, "the project's own files are committed");
+  assert.doesNotMatch(files.stdout, /node_modules/, "dependencies are not");
+  assert.doesNotMatch(files.stdout, /\.env/, "nor are secrets");
+});
+
+test("a project's own .gitignore is left to decide for itself", async () => {
+  await driver.ensureProject("prj_ownignore");
+  await driver.scaffold("prj_ownignore", [
+    { path: ".gitignore", content: "dist\n" },
+    { path: "index.html", content: "<html></html>" },
+    { path: "node_modules/left-pad/index.js", content: "module.exports = 1;" },
+  ]);
+
+  await projects.ensureGitRepo("prj_ownignore");
+
+  const exclude = await driver
+    .readFile("prj_ownignore", ".git/info/exclude")
+    .then((f) => f.content)
+    .catch(() => "");
+  assert.doesNotMatch(exclude, /node_modules/, "Zelyq must not override the project's own rules");
 });

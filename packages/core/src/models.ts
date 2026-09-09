@@ -87,6 +87,126 @@ export const pushToRemoteSchema = z.object({
 });
 export type PushToRemoteInput = z.infer<typeof pushToRemoteSchema>;
 
+/**
+ * What a project's git actually looks like right now — the whole state one
+ * screen needs, so the UI never has to infer it from whether an action failed.
+ *
+ * Read with no network access at all: every field comes from the repository on
+ * disk. `ahead`/`behind` are therefore only as current as the last fetch, and
+ * `fetchedAt` is included precisely so that can be said out loud rather than
+ * presented as live truth.
+ */
+export const gitStatusSchema = z.object({
+  /** False for a project that has never had a turn or a push. */
+  repository: z.boolean(),
+  /** Null on a detached HEAD, which `detached` then explains. */
+  branch: z.string().nullable(),
+  detached: z.boolean(),
+  /** Commits on the current branch. 0 means a repository with no history yet. */
+  commits: z.number().int().nonnegative(),
+  /**
+   * Zelyq manages exactly one remote and always calls it `origin` — see
+   * `setGitRemoteSchema`. Credentials are stripped before this leaves the
+   * server.
+   */
+  remote: z.string().nullable(),
+  /** e.g. `origin/main`. Null until the branch has been pushed once. */
+  upstream: z.string().nullable(),
+  /** Commits the local branch has that the upstream does not, and vice versa. */
+  ahead: z.number().int().nonnegative(),
+  behind: z.number().int().nonnegative(),
+  /** When `origin` was last fetched. Null if never. */
+  fetchedAt: z.string().datetime().nullable(),
+  /** Uncommitted changes in the working tree. */
+  dirty: z.boolean(),
+  /** Paths git considers unmerged. Non-empty means a pull needs finishing. */
+  conflicts: z.array(z.string()),
+  /** A merge, rebase or cherry-pick that was started and not finished. */
+  inProgress: z.enum(["merge", "rebase", "cherry-pick"]).nullable(),
+});
+export type GitStatus = z.infer<typeof gitStatusSchema>;
+
+/**
+ * Setting where a project pushes to.
+ *
+ * `replace` exists because silently repointing a project at a different
+ * repository is how work goes missing: someone pastes a new address, the push
+ * succeeds, and it went somewhere they were not looking. Without it, an
+ * attempt to change an existing remote is refused and the current one is
+ * reported back, so the caller can ask first.
+ */
+export const setGitRemoteSchema = z.object({
+  gitUrl: gitUrlSchema,
+  replace: z.boolean().default(false),
+});
+export type SetGitRemoteInput = z.infer<typeof setGitRemoteSchema>;
+
+export const gitFetchSchema = z.object({
+  gitToken: gitTokenSchema.optional(),
+});
+export type GitFetchInput = z.infer<typeof gitFetchSchema>;
+
+/**
+ * Bringing a collaborator's commits in.
+ *
+ * `ff-only` is the default because it is the one strategy that cannot invent a
+ * merge nobody asked for: it either applies cleanly on top or refuses. The
+ * other two are only reachable by asking for them, which is the point — a
+ * diverged history is a decision, not something to paper over.
+ *
+ * `onConflict` defaults to `abort`: a half-merged working tree is the worst
+ * possible state to hand back to an agent that is about to edit files in it.
+ * `keep` is for someone who intends to resolve it themselves.
+ */
+export const gitPullSchema = z.object({
+  gitToken: gitTokenSchema.optional(),
+  strategy: z.enum(["ff-only", "rebase", "merge"]).default("ff-only"),
+  onConflict: z.enum(["abort", "keep"]).default("abort"),
+});
+export type GitPullInput = z.infer<typeof gitPullSchema>;
+
+export const gitBranchSchema = z.object({
+  /** Refused if it is not a name git will accept. */
+  name: z.string().min(1).max(200),
+  /** Create it if it does not exist yet. */
+  create: z.boolean().default(true),
+});
+export type GitBranchInput = z.infer<typeof gitBranchSchema>;
+
+/**
+ * Opening a pull request, for the collaboration case where pushing straight to
+ * the shared branch is the wrong move.
+ *
+ * GitHub only, and deliberately explicit about that rather than pretending:
+ * every host has its own API, and a wrong guess would fail after the branch
+ * had already been pushed. For anything else the branch is still pushed and
+ * the caller is told to open it themselves.
+ */
+export const createPullRequestSchema = z.object({
+  title: z.string().min(1).max(250),
+  body: z.string().max(20_000).optional(),
+  /** Defaults to a generated `zelyq/...` name based on the title. */
+  branch: z.string().max(200).optional(),
+  /** Defaults to the repository's own default branch. */
+  base: z.string().max(200).optional(),
+  gitToken: gitTokenSchema,
+});
+export type CreatePullRequestInput = z.infer<typeof createPullRequestSchema>;
+
+/** What opening one produced — a real PR, or the next best thing. */
+export const pullRequestResultSchema = z.object({
+  /** The branch that was pushed. */
+  branch: z.string(),
+  base: z.string(),
+  /** Null when the host is not GitHub, or the token could not open one. */
+  url: z.string().nullable(),
+  /** Set when `url` is null: where the caller can open it by hand. */
+  compareUrl: z.string().nullable(),
+  /** True when the pull request already existed and was reused. */
+  existing: z.boolean(),
+});
+export type PullRequestResult = z.infer<typeof pullRequestResultSchema>;
+
 export const updateProjectSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   description: z.string().max(2000).nullable().optional(),
@@ -341,6 +461,11 @@ export const auditActionSchema = z.enum([
   "project.updated",
   "project.deleted",
   "project.pushed",
+  "project.git_remote_set",
+  "project.git_fetched",
+  "project.git_pulled",
+  "project.git_branch_switched",
+  "project.pull_request_opened",
   "file.written",
   "file.deleted",
   "snapshot.created",
