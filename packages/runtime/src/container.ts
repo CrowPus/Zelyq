@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { FileContent, FileEntry, Preview, Snapshot } from "@zelyq/core";
 import { ZelyqError } from "@zelyq/core";
@@ -81,7 +82,42 @@ import type {
  * on is a deliberate, narrower choice than it sounds.
  */
 
-const DEFAULT_IMAGE = "node:22-bookworm-slim";
+/**
+ * The base every project container is built on. Not used directly: it has no
+ * git, no ca-certificates and no ssh, so `DEFAULT_IMAGE` below is this plus
+ * those — see `docker/sandbox.Dockerfile`. Kept here as the fallback for a
+ * host that cannot build that image.
+ */
+const BASE_IMAGE = "node:22-bookworm-slim";
+/**
+ * What a project container actually runs, unless the operator names their own
+ * with `ZELYQ_CONTAINER_IMAGE`. Built on demand by `ensureImage` the first
+ * time a container is created — there is no registry to pull it from.
+ *
+ * This exists because of a bug worth not reintroducing: project containers
+ * ran on `BASE_IMAGE` directly, which does not ship git, so every
+ * server-orchestrated git command inside one failed with "git: command not
+ * found". `ensureGitRepo` and `commitTurn` are deliberately best-effort in
+ * `gateway.ts`, so the failure was silent — a project simply never had a git
+ * repository or a single commit — and the first anyone heard of it was a push
+ * failing with git's own "command not found".
+ */
+const DEFAULT_IMAGE = "zelyq/sandbox:node22";
+/**
+ * Kept in step with `docker/sandbox.Dockerfile` — that file is the copy a
+ * person reads and can build by hand; this is the copy the runtime builds
+ * from, embedded so a build never depends on where the Zelyq source happens
+ * to be on disk (a published package, a container, a moved checkout).
+ */
+const SANDBOX_DOCKERFILE = `FROM ${BASE_IMAGE}
+
+RUN apt-get update \\
+    && apt-get install --no-install-recommends -y \\
+        git \\
+        ca-certificates \\
+        openssh-client \\
+    && rm -rf /var/lib/apt/lists/*
+`;
 
 function normalizePreviewPort(port: number | undefined): number | undefined {
   if (port === undefined) return undefined;
@@ -103,6 +139,12 @@ const DEFAULT_PIDS = 512;
 const DEFAULT_NETWORK = "zelyq-projects";
 /** Long enough for `docker run` to pull on a cold cache. */
 const ENGINE_TIMEOUT_MS = 300_000;
+/**
+ * Longer than `ENGINE_TIMEOUT_MS`: building the sandbox image runs `apt-get`
+ * against a Debian mirror, which on a slow link is comfortably slower than
+ * pulling a layer. Paid once per host, not once per project.
+ */
+const IMAGE_BUILD_TIMEOUT_MS = 600_000;
 /**
  * The cloud instance metadata address. AWS, Azure, DigitalOcean, Oracle Cloud
  * and GCP all converge on this one link-local IP — documented, stable
@@ -179,7 +221,24 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
 
   private readonly local: LocalRuntimeDriver;
   private readonly workspaceDir: string;
+  /** What the operator asked for, or `DEFAULT_IMAGE`. */
   private readonly image: string;
+  /**
+   * What containers are actually created from. Equal to `image` in every
+   * normal case; falls back to `BASE_IMAGE` only when the sandbox image could
+   * not be built — see `ensureImage`.
+   */
+  private resolvedImage: string;
+  /** False when `ZELYQ_CONTAINER_IMAGE` named an image: then it is used as given. */
+  private readonly imageIsDefault: boolean;
+  /** Same memoisation shape as `networkReady` — see `ensureImage`. */
+  private imageReady: Promise<void> | undefined;
+  /**
+   * Set when the sandbox image could not be built, so `health()` can say so.
+   * Same "reported, not enforced" posture as `metadataBlockFailure`: a project
+   * still opens, it just has no git inside it, and the operator is told.
+   */
+  private imageFailure: string | undefined;
   private readonly memory: string;
   private readonly cpus: string;
   private readonly pidsLimit: number;
@@ -265,6 +324,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         : "0.0.0.0";
     this.previewUrlTemplate = config.previewUrlTemplate || undefined;
     this.image = options.image ?? DEFAULT_IMAGE;
+    this.imageIsDefault = options.image === undefined;
+    this.resolvedImage = this.image;
     this.memory = options.memory ?? DEFAULT_MEMORY;
     this.cpus = options.cpus ?? DEFAULT_CPUS;
     this.pidsLimit = options.pidsLimit ?? DEFAULT_PIDS;
@@ -314,6 +375,11 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     // Reported, not enforced here: a firewall problem should not also make
     // the instance report unhealthy, or a project could not be created while
     // someone diagnoses it. See the call site in `ensureContainer`.
+    // Only worth a word when it went wrong: a working sandbox image is
+    // already named in `image ...` just above.
+    const imageStatus = this.imageFailure
+      ? `sandbox image FAILED, project containers have no git: ${this.imageFailure}`
+      : null;
     const metadataStatus = !this.blockMetadataEndpoint
       ? "metadata block disabled"
       : this.metadataBlockFailure
@@ -337,7 +403,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       kind: this.kind,
       ok: true,
       detail:
-        `${local.detail} · ${this.engine} ${firstLine(probe.stdout)} · image ${this.image} · ` +
+        `${local.detail} · ${this.engine} ${firstLine(probe.stdout)} · image ${this.resolvedImage} · ` +
+        (this.imageFailure ? `${imageStatus} · ` : "") +
         metadataStatus +
         (egressStatus ? ` · ${egressStatus}` : ""),
       version: process.version,
@@ -762,10 +829,21 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
 
     if (!this.started.has(projectId)) {
       const running = await this.engineRun(
-        ["inspect", "--format", "{{.State.Running}}", name],
+        ["inspect", "--format", "{{.State.Running}} {{.Config.Image}}", name],
         10_000,
       );
-      if (running.exitCode === 0 && running.stdout.trim() === "true") {
+      const [state, ranFrom] = running.stdout.trim().split(/\s+/, 2);
+      // A container left running by an *earlier* Zelyq — a restart, an
+      // upgrade — is only reusable if it came from the image this driver
+      // would create it from now. Without this check the fix that put git in
+      // the image would not reach anyone who already had a container up:
+      // their projects would keep silently failing every commit until
+      // something else happened to recreate one.
+      const staleImage =
+        ranFrom !== undefined && ranFrom !== this.image && ranFrom !== this.resolvedImage;
+      if (state === "true" && staleImage) {
+        await this.engineRun(["rm", "-f", name], 30_000);
+      } else if (running.exitCode === 0 && state === "true") {
         if (publishPort === undefined) {
           this.started.add(projectId);
           return;
@@ -789,6 +867,12 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     await this.withProjectLock(projectId, async () => {
       if (this.hasWhatWeNeed(projectId, publishPort)) return;
 
+      // Before anything else that could create a container: `runArgs` reads
+      // `resolvedImage`, which this is what sets.
+      await this.ensureImage().catch((error: unknown) => {
+        this.imageFailure = error instanceof Error ? error.message : String(error);
+        this.resolvedImage = BASE_IMAGE;
+      });
       await this.ensureNetwork();
       // The rule is scoped by source to this network's subnet, so it has to
       // exist first — but it does not have to succeed before a container can
@@ -846,6 +930,66 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * own; a failed attempt clears the memo so the next call tries again rather
    * than every container creation failing for the rest of the process.
    */
+  /**
+   * Guarantees the image containers are created from actually exists, building
+   * the sandbox image if it does not. Memoised like `ensureNetwork` so the
+   * check costs one `image inspect` per process, not one per project, and so
+   * two projects starting at once share a single build rather than racing two.
+   *
+   * An operator-supplied image is never built or checked here — it is theirs,
+   * and a missing one surfaces as `docker run`'s own error, which names it.
+   *
+   * A build that fails is reported, not fatal. The alternative — refusing to
+   * open any project because a Debian mirror was unreachable — trades a
+   * missing git for a completely unusable instance, which is worse. The
+   * fallback is `BASE_IMAGE`; `health()` then says plainly that project
+   * containers have no git, rather than leaving it to be discovered as a
+   * "command not found" much later.
+   */
+  private ensureImage(): Promise<void> {
+    if (!this.imageReady) {
+      this.imageReady = this.buildImageIfMissing().catch((error: unknown) => {
+        this.imageReady = undefined;
+        throw error;
+      });
+    }
+    return this.imageReady;
+  }
+
+  private async buildImageIfMissing(): Promise<void> {
+    if (!this.imageIsDefault) return;
+
+    const exists = await this.engineRun(["image", "inspect", this.image], 30_000);
+    if (exists.exitCode === 0) {
+      this.resolvedImage = this.image;
+      this.imageFailure = undefined;
+      return;
+    }
+
+    // A directory rather than a `-` stdin build: `runCaptured` does not write
+    // to a child's stdin, and a two-line context is cheap enough that adding
+    // that plumbing for it would be the larger change.
+    const context = await fs.mkdtemp(path.join(os.tmpdir(), "zelyq-sandbox-"));
+    try {
+      const dockerfile = path.join(context, "Dockerfile");
+      await fs.writeFile(dockerfile, SANDBOX_DOCKERFILE, "utf8");
+      const built = await this.engineRun(
+        ["build", "-t", this.image, "-f", dockerfile, context],
+        IMAGE_BUILD_TIMEOUT_MS,
+      );
+      if (built.exitCode !== 0) {
+        this.imageFailure =
+          firstLine(built.stderr) || firstLine(built.stdout) || `exit ${built.exitCode}`;
+        this.resolvedImage = BASE_IMAGE;
+        return;
+      }
+      this.resolvedImage = this.image;
+      this.imageFailure = undefined;
+    } finally {
+      await fs.rm(context, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
   private ensureNetwork(): Promise<void> {
     if (!this.networkReady) {
       this.networkReady = this.createNetworkIfMissing().catch((error: unknown) => {
@@ -1398,7 +1542,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       "HOME=/tmp",
       "--env",
       "npm_config_cache=/tmp/.npm",
-      this.image,
+      this.resolvedImage,
       // Something that stays up so `exec` has a container to enter. `sleep
       // infinity` is a bash builtin loop here, not a binary, so it survives an
       // image without coreutils.
