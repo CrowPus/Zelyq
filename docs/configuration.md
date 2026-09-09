@@ -237,7 +237,7 @@ Migrations run automatically when the server boots.
 | `ZELYQ_RUNTIME` | `local` | `local`, `container`, or `remote`. See [self-hosting.md](./self-hosting.md). |
 | `ZELYQ_RUNTIME_URL` | — | Required when `ZELYQ_RUNTIME=remote`. |
 | `ZELYQ_RUNTIME_TOKEN` | — | Bearer token for the runtime host. |
-| `ZELYQ_CONTAINER_IMAGE` | `node:22-bookworm-slim` | Image agent commands run in, for `container`. |
+| `ZELYQ_CONTAINER_IMAGE` | `zelyq/sandbox:node22` (built on first use) | Image agent commands run in, for `container`. The default is `node:22-bookworm-slim` plus git, ca-certificates and ssh — see `docker/sandbox.Dockerfile`. Any image you name here must contain git, or per-turn commits and pushes cannot work. |
 | `ZELYQ_CONTAINER_MEMORY` | `2g` | Memory ceiling per project container. |
 | `ZELYQ_CONTAINER_CPUS` | `2` | CPU ceiling per project container. |
 | `ZELYQ_CONTAINER_ENGINE` | `docker` | The engine binary. `podman` works as a drop-in. |

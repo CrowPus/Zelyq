@@ -754,3 +754,33 @@ test("a driver restarted with the allowlist removed actually restores unrestrict
     await unrestricted.dispose().catch(() => undefined);
   }
 });
+
+/**
+ * Not an isolation claim like the tests above — a capability one, and the
+ * reason `docker/sandbox.Dockerfile` exists.
+ *
+ * Zelyq keeps a real git history for every project and commits each turn to
+ * it, and the server issues those commands *into the container*. On
+ * `node:22-bookworm-slim`, the image this driver used to default to, there is
+ * no git at all, so all of it failed with "git: command not found" — silently,
+ * because those calls are best-effort. This asserts the environment can
+ * actually do the job the server asks of it: git present, and the CA bundle an
+ * HTTPS push needs present too (the slim image has no /etc/ssl/certs either,
+ * which would have been the very next failure).
+ */
+test("a project container has the git a turn's commit needs", { skip: !hasEngine }, async () => {
+  const driver = makeDriver(config("container"));
+  try {
+    await driver.ensureProject("prj_attacker");
+
+    const version = await driver.exec("prj_attacker", { command: "git --version" });
+    assert.equal(version.exitCode, 0, `git is missing from the image: ${version.stderr}`);
+    assert.match(version.stdout, /git version/);
+
+    const certs = await driver.exec("prj_attacker", { command: "ls /etc/ssl/certs | head -1" });
+    assert.equal(certs.exitCode, 0, "no CA bundle: an HTTPS push would fail on verification");
+    assert.notEqual(certs.stdout.trim(), "");
+  } finally {
+    await driver.dispose().catch(() => undefined);
+  }
+});
