@@ -45,9 +45,9 @@ the agentic-coding rung and Fable 5.1 is the capability ceiling above it.
 
 | Zelyq label | API model ID | Role | Context | Input / Output per 1M |
 | --- | --- | --- | ---: | ---: |
-| **Claude Fable 5.1** | `claude-fable-5-1` | Best / hardest work | 1M | $10 / $50 |
-| **Claude Opus 5** | `claude-opus-5` | ⭐ Advanced, agentic coding | 1M | $5 / $25 |
-| **Claude Sonnet 5** | `claude-sonnet-5` | ⭐ Best default balance | 1M | $2 / $10 |
+| **Claude Opus 5** | `claude-opus-5` | ⭐ Default — agentic coding | 1M | $5 / $25 |
+| **Claude Fable 5.1** | `claude-fable-5-1` | Most capable / hardest work | 1M | $10 / $50 |
+| **Claude Sonnet 5** | `claude-sonnet-5` | Balanced | 1M | $2 / $10 |
 | **Claude Haiku 4.5** | `claude-haiku-4-5` | Fast / inexpensive | 200K | $1 / $5 |
 | Claude Fable 5 | `claude-fable-5` | Creative / character writing | 1M | $10 / $50 |
 | Claude Opus 4.8 | `claude-opus-4-8` | Previous top-end | 1M | $5 / $25 |
@@ -148,3 +148,36 @@ These do not block a first version but will bite the agent loop later:
 - [Models API](https://docs.claude.com/en/api/models-list)
 - [Extended thinking](https://docs.claude.com/en/docs/build-with-claude/extended-thinking)
 - [Pricing](https://claude.com/pricing#api)
+
+
+## What shipped, and what changed from this spec
+
+Implemented 2026-09-10 in `packages/core/src/anthropic-models.ts`.
+
+Three corrections to the plan above, all found while building it:
+
+1. **The default stays `claude-opus-5`, not Sonnet 5.** This spec proposed
+   Sonnet as the balanced default to mirror the OpenAI catalog's Terra. That
+   would have silently downgraded every existing instance, which is the
+   operator's decision, not the catalog's. Auto prefers Opus 5 too.
+2. **Discovery has to match dated aliases.** `/v1/models` on a live account
+   returns Haiku 4.5 *only* as `claude-haiku-4-5-20251001`. Exact-matching the
+   bare ID dropped it from the verified list on the very account it was tested
+   against. The catalog now carries `aliases` and offers the bare, documented
+   ID regardless of which form was listed.
+3. **Listing genuinely is independent of quota.** The test account lists all
+   nine models and returns HTTP 200 from `/v1/models` while having no credit at
+   all — a generation on it fails with a billing error. This is exactly why a
+   failed lookup falls back to the full catalog with an unverified notice
+   rather than hiding models.
+
+Not done, deliberately: `claude-opus-4-5-20251101` and
+`claude-sonnet-4-5-20250929` are listed by that account but are **not** in the
+catalog. Their exact IDs are now known, but their effort support and pricing
+are not confirmed — and guessing those is what produced the Haiku bug in the
+first place. Add them once verified.
+
+Still unverified: the request shapes could not be exercised live, because the
+test key has no credit and billing is checked before parameter validation. The
+shapes are covered by unit tests against the documented contract, not by a
+successful API call.

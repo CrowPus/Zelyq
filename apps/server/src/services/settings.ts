@@ -1,14 +1,19 @@
 import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core";
 import {
+  ANTHROPIC_DEFAULT_MODEL,
+  ANTHROPIC_MODELS,
+  chooseAnthropicAutoModel,
   chooseOpenAIAutoModel,
   imageProviderCatalog,
   OPENAI_DEFAULT_MODEL,
   OPENAI_MODELS,
   videoProviderCatalog,
+  withAnthropicAuto,
   withOpenAIAuto,
   ZelyqError,
 } from "@zelyq/core";
 import { resolveSetting, type Store } from "@zelyq/db";
+import { AnthropicModelDiscovery, type AnthropicModelList } from "./anthropic-models.js";
 import {
   DEFAULT_CLAUDE_CREDENTIALS_PATH,
   DEFAULT_CODEX_CREDENTIALS_PATH,
@@ -581,13 +586,7 @@ const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
 // Only IDs verified live (openai, google) or confirmed against the
 // provider's own 2026 docs (anthropic, xai, deepseek, mistral).
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  anthropic: [
-    "claude-opus-5",
-    "claude-sonnet-5",
-    "claude-sonnet-4-6",
-    "claude-fable-5",
-    "claude-haiku-4-5",
-  ],
+  anthropic: ANTHROPIC_MODELS.map((model) => model.value),
   google: [
     "gemini-pro-latest",
     "gemini-2.5-pro",
@@ -632,6 +631,7 @@ export class SettingsService {
     /** Same, for Codex's session. */
     private readonly codexCredentialsPath: string = DEFAULT_CODEX_CREDENTIALS_PATH,
     private readonly openAIModelDiscovery = new OpenAIModelDiscovery(),
+    private readonly anthropicModelDiscovery = new AnthropicModelDiscovery(),
   ) {}
 
   /** The effective value, following environment → database → default. */
@@ -733,8 +733,7 @@ export class SettingsService {
     const stored = await this.store.settings.get("model");
     if (stored !== null && stored !== "") return stored;
     if ((await this.authModeFor(provider)) === "subscription") return "";
-    if (provider === "openai" && this.env.ZELYQ_PROVIDER && this.env.ZELYQ_PROVIDER !== "openai")
-      return "";
+    if (this.inheritedFromAnotherStartupProvider(provider)) return "";
     return await this.value("model");
   }
 
@@ -837,14 +836,69 @@ export class SettingsService {
     return { accountId: session.accountId };
   }
 
+  /**
+   * True when Settings now names `provider`, but `ZELYQ_MODEL` /
+   * `ZELYQ_MODEL_BASE_URL` were set at boot for a *different* provider. Those
+   * defaults belong to the vendor they were written for; forwarding them would
+   * point one provider's key at another's endpoint, or pin a model name that
+   * provider has never heard of.
+   */
+  private inheritedFromAnotherStartupProvider(provider: string): boolean {
+    return Boolean(this.env.ZELYQ_PROVIDER && this.env.ZELYQ_PROVIDER !== provider);
+  }
+
+  async anthropicBaseUrl(): Promise<string> {
+    const fallback = "https://api.anthropic.com";
+    if (this.env.ZELYQ_MODEL_BASE_URL && this.inheritedFromAnotherStartupProvider("anthropic"))
+      return fallback;
+    return (await this.value("provider")) === "anthropic"
+      ? (await this.value("modelBaseUrl")) || fallback
+      : fallback;
+  }
+
+  /**
+   * Shared by Settings and the project chat. A connected Claude Code session
+   * authenticates with an OAuth token, not an API key — it is never sent to
+   * the public models endpoint, exactly as a Codex session never is.
+   */
+  async anthropicModels(): Promise<AnthropicModelList> {
+    if ((await this.authModeFor("anthropic")) === "subscription") {
+      return {
+        models: ANTHROPIC_MODELS.filter((model) => model.group === "recommended"),
+        modelAvailability: "subscription",
+        modelNotice:
+          "Claude subscription candidates; access depends on your plan. Choose a model supported by your Claude account.",
+      };
+    }
+    const result = await this.anthropicModelDiscovery.list(
+      await this.apiKeyFor("anthropic"),
+      await this.anthropicBaseUrl(),
+    );
+    return { ...result, models: withAnthropicAuto(result.models) as AnthropicModelList["models"] };
+  }
+
+  async resolveAnthropicModel(model: string): Promise<string> {
+    if (model && model !== "auto") return model;
+    if ((await this.authModeFor("anthropic")) === "subscription") {
+      if (model === "auto")
+        throw ZelyqError.badRequest(
+          "Choose an explicit model for your Claude subscription in Settings or project chat.",
+        );
+      return "";
+    }
+    const catalog = await this.anthropicModels();
+    const chosen = chooseAnthropicAutoModel(catalog.models);
+    if (!chosen)
+      throw ZelyqError.badRequest(
+        "This Anthropic API key lists no supported Claude models. Check model access in Settings.",
+      );
+    return chosen;
+  }
+
   async openAIBaseUrl(): Promise<string> {
     // A boot-time custom endpoint belongs to that boot-time provider. Switching
     // to OpenAI in Settings must not send its key to the previous vendor.
-    if (
-      this.env.ZELYQ_MODEL_BASE_URL &&
-      this.env.ZELYQ_PROVIDER &&
-      this.env.ZELYQ_PROVIDER !== "openai"
-    )
+    if (this.env.ZELYQ_MODEL_BASE_URL && this.inheritedFromAnotherStartupProvider("openai"))
       return "https://api.openai.com/v1";
     return (await this.value("provider")) === "openai"
       ? (await this.value("modelBaseUrl")) || "https://api.openai.com/v1"
@@ -895,18 +949,24 @@ export class SettingsService {
     const effectiveProvider = await this.value("provider");
     // A Codex session's valid model names are a different, unconfirmed set
     // from the ordinary OpenAI API's — see CODEX_MODEL_CANDIDATES above.
-    const openai = effectiveProvider === "openai" ? await this.openAIModels() : undefined;
-    const modelSuggestions = openai
-      ? openai.models.map((model) => model.value)
+    // Whichever provider has a curated catalog with live access checks. The
+    // rest still get the plain `MODEL_SUGGESTIONS` datalist.
+    const catalog =
+      effectiveProvider === "openai"
+        ? await this.openAIModels()
+        : effectiveProvider === "anthropic"
+          ? await this.anthropicModels()
+          : undefined;
+    const modelSuggestions = catalog
+      ? catalog.models.map((model) => model.value)
       : MODEL_SUGGESTIONS[effectiveProvider];
 
     const fields = await Promise.all(
       DEFINITIONS.map(async (definition): Promise<SettingField> => {
         const inheritedOtherModel =
           definition.key === "model" &&
-          effectiveProvider === "openai" &&
-          this.env.ZELYQ_PROVIDER &&
-          this.env.ZELYQ_PROVIDER !== "openai";
+          Boolean(catalog) &&
+          this.inheritedFromAnotherStartupProvider(effectiveProvider);
         const fromEnv = inheritedOtherModel ? undefined : this.env[definition.envVar];
         const hasStored = stored[definition.key] !== undefined && stored[definition.key] !== "";
         // An overridable field is never locked, and a stored choice outranks
@@ -943,14 +1003,18 @@ export class SettingsService {
           ...(definition.options ? { options: definition.options } : {}),
           ...(definition.placeholder ? { placeholder: definition.placeholder } : {}),
           ...(suggestions ? { suggestions } : {}),
-          ...(definition.key === "model" && openai
+          ...(definition.key === "model" && catalog
             ? {
-                modelOptions: openai.models,
-                modelNotice: openai.modelNotice,
+                modelOptions: catalog.models,
+                modelNotice: catalog.modelNotice,
                 placeholder:
-                  openai.modelAvailability === "subscription"
-                    ? "Enter a supported Codex model"
-                    : `Default: ${OPENAI_DEFAULT_MODEL}`,
+                  catalog.modelAvailability === "subscription"
+                    ? `Enter a supported ${effectiveProvider === "openai" ? "Codex" : "Claude"} model`
+                    : `Default: ${
+                        effectiveProvider === "openai"
+                          ? OPENAI_DEFAULT_MODEL
+                          : ANTHROPIC_DEFAULT_MODEL
+                      }`,
               }
             : {}),
         } as const;
@@ -968,8 +1032,8 @@ export class SettingsService {
         }
 
         const effective =
-          definition.key === "model" && effectiveProvider === "openai"
-            ? await this.modelFor("openai")
+          definition.key === "model" && catalog
+            ? await this.modelFor(effectiveProvider)
             : await this.value(definition.key);
         return {
           ...base,
@@ -999,8 +1063,15 @@ export class SettingsService {
    * lets the environment or default take over again.
    */
   async update(changes: Record<string, string | number | boolean | null>): Promise<void> {
-    const switchingToOpenAI =
-      changes.provider === "openai" && (await this.value("provider")) !== "openai";
+    // Switching to a provider with a curated catalog starts on Auto rather
+    // than inheriting the previous provider's model name or endpoint.
+    const previousProvider = await this.value("provider");
+    const switchingToCurated =
+      typeof changes.provider === "string" &&
+      ["openai", "anthropic"].includes(changes.provider) &&
+      changes.provider !== previousProvider
+        ? changes.provider
+        : undefined;
     for (const [key, raw] of Object.entries(changes)) {
       const definition = BY_KEY.get(key);
       if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
@@ -1037,8 +1108,8 @@ export class SettingsService {
 
       if (definition.restartRequired) this.restartPending = true;
     }
-    if (switchingToOpenAI) {
-      if (!("model" in changes) && (await this.authModeFor("openai")) === "api_key")
+    if (switchingToCurated) {
+      if (!("model" in changes) && (await this.authModeFor(switchingToCurated)) === "api_key")
         await this.store.settings.set("model", "auto");
       if (!("modelBaseUrl" in changes)) await this.store.settings.remove("modelBaseUrl");
     }

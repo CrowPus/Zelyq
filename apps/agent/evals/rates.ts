@@ -1,4 +1,4 @@
-import { OPENAI_MODELS } from "@zelyq/core";
+import { ANTHROPIC_MODELS, cacheReadFactorFor, OPENAI_MODELS } from "@zelyq/core";
 
 /**
  * Per-model USD rates, for the eval report's cost line and nothing else.
@@ -58,6 +58,23 @@ export const MODEL_RATES: Record<string, ModelRate> = {
  * Hand-written entries win: a figure someone deliberately checked is not
  * overwritten by a derived one.
  */
+/**
+ * Claude's catalog prices too. Anthropic bills the one-time cache write at
+ * 1.25x input on every model; cache reads are 0.1x on most, but Fable 5.1 uses
+ * a flat rate, so the factor is derived rather than assumed.
+ */
+for (const model of ANTHROPIC_MODELS) {
+  const { inputPricePerMillion: input, outputPricePerMillion: output } = model;
+  if (!input || !output) continue;
+  if (model.value in MODEL_RATES) continue;
+  MODEL_RATES[model.value] = {
+    inputPer1M: input,
+    outputPer1M: output,
+    cacheReadFactor: cacheReadFactorFor(model),
+    cacheCreationFactor: 1.25,
+  };
+}
+
 for (const model of OPENAI_MODELS) {
   const { inputPricePerMillion: input, outputPricePerMillion: output } = model;
   if (!input || !output) continue;

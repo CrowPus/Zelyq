@@ -2,11 +2,11 @@ import { z } from "zod";
 import {
   effortSchema,
   messageSchema,
+  modelOptionSchema,
   previewSchema,
   providerIdSchema,
   toolCallSchema,
 } from "./models.js";
-import { modelOptionSchema } from "./openai-models.js";
 
 /**
  * The wire protocol, defined once and imported by every process.

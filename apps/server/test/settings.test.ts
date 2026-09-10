@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { OPENAI_MODELS } from "@zelyq/core";
+import { ANTHROPIC_MODELS, OPENAI_MODELS } from "@zelyq/core";
 import { createStore, runMigrations } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
@@ -563,12 +563,11 @@ test("the model field suggests the current provider's known models, not a fixed 
         headers: { cookie: adminCookie },
       })
     ).json();
+    // Anthropic now carries a curated catalog with live access checks, the
+    // same as OpenAI — so Auto leads the list rather than a fixed shortlist.
     assert.deepEqual(modelField(anthropic)?.suggestions, [
-      "claude-opus-5",
-      "claude-sonnet-5",
-      "claude-sonnet-4-6",
-      "claude-fable-5",
-      "claude-haiku-4-5",
+      "auto",
+      ...ANTHROPIC_MODELS.map((model) => model.value),
     ]);
 
     await server.app.inject({

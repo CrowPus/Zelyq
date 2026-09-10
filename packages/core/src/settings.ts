@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { modelOptionSchema } from "./openai-models.js";
+import { modelOptionSchema } from "./models.js";
 
 /**
  * How a setting is edited in the UI. `secret` is write-only: the server returns

@@ -1,18 +1,8 @@
-import { z } from "zod";
-import type { Effort } from "./models.js";
+import type { Effort, ModelOption } from "./models.js";
 
 /** Verified against the official model catalog on 2026-09-10.
  * https://developers.openai.com/api/docs/models
  * Shared by the agent, Settings, and the project chat selector. */
-export const modelOptionSchema = z.object({
-  value: z.string(),
-  label: z.string(),
-  description: z.string().optional(),
-  group: z.enum(["recommended", "previous", "legacy"]).optional(),
-  tier: z.enum(["strong", "standard", "cheap"]).optional(),
-});
-export type ModelOption = z.infer<typeof modelOptionSchema>;
-
 export interface OpenAIModel extends ModelOption {
   reasoning: readonly Effort[];
   aliases?: readonly string[];
