@@ -22,7 +22,7 @@ export interface AnthropicModel {
   /**
    * How thinking is configured. `adaptive` takes `{type:"adaptive"}`;
    * `budget` takes `{type:"enabled", budget_tokens:N}` with N >= 1024 and
-   * N < max_tokens; `always` is on with no way to disable it.
+   * N < max_tokens; `always` takes `{type:"enabled"}` with no way to disable it.
    */
   thinking: "adaptive" | "budget" | "always";
   contextWindow?: number;
@@ -182,7 +182,7 @@ export function anthropicThinkingConfig(
 ): { effort?: Effort; thinking: Record<string, unknown> } {
   const model = anthropicModel(id);
   // An unknown custom ID gets no guessed parameters, as with OpenAI.
-  if (!model) return { effort: undefined, thinking: { type: "adaptive", display: "summarized" } };
+  if (!model) return { effort: undefined, thinking: {} };
 
   if (model.thinking === "budget") {
     // Must be >= 1024 and strictly less than max_tokens.
@@ -191,6 +191,13 @@ export function anthropicThinkingConfig(
       effort: undefined,
       thinking:
         budget < maxTokens ? { type: "enabled", budget_tokens: budget } : { type: "disabled" },
+    };
+  }
+
+  if (model.thinking === "always") {
+    return {
+      effort: clampEffort(model.effort, requested),
+      thinking: { type: "enabled" },
     };
   }
 
