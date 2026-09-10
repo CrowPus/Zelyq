@@ -1,5 +1,13 @@
 import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core";
-import { imageProviderCatalog, videoProviderCatalog, ZelyqError } from "@zelyq/core";
+import {
+  chooseOpenAIAutoModel,
+  imageProviderCatalog,
+  OPENAI_DEFAULT_MODEL,
+  OPENAI_MODELS,
+  videoProviderCatalog,
+  withOpenAIAuto,
+  ZelyqError,
+} from "@zelyq/core";
 import { resolveSetting, type Store } from "@zelyq/db";
 import {
   DEFAULT_CLAUDE_CREDENTIALS_PATH,
@@ -9,6 +17,7 @@ import {
   readClaudeCodeSession,
   readCodexSession,
 } from "./cli-sessions.js";
+import { OpenAIModelDiscovery, type OpenAIModelList } from "./openai-models.js";
 import type { SecretBox } from "./secrets.js";
 import { maskSecret } from "./secrets.js";
 
@@ -586,7 +595,7 @@ const MODEL_SUGGESTIONS: Record<string, string[]> = {
     "gemini-flash-latest",
     "gemini-2.5-flash",
   ],
-  openai: ["gpt-5.2", "gpt-5.1", "gpt-5-mini", "gpt-5-nano", "o4-mini"],
+  openai: OPENAI_MODELS.map((model) => model.value),
   xai: ["grok-4.6", "grok-4.5"],
   deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
   mistral: ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"],
@@ -606,7 +615,9 @@ const MODEL_SUGGESTIONS: Record<string, string[]> = {
  * labelled — never presented as a confirmed default the way `anthropic`'s
  * list above is.
  */
-export const CODEX_MODEL_CANDIDATES = ["gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.6-sol"];
+export const CODEX_MODEL_CANDIDATES = OPENAI_MODELS.filter(
+  (model) => model.group === "recommended" || model.value === "gpt-5.4",
+).map((model) => model.value);
 
 export class SettingsService {
   /** Set when a restart-required setting changed since this process started. */
@@ -620,6 +631,7 @@ export class SettingsService {
     private readonly claudeCredentialsPath: string = DEFAULT_CLAUDE_CREDENTIALS_PATH,
     /** Same, for Codex's session. */
     private readonly codexCredentialsPath: string = DEFAULT_CODEX_CREDENTIALS_PATH,
+    private readonly openAIModelDiscovery = new OpenAIModelDiscovery(),
   ) {}
 
   /** The effective value, following environment → database → default. */
@@ -721,6 +733,8 @@ export class SettingsService {
     const stored = await this.store.settings.get("model");
     if (stored !== null && stored !== "") return stored;
     if ((await this.authModeFor(provider)) === "subscription") return "";
+    if (provider === "openai" && this.env.ZELYQ_PROVIDER && this.env.ZELYQ_PROVIDER !== "openai")
+      return "";
     return await this.value("model");
   }
 
@@ -823,6 +837,56 @@ export class SettingsService {
     return { accountId: session.accountId };
   }
 
+  async openAIBaseUrl(): Promise<string> {
+    // A boot-time custom endpoint belongs to that boot-time provider. Switching
+    // to OpenAI in Settings must not send its key to the previous vendor.
+    if (
+      this.env.ZELYQ_MODEL_BASE_URL &&
+      this.env.ZELYQ_PROVIDER &&
+      this.env.ZELYQ_PROVIDER !== "openai"
+    )
+      return "https://api.openai.com/v1";
+    return (await this.value("provider")) === "openai"
+      ? (await this.value("modelBaseUrl")) || "https://api.openai.com/v1"
+      : "https://api.openai.com/v1";
+  }
+
+  /** Shared by Settings and the project chat; subscription access is separate. */
+  async openAIModels(): Promise<OpenAIModelList> {
+    if ((await this.authModeFor("openai")) === "subscription") {
+      return {
+        models: OPENAI_MODELS.filter((model) => CODEX_MODEL_CANDIDATES.includes(model.value)),
+        modelAvailability: "subscription",
+        modelNotice:
+          "ChatGPT subscription candidates; access depends on your plan. Choose a model supported by your Codex account.",
+      };
+    }
+    const result = await this.openAIModelDiscovery.list(
+      await this.apiKeyFor("openai"),
+      await this.openAIBaseUrl(),
+    );
+    return { ...result, models: withOpenAIAuto(result.models) };
+  }
+
+  async resolveOpenAIModel(model: string): Promise<string> {
+    if (model && model !== "auto") return model;
+    if ((await this.authModeFor("openai")) === "subscription") {
+      if (model === "auto")
+        throw ZelyqError.badRequest(
+          "Choose an explicit model for your ChatGPT subscription in Settings or project chat.",
+        );
+      return "";
+    }
+    // Explicit choices stay pinned. Auto and empty defaults adapt to listed access.
+    const catalog = await this.openAIModels();
+    const chosen = chooseOpenAIAutoModel(catalog.models);
+    if (!chosen)
+      throw ZelyqError.badRequest(
+        "This OpenAI API key lists no supported coding models. Check model access in Settings.",
+      );
+    return chosen;
+  }
+
   /** Everything the settings screen renders. Secrets are described, not sent. */
   async describe(): Promise<SettingsResponse> {
     const stored = await this.store.settings.all();
@@ -831,14 +895,19 @@ export class SettingsService {
     const effectiveProvider = await this.value("provider");
     // A Codex session's valid model names are a different, unconfirmed set
     // from the ordinary OpenAI API's — see CODEX_MODEL_CANDIDATES above.
-    const modelSuggestions =
-      effectiveProvider === "openai" && (await this.authModeFor("openai")) === "subscription"
-        ? CODEX_MODEL_CANDIDATES
-        : MODEL_SUGGESTIONS[effectiveProvider];
+    const openai = effectiveProvider === "openai" ? await this.openAIModels() : undefined;
+    const modelSuggestions = openai
+      ? openai.models.map((model) => model.value)
+      : MODEL_SUGGESTIONS[effectiveProvider];
 
     const fields = await Promise.all(
       DEFINITIONS.map(async (definition): Promise<SettingField> => {
-        const fromEnv = this.env[definition.envVar];
+        const inheritedOtherModel =
+          definition.key === "model" &&
+          effectiveProvider === "openai" &&
+          this.env.ZELYQ_PROVIDER &&
+          this.env.ZELYQ_PROVIDER !== "openai";
+        const fromEnv = inheritedOtherModel ? undefined : this.env[definition.envVar];
         const hasStored = stored[definition.key] !== undefined && stored[definition.key] !== "";
         // An overridable field is never locked, and a stored choice outranks
         // the environment — so it is what "source" must say produced the
@@ -874,6 +943,16 @@ export class SettingsService {
           ...(definition.options ? { options: definition.options } : {}),
           ...(definition.placeholder ? { placeholder: definition.placeholder } : {}),
           ...(suggestions ? { suggestions } : {}),
+          ...(definition.key === "model" && openai
+            ? {
+                modelOptions: openai.models,
+                modelNotice: openai.modelNotice,
+                placeholder:
+                  openai.modelAvailability === "subscription"
+                    ? "Enter a supported Codex model"
+                    : `Default: ${OPENAI_DEFAULT_MODEL}`,
+              }
+            : {}),
         } as const;
 
         if (definition.secret) {
@@ -888,7 +967,10 @@ export class SettingsService {
           };
         }
 
-        const effective = await this.value(definition.key);
+        const effective =
+          definition.key === "model" && effectiveProvider === "openai"
+            ? await this.modelFor("openai")
+            : await this.value(definition.key);
         return {
           ...base,
           value:
@@ -917,6 +999,8 @@ export class SettingsService {
    * lets the environment or default take over again.
    */
   async update(changes: Record<string, string | number | boolean | null>): Promise<void> {
+    const switchingToOpenAI =
+      changes.provider === "openai" && (await this.value("provider")) !== "openai";
     for (const [key, raw] of Object.entries(changes)) {
       const definition = BY_KEY.get(key);
       if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
@@ -952,6 +1036,11 @@ export class SettingsService {
       }
 
       if (definition.restartRequired) this.restartPending = true;
+    }
+    if (switchingToOpenAI) {
+      if (!("model" in changes) && (await this.authModeFor("openai")) === "api_key")
+        await this.store.settings.set("model", "auto");
+      if (!("modelBaseUrl" in changes)) await this.store.settings.remove("modelBaseUrl");
     }
   }
 

@@ -1,3 +1,4 @@
+import { OPENAI_DEFAULT_MODEL, OPENAI_MODELS, openAIModel } from "@zelyq/core";
 import { AnthropicProvider, classifyAnthropicError, describeAnthropicError } from "./anthropic.js";
 import {
   ChatGptResponsesError,
@@ -13,6 +14,7 @@ import {
   GoogleProvider,
 } from "./google.js";
 import { classifyOpenAICompatibleError, OpenAICompatibleProvider } from "./openai-compatible.js";
+import { OpenAIResponsesProvider } from "./openai-responses.js";
 import type { AuthMode, ModelProvider, ProviderErrorCode, ProviderId } from "./types.js";
 
 export { AnthropicProvider, describeAnthropicError } from "./anthropic.js";
@@ -130,23 +132,12 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   openai: {
     id: "openai",
     label: "OpenAI",
-    defaultModel: "gpt-5.2",
+    defaultModel: OPENAI_DEFAULT_MODEL,
     apiKeyEnv: ["OPENAI_API_KEY"],
     docsUrl: "https://platform.openai.com/api-keys",
     baseUrl: "https://api.openai.com/v1",
     baseUrlEnv: "ZELYQ_MODEL_BASE_URL",
-    // Verified live against /v1/chat/completions with streaming + function
-    // tools + `reasoning_effort` — the exact request this agent sends.
-    // gpt-5.5 / gpt-5.6-* are NOT here: on chat-completions they reject
-    // `reasoning_effort` together with tools (they want the Responses API).
-    // gpt-5.5-pro / *-codex are Responses-API-only. gpt-5.1-mini 404s.
-    models: [
-      { value: "gpt-5.2", label: "GPT-5.2 — most capable", tier: "strong" },
-      { value: "gpt-5.1", label: "GPT-5.1", tier: "strong" },
-      { value: "gpt-5-mini", label: "GPT-5 mini — fast", tier: "standard" },
-      { value: "gpt-5-nano", label: "GPT-5 nano — fastest", tier: "cheap" },
-      { value: "o4-mini", label: "o4-mini — reasoning", tier: "standard" },
-    ],
+    models: OPENAI_MODELS,
   },
   xai: {
     id: "xai",
@@ -407,7 +398,11 @@ export function createProvider(config: {
           credential.accountId,
         );
       }
-      return buildOpenAICompatibleProvider(config);
+      return new OpenAIResponsesProvider(
+        config.model,
+        config.apiKey,
+        baseUrlFor("openai", config.baseUrl),
+      );
     }
     case "xai":
     case "deepseek":
@@ -480,6 +475,7 @@ function buildOpenAICompatibleProvider(config: {
  * dispatched `cheap`-tier child's token budget under its context window.
  */
 export function modelTierFor(provider: ProviderId, model: string): ModelTier | undefined {
+  if (provider === "openai") return openAIModel(model)?.tier;
   return PROVIDERS[provider]?.models?.find((entry) => entry.value === model)?.tier;
 }
 

@@ -44,7 +44,10 @@ export function modelPickerState(query: {
   isSuccess: boolean;
 }): PickerState {
   const groups = (query.data?.providers ?? []).filter(
-    (provider) => provider.configured && provider.id !== "custom" && provider.models?.length,
+    (provider) =>
+      provider.configured &&
+      provider.id !== "custom" &&
+      (provider.models?.length || provider.modelNotice),
   );
   // Stale data from a previous success is still worth offering while a
   // background refetch is failing — the models did not stop existing.
@@ -68,6 +71,7 @@ export function modelPickerState(query: {
  */
 export function ModelPicker({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const providers = useQuery({
     queryKey: ["providers"],
     queryFn: api.getProviders,
@@ -141,7 +145,7 @@ export function ModelPicker({ value, onChange }: Props) {
           />
           <div
             role="menu"
-            className="absolute bottom-full left-0 z-20 mb-1.5 max-h-80 w-64 overflow-y-auto rounded-lg border border-border-default bg-overlay p-1 shadow-overlay"
+            className="absolute bottom-full left-0 z-20 mb-1.5 max-h-[min(70dvh,32rem)] w-72 overflow-y-auto rounded-lg border border-border-default bg-overlay p-1 shadow-overlay"
           >
             <MenuRow
               label="Default"
@@ -158,17 +162,48 @@ export function ModelPicker({ value, onChange }: Props) {
                 <p className="px-2.5 pb-1 text-2xs font-medium tracking-[0.04em] text-fg-muted uppercase">
                   {provider.label}
                 </p>
-                {provider.models?.map((model) => (
-                  <MenuRow
-                    key={`${provider.id}:${model.value}`}
-                    label={model.label}
-                    selected={value?.provider === provider.id && value.model === model.value}
-                    onClick={() => {
-                      onChange({ provider: provider.id, model: model.value, label: model.label });
-                      setOpen(false);
-                    }}
-                  />
-                ))}
+                {provider.modelNotice && (
+                  <p className="px-2.5 pb-2 text-2xs text-fg-muted">{provider.modelNotice}</p>
+                )}
+                {provider.models
+                  ?.filter(
+                    (model) =>
+                      showMore ||
+                      !model.group ||
+                      model.group === "recommended" ||
+                      (value?.provider === provider.id && value.model === model.value),
+                  )
+                  .map((model) => (
+                    <MenuRow
+                      key={`${provider.id}:${model.value}`}
+                      label={model.label}
+                      detail={
+                        model.description ??
+                        (model.group === "legacy"
+                          ? "Legacy"
+                          : model.group === "previous"
+                            ? "Previous generation"
+                            : undefined)
+                      }
+                      selected={value?.provider === provider.id && value.model === model.value}
+                      onClick={() => {
+                        onChange({ provider: provider.id, model: model.value, label: model.label });
+                        setOpen(false);
+                      }}
+                    />
+                  ))}
+                {provider.models?.some(
+                  (model) => model.group === "previous" || model.group === "legacy",
+                ) && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setShowMore(!showMore)}
+                    className="w-full rounded-md px-2.5 py-1.5 text-left text-xs text-fg-muted hover:bg-surface-hover"
+                  >
+                    {showMore ? "Fewer models" : "More models…"}
+                  </button>
+                )}
               </div>
             ))}
           </div>

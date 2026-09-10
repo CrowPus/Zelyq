@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { modelOptionSchema } from "./openai-models.js";
 
 /**
  * How a setting is edited in the UI. `secret` is write-only: the server returns
@@ -38,6 +39,8 @@ export const settingFieldSchema = z.object({
    * model newer than this list is never blocked.
    */
   suggestions: z.array(z.string()).optional(),
+  modelOptions: z.array(modelOptionSchema).optional(),
+  modelNotice: z.string().optional(),
 });
 export type SettingField = z.infer<typeof settingFieldSchema>;
 

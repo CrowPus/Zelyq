@@ -99,6 +99,7 @@ export function SettingsPage() {
     mutationFn: () => api.updateSettings(draft),
     onSuccess: (next) => {
       queryClient.setQueryData(["settings"], next);
+      void queryClient.invalidateQueries({ queryKey: ["providers"] });
       void queryClient.invalidateQueries({ queryKey: ["image-capabilities"] });
       void queryClient.invalidateQueries({ queryKey: ["video-capabilities"] });
       setDraft({});
@@ -210,11 +211,17 @@ export function SettingsPage() {
             <>
               <CliSessionControl
                 provider="anthropic"
-                onUsed={() => queryClient.invalidateQueries({ queryKey: ["settings"] })}
+                onUsed={() => {
+                  void queryClient.invalidateQueries({ queryKey: ["settings"] });
+                  void queryClient.invalidateQueries({ queryKey: ["providers"] });
+                }}
               />
               <CliSessionControl
                 provider="openai"
-                onUsed={() => queryClient.invalidateQueries({ queryKey: ["settings"] })}
+                onUsed={() => {
+                  void queryClient.invalidateQueries({ queryKey: ["settings"] });
+                  void queryClient.invalidateQueries({ queryKey: ["providers"] });
+                }}
               />
             </>
           )}
@@ -598,6 +605,58 @@ function FieldRow({
           <p className="font-mono text-xs text-fg-muted">
             {field.kind === "secret" ? (field.hint ?? "configured") : String(field.value ?? "")}
           </p>
+        ) : field.modelOptions ? (
+          <div className="space-y-2">
+            <select
+              aria-label="OpenAI model suggestions"
+              value={
+                field.modelOptions.some(
+                  (model) => model.value === String(pending ?? field.value ?? ""),
+                )
+                  ? String(pending ?? field.value)
+                  : String(pending ?? field.value ?? "")
+                    ? "__custom__"
+                    : ""
+              }
+              onChange={(event) => onChange(event.target.value)}
+              className="h-[30px] w-full rounded-md border border-border-default bg-surface px-2 text-sm text-fg"
+            >
+              <option value="">Provider default</option>
+              <option value="__custom__" disabled hidden>
+                Custom model entered below
+              </option>
+              {(["recommended", "previous", "legacy"] as const).map((group) => (
+                <optgroup
+                  key={group}
+                  label={
+                    group === "recommended"
+                      ? "Recommended"
+                      : group === "previous"
+                        ? "Previous generation"
+                        : "Legacy"
+                  }
+                >
+                  {field.modelOptions
+                    ?.filter((model) => (model.group ?? "recommended") === group)
+                    .map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label}
+                        {model.description ? ` — ${model.description}` : ""}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+            <Input
+              aria-label={field.label}
+              value={String(pending ?? field.value ?? "")}
+              onChange={(event) => onChange(event.target.value)}
+              placeholder={field.placeholder}
+            />
+            {field.modelNotice && (
+              <p className="max-w-sm text-xs text-fg-muted">{field.modelNotice}</p>
+            )}
+          </div>
         ) : field.kind === "select" ? (
           <select
             value={String(pending ?? field.value ?? "")}
