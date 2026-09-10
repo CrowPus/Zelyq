@@ -608,7 +608,7 @@ function FieldRow({
         ) : field.modelOptions ? (
           <div className="space-y-2">
             <select
-              aria-label="OpenAI model suggestions"
+              aria-label="Model suggestions"
               value={
                 field.modelOptions.some(
                   (model) => model.value === String(pending ?? field.value ?? ""),

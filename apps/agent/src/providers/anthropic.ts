@@ -1,5 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { PromptAttachment } from "@zelyq/core";
+import {
+  anthropicMaxOutputTokens,
+  anthropicThinkingConfig,
+  type PromptAttachment,
+} from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
 import type {
   AuthMode,
@@ -13,15 +17,18 @@ import type {
 } from "./types.js";
 
 /**
- * Output-token ceiling per model. Opus 5 / Sonnet 5 / Sonnet 4.6 support
- * 128,000 with streaming (which this provider always uses); Haiku 4.5 and the
- * older families do not, so they stay at 64,000. Raising it costs nothing on a
- * response that does not need it — output is billed on what is produced — and
- * it is half of the fix for a turn silently truncated at the limit (finding
- * C1); the run loop's continuation is the other half.
+ * Output-token ceiling per model, now read from the shared catalog instead of
+ * a regex over the ID. Every current Claude model except Haiku 4.5 supports
+ * 128,000 with streaming (which this provider always uses) — the previous
+ * pattern matched only Opus 5 / Sonnet 5 / Sonnet 4.6 and quietly held Fable 5
+ * and the Opus 4.6-4.8 family to half their real ceiling. Raising it costs
+ * nothing on a response that does not need it — output is billed on what is
+ * produced — and it is half of the fix for a turn silently truncated at the
+ * limit (finding C1); the run loop's continuation is the other half. An
+ * unknown custom ID keeps the conservative 64,000.
  */
 function maxTokensFor(model: string): number {
-  return /opus-5|sonnet-5|sonnet-4-6/.test(model) ? 128_000 : 64_000;
+  return anthropicMaxOutputTokens(model);
 }
 
 /**
@@ -311,10 +318,20 @@ class AnthropicConversation implements Conversation {
       ? { signal, headers: { "anthropic-beta": betaHeader } }
       : { signal };
 
+    // Not every Claude model takes the same thinking shape: Haiku 4.5 rejects
+    // `output_config.effort` outright and wants `budget_tokens`, and `xhigh`
+    // does not exist on the 4.6 family. Both were reachable from the picker.
+    const maxTokens = maxTokensFor(this.model);
+    const { effort, thinking } = anthropicThinkingConfig(
+      this.model,
+      this.options.effort,
+      maxTokens,
+    );
+
     const stream = this.client.messages.stream(
       {
         model: this.model,
-        max_tokens: maxTokensFor(this.model),
+        max_tokens: maxTokens,
         system: [
           // Prompt and tool list are stable for the session, so this breakpoint
           // is what keeps a long turn affordable.
@@ -324,8 +341,8 @@ class AnthropicConversation implements Conversation {
             cache_control: { type: "ephemeral", ttl },
           },
         ],
-        thinking: { type: "adaptive", display: "summarized" },
-        output_config: { effort: this.options.effort },
+        thinking,
+        ...(effort ? { output_config: { effort } } : {}),
         tools: toAnthropicTools(this.options.tools),
         // A second breakpoint on the last message caches the whole conversation
         // prefix — every prior assistant turn and tool result. Without it an

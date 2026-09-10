@@ -365,6 +365,20 @@ export type ProviderId = z.infer<typeof providerIdSchema>;
 export const effortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export type Effort = z.infer<typeof effortSchema>;
 
+/**
+ * One entry in a provider's model picker. Shared by every curated catalog —
+ * `openai-models.ts` and `anthropic-models.ts` both build on it — so the
+ * chat picker and Settings render any provider's list the same way.
+ */
+export const modelOptionSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  group: z.enum(["recommended", "previous", "legacy"]).optional(),
+  tier: z.enum(["strong", "standard", "cheap"]).optional(),
+});
+export type ModelOption = z.infer<typeof modelOptionSchema>;
+
 export const sessionStatusSchema = z.enum(["idle", "running", "closed", "error"]);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 

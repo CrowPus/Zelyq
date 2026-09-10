@@ -1,4 +1,11 @@
-import { OPENAI_DEFAULT_MODEL, OPENAI_MODELS, openAIModel } from "@zelyq/core";
+import {
+  ANTHROPIC_DEFAULT_MODEL,
+  ANTHROPIC_MODELS,
+  anthropicModel,
+  OPENAI_DEFAULT_MODEL,
+  OPENAI_MODELS,
+  openAIModel,
+} from "@zelyq/core";
 import { AnthropicProvider, classifyAnthropicError, describeAnthropicError } from "./anthropic.js";
 import {
   ChatGptResponsesError,
@@ -94,21 +101,10 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   anthropic: {
     id: "anthropic",
     label: "Claude",
-    defaultModel: "claude-opus-5",
+    defaultModel: ANTHROPIC_DEFAULT_MODEL,
     apiKeyEnv: ["ANTHROPIC_API_KEY"],
     docsUrl: "https://console.anthropic.com/settings/keys",
-    // Current Claude IDs (Anthropic model list, 2026-06). Every one does
-    // native adaptive thinking + tools + streaming. No date suffixes — the
-    // bare IDs are complete. `claude-fable-5` is the fifth-gen model tuned
-    // for creative/character writing — same loop capabilities, sideways on
-    // the capability ladder rather than a rung on it, so no `tier`.
-    models: [
-      { value: "claude-opus-5", label: "Claude Opus 5 — most capable", tier: "strong" },
-      { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced", tier: "standard" },
-      { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", tier: "standard" },
-      { value: "claude-fable-5", label: "Claude Fable 5 — creative writing" },
-      { value: "claude-haiku-4-5", label: "Claude Haiku 4.5 — fastest", tier: "cheap" },
-    ],
+    models: ANTHROPIC_MODELS,
   },
   google: {
     id: "google",
@@ -476,6 +472,7 @@ function buildOpenAICompatibleProvider(config: {
  */
 export function modelTierFor(provider: ProviderId, model: string): ModelTier | undefined {
   if (provider === "openai") return openAIModel(model)?.tier;
+  if (provider === "anthropic") return anthropicModel(model)?.tier;
   return PROVIDERS[provider]?.models?.find((entry) => entry.value === model)?.tier;
 }
 

@@ -29,7 +29,11 @@ export function registerProviderRoutes(
       listed.providers.map(async (provider) => ({
         ...provider,
         configured: Boolean(await deps.settings.apiKeyFor(provider.id)),
-        ...(provider.id === "openai" ? await deps.settings.openAIModels() : {}),
+        ...(provider.id === "openai"
+          ? await deps.settings.openAIModels()
+          : provider.id === "anthropic"
+            ? await deps.settings.anthropicModels()
+            : {}),
       })),
     );
     // Same story as `configured` above: the agent's own `default` is
