@@ -377,15 +377,19 @@ export class ChatGateway {
           ? await this.settings.resolveOpenAIModel(requestedModel)
           : provider === "anthropic"
             ? await this.settings.resolveAnthropicModel(requestedModel)
-            : requestedModel;
+            : provider === "google"
+              ? await this.settings.resolveGoogleModel(requestedModel)
+              : requestedModel;
       const baseUrl =
         provider === "openai"
           ? await this.settings.openAIBaseUrl()
           : provider === "anthropic"
             ? await this.settings.anthropicBaseUrl()
-            : pickedDifferentProvider
-              ? ""
-              : await this.settings.value("modelBaseUrl");
+            : provider === "google"
+              ? await this.settings.googleBaseUrl()
+              : pickedDifferentProvider
+                ? ""
+                : await this.settings.value("modelBaseUrl");
       // An identity-linked Claude key is rejected without its workspace id.
       // Only meaningful when the turn actually runs on Anthropic.
       const anthropicWorkspaceId =

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { type Effort, googleThinkingConfig } from "@zelyq/core";
 import { toolDefinitions } from "@zelyq/tools";
-import { toFunctionDeclarations, toThinkingLevel } from "../src/providers/google.js";
+import { toFunctionDeclarations } from "../src/providers/google.js";
 import {
   apiKeyFromEnv,
   createProvider,
@@ -114,12 +115,37 @@ test("a custom endpoint with no model refuses rather than guesses", () => {
 });
 
 test("effort maps onto Gemini's thinking levels", () => {
-  assert.equal(toThinkingLevel("low"), "LOW");
-  assert.equal(toThinkingLevel("medium"), "MEDIUM");
-  assert.equal(toThinkingLevel("high"), "HIGH");
+  const level = (effort: Effort) => googleThinkingConfig("gemini-pro-latest", effort).thinkingLevel;
+  assert.equal(level("low"), "LOW");
+  assert.equal(level("medium"), "MEDIUM");
+  assert.equal(level("high"), "HIGH");
   // Gemini has no level above HIGH, so the top three efforts collapse into it.
-  assert.equal(toThinkingLevel("xhigh"), "HIGH");
-  assert.equal(toThinkingLevel("max"), "HIGH");
+  assert.equal(level("xhigh"), "HIGH");
+  assert.equal(level("max"), "HIGH");
+});
+
+test("the 2.5 family never receives thinkingLevel, which it rejects outright", () => {
+  // Probed live: "Thinking level is not supported for this model." And
+  // `gemini-2.5-pro` was the configured default, so this failed every turn.
+  for (const model of ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]) {
+    const config = googleThinkingConfig(model, "max");
+    assert.equal(config.thinkingLevel, undefined, `${model} must not get a level`);
+    assert.ok((config.thinkingBudget ?? -1) >= 0, `${model} needs a budget`);
+  }
+  // Each budget lands inside that model's own advertised range.
+  assert.equal(googleThinkingConfig("gemini-2.5-pro", "max").thinkingBudget, 32_768);
+  assert.equal(googleThinkingConfig("gemini-2.5-pro", "low").thinkingBudget, 3_392);
+  assert.equal(googleThinkingConfig("gemini-2.5-flash-lite", "low").thinkingBudget, 2_918);
+  assert.ok(
+    (googleThinkingConfig("gemini-2.5-flash-lite", "low").thinkingBudget ?? 0) >= 512,
+    "flash-lite rejects a budget below 512",
+  );
+});
+
+test("an unknown Gemini ID gets the modern shape, not a guessed budget range", () => {
+  const config = googleThinkingConfig("gemini-4-something", "high");
+  assert.equal(config.thinkingLevel, "HIGH");
+  assert.equal(config.thinkingBudget, undefined);
 });
 
 test("tool schemas are scrubbed of keys the Gemini API rejects", () => {

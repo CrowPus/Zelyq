@@ -3,12 +3,16 @@ import {
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_MODELS,
   chooseAnthropicAutoModel,
+  chooseGoogleAutoModel,
   chooseOpenAIAutoModel,
+  GOOGLE_DEFAULT_MODEL,
+  GOOGLE_MODELS,
   imageProviderCatalog,
   OPENAI_DEFAULT_MODEL,
   OPENAI_MODELS,
   videoProviderCatalog,
   withAnthropicAuto,
+  withGoogleAuto,
   withOpenAIAuto,
   ZelyqError,
 } from "@zelyq/core";
@@ -22,6 +26,7 @@ import {
   readClaudeCodeSession,
   readCodexSession,
 } from "./cli-sessions.js";
+import { GoogleModelDiscovery, type GoogleModelList } from "./google-models.js";
 import { OpenAIModelDiscovery, type OpenAIModelList } from "./openai-models.js";
 import type { SecretBox } from "./secrets.js";
 import { maskSecret } from "./secrets.js";
@@ -587,13 +592,7 @@ const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
 // provider's own 2026 docs (anthropic, xai, deepseek, mistral).
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
   anthropic: ANTHROPIC_MODELS.map((model) => model.value),
-  google: [
-    "gemini-pro-latest",
-    "gemini-2.5-pro",
-    "gemini-3.7-flash",
-    "gemini-flash-latest",
-    "gemini-2.5-flash",
-  ],
+  google: GOOGLE_MODELS.map((model) => model.value),
   openai: OPENAI_MODELS.map((model) => model.value),
   xai: ["grok-4.6", "grok-4.5"],
   deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
@@ -618,6 +617,13 @@ export const CODEX_MODEL_CANDIDATES = OPENAI_MODELS.filter(
   (model) => model.group === "recommended" || model.value === "gpt-5.4",
 ).map((model) => model.value);
 
+/** The default each curated catalog falls back to, for the Settings placeholder. */
+const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
+  openai: OPENAI_DEFAULT_MODEL,
+  anthropic: ANTHROPIC_DEFAULT_MODEL,
+  google: GOOGLE_DEFAULT_MODEL,
+};
+
 export class SettingsService {
   /** Set when a restart-required setting changed since this process started. */
   private restartPending = false;
@@ -632,6 +638,7 @@ export class SettingsService {
     private readonly codexCredentialsPath: string = DEFAULT_CODEX_CREDENTIALS_PATH,
     private readonly openAIModelDiscovery = new OpenAIModelDiscovery(),
     private readonly anthropicModelDiscovery = new AnthropicModelDiscovery(),
+    private readonly googleModelDiscovery = new GoogleModelDiscovery(),
   ) {}
 
   /** The effective value, following environment → database → default. */
@@ -847,6 +854,35 @@ export class SettingsService {
     return Boolean(this.env.ZELYQ_PROVIDER && this.env.ZELYQ_PROVIDER !== provider);
   }
 
+  async googleBaseUrl(): Promise<string> {
+    const fallback = "https://generativelanguage.googleapis.com";
+    if (this.env.ZELYQ_MODEL_BASE_URL && this.inheritedFromAnotherStartupProvider("google"))
+      return fallback;
+    return (await this.value("provider")) === "google"
+      ? (await this.value("modelBaseUrl")) || fallback
+      : fallback;
+  }
+
+  /** Shared by Settings and the project chat. Gemini has no subscription mode. */
+  async googleModels(): Promise<GoogleModelList> {
+    const result = await this.googleModelDiscovery.list(
+      await this.apiKeyFor("google"),
+      await this.googleBaseUrl(),
+    );
+    return { ...result, models: withGoogleAuto(result.models) as GoogleModelList["models"] };
+  }
+
+  async resolveGoogleModel(model: string): Promise<string> {
+    if (model && model !== "auto") return model;
+    const catalog = await this.googleModels();
+    const chosen = chooseGoogleAutoModel(catalog.models);
+    if (!chosen)
+      throw ZelyqError.badRequest(
+        "This Gemini API key lists no supported models. Check model access in Settings.",
+      );
+    return chosen;
+  }
+
   async anthropicBaseUrl(): Promise<string> {
     const fallback = "https://api.anthropic.com";
     if (this.env.ZELYQ_MODEL_BASE_URL && this.inheritedFromAnotherStartupProvider("anthropic"))
@@ -956,7 +992,9 @@ export class SettingsService {
         ? await this.openAIModels()
         : effectiveProvider === "anthropic"
           ? await this.anthropicModels()
-          : undefined;
+          : effectiveProvider === "google"
+            ? await this.googleModels()
+            : undefined;
     const modelSuggestions = catalog
       ? catalog.models.map((model) => model.value)
       : MODEL_SUGGESTIONS[effectiveProvider];
@@ -1010,11 +1048,7 @@ export class SettingsService {
                 placeholder:
                   catalog.modelAvailability === "subscription"
                     ? `Enter a supported ${effectiveProvider === "openai" ? "Codex" : "Claude"} model`
-                    : `Default: ${
-                        effectiveProvider === "openai"
-                          ? OPENAI_DEFAULT_MODEL
-                          : ANTHROPIC_DEFAULT_MODEL
-                      }`,
+                    : `Default: ${DEFAULT_MODEL_BY_PROVIDER[effectiveProvider]}`,
               }
             : {}),
         } as const;
@@ -1068,7 +1102,7 @@ export class SettingsService {
     const previousProvider = await this.value("provider");
     const switchingToCurated =
       typeof changes.provider === "string" &&
-      ["openai", "anthropic"].includes(changes.provider) &&
+      ["openai", "anthropic", "google"].includes(changes.provider) &&
       changes.provider !== previousProvider
         ? changes.provider
         : undefined;

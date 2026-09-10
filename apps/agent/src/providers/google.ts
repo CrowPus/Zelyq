@@ -1,5 +1,5 @@
 import { type Content, GoogleGenAI, type Part, ThinkingLevel } from "@google/genai";
-import type { PromptAttachment } from "@zelyq/core";
+import { googleThinkingConfig, type PromptAttachment } from "@zelyq/core";
 import type { ToolDefinition } from "@zelyq/tools";
 import {
   REDUCTION_TAIL_KEEP,
@@ -422,10 +422,10 @@ class GoogleConversation implements Conversation {
         contents,
         config: {
           ...staticPrefix,
-          thinkingConfig: {
-            includeThoughts: true,
-            thinkingLevel: toThinkingLevel(this.options.effort),
-          },
+          // Not every Gemini model takes the same thinking shape: the 2.5
+          // family rejects `thinkingLevel` outright and needs a budget inside
+          // its own valid range. `gemini-2.5-pro` was the configured default.
+          thinkingConfig: toSdkThinkingConfig(this.model, this.options.effort),
           abortSignal: signal,
         },
       })
@@ -540,17 +540,20 @@ function scrubSchema(value: unknown): unknown {
   return result;
 }
 
-/** Zelyq's five effort levels onto Gemini's thinking levels. */
-export function toThinkingLevel(effort: Effort): ThinkingLevel {
-  switch (effort) {
-    case "low":
-      return ThinkingLevel.LOW;
-    case "medium":
-      return ThinkingLevel.MEDIUM;
-    default:
-      // high, xhigh, and max all map to Gemini's deepest setting.
-      return ThinkingLevel.HIGH;
-  }
+/** The catalog speaks in plain strings; the SDK wants its own enum. */
+const SDK_THINKING_LEVELS = {
+  LOW: ThinkingLevel.LOW,
+  MEDIUM: ThinkingLevel.MEDIUM,
+  HIGH: ThinkingLevel.HIGH,
+} as const;
+
+function toSdkThinkingConfig(model: string, effort: Effort) {
+  const { includeThoughts, thinkingLevel, thinkingBudget } = googleThinkingConfig(model, effort);
+  return {
+    includeThoughts,
+    ...(thinkingLevel ? { thinkingLevel: SDK_THINKING_LEVELS[thinkingLevel] } : {}),
+    ...(thinkingBudget !== undefined ? { thinkingBudget } : {}),
+  };
 }
 
 function normaliseFinishReason(reason: string): TurnResult["stopReason"] {

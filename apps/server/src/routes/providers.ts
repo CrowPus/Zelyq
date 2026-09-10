@@ -33,7 +33,9 @@ export function registerProviderRoutes(
           ? await deps.settings.openAIModels()
           : provider.id === "anthropic"
             ? await deps.settings.anthropicModels()
-            : {}),
+            : provider.id === "google"
+              ? await deps.settings.googleModels()
+              : {}),
       })),
     );
     // Same story as `configured` above: the agent's own `default` is
