@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { availableOpenAIModels, type ModelOption, OPENAI_MODELS } from "@zelyq/core";
 
 export interface OpenAIModelList {
@@ -7,9 +7,24 @@ export interface OpenAIModelList {
   modelNotice: string;
 }
 
+/** Constant-time, and false rather than throwing on a length mismatch. */
+function sameSecret(a: string, b: string): boolean {
+  const left = Buffer.from(a, "utf8");
+  const right = Buffer.from(b, "utf8");
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
 /** One bounded cache per settings service. Never shares access lists across keys. */
 export class OpenAIModelDiscovery {
-  private cache?: { key: string; expires: number; result: Promise<OpenAIModelList> };
+  // The credential is held as-is rather than digested. A fast hash of a secret
+  // is the wrong shape even when it never leaves memory, and this process is
+  // already holding the key it was handed — a digest bought nothing.
+  private cache?: {
+    apiKey: string;
+    baseUrl: string;
+    expires: number;
+    result: Promise<OpenAIModelList>;
+  };
   constructor(private readonly request: typeof fetch = fetch) {}
   async list(apiKey: string, baseUrl: string): Promise<OpenAIModelList> {
     if (!apiKey)
@@ -18,10 +33,15 @@ export class OpenAIModelDiscovery {
         modelAvailability: "unconfigured",
         modelNotice: "Connect an OpenAI API key to check model access.",
       };
-    const key = createHash("sha256").update(apiKey).update("\0").update(baseUrl).digest("hex");
-    if (this.cache?.key === key && this.cache.expires > Date.now()) return this.cache.result;
+    if (
+      this.cache &&
+      this.cache.expires > Date.now() &&
+      this.cache.baseUrl === baseUrl &&
+      sameSecret(this.cache.apiKey, apiKey)
+    )
+      return this.cache.result;
     const result = this.fetchModels(apiKey, baseUrl);
-    this.cache = { key, expires: Date.now() + 60_000, result };
+    this.cache = { apiKey, baseUrl, expires: Date.now() + 60_000, result };
     return result;
   }
   private async fetchModels(apiKey: string, baseUrl: string): Promise<OpenAIModelList> {
