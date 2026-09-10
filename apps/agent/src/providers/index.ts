@@ -2,6 +2,9 @@ import {
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_MODELS,
   anthropicModel,
+  GOOGLE_DEFAULT_MODEL,
+  GOOGLE_MODELS,
+  googleModel,
   OPENAI_DEFAULT_MODEL,
   OPENAI_MODELS,
   openAIModel,
@@ -34,7 +37,6 @@ export {
   describeGoogleError,
   GoogleProvider,
   toFunctionDeclarations,
-  toThinkingLevel,
 } from "./google.js";
 export {
   chatCompletionsUrl,
@@ -109,21 +111,10 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   google: {
     id: "google",
     label: "Gemini",
-    defaultModel: "gemini-2.5-pro",
+    defaultModel: GOOGLE_DEFAULT_MODEL,
     apiKeyEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     docsUrl: "https://aistudio.google.com/apikey",
-    // Verified live against generativelanguage.googleapis.com/v1beta
-    // (:generateContent). `*-latest` are Google's own stable aliases; the
-    // 2.5 line and the 3.x flash line are the thinking-capable ones this
-    // loop needs. (`gemini-3.7-pro` does NOT exist — the pro line is on
-    // `gemini-pro-latest` / `gemini-3.1-pro-preview`.)
-    models: [
-      { value: "gemini-pro-latest", label: "Gemini Pro (latest)", tier: "strong" },
-      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: "strong" },
-      { value: "gemini-3.7-flash", label: "Gemini 3.7 Flash", tier: "standard" },
-      { value: "gemini-flash-latest", label: "Gemini Flash (latest)", tier: "standard" },
-      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash — fast", tier: "cheap" },
-    ],
+    models: GOOGLE_MODELS,
   },
   openai: {
     id: "openai",
@@ -473,6 +464,7 @@ function buildOpenAICompatibleProvider(config: {
 export function modelTierFor(provider: ProviderId, model: string): ModelTier | undefined {
   if (provider === "openai") return openAIModel(model)?.tier;
   if (provider === "anthropic") return anthropicModel(model)?.tier;
+  if (provider === "google") return googleModel(model)?.tier;
   return PROVIDERS[provider]?.models?.find((entry) => entry.value === model)?.tier;
 }
 
