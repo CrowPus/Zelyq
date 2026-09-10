@@ -79,7 +79,7 @@ type InputContentPart =
  * R7 — drop superseded whole-file payloads from the Responses API's `input`
  * array. Pure and exported so it is testable without a live session.
  */
-export function reduceChatGptHistory(items: InputItem[]): InputItem[] {
+export function reduceChatGptHistory<T extends InputItem | { type: "reasoning" }>(items: T[]): T[] {
   const end = Math.max(0, items.length - REDUCTION_TAIL_KEEP);
   let recoverable = 0;
   for (let i = 0; i < end; i++) {

@@ -5,6 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import type { SettingField, SettingsResponse } from "@zelyq/core";
 import { runMigrations } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
@@ -24,6 +25,20 @@ const tmp = path.join(os.tmpdir(), `zelyq-providers-${Date.now()}`);
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 
 const fakeAgent = http.createServer((req, res) => {
+  if (req.url === "/v1/models") {
+    res.setHeader("content-type", "application/json");
+    res.end(
+      JSON.stringify({
+        data: [
+          { id: "gpt-6-astra" },
+          { id: "gpt-5.6" },
+          { id: "gpt-5.6-terra" },
+          { id: "gpt-image-2" },
+        ],
+      }),
+    );
+    return;
+  }
   if (req.url === "/providers") {
     res.setHeader("content-type", "application/json");
     res.end(
@@ -194,4 +209,35 @@ test("a connected Codex session swaps the composer's model list, not just the Se
     "the ordinary API's model must not still be offered for a connected Codex session",
   );
   assert.ok(openai.models.length > 0);
+});
+
+test("API-key discovery produces identical choices in Settings and project chat", async () => {
+  const saved = await server.app.inject({
+    method: "PUT",
+    url: "/api/settings",
+    headers: { cookie },
+    payload: { provider: "openai", openaiApiKey: "fixture-key", modelBaseUrl: agentBase },
+  });
+  assert.equal(saved.statusCode, 200, saved.body);
+  const settings = await server.app.inject({
+    method: "GET",
+    url: "/api/settings",
+    headers: { cookie },
+  });
+  const model = settings
+    .json<SettingsResponse>()
+    .groups.flatMap((group) => group.fields)
+    .find((field: SettingField) => field.key === "model")!;
+  const providers = await server.app.inject({
+    method: "GET",
+    url: "/api/providers",
+    headers: { cookie },
+  });
+  const openai = providers
+    .json()
+    .providers.find((provider: { id: string }) => provider.id === "openai");
+  assert.deepEqual(model.modelOptions, openai.models);
+  assert.deepEqual(model.suggestions, ["auto", "gpt-6-astra", "gpt-5.6", "gpt-5.6-terra"]);
+  assert.equal(openai.modelAvailability, "verified");
+  assert.ok(!providers.body.includes("fixture-key"));
 });

@@ -1,3 +1,5 @@
+import { OPENAI_MODELS } from "@zelyq/core";
+
 /**
  * Per-model USD rates, for the eval report's cost line and nothing else.
  *
@@ -38,13 +40,36 @@ export const MODEL_RATES: Record<string, ModelRate> = {
   "claude-sonnet-5": { inputPer1M: 3, outputPer1M: 15, ...ANTHROPIC_CACHE },
   "claude-sonnet-4-6": { inputPer1M: 3, outputPer1M: 15, ...ANTHROPIC_CACHE },
   "claude-haiku-4-5": { inputPer1M: 1, outputPer1M: 5, ...ANTHROPIC_CACHE },
-  // Estimates — the models the suite has historically run on.
+  // OpenAI's current catalog carries its own list prices, so those entries are
+  // derived below rather than copied here — a copy is what goes stale.
+  // Estimates — older OpenAI models the suite has historically run on.
   "gpt-5.2": { inputPer1M: 1.25, outputPer1M: 10, cacheReadFactor: 0.1, cacheCreationFactor: 0 },
   "gpt-5.1": { inputPer1M: 1.25, outputPer1M: 10, cacheReadFactor: 0.1, cacheCreationFactor: 0 },
   "gemini-3.7-flash": { inputPer1M: 0.3, outputPer1M: 2.5, ...NO_CACHE },
   "gemini-2.5-flash": { inputPer1M: 0.3, outputPer1M: 2.5, ...NO_CACHE },
   "gemini-pro-latest": { inputPer1M: 1.25, outputPer1M: 10, ...NO_CACHE },
 };
+
+/**
+ * Every catalog model that publishes a list price, under both its ID and any
+ * alias a key might list it as. Priced from the same source the picker shows,
+ * so the two cannot disagree. A catalog entry with no price stays absent, and
+ * the report simply omits its `$` — the honest failure mode described above.
+ * Hand-written entries win: a figure someone deliberately checked is not
+ * overwritten by a derived one.
+ */
+for (const model of OPENAI_MODELS) {
+  const { inputPricePerMillion: input, outputPricePerMillion: output } = model;
+  if (!input || !output) continue;
+  const rate: ModelRate = {
+    inputPer1M: input,
+    outputPer1M: output,
+    cacheReadFactor: (model.cachedInputPricePerMillion ?? 0) / input,
+    cacheCreationFactor: 0,
+  };
+  for (const id of [model.value, ...(model.aliases ?? [])])
+    if (!(id in MODEL_RATES)) MODEL_RATES[id] = rate;
+}
 
 export interface TokenCounts {
   tokensIn: number;

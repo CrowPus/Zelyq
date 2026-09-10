@@ -125,7 +125,7 @@ test("an ordinary OpenAI session (no subscription mode) still gets its usual def
     },
   });
   assert.equal(response.statusCode, 201, response.body);
-  assert.equal(response.json().model, "gpt-5.2");
+  assert.equal(response.json().model, "gpt-5.6-terra");
 });
 
 // ---------------------------------------------------------------------------

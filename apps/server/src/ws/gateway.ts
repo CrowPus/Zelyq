@@ -355,12 +355,7 @@ export class ChatGateway {
       const provider = override.provider ?? settingsProvider;
       const pickedDifferentProvider = provider !== settingsProvider;
       const apiKey = await this.settings.apiKeyFor(provider);
-      // A provider picked from the chat that isn't the settings-configured
-      // one has no subscription session detected for it — only ever
-      // meaningful for the provider Settings actually names.
-      const authMode = pickedDifferentProvider
-        ? "api_key"
-        : await this.settings.authModeFor(provider);
+      const authMode = await this.settings.authModeFor(provider);
       // Settings' own `model` and `modelBaseUrl` were configured for
       // whichever provider settings actually names — forwarding either to a
       // different provider picked from the chat would redirect it to a
@@ -375,9 +370,18 @@ export class ChatGateway {
       // is active would also block a model deliberately typed *for* that
       // session. `modelFor` only forces empty when nothing is genuinely
       // stored; a real, deliberate choice always wins regardless of mode.
-      const model =
+      const requestedModel =
         override.model ?? (pickedDifferentProvider ? "" : await this.settings.modelFor(provider));
-      const baseUrl = pickedDifferentProvider ? "" : await this.settings.value("modelBaseUrl");
+      const model =
+        provider === "openai"
+          ? await this.settings.resolveOpenAIModel(requestedModel)
+          : requestedModel;
+      const baseUrl =
+        provider === "openai"
+          ? await this.settings.openAIBaseUrl()
+          : pickedDifferentProvider
+            ? ""
+            : await this.settings.value("modelBaseUrl");
       // An identity-linked Claude key is rejected without its workspace id.
       // Only meaningful when the turn actually runs on Anthropic.
       const anthropicWorkspaceId =

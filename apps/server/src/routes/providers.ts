@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { AgentClient } from "../services/agent-client.js";
-import { CODEX_MODEL_CANDIDATES, type SettingsService } from "../services/settings.js";
+import type { SettingsService } from "../services/settings.js";
 
 /**
  * What the chat's model picker needs. Unlike `/api/settings`,
@@ -29,16 +29,7 @@ export function registerProviderRoutes(
       listed.providers.map(async (provider) => ({
         ...provider,
         configured: Boolean(await deps.settings.apiKeyFor(provider.id)),
-        // In the composer's own model picker, not just Settings'
-        // suggestions: a Codex session's real model names
-        // are a different, unconfirmed set from the ordinary API's single
-        // "gpt-5.2" — fixing the suggestions in Settings and missing this,
-        // the picker a person actually uses daily, left it looking like
-        // nothing had changed at all.
-        ...(provider.id === "openai" &&
-        (await deps.settings.authModeFor("openai")) === "subscription"
-          ? { models: CODEX_MODEL_CANDIDATES.map((value) => ({ value, label: value })) }
-          : {}),
+        ...(provider.id === "openai" ? await deps.settings.openAIModels() : {}),
       })),
     );
     // Same story as `configured` above: the agent's own `default` is

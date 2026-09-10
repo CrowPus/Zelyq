@@ -107,7 +107,7 @@ test("createProvider routes openai + subscription to ChatGptResponsesProvider", 
   assert.equal(provider.id, "openai");
 });
 
-test("createProvider without subscription mode still uses the ordinary OpenAI-dialect provider", () => {
+test("createProvider without subscription mode uses the public OpenAI provider", () => {
   const provider = createProvider({ provider: "openai", model: "gpt-5.1", apiKey: "sk-real" });
   assert.ok(!(provider instanceof ChatGptResponsesProvider));
 });

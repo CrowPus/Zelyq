@@ -6,6 +6,7 @@ import {
   providerIdSchema,
   toolCallSchema,
 } from "./models.js";
+import { modelOptionSchema } from "./openai-models.js";
 
 /**
  * The wire protocol, defined once and imported by every process.
@@ -425,7 +426,11 @@ export const availableProvidersSchema = z.object({
        * just "Claude" — so the picker offers a tier, not only a vendor.
        * Absent means nothing is confirmed yet for this provider.
        */
-      models: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+      models: z.array(modelOptionSchema).optional(),
+      modelAvailability: z
+        .enum(["verified", "unverified", "subscription", "unconfigured"])
+        .optional(),
+      modelNotice: z.string().optional(),
     }),
   ),
 });

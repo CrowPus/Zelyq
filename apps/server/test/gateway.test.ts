@@ -42,6 +42,10 @@ function fakeAgent() {
       send(404, { error: { message: "not found" } });
       return;
     }
+    if (req.method === "GET" && req.url === "/v1/models") {
+      send(200, { data: [{ id: "gpt-6-astra" }, { id: "gpt-5.6-terra" }] });
+      return;
+    }
     if (req.method === "GET" && req.url === "/providers") {
       send(200, {
         default: "google",
@@ -610,7 +614,7 @@ test("a base URL configured for the live provider is not forwarded to a provider
     assert.equal(agent.created[0]?.provider, "openai");
     assert.equal(
       agent.created[0]?.baseUrl,
-      undefined,
+      "https://api.openai.com/v1",
       "google's own base URL must not reach a provider picked instead of it",
     );
   } finally {
@@ -1325,5 +1329,85 @@ test("a turn that changes a file produces a real git commit in the project's own
     );
   } finally {
     await runtime.dispose();
+  }
+});
+
+test("OpenAI Auto and explicit selections resolve from Settings and project chat", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "fixture-openai-key";
+  const agentAddress = agent.server.address() as { port: number };
+  await server.store.settings.set("provider", "openai");
+  await server.store.settings.set("model", "auto");
+  await server.store.settings.set("modelBaseUrl", `http://127.0.0.1:${agentAddress.port}`);
+  try {
+    const { cookie } = await register("openai-auto-routing@example.com");
+    const address = server.app.server.address() as { port: number };
+    async function prompt(model?: string) {
+      const project = (
+        await server.app.inject({
+          method: "POST",
+          url: "/api/projects",
+          headers: { cookie },
+          payload: { name: "OpenAI model routing" },
+        })
+      ).json().project;
+      const ws = new WebSocket(`ws://127.0.0.1:${address.port}/ws/projects/${project.id}`, {
+        headers: { cookie },
+      });
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error("prompt timed out"));
+        }, 10_000);
+        ws.on("error", (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+        ws.on("message", (raw) => {
+          const event = JSON.parse(raw.toString());
+          if (event.type === "connected")
+            ws.send(
+              JSON.stringify({
+                type: "prompt",
+                message: "check",
+                ...(model ? { provider: "openai", model } : {}),
+              }),
+            );
+          if (event.type === "error") {
+            clearTimeout(timeout);
+            ws.close();
+            reject(new Error(JSON.stringify(event)));
+          }
+          if (event.type === "turn.end") {
+            clearTimeout(timeout);
+            ws.close();
+            resolve();
+          }
+        });
+      });
+      return agent.created.at(-1)!;
+    }
+    assert.equal((await prompt()).model, "gpt-5.6-terra");
+    assert.equal((await prompt("gpt-6-astra")).model, "gpt-6-astra");
+    assert.equal((await prompt("auto")).model, "gpt-5.6-terra");
+    await fs.writeFile(
+      path.join(tmp, "codex-auth.json"),
+      JSON.stringify({ tokens: { access_token: "fixture-token", account_id: "fixture-account" } }),
+    );
+    const connected = await server.app.inject({
+      method: "POST",
+      url: "/api/settings/cli-sessions/openai/use",
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(connected.statusCode, 200, connected.body);
+    await server.store.settings.set("provider", "google");
+    const subscription = await prompt("gpt-6-astra");
+    assert.equal(subscription.authMode, "subscription");
+    assert.equal(subscription.apiKey, "fixture-token:fixture-account");
+  } finally {
+    for (const key of ["provider", "model", "modelBaseUrl", "openaiAuthMode", "openaiApiKey"])
+      await server.store.settings.remove(key);
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
   }
 });
