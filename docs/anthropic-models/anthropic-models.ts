@@ -182,12 +182,13 @@ export function anthropicThinkingConfig(
 ): { effort?: Effort; thinking: Record<string, unknown> } {
   const model = anthropicModel(id);
   // An unknown custom ID gets no guessed parameters, as with OpenAI.
-  if (!model) return { thinking: { type: "adaptive", display: "summarized" } };
+  if (!model) return { effort: undefined, thinking: { type: "adaptive", display: "summarized" } };
 
   if (model.thinking === "budget") {
     // Must be >= 1024 and strictly less than max_tokens.
     const budget = Math.max(1024, Math.floor(maxTokens / 2));
     return {
+      effort: undefined,
       thinking:
         budget < maxTokens ? { type: "enabled", budget_tokens: budget } : { type: "disabled" },
     };
@@ -204,8 +205,14 @@ function clampEffort(supported: readonly Effort[], requested: Effort): Effort | 
   if (!supported.length) return undefined;
   if (supported.includes(requested)) return requested;
   const rank = fullEfforts.indexOf(requested);
+  const fallback = fullEfforts.find((effort) => supported.includes(effort as Effort)) as
+    | Effort
+    | undefined;
   return (
-    [...supported].reverse().find((effort) => fullEfforts.indexOf(effort) <= rank) ?? supported[0]
+    (fullEfforts
+      .slice(0, rank + 1)
+      .reverse()
+      .find((effort) => supported.includes(effort as Effort)) as Effort | undefined) ?? fallback
   );
 }
 
