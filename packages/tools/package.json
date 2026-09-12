@@ -23,7 +23,7 @@
   "dependencies": {
     "@zelyq/core": "workspace:*",
     "@zelyq/runtime": "workspace:*",
-    "playwright": "^1.62.1",
+    "playwright": "^1.63.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
