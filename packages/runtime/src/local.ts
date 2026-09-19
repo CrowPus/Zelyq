@@ -11,6 +11,19 @@ import {
   type Snapshot,
   ZelyqError,
 } from "@zelyq/core";
+import {
+  cleanProcessEnv,
+  ensureUvToolchain,
+  installManagedDependencies,
+  MANAGED_CAPABILITY,
+  managedCapabilities,
+  managedStatus,
+  managedUnsupported,
+  prepareManagedRuntime,
+  readRuntimeManifest,
+  toolchainPath,
+  withManagedLock,
+} from "./managed.js";
 import { assertRealPathInside, isIgnored, resolveInside, toPosix } from "./paths.js";
 import { allocatePort, previewUrl, releasePort, waitForPort } from "./ports.js";
 import type {
@@ -77,6 +90,7 @@ export interface PreviewRecord {
    * backend. Public values only; never a credential.
    */
   supabaseEnv?: string;
+  configurationRevision?: string;
 }
 
 /**
@@ -160,6 +174,8 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   /** See `RuntimeConfig.previewUrlTemplate`. */
   private readonly previewUrlTemplate: string | undefined;
   private readonly previews = new Map<string, PreviewProcess>();
+  /** Why provisioning the Python toolchain failed, so the error can say. */
+  private toolchainFailure: string | null = null;
 
   constructor(config: RuntimeConfig) {
     this.workspaceDir = path.resolve(config.workspaceDir);
@@ -187,10 +203,59 @@ export class LocalRuntimeDriver implements RuntimeDriver {
         ok: true,
         detail: `workspace ${this.workspaceDir}`,
         version: process.version,
+        capabilities: await this.managedCapabilities(),
       };
     } catch (error) {
       return { kind: this.kind, ok: false, detail: (error as Error).message };
     }
+  }
+
+  /**
+   * Whether this machine can run a managed Python project — installing the
+   * toolchain if it is missing, rather than reporting that it is not there.
+   *
+   * Setting up Python is the platform's job. This is the one place that decides
+   * it, and it is cached, so the cost lands once: the first time anyone lists
+   * templates or starts a Python preview.
+   */
+  private managedCapabilities(): Promise<string[]> {
+    return managedCapabilities(`local:${this.workspaceDir}`, async () => {
+      const result = await ensureUvToolchain(this.workspaceDir, {
+        run: async (command, env) => this.runShell(command, env),
+      });
+      this.toolchainFailure = result.ok ? null : (result.reason ?? null);
+      return result.ok;
+    });
+  }
+
+  /**
+   * One command, in exactly the environment project commands get.
+   *
+   * Deliberately the same shell invocation as `exec`, down to `-c` rather than
+   * `-lc`: a login shell sources the user's profile and finds a `uv` that
+   * install steps, which do not, will then fail to run. Probing a richer
+   * environment than the work happens in is how a capability check comes back
+   * "supported" and the very next command reports "uv: command not found".
+   */
+  private async runShell(
+    command: string,
+    env: Record<string, string> = {},
+  ): Promise<{ exitCode: number }> {
+    return await runCaptured(
+      process.platform === "win32" ? "cmd.exe" : "/bin/bash",
+      [process.platform === "win32" ? "/c" : "-c", command],
+      {
+        cwd: this.workspaceDir,
+        env: { ...cleanProcessEnv(), PATH: this.commandPath(), ...env },
+        timeoutMs: 180_000,
+        maxOutputBytes: 8000,
+      },
+    );
+  }
+
+  /** PATH for every project command: Zelyq's own toolchain, then node, then the host's. */
+  private commandPath(): string {
+    return toolchainPath(this.workspaceDir, pathWithNodeFirst());
   }
 
   async ensureProject(projectId: string): Promise<ProjectRuntime> {
@@ -237,8 +302,8 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     return await runCaptured(shell, shellArgs, {
       cwd,
       env: {
-        ...process.env,
-        PATH: pathWithNodeFirst(),
+        ...cleanProcessEnv(),
+        PATH: this.commandPath(),
         ...agentCommandEnv(options.env),
       },
       timeoutMs: options.timeoutMs ?? this.execTimeoutMs,
@@ -356,16 +421,40 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   // -------------------------------------------------------------------------
 
   async startPreview(projectId: string, options: PreviewOptions = {}): Promise<Preview> {
+    await this.requireRoot(projectId);
+    return withManagedLock(this.workspaceDir, projectId, () =>
+      this.startPreviewUnlocked(projectId, options),
+    );
+  }
+
+  private async startPreviewUnlocked(projectId: string, options: PreviewOptions): Promise<Preview> {
     // The caller (a preview route or the agent tool) may pass a
     // linked project's public Supabase config in `options.env`. A running
     // preview started with different values is stale: linking or re-linking a
     // backend has to actually reach the dev server, so restart when it changes.
-    const wantSupabaseEnv = supabaseEnvFingerprint(options.env);
+    const wantSupabaseEnv =
+      supabaseEnvFingerprint(options.env) + (options.configurationRevision ?? "");
+
+    // A managed project's backend configuration is resolved by the server and
+    // arrives as `backendEnv` + `configurationRevision`. A caller that passes
+    // neither is not asking for "a preview with no database" — it simply does
+    // not handle configuration (an eval harness, a health check). Restarting a
+    // configured preview as unconfigured on its behalf silently drops the
+    // user's database and reports success, so leave what is running alone.
+    const unconfiguredStart =
+      options.configurationRevision === undefined &&
+      options.backendEnv === undefined &&
+      (await readRuntimeManifest(this, projectId)) !== null;
 
     const existing = this.previews.get(projectId);
     if (existing && existing.status !== "crashed") {
-      if (existing.supabaseEnv === wantSupabaseEnv) return this.toPreview(projectId, existing);
-      await this.stopPreview(projectId);
+      // Through `managedStatus` like every other return: a caller that starts
+      // an already-running project still needs the per-service rows, and a
+      // backend that has since died still has to fail the aggregate.
+      if (unconfiguredStart || existing.supabaseEnv === wantSupabaseEnv) {
+        return managedStatus(this.rootFor(projectId), this.toPreview(projectId, existing));
+      }
+      await this.stopPreviewUnlocked(projectId);
     }
 
     // The agent and the server each construct their own driver, so a preview
@@ -376,13 +465,25 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     if (adopted) {
       const record = await this.readPreviewRecord(projectId);
       const adoptedEnv = record?.supabaseEnv ?? "";
-      if (adopted.status === "crashed" || adoptedEnv === wantSupabaseEnv) return adopted;
+      if (adopted.status === "crashed" || unconfiguredStart || adoptedEnv === wantSupabaseEnv) {
+        return managedStatus(this.rootFor(projectId), adopted);
+      }
       // Stale backend config on an adopted preview: end it and start fresh.
       if (record?.pid) killPidTree(record.pid);
       await this.clearPreviewRecord(projectId);
     }
 
     const root = await this.requireRoot(projectId);
+    const manifest = await readRuntimeManifest(this, projectId);
+    if (manifest) {
+      // Checked before installing: "uv: command not found" buried in an npm
+      // install log reads like the project is broken, not the machine.
+      if (!(await this.managedCapabilities()).includes(MANAGED_CAPABILITY)) {
+        throw managedUnsupported("this machine", this.toolchainFailure ?? undefined);
+      }
+      await prepareManagedRuntime(root, manifest);
+      await installManagedDependencies(this, projectId, root, manifest);
+    }
 
     // A dev server with no dependencies installed fails in a way that reads
     // like a code error, so install first and surface that separately.
@@ -390,7 +491,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       .access(path.join(root, "node_modules"))
       .then(() => true)
       .catch(() => false);
-    if (!hasModules) {
+    if (!manifest && !hasModules) {
       const install = await this.exec(projectId, {
         // --include=dev is belt and braces alongside the NODE_ENV default in
         // exec: the dev server itself is a devDependency.
@@ -408,14 +509,15 @@ export class LocalRuntimeDriver implements RuntimeDriver {
           supabaseEnv: wantSupabaseEnv,
         };
         this.previews.set(projectId, preview);
-        return this.toPreview(projectId, preview);
+        return managedStatus(root, this.toPreview(projectId, preview));
       }
     }
 
     const requestedPort = normalizePreviewPort(options.port);
     const port = requestedPort ?? (await allocatePort(this.portRange));
-    const command =
-      options.command ?? (await this.detectDevCommand(root, port, this.previewBindHost));
+    const command = manifest
+      ? "exec node .zelyq/supervisor.mjs"
+      : (options.command ?? (await this.detectDevCommand(root, port, this.previewBindHost)));
 
     const child = spawn(
       process.platform === "win32" ? "cmd.exe" : "/bin/bash",
@@ -423,14 +525,15 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       {
         cwd: root,
         env: {
-          ...process.env,
-          PATH: pathWithNodeFirst(),
+          ...cleanProcessEnv(),
+          PATH: this.commandPath(),
           NODE_ENV: "development",
           ...options.env,
+          ...(manifest ? { ZELYQ_BACKEND_ENV: JSON.stringify(options.backendEnv ?? {}) } : {}),
           PORT: String(port),
           HOST: this.previewBindHost,
+          // See agentCommandEnv: FORCE_COLOR of any value forces colour.
           NO_COLOR: "1",
-          FORCE_COLOR: "0",
         },
         detached: process.platform !== "win32",
       },
@@ -501,12 +604,26 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       void this.clearPreviewRecord(projectId);
     });
 
+    // A child that has already exited is never going to listen. Without this
+    // arm, a Python API that fails on import costs the full 90-second port
+    // wait even though the supervisor gave up and recorded the crash within
+    // thirty — and the person watching just sees a spinner.
+    const childExited = new Promise<false>((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) return resolve(false);
+      child.once("exit", () => resolve(false));
+    });
+
     const ready = await Promise.race([
       waitForPort(port, PREVIEW_READY_TIMEOUT_MS),
       // A short grace after a stray URL: something else in the output may
       // simply have mentioned a port, and our own server may still be a second
       // away. Three seconds, not ninety.
       wentElsewhere.then(() => waitForPort(port, 3_000)),
+      // Give the exit handler a moment to record why, so the message below is
+      // the real reason rather than a generic timeout.
+      childExited.then(
+        () => new Promise<false>((resolve) => setTimeout(() => resolve(false), 250)),
+      ),
     ]);
 
     if (ready && preview.status === "starting") preview.status = "running";
@@ -526,14 +643,26 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       await this.clearPreviewRecord(projectId);
     }
 
-    return this.toPreview(projectId, preview);
+    return managedStatus(root, this.toPreview(projectId, preview));
   }
 
   async stopPreview(projectId: string): Promise<Preview> {
+    return withManagedLock(this.workspaceDir, projectId, () => this.stopPreviewUnlocked(projectId));
+  }
+
+  private async stopPreviewUnlocked(projectId: string): Promise<Preview> {
     const preview = this.previews.get(projectId);
     if (preview) {
       preview.status = "stopped";
-      if (preview.child) killTree(preview.child);
+      if (preview.child) {
+        killTree(preview.child);
+        await new Promise<void>((resolve) => {
+          if (preview.child.exitCode !== null || preview.child.signalCode !== null)
+            return resolve();
+          preview.child.once("exit", () => resolve());
+          setTimeout(resolve, 3500).unref();
+        });
+      }
       releasePort(preview.port);
       this.previews.delete(projectId);
       await this.clearPreviewRecord(projectId);
@@ -557,15 +686,18 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     // process has a preview running perfectly well, and reporting our corpse
     // told the user their dev server had stopped when it had not.
     if (preview && preview.status !== "crashed" && preview.status !== "stopped") {
-      return this.toPreview(projectId, preview);
+      return managedStatus(this.rootFor(projectId), this.toPreview(projectId, preview));
     }
 
     const adopted = await this.adoptPreview(projectId);
-    if (adopted) return adopted;
+    if (adopted) return managedStatus(this.rootFor(projectId), adopted);
 
     // Nothing is running anywhere, so our own record — with its error — is the
     // most useful thing we have.
-    return preview ? this.toPreview(projectId, preview) : stoppedPreview(projectId);
+    return managedStatus(
+      this.rootFor(projectId),
+      preview ? this.toPreview(projectId, preview) : stoppedPreview(projectId),
+    );
   }
 
   async previewLogs(projectId: string, lines = 200): Promise<string> {
@@ -873,9 +1005,14 @@ export function agentCommandEnv(extra?: Record<string, string>): Record<string, 
     NODE_ENV: "development",
     ...extra,
     // Keep tool output parseable: no spinners, no colour codes, no pagers.
+    // NO_COLOR is the switch that means "off" everywhere. FORCE_COLOR is
+    // deliberately absent: under the force-color.org convention ANY value
+    // forces colour, "0" included, and it outranks NO_COLOR — ruff read
+    // FORCE_COLOR=0 as "colour on" and filled every Python check (and the
+    // agent's context) with escape codes. Output that is not a terminal gets
+    // no colour from Node tools without it.
     CI: "1",
     NO_COLOR: "1",
-    FORCE_COLOR: "0",
     TERM: "dumb",
     PAGER: "cat",
   };

@@ -369,6 +369,15 @@ export function PreviewPanel({
           />
         )}
 
+        {preview?.services && (
+          <div className="flex gap-3 border-t border-border px-3 py-2 text-xs" role="status">
+            {preview.services.map((service) => (
+              <span key={service.id} title={service.lastError ?? undefined}>
+                {service.id}: {service.status}
+              </span>
+            ))}
+          </div>
+        )}
         {showLogs && (
           <div className="absolute inset-x-0 bottom-0 border-t border-border-default bg-surface">
             <div className="flex h-7 items-center justify-between border-b border-border-default px-2.5">

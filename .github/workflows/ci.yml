@@ -13,6 +13,10 @@ concurrency:
 env:
   NODE_VERSION: "22"
   GITLEAKS_VERSION: "8.30.1"
+  # Kept in step with docker/sandbox.Dockerfile, docker/Dockerfile and the
+  # starter's own Dockerfile — the toolchain that installs and runs a
+  # generated project's Python service.
+  UV_VERSION: "0.12.16"
 
 jobs:
   security:
@@ -122,6 +126,92 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # The React/FastAPI starter is scaffolded verbatim into a user's project, so
+  # its own checks are the thing that has to keep passing — a green workspace
+  # says nothing about whether a generated Python app still installs and runs.
+  python-starter:
+    name: React/FastAPI starter
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: templates/react-fastapi
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      # --locked is the point: a lockfile that no longer matches pyproject.toml
+      # fails here rather than silently resolving something else on a user's
+      # first preview.
+      - name: Install Python dependencies from the committed lock
+        run: uv sync --locked --all-extras
+        working-directory: templates/react-fastapi/backend
+
+      - name: Install frontend dependencies from the committed lock
+        run: npm ci --no-audit --no-fund --include=dev
+
+      - name: Python lint
+        run: uv run --locked --all-extras ruff check .
+        working-directory: templates/react-fastapi/backend
+
+      - name: Python types
+        run: uv run --locked --all-extras mypy app
+        working-directory: templates/react-fastapi/backend
+
+      # From an empty directory, the way a new project starts. Catches a
+      # migration that no longer applies to a clean database.
+      - name: Migrations apply to a fresh database
+        run: |
+          rm -rf "$RUNNER_TEMP/dbcheck" && mkdir -p "$RUNNER_TEMP/dbcheck"
+          ZELYQ_DATA_DIR="$RUNNER_TEMP/dbcheck" uv run --locked --all-extras alembic upgrade head
+        working-directory: templates/react-fastapi/backend
+
+      # The models and the migrations must agree: an autogenerate run against
+      # the just-migrated database has to come up with nothing left to do.
+      - name: Migrations match the models
+        run: |
+          ZELYQ_DATA_DIR="$RUNNER_TEMP/dbcheck" uv run --locked --all-extras \
+            alembic revision --autogenerate -m drift --rev-id cidriftcheck
+          if grep -qE '^\s*op\.' migrations/versions/cidriftcheck_drift.py; then
+            echo "Models changed without a migration. Run npm run db:revision -- \"what changed\" and commit it."
+            cat migrations/versions/cidriftcheck_drift.py
+            exit 1
+          fi
+          rm -f migrations/versions/cidriftcheck_drift.py
+        working-directory: templates/react-fastapi/backend
+
+      - name: API tests
+        run: uv run --locked --all-extras pytest -q
+        working-directory: templates/react-fastapi/backend
+
+      - name: Frontend types
+        run: npm run typecheck
+
+      - name: Frontend build
+        run: npm run build
+
+      # Regenerates the OpenAPI document and the TypeScript client, and fails
+      # if either differs from what is committed.
+      - name: API contract is current
+        run: npm run api:check
+
+      # npm/pnpm audits never see Python. Advisories are reported without
+      # failing the build until an exception policy is agreed — see docs/python.md.
+      - name: Python advisories
+        continue-on-error: true
+        run: |
+          uv export --frozen --all-extras --no-hashes --format requirements-txt > /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt
+        working-directory: templates/react-fastapi/backend
+
   docker:
     name: Docker image builds
     runs-on: ubuntu-latest
@@ -134,6 +224,17 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The starter's production container is what a user deploys. It is built
+      # here so a broken Dockerfile is caught before it reaches one.
+      - name: Build the React/FastAPI starter image
+        uses: docker/build-push-action@v7
+        with:
+          context: templates/react-fastapi
+          file: templates/react-fastapi/Dockerfile
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max

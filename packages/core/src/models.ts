@@ -444,6 +444,11 @@ export const previewSchema = z.object({
   pid: z.number().int().nullable(),
   startedAt: z.string().datetime().nullable(),
   lastError: z.string().nullable(),
+  services: z
+    .array(
+      z.object({ id: z.string(), status: previewStatusSchema, lastError: z.string().nullable() }),
+    )
+    .optional(),
 });
 export type Preview = z.infer<typeof previewSchema>;
 
@@ -473,6 +478,8 @@ export type Snapshot = z.infer<typeof snapshotSchema>;
 export const auditActionSchema = z.enum([
   "project.created",
   "project.updated",
+  "project.backend.updated",
+  "project.backend.disconnected",
   "project.deleted",
   "project.pushed",
   "project.git_remote_set",

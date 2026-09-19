@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import { announcedPort, LocalRuntimeDriver } from "../src/local.js";
+import { resetManagedCapabilities } from "../src/managed.js";
 import { previewUrl, waitForPort } from "../src/ports.js";
 
 const workspaceDir = path.join(os.tmpdir(), `zelyq-local-driver-${Date.now()}`);
@@ -582,4 +583,74 @@ test("previewUrl: raw host:port without a template, substituted template with on
   );
   // every {port} is substituted
   assert.equal(previewUrl("https://{port}.x.dev/at/{port}", "h", 42), "https://42.x.dev/at/42");
+});
+
+test("Python capability is reported from the environment commands actually run in", async () => {
+  // Regression: the probe once used a *login* shell, which sources the user's
+  // profile. It found a `uv` that install steps — which do not use a login
+  // shell — could not see, so health advertised the capability and the very
+  // next command failed with "uv: command not found". The probe must see
+  // exactly what `exec` sees, no more.
+  const empty = path.join(workspaceDir, "empty-bin");
+  await fs.mkdir(empty, { recursive: true });
+
+  const originalPath = process.env.PATH;
+  process.env.PATH = empty;
+  resetManagedCapabilities();
+  try {
+    const blind = new LocalRuntimeDriver({
+      kind: "local",
+      workspaceDir,
+      execTimeoutMs: 15_000,
+      previewPortRange: [4950, 4960],
+      previewHost: "127.0.0.1",
+    });
+    const health = await blind.health();
+    assert.ok(health.ok, "a host without Python is healthy, just not Python-capable");
+    assert.deepEqual(health.capabilities, [], "no toolchain means no capability claim");
+    await blind.dispose();
+  } finally {
+    process.env.PATH = originalPath;
+    resetManagedCapabilities();
+  }
+});
+
+test("a Python project refuses to start on a host that cannot run it", async () => {
+  const empty = path.join(workspaceDir, "empty-bin");
+  await fs.mkdir(empty, { recursive: true });
+  const originalPath = process.env.PATH;
+  process.env.PATH = empty;
+  resetManagedCapabilities();
+  try {
+    const blind = new LocalRuntimeDriver({
+      kind: "local",
+      workspaceDir,
+      execTimeoutMs: 15_000,
+      previewPortRange: [4950, 4960],
+      previewHost: "127.0.0.1",
+    });
+    await blind.ensureProject("prj_py");
+    await blind.scaffold("prj_py", [
+      {
+        path: "zelyq.runtime.json",
+        content: JSON.stringify({
+          version: 1,
+          stack: "react-fastapi",
+          install: [{ command: "uv sync --locked", cwd: "." }],
+          services: [
+            { id: "backend", argv: ["uv", "run", "x"], healthPath: "/api/health/ready" },
+            { id: "frontend", argv: ["npm", "run", "dev"], healthPath: "/" },
+          ],
+          checks: [{ name: "tests", command: "pytest" }],
+        }),
+      },
+    ]);
+
+    // The message names the missing toolchain, not a shell's "command not found".
+    await assert.rejects(() => blind.startPreview("prj_py"), /uv toolchain/);
+    await blind.dispose();
+  } finally {
+    process.env.PATH = originalPath;
+    resetManagedCapabilities();
+  }
 });

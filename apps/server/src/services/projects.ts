@@ -10,6 +10,7 @@ import {
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { RuntimeDriver } from "@zelyq/runtime";
+import { readRuntimeManifest } from "@zelyq/runtime";
 import type { ServerConfig } from "../config.js";
 import { GIT_MISSING_MESSAGE, GitService, gitIsMissing } from "./git.js";
 import { loadTemplate, templateManifest } from "./templates.js";
@@ -53,6 +54,22 @@ export class ProjectService {
         await this.cloneInto(id, input.gitUrl, input.gitToken);
         await this.assertZelyqCanWorkHere(id);
       } else {
+        // The list route already hides these, but creation is reachable
+        // directly. Refuse before scaffolding rather than leave a project that
+        // can never start a preview.
+        const manifest = await templateManifest(this.config.templatesDir, input.template);
+        if (manifest?.requiresCapability) {
+          const health = await this.runtime.health();
+          if (!health.capabilities?.includes(manifest.requiresCapability)) {
+            throw ZelyqError.badRequest(
+              `The "${manifest.title}" stack needs a runtime that supports ` +
+                `${manifest.requiresCapability}, and this one does not. Zelyq sets up the Python ` +
+                "toolchain itself where it can, so this usually means it could not reach the " +
+                "download, or the configured container image or remote runtime host has no uv. " +
+                "The runtime health detail says which.",
+            );
+          }
+        }
         const files = await loadTemplate(this.config.templatesDir, input.template, {
           projectName: project.name,
           projectSlug: project.slug,
@@ -93,6 +110,14 @@ export class ProjectService {
    */
   async stackFor(id: string): Promise<{ template: string; stack?: string; agentSkill?: string }> {
     const project = await this.store.projects.findById(id);
+    const runtimeManifest = await readRuntimeManifest(this.runtime, id);
+    if (runtimeManifest)
+      return {
+        template: "react-fastapi",
+        stack:
+          "React + Vite + TypeScript; Python 3.11 + FastAPI API; user-selected PostgreSQL/MySQL/SQLite or Supabase",
+        agentSkill: "python-backend",
+      };
     const template = project?.template ?? "vite-react";
     const manifest = await templateManifest(this.config.templatesDir, template);
     return {
@@ -314,7 +339,12 @@ export class ProjectService {
   }
 
   async remove(id: string): Promise<void> {
+    // Existence first. Deleting a project's backend configuration before
+    // establishing there is a project to delete means a `get` that throws
+    // still costs the user their saved connection and secrets.
     await this.get(id);
+    for (const environment of ["development", "test", "production"])
+      await this.store.settings.remove(`project-backend:${id}:${environment}`);
     await this.runtime.removeProject(id);
     await this.store.projects.remove(id);
   }

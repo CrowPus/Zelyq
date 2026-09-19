@@ -226,10 +226,14 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
         "Engineer Mode and Architect Mode are mutually exclusive — turn one off.",
       );
     }
-    if (input.autoMode && !input.architectMode) {
+    // Auto Mode keeps a build going on its own instead of stopping at a
+    // turn's step budget. It needs a mode that builds: Architect runs its
+    // build plan pass after pass; Engineer keeps working until the request is
+    // done. A plain chat has no build to keep going.
+    if (input.autoMode && !input.architectMode && !input.engineerMode) {
       throw new ZelyqError(
         "bad_request",
-        "Auto Mode only runs with Architect Mode — turn Architect Mode on too.",
+        "Auto Mode runs with Architect Mode or Engineer Mode — turn one of them on too.",
       );
     }
     if (input.engineerMode && (resolvedEffort === "low" || resolvedEffort === "medium")) {
@@ -336,6 +340,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       // and the linked project's public config for the preview. Absent unless
       // a Supabase resource is linked to this project.
       ...(input.supabaseBridge ? { supabaseBridge: input.supabaseBridge } : {}),
+      ...(input.previewBridge ? { previewBridge: input.previewBridge } : {}),
       ...(input.imageBridge ? { imageBridge: input.imageBridge } : {}),
       ...(input.videoBridge ? { videoBridge: input.videoBridge } : {}),
       ...(input.supabasePreviewEnv ? { supabasePreviewEnv: input.supabasePreviewEnv } : {}),
@@ -423,22 +428,46 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       if (!reply.raw.writableEnded) session.abort();
     });
 
-    await session.run(
-      input.message,
-      emit,
-      input.attachments,
-      input.skills,
-      input.plugins,
-      input.agents,
-    );
-    // Auto Mode: after the build turn, keep running passes on our own until
-    // the plan is done, it gets stuck, the user stops it, or a
-    // ceiling is hit. `autoNextPass` emits the stop reason and returns false
-    // when the run is over. Each pass streams its own turn to the client.
-    while (!reply.raw.writableEnded && session.autoNextPass(emit)) {
-      await session.run("keep going", emit, undefined, input.skills, input.plugins, input.agents);
+    if (!session.beginRequest()) {
+      emit({
+        type: "error",
+        sessionId: session.id,
+        code: "conflict",
+        message: "This session is already running a turn.",
+        fatal: false,
+      });
+      reply.raw.end();
+      return;
     }
-    reply.raw.end();
+    try {
+      await session.run(
+        input.message,
+        emit,
+        input.attachments,
+        input.skills,
+        input.plugins,
+        input.agents,
+      );
+      // Auto Mode: after the build turn, keep running passes on our own until
+      // the plan is done, it gets stuck, the user stops it, or a
+      // ceiling is hit. `autoNextPass` emits the stop reason and returns false
+      // when the run is over — including after a Stop, which `writableEnded`
+      // alone never saw: a closed connection is not an ended one. Each pass
+      // streams its own turn to the client.
+      while (!reply.raw.writableEnded && session.autoNextPass(emit)) {
+        await session.run(
+          session.autoPassMessage,
+          emit,
+          undefined,
+          input.skills,
+          input.plugins,
+          input.agents,
+        );
+      }
+    } finally {
+      session.endRequest();
+      reply.raw.end();
+    }
   });
 
   return {

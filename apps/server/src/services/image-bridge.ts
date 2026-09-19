@@ -40,18 +40,29 @@ export class ImageBridge {
 
   /**
    * A token for this session, or null when the project has not enabled agent
-   * image generation or the instance has no configured provider. Replaces any
-   * prior token for the session.
+   * image generation or the instance has no configured provider. The session
+   * keeps one token for as long as it runs for the same project and user.
    */
   async mint(sessionId: string, projectId: string, userId: string): Promise<string | null> {
     const project = await this.store.projects.findById(projectId);
-    if (!project?.imageGenerationEnabled) return null;
+    // No permission, no token — and a token this session already held stops
+    // working too, rather than outliving the switch being turned off.
+    if (!project?.imageGenerationEnabled) return this.revokeAndDecline(sessionId);
     // A permission granted against an instance with no image key would hand the
     // model tools that can only fail. Check before minting, not at call time.
-    if (!(await this.images.capabilities()).configured) return null;
+    if (!(await this.images.capabilities()).configured) return this.revokeAndDecline(sessionId);
 
+    // An agent session keeps the token it was created with — a reused session
+    // is never handed a new one — so the session's token is renewed, not
+    // replaced. Replacing it broke the bridge from the session's second prompt.
     for (const [token, grant] of this.grants) {
-      if (grant.sessionId === sessionId) this.grants.delete(token);
+      if (grant.sessionId !== sessionId) continue;
+      if (grant.projectId === projectId && grant.userId === userId) {
+        grant.projectName = project.name;
+        grant.expiresAt = Date.now() + TOKEN_TTL_MS;
+        return token;
+      }
+      this.grants.delete(token);
     }
     const token = randomBytes(32).toString("base64url");
     this.grants.set(token, {
@@ -76,6 +87,11 @@ export class ImageBridge {
     }
     const { projectId, projectName, userId, sessionId } = grant;
     return { projectId, projectName, userId, sessionId };
+  }
+
+  private revokeAndDecline(sessionId: string): null {
+    this.revokeSession(sessionId);
+    return null;
   }
 
   /** Drop every token for a session (called when it ends). */

@@ -63,3 +63,11 @@ playwright-report/
 # Playwright's own throwaway server
 .playwright/
 .codex
+
+# Python project toolchains and generated runtime state
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.runtime-data/

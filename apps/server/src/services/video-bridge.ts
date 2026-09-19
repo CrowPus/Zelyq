@@ -37,15 +37,26 @@ export class VideoBridge {
 
   async mint(sessionId: string, projectId: string, userId: string): Promise<string | null> {
     const project = await this.store.projects.findById(projectId);
-    if (!project?.videoGenerationEnabled) return null;
+    // No permission, no token — and a token this session already held stops
+    // working too, rather than outliving the switch being turned off.
+    if (!project?.videoGenerationEnabled) return this.revokeAndDecline(sessionId);
     // A permission granted on an instance with no video key would hand the
     // model tools that can only fail. Unlike images there is no single default
     // flag — a provider is configured or it is not, and any one will do.
     const { providers } = await this.videos.capabilities();
-    if (!providers.some((provider) => provider.configured)) return null;
+    if (!providers.some((provider) => provider.configured)) return this.revokeAndDecline(sessionId);
 
+    // An agent session keeps the token it was created with — a reused session
+    // is never handed a new one — so the session's token is renewed, not
+    // replaced. Replacing it broke the bridge from the session's second prompt.
     for (const [token, grant] of this.grants) {
-      if (grant.sessionId === sessionId) this.grants.delete(token);
+      if (grant.sessionId !== sessionId) continue;
+      if (grant.projectId === projectId && grant.userId === userId) {
+        grant.projectName = project.name;
+        grant.expiresAt = Date.now() + TOKEN_TTL_MS;
+        return token;
+      }
+      this.grants.delete(token);
     }
     const token = randomBytes(32).toString("base64url");
     this.grants.set(token, {
@@ -69,6 +80,11 @@ export class VideoBridge {
     }
     const { projectId, projectName, userId, sessionId } = grant;
     return { projectId, projectName, userId, sessionId };
+  }
+
+  private revokeAndDecline(sessionId: string): null {
+    this.revokeSession(sessionId);
+    return null;
   }
 
   revokeSession(sessionId: string): void {

@@ -11,6 +11,36 @@ export const startPreviewTool = defineTool({
     restart: z.boolean().optional().describe("Stop a running server first (default false)"),
   }),
   async run(context, input): Promise<ToolResult> {
+    if (context.previewBridge) {
+      const response = await fetch(
+        `${context.previewBridge.url}/api/internal/project-preview/start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-zelyq-preview-bridge": context.previewBridge.token,
+          },
+          body: JSON.stringify({ restart: input.restart }),
+          signal: context.signal,
+        },
+      );
+      if (!response.ok)
+        return {
+          output:
+            "Preview could not start. Check the project's Backend configuration and runtime logs.",
+          isError: true,
+        };
+      const { preview } = (await response.json()) as {
+        preview: { status: string; url: string | null; lastError: string | null };
+      };
+      return {
+        output:
+          preview.status === "running"
+            ? `Preview running at ${preview.url}`
+            : `Preview ${preview.status}: ${preview.lastError ?? "Read preview_logs for details"}`,
+        isError: preview.status !== "running",
+      };
+    }
     if (input.restart) await context.runtime.stopPreview(context.projectId);
 
     // When a Supabase resource is linked, the running app needs

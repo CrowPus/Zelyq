@@ -8,6 +8,7 @@ import {
   setGitRemoteSchema,
   updateProjectSchema,
 } from "@zelyq/core";
+import type { RuntimeDriver } from "@zelyq/runtime";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { ProjectService } from "../services/projects.js";
@@ -15,13 +16,20 @@ import { listTemplates } from "../services/templates.js";
 
 export function registerProjectRoutes(
   app: FastifyInstance,
-  deps: { projects: ProjectService; access: AccessControl; templatesDir: string },
+  deps: {
+    projects: ProjectService;
+    access: AccessControl;
+    templatesDir: string;
+    runtime: RuntimeDriver;
+  },
 ): void {
   const { access } = deps;
 
   app.get("/api/templates", async (request) => {
     access.requireUser(request);
-    return { templates: await listTemplates(deps.templatesDir) };
+    // A stack this runtime cannot run is not offered — see `requiresCapability`.
+    const health = await deps.runtime.health();
+    return { templates: await listTemplates(deps.templatesDir, health.capabilities ?? []) };
   });
 
   app.get("/api/projects", async (request) => {

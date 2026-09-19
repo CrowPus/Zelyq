@@ -263,25 +263,59 @@ test("ordinary git commands still work", async () => {
 // ---------------------------------------------------------------------------
 
 test("B2: read_file pages a long file from the end, never elides the middle", async () => {
-  const content = `${Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+  // Long enough to be paged at all — a short file always comes back whole (B2b).
+  const content = `${Array.from({ length: 3000 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
   const context = stubContext({
     readFile: async () => ({ path: "big.ts", content, encoding: "utf8", truncated: false }),
   });
 
-  const first = await executeTool(context, "read_file", { path: "big.ts", limit: 100 });
+  const first = await executeTool(context, "read_file", { path: "big.ts", limit: 300 });
   assert.match(first.output, /\s+1\tline 1/);
-  assert.match(first.output, /\s+100\tline 100/);
-  assert.ok(!first.output.includes("line 101"), "stops at the limit");
-  assert.match(first.output, /offset: 101 for the rest/);
+  assert.match(first.output, /\s+300\tline 300/);
+  assert.ok(!first.output.includes("line 301"), "stops at the limit");
+  assert.match(first.output, /offset: 301 for the rest/);
   assert.ok(!/characters omitted/.test(first.output), "no middle elision");
 
   const middle = await executeTool(context, "read_file", {
     path: "big.ts",
-    offset: 240,
+    offset: 1240,
+    limit: 250,
+  });
+  assert.match(middle.output, /\s+1240\tline 1240/);
+  assert.match(middle.output, /\s+1489\tline 1489/);
+});
+
+test("B2b: a short file comes back whole, however small a slice was asked for", async () => {
+  // Measured on a real build: a 467-line file read in seven 20–40 line slices,
+  // each costing a whole step from a 50-step turn.
+  const content = `${Array.from({ length: 467 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+  const context = stubContext({
+    readFile: async () => ({ path: "main.py", content, encoding: "utf8", truncated: false }),
+  });
+
+  const slice = await executeTool(context, "read_file", {
+    path: "main.py",
+    offset: 150,
+    limit: 35,
+  });
+  assert.match(slice.output, /\s+1\tline 1\n/, "starts at the top, not at the offset");
+  assert.match(slice.output, /\s+467\tline 467/, "runs to the end, not to offset+limit");
+  assert.match(slice.output, /nothing more to page/, "tells the model to stop paging");
+});
+
+test("B2c: a long file's window is never narrower than a step is worth", async () => {
+  const content = `${Array.from({ length: 3000 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+  const context = stubContext({
+    readFile: async () => ({ path: "big.ts", content, encoding: "utf8", truncated: false }),
+  });
+  const narrow = await executeTool(context, "read_file", {
+    path: "big.ts",
+    offset: 1000,
     limit: 20,
   });
-  assert.match(middle.output, /\s+240\tline 240/);
-  assert.match(middle.output, /\s+259\tline 259/);
+  assert.match(narrow.output, /\s+1000\tline 1000/);
+  assert.match(narrow.output, /\s+1199\tline 1199/, "widened to 200 lines");
+  assert.ok(!narrow.output.includes("line 1200\n"), "and no wider");
 });
 
 test("B3: edit_file hands back the changed region with line numbers", async () => {
@@ -359,4 +393,12 @@ test("B4: two edit_file calls on the same path in one batch both land", async ()
     await runtime.dispose();
     await fs.rm(workspace, { recursive: true, force: true });
   }
+});
+
+test("B8: colour codes are stripped from command output", async () => {
+  const { stripAnsi } = await import("../src/types.js");
+  const esc = String.fromCharCode(27);
+  const ruff = `${esc}[1m${esc}[91mI001${esc}[0m [${esc}[36m*${esc}[0m] Import block is un-sorted`;
+  assert.equal(stripAnsi(ruff), "I001 [*] Import block is un-sorted");
+  assert.equal(stripAnsi("plain text"), "plain text");
 });

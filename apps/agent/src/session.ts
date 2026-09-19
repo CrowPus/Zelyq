@@ -8,7 +8,7 @@ import {
   parseTopology,
   type ToolCall,
 } from "@zelyq/core";
-import type { RuntimeDriver } from "@zelyq/runtime";
+import { type RuntimeDriver, readRuntimeManifest } from "@zelyq/runtime";
 import {
   ALL_TOOLS,
   cinematicPassTool,
@@ -18,6 +18,7 @@ import {
   IMAGE_TOOL_NAMES,
   opsPassTool,
   qaPassTool,
+  stripAnsi,
   type ToolContext,
   type ToolDefinition,
   type ToolResult,
@@ -201,6 +202,58 @@ const ORCH_MAX_TOKENS = 2_000_000;
 const AUTO_MAX_PASSES = 6;
 const AUTO_MAX_TOKENS = 6_000_000;
 const AUTO_MAX_WALLCLOCK_MS = 30 * 60_000;
+/**
+ * How an Engineer turn that ran out of steps says whether the request is done.
+ * "REMAINING: none" ends an Engineer Auto Mode run; anything else — or no line
+ * at all — means there is more, so another pass starts.
+ */
+const ENGINEER_REMAINING_MARKER = "REMAINING:";
+/** How an Engineer turn in Auto Mode says it cannot go on without the user. */
+const ENGINEER_NEEDS_YOU_MARKER = "NEEDS YOU:";
+
+/**
+ * Join back-to-back turns from the same side into one.
+ *
+ * An Auto Mode run saves each pass as its own message — that is what a person
+ * reading the transcript wants — which leaves two or more assistant messages
+ * in a row. Some providers refuse a history that does not alternate (Gemini
+ * requires it outright). The pass boundary means nothing to the model, so the
+ * passes are rejoined here, the single place saved history becomes a
+ * conversation, rather than in each provider.
+ */
+export function mergeConsecutiveTurns<
+  T extends { role: "user" | "assistant"; content: string; toolCalls?: ToolCall[] },
+>(turns: T[]): T[] {
+  const merged: T[] = [];
+  for (const turn of turns) {
+    const previous = merged.at(-1);
+    if (previous && previous.role === turn.role) {
+      merged[merged.length - 1] = {
+        ...previous,
+        content: [previous.content.trim(), turn.content.trim()].filter(Boolean).join("\n\n"),
+        toolCalls: [...(previous.toolCalls ?? []), ...(turn.toolCalls ?? [])],
+      };
+    } else {
+      merged.push({ ...turn });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Shorten verification output without losing the part that matters.
+ *
+ * The start says which checks failed; the end says why — a Python traceback
+ * puts its cause on the very last line. Found live: cutting from the front
+ * reported "the preview crashed" with 2,000 characters of stack frames and no
+ * ImportError, so neither the person nor the agent could see what was wrong.
+ */
+function headAndTail(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.3);
+  const tail = max - head;
+  return `${text.slice(0, head)}\n\n[… ${text.length - max} characters omitted …]\n\n${text.slice(-tail)}`;
+}
 
 // A transient model failure (provider overloaded / rate-limited / connection
 // dropped) is retried this many times, backing off 0.8s → 1.6s → 3.2s,
@@ -280,6 +333,7 @@ export interface SessionOptions {
    * project. Inherited by dispatched builders/verifiers.
    */
   supabaseBridge?: { url: string; token: string };
+  previewBridge?: { url: string; token: string };
   imageBridge?: { url: string; token: string };
   videoBridge?: { url: string; token: string };
   /**
@@ -322,7 +376,12 @@ export interface SessionOptions {
    * Architect and Engineer prompts; a lean specialist child does not get it. */
   aiProviderCatalogText?: string;
   aiProvidersAgentMd?: string;
-  /** Auto Mode. Only honoured with `architectMode`. */
+  /**
+   * Auto Mode: keep the build going instead of stopping at a turn's budget.
+   * With `architectMode` it runs the build plan pass after pass; with
+   * `engineerMode` it continues a turn that ran out of steps with the request
+   * unfinished. Ignored in a plain chat.
+   */
   autoMode?: boolean;
   /** The lean builder profile. A dispatched builder runs with a compact
    * hand-written system prompt (this field) instead of the full
@@ -774,6 +833,7 @@ function devopsPathAllowed(norm: string): boolean {
     return false;
   }
   if (DEVOPS_MD_PATHS.has(norm)) return true;
+  if (["backend/.env.example", "backend/.python-version"].includes(norm)) return true;
   if (/^src\//.test(norm)) return false; // never application code
   if (/^architecture\//.test(norm)) return false; // OPERATIONS.md handled above
   if (/^\.env(\.|$)/.test(norm) && !/\.example$/.test(norm)) return false; // no real .env
@@ -807,6 +867,7 @@ function qaPathAllowed(norm: string): boolean {
     return false;
   }
   if (QA_MD_PATHS.has(norm)) return true;
+  if (norm === "backend/conftest.py" || /^backend\/tests\//.test(norm)) return true;
   if (norm === "architecture/risks.md") return true;
   if (/^architecture\//.test(norm)) return false;
   if (/\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(norm)) return true;
@@ -1436,6 +1497,15 @@ export class AgentSession {
   // progress. Reset to 0 by any clean turn end.
   private cappedBrokenStreak = 0;
 
+  // Set by `abort()`, cleared when the person's next request starts. Auto Mode
+  // reads it between passes: a Stop that lands while no model call is in
+  // flight (during the end-of-turn checks, or between two passes) aborts
+  // nothing, and without this the next pass started with nobody listening.
+  private stopRequested = false;
+  // One request from the person at a time, Auto Mode passes included — see
+  // `beginRequest`.
+  private requestInFlight = false;
+
   // Orchestration run state. Session-scoped, so "build the plan" can span
   // turns against one running total. `killed` is the kill switch; once set,
   // no further builders dispatch and nothing resumes on its own.
@@ -1451,20 +1521,36 @@ export class AgentSession {
     // budget instead of dead-ending at the cap.
     pass: 1,
     // Auto Mode run state.
-    auto: false, // this session was created with autoMode + architectMode
+    auto: false, // this session was created with autoMode + Architect or Engineer
+    // Engineer Mode only: the last turn used its whole step budget, and did
+    // not declare the request finished. Read by `autoNextPass`.
+    engineerOutOfSteps: false,
+    // Engineer Mode only: the question the last turn needs answered before
+    // anything else can happen ("NEEDS YOU: …"). Pauses Auto Mode.
+    engineerNeedsYou: null as string | null,
+    // Engineer Mode only: files the last turn changed. Progress for an
+    // Engineer is "changed something", not "touched a new path" — a pass that
+    // fixes the same files again is working, where two passes that change
+    // nothing at all are going in circles.
+    engineerChangedLastPass: 0,
     autoStartedAt: null as number | null,
     autoTokens: 0, // cumulative builder tokens across the whole auto run
     passCapHitThisTurn: false, // set when dispatch_task refuses at a pass cap
     changedEver: new Set<string>(), // every builder-changed path, for stuck-detection
     changedAtPassStart: 0,
     zeroProgressPasses: 0,
+    // Engineer Mode only: passes in a row that ended with a check failing,
+    // however they ended — out of steps, or the model calling it done.
+    brokenPasses: 0,
   };
 
   constructor(options: SessionOptions) {
     this.id = options.sessionId;
     this.projectId = options.projectId;
     this.options = options;
-    this.orchestration.auto = Boolean(options.autoMode && options.architectMode);
+    this.orchestration.auto = Boolean(
+      options.autoMode && (options.architectMode || options.engineerMode),
+    );
 
     const provider = (options.providerFactory ?? createProvider)({
       provider: options.provider,
@@ -1552,7 +1638,7 @@ export class AgentSession {
             // buildSystemPrompt: <design_references> first (it is what the
             // Designer's step 2 reads before writing DESIGN.md), then the
             // hand-written prompt, then <ui_guidelines> as the closing gate.
-            `${designReferencesBlock(options.designRefCatalogText)}${options.systemPrompt}${
+            `${designReferencesBlock(options.designRefCatalogText)}${options.systemPrompt}${options.template === "react-fastapi" ? `\n\n${PYTHON_BUILDER_SYSTEM_PROMPT}\n${options.stackSkill?.body ?? ""}` : ""}${
               options.agentMd
                 ? `\n\n<ui_guidelines>\nThese MUST/SHOULD/NEVER rules are the UI-quality bar. Check the observable ones against the running preview and fix or report any failure.\n\n${options.agentMd}\n</ui_guidelines>`
                 : ""
@@ -1562,6 +1648,7 @@ export class AgentSession {
               template: options.template,
               skills: options.skills,
               ...(options.stack ? { stack: options.stack } : {}),
+              ...(options.autoMode && options.engineerMode ? { engineerAuto: true } : {}),
               ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
               ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
               ...(options.plan ? { plan: options.plan } : {}),
@@ -1584,16 +1671,18 @@ export class AgentSession {
             }),
       tools: liveTools,
       effort: options.effort,
-      history: (options.history ?? [])
-        .filter(
-          (message) =>
-            message.role !== "system" && (message.content.trim() || message.toolCalls?.length),
-        )
-        .map((message) => ({
-          role: message.role === "assistant" ? ("assistant" as const) : ("user" as const),
-          content: message.content,
-          toolCalls: message.toolCalls,
-        })),
+      history: mergeConsecutiveTurns(
+        (options.history ?? [])
+          .filter(
+            (message) =>
+              message.role !== "system" && (message.content.trim() || message.toolCalls?.length),
+          )
+          .map((message) => ({
+            role: message.role === "assistant" ? ("assistant" as const) : ("user" as const),
+            content: message.content,
+            toolCalls: message.toolCalls,
+          })),
+      ),
     });
 
     // A resumed Architect session whose history already contains a
@@ -1631,7 +1720,50 @@ export class AgentSession {
   }
 
   abort(): void {
+    this.stopRequested = true;
     this.abortController?.abort();
+  }
+
+  /**
+   * The person sent a request — as opposed to an Auto Mode pass, which carries
+   * on the request already running. Returns false while one is in flight: the
+   * gateway can already show the session idle after a Stop while this side is
+   * still finishing a check, and a second request must not clear that Stop.
+   *
+   * An Engineer Auto Mode run belongs to one request, so its ceilings start
+   * again here. Found in review: they carried over, and a session's second
+   * request ran one pass before stopping at "the 6-pass ceiling". The
+   * Architect's run is the build plan, which spans requests on purpose.
+   */
+  beginRequest(): boolean {
+    if (this.requestInFlight) return false;
+    this.requestInFlight = true;
+    this.stopRequested = false;
+    if (this.orchestration.auto && this.options.engineerMode) {
+      const o = this.orchestration;
+      o.pass = 1;
+      o.autoTokens = 0;
+      o.autoStartedAt = null;
+      o.zeroProgressPasses = 0;
+      o.brokenPasses = 0;
+      o.engineerOutOfSteps = false;
+      o.engineerNeedsYou = null;
+    }
+    return true;
+  }
+
+  endRequest(): void {
+    this.requestInFlight = false;
+  }
+
+  /** What the next Auto Mode pass is started with. A pass that ended over a
+   * failing check says so — "keep going" alone reads as "carry on with the
+   * list", and the failure is the first thing to deal with. */
+  get autoPassMessage(): string {
+    return this.options.engineerMode && this.orchestration.brokenPasses > 0
+      ? "keep going — a check was failing when the last pass ended (its output is above). " +
+          "Fix that first, then carry on with whatever is left."
+      : "keep going";
   }
 
   /** The kill switch. Stops any further builder dispatch on this session; a
@@ -1904,6 +2036,8 @@ export class AgentSession {
       projectId: this.projectId,
       projectName: this.options.projectName,
       template: this.options.template,
+      stack: this.options.stack,
+      stackSkill: this.options.stackSkill,
       provider: this.options.provider,
       model,
       effort: this.options.effort,
@@ -1917,6 +2051,7 @@ export class AgentSession {
       // Supabase bridge and the preview config, so a backend build task can
       // apply its migration and the verifier can check it.
       ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
+      ...(this.options.previewBridge ? { previewBridge: this.options.previewBridge } : {}),
       ...(this.options.imageBridge ? { imageBridge: this.options.imageBridge } : {}),
       ...(this.options.videoBridge ? { videoBridge: this.options.videoBridge } : {}),
       ...(this.options.supabasePreviewEnv
@@ -1930,7 +2065,9 @@ export class AgentSession {
         ? spec.systemPrompt
         : isVerify
           ? VERIFIER_SYSTEM_PROMPT
-          : BUILDER_SYSTEM_PROMPT,
+          : this.options.template === "react-fastapi"
+            ? PYTHON_BUILDER_SYSTEM_PROMPT
+            : BUILDER_SYSTEM_PROMPT,
       toolNames,
       // A specialist has a structural write scope, enforced in the child, and
       // an install allowlist (empty ⇒ no installs).
@@ -2327,6 +2464,14 @@ export class AgentSession {
     // This flag reflects only the turn about to run; Auto Mode reads it after
     // the turn to decide whether to start another pass.
     this.orchestration.passCapHitThisTurn = false;
+    this.orchestration.engineerOutOfSteps = false;
+    if (
+      this.orchestration.auto &&
+      this.options.engineerMode &&
+      this.orchestration.autoStartedAt === null
+    ) {
+      this.orchestration.autoStartedAt = Date.now();
+    }
     if (
       this.orchestration.auto &&
       this.orchestration.autoStartedAt === null &&
@@ -2338,6 +2483,10 @@ export class AgentSession {
     const messageId = newId("message");
     this.assetGatePausedThisTurn = false;
     const changedFiles = new Set<string>();
+    // Every path changed at any point in this turn. `changedFiles` is emptied
+    // after each step once its `files.changed` event is out, so by the end of
+    // a turn it holds only the last step's changes — often none.
+    const changedThisTurn = new Set<string>();
     // Set whenever a file changes, cleared once a check has actually run —
     // survives across iterations, unlike changedFiles itself, so the check
     // at the bottom of this loop knows whether anything has changed since
@@ -2364,6 +2513,13 @@ export class AgentSession {
     // message, never the system prompt — a per-turn counter in the prompt would
     // invalidate the cache on every request.
     let budgetWarningDone = false;
+    let finalStepNoticeDone = false;
+    // The turn's latest check failed, whichever path ran it — read by Engineer
+    // Auto Mode, which must not take "REMAINING: none" as done over a failing
+    // check.
+    let endedBroken = false;
+    // The turn's last reply was the model's own summary — see where it is set.
+    let finalReplyWasSummary = false;
     // One-shot re-nudge when the user picked a specialist from the
     // `/agent` menu and the turn is about to end without that specialist's
     // pass tool ever being called. The grant + the `withAgents` instruction
@@ -2423,6 +2579,13 @@ export class AgentSession {
     // checkpoint is expected on real, larger work, not a failure — the
     // user's next prompt continues it, with a fresh per-turn budget.
     const NEW_FILE_CHECKPOINT = 6;
+    // The checkpoint exists so a person can confirm scope before more files
+    // appear. With Engineer Auto Mode on they already have, and the run's own
+    // ceilings (passes, tokens, time, stuck detection) bound it. Every path
+    // into the checkpoint reads this one flag — found live, twice: the write
+    // path was exempted, but files a shell command created still tripped it
+    // at six, and the agent stopped to ask "reply continue" mid-build.
+    const fileCheckpointApplies = !(this.orchestration.auto && !this.options.systemPrompt);
     const newFilesThisTurn = new Set<string>();
     let checkpointReached = false;
     // Once the checkpoint is reached, this decides whether the freeze is
@@ -2538,6 +2701,7 @@ export class AgentSession {
         close: (callId) => emit({ type: "browser.close", sessionId: this.id, callId }),
       },
       ...(this.options.supabaseBridge ? { supabaseBridge: this.options.supabaseBridge } : {}),
+      ...(this.options.previewBridge ? { previewBridge: this.options.previewBridge } : {}),
       ...(this.options.imageBridge ? { imageBridge: this.options.imageBridge } : {}),
       ...(this.options.videoBridge ? { videoBridge: this.options.videoBridge } : {}),
       ...(this.options.supabasePreviewEnv
@@ -2567,6 +2731,35 @@ export class AgentSession {
           );
         }
 
+        // The 80% nudge is advice, and a model mid-flow ignores it: observed
+        // twice on one build, both turns spent their final steps re-reading a
+        // component and ended "hit its internal step limit before it could
+        // write a summary" — the person could not tell the app was finished.
+        // On the last step there is no more room for work, only for saying
+        // what happened, so say that plainly. Tool calls made anyway are not
+        // run (below): a half-applied edit is worse than none.
+        const lastStep =
+          this.options.maxIterations >= 12 && iteration === this.options.maxIterations - 1;
+        if (lastStep && !finalStepNoticeDone) {
+          finalStepNoticeDone = true;
+          // Engineer Auto Mode continues a turn that ran out of steps — unless
+          // the work is in fact done, which only the model can say. Ask for
+          // it as one plain line at the end, which also reads fine to a person.
+          const engineerAuto = this.orchestration.auto && this.options.engineerMode;
+          if (engineerAuto) this.orchestration.engineerOutOfSteps = true;
+          this.conversation.addUserMessage(
+            "This is the LAST step of this turn. Tools will not run any more — do not call any. " +
+              "Reply now with your summary, in plain words: what you built and what now works, " +
+              "what you checked, and exactly what is left. " +
+              (engineerAuto
+                ? "Auto Mode carries on from here on its own with a fresh budget. End your reply " +
+                  `with one line: "${ENGINEER_REMAINING_MARKER} none" if the request is completely ` +
+                  `done, "${ENGINEER_REMAINING_MARKER}" followed by what is still left, or ` +
+                  `"${ENGINEER_NEEDS_YOU_MARKER}" and your question if you cannot go on without one.`
+                : "The user's next message continues from here with a fresh budget."),
+          );
+        }
+
         // A model call that comes back wrong transiently is retried a few
         // times with backoff before it becomes a visible error or a wasted
         // turn. Two shapes count as transient here:
@@ -2579,6 +2772,7 @@ export class AgentSession {
         //     mid-package, every "proceed" producing an empty turn).
         // Only retried while this attempt has streamed nothing, so a
         // mid-stream failure or a real prose answer is never re-run.
+        const textBeforeStep = assistantText.length;
         const result = await (async () => {
           for (let attempt = 0; ; attempt++) {
             let streamedThisAttempt = false;
@@ -2709,6 +2903,12 @@ export class AgentSession {
           break;
         }
 
+        // Whether this reply is the model's own account: words, and no more
+        // tool calls. Only the last reply of a turn counts — one early line
+        // ("Working on it.") followed by forty tool calls is not a summary.
+        finalReplyWasSummary =
+          result.toolCalls.length === 0 && assistantText.slice(textBeforeStep).trim().length > 0;
+
         if (result.toolCalls.length === 0) {
           if (verificationNeeded) {
             verificationNeeded = false;
@@ -2720,12 +2920,16 @@ export class AgentSession {
               const outcome = await this.runVerification(toolContext, check);
               const finished: ToolCall = {
                 ...call,
-                result: outcome.output.slice(0, 4000),
+                result: headAndTail(outcome.output, 4000),
                 isError: outcome.failed,
                 durationMs: Date.now() - startedAt,
               };
               emit({ type: "tool.end", sessionId: this.id, messageId, call: finished });
               toolCalls.push(finished);
+              // The latest check decides. Found in review: a model answered
+              // this failure with "that error is unrelated … REMAINING: none",
+              // changed nothing, and Auto Mode stopped on a broken app.
+              endedBroken = outcome.failed;
 
               if (outcome.failed) {
                 this.conversation.addUserMessage(
@@ -2862,6 +3066,25 @@ export class AgentSession {
           break;
         }
 
+        // Out of steps: whatever these calls would have done cannot be
+        // followed up, so none of them run. The turn ends here, and the
+        // fallback below reports the turn from what did happen. Each call
+        // still gets a result: the provider has already recorded the calls,
+        // and one left unanswered makes every later request in this session
+        // fail — Anthropic and OpenAI both reject that history. Found in
+        // review: an Auto Mode pass, or the person's next message, got a 400.
+        if (lastStep) {
+          this.conversation.addToolResults(
+            result.toolCalls.map((toolCall) => ({
+              id: toolCall.id,
+              name: toolCall.name,
+              output: "Not run: this turn was out of steps.",
+              isError: true,
+            })),
+          );
+          break;
+        }
+
         // Tool calls in one assistant turn are independent: run them
         // concurrently and return every result together.
         const results = await Promise.all(
@@ -2935,8 +3158,12 @@ export class AgentSession {
               checkpointReached &&
               MUTATING_TOOL_NAMES.has(toolCall.name) &&
               !finishPhaseException;
+            // Not in Engineer Auto Mode — see `fileCheckpointApplies`. Found
+            // live: a spec naming nine files hit the checkpoint at the sixth
+            // and the agent crammed the rest into a 700-line App.tsx.
             const newFileCapped =
               this.options.engineerMode &&
+              fileCheckpointApplies &&
               !blockedByCheckpoint &&
               path !== undefined &&
               !newFilesThisTurn.has(path) &&
@@ -3222,7 +3449,7 @@ export class AgentSession {
                 : preOutcome;
             const finished: ToolCall = {
               ...call,
-              result: outcome.output.slice(0, 4000),
+              result: headAndTail(outcome.output, 4000),
               isError: outcome.isError ?? false,
               durationMs: Date.now() - startedAt,
             };
@@ -3310,7 +3537,11 @@ export class AgentSession {
             const wasUnderCap = newFilesThisTurn.size < NEW_FILE_CHECKPOINT;
             const wasFinishPhase = finishPhase;
             for (const filePath of newlyAppeared) newFilesThisTurn.add(filePath);
-            if (wasUnderCap && newFilesThisTurn.size >= NEW_FILE_CHECKPOINT) {
+            if (
+              fileCheckpointApplies &&
+              wasUnderCap &&
+              newFilesThisTurn.size >= NEW_FILE_CHECKPOINT
+            ) {
               checkpointReached = true;
               this.conversation.addUserMessage(
                 `A shell command just created ${newlyAppeared.length} new file(s), bringing this turn's ` +
@@ -3351,6 +3582,7 @@ export class AgentSession {
           }
           anyFileChangedThisTurn = true;
           emit({ type: "files.changed", sessionId: this.id, paths: [...changedFiles] });
+          for (const file of changedFiles) changedThisTurn.add(file);
           changedFiles.clear();
         }
       }
@@ -3399,11 +3631,13 @@ export class AgentSession {
         // fallback with the breakage instead of a reassuring "more to do".
         let brokenNote = "";
         let brokenThisTurn = false;
+        const engineerAuto = this.orchestration.auto && this.options.engineerMode;
         if (!this.options.architectMode && anyFileChangedThisTurn) {
           try {
             const check = await this.needsVerification(toolContext);
             if (check) {
               const outcome = await this.runVerification(toolContext, check);
+              endedBroken = outcome.failed;
               if (outcome.failed) {
                 brokenThisTurn = true;
                 this.cappedBrokenStreak += 1;
@@ -3416,11 +3650,15 @@ export class AgentSession {
                       'there. The better move now is "Undo this turn" to get back to a working ' +
                       "state, then make a smaller, more specific request (or switch to a stronger " +
                       "model in the composer).\n\n" +
-                      `${outcome.output.slice(0, 2000)}\n\n`
-                    : "⚠️ The app is BROKEN right now — this turn ran out of steps before it " +
-                      'finished. Reply "keep going" to continue the fix, or use "Undo this turn" ' +
-                      "to revert.\n\n" +
-                      `${outcome.output.slice(0, 2000)}\n\n`;
+                      `${headAndTail(outcome.output, 2000)}\n\n`
+                    : engineerAuto
+                      ? "⚠️ A check failed at the end of this pass. Auto Mode is starting another " +
+                        "pass to fix it.\n\n" +
+                        `${headAndTail(outcome.output, 2000)}\n\n`
+                      : "⚠️ The app is BROKEN right now — this turn ran out of steps before it " +
+                        'finished. Reply "keep going" to continue the fix, or use "Undo this turn" ' +
+                        "to revert.\n\n" +
+                        `${headAndTail(outcome.output, 2000)}\n\n`;
               }
             }
           } catch {
@@ -3428,8 +3666,16 @@ export class AgentSession {
           }
         }
         if (!brokenThisTurn) this.cappedBrokenStreak = 0;
-        const summary = brokenNote + this.synthesizeFallbackSummary(toolCalls, true);
-        addition = hasRealText ? `\n\n${summary}` : summary;
+        // The reconstructed list opens "this turn hit its step limit before it
+        // could write a summary" — false, and contradictory next to the one
+        // the model did write. Only a turn with no words of its own gets it.
+        addition = finalReplyWasSummary
+          ? brokenNote
+            ? `\n\n${brokenNote.trimEnd()}`
+            : ""
+          : hasRealText
+            ? `\n\n${brokenNote}${this.synthesizeFallbackSummary(toolCalls, true)}`
+            : brokenNote + this.synthesizeFallbackSummary(toolCalls, true);
       } else if (!refused && !hasRealText && this.options.architectMode && emptyRecoveryDone) {
         // Architect Mode: retries and the one-shot nudge both failed to get
         // anything out of the model. Give the user a real way forward
@@ -3462,6 +3708,57 @@ export class AgentSession {
         (await this.architecturePackageState()).ready
       ) {
         this.readyDeclaredAtTurn = this.turns;
+      }
+
+      // Engineer Auto Mode bookkeeping, read by `autoNextPass` after the turn.
+      // The same counters the Architect's builders feed, so the same stuck
+      // detection and ceilings apply to a run of Engineer turns.
+      if (this.orchestration.auto && this.options.engineerMode) {
+        for (const file of changedThisTurn) this.orchestration.changedEver.add(file);
+        this.orchestration.engineerChangedLastPass = changedThisTurn.size;
+        this.orchestration.autoTokens += this.turnTokensIn + this.turnTokensOut;
+        // The turn's status line decides whether another pass starts — not
+        // merely whether it ran out of steps. Found live: a turn stopped
+        // partway through a build to ask "reply continue", and Auto Mode,
+        // which only continued a turn that used its last step, took that as
+        // done and left the app without a frontend.
+        //
+        // Only a line that *starts* with a marker counts, and only the last
+        // such line — so a sentence that merely mentions the phrase cannot
+        // decide anything, and a fallback summary appended after the model's
+        // own text does not hide it.
+        const statusLine = assistantText
+          .split("\n")
+          .filter((line) =>
+            new RegExp(
+              `^\\W*(${ENGINEER_REMAINING_MARKER}|${ENGINEER_NEEDS_YOU_MARKER})`,
+              "i",
+            ).test(line),
+          )
+          .at(-1);
+        // Markdown around the label ("**REMAINING:** none") is not part of
+        // the answer.
+        const needsYou = statusLine?.match(
+          new RegExp(`${ENGINEER_NEEDS_YOU_MARKER}[\\s*_\`]*(.+)$`, "i"),
+        )?.[1];
+        this.orchestration.engineerNeedsYou = null;
+        this.orchestration.brokenPasses = endedBroken ? this.orchestration.brokenPasses + 1 : 0;
+        if (endedBroken) {
+          // The model's word is not the last word. Found live: a turn wrote
+          // "REMAINING: none" while the end-of-turn check was failing.
+          this.orchestration.engineerOutOfSteps = true;
+        } else if (needsYou) {
+          this.orchestration.engineerOutOfSteps = false;
+          this.orchestration.engineerNeedsYou = needsYou.trim();
+        } else if (statusLine) {
+          this.orchestration.engineerOutOfSteps = !new RegExp(
+            `${ENGINEER_REMAINING_MARKER}[\\s*_\`]*(none|nothing|n/a)\\b`,
+            "i",
+          ).test(statusLine);
+        }
+        // No status line at all: keep what the last step decided — a turn
+        // that used its whole budget continues, one that simply answered
+        // does not.
       }
 
       emit({
@@ -3540,30 +3837,79 @@ export class AgentSession {
   autoNextPass(emit: Emit): boolean {
     const o = this.orchestration;
     if (!o.auto) return false;
-    // The run only auto-continues if the last turn actually hit a pass cap
-    // with work still queued. Any other ending — the build finished, the
-    // model stopped, a different refusal — ends the auto run.
-    if (!o.passCapHitThisTurn) return false;
-    o.passCapHitThisTurn = false;
+    const engineer = Boolean(this.options.engineerMode);
+    // Whether another pass starts. For the Architect: a build pass refused at
+    // its cap with tasks still queued. For the Engineer: the turn's status
+    // line said work is left ("REMAINING: …"), a check was failing at the
+    // end, or it used its whole budget without saying. "REMAINING: none" ends
+    // the run; "NEEDS YOU: …" pauses it for the person.
+    if (engineer) {
+      if (o.engineerNeedsYou) {
+        const question = o.engineerNeedsYou;
+        o.engineerNeedsYou = null;
+        emit({
+          type: "error",
+          sessionId: this.id,
+          code: "auto_paused",
+          message: `Auto Mode is paused for your answer: ${question.slice(0, 500)}`,
+          fatal: false,
+        });
+        return false;
+      }
+      if (!o.engineerOutOfSteps) return false;
+      o.engineerOutOfSteps = false;
+    } else {
+      if (!o.passCapHitThisTurn) return false;
+      o.passCapHitThisTurn = false;
+    }
 
     const totals =
-      `(${o.pass} pass${o.pass === 1 ? "" : "es"}, ~${(o.autoTokens / 1e6).toFixed(1)}M builder tokens` +
+      `(${o.pass} pass${o.pass === 1 ? "" : "es"}, ~${(o.autoTokens / 1e6).toFixed(1)}M ` +
+      `${engineer ? "" : "builder "}tokens` +
       `${o.autoStartedAt ? `, ${Math.round((Date.now() - o.autoStartedAt) / 60_000)} min` : ""})`;
     const stop = (code: string, message: string): boolean => {
       emit({ type: "error", sessionId: this.id, code, message, fatal: false });
       return false;
     };
+    // Where to go after an Auto Mode stop. An Architect run can be handed to
+    // the Engineer; an Engineer run is already there.
+    const next = engineer
+      ? 'Reply "keep going" to continue by hand.'
+      : 'Reply "keep going" for another pass, or take the rest to the Engineer.';
 
-    if (o.killed) return stop("auto_stopped", `Auto Mode stopped by the user ${totals}.`);
+    if (o.killed || this.stopRequested) {
+      return stop("auto_stopped", `Auto Mode stopped by the user ${totals}.`);
+    }
 
-    // Stuck-detection: two passes running with no new builder-changed file.
-    if (o.changedEver.size <= o.changedAtPassStart) o.zeroProgressPasses += 1;
-    else o.zeroProgressPasses = 0;
+    // Stuck-detection: two passes in a row with no progress. For the
+    // Architect, progress is a builder touching a path no earlier pass had;
+    // for the Engineer, changing any file at all.
+    const progressed = engineer
+      ? o.engineerChangedLastPass > 0
+      : o.changedEver.size > o.changedAtPassStart;
+    if (progressed) o.zeroProgressPasses = 0;
+    else o.zeroProgressPasses += 1;
     if (o.zeroProgressPasses >= 2) {
       return stop(
         "auto_stuck",
-        `Auto Mode stopped — two passes made no progress ${totals}. The build plan may be stuck; ` +
-          "check architecture/build-plan.md, then continue manually or take it to the Engineer.",
+        engineer
+          ? `Auto Mode stopped — two passes in a row changed nothing ${totals}. It is going in ` +
+              "circles rather than building; say what to do next, or narrow the request."
+          : `Auto Mode stopped — two passes made no progress ${totals}. The build plan may be ` +
+              "stuck; check architecture/build-plan.md, then continue manually or take it to the " +
+              "Engineer.",
+      );
+    }
+
+    // An Engineer run that keeps ending with the app broken is not
+    // converging, and more passes only spend more. The turn itself has
+    // already shown the failure; this stops the loop behind it.
+    if (engineer && o.brokenPasses >= 2) {
+      return stop(
+        "auto_stuck",
+        `Auto Mode stopped — the app has been broken at the end of ${o.brokenPasses} ` +
+          `passes in a row ${totals}. "Undo this turn" gets back to the last working state; then ` +
+          "ask for something smaller, or switch to a stronger model.",
       );
     }
 
@@ -3571,25 +3917,26 @@ export class AgentSession {
       return stop(
         "auto_ceiling",
         `Auto Mode reached the ${AUTO_MAX_PASSES}-pass ceiling ${totals}. The app runs as far as it ` +
-          'got — reply "keep going" for another pass, or take the rest to the Engineer.',
+          `got — ${next.charAt(0).toLowerCase()}${next.slice(1)}`,
       );
     }
     if (o.autoTokens >= AUTO_MAX_TOKENS) {
       return stop(
         "auto_ceiling",
-        `Auto Mode reached its ~${(AUTO_MAX_TOKENS / 1e6).toFixed(0)}M-token ceiling ${totals}. ` +
-          'Reply "keep going" for another pass, or take the rest to the Engineer.',
+        `Auto Mode reached its ~${(AUTO_MAX_TOKENS / 1e6).toFixed(0)}M-token ceiling ${totals}. ${next}`,
       );
     }
     if (o.autoStartedAt && Date.now() - o.autoStartedAt >= AUTO_MAX_WALLCLOCK_MS) {
       return stop(
         "auto_ceiling",
-        `Auto Mode reached its ${Math.round(AUTO_MAX_WALLCLOCK_MS / 60_000)}-minute ceiling ${totals}. ` +
-          'Reply "keep going" for another pass, or take the rest to the Engineer.',
+        `Auto Mode reached its ${Math.round(AUTO_MAX_WALLCLOCK_MS / 60_000)}-minute ceiling ${totals}. ${next}`,
       );
     }
 
     o.changedAtPassStart = o.changedEver.size;
+    // The Architect counts a pass when "keep going" arrives; the Engineer has
+    // no build plan to reset, so its pass is counted here, as it starts.
+    if (engineer) o.pass += 1;
     return true;
   }
 
@@ -3818,9 +4165,23 @@ export class AgentSession {
    * opened from someone's own repository is not guaranteed to have either
    * script, and guessing one is worse than checking nothing.
    */
-  private async needsVerification(
-    context: ToolContext,
-  ): Promise<{ script: "typecheck" | "build" | null; crashedPreview: Preview | null } | null> {
+  private async needsVerification(context: ToolContext): Promise<{
+    script: "typecheck" | "build" | null;
+    crashedPreview: Preview | null;
+    checks?: Array<{ name: string; command: string; cwd: string; timeoutMs: number }>;
+  } | null> {
+    const manifest =
+      this.options.template === "react-fastapi"
+        ? await readRuntimeManifest(context.runtime, context.projectId)
+        : null;
+    if (manifest) {
+      const preview = await context.runtime.previewStatus(context.projectId);
+      return {
+        script: null,
+        crashedPreview: preview.status === "crashed" ? preview : null,
+        checks: manifest.checks,
+      };
+    }
     let script: "typecheck" | "build" | null = null;
     try {
       const pkg = await context.runtime.readFile(context.projectId, "package.json");
@@ -3846,11 +4207,31 @@ export class AgentSession {
    */
   private async runVerification(
     context: ToolContext,
-    check: { script: "typecheck" | "build" | null; crashedPreview: Preview | null },
+    check: {
+      script: "typecheck" | "build" | null;
+      crashedPreview: Preview | null;
+      checks?: Array<{ name: string; command: string; cwd: string; timeoutMs: number }>;
+    },
   ): Promise<{ output: string; failed: boolean }> {
     const parts: string[] = [];
     let failed = false;
 
+    if (check.checks) {
+      for (const step of check.checks) {
+        // A running check cannot be interrupted, but Stop is not kept waiting
+        // for the rest — a Python project's full set takes over half a minute.
+        if (context.signal.aborted) {
+          parts.push(`${step.name}: not run (stopped)`);
+          continue;
+        }
+        const result = await context.runtime.exec(context.projectId, step);
+        const ok = result.exitCode === 0;
+        if (!ok) failed = true;
+        parts.push(
+          `${step.name}: ${ok ? "passed" : "FAILED"}${ok ? "" : `\n${stripAnsi(result.stderr || result.stdout).slice(-6000)}`}`,
+        );
+      }
+    }
     if (check.script) {
       const result = await context.runtime.exec(context.projectId, {
         command: `npm run ${check.script}`,
@@ -3873,7 +4254,29 @@ export class AgentSession {
 
     return {
       failed,
-      output: failed ? parts.join("\n\n") : "Typecheck and the preview both look fine.",
+      output:
+        check.checks || failed ? parts.join("\n\n") : "Typecheck and the preview both look fine.",
     };
   }
 }
+
+const PYTHON_BUILDER_SYSTEM_PROMPT = `Build the assigned task within the existing React/FastAPI project.
+You have a fixed step budget: read only the files you are about to change, several per reply, and
+start writing code within a few steps. The python-backend guide maps the starter so you do not have
+to explore it. React lives in src; Python in backend/app.
+The project already owns a working database, so build persistence directly: add the model to
+backend/app/models.py and run \`npm run db:revision -- "what changed"\`, then read and correct
+the migration it writes. The user's requested structure, file names and Python version win over the
+starter's defaults (the python-backend guide says how); keep one database engine underneath, and
+export any requirements.txt from uv.lock. Build responses inside the session: a row read
+after its session closes raises DetachedInstanceError. Never ask for a connection string or add
+Supabase in order to store data. If the user has connected their own database, map an existing
+schema rather than migrating it and respect a read-only connection. Configure credentials through
+Backend settings; never write them into files or logs.
+Call start_preview once, early — it installs dependencies, applies migrations and runs both
+services; never run npm ci, uv sync or Uvicorn yourself. Regenerate the TypeScript client with
+\`npm run api:generate\` before editing the UI that uses it. Zelyq runs every check in
+zelyq.runtime.json when your turn ends and hands back what fails; to check sooner, run
+\`npm run check\` once — never chain your own commands or add stricter checks.
+Use the write scope of your assigned specialist role. Do not add unrelated features. Report each
+acceptance criterion and any check that could not run.`;

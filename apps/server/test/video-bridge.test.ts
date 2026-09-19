@@ -107,3 +107,23 @@ test("turning the permission off stops the next session", async () => {
   await store.projects.update(on.projectId, { videoGenerationEnabled: false });
   assert.equal(await bridge.mint("ses_b", on.projectId, on.userId), null);
 });
+
+test("re-minting for a session keeps its token working", async () => {
+  // The gateway mints on every prompt, but a reused agent session keeps the
+  // token it was created with.
+  const bridge = new VideoBridge(store, configured);
+  const on = await project("remint", { videoGenerationEnabled: true });
+  const first = (await bridge.mint("ses_v_remint", on.projectId, on.userId)) as string;
+  const second = (await bridge.mint("ses_v_remint", on.projectId, on.userId)) as string;
+  assert.equal(first, second);
+  assert.ok(bridge.resolve(first));
+});
+
+test("turning the permission off also retires the session's existing token", async () => {
+  const bridge = new VideoBridge(store, configured);
+  const on = await project("off-retires", { videoGenerationEnabled: true });
+  const token = (await bridge.mint("ses_v_off2", on.projectId, on.userId)) as string;
+  await store.projects.update(on.projectId, { videoGenerationEnabled: false });
+  assert.equal(await bridge.mint("ses_v_off2", on.projectId, on.userId), null);
+  assert.equal(bridge.resolve(token), null);
+});

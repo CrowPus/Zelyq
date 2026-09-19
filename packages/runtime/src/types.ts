@@ -73,6 +73,7 @@ export interface RuntimeHealth {
   /** Human-readable detail for the health endpoint; never include secrets. */
   detail?: string;
   version?: string;
+  capabilities?: string[];
 }
 
 export interface ProjectRuntime {
@@ -123,6 +124,9 @@ export interface PreviewOptions {
   /** Ask for a specific port instead of one from the configured range. */
   port?: number;
   env?: Record<string, string>;
+  /** Resolved by the server only; never included in agent context or status. */
+  backendEnv?: Record<string, string>;
+  configurationRevision?: string;
 }
 
 export interface RuntimeConfig {

@@ -29,19 +29,37 @@ async function withPathLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 const lockKey = (projectId: string, path: string) => `${projectId}:${path.replace(/^\.?\/+/, "")}`;
 
+/**
+ * A file this short always comes back whole, whatever window was asked for.
+ *
+ * Models economise on read size by paging a file in 20–40 line slices. Measured
+ * on a real build: a 467-line `main.py` read in seven slices, a 414-line
+ * component in six. But a turn is limited by *steps*, not by read size, and
+ * every step re-sends the whole conversation — so seven slices cost six extra
+ * steps AND several times the tokens of one read. The whole file is cheaper on
+ * both counts.
+ */
+export const WHOLE_FILE_LINES = 600;
+/** For a longer file, the smallest window worth a step. */
+export const MIN_READ_WINDOW = 200;
+
 /** A slice of a file with 1-indexed line numbers, `truncate()`-free — never
  * elides the middle of source, cuts at the end with how to resume. */
 function numberedSlice(content: string, offset?: number, limit?: number): string {
   const lines = content.split("\n");
   const total = lines.length;
-  const start = Math.max(0, (offset ?? 1) - 1);
-  const count = limit ?? 2000;
+  const short = total <= WHOLE_FILE_LINES;
+  const start = short ? 0 : Math.max(0, (offset ?? 1) - 1);
+  const count = short ? total : Math.max(limit ?? 2000, MIN_READ_WINDOW);
   const shown = lines.slice(start, start + count);
   const end = start + shown.length;
   let body = shown.map((line, i) => `${String(start + i + 1).padStart(5)}\t${line}`).join("\n");
   const HARD = 60_000;
   if (body.length > HARD) {
     body = `${body.slice(0, HARD)}\n\n[cut at ${HARD} chars — narrow with offset/limit]`;
+  } else if (short && (offset !== undefined || limit !== undefined)) {
+    // Said explicitly, or the model keeps paging a file it already has.
+    body += `\n\n[the whole file — ${total} lines. Files up to ${WHOLE_FILE_LINES} lines always come back in full; there is nothing more to page]`;
   } else if (end < total) {
     body += `\n\n[showing lines ${start + 1}–${end} of ${total} — call read_file again with offset: ${end + 1} for the rest]`;
   } else if (start > 0) {
@@ -91,7 +109,10 @@ export const readFileTool = defineTool({
   name: "read_file",
   description:
     "Read a text file from the project, with line numbers. Always read a file before editing it. " +
-    "Pass `offset`/`limit` to page through a long file — a large file's middle is never elided.",
+    "Each call is one step from a limited budget, so read the whole file at once: a file of up to " +
+    `${WHOLE_FILE_LINES} lines always comes back in full, whatever \`offset\`/\`limit\` say. ` +
+    "`offset`/`limit` are for longer files only — a large file's middle is never elided. " +
+    "Several read_file calls in one reply run together and cost one step.",
   schema: z.object({
     path: z.string().describe("Path relative to the project root, e.g. src/App.tsx"),
     offset: z

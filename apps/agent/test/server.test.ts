@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
+import { toolchainBinDir } from "@zelyq/runtime";
 import type { AgentConfig } from "../src/config.js";
 import { buildAgentServer } from "../src/server.js";
 
@@ -25,9 +27,18 @@ const config: AgentConfig = {
   },
 };
 
+// Health asks the runtime what it can run, and a local runtime without uv
+// fetches it — 48 MB from GitHub, in a unit test. A stand-in where Zelyq keeps
+// its own copy answers the question without the download.
+const workspaceDir = config.runtime.workspaceDir as string;
+mkdirSync(toolchainBinDir(workspaceDir), { recursive: true });
+writeFileSync(path.join(toolchainBinDir(workspaceDir), "uv"), "#!/bin/sh\necho 'uv 0.0.0'\n");
+chmodSync(path.join(toolchainBinDir(workspaceDir), "uv"), 0o755);
+
 const server = buildAgentServer(config);
 after(async () => {
   await server.close();
+  rmSync(workspaceDir, { recursive: true, force: true });
 });
 
 test("health reports the runtime it is wired to", async () => {

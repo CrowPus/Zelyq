@@ -12,6 +12,10 @@ export interface TemplateInfo {
   stack?: string;
   /** A skill whose body is force-woven for projects on this stack (066). */
   agentSkill?: string;
+  /** A runtime capability this stack cannot run without — see `requiresCapability`. */
+  requiresCapability?: string;
+  /** Filename of this stack's icon, served from the web app's public assets. */
+  icon?: string;
 }
 
 /**
@@ -27,11 +31,35 @@ export interface TemplateManifest {
   description: string;
   stack?: string;
   agentSkill?: string;
+  /**
+   * A `RuntimeHealth.capabilities` entry the configured runtime must advertise
+   * before this template may be created. A Python stack on a runtime with no
+   * Python toolchain scaffolds fine and then fails at the first preview, which
+   * is a worse answer than not offering it.
+   */
+  requiresCapability?: string;
+  /**
+   * An icon for this stack, as a bare filename served from the web app's
+   * public directory — `react-python.png`, not a path or a URL. A template
+   * manifest is just a file on disk, so this is validated rather than trusted:
+   * anything else is dropped and the card falls back to its initial.
+   */
+  icon?: string;
 }
+
+/** A plain image filename. No directories, no scheme, no traversal. */
+const ICON_PATTERN = /^[a-z0-9][a-z0-9-]*\.(?:png|svg|webp)$/;
 
 const TOKEN_PATTERN = /\{\{\s*(projectName|projectSlug|projectId)\s*\}\}/g;
 
-export async function listTemplates(templatesDir: string): Promise<TemplateInfo[]> {
+export async function listTemplates(
+  templatesDir: string,
+  /**
+   * What the configured runtime advertises. Omitted, every template is listed —
+   * callers that cannot ask the runtime keep the old behaviour.
+   */
+  capabilities?: string[],
+): Promise<TemplateInfo[]> {
   const entries = await fs.readdir(templatesDir, { withFileTypes: true }).catch(() => []);
   const templates: TemplateInfo[] = [];
 
@@ -39,6 +67,13 @@ export async function listTemplates(templatesDir: string): Promise<TemplateInfo[
     if (!entry.isDirectory()) continue;
     const manifest = await readManifest(path.join(templatesDir, entry.name));
     if (!manifest) continue;
+    if (
+      manifest.requiresCapability &&
+      capabilities &&
+      !capabilities.includes(manifest.requiresCapability)
+    ) {
+      continue;
+    }
     const files = await collectFiles(path.join(templatesDir, entry.name));
     templates.push({
       name: entry.name,
@@ -47,6 +82,8 @@ export async function listTemplates(templatesDir: string): Promise<TemplateInfo[
       fileCount: files.length,
       ...(manifest.stack ? { stack: manifest.stack } : {}),
       ...(manifest.agentSkill ? { agentSkill: manifest.agentSkill } : {}),
+      ...(manifest.requiresCapability ? { requiresCapability: manifest.requiresCapability } : {}),
+      ...(manifest.icon && ICON_PATTERN.test(manifest.icon) ? { icon: manifest.icon } : {}),
     });
   }
 
@@ -113,6 +150,18 @@ export async function templateManifest(
   return readManifest(path.join(templatesDir, name));
 }
 
+/**
+ * Files that belong to the template's own checkout, not to a new project.
+ *
+ * `template.json` is the manifest. The rest are build caches that appear
+ * whenever someone runs the template's checks locally: a `.tsbuildinfo` records
+ * the absolute paths of the machine that produced it, so scaffolding one hands
+ * every new project a stale cache pointing at directories it has never had.
+ */
+function isTemplateArtifact(name: string): boolean {
+  return name === "template.json" || name.endsWith(".tsbuildinfo") || name === ".DS_Store";
+}
+
 async function collectFiles(root: string, prefix = ""): Promise<string[]> {
   const entries = await fs.readdir(path.join(root, prefix), { withFileTypes: true });
   const files: string[] = [];
@@ -120,9 +169,22 @@ async function collectFiles(root: string, prefix = ""): Promise<string[]> {
   for (const entry of entries) {
     const relative = prefix ? path.join(prefix, entry.name) : entry.name;
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules") continue;
+      if (
+        [
+          "node_modules",
+          ".venv",
+          "__pycache__",
+          ".pytest_cache",
+          ".mypy_cache",
+          ".ruff_cache",
+          ".zelyq",
+          ".runtime-data",
+          "dist",
+        ].includes(entry.name)
+      )
+        continue;
       files.push(...(await collectFiles(root, relative)));
-    } else if (entry.isFile() && entry.name !== "template.json") {
+    } else if (entry.isFile() && !isTemplateArtifact(entry.name)) {
       files.push(relative);
     }
   }

@@ -13,6 +13,10 @@ export function buildSystemPrompt(options: {
    * skill means the `senior-software-engineering` skill wasn't found at
    * boot; the four directives still apply, degraded rather than refused. */
   engineerMode?: { skill?: { body: string; resources: string[] } };
+  /** Engineer Mode with Auto Mode on: turns chain by themselves, so the model
+   * must never stop to ask for "continue", and ends every reply with a status
+   * line Auto Mode reads. */
+  engineerAuto?: boolean;
   /** Architect Mode. Mutually exclusive with `engineerMode` (the server
    * rejects both at once). When set, the Architect addendum is
    * built into the prompt the same cache-friendly way. `skill` is the
@@ -232,9 +236,10 @@ and you have no tool to run one, say that plainly and say what you did instead.
           options.agentMd,
           options.aiProviderCatalogText,
           options.aiProvidersAgentMd,
+          options.template === "react-fastapi",
         )
       : ""
-  }${
+  }${options.engineerMode && options.engineerAuto ? ENGINEER_AUTO_MODE : ""}${
     options.architectMode
       ? buildArchitectModeAddendum(
           options.architectMode.skill,
@@ -242,6 +247,7 @@ and you have no tool to run one, say that plainly and say what you did instead.
           options.agentMd,
           options.aiProviderCatalogText,
           options.aiProvidersAgentMd,
+          options.template === "react-fastapi",
         )
       : ""
   }`;
@@ -281,6 +287,7 @@ function buildArchitectModeAddendum(
   agentMd?: string,
   aiProviderCatalogText?: string,
   aiProvidersAgentMd?: string,
+  pythonBackend = false,
 ): string {
   const skillSection = skill
     ? `
@@ -314,8 +321,10 @@ acceptance criteria mention animation, transition or scroll behaviour.
 `
     : "";
 
-  const aiProvidersSection = aiProviderCatalogText
-    ? `
+  const aiProvidersSection = pythonBackend
+    ? pythonAiGuidance(aiProviderCatalogText)
+    : aiProviderCatalogText
+      ? `
 <ai_providers>
 When the project calls a language model — a chatbot, an extractor, a booking or support agent, a classifier, a generator, ANY model-backed feature — this is how it is wired. Nothing here is chat-specific.
 
@@ -333,7 +342,7 @@ ${
     : ""
 }</ai_providers>
 `
-    : "";
+      : "";
 
   return `
 <architect_mode>${designRefsSection}${uiGuidelinesSection}${aiProvidersSection}
@@ -409,16 +418,25 @@ Dig into — to the depth THIS project warrants, chasing whatever the answers op
   - the failure and edge behaviour: offline, session expiry, concurrent edits, partial writes,
     invalid input, an empty account, a not-found record, a revoked permission;
   - the real constraints — scale, budget, compliance, an existing system or stack it must fit;
-  - whether it needs **saved data, user accounts, or any backend at all**. Zelyq builds exactly one
+${
+  pythonBackend
+    ? `  - what the app needs to **remember**, and what it does with it. The project already owns a
+    working database, so this is a data-modelling question, not a procurement one — never ask the
+    user to supply a database, a connection string, or a Supabase project before anything can be
+    saved. Ask about their own PostgreSQL/MySQL only if they raise it, or if the app must read
+    data that already exists somewhere;
+`
+    : `  - whether it needs **saved data, user accounts, or any backend at all**. Zelyq builds exactly one
     kind of backend: **Supabase** (hosted Postgres + Row-Level-Security + email/password Auth),
     talked to straight from the browser — no server process. If it needs persistence or login, the
     design targets Supabase; a pure static/client app has no backend to design;
-  - for anything with accounts: the exact auth flow — signup, confirmation on/off, password reset,
+`
+}  - for anything with accounts: the exact auth flow — signup, confirmation on/off, password reset,
     what a brand-new user sees, what "logged out" looks like;
   - if it uses a language model (chatbot, extractor, agent, classifier, generator, …): which
     provider and model; what the feature does with the model exactly (input → output); streaming or
     one-shot; whether it keeps conversation history or is stateless; the prompt / persona; expected
-    call volume. The key itself is not a question — it is always stored in Supabase (see
+    call volume. ${pythonBackend ? "Provider keys stay in backend configuration, never the browser (see" : "The key itself is not a question — it is always stored in Supabase (see"}
     \`<ai_providers>\`);
   - the third parties it leans on, and what happens when each is down;
   - what "degraded but still working" looks like;
@@ -534,7 +552,17 @@ appropriately", not "store the data securely".
     coverage target, and the security posture to check. The Security/QA agent owns and deepens it.
     Living document, not a gate.
   - \`infrastructure.md\` — hosting, environments, secrets handling, CI/CD outline, rollout/rollback.
-  - \`backend.md\` — **when the interview established this needs persistence, accounts, OR a
+${
+  pythonBackend
+    ? `  - \`backend.md\` — **whenever the app remembers anything**, which is most apps. The tables and
+    their columns, the FastAPI routes with their request/response models, scoped queries and
+    transactions, and where authorization is enforced. The project's own database is the default
+    target and needs nobody's approval. If the user has asked for their own PostgreSQL/MySQL or
+    Supabase, record that as the deployment target and keep the models portable; an existing
+    external schema is mapped, never migrated. Missing credentials never block design — record
+    which checks are waiting on them.
+`
+    : `  - \`backend.md\` — **when the interview established this needs persistence, accounts, OR a
     language model** (an LLM feature needs the backend for its key + Edge Function, even if the app
     otherwise has no data). The concrete Supabase design, and nothing that implies a second server:
       - the schema — every table, its columns and types. **If the design uses an LLM**, include an
@@ -564,7 +592,8 @@ appropriately", not "store the data securely".
         the backend Definition-of-Done line are executable now.
     Only stop and ask the user when they want the build to actually run and nothing is linked —
     never to think or to design.
-  - \`build-plan.md\` — an ordered work breakdown. Each task: a self-contained unit with its own
+`
+}  - \`build-plan.md\` — an ordered work breakdown. Each task: a self-contained unit with its own
     acceptance criteria, its named dependencies, a recommended model tier (strong / standard /
     cheap — most UI and wiring is \`cheap\`; reserve \`strong\` for genuinely hard algorithmic or
     security work) with a one-line reason, a \`skills:\` line naming the loaded skills whose guidance
@@ -581,7 +610,16 @@ appropriately", not "store the data securely".
       task below revisits these for accuracy.
     - Every later task keeps the app building and wires its own output in — no task leaves a
       component orphaned for "a later task" to connect.
-    - **When \`backend.md\` exists**, include two backend tasks: (a) a **migration task** — write
+${
+  pythonBackend
+    ? `    - Include backend API, persistence, frontend client generation, and verification tasks. A
+      persistence task defines models in \`backend/app/models.py\`, generates an Alembic revision,
+      reviews it, and commits it with the code — the preview applies it to the project's own
+      database. An existing external schema keeps its migration owner and is mapped, not migrated.
+    - AI tasks execute in Python using backend credentials and a verified installed Python SDK.
+      Request configuration through Backend settings. No credentials in source or browser bundles.
+`
+    : `    - **When \`backend.md\` exists**, include two backend tasks: (a) a **migration task** — write
       \`supabase/migrations/0001_init.sql\` to \`backend.md\` (RLS enabled, grants revoked and
       re-granted, one policy per operation, the auth-relevant tables), then the builder applies it
       itself with \`supabase_apply_migration\` and checks it with \`supabase_verify_backend\`;
@@ -598,7 +636,8 @@ appropriately", not "store the data securely".
       deploys with \`supabase_deploy_function\`, and validates the model id against the provider's
       model-list endpoint. \`tools: use_ai_provider, fetch_provider_docs, supabase_apply_migration,
       supabase_deploy_function, supabase_verify_backend\`. No key value is ever written to a file.
-    - At most ~4 files per task, and no task with more than 5 named \`files\` (that is refused at
+`
+}    - At most ~4 files per task, and no task with more than 5 named \`files\` (that is refused at
       dispatch). Split anything bigger. (The design and verification tasks are exempt.)
     - **The SECOND-TO-LAST entry is the design pass** — one task, described as "Designer:" and
       dispatched with \`design: true\`. It runs after all feature tasks: bring every screen onto
@@ -623,7 +662,17 @@ appropriately", not "store the data securely".
       is clean or every finding is triaged in \`QA.md\` / \`risks.md\`; if the design is deployable,
       the CI and container config match the project's actual scripts; the design/accessibility check
       has run and its findings are triaged.
-      **If \`backend.md\` exists:** the migration applies to the linked \`development\` resource;
+${
+  pythonBackend
+    ? `      **Backend Definition of Done:** data written through the UI is still there after a preview
+      restart; Python lint/types/tests and API contract checks pass;
+      both services are ready; actual frontend-to-API flows work; anonymous/cross-user operations
+      are rejected where required; selected database transactions and schema ownership hold.
+      Credentials and user data are absent from bundles/logs. Any required live integration that
+      could not be exercised is explicitly unverified. AI features require one authorized real call
+      before claiming provider integration verified.
+`
+    : `      **If \`backend.md\` exists:** the migration applies to the linked \`development\` resource;
       signup and login work against it; grants + RLS hold across three identities — an anonymous
       request, the owning user, and a SECOND non-owning user — with cross-user reads and writes
       rejected; and no \`sb_secret_*\` / \`service_role\` string appears anywhere in \`src/\` or the
@@ -635,7 +684,8 @@ appropriately", not "store the data securely".
       \`select\` policy; with a key saved, ONE real end-to-end call to the model succeeds in the
       preview and the model id was validated; and no provider key string appears in \`src/\`,
       \`.env\`, the bundle, or any committed file.
-  - \`build-context.md\` — the one-page brief every builder gets: the stack and versions, the naming
+`
+}  - \`build-context.md\` — the one-page brief every builder gets: the stack and versions, the naming
     and structure conventions, the data model and API at a glance, where things live, a pointer to
     \`DESIGN.md\` for the visual language, and a short "platform help available" note listing the
     loaded skills and the plugin tools relevant to this build. Written once at handoff; keep it short.
@@ -819,6 +869,7 @@ function buildEngineerModeAddendum(
   agentMd?: string,
   aiProviderCatalogText?: string,
   aiProvidersAgentMd?: string,
+  pythonBackend = false,
 ): string {
   const skillSection = skill
     ? `
@@ -853,8 +904,10 @@ curves or durations from memory when the numbers are one call away.
 `
     : "";
 
-  const aiProvidersSection = aiProviderCatalogText
-    ? `
+  const aiProvidersSection = pythonBackend
+    ? pythonAiGuidance(aiProviderCatalogText)
+    : aiProviderCatalogText
+      ? `
 <ai_providers>
 To wire ANY model-backed feature (chatbot, extractor, agent, classifier, generator — not chat-specific):
 1. \`use_ai_provider("<slug>")\` for the SDK package and call shape; \`fetch_provider_docs\` (or ask the user to paste the snippet) to confirm it against the current SDK. Providers:
@@ -868,7 +921,7 @@ ${
     : ""
 }</ai_providers>
 `
-    : "";
+      : "";
 
   return `
 <engineer_mode>${uiGuidelinesSection}${aiProvidersSection}
@@ -1217,3 +1270,67 @@ export function withAgents(message: string, names: string[]): string {
     message
   );
 }
+
+/**
+ * The Python stack's model-integration guidance.
+ *
+ * The provider CATALOG still applies — which providers exist, their slugs, and
+ * `use_ai_provider` / `fetch_provider_docs` — so it is embedded rather than
+ * dropped. Only the delivery mechanism differs: this stack has a real server,
+ * so a call runs in FastAPI against a backend secret instead of in a Supabase
+ * Edge Function. Replacing the whole section left Python projects with no
+ * provider list at all and the agent guessing model ids from memory.
+ */
+function pythonAiGuidance(aiProviderCatalogText?: string): string {
+  return `
+<ai_providers>
+This project has a FastAPI backend in \`backend/app\` and a React frontend in \`src\`, so a
+model call runs server-side in Python. Follow the python-backend guide.
+${
+  aiProviderCatalogText
+    ? `
+Providers you can integrate — call \`use_ai_provider("<slug>")\` for the package, call shape,
+streaming and key name, and \`fetch_provider_docs\` to confirm it against the current SDK. The
+catalog's notes are pinned to a date, and its snippets are often TypeScript: take the provider,
+model ids and key name from it, and the call shape from the installed **Python** SDK.
+${aiProviderCatalogText}
+`
+    : ""
+}
+How it is wired here:
+1. The key is a backend secret, set through the editor's Backend configuration. It reaches the
+   API process only — never \`VITE_*\`, the bundle, source, logs, or your own context. Ask the
+   user to add it by name; never invent a key, and never add Supabase merely to hold one.
+2. The call runs in a FastAPI route, using the provider's installed Python SDK. Add the
+   dependency with \`uv add\` in \`backend/\` and commit \`uv.lock\`.
+3. The browser calls that route through \`/api/...\`. Enforce authorization in the route: a
+   provider key is the service's credential, not the caller's permission to spend it.
+4. Bound the request — size, timeout, and a clear error when the provider is down or the key is
+   missing. A missing key is an actionable state, not a fabricated success.
+5. Regenerate the TypeScript client (\`npm run api:generate\`) when the route's models change.
+   Zelyq runs the checks in \`zelyq.runtime.json\` when your turn ends — do not run them yourself.
+</ai_providers>`;
+}
+
+/**
+ * Found live: an Engineer turn in Auto Mode stopped partway through a build to
+ * ask "please reply with continue", and Auto Mode — which only carried on after
+ * a turn that ran out of steps — took that as finished. The model has to know
+ * the next turn starts by itself, and has to say, every time, whether anything
+ * is left.
+ */
+const ENGINEER_AUTO_MODE = `
+
+<auto_mode>
+Auto Mode is on. When this turn ends, the next one starts by itself with a fresh step budget —
+nobody has to type "continue". So:
+
+- Never stop to ask the user to continue, to confirm scope, or to approve the next step. Keep
+  building until everything they asked for is built and working.
+- End EVERY reply with exactly one status line, on its own line, as the last thing you write:
+    REMAINING: none                — everything the request asked for is built and working
+    REMAINING: <what is still left> — Auto Mode starts the next pass on it
+    NEEDS YOU: <your question>     — only when you truly cannot go on without an answer only the
+                                     user has; this pauses Auto Mode until they reply
+- A failing check means another pass, whatever the line says.
+</auto_mode>`;

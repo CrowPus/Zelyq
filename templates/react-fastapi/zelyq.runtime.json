@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "stack": "react-fastapi",
+  "install": [
+    {
+      "command": "npm ci --no-audit --no-fund --include=dev",
+      "timeoutMs": 600000
+    },
+    {
+      "command": "uv lock && uv sync --locked --all-extras",
+      "cwd": "backend",
+      "timeoutMs": 600000
+    }
+  ],
+  "migrate": {
+    "command": "uv run --locked --no-sync alembic upgrade head",
+    "cwd": "backend",
+    "timeoutMs": 120000
+  },
+  "services": [
+    {
+      "id": "backend",
+      "cwd": "backend",
+      "argv": [
+        "uv",
+        "run",
+        "--locked",
+        "--no-sync",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--reload"
+      ],
+      "healthPath": "/api/health/ready"
+    },
+    {
+      "id": "frontend",
+      "argv": [
+        "npm",
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--strictPort"
+      ],
+      "healthPath": "/"
+    }
+  ],
+  "checks": [
+    {
+      "name": "Frontend types",
+      "command": "npm run typecheck"
+    },
+    {
+      "name": "Frontend build",
+      "command": "npm run build"
+    },
+    {
+      "name": "Python lint",
+      "command": "uv run --locked --all-extras ruff check .",
+      "cwd": "backend"
+    },
+    {
+      "name": "Python types",
+      "command": "uv run --locked --all-extras mypy app",
+      "cwd": "backend"
+    },
+    {
+      "name": "API tests",
+      "command": "uv run --locked --all-extras pytest -q",
+      "cwd": "backend"
+    },
+    {
+      "name": "API contract",
+      "command": "npm run api:check"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+[project]
+name = "zelyq-python-app"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2,<3",
+  "sqlalchemy>=2,<3", "alembic>=1.14,<2", "pyjwt[crypto]>=2.10,<3",
+  "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2,<4"]
+mysql = ["pymysql[rsa]>=1.1,<2"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "mypy>=1.15,<2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# Listed explicitly. Ruff's own default set changes between versions — 0.16
+# switches on 400+ rules — and a check that moves under a project is not one
+# anybody can plan for. These catch real defects: undefined names and unused
+# imports (F), likely bugs (B), security mistakes (S), exceptions swallowed
+# whole (BLE), async misuse (ASYNC), plus import order (I) and outdated syntax
+# (UP), which `ruff check --fix` corrects on its own.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "S", "BLE", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+# `assert` is how pytest tests are written.
+"tests/**" = ["S101"]
+# conftest.py sets the test environment before importing the app, on purpose:
+# configuration is read once, so the imports have to come after it.
+"conftest.py" = ["S101", "E402"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.uv]
+package = false

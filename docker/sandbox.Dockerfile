@@ -15,16 +15,17 @@
 # The runtime builds this on demand the first time it needs the image, so
 # there is normally nothing to do by hand. To build it yourself:
 #
-#   docker build -t zelyq/sandbox:node22 -f docker/sandbox.Dockerfile .
+#   docker build -t zelyq/sandbox:node22-python311 -f docker/sandbox.Dockerfile .
 #
 # To use a different image entirely, set ZELYQ_CONTAINER_IMAGE — it is then
 # used exactly as given and none of this applies. Whatever you point it at
 # must contain git, or per-turn commits and pushes will not work.
 FROM node:22-bookworm-slim
+COPY --from=ghcr.io/astral-sh/uv:0.12.16 /uv /bin/uv
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         git \
         ca-certificates \
-        openssh-client \
+        openssh-client python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*

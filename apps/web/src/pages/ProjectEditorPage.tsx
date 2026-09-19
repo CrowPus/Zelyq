@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { BackendPanel } from "../components/BackendPanel";
 import { ChatPanel } from "../components/ChatPanel";
 import { CodeViewer } from "../components/CodeViewer";
 import { FileExplorer } from "../components/FileExplorer";
@@ -241,6 +242,11 @@ export function ProjectEditorPage() {
           {/* Same role the route itself already requires — editing and
               pushing are the same trust level. */}
           {canEdit && <GitPanel projectId={id} />}
+          {canEdit &&
+            (project.data?.project.template === "react-fastapi" ||
+              files.data?.entries.some((entry) => entry.path === "zelyq.runtime.json")) && (
+              <BackendPanel projectId={id} />
+            )}
         </>
       }
     >

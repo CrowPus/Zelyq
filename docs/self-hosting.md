@@ -136,11 +136,16 @@ Two things hold state:
 
 | What | Where | Back up |
 | --- | --- | --- |
-| Database | `DATABASE_URL` | `pg_dump`, or copy the SQLite file while the server is stopped |
+| Database | `DATABASE_URL` | `pg_dump`, or `pnpm db:backup` for SQLite (safe while running) |
 | Project files | `ZELYQ_WORKSPACE_DIR` | Volume snapshot or `rsync` |
 | Generated images | `ZELYQ_IMAGE_ASSETS_DIR` | Volume snapshot or `rsync` |
 | Generated videos | `ZELYQ_VIDEO_ASSETS_DIR` | Volume snapshot or `rsync` — the largest of these by far |
 | Encryption key | `ZELYQ_SECRET_KEY` / `ZELYQ_SECRET_KEY_FILE` | Your secret store — without it, stored API keys cannot be read |
+
+Do not back up SQLite by copying `zelyq.db`. It runs in WAL mode, so recent writes sit in
+`zelyq.db-wal` until SQLite folds them into the main file, and a copy of `zelyq.db` alone can be
+hours behind. `pnpm db:backup` writes one consistent, self-contained file to `data/backups/`
+(or to a path you give it) while the server and agent keep running.
 
 They are only loosely coupled: a project row without its directory shows as an error rather than
 crashing, and an orphaned directory is ignored. Still, back them up together. Image assets are the

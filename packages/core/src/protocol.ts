@@ -247,6 +247,7 @@ export const createAgentSessionSchema = z.object({
    * Management credential itself. Absent when nothing is linked.
    */
   supabaseBridge: z.object({ url: z.string(), token: z.string() }).optional(),
+  previewBridge: z.object({ url: z.string(), token: z.string() }).optional(),
   /**
    * Present only when this project has agent image generation switched on and
    * the instance has an image provider configured. A short-lived capability to

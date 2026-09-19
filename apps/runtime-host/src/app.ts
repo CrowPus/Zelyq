@@ -48,6 +48,8 @@ const previewSchema = z.object({
   command: z.string().optional(),
   port: z.number().int().optional(),
   env: z.record(z.string(), z.string()).optional(),
+  backendEnv: z.record(z.string(), z.string()).optional(),
+  configurationRevision: z.string().optional(),
 });
 
 const snapshotSchema = z.object({ label: z.string().min(1).max(200).default("Snapshot") });
@@ -117,7 +119,14 @@ export function buildHost(config: HostConfig): RuntimeHost {
     }
   });
 
-  app.get("/v1/health", async () => ({ version: config.version ?? "0.1.0" }));
+  // Capabilities come from the driver that would actually run the work, not a
+  // constant: a host advertising Python support it does not have lets a client
+  // create a project that can only fail at its first preview, which is exactly
+  // what the capability check exists to prevent.
+  app.get("/v1/health", async () => ({
+    version: config.version ?? "0.1.0",
+    capabilities: (await runtime.health()).capabilities ?? [],
+  }));
 
   type Id = { Params: { id: string } };
   type IdPath = { Params: { id: string; "*": string } };

@@ -5,6 +5,11 @@ description: Wire a language-model feature (chatbot, extractor, agent, classifie
 
 # AI integration
 
+For a project declaring `react-fastapi` in `zelyq.runtime.json`, use
+`python-backend`: calls run in Python with backend-only credentials. The Supabase
+Edge Function instructions below apply only to projects using that backend mode.
+Do not add Supabase to a Python project solely for an AI call.
+
 A Zelyq project is a browser SPA with no server of its own. A model API key cannot
 live in the browser. So: the key lives in Supabase, the call runs in a Supabase
 Edge Function, and the SDK call shape is confirmed against the *installed*

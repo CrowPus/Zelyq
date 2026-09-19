@@ -3,6 +3,8 @@ import type {
   AttachmentRef,
   AuditLogEntry,
   AvailableProviders,
+  BackendConfiguration,
+  BackendConfigurationInput,
   ChangePasswordInput,
   CreateProjectInput,
   CreatePullRequestInput,
@@ -120,6 +122,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getBackend: (id: string, environment = "development") =>
+    request<{ configuration: BackendConfiguration }>(
+      `/projects/${id}/backend?environment=${environment}`,
+    ),
+  saveBackend: (id: string, input: BackendConfigurationInput, environment = "development") =>
+    request<{ configuration: BackendConfiguration }>(
+      `/projects/${id}/backend?environment=${environment}`,
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
+  disconnectBackend: (id: string, environment = "development") =>
+    request(`/projects/${id}/backend?environment=${environment}`, { method: "DELETE" }),
+  inspectBackend: (id: string) => request(`/projects/${id}/backend/inspect`, { method: "POST" }),
   imageCapabilities: () => request<ImageCapabilities>("/images/capabilities"),
   videoCapabilities: () => request<VideoCapabilities>("/videos/capabilities"),
   videoHistory: (cursor?: string) =>
@@ -358,6 +372,8 @@ export const api = {
         stack?: string;
         /** A skill whose body is force-woven for projects on this stack. */
         agentSkill?: string;
+        /** Icon filename in the web app's public assets, when the stack has one. */
+        icon?: string;
       }>;
     }>("/templates"),
 

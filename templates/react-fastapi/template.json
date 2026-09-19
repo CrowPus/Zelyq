@@ -1,0 +1,8 @@
+{
+  "title": "React + Python backend",
+  "description": "React, TypeScript and a FastAPI backend. Comes with its own database — connect your PostgreSQL, MySQL or Supabase later if you want to.",
+  "icon": "react-python.png",
+  "stack": "React + Vite + TypeScript frontend; Python 3.11 + FastAPI backend; optional user-managed SQL database or Supabase. Managed frontend and backend services.",
+  "agentSkill": "python-backend",
+  "requiresCapability": "react-fastapi-v1"
+}

@@ -22,6 +22,7 @@ export interface ToolContext {
    * never sees a token beyond this session-scoped one.
    */
   supabaseBridge?: { url: string; token: string };
+  previewBridge?: { url: string; token: string };
   /**
    * Present only when the project allows the agent to generate images. A
    * capability to generate and fetch images by calling the Zelyq server, which
@@ -101,6 +102,21 @@ export function defineTool<TSchema extends z.ZodTypeAny>(
   tool: ZelyqTool<TSchema>,
 ): ZelyqTool<TSchema> {
   return tool;
+}
+
+/**
+ * Remove terminal colour and cursor codes from command output.
+ *
+ * Commands run with NO_COLOR, but not every tool honours it, and one that
+ * does not fills a result with `[1m[91m…` — unreadable in the chat and a
+ * waste of the model's context. Nothing a model or a person reads here needs
+ * them.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching escape codes is the point.
+const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g;
+
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_PATTERN, "");
 }
 
 /** Truncate tool output so one `cat` of a lockfile cannot eat the context window. */

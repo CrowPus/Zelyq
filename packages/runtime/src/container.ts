@@ -15,6 +15,16 @@ import {
   stoppedPreview,
   writePreviewRecord,
 } from "./local.js";
+import {
+  cleanProcessEnv,
+  installManagedDependencies,
+  MANAGED_CAPABILITY,
+  managedCapabilities,
+  managedStatus,
+  managedUnsupported,
+  prepareManagedRuntime,
+  readRuntimeManifest,
+} from "./managed.js";
 import { allocatePort, previewUrl, releasePort } from "./ports.js";
 import type {
   ExecOptions,
@@ -88,6 +98,21 @@ import type {
  * those — see `docker/sandbox.Dockerfile`. Kept here as the fallback for a
  * host that cannot build that image.
  */
+/**
+ * `--env NAME` for each variable, never `--env NAME=value`.
+ *
+ * Given a bare name, docker and podman read the value from their own
+ * environment, so we hand it over through the spawn's env instead of the
+ * command line. A project's backend configuration travels this way — database
+ * URLs and API keys — and an argv is world-readable on the host: `ps auxww`, or
+ * `/proc/<pid>/cmdline`, for any local user, plus the engine daemon's own
+ * request log. The local driver already passes env by inheritance; this keeps
+ * the container path from being the weaker one.
+ */
+function envNameArgs(env: Record<string, string>): string[] {
+  return Object.keys(env).flatMap((key) => ["--env", key]);
+}
+
 const BASE_IMAGE = "node:22-bookworm-slim";
 /**
  * What a project container actually runs, unless the operator names their own
@@ -102,7 +127,7 @@ const BASE_IMAGE = "node:22-bookworm-slim";
  * repository or a single commit — and the first anyone heard of it was a push
  * failing with git's own "command not found".
  */
-const DEFAULT_IMAGE = "zelyq/sandbox:node22";
+const DEFAULT_IMAGE = "zelyq/sandbox:node22-python311";
 /**
  * Kept in step with `docker/sandbox.Dockerfile` — that file is the copy a
  * person reads and can build by hand; this is the copy the runtime builds
@@ -110,12 +135,13 @@ const DEFAULT_IMAGE = "zelyq/sandbox:node22";
  * to be on disk (a published package, a container, a moved checkout).
  */
 const SANDBOX_DOCKERFILE = `FROM ${BASE_IMAGE}
+COPY --from=ghcr.io/astral-sh/uv:0.12.16 /uv /bin/uv
 
 RUN apt-get update \\
     && apt-get install --no-install-recommends -y \\
         git \\
         ca-certificates \\
-        openssh-client \\
+        openssh-client python3 python3-venv \\
     && rm -rf /var/lib/apt/lists/*
 `;
 
@@ -408,7 +434,31 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         metadataStatus +
         (egressStatus ? ` · ${egressStatus}` : ""),
       version: process.version,
+      capabilities: await this.managedCapabilities(),
     };
+  }
+
+  /**
+   * Python capability belongs to the *image*, not this host: the default
+   * sandbox carries uv, but `ZELYQ_CONTAINER_IMAGE` can point anywhere, so ask
+   * the image rather than assume. Cached per resolved image — the probe costs
+   * a container start.
+   *
+   * Zelyq's own image is built on first use, so it is built before it is
+   * asked. Found in review: on a fresh install the probe ran first, Docker
+   * went to the registry for a tag that only ever exists locally, and "no
+   * Python" hid the stack.
+   */
+  private async managedCapabilities(): Promise<string[]> {
+    if (this.imageIsDefault) await this.ensureImage().catch(() => undefined);
+    const image = this.resolvedImage;
+    return managedCapabilities(`container:${this.engine}:${image}`, async () => {
+      const probe = await this.engineRun(
+        ["run", "--rm", "--network", "none", image, "uv", "--version"],
+        30_000,
+      );
+      return probe.exitCode === 0;
+    });
   }
 
   /**
@@ -432,13 +482,14 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     const cwd = containerCwd(options.cwd);
     const env = agentCommandEnv(options.env);
 
-    const args = ["exec", "--workdir", cwd];
-    for (const [key, value] of Object.entries(env)) args.push("--env", `${key}=${value}`);
+    const args = ["exec", "--workdir", cwd, ...envNameArgs(env)];
     args.push(containerName(projectId), "/bin/bash", "-c", options.command);
 
     return await runCaptured(this.engine, args, {
       timeoutMs: options.timeoutMs ?? this.execTimeoutMs,
       maxOutputBytes: options.maxOutputBytes ?? 200_000,
+      // Values travel in our own environment, never in argv — see `envNameArgs`.
+      env: { ...cleanProcessEnv(), ...env },
     });
   }
 
@@ -511,8 +562,18 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    */
   async startPreview(projectId: string, options: PreviewOptions = {}): Promise<Preview> {
     return await this.withPreviewLock(projectId, async () => {
-      const quick = await this.checkPreview(projectId);
-      if (quick.status === "running" || quick.status === "starting") return quick;
+      const quick = await this.previewStatus(projectId);
+      const previous = await readPreviewRecord(this.workspaceDir, projectId);
+      if (
+        (quick.status === "running" || quick.status === "starting") &&
+        previous?.configurationRevision === options.configurationRevision
+      )
+        return quick;
+      if (previous) {
+        await this.killInContainer(containerName(projectId), previous.pid);
+        await clearPreviewRecord(this.workspaceDir, projectId);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
 
       const { root } = await this.local.ensureProject(projectId);
       this.lastFailure.delete(projectId);
@@ -523,11 +584,33 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       // the container twice on a project's very first preview.
       await this.ensureContainer(projectId, root);
 
+      const manifest = await readRuntimeManifest(this, projectId);
+      if (manifest) {
+        if (!(await this.managedCapabilities()).includes(MANAGED_CAPABILITY)) {
+          // Zelyq's own sandbox image carries uv, so this only happens on an
+          // image the operator chose. Naming it is the useful thing to say —
+          // the fix is in their Dockerfile, not on this host.
+          return this.fail(
+            projectId,
+            managedUnsupported(
+              `the ${this.resolvedImage} image`,
+              "that image has no uv. Add it (see docker/sandbox.Dockerfile), or unset " +
+                "ZELYQ_CONTAINER_IMAGE to use Zelyq's own sandbox, which includes it",
+            ).message,
+          );
+        }
+        await prepareManagedRuntime(root, manifest);
+        try {
+          await installManagedDependencies(this, projectId, root, manifest);
+        } catch (error) {
+          return this.fail(projectId, (error as Error).message);
+        }
+      }
       const hasModules = await fs
         .access(path.join(root, "node_modules"))
         .then(() => true)
         .catch(() => false);
-      if (!hasModules) {
+      if (!manifest && !hasModules) {
         const install = await this.exec(projectId, {
           command: "npm install --no-audit --no-fund --include=dev",
           timeoutMs: 10 * 60_000,
@@ -549,8 +632,15 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       // reach. Binding `previewBindHost` here would tell the process to listen
       // only on the container's own loopback or its own single address, which
       // is not the interface docker's forwarding arrives on.
-      const command = options.command ?? (await detectDevCommand(root, port, "0.0.0.0"));
-      const env = { ...agentCommandEnv(options.env), PORT: String(port), HOST: "0.0.0.0" };
+      const command = manifest
+        ? "exec node .zelyq/supervisor.mjs"
+        : (options.command ?? (await detectDevCommand(root, port, "0.0.0.0")));
+      const env = {
+        ...agentCommandEnv(options.env),
+        PORT: String(port),
+        HOST: "0.0.0.0",
+        ...(manifest ? { ZELYQ_BACKEND_ENV: JSON.stringify(options.backendEnv ?? {}) } : {}),
+      };
 
       const spawned = await this.spawnDetached(name, command, env);
       if (!spawned.pid) {
@@ -567,6 +657,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         port,
         startedAt,
         ownerPid: process.pid,
+        configurationRevision: options.configurationRevision,
       });
 
       // The same shape as `local.ts`: keep waiting on the port we assigned:
@@ -636,6 +727,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       const record = await readPreviewRecord(this.workspaceDir, projectId);
       if (record) {
         await this.killInContainer(containerName(projectId), record.pid);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         releasePort(record.port);
       }
       await clearPreviewRecord(this.workspaceDir, projectId);
@@ -644,7 +736,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   }
 
   async previewStatus(projectId: string): Promise<Preview> {
-    return await this.checkPreview(projectId);
+    const { root } = await this.local.ensureProject(projectId);
+    return managedStatus(root, await this.checkPreview(projectId));
   }
 
   async previewLogs(projectId: string, lines = 200): Promise<string> {
@@ -730,12 +823,10 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     const escaped = command.replace(/'/g, `'\\''`);
     const script = `setsid bash -c '${escaped}' > /tmp/preview.log 2>&1 < /dev/null & echo $!`;
 
-    const envArgs: string[] = [];
-    for (const [key, value] of Object.entries(env)) envArgs.push("--env", `${key}=${value}`);
-
     const result = await this.engineRun(
-      ["exec", ...envArgs, "--workdir", "/workspace", name, "/bin/bash", "-c", script],
+      ["exec", ...envNameArgs(env), "--workdir", "/workspace", name, "/bin/bash", "-c", script],
       15_000,
+      env,
     );
     const pid = Number.parseInt(result.stdout.trim(), 10);
     return {
@@ -1558,8 +1649,16 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     await this.engineRun(["rm", "-f", containerName(projectId)], 60_000);
   }
 
-  private engineRun(args: string[], timeoutMs: number): Promise<ExecResult> {
-    return runCaptured(this.engine, args, { timeoutMs, maxOutputBytes: 20_000 });
+  private engineRun(
+    args: string[],
+    timeoutMs: number,
+    env?: Record<string, string>,
+  ): Promise<ExecResult> {
+    return runCaptured(this.engine, args, {
+      timeoutMs,
+      maxOutputBytes: 20_000,
+      ...(env ? { env: { ...cleanProcessEnv(), ...env } } : {}),
+    });
   }
 }
 

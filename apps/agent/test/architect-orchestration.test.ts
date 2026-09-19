@@ -539,7 +539,7 @@ test("051: the verify dispatch is exempt from the runnable-first and file-count 
   }
 });
 
-test("autoMode without architectMode is rejected", async () => {
+test("autoMode with neither Architect nor Engineer Mode is rejected", async () => {
   const { base, close } = await setup([[say("n/a")]], "none");
   try {
     const res = await fetch(`${base}/sessions`, {
@@ -548,7 +548,7 @@ test("autoMode without architectMode is rejected", async () => {
       body: JSON.stringify({ sessionId: "s_auto_bad", projectId: "prj_orch", autoMode: true }),
     });
     assert.equal(res.status, 400);
-    assert.match((await res.json()).error.message, /only runs with Architect Mode/i);
+    assert.match((await res.json()).error.message, /Architect Mode or Engineer Mode/i);
   } finally {
     await close();
   }

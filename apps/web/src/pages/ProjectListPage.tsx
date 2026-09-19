@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
 import { Box, CircleAlert, Plus, Trash2 } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import {
@@ -43,6 +43,17 @@ export function ProjectListPage() {
   // this only keeps a button nobody may press off the screen.
   const teams = useQuery({ queryKey: ["teams"], queryFn: api.listTeams });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
+
+  /** Template name → its icon, for the rows in the project list. */
+  const templateIcons = useMemo(
+    () =>
+      new Map(
+        (templates.data?.templates ?? [])
+          .filter((option) => option.icon)
+          .map((option) => [option.name, option.icon as string]),
+      ),
+    [templates.data],
+  );
 
   const createProject = useMutation({
     mutationFn: (input: { name: string; gitUrl?: string; gitToken?: string; template?: string }) =>
@@ -156,7 +167,10 @@ export function ProjectListPage() {
                   <legend className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
                     Stack
                   </legend>
-                  <div className="flex flex-wrap gap-2">
+                  {/* A card per stack rather than a row of text: the icon is
+                      what someone recognises, and it is doing the work the
+                      title used to do on its own. */}
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {templates.data?.templates.map((option) => {
                       const active = option.name === template;
                       return (
@@ -165,15 +179,40 @@ export function ProjectListPage() {
                           type="button"
                           aria-pressed={active}
                           onClick={() => setTemplate(option.name)}
-                          className={`max-w-xs rounded-md border px-3 py-2 text-left transition-colors ${
+                          className={`group flex items-start gap-3 rounded-lg border p-3 text-left transition-all ${
                             active
                               ? "border-focus bg-surface-subtle shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_20%,transparent)]"
-                              : "border-border-default bg-surface hover:border-border-strong"
+                              : "border-border-default bg-surface hover:border-border-strong hover:bg-surface-subtle"
                           }`}
                         >
-                          <span className="block text-xs font-medium text-fg">{option.title}</span>
-                          <span className="mt-0.5 block text-2xs leading-4 text-fg-secondary">
-                            {option.description}
+                          {option.icon ? (
+                            <img
+                              src={`/${option.icon}`}
+                              alt=""
+                              width={40}
+                              height={40}
+                              loading="lazy"
+                              decoding="async"
+                              className={`size-10 shrink-0 object-contain transition-transform duration-200 group-hover:scale-105 ${
+                                active ? "" : "opacity-85 group-hover:opacity-100"
+                              }`}
+                            />
+                          ) : (
+                            // A stack with no icon still lines up with the rest.
+                            <span
+                              aria-hidden
+                              className="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-strong text-sm font-semibold text-fg-secondary"
+                            >
+                              {option.title.slice(0, 1)}
+                            </span>
+                          )}
+                          <span className="min-w-0">
+                            <span className="block text-xs font-medium text-fg">
+                              {option.title}
+                            </span>
+                            <span className="mt-0.5 block text-2xs leading-4 text-fg-secondary">
+                              {option.description}
+                            </span>
                           </span>
                         </button>
                       );
@@ -295,11 +334,27 @@ export function ProjectListPage() {
                             className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_92px] items-center gap-3 py-2.5 pl-4 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
                           >
                             <span className="flex min-w-0 items-center gap-2.5">
-                              <Box
-                                size={15}
-                                strokeWidth={1.75}
-                                className="shrink-0 text-fg-muted"
-                              />
+                              {/* The stack's own mark, so a list of projects is
+                                  scannable by what each one is. Falls back to
+                                  the generic box for a cloned repository, or a
+                                  stack this runtime no longer offers. */}
+                              {templateIcons.get(project.template) ? (
+                                <img
+                                  src={`/${templateIcons.get(project.template)}`}
+                                  alt=""
+                                  width={18}
+                                  height={18}
+                                  loading="lazy"
+                                  decoding="async"
+                                  className="size-[18px] shrink-0 object-contain"
+                                />
+                              ) : (
+                                <Box
+                                  size={15}
+                                  strokeWidth={1.75}
+                                  className="shrink-0 text-fg-muted"
+                                />
+                              )}
                               <span className="min-w-0">
                                 <span className="block truncate text-sm text-fg">
                                   {project.name}

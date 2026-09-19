@@ -1,4 +1,5 @@
 {
   "title": "React + Vite",
-  "description": "React 19, TypeScript, Vite, and Tailwind CSS v4. The default starting point."
+  "description": "React 19, TypeScript, Vite, and Tailwind CSS v4. The default starting point.",
+  "icon": "react-vit.png"
 }

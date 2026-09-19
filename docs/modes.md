@@ -176,17 +176,25 @@ Architect, with the steps to switch.
 
 ## Auto Mode — ∞
 
-A modifier on Architect Mode. With Auto on, after you say "build it" the
-Architect runs pass after pass on its own — build, verify, design,
-re-verify — until the plan is done or it hits a ceiling, instead of you
-typing "keep going" between passes.
+A modifier on Architect Mode and Engineer Mode. With Auto on, after you say
+"build it" the Architect runs pass after pass on its own — build, verify,
+design, re-verify — until the plan is done or it hits a ceiling, instead of
+you typing "keep going" between passes.
+
+The Engineer does the same for one request. Each reply ends with a status
+line: `REMAINING: none` ends the run, `REMAINING: <what's left>` starts the
+next pass, and `NEEDS YOU: <question>` pauses until you answer. A check that
+is failing when a pass ends starts another pass whatever the line says, and
+that pass is told to fix it first. Each pass is its own message, with its own
+undo point.
 
 - **Ceiling:** 6M tokens / 6 passes / 30 minutes for one Auto run,
   whichever comes first. Hitting it stops the run and hands back with the
   real totals; start Auto again (a deliberate second go-ahead) or continue
-  manually.
+  manually. For the Engineer, every new request is a new run.
 - **Stuck detection:** two passes in a row with no build-plan progress
-  stops the run.
+  stops the run. For the Engineer: two passes in a row that change nothing,
+  or that both end with the app broken.
 - **The Stop button is always live**, and every pass streams — you can
   watch and stop at any point.
 
