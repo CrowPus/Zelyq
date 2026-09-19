@@ -528,3 +528,21 @@ test("Stop during the end-of-turn check stops Auto Mode", async () => {
     await agent.close();
   }
 });
+
+test("the next pass is shown the check that failed, not told it is above", async () => {
+  // Found in review: when a pass ran out of steps, its failing check went into
+  // the text the person sees and never into the model's conversation.
+  const agent = await open(
+    Array.from({ length: STEPS * 3 }, edit),
+    { engineerMode: true, autoMode: true },
+    failingCheck,
+  );
+  try {
+    await agent.prompt("build the lead tracker");
+    const next = agent.log.userMessages.find((message) => message.startsWith("keep going"));
+    assert.match(String(next), /a check was failing/);
+    assert.match(String(next), /TypeError: boom/, "the failure itself travels with the message");
+  } finally {
+    await agent.close();
+  }
+});

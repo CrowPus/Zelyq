@@ -4,6 +4,7 @@ import {
   type AvailableProviders,
   agentEventSchema,
   availableProvidersSchema,
+  type BridgeTokens,
   type Message,
   type PromptAttachment,
   ZelyqError,
@@ -194,6 +195,8 @@ export class AgentClient {
     plugins?: string[],
     /** Specialist names, from the same `/` picker's Agents section. */
     agents?: string[],
+    /** Minted for whoever sent this prompt — see `promptSchema`. */
+    bridgeTokens?: BridgeTokens,
   ): AsyncGenerator<AgentEvent> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/prompt`, {
       method: "POST",
@@ -204,6 +207,7 @@ export class AgentClient {
         ...(skills?.length ? { skills } : {}),
         ...(plugins?.length ? { plugins } : {}),
         ...(agents?.length ? { agents } : {}),
+        ...(bridgeTokens && Object.keys(bridgeTokens).length > 0 ? { bridgeTokens } : {}),
       }),
       signal,
     });

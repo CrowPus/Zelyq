@@ -283,10 +283,19 @@ export async function ensureUvToolchain(
 ): Promise<{ ok: boolean; reason?: string }> {
   let pending = toolchainInstalls.get(workspaceDir);
   if (!pending) {
-    pending = provisionUv(workspaceDir, options).catch((error: Error) => ({
-      ok: false,
-      reason: error.message,
-    }));
+    const attempt: Promise<{ ok: boolean; reason?: string }> = provisionUv(workspaceDir, options)
+      .catch((error: Error) => ({ ok: false, reason: error.message }))
+      .then((result) => {
+        // Only a success is kept. A failure — a download that did not
+        // complete, a disk that was full — is tried again next time rather
+        // than remembered until a restart. `managedCapabilities` paces how
+        // often that is.
+        if (!result.ok && toolchainInstalls.get(workspaceDir) === attempt) {
+          toolchainInstalls.delete(workspaceDir);
+        }
+        return result;
+      });
+    pending = attempt;
     toolchainInstalls.set(workspaceDir, pending);
   }
   return await pending;

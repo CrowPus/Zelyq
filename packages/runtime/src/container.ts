@@ -171,6 +171,8 @@ const ENGINE_TIMEOUT_MS = 300_000;
  * pulling a layer. Paid once per host, not once per project.
  */
 const IMAGE_BUILD_TIMEOUT_MS = 600_000;
+/** How long a health check waits for the sandbox image before answering without it. */
+const IMAGE_BUILD_WAIT_MS = 2_000;
 /**
  * The cloud instance metadata address. AWS, Azure, DigitalOcean, Oracle Cloud
  * and GCP all converge on this one link-local IP — documented, stable
@@ -448,9 +450,29 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * asked. Found in review: on a fresh install the probe ran first, Docker
    * went to the registry for a tag that only ever exists locally, and "no
    * Python" hid the stack.
+   *
+   * A health check does not wait out that build, though — it can take
+   * minutes, and the first page load and the server's own health check hung
+   * behind it. While it runs, the answer comes from what the image is built
+   * to contain (`SANDBOX_DOCKERFILE` copies uv in), and is not cached. If
+   * the build then fails, the fallback image is probed like any other, and a
+   * Python preview is refused with the reason.
    */
   private async managedCapabilities(): Promise<string[]> {
-    if (this.imageIsDefault) await this.ensureImage().catch(() => undefined);
+    if (this.imageIsDefault) {
+      let timer: NodeJS.Timeout | undefined;
+      const built = await Promise.race([
+        this.ensureImage().then(
+          () => true,
+          () => true,
+        ),
+        new Promise<false>((resolve) => {
+          timer = setTimeout(() => resolve(false), IMAGE_BUILD_WAIT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+      if (!built) return [MANAGED_CAPABILITY];
+    }
     const image = this.resolvedImage;
     return managedCapabilities(`container:${this.engine}:${image}`, async () => {
       const probe = await this.engineRun(

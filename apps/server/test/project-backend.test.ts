@@ -449,6 +449,37 @@ test("a database host that only ever means this machine is refused", async () =>
       `${host} must be refused`,
     );
   }
+
+  // The driver connects to a host given in the query string instead of the
+  // URL's own — found in review, every one of these reached this machine.
+  const overridden = [
+    "postgresql://u:p@db.example.com/app?host=127.0.0.1",
+    "postgresql://u:p@db.example.com/app?hostaddr=169.254.169.254",
+    "postgresql://u:p@db.example.com/app?host=/var/run/postgresql",
+    "postgresql://u:p@db.example.com/app?host=db.example.com,localhost",
+    "postgresql://u:p@db.example.com/app?HOST=localtest.me",
+    // libpq tries each host of a comma-separated list in the URL itself.
+    "postgresql://u:p@db.example.com,127.0.0.1:5432/app",
+    // Connection settings read from a file on the runtime's machine.
+    "postgresql://u:p@db.example.com/app?service=local",
+    "postgresql://u:p@db.example.com/app?read_default_file=/etc/mysql/my.cnf",
+  ];
+  for (const databaseUrl of overridden) {
+    await assert.rejects(
+      () => backend.save("p1", { ...base, databaseUrl }),
+      /not permitted/,
+      `${databaseUrl} must be refused`,
+    );
+  }
+  await assert.rejects(
+    () =>
+      backend.save("p1", {
+        ...base,
+        engine: "mysql",
+        databaseUrl: "mysql://u:p@db.example.com/app?unix_socket=/tmp/mysql.sock",
+      }),
+    /not permitted/,
+  );
 });
 
 test("an ordinary or privately-hosted database host is still accepted", async () => {
@@ -467,6 +498,16 @@ test("an ordinary or privately-hosted database host is still accepted", async ()
     assert.ok(
       await backend.save("p1", { ...base, databaseUrl: `postgresql://u:p@${host}/app` }),
       `${host} should be allowed`,
+    );
+  }
+  // Ordinary connection options, and a second host that is itself fine.
+  for (const query of ["sslmode=require", "host=10.1.2.3", "connect_timeout=5"]) {
+    assert.ok(
+      await backend.save("p1", {
+        ...base,
+        databaseUrl: `postgresql://u:p@db.example.com/app?${query}`,
+      }),
+      `?${query} should be allowed`,
     );
   }
 });

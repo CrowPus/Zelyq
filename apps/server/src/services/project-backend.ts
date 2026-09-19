@@ -143,6 +143,46 @@ async function assertReachableDatabaseHost(hostname: string, resolve: HostLookup
 }
 
 /**
+ * Parameters a driver reads a host from besides the URL's own: libpq's `host`
+ * and `hostaddr` (psycopg) and PyMySQL's `unix_socket`. SQLAlchemy hands the
+ * query string to the driver, which connects there instead. Found in review:
+ * `postgresql://…@db.example.com/db?host=127.0.0.1` went to loopback.
+ */
+const HOST_PARAMETERS = new Set(["host", "hostaddr", "unix_socket"]);
+/** Parameters that point the driver at a configuration file on the runtime's
+ * machine — which can name any server, and any credentials, in turn. */
+const FILE_PARAMETERS = new Set(["service", "servicefile", "read_default_file"]);
+
+async function assertReachableDatabaseUrl(url: URL, resolve: HostLookup): Promise<void> {
+  // libpq also reads a comma-separated list in the URL's own host, and tries
+  // each in turn — `db.example.com,127.0.0.1` reached loopback in review.
+  for (const host of url.hostname.split(",")) {
+    await assertReachableDatabaseHost(host.trim(), resolve);
+  }
+  for (const [key, value] of url.searchParams) {
+    const name = key.toLowerCase();
+    if (FILE_PARAMETERS.has(name)) {
+      throw ZelyqError.badRequest(
+        `The "${key}" option reads connection settings from a file on the runtime and is not ` +
+          "permitted. Put the host, user and database in the URL itself.",
+      );
+    }
+    if (!HOST_PARAMETERS.has(name)) continue;
+    // libpq takes a comma-separated list, and tries each.
+    for (const host of value.split(",").map((part) => part.trim())) {
+      // A socket path is a connection to this machine by definition.
+      if (name === "unix_socket" || host.startsWith("/") || host.startsWith("@")) {
+        throw ZelyqError.badRequest(
+          "A database reached through a local socket is not permitted. Give the address the " +
+            "database is reachable at from the runtime.",
+        );
+      }
+      await assertReachableDatabaseHost(host, resolve);
+    }
+  }
+}
+
+/**
  * Whether this is the project's own SQLite build database rather than a
  * database belonging to someone.
  *
@@ -237,7 +277,7 @@ export class ProjectBackendService {
       const scheme = url.protocol.split("+")[0]?.replace(":", "");
       if (scheme !== config.engine)
         throw ZelyqError.badRequest("The URL does not match the selected database engine.");
-      await assertReachableDatabaseHost(url.hostname, this.resolveHost);
+      await assertReachableDatabaseUrl(url, this.resolveHost);
     }
     if (config.auth === "jwt") {
       for (const target of [config.issuer!, config.jwksUrl!])
