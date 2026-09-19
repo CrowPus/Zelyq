@@ -436,6 +436,26 @@ test("an existing uv on PATH is used rather than downloaded again", async () => 
   resetToolchainProvisioning();
 });
 
+test("a failed toolchain setup is tried again, not remembered until a restart", async () => {
+  // Found in review: one failure (here, a workspace it cannot write to) was
+  // kept for the life of the process, so the Python stack stayed hidden.
+  resetToolchainProvisioning();
+  const workspace = await scratch();
+  await fs.chmod(workspace, 0o500);
+  try {
+    const failed = await ensureUvToolchain(workspace, {
+      run: async (command) => ({ exitCode: command.startsWith("uv ") ? 1 : 0 }),
+    });
+    assert.equal(failed.ok, false);
+  } finally {
+    await fs.chmod(workspace, 0o700);
+  }
+  // The cause is gone and uv works now.
+  const retried = await ensureUvToolchain(workspace, { run: async () => ({ exitCode: 0 }) });
+  assert.equal(retried.ok, true);
+  resetToolchainProvisioning();
+});
+
 test("provisioning is attempted once per workspace, not per caller", async () => {
   resetToolchainProvisioning();
   const workspace = await scratch();

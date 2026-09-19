@@ -439,6 +439,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       reply.raw.end();
       return;
     }
+    if (input.bridgeTokens) session.useBridgeTokens(input.bridgeTokens);
     try {
       await session.run(
         input.message,

@@ -77,9 +77,15 @@ function fakeAgent() {
     }
     const promptMatch = req.url?.match(/^\/sessions\/([^/]+)\/prompt$/);
     if (req.method === "POST" && promptMatch) {
-      req.on("data", () => undefined);
+      let body = "";
+      req.on("data", (c) => {
+        body += c;
+      });
       req.on("end", async () => {
         const s = sessions.get(promptMatch[1]!);
+        // What the real agent does with the tokens a prompt carries.
+        const preview = JSON.parse(body).bridgeTokens?.preview;
+        if (preview && s?.previewBridge) s.previewBridge.token = preview;
         // What the agent's start_preview tool does, minus the preview itself:
         // an invalid body fails AFTER the capability check (400), a stale token fails it (401).
         const r = await fetch(`${serverBase}/api/internal/project-preview/start`, {
@@ -205,6 +211,104 @@ test("the preview capability survives a second prompt on the same session", asyn
   // 400: the token was accepted and only the deliberately bad body refused.
   // 401 would be the token itself refused.
   assert.deepEqual(probeResults, [400, 400]);
+});
+
+test("two editors on one project do not lock each other out of the preview", async () => {
+  // Found in review: one agent session serves everybody on the project, and
+  // minting a token for the second person retired the first person's — which
+  // was the only one the session had. From then on every call was refused.
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Team" },
+    })
+  ).json().project;
+  const registered = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: { email: "b@example.com", name: "B", password: "correct-horse-battery" },
+  });
+  const cookieB = `zelyq_session=${registered.cookies.find((c) => c.name === "zelyq_session")?.value}`;
+  await server.store.teams.addMember(project.teamId, registered.json().user.id, "editor");
+
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const promptAs = (who: string, message: string) =>
+    new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+        headers: { cookie: who },
+      });
+      ws.on("error", reject);
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "connected") ws.send(JSON.stringify({ type: "prompt", message }));
+        if (msg.type === "turn.end") {
+          ws.close();
+          setTimeout(resolve, 200);
+        }
+      });
+    });
+
+  probeResults.length = 0;
+  await promptAs(cookie, "A first");
+  await promptAs(cookieB, "B second");
+  await promptAs(cookie, "A third");
+  assert.deepEqual(probeResults, [400, 400, 400], "accepted every time (401 would be refused)");
+});
+
+test("two editors pressing send together: one turn runs, the other is refused first", async () => {
+  // Found in review: both prompts got through the gateway's check before
+  // either had set its turn, both minted tokens, and the second person's
+  // tokens cut off the first one's running turn.
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Race" },
+    })
+  ).json().project;
+  const registered = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: { email: "r@example.com", name: "R", password: "correct-horse-battery" },
+  });
+  const cookieB = `zelyq_session=${registered.cookies.find((c) => c.name === "zelyq_session")?.value}`;
+  await server.store.teams.addMember(project.teamId, registered.json().user.id, "editor");
+
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const connect = (who: string) =>
+    new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+        headers: { cookie: who },
+      });
+      ws.on("error", reject);
+      ws.on("message", (raw) => {
+        if (JSON.parse(raw.toString()).type === "connected") resolve(ws);
+      });
+    });
+  const a = await connect(cookie);
+  const b = await connect(cookieB);
+  const conflicts: string[] = [];
+  const ended = new Promise<void>((resolve) => {
+    a.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "error" && msg.code === "conflict") conflicts.push(msg.message);
+      if (msg.type === "turn.end") setTimeout(resolve, 300);
+    });
+  });
+
+  probeResults.length = 0;
+  a.send(JSON.stringify({ type: "prompt", message: "A go" }));
+  b.send(JSON.stringify({ type: "prompt", message: "B go" }));
+  await ended;
+  a.close();
+  b.close();
+  assert.equal(conflicts.length, 1, "the second prompt is refused at the gateway");
+  assert.deepEqual(probeResults, [400], "only one turn reached the agent, and its token works");
 });
 
 test("the Backend panel is told why a database host is refused", async () => {

@@ -1,6 +1,7 @@
 import {
   type AgentEvent,
   type AttachmentRef,
+  type BridgeTokens,
   clientMessageSchema,
   type Message,
   newId,
@@ -35,7 +36,31 @@ interface Room {
   sockets: Set<WebSocket>;
   /** Cancels the in-flight turn when the user aborts. */
   turn: AbortController | null;
+  /** Held from the moment a prompt is accepted until its turn is over. `turn`
+   * is only set after several awaits (attachments, tokens, the agent session),
+   * and two prompts sent together both got through that gap — found in
+   * review, the second person's tokens then cut off the first one's turn. */
+  busy: boolean;
 }
+
+/** What the chat's own controls picked for one prompt. */
+type TurnOverride = {
+  provider?: string;
+  model?: string;
+  attachmentIds?: string[];
+  /** Picked from the composer's `/` skill picker. */
+  skills?: string[];
+  /** Picked from the same `/` menu's Plugins section. */
+  plugins?: string[];
+  /** Picked from the same `/` menu's Agents section — specialist names. */
+  agents?: string[];
+  /** Engineer Mode toggle. */
+  engineerMode?: boolean;
+  /** Architect Mode toggle — see 048. */
+  architectMode?: boolean;
+  /** Auto Mode toggle. Only with architectMode. */
+  autoMode?: boolean;
+};
 
 /** What one connection is allowed to do, decided once at handshake time. */
 interface Connection {
@@ -176,25 +201,9 @@ export class ChatGateway {
     userId: string,
     prompt: string,
     /** Picked from the chat's own model control, if at all. */
-    override: {
-      provider?: string;
-      model?: string;
-      attachmentIds?: string[];
-      /** Picked from the composer's `/` skill picker. */
-      skills?: string[];
-      /** Picked from the same `/` menu's Plugins section. */
-      plugins?: string[];
-      /** Picked from the same `/` menu's Agents section — specialist names. */
-      agents?: string[];
-      /** Engineer Mode toggle. */
-      engineerMode?: boolean;
-      /** Architect Mode toggle — see 048. */
-      architectMode?: boolean;
-      /** Auto Mode toggle. Only with architectMode. */
-      autoMode?: boolean;
-    } = {},
+    override: TurnOverride = {},
   ): Promise<void> {
-    if (room.turn) {
+    if (room.turn || room.busy) {
       this.broadcast(room, {
         type: "error",
         sessionId: room.sessionId,
@@ -204,7 +213,20 @@ export class ChatGateway {
       });
       return;
     }
+    room.busy = true;
+    try {
+      await this.startTurn(room, userId, prompt, override);
+    } finally {
+      room.busy = false;
+    }
+  }
 
+  private async startTurn(
+    room: Room,
+    userId: string,
+    prompt: string,
+    override: TurnOverride = {},
+  ): Promise<void> {
     // Resolved before anything is persisted, so a bad attachment id refuses
     // the turn cleanly rather than leaving a user message with a reference
     // to something that never actually made it to the model. An image goes
@@ -341,6 +363,9 @@ export class ChatGateway {
     await this.store.messages.append(userMessage);
 
     const history = await this.store.messages.listForSession(room.sessionId);
+    // Minted for whoever sent this prompt, and sent with it — see `bridgeTokens`
+    // in the prompt schema.
+    let bridgeTokens: BridgeTokens = {};
     try {
       // Provider, model, and key come from settings, so a key entered in the
       // app reaches the agent. Without this the agent can only work when its
@@ -415,6 +440,13 @@ export class ChatGateway {
         // provider is configured. No token, no video tools.
         this.videoGeneration.bridge.mint(room.sessionId, room.projectId, userId),
       ]);
+      const previewToken = this.supabase.backend?.mint(room.sessionId, room.projectId, userId);
+      bridgeTokens = {
+        ...(bridgeToken ? { supabase: bridgeToken } : {}),
+        ...(previewToken ? { preview: previewToken } : {}),
+        ...(imageToken ? { image: imageToken } : {}),
+        ...(videoToken ? { video: videoToken } : {}),
+      };
 
       // Which stack this project is on, so the agent's prompt describes
       // the right one and (for Expo) force-weaves the RN skill. A vite-react
@@ -445,13 +477,8 @@ export class ChatGateway {
           ? { videoBridge: { url: this.videoGeneration.serverInternalUrl, token: videoToken } }
           : {}),
         ...(Object.keys(supabasePreviewEnv).length > 0 ? { supabasePreviewEnv } : {}),
-        ...(this.supabase.backend
-          ? {
-              previewBridge: {
-                url: this.supabase.serverInternalUrl,
-                token: this.supabase.backend.mint(room.sessionId, room.projectId, userId),
-              },
-            }
+        ...(previewToken
+          ? { previewBridge: { url: this.supabase.serverInternalUrl, token: previewToken } }
           : {}),
         template: stackInfo.template,
         ...(stackInfo.stack ? { stack: stackInfo.stack } : {}),
@@ -575,6 +602,7 @@ export class ChatGateway {
         effectiveSkills,
         override.plugins,
         override.agents,
+        bridgeTokens,
       )) {
         // The agent builds its own copy of the finished message, and it does not
         // know about the snapshot this server took before the turn. Broadcasting
@@ -685,7 +713,7 @@ export class ChatGateway {
   private roomFor(projectId: string, sessionId: string): Room {
     const existing = this.rooms.get(projectId);
     if (existing) return existing;
-    const room: Room = { projectId, sessionId, sockets: new Set(), turn: null };
+    const room: Room = { projectId, sessionId, sockets: new Set(), turn: null, busy: false };
     this.rooms.set(projectId, room);
     return room;
   }

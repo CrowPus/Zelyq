@@ -307,6 +307,16 @@ export const voiceTranscriptionSchema = z.object({
 });
 export type VoiceTranscriptionInput = z.infer<typeof voiceTranscriptionSchema>;
 
+export const bridgeTokensSchema = z
+  .object({
+    supabase: z.string().max(200),
+    preview: z.string().max(200),
+    image: z.string().max(200),
+    video: z.string().max(200),
+  })
+  .partial();
+export type BridgeTokens = z.infer<typeof bridgeTokensSchema>;
+
 export const promptSchema = z.object({
   message: z.string().min(1).max(100_000),
   attachments: z.array(promptAttachmentSchema).optional(),
@@ -324,6 +334,13 @@ export const promptSchema = z.object({
    * naming that specialist into the message; it is not a command to dispatch
    * it. */
   agents: z.array(z.string()).optional(),
+  /** The bridge tokens minted for whoever sent this prompt. One agent session
+   * serves everybody editing the project and is reused across prompts, so
+   * the tokens it was created with belong to whoever sent its first prompt —
+   * and minting for someone else retires them. Found in review: from a second
+   * editor's prompt on, every preview, Supabase, image and video call was
+   * refused. */
+  bridgeTokens: bridgeTokensSchema.optional(),
 });
 export type PromptInput = z.infer<typeof promptSchema>;
 

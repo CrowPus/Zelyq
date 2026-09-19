@@ -1,6 +1,7 @@
 import { posix as pathPosix } from "node:path";
 import {
   type AgentEvent,
+  type BridgeTokens,
   type Message,
   newId,
   type Preview,
@@ -1542,6 +1543,9 @@ export class AgentSession {
     // Engineer Mode only: passes in a row that ended with a check failing,
     // however they ended — out of steps, or the model calling it done.
     brokenPasses: 0,
+    // What the failing check said, for the next pass's message — see
+    // `autoPassMessage`.
+    lastCheckFailure: "",
   };
 
   constructor(options: SessionOptions) {
@@ -1746,6 +1750,7 @@ export class AgentSession {
       o.autoStartedAt = null;
       o.zeroProgressPasses = 0;
       o.brokenPasses = 0;
+      o.lastCheckFailure = "";
       o.engineerOutOfSteps = false;
       o.engineerNeedsYou = null;
     }
@@ -1756,12 +1761,32 @@ export class AgentSession {
     this.requestInFlight = false;
   }
 
+  /** Act, for this request, with the bridge tokens minted for whoever sent it
+   * — see `bridgeTokens` in the prompt schema. Only a bridge the session was
+   * created with is updated; a token never adds a tool the session does not
+   * have. */
+  useBridgeTokens(tokens: BridgeTokens): void {
+    const o = this.options;
+    if (tokens.supabase && o.supabaseBridge) {
+      o.supabaseBridge = { ...o.supabaseBridge, token: tokens.supabase };
+    }
+    if (tokens.preview && o.previewBridge) {
+      o.previewBridge = { ...o.previewBridge, token: tokens.preview };
+    }
+    if (tokens.image && o.imageBridge) o.imageBridge = { ...o.imageBridge, token: tokens.image };
+    if (tokens.video && o.videoBridge) o.videoBridge = { ...o.videoBridge, token: tokens.video };
+  }
+
   /** What the next Auto Mode pass is started with. A pass that ended over a
    * failing check says so — "keep going" alone reads as "carry on with the
    * list", and the failure is the first thing to deal with. */
   get autoPassMessage(): string {
+    // The failure travels with the message. Found in review: a pass that ran
+    // out of steps showed its failing check to the person only, never to the
+    // model, and the next pass was told to fix an error it had not seen.
     return this.options.engineerMode && this.orchestration.brokenPasses > 0
-      ? "keep going — a check was failing when the last pass ended (its output is above). " +
+      ? "keep going — a check was failing when the last pass ended:\n\n" +
+          `${headAndTail(this.orchestration.lastCheckFailure, 4000)}\n\n` +
           "Fix that first, then carry on with whatever is left."
       : "keep going";
   }
@@ -2930,6 +2955,7 @@ export class AgentSession {
               // this failure with "that error is unrelated … REMAINING: none",
               // changed nothing, and Auto Mode stopped on a broken app.
               endedBroken = outcome.failed;
+              this.orchestration.lastCheckFailure = outcome.failed ? outcome.output : "";
 
               if (outcome.failed) {
                 this.conversation.addUserMessage(
@@ -3638,6 +3664,7 @@ export class AgentSession {
             if (check) {
               const outcome = await this.runVerification(toolContext, check);
               endedBroken = outcome.failed;
+              this.orchestration.lastCheckFailure = outcome.failed ? outcome.output : "";
               if (outcome.failed) {
                 brokenThisTurn = true;
                 this.cappedBrokenStreak += 1;
