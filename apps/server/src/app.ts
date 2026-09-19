@@ -85,6 +85,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
         : { target: "pino-pretty", options: { colorize: true } },
     },
     bodyLimit: 16 * 1024 * 1024,
+    // Behind a TLS-terminating proxy this is what makes `request.protocol`
+    // report the scheme the browser used, which is what decides whether the
+    // session cookie is marked `Secure` (see routes/auth.ts). Without it an
+    // HTTPS deployment silently hands out a cookie that a downgraded
+    // connection would send in the clear. Off unless configured, so a
+    // directly-exposed instance cannot be lied to by a header.
+    trustProxy: config.trustProxy ?? false,
     // The UI polls preview status on a timer, and Fastify's per-request logging
     // turns that into ~20 lines every few seconds — enough to bury a real
     // error. Errors and explicit log calls still come through; set

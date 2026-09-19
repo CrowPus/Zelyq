@@ -50,6 +50,11 @@ These are what `LocalRuntimeDriver` guarantees, and what callers assume:
 3. **Truncation, not failure.** Output beyond `maxOutputBytes` is cut with `truncated: true`.
 4. **Idempotence.** Creating an existing project or deleting a missing one both succeed.
 5. **Unknown project → `404`,** which the driver surfaces as a `not_found` error.
+6. **Answer with the port you actually bound.** A host's `Preview.url` is the address *it* sees, and
+   for a host inside its own container that is usually meaningless to a browser. A deployment that
+   reverse-proxies previews sets `ZELYQ_PREVIEW_URL_TEMPLATE` on the server and agent, and the
+   `remote` driver rewrites `url` from `port` — so `port` must be the real one, and a stopped
+   preview must report `null` for both rather than a stale pair.
 
 ## Isolation guidance
 

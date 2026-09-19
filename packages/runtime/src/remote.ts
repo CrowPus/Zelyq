@@ -1,5 +1,6 @@
 import type { FileContent, FileEntry, Preview, Snapshot } from "@zelyq/core";
 import { ZelyqError } from "@zelyq/core";
+import { previewUrl } from "./ports.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -27,6 +28,8 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
   private readonly baseUrl: string;
   private readonly token: string | undefined;
   private readonly execTimeoutMs: number;
+  /** See `RuntimeConfig.previewUrlTemplate`, and `applyPreviewUrl` below. */
+  private readonly previewUrlTemplate: string | undefined;
 
   constructor(config: RuntimeConfig) {
     if (!config.url) {
@@ -35,6 +38,26 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
     this.baseUrl = config.url.replace(/\/+$/, "");
     this.token = config.token;
     this.execTimeoutMs = config.execTimeoutMs;
+    this.previewUrlTemplate = config.previewUrlTemplate || undefined;
+  }
+
+  /**
+   * A host answers with the address *it* can see — `http://<its bind
+   * address>:<port>`, which is usually a loopback or `0.0.0.0` inside its own
+   * container and means nothing to a browser. `ZELYQ_PREVIEW_URL_TEMPLATE` is
+   * how a deployment says "previews are reachable here instead", and the
+   * local and container drivers have always honoured it. Without this, the
+   * one runtime that *needs* a reverse proxy — the remote one — was the one
+   * that ignored the setting, and the UI was left rewriting an unusable
+   * address into a different unusable address.
+   *
+   * Applied here rather than in the host so the template stays one setting on
+   * the side that serves the browser, instead of a second copy every host
+   * operator has to keep in step.
+   */
+  private applyPreviewUrl(preview: Preview): Preview {
+    if (!this.previewUrlTemplate || preview.port === null || preview.url === null) return preview;
+    return { ...preview, url: previewUrl(this.previewUrlTemplate, "", preview.port) };
   }
 
   async health(): Promise<RuntimeHealth> {
@@ -120,20 +143,26 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
       if (!health.capabilities?.includes("react-fastapi-v1"))
         throw ZelyqError.badRequest("Upgrade the remote runtime host to support Python backends.");
     }
-    return await this.request<Preview>(
-      "POST",
-      `/v1/projects/${projectId}/preview/start`,
-      options,
-      660_000,
+    return this.applyPreviewUrl(
+      await this.request<Preview>(
+        "POST",
+        `/v1/projects/${projectId}/preview/start`,
+        options,
+        660_000,
+      ),
     );
   }
 
   async stopPreview(projectId: string): Promise<Preview> {
-    return await this.request<Preview>("POST", `/v1/projects/${projectId}/preview/stop`);
+    return this.applyPreviewUrl(
+      await this.request<Preview>("POST", `/v1/projects/${projectId}/preview/stop`),
+    );
   }
 
   async previewStatus(projectId: string): Promise<Preview> {
-    return await this.request<Preview>("GET", `/v1/projects/${projectId}/preview`);
+    return this.applyPreviewUrl(
+      await this.request<Preview>("GET", `/v1/projects/${projectId}/preview`),
+    );
   }
 
   async previewLogs(projectId: string, lines = 200): Promise<string> {

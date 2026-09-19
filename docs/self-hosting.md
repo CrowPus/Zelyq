@@ -51,7 +51,16 @@ Or skip the password route entirely and let people sign in with an identity they
 [configuration.md](./configuration.md#single-sign-on-oidc) for OIDC.
 
 Because sessions ride in a cookie, put the instance behind TLS — the cookie is only marked `Secure`
-on an HTTPS connection.
+on an HTTPS connection. When TLS is terminated by a proxy in front of Zelyq, the connection Zelyq
+itself sees is plain HTTP, so tell it to trust the proxy:
+
+```env
+ZELYQ_TRUST_PROXY=true
+```
+
+Without that, an HTTPS instance issues session cookies with no `Secure` flag, and every logged
+client IP is the proxy's. Leave it unset when Zelyq is exposed directly — it makes the server
+believe `X-Forwarded-*`, which anyone can send.
 
 ### 3. TLS and WebSockets
 
@@ -114,6 +123,8 @@ Reverse-proxy each preview over one HTTPS origin instead:
    ```
 
    `{port}` is substituted with the assigned port; the app and the agent then use that URL as-is.
+   This works the same way with `ZELYQ_RUNTIME=remote`: the setting lives here, not on the runtime
+   host, and the address the host reports is replaced with the one your proxy serves.
    Keep `ZELYQ_PREVIEW_HOST` at `127.0.0.1` (previews only need to be reachable from nginx) and
    leave the `4300-4399` range closed at the firewall.
 

@@ -87,6 +87,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tool description can be defended with a number. See
   [apps/agent/evals](apps/agent/evals/README.md).
 
+### Fixed
+
+- **Previews now work in `ZELYQ_RUNTIME=remote` behind a reverse proxy.** `ZELYQ_PREVIEW_URL_TEMPLATE`
+  has always decided the address a browser loads a preview at, and the `local` and `container`
+  drivers honoured it — but the `remote` driver passed through whatever the runtime host answered,
+  which is the address the *host* sees inside its own container (`http://0.0.0.0:<port>`). The
+  browser was then handed a port nothing serves, and on an HTTPS instance a mixed-content URL as
+  well. The one runtime that most needs a proxy in front was the one that ignored the setting.
+- **A session cookie can be marked `Secure` behind a TLS-terminating proxy.** The server took
+  `request.protocol` at face value, which behind a proxy is the plain-HTTP hop, so an HTTPS
+  deployment quietly issued a cookie without `Secure` — one a downgraded connection would send in
+  the clear. Set `ZELYQ_TRUST_PROXY` (`true`, a hop count, or a comma-separated list of proxies to
+  believe) and the scheme, and the client IP in logs, come from `X-Forwarded-*`. It stays **off**
+  unless configured, because a directly-exposed instance must not let a caller pick its own address
+  or scheme with a header.
+
 ### Changed
 
 - **License changed from Apache-2.0 to the GNU AGPL-3.0.** Zelyq is open source: run it, modify it,
