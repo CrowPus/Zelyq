@@ -19,6 +19,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
+import { registerProjectBackendRoutes } from "./routes/project-backend.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerProviderRoutes } from "./routes/providers.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
@@ -41,6 +42,7 @@ import { ImageAssetStore } from "./services/image-assets.js";
 import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
+import { ProjectBackendService } from "./services/project-backend.js";
 import { ProjectService } from "./services/projects.js";
 import { resolveSecretKey, SecretBox } from "./services/secrets.js";
 import { SettingsService } from "./services/settings.js";
@@ -124,6 +126,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     verifyEmailDomain: config.supabaseVerifyEmailDomain,
   });
   const resolvePreviewEnv = makePreviewEnvResolver({ supabaseConnections });
+  const projectBackend = new ProjectBackendService(store, secrets, runtime);
+  registerProjectBackendRoutes(app, {
+    backend: projectBackend,
+    runtime,
+    access,
+    store,
+    resolvePreviewEnv,
+  });
   const supabaseBridge = new SupabaseBridge(store);
   const figmaConnections = new FigmaConnectionService(store, secrets, {
     oauth: config.figmaOAuth,
@@ -248,7 +258,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerTeamRoutes(app, { store, access });
-  registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir });
+  registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir, runtime });
   registerFileRoutes(app, { projects, runtime, access });
   registerPreviewRoutes(app, {
     projects,
@@ -256,6 +266,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     access,
     templatesDir: config.templatesDir,
     resolvePreviewEnv,
+    backend: projectBackend,
   });
   registerSupabaseConnectionRoutes(app, { supabase: supabaseConnections, access, runtime });
   registerFigmaRoutes(app, { figma: figmaConnections, access });
@@ -293,6 +304,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     },
     {
       bridge: supabaseBridge,
+      backend: projectBackend,
       resolvePreviewEnv,
       serverInternalUrl: config.serverInternalUrl,
     },

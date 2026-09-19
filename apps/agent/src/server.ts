@@ -226,10 +226,14 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
         "Engineer Mode and Architect Mode are mutually exclusive — turn one off.",
       );
     }
-    if (input.autoMode && !input.architectMode) {
+    // Auto Mode keeps a build going on its own instead of stopping at a
+    // turn's step budget. It needs a mode that builds: Architect runs its
+    // build plan pass after pass; Engineer keeps working until the request is
+    // done. A plain chat has no build to keep going.
+    if (input.autoMode && !input.architectMode && !input.engineerMode) {
       throw new ZelyqError(
         "bad_request",
-        "Auto Mode only runs with Architect Mode — turn Architect Mode on too.",
+        "Auto Mode runs with Architect Mode or Engineer Mode — turn one of them on too.",
       );
     }
     if (input.engineerMode && (resolvedEffort === "low" || resolvedEffort === "medium")) {
@@ -336,6 +340,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       // and the linked project's public config for the preview. Absent unless
       // a Supabase resource is linked to this project.
       ...(input.supabaseBridge ? { supabaseBridge: input.supabaseBridge } : {}),
+      ...(input.previewBridge ? { previewBridge: input.previewBridge } : {}),
       ...(input.imageBridge ? { imageBridge: input.imageBridge } : {}),
       ...(input.videoBridge ? { videoBridge: input.videoBridge } : {}),
       ...(input.supabasePreviewEnv ? { supabasePreviewEnv: input.supabasePreviewEnv } : {}),

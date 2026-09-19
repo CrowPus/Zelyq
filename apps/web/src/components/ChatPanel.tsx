@@ -191,8 +191,10 @@ export function ChatPanel({
   // engineerMode; mutually exclusive with it in the UI (turning one on turns
   // the other off), matching the agent's own rejection of both at once.
   const [architectMode, setArchitectMode] = useState(false);
-  // Auto Mode. Only meaningful with Architect Mode; turning it on turns
-  // Architect on, turning Architect off turns it off.
+  // Auto Mode: keep building instead of stopping at a turn's step limit. It
+  // needs a mode that builds — Architect (runs the build plan pass after
+  // pass) or Engineer (keeps going until the request is done). Turning it on
+  // with neither picks Engineer; leaving both modes turns it off.
   const [autoMode, setAutoMode] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Anchored to the info button, but rendered in a portal so the composer's
@@ -510,7 +512,7 @@ export function ChatPanel({
       ...(selectedAgents.length ? { agents: selectedAgents.map((agent) => agent.name) } : {}),
       ...(engineerMode ? { engineerMode: true } : {}),
       ...(architectMode ? { architectMode: true } : {}),
-      ...(architectMode && autoMode ? { autoMode: true } : {}),
+      ...((architectMode || engineerMode) && autoMode ? { autoMode: true } : {}),
     });
     setDraft("");
     setCursor(0);
@@ -531,7 +533,7 @@ export function ChatPanel({
       ...(modelChoice ? { provider: modelChoice.provider, model: modelChoice.model } : {}),
       ...(engineerMode ? { engineerMode: true } : {}),
       ...(architectMode ? { architectMode: true } : {}),
-      ...(architectMode && autoMode ? { autoMode: true } : {}),
+      ...((architectMode || engineerMode) && autoMode ? { autoMode: true } : {}),
     };
   }
 
@@ -1325,6 +1327,7 @@ export function ChatPanel({
                 onClick={() =>
                   setEngineerMode((value) => {
                     if (!value) setArchitectMode(false);
+                    else setAutoMode(false);
                     return !value;
                   })
                 }
@@ -1353,24 +1356,25 @@ export function ChatPanel({
               >
                 <Compass size={13} strokeWidth={2} />
               </IconButton>
-              {/* Auto Mode. Runs build passes back to back on its own until
-                  the plan is done or a ceiling is hit. Only
-                  with Architect Mode. */}
+              {/* Auto Mode. Keeps building on its own instead of stopping at
+                  a turn's step limit, until the work is done or a ceiling is
+                  hit. Works with Architect or Engineer. */}
               <IconButton
                 size="sm"
                 variant={autoMode ? "primary" : "ghost"}
                 label={
-                  autoMode
-                    ? "Auto Mode is on — the build runs itself; click to turn off"
-                    : "Turn on Auto Mode (Architect builds the whole plan without stopping)"
+                  !autoMode
+                    ? "Turn on Auto Mode — keep building without stopping at the step limit"
+                    : architectMode
+                      ? "Auto Mode is on — the Architect builds the whole plan without stopping; click to turn off"
+                      : "Auto Mode is on — the Engineer keeps working until it is done; click to turn off"
                 }
                 aria-pressed={autoMode}
                 onClick={() =>
                   setAutoMode((value) => {
-                    if (!value) {
-                      setArchitectMode(true);
-                      setEngineerMode(false);
-                    }
+                    // Needs a building mode. Keep whichever is on; with
+                    // neither, Engineer is the one that builds straight away.
+                    if (!value && !architectMode && !engineerMode) setEngineerMode(true);
                     return !value;
                   })
                 }

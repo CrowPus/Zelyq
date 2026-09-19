@@ -39,8 +39,17 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
 
   async health(): Promise<RuntimeHealth> {
     try {
-      const body = await this.request<{ version?: string }>("GET", "/v1/health");
-      return { kind: this.kind, ok: true, detail: this.baseUrl, version: body.version };
+      const body = await this.request<{ version?: string; capabilities?: string[] }>(
+        "GET",
+        "/v1/health",
+      );
+      return {
+        kind: this.kind,
+        ok: true,
+        detail: this.baseUrl,
+        version: body.version,
+        capabilities: body.capabilities,
+      };
     } catch (error) {
       return { kind: this.kind, ok: false, detail: (error as Error).message };
     }
@@ -106,11 +115,16 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
   }
 
   async startPreview(projectId: string, options: PreviewOptions = {}): Promise<Preview> {
+    if (options.backendEnv || options.configurationRevision) {
+      const health = await this.health();
+      if (!health.capabilities?.includes("react-fastapi-v1"))
+        throw ZelyqError.badRequest("Upgrade the remote runtime host to support Python backends.");
+    }
     return await this.request<Preview>(
       "POST",
       `/v1/projects/${projectId}/preview/start`,
       options,
-      120_000,
+      660_000,
     );
   }
 

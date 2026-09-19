@@ -3,6 +3,8 @@ import type { AuditAction } from "@zelyq/core";
 export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "project.created": "created the project",
   "project.updated": "updated the project",
+  "project.backend.updated": "updated backend configuration",
+  "project.backend.disconnected": "disconnected backend configuration",
   "project.deleted": "deleted the project",
   "project.pushed": "pushed to a remote",
   "project.git_remote_set": "changed where the project pushes to",

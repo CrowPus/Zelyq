@@ -39,6 +39,8 @@ const KEY_LENGTH = 64;
 
 /** How long an in-flight OIDC sign-in has to complete before it must restart. */
 const OIDC_STATE_TTL_MS = 10 * 60_000;
+/** How often a session's last-seen time is written — see `touchSession`. */
+const SESSION_TOUCH_INTERVAL_MS = 60_000;
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
@@ -487,8 +489,33 @@ export class AuthService {
       return null;
     }
 
-    await this.store.authSessions.touch(session.id);
+    await this.touchSession(session.id);
     return await this.store.users.findById(session.userId);
+  }
+
+  /** When each session was last marked seen by this process. */
+  private readonly lastTouched = new Map<string, number>();
+
+  /**
+   * Record that a session was used — best-effort, and at most once a minute.
+   *
+   * This ran on every signed-in request, stylesheets and scripts included, so
+   * one page load was a burst of writes. A write that failed failed the whole
+   * request: when the database was briefly locked, every request came back 500
+   * and the editor went black, all over bookkeeping nobody was waiting on.
+   * Last-seen is a display value; missing one update loses nothing.
+   */
+  private async touchSession(id: string): Promise<void> {
+    const now = Date.now();
+    if (now - (this.lastTouched.get(id) ?? 0) < SESSION_TOUCH_INTERVAL_MS) return;
+    this.lastTouched.set(id, now);
+    if (this.lastTouched.size > 10_000) this.lastTouched.clear();
+    try {
+      await this.store.authSessions.touch(id);
+    } catch {
+      // Try again on the next request rather than in a minute.
+      this.lastTouched.delete(id);
+    }
   }
 
   async describe(user: User): Promise<SessionResponse> {

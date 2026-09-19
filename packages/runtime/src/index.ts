@@ -9,6 +9,7 @@ export {
   containerName,
 } from "./container.js";
 export { defaultWorkspaceDir, LocalRuntimeDriver } from "./local.js";
+export * from "./managed.js";
 export {
   assertRealPathInside,
   DEFAULT_IGNORED,

@@ -45,6 +45,9 @@ export interface DatabaseHandle {
 // three directories up either way, the same anchor `migrate.ts` uses.
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
+/** How long a SQLite write waits for another process's lock before failing. */
+export const SQLITE_BUSY_TIMEOUT_MS = 5000;
+
 /**
  * A **relative** `file:` SQLite path in `DATABASE_URL` is resolved against the
  * repo root, not `process.cwd()`.
@@ -98,7 +101,19 @@ export function createDatabase(url: string): DatabaseHandle {
   // migration runner does this too — do it here so a caller that opens the
   // database directly (the agent's settings read) is safe on a cold start.
   mkdirSync(path.dirname(resolved.slice("file:".length)), { recursive: true });
-  const client = createClient({ url: resolved });
+  // The server and the agent are separate processes on one SQLite file, and a
+  // second server (a dev copy) is easy to have running too. libsql's default
+  // busy timeout is 0: a write that finds the file locked fails at once with
+  // SQLITE_BUSY rather than waiting a few milliseconds. Found live, that turned
+  // ordinary overlap into a 500 on every signed-in request — the whole editor
+  // went black. `timeout` reaches every connection libsql opens, including the
+  // fresh one it opens after each transaction, which a one-off PRAGMA would not.
+  const client = createClient({ url: resolved, timeout: SQLITE_BUSY_TIMEOUT_MS });
+  // WAL lets readers carry on while one process writes, where the default
+  // rollback journal blocks everybody. The setting lives in the file, so it
+  // holds for every process from here on. Best-effort: if another process has
+  // the file busy right now, the next open sets it.
+  client.execute("PRAGMA journal_mode=WAL").catch(() => undefined);
   const db = drizzleLibsql(client, { schema: sqliteSchema });
   return {
     db,

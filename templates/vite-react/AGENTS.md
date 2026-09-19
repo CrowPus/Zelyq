@@ -21,3 +21,11 @@ React 19 + TypeScript + Vite + Tailwind CSS v4. Tailwind is configured in `src/i
 
 A single-page frontend. There is no backend, no database, and no deploy pipeline in this repo
 unless you add one because a request needs it.
+
+## Dark mode
+
+`dark:` classes follow a `dark` class on `<html>`, set before first paint by
+`index.html` from `localStorage.theme` or the OS. A theme toggle flips that class
+and saves `"dark"` or `"light"` under `theme` — it never reads
+`prefers-color-scheme` itself. Click it in the preview and check the page
+actually changes before calling it done.

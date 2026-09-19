@@ -20,6 +20,7 @@ import type { FigmaExtractService } from "../services/figma-extract.js";
 import { parseFigmaLink } from "../services/figma-link.js";
 import type { ImageBridge } from "../services/image-bridge.js";
 import type { PreviewEnvResolver } from "../services/preview-env.js";
+import type { ProjectBackendService } from "../services/project-backend.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
 import type { SupabaseBridge } from "../services/supabase-bridge.js";
@@ -64,6 +65,7 @@ export class ChatGateway {
     /** Supabase bridge (agent applies migrations via the server). */
     private readonly supabase: {
       bridge: SupabaseBridge;
+      backend?: ProjectBackendService;
       resolvePreviewEnv: PreviewEnvResolver;
       serverInternalUrl: string;
     },
@@ -443,6 +445,14 @@ export class ChatGateway {
           ? { videoBridge: { url: this.videoGeneration.serverInternalUrl, token: videoToken } }
           : {}),
         ...(Object.keys(supabasePreviewEnv).length > 0 ? { supabasePreviewEnv } : {}),
+        ...(this.supabase.backend
+          ? {
+              previewBridge: {
+                url: this.supabase.serverInternalUrl,
+                token: this.supabase.backend.mint(room.sessionId, room.projectId, userId),
+              },
+            }
+          : {}),
         template: stackInfo.template,
         ...(stackInfo.stack ? { stack: stackInfo.stack } : {}),
         ...(stackInfo.agentSkill ? { agentSkill: stackInfo.agentSkill } : {}),
@@ -516,7 +526,12 @@ export class ChatGateway {
       return;
     }
 
-    const assistant: Message = {
+    // One message per agent turn. A prompt is usually exactly one turn, but an
+    // Auto Mode run streams several — one per pass — down the same request.
+    // Building a single message across all of them repeated every earlier
+    // pass's text inside each later one, saved the whole run as one message,
+    // and counted only the last pass's tokens (each overwrote the one before).
+    const newAssistant = (snapshot: string | null): Message => ({
       id: newId("message"),
       sessionId: room.sessionId,
       role: "assistant",
@@ -524,15 +539,32 @@ export class ChatGateway {
       thinking: null,
       toolCalls: [],
       attachments: [],
-      snapshotId,
+      snapshotId: snapshot,
       tokensIn: 0,
       tokensOut: 0,
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       usageSchema: 1,
       createdAt: new Date().toISOString(),
+    });
+    let assistant = newAssistant(snapshotId);
+    let toolCalls = new Map<string, ToolCall>();
+    let turnsSeen = 0;
+    // Whether `assistant` is already saved — set at each turn's end, cleared
+    // when the next turn begins, so the `finally` below saves only a turn that
+    // ended without one (an abort, an error mid-stream).
+    let saved = false;
+    const save = async (): Promise<void> => {
+      if (saved) return;
+      saved = true;
+      // Persist without the whole-file bodies in write_file / edit_file inputs:
+      // the transcript never shows them, and a session rebuilt from this
+      // history would otherwise recarry ~68% of the tool-call bytes for content
+      // that is already on disk. The live broadcast kept the full copy.
+      assistant.toolCalls = stripHeavyToolInputs([...toolCalls.values()]);
+      await this.store.messages.append(assistant);
+      await this.store.sessions.addUsage(room.sessionId, assistant.tokensIn, assistant.tokensOut);
     };
-    const toolCalls = new Map<string, ToolCall>();
 
     try {
       for await (const event of this.agent.prompt(
@@ -547,9 +579,30 @@ export class ChatGateway {
         // The agent builds its own copy of the finished message, and it does not
         // know about the snapshot this server took before the turn. Broadcasting
         // the agent's copy meant the undo control only appeared after a reload.
+        // A later turn in the same request is an Auto Mode pass. It gets a
+        // message of its own, and an undo point of its own taken now — between
+        // passes — so "Undo this turn" on it rolls back that pass alone.
+        if (event.type === "turn.start") {
+          turnsSeen += 1;
+          if (turnsSeen > 1) {
+            let passSnapshot: string | null = null;
+            try {
+              passSnapshot = (
+                await this.projects.snapshot(room.projectId, `Before: Auto Mode pass ${turnsSeen}`)
+              ).id;
+            } catch (error) {
+              this.log.error(error, "could not snapshot before an Auto Mode pass");
+            }
+            assistant = newAssistant(passSnapshot);
+            toolCalls = new Map<string, ToolCall>();
+            saved = false;
+          }
+        }
+
         if (event.type === "turn.end") {
           assistant.toolCalls = [...toolCalls.values()];
           this.broadcast(room, { ...event, message: { ...assistant } });
+          await save();
           continue;
         }
 
@@ -593,13 +646,9 @@ export class ChatGateway {
         fatal: false,
       });
     } finally {
-      // Persist without the whole-file bodies in write_file / edit_file inputs
-      //: the transcript never shows them, and a session rebuilt from this
-      // history would otherwise recarry ~68% of the tool-call bytes for content
-      // that is already on disk. The live broadcast above kept the full copy.
-      assistant.toolCalls = stripHeavyToolInputs([...toolCalls.values()]);
-      await this.store.messages.append(assistant);
-      await this.store.sessions.addUsage(room.sessionId, assistant.tokensIn, assistant.tokensOut);
+      // A turn that never reached its end (aborted, or the stream failed) is
+      // still saved, so what it did stays in the transcript.
+      await save();
       await this.store.sessions.setStatus(room.sessionId, "idle");
       await this.store.projects.setStatus(room.projectId, "ready");
       // Best-effort, same as ensureGitRepo above — a commit is a courtesy

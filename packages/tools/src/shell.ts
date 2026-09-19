@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineTool, type ToolResult, truncate } from "./types.js";
+import { defineTool, stripAnsi, type ToolResult, truncate } from "./types.js";
 
 /**
  * Commands that would hang a turn forever. The agent has no terminal to
@@ -7,6 +7,11 @@ import { defineTool, type ToolResult, truncate } from "./types.js";
  * explanation rather than letting it time out silently.
  */
 const BLOCKING_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  {
+    pattern:
+      /\b(?:uvicorn|gunicorn|hypercorn)\b|\bfastapi\s+(?:dev|run)\b|\b(?:flask\s+run|manage\.py\s+runserver)\b/,
+    reason: "Use start_preview to manage Python and frontend services.",
+  },
   {
     pattern: /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b/,
     reason:
@@ -155,7 +160,7 @@ export const runCommandTool = defineTool({
     ].filter(Boolean);
 
     return {
-      output: truncate(parts.join("\n\n")),
+      output: truncate(stripAnsi(parts.join("\n\n"))),
       isError: result.exitCode !== 0,
     };
   },

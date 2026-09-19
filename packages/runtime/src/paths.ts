@@ -70,10 +70,19 @@ export const DEFAULT_IGNORED = new Set([
   ".next",
   ".turbo",
   ".cache",
+  ".venv",
+  "__pycache__",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".runtime-data",
+  ".coverage",
+  "htmlcov",
+  ".env",
   "coverage",
   ".DS_Store",
 ]);
 
 export function isIgnored(name: string): boolean {
-  return DEFAULT_IGNORED.has(name);
+  return DEFAULT_IGNORED.has(name) || (name.startsWith(".env.") && !name.endsWith(".example"));
 }

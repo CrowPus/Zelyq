@@ -36,11 +36,12 @@ RUN pnpm prune --prod
 # Runtime stage
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS runtime
+COPY --from=ghcr.io/astral-sh/uv:0.12.16 /uv /bin/uv
 
 # git is used by generated projects; tini reaps the dev servers the runtime
 # spawns, which would otherwise pile up as zombies.
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y git tini ca-certificates \
+    && apt-get install --no-install-recommends -y git tini ca-certificates python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \

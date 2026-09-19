@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import { ensureInspectorScript } from "../services/inspector-script.js";
 import type { PreviewEnvResolver } from "../services/preview-env.js";
+import type { ProjectBackendService } from "../services/project-backend.js";
 import type { ProjectService } from "../services/projects.js";
 
 export function registerPreviewRoutes(
@@ -18,6 +19,7 @@ export function registerPreviewRoutes(
      * values; never a credential.
      */
     resolvePreviewEnv: PreviewEnvResolver;
+    backend?: ProjectBackendService;
   },
 ): void {
   const { access } = deps;
@@ -35,9 +37,10 @@ export function registerPreviewRoutes(
     await ensureInspectorScript(deps.runtime, deps.templatesDir, request.params.id);
     const env = await deps.resolvePreviewEnv(request.params.id);
     return {
-      preview: await deps.runtime.startPreview(request.params.id, {
-        ...(Object.keys(env).length > 0 ? { env } : {}),
-      }),
+      preview: await deps.runtime.startPreview(
+        request.params.id,
+        deps.backend ? await deps.backend.previewOptions(request.params.id, env) : { env },
+      ),
     };
   });
 
