@@ -18,4 +18,6 @@ ENV ZELYQ_DATA_DIR=/data
 VOLUME ["/data"]
 EXPOSE 8000
 HEALTHCHECK CMD ["/app/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"]
-CMD ["/app/backend/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Migrate this app's own SQLite database first — see app/prestart.py. Without
+# it a fresh deploy has no tables and every data request fails.
+CMD ["sh", "-c", "/app/backend/.venv/bin/python -m app.prestart && exec /app/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]

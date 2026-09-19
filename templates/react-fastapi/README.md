@@ -86,7 +86,10 @@ schema files. Tests use isolated fixtures, not configured production data.
 
 Build `docker build -t my-python-app .`, then run it with port 8000 published and
 backend environment variables supplied by your deployment platform. Mount a
-persistent volume at `/data` when using SQLite or saved files. This image serves
+persistent volume at `/data` when using SQLite or saved files. On start, the
+container brings this app's own SQLite database up to date (`app/prestart.py`)
+before the API accepts requests; a database you connected yourself is never
+migrated on start — run `alembic upgrade head` against it deliberately. This image serves
 the built React app and API without Vite or a Zelyq connection. Terminate HTTPS at
 your platform's proxy. SQLite is a single-instance configuration; independent
 replicas require a shared database service. Unknown `/api` routes return JSON 404s.

@@ -5,8 +5,11 @@ the pattern to follow when you add routes: assert the status code, the response
 shape, and what happens when the input is wrong — not only the happy path.
 """
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import inspect
 
 from app.config import settings
 from app.main import app
@@ -154,3 +157,42 @@ def test_writes_are_refused_on_a_read_only_connection(monkeypatch: pytest.Monkey
     monkeypatch.setenv("DATABASE_READ_ONLY", "true")
     settings.cache_clear()
     assert client.post("/api/notes", json={"body": "should not be written"}).status_code == 403
+
+
+# --- production start ---------------------------------------------------------
+
+
+def test_prestart_creates_the_tables_a_fresh_deploy_needs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Found live: the production container started with an empty database and
+    # every data request failed, because nothing ran the migrations there.
+    from app import prestart
+    from app.db import engine
+
+    monkeypatch.setenv("ZELYQ_DATA_DIR", str(tmp_path))
+    settings.cache_clear()
+    engine.cache_clear()
+    try:
+        prestart.main()
+        tables = set(inspect(engine()).get_table_names())
+        assert "notes" in tables
+        assert "alembic_version" in tables
+    finally:
+        engine().dispose()
+        settings.cache_clear()
+        engine.cache_clear()
+
+
+def test_prestart_never_touches_a_database_somebody_else_owns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app import prestart
+
+    monkeypatch.setenv("DATABASE_OWNERSHIP", "external")
+    settings.cache_clear()
+    try:
+        assert prestart.owns_local_database() is False
+        prestart.main()  # returns without connecting to anything
+    finally:
+        settings.cache_clear()
