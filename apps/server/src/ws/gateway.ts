@@ -585,6 +585,11 @@ export class ChatGateway {
         if (event.type === "turn.start") {
           turnsSeen += 1;
           if (turnsSeen > 1) {
+            // A pass that ended in an error sends no `turn.end`, and Auto Mode
+            // can still carry on after it. Keep what it did before starting
+            // the next one — found in review: its text, tool calls and tokens
+            // were dropped.
+            await save();
             let passSnapshot: string | null = null;
             try {
               passSnapshot = (

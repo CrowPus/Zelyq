@@ -169,22 +169,45 @@ export async function managedStatus(root: string, preview: Preview): Promise<Pre
  * project is broken rather than the host. Probe once per runtime and cache it:
  * health endpoints are called often and a probe costs a process (or a
  * container) start.
+ *
+ * Only a "yes" is kept for good. A "no" is often temporary — a toolchain
+ * download that failed once, a sandbox image not built yet — and was cached
+ * until a restart, hiding the Python stack in the meantime. It is asked again
+ * once it is a minute old.
  */
-const capabilityProbes = new Map<string, Promise<string[]>>();
+const capabilityProbes = new Map<string, { result: Promise<string[]>; settledAt?: number }>();
+const NEGATIVE_PROBE_TTL_MS = 60_000;
 
 export async function managedCapabilities(
   key: string,
   probe: () => Promise<boolean>,
 ): Promise<string[]> {
-  let pending = capabilityProbes.get(key);
-  if (!pending) {
-    pending = probe().then(
-      (supported) => (supported ? [MANAGED_CAPABILITY] : []),
-      () => [],
-    );
-    capabilityProbes.set(key, pending);
+  const cached = capabilityProbes.get(key);
+  if (
+    cached?.settledAt !== undefined &&
+    Date.now() - cached.settledAt >= NEGATIVE_PROBE_TTL_MS &&
+    (await cached.result).length === 0 &&
+    capabilityProbes.get(key) === cached
+  ) {
+    capabilityProbes.delete(key);
   }
-  return await pending;
+  let entry = capabilityProbes.get(key);
+  if (!entry) {
+    const created: { result: Promise<string[]>; settledAt?: number } = {
+      result: probe()
+        .then(
+          (supported) => (supported ? [MANAGED_CAPABILITY] : []),
+          () => [],
+        )
+        .then((capabilities) => {
+          created.settledAt = Date.now();
+          return capabilities;
+        }),
+    };
+    entry = created;
+    capabilityProbes.set(key, entry);
+  }
+  return await entry.result;
 }
 
 /** Forget cached probes — for tests, and after an image is rebuilt. */

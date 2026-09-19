@@ -28,14 +28,28 @@ export class SupabaseBridge {
 
   /**
    * A token for this session, or null when the project has no linked Supabase
-   * resource (nothing to bridge). Replaces any prior token for the session.
+   * resource (nothing to bridge). The session keeps one token for as long as
+   * it runs for the same project and user.
    */
   async mint(sessionId: string, projectId: string, userId: string): Promise<string | null> {
     const link = await this.store.providerConnections.getLinkForProject(projectId);
-    if (!link || link.connectionStatus === "revoked") return null;
+    // No link, no token — and a token this session already held stops
+    // working too, rather than outliving the link.
+    if (!link || link.connectionStatus === "revoked") {
+      this.revokeSession(sessionId);
+      return null;
+    }
 
+    // An agent session keeps the token it was created with — a reused session
+    // is never handed a new one — so the session's token is renewed, not
+    // replaced. Replacing it broke the bridge from the session's second prompt.
     for (const [token, grant] of this.grants) {
-      if (grant.sessionId === sessionId) this.grants.delete(token);
+      if (grant.sessionId !== sessionId) continue;
+      if (grant.projectId === projectId && grant.userId === userId) {
+        grant.expiresAt = Date.now() + TOKEN_TTL_MS;
+        return token;
+      }
+      this.grants.delete(token);
     }
     const token = randomBytes(32).toString("base64url");
     this.grants.set(token, { projectId, userId, sessionId, expiresAt: Date.now() + TOKEN_TTL_MS });

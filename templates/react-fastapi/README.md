@@ -42,7 +42,9 @@ To add a table:
 
 1. Add the model to `backend/app/models.py`. A model defined elsewhere must be
    imported there, or autogenerate will miss its table.
-2. `uv run alembic revision --autogenerate -m "what changed"` in `backend/`.
+2. `npm run db:revision -- "what changed"`. It brings the local database up to
+   date first (autogenerate refuses to run against one that is behind),
+   generates the migration, tidies it so it passes lint, and applies it.
 3. **Read the generated migration and correct it** — autogenerate guesses,
    especially at renames, server defaults and type changes.
 4. Start the preview. Migrations for this local database are applied before the

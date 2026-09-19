@@ -109,11 +109,21 @@ test("resolve returns null for an unknown token and after revokeSession", async 
   assert.equal(bridge.resolve(token), null);
 });
 
-test("minting again for the same session invalidates the old token", async () => {
+test("minting again for the same session keeps its token working", async () => {
+  // The gateway mints on every prompt, but a reused agent session keeps the
+  // token it was created with.
   const projectId = await projectWithLink("remint");
   const first = (await bridge.mint("ses_4", projectId, "usr_y")) as string;
   const second = (await bridge.mint("ses_4", projectId, "usr_y")) as string;
+  assert.equal(first, second);
+  assert.ok(bridge.resolve(first));
+});
+
+test("a different user in the same session gets a new token and retires the old one", async () => {
+  const projectId = await projectWithLink("remint-user");
+  const first = (await bridge.mint("ses_4b", projectId, "usr_y")) as string;
+  const second = (await bridge.mint("ses_4b", projectId, "usr_z")) as string;
   assert.notEqual(first, second);
   assert.equal(bridge.resolve(first), null);
-  assert.ok(bridge.resolve(second));
+  assert.deepEqual(bridge.resolve(second), { projectId, userId: "usr_z" });
 });

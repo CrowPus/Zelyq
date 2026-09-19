@@ -127,13 +127,6 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   const resolvePreviewEnv = makePreviewEnvResolver({ supabaseConnections });
   const projectBackend = new ProjectBackendService(store, secrets, runtime);
-  registerProjectBackendRoutes(app, {
-    backend: projectBackend,
-    runtime,
-    access,
-    store,
-    resolvePreviewEnv,
-  });
   const supabaseBridge = new SupabaseBridge(store);
   const figmaConnections = new FigmaConnectionService(store, secrets, {
     oauth: config.figmaOAuth,
@@ -276,6 +269,16 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     store,
   });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
+  // With the others, after the error handler — registered before it, these
+  // answered in Fastify's own error shape, and the Backend panel showed
+  // "Request failed with 400" in place of the reason.
+  registerProjectBackendRoutes(app, {
+    backend: projectBackend,
+    runtime,
+    access,
+    store,
+    resolvePreviewEnv,
+  });
   registerAttachmentRoutes(app, { attachments, access });
   registerVoiceRoutes(app, { speech, settings, access });
   registerImageRoutes(app, { images, access });

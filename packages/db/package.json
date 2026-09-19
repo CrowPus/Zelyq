@@ -1,7 +1,7 @@
 {
   "name": "@zelyq/db",
   "version": "0.1.0",
-  "description": "Zelyq persistence — Drizzle schema, migrations, and repositories for SQLite and PostgreSQL.",
+  "description": "Zelyq persistence \u2014 Drizzle schema, migrations, and repositories for SQLite and PostgreSQL.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,6 +21,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "generate": "drizzle-kit generate --config drizzle.sqlite.config.ts && drizzle-kit generate --config drizzle.pg.config.ts",
     "migrate": "tsx src/migrate.ts",
+    "backup": "tsx src/backup.ts",
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {

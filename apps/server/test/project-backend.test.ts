@@ -56,8 +56,27 @@ function runtimeWithManifest(hasManifest = true): RuntimeDriver {
   } as unknown as RuntimeDriver;
 }
 
+/** Names resolve through this table, never the network: a test must not
+ * depend on what a public DNS name happens to point at today. */
+const dnsTable: Record<string, string[]> = {
+  "localtest.me": ["127.0.0.1"],
+  "127.0.0.1.nip.io": ["127.0.0.1"],
+  "imds.example": ["169.254.169.254"],
+  "db.example.com": ["93.184.216.34"],
+};
+const fakeLookup = async (hostname: string) => {
+  const found = dnsTable[hostname];
+  if (!found) throw Object.assign(new Error(`ENOTFOUND ${hostname}`), { code: "ENOTFOUND" });
+  return found;
+};
+
 function service(runtime: RuntimeDriver = runtimeWithManifest()): ProjectBackendService {
-  return new ProjectBackendService(memoryStore(), new SecretBox(randomBytes(32)), runtime);
+  return new ProjectBackendService(
+    memoryStore(),
+    new SecretBox(randomBytes(32)),
+    runtime,
+    fakeLookup,
+  );
 }
 
 test("a new project already has a database it can write to", async () => {
@@ -310,14 +329,23 @@ test("environments are configured separately and do not read each other", async 
   assert.equal(options.backendEnv?.DATABASE_ENGINE, "sqlite");
 });
 
-test("a preview capability is single-use per session and expires", async () => {
+test("a preview capability lasts as long as its agent session", async () => {
   const backend = service();
   const first = backend.mint("session-1", "p1", "user-1");
   assert.deepEqual(backend.resolve(first), { projectId: "p1", userId: "user-1" });
 
-  const second = backend.mint("session-1", "p1", "user-1");
-  assert.equal(backend.resolve(first), null, "re-minting retires the previous token");
-  assert.deepEqual(backend.resolve(second), { projectId: "p1", userId: "user-1" });
+  // The gateway mints on every prompt, but a reused agent session keeps the
+  // token it was created with — so that token must keep working.
+  const again = backend.mint("session-1", "p1", "user-1");
+  assert.equal(again, first);
+  assert.deepEqual(backend.resolve(first), { projectId: "p1", userId: "user-1" });
+
+  // Anybody else in that session gets a token of their own, and the old one
+  // stops working.
+  const other = backend.mint("session-1", "p1", "user-2");
+  assert.notEqual(other, first);
+  assert.equal(backend.resolve(first), null);
+  assert.deepEqual(backend.resolve(other), { projectId: "p1", userId: "user-2" });
   assert.equal(backend.resolve("made-up-token"), null);
 });
 
@@ -408,6 +436,11 @@ test("a database host that only ever means this machine is refused", async () =>
     "[::ffff:127.0.0.1]", // IPv4-mapped; URL rewrites this to ::ffff:7f00:1
     "[::ffff:169.254.169.254]",
     "app.localhost",
+    "localhost.", // the fully-qualified spelling of the same name
+    "[::127.0.0.1]", // IPv4-compatible; URL rewrites this to ::7f00:1
+    "localtest.me", // public DNS names that resolve to loopback
+    "127.0.0.1.nip.io",
+    "imds.example", // and one that resolves to the metadata service
   ];
   for (const host of refused) {
     await assert.rejects(

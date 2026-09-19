@@ -25,20 +25,45 @@ const STEPS = 12;
 
 type Step = { events: ProviderEvent[]; result: TurnResult };
 
+/** What the scripted model was sent. */
+type ModelLog = { calls: number; userMessages: string[] };
+
 /** One scripted conversation; each model call takes the next step, and the
- * last step repeats once the script runs out. */
-function scriptedProvider(script: Step[]): ModelProvider {
+ * last step repeats once the script runs out.
+ *
+ * It holds the session to the rule the real APIs enforce: every tool call is
+ * answered before the next request, or the request fails. Found in review: a
+ * turn's last step left its calls unanswered, every later request in that
+ * session got a 400, and a model that ignored the rule could not show it. */
+function scriptedProvider(
+  script: Step[],
+  log: ModelLog = { calls: 0, userMessages: [] },
+): ModelProvider {
   let i = 0;
   return {
     id: "anthropic",
     model: "scripted",
     createConversation() {
+      let unanswered: string[] = [];
       const conversation: Conversation = {
-        addUserMessage: () => undefined,
-        addToolResults: () => undefined,
+        addUserMessage: (text: string) => {
+          log.userMessages.push(text);
+        },
+        addToolResults: (results) => {
+          const answered = new Set(results.map((result) => result.id));
+          unanswered = unanswered.filter((id) => !answered.has(id));
+        },
         async *stream() {
+          log.calls += 1;
+          if (unanswered.length > 0) {
+            throw Object.assign(
+              new Error(`400 tool_use ids were found without tool_result blocks: ${unanswered}`),
+              { status: 400 },
+            );
+          }
           const step = script[Math.min(i++, script.length - 1)]!;
           for (const event of step.events) yield event;
+          unanswered = step.result.toolCalls.map((call) => call.id);
           return step.result;
         },
       };
@@ -87,15 +112,21 @@ const say = (text: string): Step => ({
   result: { toolCalls: [], stopReason: "end_turn", usage: { inputTokens: 5, outputTokens: 5 } },
 });
 
-async function run(
+type Event = { type: string; code?: string; message?: string; call?: { name: string } };
+
+const parseFrames = (body: string): Event[] =>
+  body
+    .split("\n\n")
+    .map((frame) => frame.split("\n").find((line) => line.startsWith("data: ")))
+    .filter((line): line is string => Boolean(line))
+    .map((line) => JSON.parse(line.slice(6)));
+
+/** An agent server with one Engineer session on a scratch project. */
+async function open(
   script: Step[],
   session: Record<string, unknown>,
   files: Record<string, string> = {},
-): Promise<{
-  status: number;
-  events: Array<{ type: string; code?: string; message?: string }>;
-  files: string[];
-}> {
+) {
   const workspaceDir = path.join(os.tmpdir(), `zelyq-eng-auto-${Date.now()}-${Math.random()}`);
   const projectId = "prj_eng";
   await fs.mkdir(path.join(workspaceDir, projectId, "src"), { recursive: true });
@@ -121,33 +152,49 @@ async function run(
       previewHost: "127.0.0.1",
     },
   };
-  const provider = scriptedProvider(script);
+  const log: ModelLog = { calls: 0, userMessages: [] };
+  const provider = scriptedProvider(script, log);
   const server = buildAgentServer(config, { providerFactory: () => provider });
   await server.app.listen({ host: "127.0.0.1", port: 0 });
   const address = server.app.server.address();
   const base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+  const created = await fetch(`${base}/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId: "s_eng", projectId, ...session }),
+  });
+  return {
+    base,
+    log,
+    status: created.status,
+    async prompt(message: string): Promise<Event[]> {
+      const response = await fetch(`${base}/sessions/s_eng/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      return parseFrames(await response.text());
+    },
+    files: async () => (await fs.readdir(path.join(workspaceDir, projectId, "src"))).sort(),
+    async close() {
+      await server.close();
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    },
+  };
+}
+
+async function run(
+  script: Step[],
+  session: Record<string, unknown>,
+  files: Record<string, string> = {},
+): Promise<{ status: number; events: Event[]; files: string[] }> {
+  const agent = await open(script, session, files);
   try {
-    const created = await fetch(`${base}/sessions`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: "s_eng", projectId, ...session }),
-    });
-    if (created.status !== 201) return { status: created.status, events: [], files: [] };
-    const response = await fetch(`${base}/sessions/s_eng/prompt`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "build the lead tracker" }),
-    });
-    const events = (await response.text())
-      .split("\n\n")
-      .map((frame) => frame.split("\n").find((line) => line.startsWith("data: ")))
-      .filter((line): line is string => Boolean(line))
-      .map((line) => JSON.parse(line.slice(6)));
-    const files = (await fs.readdir(path.join(workspaceDir, projectId, "src"))).sort();
-    return { status: created.status, events, files };
+    if (agent.status !== 201) return { status: agent.status, events: [], files: [] };
+    const events = await agent.prompt("build the lead tracker");
+    return { status: agent.status, events, files: await agent.files() };
   } finally {
-    await server.close();
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await agent.close();
   }
 }
 
@@ -360,4 +407,124 @@ test("the Engineer is told about Auto Mode only when it is on", async () => {
   assert.match(on, /<auto_mode>/);
   assert.match(on, /Never stop to ask the user to continue/);
   assert.doesNotMatch(off, /<auto_mode>/);
+});
+
+// ---------------------------------------------------------------------------
+// Found in review of the Auto Mode work
+// ---------------------------------------------------------------------------
+
+test("a tool call on a turn's last step does not break the session's next request", async () => {
+  // Without Auto Mode too: every step calls a tool, the last one included.
+  const agent = await open(Array.from({ length: STEPS * 3 }, edit), { engineerMode: true });
+  try {
+    const first = await agent.prompt("build the lead tracker");
+    assert.equal(turns(first), 1);
+    const second = await agent.prompt("keep going");
+    const errors = second.filter((event) => event.type === "error");
+    assert.deepEqual(errors, [], "the next request is not rejected over an unanswered call");
+    assert.equal(turns(second), 1);
+  } finally {
+    await agent.close();
+  }
+});
+
+test("each request gets a fresh Auto Mode run, not what the last one left of it", async () => {
+  // Found in review: the first request used up the six passes, and the next
+  // request stopped after one "at the 6-pass ceiling".
+  const agent = await open(Array.from({ length: STEPS * 20 }, edit), {
+    engineerMode: true,
+    autoMode: true,
+  });
+  try {
+    const first = await agent.prompt("build the lead tracker");
+    assert.equal(autoStop(first)?.code, "auto_ceiling");
+    const second = await agent.prompt("now add a settings page");
+    assert.equal(turns(second), 6, "the second request gets its own six passes");
+  } finally {
+    await agent.close();
+  }
+});
+
+test("a check that fails mid-turn is not waved through as done", async () => {
+  // Found in review: the model answered a failing check with "that error is
+  // unrelated … REMAINING: none", changed nothing, and the run ended there.
+  const script = [
+    edit(),
+    say("Purpose: build it. Done.\nREMAINING: none"),
+    say("Purpose: build it. That typecheck error is unrelated to my change.\nREMAINING: none"),
+    edit(),
+    say("Purpose: build it. Fixed.\nREMAINING: none"),
+  ];
+  const agent = await open(script, { engineerMode: true, autoMode: true }, failingCheck);
+  try {
+    const events = await agent.prompt("build the lead tracker");
+    assert.ok(turns(events) >= 2, "a failing check started another pass");
+    assert.ok(
+      agent.log.userMessages.some((message) => /a check was failing/.test(message)),
+      "the next pass is told the check was failing, not just to keep going",
+    );
+    // Still failing after that: it says so and stops, rather than going quiet.
+    assert.equal(autoStop(events)?.code, "auto_stuck");
+  } finally {
+    await agent.close();
+  }
+});
+
+test("the status line is read through markdown and plain synonyms", async () => {
+  for (const line of ["**REMAINING:** none", "REMAINING: nothing", "REMAINING: N/A"]) {
+    const { events } = await run([edit(), say(`Purpose: build it. Done.\n${line}`)], {
+      engineerMode: true,
+      autoMode: true,
+    });
+    assert.equal(turns(events), 1, `"${line}" ends the run`);
+  }
+});
+
+test("Stop during the end-of-turn check stops Auto Mode", async () => {
+  // Found in review: nothing was in flight to abort while a check ran, so the
+  // turn finished, and the next pass started with nobody listening.
+  const slowFailingCheck = {
+    "package.json": JSON.stringify({
+      name: "p",
+      scripts: { typecheck: "sleep 1; echo 'TypeError: boom'; exit 1" },
+    }),
+  };
+  const script = [
+    ...Array.from({ length: STEPS - 1 }, edit),
+    say("Purpose: build it. Out of room.\nREMAINING: the form"),
+    ...Array.from({ length: STEPS * 3 }, edit),
+  ];
+  const agent = await open(script, { engineerMode: true, autoMode: true }, slowFailingCheck);
+  try {
+    const client = new AbortController();
+    const response = await fetch(`${agent.base}/sessions/s_eng/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "build the lead tracker" }),
+      signal: client.signal,
+    });
+    // Press Stop the moment the check starts, the way the gateway does.
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let seen = "";
+    while (!/"name":"verify"/.test(seen)) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      seen += decoder.decode(chunk.value, { stream: true });
+    }
+    await fetch(`${agent.base}/sessions/s_eng/abort`, { method: "POST" });
+    client.abort();
+    const callsAtStop = agent.log.calls;
+
+    let state = { busy: true };
+    for (let i = 0; i < 100 && state.busy; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      state = await (await fetch(`${agent.base}/sessions/s_eng/state`)).json();
+    }
+    // Long enough for a wrongly-started next pass to have made its first call.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(agent.log.calls, callsAtStop, "no model call after Stop");
+  } finally {
+    await agent.close();
+  }
 });

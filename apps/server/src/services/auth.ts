@@ -489,7 +489,7 @@ export class AuthService {
       return null;
     }
 
-    await this.touchSession(session.id);
+    this.touchSession(session.id);
     return await this.store.users.findById(session.userId);
   }
 
@@ -504,18 +504,20 @@ export class AuthService {
    * request: when the database was briefly locked, every request came back 500
    * and the editor went black, all over bookkeeping nobody was waiting on.
    * Last-seen is a display value; missing one update loses nothing.
+   *
+   * Not awaited, either: with the database locked, a write waits up to the busy
+   * timeout, and nobody's request should wait with it. At most one write per
+   * session is in flight — the throttle is set before it starts.
    */
-  private async touchSession(id: string): Promise<void> {
+  private touchSession(id: string): void {
     const now = Date.now();
     if (now - (this.lastTouched.get(id) ?? 0) < SESSION_TOUCH_INTERVAL_MS) return;
     this.lastTouched.set(id, now);
     if (this.lastTouched.size > 10_000) this.lastTouched.clear();
-    try {
-      await this.store.authSessions.touch(id);
-    } catch {
+    this.store.authSessions.touch(id).catch(() => {
       // Try again on the next request rather than in a minute.
       this.lastTouched.delete(id);
-    }
+    });
   }
 
   async describe(user: User): Promise<SessionResponse> {

@@ -93,14 +93,26 @@ test("an unknown token, and a revoked session's token, resolve to nothing", asyn
   assert.equal(bridge.resolve("not-a-real-token"), null);
 });
 
-test("re-minting for a session replaces its previous token", async () => {
+test("re-minting for a session keeps its token working", async () => {
+  // The gateway mints on every prompt, but a reused agent session keeps the
+  // token it was created with.
   const bridge = new ImageBridge(store, configured);
   const on = await project("remint", true);
   const first = (await bridge.mint("ses_remint", on.projectId, on.userId))!;
   const second = (await bridge.mint("ses_remint", on.projectId, on.userId))!;
+  assert.equal(first, second);
+  assert.ok(bridge.resolve(first), "the session's token should keep working");
+});
+
+test("re-minting a session for another project retires its previous token", async () => {
+  const bridge = new ImageBridge(store, configured);
+  const a = await project("remint-a", true);
+  const b = await project("remint-b", true);
+  const first = (await bridge.mint("ses_remint_ab", a.projectId, a.userId))!;
+  const second = (await bridge.mint("ses_remint_ab", b.projectId, b.userId))!;
   assert.notEqual(first, second);
   assert.equal(bridge.resolve(first), null, "the old token should stop working");
-  assert.ok(bridge.resolve(second));
+  assert.equal(bridge.resolve(second)?.projectId, b.projectId);
 });
 
 test("turning the permission off stops the next session from getting a token", async () => {

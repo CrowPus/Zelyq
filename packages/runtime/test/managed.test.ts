@@ -250,6 +250,33 @@ test("the capability probe is cached per runtime and reports what it found", asy
   resetManagedCapabilities();
 });
 
+test("a missing capability is asked again after a minute; a present one is kept", async (t) => {
+  // Found in review: one failed probe (the sandbox image not built yet, a
+  // toolchain download that failed) hid the Python stack until a restart.
+  resetManagedCapabilities();
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  let supported = false;
+  let calls = 0;
+  const probe = async () => {
+    calls += 1;
+    return supported;
+  };
+  assert.deepEqual(await managedCapabilities("unit:later", probe), []);
+  supported = true;
+  assert.deepEqual(await managedCapabilities("unit:later", probe), [], "not re-probed at once");
+  assert.equal(calls, 1);
+
+  t.mock.timers.tick(60_000);
+  assert.deepEqual(await managedCapabilities("unit:later", probe), [MANAGED_CAPABILITY]);
+  assert.equal(calls, 2);
+
+  t.mock.timers.tick(10 * 60_000);
+  supported = false;
+  assert.deepEqual(await managedCapabilities("unit:later", probe), [MANAGED_CAPABILITY]);
+  assert.equal(calls, 2, "a yes is not asked again");
+  resetManagedCapabilities();
+});
+
 test("preview operations for one project are serialised across drivers", async () => {
   const workspace = await scratch();
   const order: string[] = [];

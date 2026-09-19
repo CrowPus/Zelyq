@@ -443,11 +443,18 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * sandbox carries uv, but `ZELYQ_CONTAINER_IMAGE` can point anywhere, so ask
    * the image rather than assume. Cached per resolved image — the probe costs
    * a container start.
+   *
+   * Zelyq's own image is built on first use, so it is built before it is
+   * asked. Found in review: on a fresh install the probe ran first, Docker
+   * went to the registry for a tag that only ever exists locally, and "no
+   * Python" hid the stack.
    */
-  private managedCapabilities(): Promise<string[]> {
-    return managedCapabilities(`container:${this.engine}:${this.resolvedImage}`, async () => {
+  private async managedCapabilities(): Promise<string[]> {
+    if (this.imageIsDefault) await this.ensureImage().catch(() => undefined);
+    const image = this.resolvedImage;
+    return managedCapabilities(`container:${this.engine}:${image}`, async () => {
       const probe = await this.engineRun(
-        ["run", "--rm", "--network", "none", this.resolvedImage, "uv", "--version"],
+        ["run", "--rm", "--network", "none", image, "uv", "--version"],
         30_000,
       );
       return probe.exitCode === 0;

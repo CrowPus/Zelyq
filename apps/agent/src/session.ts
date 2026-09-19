@@ -1497,6 +1497,15 @@ export class AgentSession {
   // progress. Reset to 0 by any clean turn end.
   private cappedBrokenStreak = 0;
 
+  // Set by `abort()`, cleared when the person's next request starts. Auto Mode
+  // reads it between passes: a Stop that lands while no model call is in
+  // flight (during the end-of-turn checks, or between two passes) aborts
+  // nothing, and without this the next pass started with nobody listening.
+  private stopRequested = false;
+  // One request from the person at a time, Auto Mode passes included — see
+  // `beginRequest`.
+  private requestInFlight = false;
+
   // Orchestration run state. Session-scoped, so "build the plan" can span
   // turns against one running total. `killed` is the kill switch; once set,
   // no further builders dispatch and nothing resumes on its own.
@@ -1530,6 +1539,9 @@ export class AgentSession {
     changedEver: new Set<string>(), // every builder-changed path, for stuck-detection
     changedAtPassStart: 0,
     zeroProgressPasses: 0,
+    // Engineer Mode only: passes in a row that ended with a check failing,
+    // however they ended — out of steps, or the model calling it done.
+    brokenPasses: 0,
   };
 
   constructor(options: SessionOptions) {
@@ -1708,7 +1720,50 @@ export class AgentSession {
   }
 
   abort(): void {
+    this.stopRequested = true;
     this.abortController?.abort();
+  }
+
+  /**
+   * The person sent a request — as opposed to an Auto Mode pass, which carries
+   * on the request already running. Returns false while one is in flight: the
+   * gateway can already show the session idle after a Stop while this side is
+   * still finishing a check, and a second request must not clear that Stop.
+   *
+   * An Engineer Auto Mode run belongs to one request, so its ceilings start
+   * again here. Found in review: they carried over, and a session's second
+   * request ran one pass before stopping at "the 6-pass ceiling". The
+   * Architect's run is the build plan, which spans requests on purpose.
+   */
+  beginRequest(): boolean {
+    if (this.requestInFlight) return false;
+    this.requestInFlight = true;
+    this.stopRequested = false;
+    if (this.orchestration.auto && this.options.engineerMode) {
+      const o = this.orchestration;
+      o.pass = 1;
+      o.autoTokens = 0;
+      o.autoStartedAt = null;
+      o.zeroProgressPasses = 0;
+      o.brokenPasses = 0;
+      o.engineerOutOfSteps = false;
+      o.engineerNeedsYou = null;
+    }
+    return true;
+  }
+
+  endRequest(): void {
+    this.requestInFlight = false;
+  }
+
+  /** What the next Auto Mode pass is started with. A pass that ended over a
+   * failing check says so — "keep going" alone reads as "carry on with the
+   * list", and the failure is the first thing to deal with. */
+  get autoPassMessage(): string {
+    return this.options.engineerMode && this.orchestration.brokenPasses > 0
+      ? "keep going — a check was failing when the last pass ended (its output is above). " +
+          "Fix that first, then carry on with whatever is left."
+      : "keep going";
   }
 
   /** The kill switch. Stops any further builder dispatch on this session; a
@@ -2459,8 +2514,9 @@ export class AgentSession {
     // invalidate the cache on every request.
     let budgetWarningDone = false;
     let finalStepNoticeDone = false;
-    // The turn ended with a check failing — read by Engineer Auto Mode, which
-    // must not take "REMAINING: none" as done over a failing check.
+    // The turn's latest check failed, whichever path ran it — read by Engineer
+    // Auto Mode, which must not take "REMAINING: none" as done over a failing
+    // check.
     let endedBroken = false;
     // The turn's last reply was the model's own summary — see where it is set.
     let finalReplyWasSummary = false;
@@ -2870,6 +2926,10 @@ export class AgentSession {
               };
               emit({ type: "tool.end", sessionId: this.id, messageId, call: finished });
               toolCalls.push(finished);
+              // The latest check decides. Found in review: a model answered
+              // this failure with "that error is unrelated … REMAINING: none",
+              // changed nothing, and Auto Mode stopped on a broken app.
+              endedBroken = outcome.failed;
 
               if (outcome.failed) {
                 this.conversation.addUserMessage(
@@ -3008,8 +3068,22 @@ export class AgentSession {
 
         // Out of steps: whatever these calls would have done cannot be
         // followed up, so none of them run. The turn ends here, and the
-        // fallback below reports the turn from what did happen.
-        if (lastStep) break;
+        // fallback below reports the turn from what did happen. Each call
+        // still gets a result: the provider has already recorded the calls,
+        // and one left unanswered makes every later request in this session
+        // fail — Anthropic and OpenAI both reject that history. Found in
+        // review: an Auto Mode pass, or the person's next message, got a 400.
+        if (lastStep) {
+          this.conversation.addToolResults(
+            result.toolCalls.map((toolCall) => ({
+              id: toolCall.id,
+              name: toolCall.name,
+              output: "Not run: this turn was out of steps.",
+              isError: true,
+            })),
+          );
+          break;
+        }
 
         // Tool calls in one assistant turn are independent: run them
         // concurrently and return every result together.
@@ -3563,9 +3637,9 @@ export class AgentSession {
             const check = await this.needsVerification(toolContext);
             if (check) {
               const outcome = await this.runVerification(toolContext, check);
+              endedBroken = outcome.failed;
               if (outcome.failed) {
                 brokenThisTurn = true;
-                endedBroken = true;
                 this.cappedBrokenStreak += 1;
                 brokenNote =
                   this.cappedBrokenStreak >= 2
@@ -3662,10 +3736,13 @@ export class AgentSession {
             ).test(line),
           )
           .at(-1);
+        // Markdown around the label ("**REMAINING:** none") is not part of
+        // the answer.
         const needsYou = statusLine?.match(
-          new RegExp(`${ENGINEER_NEEDS_YOU_MARKER}\\s*(.+)$`, "i"),
+          new RegExp(`${ENGINEER_NEEDS_YOU_MARKER}[\\s*_\`]*(.+)$`, "i"),
         )?.[1];
         this.orchestration.engineerNeedsYou = null;
+        this.orchestration.brokenPasses = endedBroken ? this.orchestration.brokenPasses + 1 : 0;
         if (endedBroken) {
           // The model's word is not the last word. Found live: a turn wrote
           // "REMAINING: none" while the end-of-turn check was failing.
@@ -3675,7 +3752,7 @@ export class AgentSession {
           this.orchestration.engineerNeedsYou = needsYou.trim();
         } else if (statusLine) {
           this.orchestration.engineerOutOfSteps = !new RegExp(
-            `${ENGINEER_REMAINING_MARKER}\\s*none\\b`,
+            `${ENGINEER_REMAINING_MARKER}[\\s*_\`]*(none|nothing|n/a)\\b`,
             "i",
           ).test(statusLine);
         }
@@ -3800,7 +3877,9 @@ export class AgentSession {
       ? 'Reply "keep going" to continue by hand.'
       : 'Reply "keep going" for another pass, or take the rest to the Engineer.';
 
-    if (o.killed) return stop("auto_stopped", `Auto Mode stopped by the user ${totals}.`);
+    if (o.killed || this.stopRequested) {
+      return stop("auto_stopped", `Auto Mode stopped by the user ${totals}.`);
+    }
 
     // Stuck-detection: two passes in a row with no progress. For the
     // Architect, progress is a builder touching a path no earlier pass had;
@@ -3822,13 +3901,13 @@ export class AgentSession {
       );
     }
 
-    // An Engineer run that keeps ending out of steps with the app broken is
-    // not converging, and more passes only spend more. The turn itself has
-    // already said so and shown the failure; this stops the loop behind it.
-    if (engineer && this.cappedBrokenStreak >= 2) {
+    // An Engineer run that keeps ending with the app broken is not
+    // converging, and more passes only spend more. The turn itself has
+    // already shown the failure; this stops the loop behind it.
+    if (engineer && o.brokenPasses >= 2) {
       return stop(
         "auto_stuck",
-        `Auto Mode stopped — the app has been broken at the end of ${this.cappedBrokenStreak} ` +
+        `Auto Mode stopped — the app has been broken at the end of ${o.brokenPasses} ` +
           `passes in a row ${totals}. "Undo this turn" gets back to the last working state; then ` +
           "ask for something smaller, or switch to a stronger model.",
       );
@@ -4139,6 +4218,12 @@ export class AgentSession {
 
     if (check.checks) {
       for (const step of check.checks) {
+        // A running check cannot be interrupted, but Stop is not kept waiting
+        // for the rest — a Python project's full set takes over half a minute.
+        if (context.signal.aborted) {
+          parts.push(`${step.name}: not run (stopped)`);
+          continue;
+        }
         const result = await context.runtime.exec(context.projectId, step);
         const ok = result.exitCode === 0;
         if (!ok) failed = true;

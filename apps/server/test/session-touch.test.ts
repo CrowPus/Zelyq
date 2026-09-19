@@ -51,6 +51,14 @@ test("a locked database does not sign anybody out", async () => {
   assert.deepEqual(resolved, user, "the request still knows who you are");
 });
 
+test("a locked database does not hold a request up", async () => {
+  // A write stuck behind the lock waits out the busy timeout; the request
+  // must not wait with it.
+  const { store } = stubStore(() => new Promise<void>(() => {}));
+  const resolved = await service(store).resolve("good-token");
+  assert.deepEqual(resolved, user);
+});
+
 test("a burst of requests writes last-seen once, not once per request", async () => {
   const { store, touches } = stubStore(async () => {});
   const auth = service(store);
@@ -66,6 +74,8 @@ test("a failed write is retried on the next request, not a minute later", async 
   });
   const auth = service(store);
   await auth.resolve("good-token");
+  // The write runs in the background; let its failure land.
+  await new Promise((resolve) => setImmediate(resolve));
   fail = false;
   await auth.resolve("good-token");
   assert.equal(touches(), 2);

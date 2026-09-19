@@ -21,6 +21,9 @@ const PASSES = [
   { text: "Pass two built the UI.", tool: "call_2", tokensIn: 40, tokensOut: 20 },
 ];
 
+/** Pass one ends in an error rather than `turn.end` — see the last test. */
+let firstPassErrors = false;
+
 function fakeAgent() {
   return http.createServer((req, res) => {
     const send = (status: number, body: unknown) => {
@@ -92,7 +95,17 @@ function fakeAgent() {
             turnCacheReadTokens: 0,
             turnCacheCreationTokens: 0,
           });
-          emit({ type: "turn.end", sessionId: "x", messageId, stopReason: "end_turn" });
+          if (index === 0 && firstPassErrors) {
+            emit({
+              type: "error",
+              sessionId: "x",
+              code: "overloaded",
+              message: "busy",
+              fatal: false,
+            });
+          } else {
+            emit({ type: "turn.end", sessionId: "x", messageId, stopReason: "end_turn" });
+          }
         });
         res.end();
       });
@@ -238,4 +251,63 @@ test("each Auto Mode pass is its own message, with its own text, tools, tokens a
   const [first, second] = assistants;
   assert.ok(first?.snapshotId && second?.snapshotId, "each pass can be undone");
   assert.notEqual(first.snapshotId, second.snapshotId, "undoing pass two leaves pass one alone");
+});
+
+test("a pass that ends in an error is still saved when the next pass starts", async () => {
+  // Found in review: Auto Mode can carry on after a pass that sent no
+  // `turn.end`, and the gateway replaced that pass's message unsaved — its
+  // text, tool calls and tokens were gone.
+  firstPassErrors = true;
+  try {
+    const project = (
+      await server.app.inject({
+        method: "POST",
+        url: "/api/projects",
+        headers: { cookie },
+        payload: { name: "Auto pass error" },
+      })
+    ).json().project;
+    const address = server.app.server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+      headers: { cookie },
+    });
+    let sessionId = "";
+    await new Promise<void>((resolve, reject) => {
+      ws.on("error", reject);
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "connected") {
+          sessionId = msg.sessionId;
+          ws.send(JSON.stringify({ type: "prompt", message: "build it", engineerMode: true }));
+        }
+        if (msg.type === "turn.end") {
+          ws.close();
+          resolve();
+        }
+      });
+    });
+
+    let assistants: Awaited<ReturnType<typeof server.store.messages.listForSession>> = [];
+    for (let i = 0; i < 50; i++) {
+      assistants = (await server.store.messages.listForSession(sessionId)).filter(
+        (m) => m.role === "assistant",
+      );
+      if (assistants.length >= PASSES.length) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.deepEqual(
+      assistants.map((m) => m.content),
+      PASSES.map((p) => p.text),
+      "the pass that errored is kept",
+    );
+    assert.deepEqual(
+      assistants.map((m) => m.toolCalls.map((c) => c.id)),
+      [["call_1"], ["call_2"]],
+    );
+    const session = await server.store.sessions.findById(sessionId);
+    assert.equal(session?.tokensIn, 140, "its tokens are counted");
+  } finally {
+    firstPassErrors = false;
+  }
 });

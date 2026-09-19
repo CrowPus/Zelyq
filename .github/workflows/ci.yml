@@ -181,7 +181,7 @@ jobs:
           ZELYQ_DATA_DIR="$RUNNER_TEMP/dbcheck" uv run --locked --all-extras \
             alembic revision --autogenerate -m drift --rev-id cidriftcheck
           if grep -qE '^\s*op\.' migrations/versions/cidriftcheck_drift.py; then
-            echo "Models changed without a migration. Run alembic revision --autogenerate and commit it."
+            echo "Models changed without a migration. Run npm run db:revision -- \"what changed\" and commit it."
             cat migrations/versions/cidriftcheck_drift.py
             exit 1
           fi

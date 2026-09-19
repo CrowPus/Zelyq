@@ -1,4 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import {
   type BackendConfiguration,
   type BackendConfigurationInput,
@@ -74,22 +76,21 @@ function ipv4From(host: string): number | null {
 }
 
 // See the note above `ipv4From` for why the spellings matter.
-function assertReachableDatabaseHost(hostname: string): void {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  const refuse = () => {
-    throw ZelyqError.badRequest(
-      "That database host is not permitted. Give the address the database is reachable at " +
-        "from the runtime — not this machine's loopback or its cloud metadata service.",
-    );
-  };
+function isForbiddenDatabaseHost(hostname: string): boolean {
+  // A trailing dot is the fully-qualified spelling of the same name.
+  const host = hostname
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase()
+    .replace(/\.+$/, "");
 
-  if (host === "metadata.google.internal" || host.endsWith(".metadata.internal")) refuse();
-  if (host === "localhost" || host.endsWith(".localhost")) refuse();
+  if (host === "metadata.google.internal" || host.endsWith(".metadata.internal")) return true;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
 
   // An IPv4-mapped address is the same address wearing an IPv6 prefix — and
   // `URL` rewrites ::ffff:127.0.0.1 into its hex form ::ffff:7f00:1, so both
-  // spellings have to come back to the v4 address they mean.
-  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  // spellings have to come back to the v4 address they mean. The older
+  // IPv4-compatible form (::127.0.0.1, rewritten to ::7f00:1) is the same.
+  const mappedHex = /^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
   const unmapped = mappedHex
     ? String(
         // >>> 0, or the sign bit makes 169.254.x.x a negative number and the
@@ -97,19 +98,48 @@ function assertReachableDatabaseHost(hostname: string): void {
         ((Number.parseInt(mappedHex[1] as string, 16) << 16) >>> 0) +
           Number.parseInt(mappedHex[2] as string, 16),
       )
-    : host.replace(/^::ffff:/, "");
+    : host.replace(/^::(?:ffff:)?/, "");
 
   const address = ipv4From(unmapped);
   if (address !== null) {
     const a = (address >>> 24) & 0xff;
     const b = (address >>> 16) & 0xff;
-    if (a === 127 || a === 0) refuse(); // loopback, and "this host"
-    if (a === 169 && b === 254) refuse(); // link-local, including the cloud IMDS
+    if (a === 127 || a === 0) return true; // loopback, and "this host"
+    if (a === 169 && b === 254) return true; // link-local, including the cloud IMDS
   }
 
-  if (host === "::1" || host === "::" || host === "0:0:0:0:0:0:0:1") refuse();
-  if (/^fe[89ab][0-9a-f]:/.test(host)) refuse(); // IPv6 link-local
-  if (host === "fd00:ec2::254") refuse(); // the EC2 IMDS over IPv6
+  if (host === "::1" || host === "::" || host === "0:0:0:0:0:0:0:1") return true;
+  if (/^fe[89ab][0-9a-f]:/.test(host)) return true; // IPv6 link-local
+  if (host === "fd00:ec2::254") return true; // the EC2 IMDS over IPv6
+  return false;
+}
+
+export type HostLookup = (hostname: string) => Promise<string[]>;
+
+const systemLookup: HostLookup = async (hostname) =>
+  (await lookup(hostname, { all: true })).map((entry) => entry.address);
+
+async function assertReachableDatabaseHost(hostname: string, resolve: HostLookup): Promise<void> {
+  const refuse = () => {
+    throw ZelyqError.badRequest(
+      "That database host is not permitted. Give the address the database is reachable at " +
+        "from the runtime — not this machine's loopback or its cloud metadata service.",
+    );
+  };
+  if (isForbiddenDatabaseHost(hostname)) refuse();
+
+  // A name is only as safe as what it resolves to: `localtest.me` and
+  // `127.0.0.1.nip.io` are public names for loopback. Asked of this host's
+  // resolver, briefly; a name it cannot resolve (one only the runtime's network
+  // knows) is let through. The runtime's network policy stays the boundary — a
+  // name can resolve differently later — this only closes the easy spellings.
+  const bare = hostname.replace(/^\[|\]$/g, "");
+  if (isIP(bare) !== 0) return;
+  const addresses = await Promise.race([
+    resolve(bare).catch(() => [] as string[]),
+    new Promise<string[]>((done) => setTimeout(() => done([]), 3000).unref()),
+  ]);
+  if (addresses.some(isForbiddenDatabaseHost)) refuse();
 }
 
 /**
@@ -133,6 +163,7 @@ export class ProjectBackendService {
     private store: Store,
     private secrets: SecretBox,
     private runtime: RuntimeDriver,
+    private resolveHost: HostLookup = systemLookup,
   ) {}
 
   private key(id: string, environment: Environment): string {
@@ -206,7 +237,7 @@ export class ProjectBackendService {
       const scheme = url.protocol.split("+")[0]?.replace(":", "");
       if (scheme !== config.engine)
         throw ZelyqError.badRequest("The URL does not match the selected database engine.");
-      assertReachableDatabaseHost(url.hostname);
+      await assertReachableDatabaseHost(url.hostname, this.resolveHost);
     }
     if (config.auth === "jwt") {
       for (const target of [config.issuer!, config.jwksUrl!])
@@ -281,8 +312,20 @@ export class ProjectBackendService {
     }
   }
   mint(sessionId: string, projectId: string, userId: string): string {
-    for (const [token, grant] of this.grants)
+    // An agent session keeps the token it was created with — a reused session
+    // is never handed a new one — so the session's token is renewed, not
+    // replaced. Replacing it broke `start_preview` from the second prompt on.
+    for (const [token, grant] of this.grants) {
+      if (
+        grant.sessionId === sessionId &&
+        grant.projectId === projectId &&
+        grant.userId === userId
+      ) {
+        grant.expires = Date.now() + 12 * 60 * 60_000;
+        return token;
+      }
       if (grant.sessionId === sessionId || grant.expires < Date.now()) this.grants.delete(token);
+    }
     const token = randomBytes(32).toString("base64url");
     this.grants.set(token, {
       sessionId,
