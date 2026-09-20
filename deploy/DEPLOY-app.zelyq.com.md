@@ -61,13 +61,24 @@ Since the SPA and API share the origin `https://app.zelyq.com`, CORS is not on t
 request path for normal use — the site works without the restart. Do it at a low-traffic
 moment.
 
-## Recommended hardening (server code change — not applied)
+## Recommended hardening — now a setting, still to apply here
 
-`apps/server/src/app.ts` creates Fastify without `trustProxy`. Behind nginx that
-makes `request.protocol === "http"`, so session cookies are set **without the
-`Secure` flag** (see `apps/server/src/routes/auth.ts`). nginx already forwards
-`X-Forwarded-Proto`. Add `trustProxy: true` to the `Fastify({ ... })` options so
-`Secure` cookies and correct client IPs work behind the proxy.
+Behind nginx, `request.protocol` is `http`, so session cookies were set
+**without the `Secure` flag** (see `apps/server/src/routes/auth.ts`). The server
+now reads `ZELYQ_TRUST_PROXY`, and nginx already forwards `X-Forwarded-Proto`.
+
+```env
+ZELYQ_TRUST_PROXY=true
+```
+
+Add it to `.env` and restart the `:8081` process — the same restart step 4 above
+is waiting for. Confirm afterwards that a fresh sign-in sets a cookie carrying
+`Secure`:
+
+```bash
+curl -si https://app.zelyq.com/api/auth/login -H 'content-type: application/json' \
+  -d '{"email":"…","password":"…"}' | grep -i set-cookie
+```
 
 ## Files
 

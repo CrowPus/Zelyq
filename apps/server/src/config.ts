@@ -1,12 +1,26 @@
 import path from "node:path";
 import { resolveFromRepoRoot } from "@zelyq/core/node";
 import type { RuntimeConfig } from "@zelyq/runtime";
+import type { FastifyServerOptions } from "fastify";
 
 export interface ServerConfig {
   host: string;
   port: number;
   logLevel: string;
   isProduction: boolean;
+  /**
+   * Whether to believe `X-Forwarded-*` — off unless `ZELYQ_TRUST_PROXY` says
+   * otherwise. It decides two things that are wrong in opposite directions
+   * depending on the deployment: whether `request.protocol` reports the
+   * scheme the *browser* used (so the session cookie is marked `Secure`
+   * behind a TLS-terminating proxy) and whether `request.ip` is the client
+   * or the proxy.
+   *
+   * Off by default because a directly-exposed instance must not let a caller
+   * claim any IP or scheme it likes by setting a header. An operator who has
+   * a proxy in front turns it on, and can name exactly which hops to believe.
+   */
+  trustProxy?: FastifyServerOptions["trustProxy"];
   corsOrigin: string[];
   databaseUrl: string;
   agentUrl: string;
@@ -102,6 +116,42 @@ function intFromEnv(name: string, fallback: number): number {
   return value;
 }
 
+/**
+ * `ZELYQ_TRUST_PROXY` in the three shapes a deployment actually needs:
+ * `true` (any proxy — the common single-proxy case), a hop count, or a
+ * comma-separated list of proxy addresses/subnets to believe. Anything
+ * falsy, including the empty string, means "trust nothing", which is the
+ * default.
+ *
+ * `"1"` is a hop count, not a boolean, and that is Fastify's own meaning
+ * for a number. `"true"`/`"false"` are spelled out for the boolean case so
+ * the two never blur together.
+ */
+export function trustProxyFromEnv(
+  raw: string | undefined = process.env.ZELYQ_TRUST_PROXY,
+): FastifyServerOptions["trustProxy"] {
+  const value = raw?.trim();
+  if (!value || value === "false") return false;
+  if (value === "true") return true;
+  if (/^\d+$/.test(value)) {
+    const hops = Number.parseInt(value, 10);
+    if (hops < 1) {
+      throw new Error(`ZELYQ_TRUST_PROXY must be at least 1 when it is a hop count, got "${raw}"`);
+    }
+    // A hop count as a predicate. Fastify's own types don't accept a bare
+    // number even though the underlying address parser does, and `hop < n` is
+    // exactly what a number means there: trust the n proxies nearest this
+    // server, and nothing beyond them.
+    return (_address: string, hop: number) => hop < hops;
+  }
+  const addresses = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (addresses.length === 0) return false;
+  return addresses;
+}
+
 /** The directory holding a SQLite database, or ./data for anything else.
  * Repo-root-anchored so it matches where `@zelyq/db` opens the file. */
 function dataDirFrom(databaseUrl: string | undefined): string {
@@ -158,6 +208,7 @@ export function loadServerConfig(): ServerConfig {
     port: intFromEnv("ZELYQ_SERVER_PORT", 8787),
     logLevel: process.env.LOG_LEVEL ?? "info",
     isProduction: process.env.NODE_ENV === "production",
+    trustProxy: trustProxyFromEnv(),
     corsOrigin: (process.env.ZELYQ_CORS_ORIGIN ?? "http://localhost:5173")
       .split(",")
       .map((origin) => origin.trim())
