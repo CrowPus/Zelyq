@@ -293,8 +293,10 @@ test('"REMAINING: none" does not end the run while a check is failing', async ()
   ];
   const { events } = await run(script, { engineerMode: true, autoMode: true }, failingCheck);
   assert.ok(turns(events) >= 2, "a failing check started another pass despite the marker");
-  // Still failing after that pass: it stops as not converging, rather than looping.
+  // Two bounded repair passes after the initial build, then stop rather than loop.
   assert.equal(autoStop(events)?.code, "auto_stuck");
+  assert.equal(turns(events), 3);
+  assert.match(String(autoStop(events)?.message), /after 2 repair passes/);
 });
 
 test("a turn that wrote its own summary is never told it wrote none", async () => {
@@ -542,6 +544,52 @@ test("the next pass is shown the check that failed, not told it is above", async
     const next = agent.log.userMessages.find((message) => message.startsWith("keep going"));
     assert.match(String(next), /a check was failing/);
     assert.match(String(next), /TypeError: boom/, "the failure itself travels with the message");
+  } finally {
+    await agent.close();
+  }
+});
+
+test("a second repair pass can recover a broken build without undoing feature work", async () => {
+  const fix: Step = {
+    events: [],
+    result: {
+      toolCalls: [
+        {
+          id: "repair",
+          name: "write_file",
+          input: { path: "src/healthy.ts", content: "export {};\n" },
+        },
+      ],
+      stopReason: "tool_use",
+      usage: { inputTokens: 10, outputTokens: 10 },
+    },
+  };
+  const agent = await open(
+    [
+      ...Array.from({ length: STEPS * 2 }, edit),
+      fix,
+      say("Purpose: repair the build. Checks pass.\nREMAINING: none"),
+    ],
+    { engineerMode: true, autoMode: true },
+    {
+      "package.json": JSON.stringify({
+        scripts: {
+          typecheck: `node -e "if (!require('fs').existsSync('src/healthy.ts')) { console.error('TS2322: FooterProps mismatch'); process.exit(1); }"`,
+        },
+      }),
+    },
+  );
+  try {
+    const events = await agent.prompt("build the app");
+    assert.equal(turns(events), 3);
+    assert.equal(autoStop(events), undefined);
+    const repairs = agent.log.userMessages.filter((m) => m.includes("This is a repair-only pass"));
+    assert.equal(repairs.length, 2);
+    for (const message of repairs) {
+      assert.match(message, /TS2322: FooterProps mismatch/);
+      assert.match(message, /Do not add features/);
+    }
+    assert.ok((await agent.files()).includes("work.ts"), "feature work is preserved");
   } finally {
     await agent.close();
   }

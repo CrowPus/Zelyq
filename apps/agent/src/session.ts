@@ -201,6 +201,8 @@ const ORCH_MAX_TOKENS = 2_000_000;
 // hands back exactly like a manual pass-cap stop, with the actual totals.
 // Deliberately low so a bad plan is a manageable bill.
 const AUTO_MAX_PASSES = 6;
+// The initial build is not a repair attempt. Allow two focused repair passes.
+const AUTO_MAX_REPAIR_PASSES = 2;
 const AUTO_MAX_TOKENS = 6_000_000;
 const AUTO_MAX_WALLCLOCK_MS = 30 * 60_000;
 /**
@@ -1787,7 +1789,11 @@ export class AgentSession {
     return this.options.engineerMode && this.orchestration.brokenPasses > 0
       ? "keep going — a check was failing when the last pass ended:\n\n" +
           `${headAndTail(this.orchestration.lastCheckFailure, 4000)}\n\n` +
-          "Fix that first, then carry on with whatever is left."
+          "This is a repair-only pass. Read the failing files and their callers, then make the " +
+          "smallest changes needed to fix these diagnostics. Do not add features or refactor " +
+          "unrelated code. Run the failing check again and fix any remaining errors before " +
+          "ending this pass. If feature work remains after checks pass, report it in REMAINING " +
+          "so the next pass can resume it."
       : "keep going";
   }
 
@@ -2516,7 +2522,11 @@ export class AgentSession {
     // survives across iterations, unlike changedFiles itself, so the check
     // at the bottom of this loop knows whether anything has changed since
     // the last one, not just in the iteration that just finished.
-    let verificationNeeded = false;
+    // A repair pass must verify the outstanding failure even if the model
+    // claims success without editing anything.
+    let verificationNeeded = Boolean(
+      this.options.engineerMode && this.orchestration.brokenPasses > 0,
+    );
     // Unlike `changedFiles`, never cleared — this asks "did anything change
     // at all this turn", not "since the last check". `purposeCheckDone`
     // bounds the hand-back to once: retrying forever on a model that just
@@ -2542,7 +2552,7 @@ export class AgentSession {
     // The turn's latest check failed, whichever path ran it — read by Engineer
     // Auto Mode, which must not take "REMAINING: none" as done over a failing
     // check.
-    let endedBroken = false;
+    let endedBroken = verificationNeeded;
     // The turn's last reply was the model's own summary — see where it is set.
     let finalReplyWasSummary = false;
     // One-shot re-nudge when the user picked a specialist from the
@@ -3669,7 +3679,7 @@ export class AgentSession {
                 brokenThisTurn = true;
                 this.cappedBrokenStreak += 1;
                 brokenNote =
-                  this.cappedBrokenStreak >= 2
+                  !engineerAuto && this.cappedBrokenStreak >= 2
                     ? `⚠️ The app is BROKEN, and this is the ${this.cappedBrokenStreak}${
                         this.cappedBrokenStreak === 2 ? "nd" : "th"
                       } turn in a row that has run out of steps without fixing it. It is not ` +
@@ -3679,8 +3689,8 @@ export class AgentSession {
                       "model in the composer).\n\n" +
                       `${headAndTail(outcome.output, 2000)}\n\n`
                     : engineerAuto
-                      ? "⚠️ A check failed at the end of this pass. Auto Mode is starting another " +
-                        "pass to fix it.\n\n" +
+                      ? "⚠️ A check failed at the end of this pass. Auto Mode will attempt a focused " +
+                        "repair if its remaining limits allow.\n\n" +
                         `${headAndTail(outcome.output, 2000)}\n\n`
                       : "⚠️ The app is BROKEN right now — this turn ran out of steps before it " +
                         'finished. Reply "keep going" to continue the fix, or use "Undo this turn" ' +
@@ -3928,15 +3938,15 @@ export class AgentSession {
       );
     }
 
-    // An Engineer run that keeps ending with the app broken is not
-    // converging, and more passes only spend more. The turn itself has
-    // already shown the failure; this stops the loop behind it.
-    if (engineer && o.brokenPasses >= 2) {
+    // Count repair opportunities after the initial broken build, while keeping
+    // the existing no-progress, pass, token, and time limits in force.
+    if (engineer && o.brokenPasses > AUTO_MAX_REPAIR_PASSES) {
       return stop(
         "auto_stuck",
-        `Auto Mode stopped — the app has been broken at the end of ${o.brokenPasses} ` +
-          `passes in a row ${totals}. "Undo this turn" gets back to the last working state; then ` +
-          "ask for something smaller, or switch to a stronger model.",
+        `Auto Mode stopped — checks still fail after ${AUTO_MAX_REPAIR_PASSES} repair passes ` +
+          `${totals}. Your changes are preserved. Review the errors above, then continue the ` +
+          "repair manually or switch models. Undo this turn reverts only the latest pass; " +
+          "it may not restore a working build.",
       );
     }
 
