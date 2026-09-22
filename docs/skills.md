@@ -146,6 +146,20 @@ backend or a deploy pipeline it does not. See the decision guidance
 (`apps/agent/src/prompt.ts`) for how the model is told to pick among
 several that could plausibly apply to the same request.
 
+`spec-driven-production-build` is the newest and the one with a harness
+counterpart. It is the playbook for a *programme* — a request that is a
+whole specification rather than a feature — written from the rebuild in
+`docs/case-studies/001-spec-driven-production-build.md`: read everything
+first, keep a phase table in `PROJECT_EXECUTION.md`, probe every external
+interface and record real fixtures before writing a connector, build the
+foundation up, decompose by domain, write tests that encode the spec's
+rules, drive the running app before a phase is DONE, and report honestly.
+The system prompt's `<programme>` section tells the model when to load it;
+`apps/agent/src/programme.ts` reads the phase table back at the end of a
+turn and hands back any DONE that names no test file or records no
+evidence. The two halves are deliberately split: the skill is judgement
+the model can weigh, the validator is a fact it cannot talk its way past.
+
 The library grows the same way templates do: by adding files, not by
 touching code. There's no per-project or per-team skill authoring from
 the UI yet — a real, separate idea, not required to make this useful

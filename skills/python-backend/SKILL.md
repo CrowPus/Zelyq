@@ -35,6 +35,15 @@ you do when they have not said.
 - **README.md** is rewritten for the app you built: what it is, and exactly how to
   run both halves — in Zelyq and on a laptop, with the commands the user asked for.
 
+## Is this a feature or a programme?
+
+A feature — "add a leads table", "let users upload a CSV" — fits in a turn and the
+step-budget advice below is right for it. A **specification** — a long document,
+numbered requirements, phases, "production", "no mocks" — is a programme: many
+turns, a phase table, evidence before DONE. Do not treat a specification as one
+big feature: read it whole, call `use_skill("spec-driven-production-build")`, and
+follow that playbook. The starter map below still tells you where things go.
+
 ## You have a step budget — spend it building
 
 A turn has a fixed number of steps, and a full-stack feature needs most of them.
@@ -65,15 +74,15 @@ Python commands run in `backend/`. Frontend commands run at the project root.
 
 | File | What it is | What to do with it |
 | --- | --- | --- |
-| `backend/app/main.py` | The FastAPI app: error handlers, `/api/health/*`, the `Note` example routes, the CSV example, the SPA fallback | Add routes here, or in `backend/app/routes/` included from here. Keep the health routes, error handlers and SPA fallback. |
-| `backend/app/models.py` | `Base` and the `Note` example model | Define every table here (or import it here). |
+| `backend/app/main.py` | The FastAPI app: error handlers, `/api/health/*`, the `Note` example routes, the CSV example, the SPA fallback | One or two routes may live here. Anything more goes in `backend/app/routes/<domain>.py` (an `APIRouter` per area, included from here) — a `main.py` that grows past a few hundred lines is where edits start failing. Keep the health routes, error handlers and SPA fallback. |
+| `backend/app/models.py` | `Base` and the `Note` example model | A handful of tables can stay here. A real domain becomes a package — `backend/app/models/<domain>.py`, re-exported from `models/__init__.py` so Alembic sees every table. |
 | `backend/app/db.py` | `engine()`, `transaction(write=...)`, the SQLite file name | Query through `transaction()`. Never run a second engine; if the user wants `database.py`, move these there and re-export them. |
 | `backend/app/config.py` | `settings()` from the environment | Read configuration only through this. |
 | `backend/app/auth.py`, `backend/app/supabase.py` | `current_user` (verified bearer tokens); a Supabase Data API client | Use them when the app signs people in or uses Supabase. Delete them, and `/api/me`, when it does not. |
 | `backend/migrations/` | Alembic, with the initial `notes` migration | Leave existing revisions alone; add new ones. |
 | `backend/tests/test_api.py`, `backend/conftest.py` | API tests on a throwaway database | Replace the note tests with tests for your routes. |
 | `backend/pyproject.toml` + `uv.lock` | Dependencies, Python version, lint rules (`[tool.ruff.lint]`) | `uv add <pkg>` in `backend/`. `uv.lock` is what installs; a `requirements.txt` is only ever exported from it. |
-| `src/App.tsx` | The page: the notes list and the CSV upload | Replace with the real UI, split into components — not one long file. |
+| `src/App.tsx` | The page: the notes list and the CSV upload | Replace with the real UI: a file per screen under `src/pages/`, shared pieces under `src/components/`. Never one `views.tsx` holding every screen — it cannot be edited, and the Designer cannot restyle it. |
 | `src/index.css`, `index.html` | Tailwind; dark mode driven by a `dark` class on `<html>` | See "Dark mode" below. |
 | `README.md` | The starter's own notes | Rewrite for the app, with how to run it. |
 | `src/lib/api/schema.d.ts` | TypeScript types generated from the API | Never edit by hand. `npm run api:generate` after any change to a route or response model. |
@@ -85,6 +94,15 @@ in all of them in the same pass — and regenerate the client *before* touching
 example the same way if the app has no use for it.
 
 React stays in `src/`; Python stays in `backend/app/`.
+
+**Integrations are real or absent, never simulated.** A job feed, a mail server,
+a model API: fetch the real endpoint from the sandbox before writing against it,
+record a trimmed real payload under `backend/tests/fixtures/` for the contract
+test, and when the credential is missing make the feature report *not
+configured* (a coded error, a settings form with a working **Test connection**)
+rather than return sample data. A hardcoded list behind a "discover" or "sync"
+endpoint, a seeded persona in `.runtime-data/application.db`, or a fallback that
+returns a plausible value is a placeholder, and the user will find it.
 
 **After writing Python, run `uv run ruff check --fix .` in `backend/` once.** It
 corrects import order and outdated syntax — the rules are listed in
@@ -112,8 +130,9 @@ app with no persistence is the special case.
 
 To add or change a table:
 
-1. Define the model in `backend/app/models.py` (a model in another module must be
-   imported there, or autogenerate will miss its table).
+1. Define the model in `backend/app/models.py` — or, for a domain package, in
+   `backend/app/models/<domain>.py` imported from `models/__init__.py` (a model
+   autogenerate cannot import is a table it will miss).
 2. Run **`npm run db:revision -- "what changed"`** at the project root. It brings
    the database current, generates the migration, tidies it so it passes lint,
    and applies it — in the order that works. Do not run the `alembic` commands
