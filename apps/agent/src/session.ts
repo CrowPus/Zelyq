@@ -28,6 +28,12 @@ import {
   type ZelyqTool,
 } from "@zelyq/tools";
 import {
+  PROGRAMME_FILE,
+  parseExecutionTable,
+  programmeHandback,
+  validateExecutionTable,
+} from "./programme.js";
+import {
   ARCHITECT_DRIFT_MARKER,
   ARCHITECT_READY_MARKER,
   ARCHITECT_WRITE_ROOT,
@@ -205,6 +211,14 @@ const AUTO_MAX_PASSES = 6;
 const AUTO_MAX_REPAIR_PASSES = 2;
 const AUTO_MAX_TOKENS = 6_000_000;
 const AUTO_MAX_WALLCLOCK_MS = 30 * 60_000;
+// A programme — a specification-shaped build with a `PROJECT_EXECUTION.md`
+// phase table (see programme.ts and case study 001) — is many features, not
+// one, and the six-pass ceiling above was what turned a 90-section spec into
+// seventeen minutes of placeholders. These bound one auto run of a programme;
+// the phase table's own evidence rule is what keeps each pass honest.
+const AUTO_MAX_PASSES_PROGRAMME = 24;
+const AUTO_MAX_TOKENS_PROGRAMME = 40_000_000;
+const AUTO_MAX_WALLCLOCK_PROGRAMME_MS = 4 * 60 * 60_000;
 /**
  * How an Engineer turn that ran out of steps says whether the request is done.
  * "REMAINING: none" ends an Engineer Auto Mode run; anything else — or no line
@@ -2620,7 +2634,14 @@ export class AgentSession {
     // into the checkpoint reads this one flag — found live, twice: the write
     // path was exempted, but files a shell command created still tripped it
     // at six, and the agent stopped to ask "reply continue" mid-build.
-    const fileCheckpointApplies = !(this.orchestration.auto && !this.options.systemPrompt);
+    // A programme (PROJECT_EXECUTION.md present) is a spec-shaped build
+    // decomposed by domain — a backend package, a page per screen — and the
+    // six-file checkpoint is what taught the agent to cram a product into
+    // one `main.py` and one `views.tsx` (case study 001). The phase table's
+    // evidence rule replaces the checkpoint as the scope control there.
+    this.programmeActive = (await this.readFileOrNull(PROGRAMME_FILE)) !== null;
+    const fileCheckpointApplies =
+      !(this.orchestration.auto && !this.options.systemPrompt) && !this.programmeActive;
     const newFilesThisTurn = new Set<string>();
     let checkpointReached = false;
     // Once the checkpoint is reached, this decides whether the freeze is
@@ -3950,23 +3971,27 @@ export class AgentSession {
       );
     }
 
-    if (o.pass >= AUTO_MAX_PASSES) {
+    const programme = engineer && this.programmeActive;
+    const maxPasses = programme ? AUTO_MAX_PASSES_PROGRAMME : AUTO_MAX_PASSES;
+    const maxTokens = programme ? AUTO_MAX_TOKENS_PROGRAMME : AUTO_MAX_TOKENS;
+    const maxWallclock = programme ? AUTO_MAX_WALLCLOCK_PROGRAMME_MS : AUTO_MAX_WALLCLOCK_MS;
+    if (o.pass >= maxPasses) {
       return stop(
         "auto_ceiling",
-        `Auto Mode reached the ${AUTO_MAX_PASSES}-pass ceiling ${totals}. The app runs as far as it ` +
+        `Auto Mode reached the ${maxPasses}-pass ceiling ${totals}. The app runs as far as it ` +
           `got — ${next.charAt(0).toLowerCase()}${next.slice(1)}`,
       );
     }
-    if (o.autoTokens >= AUTO_MAX_TOKENS) {
+    if (o.autoTokens >= maxTokens) {
       return stop(
         "auto_ceiling",
-        `Auto Mode reached its ~${(AUTO_MAX_TOKENS / 1e6).toFixed(0)}M-token ceiling ${totals}. ${next}`,
+        `Auto Mode reached its ~${(maxTokens / 1e6).toFixed(0)}M-token ceiling ${totals}. ${next}`,
       );
     }
-    if (o.autoStartedAt && Date.now() - o.autoStartedAt >= AUTO_MAX_WALLCLOCK_MS) {
+    if (o.autoStartedAt && Date.now() - o.autoStartedAt >= maxWallclock) {
       return stop(
         "auto_ceiling",
-        `Auto Mode reached its ${Math.round(AUTO_MAX_WALLCLOCK_MS / 60_000)}-minute ceiling ${totals}. ${next}`,
+        `Auto Mode reached its ${Math.round(maxWallclock / 60_000)}-minute ceiling ${totals}. ${next}`,
       );
     }
 
@@ -4050,6 +4075,11 @@ export class AgentSession {
       .catch(() => []);
     return new Set(entries.filter((entry) => entry.type === "file").map((entry) => entry.path));
   }
+
+  /** Whether the project carries a `PROJECT_EXECUTION.md` phase table — read
+   * at the start of every turn, so a programme that begins mid-session is
+   * recognised from its next turn on. */
+  private programmeActive = false;
 
   /** Read a project file, or null if it does not exist / cannot be read. */
   private async readFileOrNull(filePath: string): Promise<string | null> {
@@ -4206,7 +4236,11 @@ export class AgentSession {
     script: "typecheck" | "build" | null;
     crashedPreview: Preview | null;
     checks?: Array<{ name: string; command: string; cwd: string; timeoutMs: number }>;
+    /** The programme's phase table, when the project has one — checked for
+     * DONE rows without tests or evidence (programme.ts). */
+    programme?: string;
   } | null> {
+    const programme = (await this.readFileOrNull(PROGRAMME_FILE)) ?? undefined;
     const manifest =
       this.options.template === "react-fastapi"
         ? await readRuntimeManifest(context.runtime, context.projectId)
@@ -4217,6 +4251,7 @@ export class AgentSession {
         script: null,
         crashedPreview: preview.status === "crashed" ? preview : null,
         checks: manifest.checks,
+        programme,
       };
     }
     let script: "typecheck" | "build" | null = null;
@@ -4231,8 +4266,8 @@ export class AgentSession {
     const preview = await context.runtime.previewStatus(context.projectId).catch(() => null);
     const crashedPreview = preview?.status === "crashed" ? preview : null;
 
-    if (!script && !crashedPreview) return null;
-    return { script, crashedPreview };
+    if (!script && !crashedPreview && !programme) return null;
+    return { script, crashedPreview, programme };
   }
 
   /**
@@ -4248,10 +4283,35 @@ export class AgentSession {
       script: "typecheck" | "build" | null;
       crashedPreview: Preview | null;
       checks?: Array<{ name: string; command: string; cwd: string; timeoutMs: number }>;
+      programme?: string;
     },
   ): Promise<{ output: string; failed: boolean }> {
     const parts: string[] = [];
     let failed = false;
+
+    // Evidence before DONE. Runs first and cheaply: a phase table that claims
+    // completion without a test file or recorded evidence is handed back
+    // whatever the checks say — green checks were exactly what let the
+    // seventeen-minute "all phases completed" through (case study 001).
+    if (check.programme) {
+      const rows = parseExecutionTable(check.programme);
+      const problems = await validateExecutionTable(rows, async (p) =>
+        context.runtime
+          .readFile(context.projectId, p)
+          .then(() => true)
+          .catch(() => false),
+      );
+      const handback = programmeHandback(problems);
+      if (handback) {
+        failed = true;
+        parts.push(handback);
+      } else if (rows.length > 0) {
+        const done = rows.filter((r) => /done/i.test(r.status)).length;
+        parts.push(
+          `${PROGRAMME_FILE}: ${done}/${rows.length} phases DONE, each with a test file and evidence.`,
+        );
+      }
+    }
 
     if (check.checks) {
       for (const step of check.checks) {
@@ -4292,7 +4352,9 @@ export class AgentSession {
     return {
       failed,
       output:
-        check.checks || failed ? parts.join("\n\n") : "Typecheck and the preview both look fine.",
+        check.checks || check.programme || failed
+          ? parts.join("\n\n")
+          : "Typecheck and the preview both look fine.",
     };
   }
 }

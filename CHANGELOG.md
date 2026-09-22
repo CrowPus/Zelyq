@@ -9,6 +9,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The agent now knows what a programme is, and cannot mark a phase done without evidence.**
+  Handed a 3,450-line production specification, the Engineer wrote the whole system in one turn,
+  filled the spec's phase table with "Completed — Turn 1" for every phase, cited the starter's
+  `Note` tests as proof and shipped hardcoded jobs and a seeded fictional candidate
+  (`docs/case-studies/001-spec-driven-production-build.md`). Three changes, one per cause. The
+  system prompt gains a `<programme>` section — a specification is recognised as many turns of
+  work, read whole, planned in a `PROJECT_EXECUTION.md` phase table, built foundation-up and
+  decomposed by domain — plus a truthful-data rule that replaces the old "build the UI against
+  clearly-marked placeholder data" licence: nothing fabricated on a production path, unconfigured
+  integrations report themselves, invented data lives only in test fixtures and a flagged
+  development seed. The harness reads the phase table back at the end of every turn
+  (`apps/agent/src/programme.ts`) and hands back any DONE that names no existing test file or
+  records no evidence — a fact the model cannot talk its way past. And a new skill,
+  `spec-driven-production-build`, carries the playbook the successful rebuild followed: probe every
+  external API and record real fixtures before writing a connector, exercise each layer before
+  the next, tests that encode the spec's rules, drive the running app before claiming, audit for
+  the class when one instance of a defect is reported. Auto Mode's ceilings scale for a programme
+  (24 passes / 40M tokens / 4 h) and the six-new-files checkpoint is off for one; the
+  `python-backend` guide stops steering a whole backend into `main.py` and every screen into one
+  `views.tsx`.
+
 - **The build agent can make and place video, and `/cinematic` no longer stalls.** `cinematic_pass`
   could already build a scroll-driven hero, but it stopped and asked a human for footage, because
   Zelyq could not make any — every cinematic build waited on someone finding a clip and dragging it

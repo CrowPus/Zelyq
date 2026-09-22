@@ -192,6 +192,16 @@ undo point.
   whichever comes first. Hitting it stops the run and hands back with the
   real totals; start Auto again (a deliberate second go-ahead) or continue
   manually. For the Engineer, every new request is a new run.
+- **Programmes are bigger.** When the project carries a `PROJECT_EXECUTION.md`
+  phase table — the agent writes one for a specification-shaped request, see
+  the `<programme>` section of the system prompt and the
+  `spec-driven-production-build` skill — an Engineer Auto run gets 24 passes /
+  40M tokens / 4 hours instead, and the six-new-files checkpoint is off. What
+  keeps it honest is the table itself: at the end of every pass Zelyq reads
+  it back and hands back any phase marked DONE that names no existing test
+  file or records no evidence (`apps/agent/src/programme.ts`). Case study
+  001 is why: six passes were enough to write a whole system as placeholders
+  and call every phase complete.
 - **Stuck detection:** two passes in a row with no build-plan progress
   stops the run. For the Engineer: two passes in a row that change nothing,
   or that both end with the app broken.
