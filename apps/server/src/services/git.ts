@@ -565,7 +565,7 @@ export class GitService {
     projectId: string,
     gitUrl?: string,
     token?: string,
-  ): Promise<{ branch: string; remote: string }> {
+  ): Promise<{ branch: string; remote: string; committed: boolean; commits: number }> {
     // A push must not assume a turn has already run in this project. Turn
     // start is the only other place that creates the repository, so a project
     // made before Zelyq kept git histories has no `.git` at all, and the first
@@ -602,6 +602,13 @@ export class GitService {
     await this.commitInitialIfEmpty(projectId);
     await this.assertCommittable(projectId);
 
+    // Someone pressing push is asking to send the work in front of them, not
+    // whatever happened to be committed earlier. `createPullRequest` has always
+    // read it that way; push not doing so is how a project's real state stayed
+    // on disk while the remote kept a stale skeleton — and, because the push
+    // itself succeeded, the UI still reported it as done.
+    const committed = await this.commitPending(projectId, PUSH_COMMIT_MESSAGE);
+
     const state = await this.status(projectId);
     if (!state.branch) {
       throw ZelyqError.badRequest(
@@ -635,7 +642,49 @@ export class GitService {
     await this.assertTokenNotStored(projectId, token);
 
     const remote = await this.runtime.exec(projectId, { command: "git remote get-url origin" });
-    return { branch: state.branch, remote: redactCredentials(remote.stdout.trim()) ?? "" };
+    return {
+      branch: state.branch,
+      remote: redactCredentials(remote.stdout.trim()) ?? "",
+      committed,
+      // Before the push, `ahead` is what the remote was missing. A first push
+      // has no upstream to measure against, so the whole history is new.
+      commits: state.upstream ? state.ahead : state.commits,
+    };
+  }
+
+  /**
+   * Commits whatever is sitting in the working tree, so an explicit push or
+   * pull request sends the project as it actually is. Answers `false` when
+   * there was nothing to commit.
+   *
+   * This stages the same way a turn snapshot does, so `.gitignore` still
+   * decides what is allowed into the history: a project's `.env` stays out of
+   * an explicit push exactly as it stays out of an automatic commit.
+   */
+  private async commitPending(projectId: string, message: string): Promise<boolean> {
+    if (!(await this.status(projectId)).dirty) return false;
+
+    await this.runtime.exec(projectId, { command: "git add -A ." });
+    const staged = await this.runtime.exec(projectId, { command: "git diff --cached --quiet" });
+    // 0 = nothing staged, which a dirty tree of entirely ignored files gives.
+    if (staged.exitCode === 0) return false;
+    if (staged.exitCode !== 1) {
+      const output = staged.stderr || staged.stdout;
+      if (gitIsMissing(output)) throw ZelyqError.badRequest(GIT_MISSING_MESSAGE);
+      throw ZelyqError.badRequest(`Could not read this project's changes. ${lastLines(output, 2)}`);
+    }
+
+    const commit = await this.runtime.exec(projectId, {
+      command: `git commit -q -m ${sq(message)}`,
+    });
+    if (commit.exitCode !== 0) {
+      const output = commit.stderr || commit.stdout;
+      if (gitIsMissing(output)) throw ZelyqError.badRequest(GIT_MISSING_MESSAGE);
+      throw ZelyqError.badRequest(
+        `Could not commit this project's changes, so nothing was pushed. ` + lastLines(output, 2),
+      );
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------------
@@ -734,12 +783,11 @@ export class GitService {
     }
 
     // Whatever is uncommitted becomes the pull request's own commit — someone
-    // asking to open one is asking to propose the work in front of them.
-    const beforeCommit = await this.status(projectId);
-    if (beforeCommit.dirty) {
-      await this.runtime.exec(projectId, { command: "git add -A ." });
-      await this.runtime.exec(projectId, { command: `git commit -q -m ${sq(input.title)}` });
-    }
+    // asking to open one is asking to propose the work in front of them. Shared
+    // with push, which needs the identical behaviour and the same refusal when
+    // the commit itself fails: opening a pull request whose commit silently did
+    // not happen proposes the wrong tree.
+    await this.commitPending(projectId, input.title);
 
     const head = (await this.status(projectId)).branch;
     if (!head) {
@@ -964,6 +1012,13 @@ export function gitIsMissing(output: string): boolean {
 }
 
 /** The same sentence wherever that is what happened. */
+/**
+ * What an explicit push calls the work it had to commit first. Turn snapshots
+ * are labelled with the prompt that preceded them; this one has no prompt
+ * behind it, so it says plainly where it came from.
+ */
+export const PUSH_COMMIT_MESSAGE = "Changes made in Zelyq";
+
 export const GIT_MISSING_MESSAGE =
   "git is not installed in the environment this project runs in, so Zelyq cannot " +
   "keep its history or push it anywhere. If you set ZELYQ_CONTAINER_IMAGE, that " +

@@ -354,3 +354,63 @@ test("a push is never a force push — a non-fast-forward is refused, and histor
   });
   assert.doesNotMatch(remoteLog, /a conflicting turn/, "the rejected push must not have landed");
 });
+
+/**
+ * The gap that let a project's real state sit on disk while its remote kept a
+ * stale skeleton. Every test above commits with `commitTurn` before pushing,
+ * so none of them ever exercised a push with work still in the working tree —
+ * which is the ordinary case, because a turn's snapshot is taken *before* that
+ * turn's work, leaving the newest changes uncommitted until the next one.
+ */
+test("a push sends work that was never committed, rather than silently leaving it behind", async () => {
+  const repoUrl = createFreshPublicRepo();
+  await projectWithOneCommit("prj_uncommitted");
+  await projects.pushToRemote("prj_uncommitted", repoUrl);
+
+  // No commitTurn: exactly what the working tree looks like after a turn.
+  await driver.writeFile("prj_uncommitted", "index.html", "<html>built</html>", "utf8");
+  await driver.writeFile("prj_uncommitted", "src/new-file.ts", "export const a = 1;\n", "utf8");
+
+  const result = await projects.pushToRemote("prj_uncommitted");
+  assert.equal(result.committed, true, "the pending work should have been committed");
+  assert.ok(result.commits >= 1, "the push should report what it sent");
+
+  const remote = path.join(reposRoot, new URL(repoUrl).pathname.slice(1));
+  assert.equal(
+    execFileSync("git", ["show", "HEAD:index.html"], { cwd: remote, encoding: "utf8" }),
+    "<html>built</html>",
+  );
+  assert.equal(
+    execFileSync("git", ["show", "HEAD:src/new-file.ts"], { cwd: remote, encoding: "utf8" }),
+    "export const a = 1;\n",
+  );
+});
+
+test("a push with nothing new says so, instead of reporting work it did not send", async () => {
+  const repoUrl = createFreshPublicRepo();
+  await projectWithOneCommit("prj_already_current");
+  await projects.pushToRemote("prj_already_current", repoUrl);
+
+  const again = await projects.pushToRemote("prj_already_current");
+  assert.equal(again.committed, false);
+  assert.equal(again.commits, 0, "an up-to-date push must not claim to have sent commits");
+});
+
+test("committing for a push still obeys .gitignore, so secrets stay out of the remote", async () => {
+  const repoUrl = createFreshPublicRepo();
+  await projectWithOneCommit("prj_push_ignores");
+
+  await driver.writeFile("prj_push_ignores", ".gitignore", ".env\n", "utf8");
+  await driver.writeFile("prj_push_ignores", ".env", "SECRET=do-not-publish\n", "utf8");
+  await driver.writeFile("prj_push_ignores", "index.html", "<html>safe</html>", "utf8");
+
+  await projects.pushToRemote("prj_push_ignores", repoUrl);
+
+  const remote = path.join(reposRoot, new URL(repoUrl).pathname.slice(1));
+  const files = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+    cwd: remote,
+    encoding: "utf8",
+  });
+  assert.match(files, /index\.html/);
+  assert.doesNotMatch(files, /^\.env$/m, ".env must never reach the remote");
+});
