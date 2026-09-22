@@ -469,10 +469,16 @@ export const api = {
 
   /** Manual, on-demand. `gitUrl` only matters the first time, before a remote exists. */
   pushToRemote: (id: string, input: PushToRemoteInput) =>
-    request<{ pushed: boolean; branch: string; remote: string; status: GitStatus }>(
-      `/projects/${id}/git/push`,
-      { method: "POST", body: JSON.stringify(input) },
-    ),
+    request<{
+      pushed: boolean;
+      branch: string;
+      remote: string;
+      /** Whether uncommitted work had to be committed before it could be sent. */
+      committed: boolean;
+      /** How many commits the remote was missing. Zero means it was already current. */
+      commits: number;
+      status: GitStatus;
+    }>(`/projects/${id}/git/push`, { method: "POST", body: JSON.stringify(input) }),
 
   gitBranch: (id: string, input: GitBranchInput) =>
     request<{ status: GitStatus }>(`/projects/${id}/git/branch`, {

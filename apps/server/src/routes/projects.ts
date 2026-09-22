@@ -167,7 +167,7 @@ export function registerProjectRoutes(
       teamId: project.teamId,
       projectId: project.id,
       action: "project.pushed",
-      detail: { branch: result.branch },
+      detail: { branch: result.branch, commits: result.commits, committed: result.committed },
     });
     return { pushed: true, ...result, status: await deps.projects.git.status(request.params.id) };
   });
