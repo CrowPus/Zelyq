@@ -169,7 +169,7 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
         ...(remoteUrl.trim() ? { gitUrl: remoteUrl.trim() } : {}),
         ...(token.trim() ? { gitToken: token.trim() } : {}),
       }),
-    onSuccess: ({ status, branch, committed, commits }) => {
+    onSuccess: ({ status, branch, committed, commits, pulled }) => {
       refresh(status);
       setRemoteUrl("");
       // "Pushed." on a push that sent nothing is how a stale remote goes
@@ -178,9 +178,15 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
         commits === 0
           ? `${branch} was already up to date — nothing new to send.`
           : `Pushed ${commits} commit${commits === 1 ? "" : "s"} to ${branch}.`;
+      const before = [
+        committed ? "Committed your uncommitted changes" : null,
+        pulled ? "brought in the remote's work" : null,
+      ].filter(Boolean);
       setNote({
         tone: "success",
-        text: committed ? `Committed your uncommitted changes first. ${sent}` : sent,
+        text: before.length
+          ? `${before.join(" and ")} first. ${sent[0].toUpperCase()}${sent.slice(1)}`
+          : sent,
       });
     },
     onError: fail,
