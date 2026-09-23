@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,7 @@ import { promisify } from "node:util";
 import type { Store } from "@zelyq/db";
 import { LocalRuntimeDriver } from "@zelyq/runtime";
 import type { ServerConfig } from "../src/config.js";
+import { isNonFastForward, remoteFailure } from "../src/services/git.js";
 import { ProjectService } from "../src/services/projects.js";
 
 /**
@@ -248,7 +250,7 @@ test("a private repository accepts the right token, and the token is never left 
   assert.ok(!config.includes(TOKEN), "the token must never be written into the project");
 });
 
-test("a rejection whose URL happens to contain 403 is not mistaken for an auth failure", async () => {
+test("a divergence whose URL happens to contain 403 is not mistaken for an auth failure", async () => {
   // git echoes the remote URL into its failure output, so a bare `403` in the
   // error classifier matched the digits of a port (40312) or of a repository
   // name, and a plain non-fast-forward came back as "this repository needs a
@@ -294,26 +296,27 @@ test("a rejection whose URL happens to contain 403 is not mistaken for an auth f
     await driver.writeFile("prj_403", "index.html", "<html>diverged</html>", "utf8");
     await projects.commitTurn("prj_403", "a conflicting turn");
 
-    // The point: this must be the force-push refusal, never the token message.
-    await assert.rejects(
-      () => projects.pushToRemote("prj_403"),
-      /never force-pushes|resolving by hand/i,
-    );
+    // The point: the digits in the URL must not turn a divergence into a token
+    // error. Push combines rather than refusing now, so the proof is that it
+    // goes through and keeps both sides — a misread would have thrown instead.
+    await projects.pushToRemote("prj_403");
+
+    const remoteLog = execFileSync("git", ["log", "--oneline"], {
+      cwd: path.join(reposRoot, name),
+      encoding: "utf8",
+    });
+    assert.match(remoteLog, /a conflicting turn/, "this project's work should have landed");
+    assert.match(remoteLog, /someone else/, "the other commit must survive");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
 
-test("a push is never a force push — a non-fast-forward is refused, and history is untouched", async () => {
+test("a push whose remote has moved on brings their work in and lands on top of it", async () => {
   const repoUrl = createFreshPublicRepo();
   const repoDir = path.join(reposRoot, new URL(repoUrl).pathname.slice(1));
   await projectWithOneCommit("prj_diverged");
   await projects.pushToRemote("prj_diverged", repoUrl);
-
-  const beforeLog = execFileSync("git", ["log", "--oneline"], {
-    cwd: path.join(workspaceDir, "prj_diverged"),
-    encoding: "utf8",
-  });
 
   // Someone else pushes to the same remote in the meantime.
   const other = path.join(os.tmpdir(), `zelyq-git-push-other-${Date.now()}`);
@@ -323,36 +326,92 @@ test("a push is never a force push — a non-fast-forward is refused, and histor
   execFileSync(
     "git",
     ["commit", "--quiet", "--allow-empty", "-m", "a commit this project never saw"],
-    {
-      cwd: other,
-      stdio: "pipe",
-    },
+    { cwd: other, stdio: "pipe" },
   );
   await execFileAsync("git", ["push", "--quiet", "origin", "HEAD"], { cwd: other });
 
-  await driver.writeFile("prj_diverged", "index.html", "<html>diverged</html>", "utf8");
-  await projects.commitTurn("prj_diverged", "a conflicting turn");
+  await driver.writeFile("prj_diverged", "index.html", "<html>mine</html>", "utf8");
+  await projects.commitTurn("prj_diverged", "my own turn");
 
-  await assert.rejects(
-    () => projects.pushToRemote("prj_diverged"),
-    /never force-pushes|resolving by hand/i,
+  // Nothing here says "pull first": that was a step the person had to perform
+  // by hand for no reason whenever the two had both moved on.
+  await projects.pushToRemote("prj_diverged");
+
+  const remoteLog = execFileSync("git", ["log", "--oneline"], { cwd: repoDir, encoding: "utf8" });
+  assert.match(remoteLog, /my own turn/, "this project's work should have landed");
+  assert.match(
+    remoteLog,
+    /a commit this project never saw/,
+    "the other person's commit must survive — a force push would have erased it",
+  );
+  assert.equal(
+    execFileSync("git", ["show", "HEAD:index.html"], { cwd: repoDir, encoding: "utf8" }),
+    "<html>mine</html>",
+  );
+});
+
+test("a push that cannot be combined stops, says which files, and changes nothing", async () => {
+  const repoUrl = createFreshPublicRepo();
+  const repoDir = path.join(reposRoot, new URL(repoUrl).pathname.slice(1));
+  await projectWithOneCommit("prj_conflict");
+  await projects.pushToRemote("prj_conflict", repoUrl);
+
+  // Both sides edit the same line of the same file.
+  const other = path.join(os.tmpdir(), `zelyq-git-push-conflict-${Date.now()}`);
+  await execFileAsync("git", ["clone", "--quiet", repoUrl, other]);
+  execFileSync("git", ["config", "user.email", "other@example.com"], { cwd: other, stdio: "pipe" });
+  execFileSync("git", ["config", "user.name", "Other"], { cwd: other, stdio: "pipe" });
+  fs.writeFileSync(path.join(other, "index.html"), "<html>theirs</html>");
+  execFileSync("git", ["commit", "--quiet", "-am", "their edit"], { cwd: other, stdio: "pipe" });
+  await execFileAsync("git", ["push", "--quiet", "origin", "HEAD"], { cwd: other });
+
+  await driver.writeFile("prj_conflict", "index.html", "<html>mine</html>", "utf8");
+  await projects.commitTurn("prj_conflict", "my edit");
+
+  const beforeLog = execFileSync("git", ["log", "--oneline"], {
+    cwd: path.join(workspaceDir, "prj_conflict"),
+    encoding: "utf8",
+  });
+
+  await assert.rejects(() => projects.pushToRemote("prj_conflict"), /clash|conflict/i);
+
+  // Nothing half-applied, nothing lost, no rebase left in progress.
+  const status = await projects.git.status("prj_conflict");
+  assert.equal(status.inProgress, null, "a failed combine must not leave a rebase in progress");
+  assert.deepEqual(status.conflicts, []);
+  assert.equal(
+    execFileSync("git", ["log", "--oneline"], {
+      cwd: path.join(workspaceDir, "prj_conflict"),
+      encoding: "utf8",
+    }),
+    beforeLog,
+    "the project's own history must be exactly as it was",
   );
 
-  // The rejected push must not have corrupted or altered the project's own
-  // history — asserted directly.
-  const afterLog = execFileSync("git", ["log", "--oneline", "-2"], {
-    cwd: path.join(workspaceDir, "prj_diverged"),
-    encoding: "utf8",
-  });
-  assert.match(afterLog, /a conflicting turn/);
-  assert.match(afterLog, /first turn/);
-  assert.notEqual(beforeLog, afterLog, "the local commit from this turn is still there, untouched");
+  const remoteLog = execFileSync("git", ["log", "--oneline"], { cwd: repoDir, encoding: "utf8" });
+  assert.doesNotMatch(remoteLog, /my edit/, "nothing should have been pushed");
+  assert.match(remoteLog, /their edit/, "their work must be untouched");
+});
 
-  const remoteLog = execFileSync("git", ["log", "--oneline", "--all", "-2"], {
-    cwd: repoDir,
-    encoding: "utf8",
-  });
-  assert.doesNotMatch(remoteLog, /a conflicting turn/, "the rejected push must not have landed");
+test("a host refusing a push is reported in its own words, not as something to pull", () => {
+  // Every one of these prints "rejected", and none of them means the remote has
+  // commits we do not. Guessing from that word sent people to pull nothing.
+  for (const output of [
+    " ! [remote rejected] main -> main (pre-receive hook declined)\nerror: failed to push some refs",
+    " ! [remote rejected] main -> main (push declined due to repository rule violations)",
+    " ! [remote rejected] main -> main (protected branch hook declined)",
+  ]) {
+    assert.equal(isNonFastForward(output), false, output);
+    const error = remoteFailure(output, 1, "push to", undefined, "write access");
+    assert.doesNotMatch(error.message, /pull/i, `must not say pull: ${output}`);
+    assert.match(error.message, /refused/i);
+  }
+
+  // The real thing still reads as the real thing.
+  const real =
+    " ! [rejected]        main -> main (fetch first)\nhint: Updates were rejected because the remote contains work";
+  assert.equal(isNonFastForward(real), true);
+  assert.match(remoteFailure(real, 1, "push to").message, /pull/i);
 });
 
 /**

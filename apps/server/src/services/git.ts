@@ -18,10 +18,13 @@ import type { RuntimeDriver } from "@zelyq/runtime";
  * nothing in this product needs them. Changing where a project points is an
  * explicit, confirmed replacement (`setRemote`), never an addition.
  *
- * **Never force, never auto-resolve, never lose the working tree.** A push
- * that is not a fast-forward fails. A pull that conflicts is undone rather
- * than left half-applied. Neither is a limitation to route around: both are
- * the moments where automation destroys somebody's work.
+ * **Never force, never resolve a conflict for you, never lose the working
+ * tree.** A push whose remote has moved on rebases onto it and goes again,
+ * which is what a person would have done by hand; a rebase that *conflicts* is
+ * undone rather than left half-applied, and so is a pull that conflicts. The
+ * line is between combining work git can combine and deciding whose edit wins
+ * — the second is never automatic, because that is the moment automation
+ * destroys somebody's work.
  *
  * **The agent must never commit a conflicted tree.** `assertCommittable`
  * refuses while a merge or rebase is unfinished, because a per-turn commit
@@ -556,16 +559,29 @@ export class GitService {
    * or behind the project is, and every later push has to be told the branch
    * again.
    *
-   * Never `--force`, and not configurable to be. A push that is not a
-   * fast-forward fails with git's own ordinary error rather than overwriting
-   * whatever a collaborator pushed — the correct outcome, not a bug to route
-   * around.
+   * Never `--force`, and not configurable to be. When the remote has moved on,
+   * this rebases onto it and sends again — their commits are kept and ours go
+   * on top, exactly as a person doing it by hand would. A rebase that conflicts
+   * stops and says which files, leaving the project untouched.
+   *
+   * What it will not do is guess. The refusal it used to give named a cause it
+   * had not checked: any rejection a host can produce — a branch rule, a hook,
+   * a size limit, a locked account — was reported as "the remote has commits
+   * this project doesn't", sending people to pull a remote with nothing to
+   * give. A failure that is not a non-fast-forward now comes back in git's own
+   * words.
    */
   async push(
     projectId: string,
     gitUrl?: string,
     token?: string,
-  ): Promise<{ branch: string; remote: string; committed: boolean; commits: number }> {
+  ): Promise<{
+    branch: string;
+    remote: string;
+    committed: boolean;
+    commits: number;
+    pulled: boolean;
+  }> {
     // A push must not assume a turn has already run in this project. Turn
     // start is the only other place that creates the repository, so a project
     // made before Zelyq kept git histories has no `.git` at all, and the first
@@ -609,27 +625,42 @@ export class GitService {
     // itself succeeded, the UI still reported it as done.
     const committed = await this.commitPending(projectId, PUSH_COMMIT_MESSAGE);
 
-    const state = await this.status(projectId);
+    let state = await this.status(projectId);
     if (!state.branch) {
       throw ZelyqError.badRequest(
         "This project is not on a branch, so there is nothing to push. Switch to a branch first.",
       );
     }
-    if (state.upstream && state.behind > 0 && state.ahead > 0) {
-      throw ZelyqError.badRequest(
-        `The remote has ${state.behind} commit(s) this project does not, and this project has ` +
-          `${state.ahead} it does not. Pull first — Zelyq never force-pushes, so sending these ` +
-          "as-is would overwrite somebody else's work.",
-        { ahead: state.ahead, behind: state.behind },
-      );
+    // Held separately because `state` is re-read after a rebase below, which
+    // loses the narrowing — the branch itself does not change under a rebase.
+    const branch = state.branch;
+
+    // What a developer does when the remote has moved on: bring their work in,
+    // replay ours on top, push. Refusing and saying "pull first" was a step the
+    // person had to perform by hand for no reason — the interesting case is a
+    // genuine conflict, and `pull` still stops for exactly that, leaving the
+    // working tree untouched. `behind` here is read from refs already on disk,
+    // so it catches the case we can already see; the retry below catches the
+    // rest.
+    let pulled = false;
+    if (state.upstream && state.behind > 0) {
+      await this.pull(projectId, { strategy: "rebase", onConflict: "abort", gitToken: token });
+      state = await this.status(projectId);
+      pulled = true;
     }
 
-    const result = await this.network(
-      projectId,
-      `push -u origin ${sq(state.branch)}`,
-      token,
-      5 * 60_000,
-    );
+    const send = () => this.network(projectId, `push -u origin ${sq(branch)}`, token, 5 * 60_000);
+
+    let result = await send();
+    // A stale `behind` is the ordinary case: nothing fetches on every render, so
+    // the remote can have moved since the last one. Git says so here, and that
+    // answer is current — rebase onto it and send again, once.
+    if (result.exitCode !== 0 && isNonFastForward(result.stderr || result.stdout)) {
+      await this.pull(projectId, { strategy: "rebase", onConflict: "abort", gitToken: token });
+      state = await this.status(projectId);
+      pulled = true;
+      result = await send();
+    }
     if (result.exitCode !== 0) {
       throw remoteFailure(
         result.stderr || result.stdout,
@@ -643,12 +674,13 @@ export class GitService {
 
     const remote = await this.runtime.exec(projectId, { command: "git remote get-url origin" });
     return {
-      branch: state.branch,
+      branch,
       remote: redactCredentials(remote.stdout.trim()) ?? "",
       committed,
       // Before the push, `ahead` is what the remote was missing. A first push
       // has no upstream to measure against, so the whole history is new.
       commits: state.upstream ? state.ahead : state.commits,
+      pulled,
     };
   }
 
@@ -1024,6 +1056,18 @@ export const GIT_MISSING_MESSAGE =
   "keep its history or push it anywhere. If you set ZELYQ_CONTAINER_IMAGE, that " +
   "image needs git in it; otherwise restart Zelyq and it will build one that has it.";
 
+/**
+ * Whether git refused a push because the remote genuinely has commits we do not.
+ *
+ * Deliberately narrow. The word "rejected" on its own appears in every refusal a
+ * host can produce — branch rules, pre-receive hooks, size limits, secret
+ * scanning, a locked account — and treating those as a non-fast-forward sent
+ * people to pull a remote that had nothing to give them.
+ */
+export function isNonFastForward(output: string): boolean {
+  return /non-fast-forward|fetch first|updates were rejected because|\[rejected\]/i.test(output);
+}
+
 /** Single-quoted for the shell, with embedded quotes escaped the POSIX way. */
 export function sq(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -1164,10 +1208,22 @@ export function remoteFailure(
             `with ${access} to it.`,
     );
   }
-  if (/non-fast-forward|fetch first|rejected/i.test(output)) {
+  if (isNonFastForward(output)) {
     return ZelyqError.badRequest(
-      "The remote has commits this project doesn't. Zelyq never force-pushes, so pull first — " +
-        "that brings their changes in, and then this will go through.",
+      "The remote moved on while this was being sent, and combining the two needs a decision. " +
+        "Pull, then push again.",
+    );
+  }
+  // A host can refuse a push it is perfectly able to accept: a branch rule, a
+  // pre-receive hook, a file over the size limit, secret scanning, a locked
+  // account. Every one of those prints "rejected", which is why guessing from
+  // that word alone told people to pull when there was nothing to pull. Git's
+  // own words are the honest answer here.
+  if (
+    /\[remote rejected\]|pre-receive hook declined|protected branch|push declined/i.test(output)
+  ) {
+    return ZelyqError.badRequest(
+      `The repository host refused this push. ${lastLines(output, 3) || `git exited with code ${exitCode}`}`,
     );
   }
   if (/could not resolve host|connection refused|timed out|network is unreachable/i.test(output)) {

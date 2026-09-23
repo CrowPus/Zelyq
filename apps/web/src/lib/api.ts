@@ -477,6 +477,8 @@ export const api = {
       committed: boolean;
       /** How many commits the remote was missing. Zero means it was already current. */
       commits: number;
+      /** Whether the remote had moved on and its work was brought in first. */
+      pulled: boolean;
       status: GitStatus;
     }>(`/projects/${id}/git/push`, { method: "POST", body: JSON.stringify(input) }),
 

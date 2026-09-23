@@ -373,7 +373,7 @@ test("a push sets up tracking, so later counts are possible at all", async () =>
   assert.equal((await git.status("prj_tracking")).upstream, "origin/feature");
 });
 
-test("a push that would overwrite a collaborator's work is refused", async () => {
+test("a push lands on top of a collaborator's work rather than over it", async () => {
   await clonedProject("prj_norace");
 
   await fs.writeFile(path.join(otherDir, "race.txt"), "theirs\n");
@@ -384,18 +384,17 @@ test("a push that would overwrite a collaborator's work is refused", async () =>
   await driver.writeFile("prj_norace", "ours-race.txt", "ours", "utf8");
   await git.commitTurn("prj_norace", "ours");
 
-  await assert.rejects(
-    () => git.push("prj_norace"),
-    (error: Error) => {
-      assert.match(error.message, /pull first|does not|doesn't/i);
-      return true;
-    },
-    "never force-push: the collaborator's commit must survive",
-  );
+  // Their commit arrived after this project last looked, so the push rebases
+  // onto it and goes again — no hand-run pull, and still no force.
+  await git.push("prj_norace");
 
-  // And it did.
   const remoteLog = await run("git", ["log", "--oneline", "main"], { cwd: remoteDir });
-  assert.match(remoteLog.stdout, /Their race/);
+  assert.match(remoteLog.stdout, /Their race/, "the collaborator's commit must survive");
+  assert.match(remoteLog.stdout, /ours/, "and this project's work must have landed");
+
+  // Their file is still there in full, not replaced by ours.
+  const theirs = await run("git", ["show", "main:race.txt"], { cwd: remoteDir });
+  assert.equal(theirs.stdout, "theirs\n");
 });
 
 // -------------------------------------------------------------------------
