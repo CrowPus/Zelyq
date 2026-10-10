@@ -91,6 +91,8 @@ export interface ZelyqServer {
   projectVariables: ProjectVariableService;
   /** Exposed so tests can ask which credential Zelyq would actually use. */
   settings: SettingsService;
+  /** Exposed so tests can run the schedule at a chosen time. */
+  pipelineTriggers: Pick<PipelineTriggerService, "tick">;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -461,6 +463,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     previewGrants: projectBackend,
     projectVariables: variables,
     settings,
+    pipelineTriggers,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

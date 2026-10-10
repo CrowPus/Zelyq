@@ -507,3 +507,40 @@ stages:
   assert.equal(run.status, "passed", log);
   assert.match(log, /[0-9a-f]{40}/);
 });
+
+test("a schedule starts one run in each minute it matches, and none when turned off", async () => {
+  const id = await createPipeline(
+    "name: Nightly\nruns-on: local\nstages:\n  - name: A\n    steps:\n      - run: echo nightly\n",
+  );
+  const added = await call(editor, "POST", team(`/pipelines/${id}/triggers`), {
+    kind: "schedule",
+    cron: "0 3 * * *",
+  });
+  assert.equal(added.statusCode, 201, added.body);
+  const runs = async () => (await call(owner, "GET", team(`/pipelines/${id}/runs`))).json().runs;
+
+  await server.pipelineTriggers.tick(new Date("2030-01-01T02:59:40Z"));
+  assert.equal((await runs()).length, 0, "not yet 03:00");
+  await server.pipelineTriggers.tick(new Date("2030-01-01T03:00:05Z"));
+  await server.pipelineTriggers.tick(new Date("2030-01-01T03:00:35Z"));
+  const first = await runs();
+  assert.equal(first.length, 1, "once in that minute, however often the clock ticks");
+  assert.equal(first[0].trigger, "schedule");
+  assert.equal(first[0].triggeredBy, null);
+  assert.equal((await waitFor(first[0].id)).run.status, "passed");
+
+  await server.pipelineTriggers.tick(new Date("2030-01-01T03:01:00Z"));
+  assert.equal((await runs()).length, 1, "03:01 does not match");
+
+  const off = await call(
+    editor,
+    "PATCH",
+    team(`/pipelines/${id}/triggers/${added.json().trigger.id}`),
+    {
+      enabled: false,
+    },
+  );
+  assert.equal(off.statusCode, 200, off.body);
+  await server.pipelineTriggers.tick(new Date("2030-01-02T03:00:10Z"));
+  assert.equal((await runs()).length, 1, "a turned-off schedule does nothing");
+});
