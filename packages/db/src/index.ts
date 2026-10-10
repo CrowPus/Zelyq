@@ -4,6 +4,7 @@ import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { imageRepository } from "./repositories/images.js";
 import { messageRepository } from "./repositories/messages.js";
 import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
+import { pipelineRepository } from "./repositories/pipelines.js";
 import { projectRepository } from "./repositories/projects.js";
 import { providerConnectionRepository } from "./repositories/provider-connections.js";
 import { sessionRepository } from "./repositories/sessions.js";
@@ -21,6 +22,17 @@ export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
 export type { ImageJobRow } from "./repositories/images.js";
 export type { MessageRepository } from "./repositories/messages.js";
 export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
+export type {
+  PipelineArtifactRow,
+  PipelineLogRow,
+  PipelineRepository,
+  PipelineRow,
+  PipelineRunRow,
+  PipelineStepRow,
+  PipelineTriggerRow,
+  RunnerRow,
+  TeamSshKeyRow,
+} from "./repositories/pipelines.js";
 export type { ProjectRepository } from "./repositories/projects.js";
 export type { ProviderConnectionRepository } from "./repositories/provider-connections.js";
 export type { SessionRepository } from "./repositories/sessions.js";
@@ -56,6 +68,7 @@ export interface Store extends DatabaseHandle {
   auditLog: ReturnType<typeof auditLogRepository>;
   providerConnections: ReturnType<typeof providerConnectionRepository>;
   vault: ReturnType<typeof vaultRepository>;
+  pipelines: ReturnType<typeof pipelineRepository>;
 }
 
 /**
@@ -81,5 +94,6 @@ export function createStore(url: string): Store {
     auditLog: auditLogRepository(handle.db),
     providerConnections: providerConnectionRepository(handle.db),
     vault: vaultRepository(handle.db),
+    pipelines: pipelineRepository(handle.db),
   };
 }

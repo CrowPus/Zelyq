@@ -193,7 +193,7 @@ export interface ProjectVariable {
 // Service keys
 // ---------------------------------------------------------------------------
 
-export const VAULT_KEY_SCOPES = ["list", "read", "write"] as const;
+export const VAULT_KEY_SCOPES = ["list", "read", "write", "pipelines"] as const;
 export const vaultKeyScopeSchema = z.enum(VAULT_KEY_SCOPES);
 export type VaultKeyScope = z.infer<typeof vaultKeyScopeSchema>;
 

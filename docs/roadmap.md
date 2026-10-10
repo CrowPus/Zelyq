@@ -88,7 +88,8 @@ separates this from a chat with a black box.
 Zelyq is becoming a platform with modules grouped as **Build** (Apps, Studio), **Secure** (Vault),
 and **Ship**. See [platform-integration.md](./platform-integration.md).
 
-- [ ] **Pipelines**: build, test and deploy steps that read secrets as `vault://NAME`
+- [x] **Pipelines**: build, test and deploy steps that read secrets as `vault://NAME`, on the
+  server or the team's own machines over SSH. See [Pipelines](./pipelines.md).
 - [ ] **Deploy**: targets per app (a Docker host or VM, then Kubernetes)
 
 ## Later — depth

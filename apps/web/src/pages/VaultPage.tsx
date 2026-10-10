@@ -80,83 +80,85 @@ export function VaultPage() {
 
   return (
     <AppShell crumbs={[{ label: "Vault" }]}>
-      <div className="mx-auto w-full max-w-4xl px-4 py-6">
-        <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="flex items-center gap-2 text-lg font-semibold">
-              <KeyRound size={18} strokeWidth={1.75} /> Vault
-            </h1>
-            <p className="mt-1 max-w-xl text-xs text-fg-secondary">
-              Keep a credential here once, encrypted, and use it anywhere: in an app's Variables, in
-              Settings, or from your own servers with a service key.
-            </p>
-          </div>
-          {(teams.length > 1 || isInstanceAdmin) && (
-            <label className="grid gap-1">
-              <FieldLabel>Vault of</FieldLabel>
-              <select
-                aria-label="Vault of"
-                className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
-                value={scope?.kind === "instance" ? "instance" : (team?.id ?? "")}
-                onChange={(event) => go({ scope: event.target.value, tab: "secrets" })}
-              >
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-                {isInstanceAdmin && <option value="instance">Instance — Zelyq's own keys</option>}
-              </select>
-            </label>
-          )}
-        </header>
-
-        {!scope ? (
-          <EmptyState title="No team yet" description="Join or create a team to use Vault." />
-        ) : (
-          <>
-            <div
-              role="tablist"
-              aria-label="Vault sections"
-              className="mb-4 flex gap-1 border-b border-border-default"
-            >
-              {(
-                [
-                  ["secrets", "Secrets"],
-                  ...(scope.kind === "team" ? [["keys", "Service keys"]] : []),
-                  ["activity", "Activity"],
-                ] as [Tab, string][]
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === id}
-                  onClick={() => go({ tab: id })}
-                  className={`-mb-px border-b-2 px-3 py-2 text-sm ${
-                    tab === id
-                      ? "border-fg text-fg"
-                      : "border-transparent text-fg-secondary hover:text-fg"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto w-full max-w-4xl px-4 py-6">
+          <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="flex items-center gap-2 text-lg font-semibold">
+                <KeyRound size={18} strokeWidth={1.75} /> Vault
+              </h1>
+              <p className="mt-1 max-w-xl text-xs text-fg-secondary">
+                Keep a credential here once, encrypted, and use it anywhere: in an app's Variables,
+                in Settings, or from your own servers with a service key.
+              </p>
             </div>
-            {tab === "secrets" && (
-              <SecretsTab
-                key={scopeKey(scope)}
-                scope={scope}
-                canWrite={canWrite}
-                canAdmin={canAdmin}
-              />
+            {(teams.length > 1 || isInstanceAdmin) && (
+              <label className="grid gap-1">
+                <FieldLabel>Vault of</FieldLabel>
+                <select
+                  aria-label="Vault of"
+                  className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
+                  value={scope?.kind === "instance" ? "instance" : (team?.id ?? "")}
+                  onChange={(event) => go({ scope: event.target.value, tab: "secrets" })}
+                >
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                  {isInstanceAdmin && <option value="instance">Instance — Zelyq's own keys</option>}
+                </select>
+              </label>
             )}
-            {tab === "keys" && scope.kind === "team" && (
-              <ServiceKeysTab key={scope.teamId} teamId={scope.teamId} canAdmin={canAdmin} />
-            )}
-            {tab === "activity" && <ActivityTab key={scopeKey(scope)} scope={scope} />}
-          </>
-        )}
+          </header>
+
+          {!scope ? (
+            <EmptyState title="No team yet" description="Join or create a team to use Vault." />
+          ) : (
+            <>
+              <div
+                role="tablist"
+                aria-label="Vault sections"
+                className="mb-4 flex gap-1 border-b border-border-default"
+              >
+                {(
+                  [
+                    ["secrets", "Secrets"],
+                    ...(scope.kind === "team" ? [["keys", "Service keys"]] : []),
+                    ["activity", "Activity"],
+                  ] as [Tab, string][]
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === id}
+                    onClick={() => go({ tab: id })}
+                    className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+                      tab === id
+                        ? "border-fg text-fg"
+                        : "border-transparent text-fg-secondary hover:text-fg"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {tab === "secrets" && (
+                <SecretsTab
+                  key={scopeKey(scope)}
+                  scope={scope}
+                  canWrite={canWrite}
+                  canAdmin={canAdmin}
+                />
+              )}
+              {tab === "keys" && scope.kind === "team" && (
+                <ServiceKeysTab key={scope.teamId} teamId={scope.teamId} canAdmin={canAdmin} />
+              )}
+              {tab === "activity" && <ActivityTab key={scopeKey(scope)} scope={scope} />}
+            </>
+          )}
+        </div>
       </div>
     </AppShell>
   );

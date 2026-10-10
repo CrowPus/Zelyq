@@ -11,6 +11,7 @@ import {
   type Snapshot,
   ZelyqError,
 } from "@zelyq/core";
+import { tarGz } from "./archive.js";
 import {
   cleanProcessEnv,
   ensureUvToolchain,
@@ -787,6 +788,15 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
+  }
+
+  async archive(projectId: string): Promise<Buffer> {
+    const root = await this.requireRoot(projectId);
+    const files = await this.listFiles(projectId, { depth: 32 });
+    return tarGz(
+      root,
+      files.filter((entry) => entry.type === "file"),
+    );
   }
 
   /** The snapshot most recently taken, if it is still on disk. */

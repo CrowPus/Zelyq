@@ -366,6 +366,184 @@ export const vaultServiceKeys = sqliteTable(
   }),
 );
 
+/**
+ * Pipelines. A team's SSH key logs into its SSH runners (VMs); pipelines run
+ * there or on the local runner. The private key is `SecretBox` ciphertext and
+ * is decrypted only to open a connection.
+ */
+export const teamSshKeys = sqliteTable(
+  "team_ssh_keys",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    algorithm: text("algorithm").notNull(),
+    publicKey: text("public_key").notNull(),
+    privateKey: text("private_key").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    /** Set on the older key during rotation: it keeps working until then. */
+    retiresAt: text("retires_at"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({ teamIdx: index("team_ssh_keys_team_idx").on(table.teamId) }),
+);
+
+export const runners = sqliteTable(
+  "runners",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    host: text("host").notNull(),
+    port: integer("port").notNull().default(22),
+    username: text("username").notNull(),
+    labels: text("labels").notNull().default("[]"),
+    description: text("description"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    maxConcurrent: integer("max_concurrent").notNull().default(1),
+    os: text("os"),
+    shells: text("shells").notNull().default("[]"),
+    tools: text("tools").notNull().default("[]"),
+    /** The machine's host key (base64), pinned when an admin confirms it. */
+    hostKey: text("host_key"),
+    hostKeyFingerprint: text("host_key_fingerprint"),
+    lastTestAt: text("last_test_at"),
+    lastTestOk: integer("last_test_ok", { mode: "boolean" }),
+    lastLatencyMs: integer("last_latency_ms"),
+    lastTestMessage: text("last_test_message"),
+    acceptedKeyFingerprint: text("accepted_key_fingerprint"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({ nameIdx: uniqueIndex("runners_team_name_idx").on(table.teamId, table.name) }),
+);
+
+export const pipelines = sqliteTable(
+  "pipelines",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    source: text("source").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({ nameIdx: uniqueIndex("pipelines_team_name_idx").on(table.teamId, table.name) }),
+);
+
+export const pipelineRuns = sqliteTable(
+  "pipeline_runs",
+  {
+    id: text("id").primaryKey(),
+    pipelineId: text("pipeline_id")
+      .notNull()
+      .references(() => pipelines.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    number: integer("number").notNull(),
+    status: text("status").notNull(),
+    trigger: text("trigger").notNull(),
+    triggeredBy: text("triggered_by").references(() => users.id, { onDelete: "set null" }),
+    runnerId: text("runner_id").references(() => runners.id, { onDelete: "set null" }),
+    runnerName: text("runner_name"),
+    /** The pipeline file exactly as it was when the run was created. */
+    source: text("source").notNull(),
+    /** A git ref to check out instead of the default (a pushed commit). */
+    ref: text("ref"),
+    /** Re-run from this stage: earlier stages are skipped. */
+    fromStage: integer("from_stage"),
+    error: text("error"),
+    logBytes: integer("log_bytes").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+    startedAt: text("started_at"),
+    finishedAt: text("finished_at"),
+  },
+  (table) => ({
+    numberIdx: uniqueIndex("pipeline_runs_pipeline_number_idx").on(table.pipelineId, table.number),
+    teamIdx: index("pipeline_runs_team_idx").on(table.teamId, table.createdAt),
+    statusIdx: index("pipeline_runs_status_idx").on(table.status),
+  }),
+);
+
+export const pipelineSteps = sqliteTable(
+  "pipeline_steps",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => pipelineRuns.id, { onDelete: "cascade" }),
+    stageIndex: integer("stage_index").notNull(),
+    stepIndex: integer("step_index").notNull(),
+    stage: text("stage").notNull(),
+    name: text("name").notNull(),
+    status: text("status").notNull(),
+    exitCode: integer("exit_code"),
+    startedAt: text("started_at"),
+    finishedAt: text("finished_at"),
+  },
+  (table) => ({ runIdx: index("pipeline_steps_run_idx").on(table.runId) }),
+);
+
+export const pipelineLogs = sqliteTable(
+  "pipeline_logs",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => pipelineRuns.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    stepId: text("step_id"),
+    stream: text("stream").notNull(),
+    text: text("text").notNull(),
+    at: text("at").notNull(),
+  },
+  (table) => ({ seqIdx: uniqueIndex("pipeline_logs_run_seq_idx").on(table.runId, table.seq) }),
+);
+
+export const pipelineArtifacts = sqliteTable(
+  "pipeline_artifacts",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => pipelineRuns.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    storagePath: text("storage_path").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({ runIdx: index("pipeline_artifacts_run_idx").on(table.runId) }),
+);
+
+export const pipelineTriggers = sqliteTable(
+  "pipeline_triggers",
+  {
+    id: text("id").primaryKey(),
+    pipelineId: text("pipeline_id")
+      .notNull()
+      .references(() => pipelines.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    /** JSON: {"branches": [...]} for push, {"cron": "..."} for schedule. */
+    config: text("config").notNull(),
+    /** Push only: the webhook secret, `SecretBox` ciphertext (needed to check signatures). */
+    secret: text("secret"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    lastFiredAt: text("last_fired_at"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({ pipelineIdx: index("pipeline_triggers_pipeline_idx").on(table.pipelineId) }),
+);
+
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -675,6 +853,14 @@ export const schema = {
   projectVariables,
   projectVariableVersions,
   vaultServiceKeys,
+  teamSshKeys,
+  runners,
+  pipelines,
+  pipelineRuns,
+  pipelineSteps,
+  pipelineLogs,
+  pipelineArtifacts,
+  pipelineTriggers,
   settings,
   auditLog,
   providerConnections,

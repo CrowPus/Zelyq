@@ -162,6 +162,13 @@
       "when": 1791633613097,
       "tag": "0022_drop_project_vault",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791641833009,
+      "tag": "0023_pipelines",
+      "breakpoints": true
     }
   ]
 }

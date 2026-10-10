@@ -33,6 +33,13 @@ export const ID_PREFIXES = {
   projectVariable: "pvr",
   projectVariableVersion: "pvv",
   vaultServiceKey: "vsk",
+  pipeline: "pip",
+  pipelineRun: "run",
+  pipelineStep: "pst",
+  pipelineArtifact: "par",
+  pipelineTrigger: "ptr",
+  runner: "rnr",
+  teamSshKey: "tsk",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

@@ -37,7 +37,7 @@ Zelyq is one place for the work around an app, organised the way you do it:
 | **Build** | **Apps** | Describe an app and an agent builds it like an engineer, in real files you own |
 | | **Studio** | Generate images and video, for your apps or on their own |
 | **Secure** | **[Vault](./docs/vault.md)** | Keep every credential once, encrypted, and use it in apps, Settings, and your own servers |
-| **Ship** | Pipelines, Deploy | Coming next: see the [roadmap](./docs/roadmap.md) |
+| **Ship** | **[Pipelines](./docs/pipelines.md)** | Test, build and deploy the same way every time, on this server or your own Linux, macOS and Windows machines over SSH |
 
 Teams are the workspace: invite people, give them a role, and every module follows it. Self-hosted,
 AGPL-3.0, no telemetry.
@@ -55,7 +55,7 @@ live.
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.base.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](./CONTRIBUTING.md)
 
-[Live demo](https://zelyq.com) · [Docs](./docs/README.md) · [Vault](./docs/vault.md) · [Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
+[Live demo](https://zelyq.com) · [Docs](./docs/README.md) · [Vault](./docs/vault.md) · [Pipelines](./docs/pipelines.md) · [Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
 [How it works](#how-it-works) · [Modes](./docs/modes.md) · [Architecture](./docs/architecture.md) ·
 [Configuration](./docs/configuration.md) · [Self-hosting](./docs/self-hosting.md) ·
 [Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
@@ -175,6 +175,10 @@ built so that nothing about it is magic and nothing is locked in:
   taken from Vault; Settings keys too. Your own servers and CI fetch them with a service key, or run
   `zelyq vault run -- <command>` to start with them and write nothing to disk. Credentials are never
   read from `.env`. See [Vault](./docs/vault.md).
+- **Pipelines: ship the same way every time.** A short YAML file of stages and commands, run on the
+  Zelyq server in a throwaway container or on your own machines over SSH, with the machine's
+  fingerprint pinned. Secrets come from Vault and show as `***` in the log. Runs start by hand, on a
+  git push, on a schedule, or from another CI. See [Pipelines](./docs/pipelines.md).
 - **Every turn is a change you can inspect and undo.** A snapshot before each turn, a diff of exactly
   what changed, one-click revert to any turn — and an audit log of who did what, once more than one
   person is working on an instance.

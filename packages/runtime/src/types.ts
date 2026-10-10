@@ -57,6 +57,12 @@ export interface RuntimeDriver {
    */
   readSnapshotFile(projectId: string, snapshotId: string, path: string): Promise<FileContent>;
 
+  /**
+   * The project's files as a gzipped tar — without node_modules, .git or local
+   * .env files — for sending an app to a pipeline runner.
+   */
+  archive(projectId: string): Promise<Buffer>;
+
   /** Release timers, child processes, and sockets. Called on shutdown. */
   dispose(): Promise<void>;
 }
