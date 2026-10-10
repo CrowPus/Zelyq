@@ -28,8 +28,11 @@ export const ID_PREFIXES = {
   providerConnection: "pcn",
   providerResource: "prs",
   providerOperation: "pop",
-  vaultSecret: "vsc",
-  vaultSecretVersion: "vsv",
+  vaultEntry: "ven",
+  vaultEntryVersion: "vev",
+  projectVariable: "pvr",
+  projectVariableVersion: "pvv",
+  vaultServiceKey: "vsk",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

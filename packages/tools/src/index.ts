@@ -28,7 +28,7 @@ import {
   supabaseVerifyBackendTool,
 } from "./supabase.js";
 import type { ToolContext, ToolResult, ZelyqTool } from "./types.js";
-import { listVaultSecretsTool } from "./vault.js";
+import { listProjectVariablesTool } from "./vault.js";
 import {
   generateVideoTool,
   listGeneratedVideosTool,
@@ -53,7 +53,7 @@ export {
   editFileTool,
   findFilesTool,
   listFilesTool,
-  listVaultSecretsTool,
+  listProjectVariablesTool,
   opsPassTool,
   previewLogsTool,
   qaPassTool,
@@ -88,7 +88,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   previewLogsTool,
   viewPreviewTool,
   walkPreviewTool,
-  listVaultSecretsTool,
+  listProjectVariablesTool,
   browsePageTool,
   captureReferenceTool,
   addMotionTool,

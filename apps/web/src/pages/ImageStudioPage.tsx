@@ -25,6 +25,7 @@ import {
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { StudioSwitch } from "../components/StudioSwitch";
 import { Button, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -228,11 +229,14 @@ export function ImageStudioPage() {
 
   return (
     <AppShell
-      crumbs={[{ label: "Image Studio" }]}
+      crumbs={[{ label: "Studio", to: "/studio" }, { label: "Image" }]}
       actions={
-        <span className="hidden items-center gap-1.5 pr-2 text-xs text-fg-muted sm:flex">
-          <LockKeyhole size={12} /> Private library
-        </span>
+        <>
+          <span className="hidden items-center gap-1.5 pr-2 text-xs text-fg-muted sm:flex">
+            <LockKeyhole size={12} /> Private library
+          </span>
+          <StudioSwitch current="image" />
+        </>
       }
     >
       <div className="h-full overflow-y-auto">
@@ -243,7 +247,7 @@ export function ImageStudioPage() {
                 <Sparkles size={14} /> A space for imagination
               </div>
               <h1 className="text-3xl font-semibold tracking-tight text-fg sm:text-4xl">
-                Image Studio<span className="text-fg-muted">.</span>
+                Image<span className="text-fg-muted">.</span>
               </h1>
               <p className="mt-3 text-sm text-fg-secondary">
                 Describe what you see in your mind. Make it something you can use.
@@ -273,7 +277,7 @@ export function ImageStudioPage() {
                 <p className="mt-1 text-fg-secondary">
                   {user?.instanceRole === "admin"
                     ? "Add this provider’s image API key in Settings. Image generation is billed to that key."
-                    : "Ask your administrator to add an Image Studio API key in Settings."}
+                    : "Ask your administrator to add an image API key in Settings."}
                 </p>
               </div>
               {user?.instanceRole === "admin" && (

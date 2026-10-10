@@ -624,9 +624,45 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
   google: GOOGLE_DEFAULT_MODEL,
 };
 
+/**
+ * A credential setting takes its value from a Vault — the instance's, or a
+ * team's — when its stored form is this reference instead of ciphertext.
+ * Ciphertext always starts with "v1.", so the two can never be confused.
+ * `scope` is "instance" or a team id; a reference saved without one is the
+ * instance's.
+ */
+export interface VaultReference {
+  name: string;
+  scope: string;
+}
+function vaultReference(stored: string | null | undefined): VaultReference | null {
+  if (!stored?.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(stored) as { vault?: unknown; scope?: unknown };
+    if (typeof parsed.vault !== "string") return null;
+    return {
+      name: parsed.vault,
+      scope: typeof parsed.scope === "string" ? parsed.scope : "instance",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The settings key recording that credentials were copied out of the
+ * environment once — after that, the environment is never read for them. */
+const IMPORTED_FROM_ENV = "credentialsImportedFromEnvironment";
+
 export class SettingsService {
   /** Set when a restart-required setting changed since this process started. */
   private restartPending = false;
+
+  /**
+   * How a Vault reference is resolved: the value of a name in a Vault
+   * ("instance" or a team id), or null when it is not there. Attached at
+   * start-up, once the Vault exists.
+   */
+  vaultLookup?: (reference: VaultReference) => Promise<string | null>;
 
   constructor(
     private readonly store: Store,
@@ -660,11 +696,75 @@ export class SettingsService {
       );
     }
 
-    const fromEnv = this.env[definition.envVar];
-    if (fromEnv) return fromEnv;
-    const stored = await this.store.settings.get(key);
+    // A credential is typed in Settings or taken from a Vault —
+    // never read from the environment. What Settings shows is what is used.
+    return await this.credential(definition);
+  }
+
+  private async credential(definition: Definition): Promise<string> {
+    const stored = await this.store.settings.get(definition.key);
     if (stored === null) return definition.fallback;
+    const reference = vaultReference(stored);
+    if (reference !== null) return (await this.vaultLookup?.(reference)) ?? definition.fallback;
     return this.secrets.decrypt(stored) ?? definition.fallback;
+  }
+
+  /**
+   * Points a credential field at a Vault secret (in the instance Vault or a
+   * team's), or (with null) clears it. Typing a value instead goes through
+   * `update`, which replaces a reference with ciphertext. Whether the person
+   * may use that Vault is the route's to check.
+   */
+  async setCredentialSource(key: string, reference: VaultReference | null): Promise<void> {
+    const definition = BY_KEY.get(key);
+    if (!definition?.secret) throw ZelyqError.badRequest(`${key} is not a credential setting.`);
+    if (reference === null) {
+      await this.store.settings.remove(key);
+      return;
+    }
+    if ((await this.vaultLookup?.(reference)) == null) {
+      throw ZelyqError.badRequest(`${reference.name} is not in that Vault.`);
+    }
+    await this.store.settings.set(
+      key,
+      JSON.stringify({ vault: reference.name, scope: reference.scope }),
+    );
+    // As with a pasted key: a key chosen here wins back from a subscription.
+    if (key === "anthropicApiKey") await this.store.settings.set("anthropicAuthMode", "api_key");
+    if (key === "openaiApiKey") await this.store.settings.set("openaiAuthMode", "api_key");
+  }
+
+  /** Every credential field pointing into one Vault ("instance" or a team
+   * id) — for that Vault's "where used". */
+  async vaultUsages(scope: string): Promise<{ key: string; label: string; vaultName: string }[]> {
+    const stored = await this.store.settings.all();
+    return DEFINITIONS.flatMap((definition) => {
+      const reference = definition.secret ? vaultReference(stored[definition.key]) : null;
+      return reference && reference.scope === scope
+        ? [{ key: definition.key, label: definition.label, vaultName: reference.name }]
+        : [];
+    });
+  }
+
+  /**
+   * Credentials used to come from the server's environment (`.env`). They are
+   * copied into Settings once, as typed values, so nothing is lost; after
+   * that the environment is never read for them, and clearing one in
+   * Settings stays cleared. Returns the variable names it copied, for the log.
+   */
+  async importCredentialsFromEnvironment(): Promise<string[]> {
+    if ((await this.store.settings.get(IMPORTED_FROM_ENV)) !== null) return [];
+    const copied: string[] = [];
+    for (const definition of DEFINITIONS) {
+      if (!definition.secret) continue;
+      const fromEnv = this.env[definition.envVar]?.trim();
+      if (!fromEnv) continue;
+      if ((await this.store.settings.get(definition.key)) !== null) continue;
+      await this.store.settings.set(definition.key, this.secrets.encrypt(fromEnv));
+      copied.push(definition.envVar);
+    }
+    await this.store.settings.set(IMPORTED_FROM_ENV, new Date().toISOString());
+    return copied;
   }
 
   async booleanValue(key: string): Promise<boolean> {
@@ -715,9 +815,7 @@ export class SettingsService {
   private async storedSecretValue(key: string): Promise<string> {
     const definition = BY_KEY.get(key);
     if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
-    const stored = await this.store.settings.get(key);
-    if (stored === null) return definition.fallback;
-    return this.secrets.decrypt(stored) ?? definition.fallback;
+    return await this.credential(definition);
   }
 
   /**
@@ -1005,22 +1103,28 @@ export class SettingsService {
           definition.key === "model" &&
           Boolean(catalog) &&
           this.inheritedFromAnotherStartupProvider(effectiveProvider);
-        const fromEnv = inheritedOtherModel ? undefined : this.env[definition.envVar];
+        // Credentials are never read from the environment, so it supplies
+        // none of them and locks none of them.
+        const fromEnv =
+          inheritedOtherModel || definition.secret ? undefined : this.env[definition.envVar];
+        const reference = definition.secret ? vaultReference(stored[definition.key]) : null;
         const hasStored = stored[definition.key] !== undefined && stored[definition.key] !== "";
         // An overridable field is never locked, and a stored choice outranks
         // the environment — so it is what "source" must say produced the
         // effective value, even while the environment also has one.
-        const source = definition.envOverridable
-          ? hasStored
-            ? "database"
+        const source = reference
+          ? "vault"
+          : definition.envOverridable
+            ? hasStored
+              ? "database"
+              : fromEnv
+                ? "env"
+                : "default"
             : fromEnv
               ? "env"
-              : "default"
-          : fromEnv
-            ? "env"
-            : hasStored
-              ? "database"
-              : "default";
+              : hasStored
+                ? "database"
+                : "default";
         const suggestions =
           definition.key === "model"
             ? modelSuggestions
@@ -1062,6 +1166,13 @@ export class SettingsService {
             value: null,
             configured: effective.length > 0,
             ...(effective ? { hint: maskSecret(effective) } : {}),
+            ...(reference
+              ? {
+                  vaultName: reference.name,
+                  vaultScope: reference.scope,
+                  vaultMissing: effective.length === 0,
+                }
+              : {}),
           };
         }
 
@@ -1110,7 +1221,7 @@ export class SettingsService {
       const definition = BY_KEY.get(key);
       if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
 
-      if (this.env[definition.envVar] && !definition.envOverridable) {
+      if (!definition.secret && this.env[definition.envVar] && !definition.envOverridable) {
         throw new ZelyqError(
           "conflict",
           `${definition.label} is set by ${definition.envVar} in the environment. Remove it there to manage this setting here.`,

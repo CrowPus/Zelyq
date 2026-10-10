@@ -1288,8 +1288,8 @@ export function ChatPanel({
                   disabled={!canEdit}
                   label={
                     imageGeneration.enabled
-                      ? "The agent may generate images for this project — click to turn off"
-                      : "Let the agent generate images for this project (this spends money)"
+                      ? "The agent may generate images for this app — click to turn off"
+                      : "Let the agent generate images for this app (this spends money)"
                   }
                   aria-pressed={imageGeneration.enabled}
                   onClick={() => void imageGeneration.onToggle(!imageGeneration.enabled)}
@@ -1305,8 +1305,8 @@ export function ChatPanel({
                   disabled={!canEdit}
                   label={
                     videoGeneration.enabled
-                      ? "The agent may generate video for this project — click to turn off"
-                      : "Let the agent generate video for this project (a clip costs far more than an image)"
+                      ? "The agent may generate video for this app — click to turn off"
+                      : "Let the agent generate video for this app (a clip costs far more than an image)"
                   }
                   aria-pressed={videoGeneration.enabled}
                   onClick={() => void videoGeneration.onToggle(!videoGeneration.enabled)}

@@ -184,7 +184,7 @@ export function FileExplorer({
               label={
                 uploading
                   ? "Uploading…"
-                  : `Upload into ${uploadDirFor(selected, entries) || "the project root"} — or hover a folder to choose another`
+                  : `Upload into ${uploadDirFor(selected, entries) || "the app's root"} — or hover a folder to choose another`
               }
               disabled={uploading}
               onClick={() => {
@@ -261,7 +261,7 @@ export function FileExplorer({
       )}
 
       <nav
-        aria-label="Project files"
+        aria-label="App files"
         onDragEnter={() => {
           if (!canUpload) return;
           dragDepth.current += 1;

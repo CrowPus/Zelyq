@@ -21,8 +21,8 @@ import { GitPanel } from "../components/GitPanel";
 import { LiveBrowser } from "../components/LiveBrowser";
 import { PlanPanel } from "../components/PlanPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
+import { ProjectVariablesPanel } from "../components/ProjectVariablesPanel";
 import { Badge, Button, IconButton, Spinner } from "../components/ui";
-import { VaultPanel } from "../components/VaultPanel";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { fileToBase64, MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
@@ -88,7 +88,7 @@ export function ProjectEditorPage() {
 
   const role = teams.data?.teams.find((team) => team.id === project.data?.project.teamId)?.role;
   const canEdit = role !== undefined && roleAtLeast(role, "editor");
-  // A Python backend is the one place a project's secrets are read today.
+  // A Python backend is the one place a project's variables are read today.
   const hasBackend =
     project.data?.project.template === "react-fastapi" ||
     Boolean(files.data?.entries.some((entry) => entry.path === "zelyq.runtime.json"));
@@ -147,7 +147,7 @@ export function ProjectEditorPage() {
 
   if (project.isLoading) {
     return (
-      <AppShell crumbs={[{ label: "Projects", to: "/" }, { label: "…" }]}>
+      <AppShell crumbs={[{ label: "Apps", to: "/" }, { label: "…" }]}>
         <div className="grid h-full place-items-center">
           <Spinner />
         </div>
@@ -157,7 +157,7 @@ export function ProjectEditorPage() {
 
   if (project.isError) {
     return (
-      <AppShell crumbs={[{ label: "Projects", to: "/" }, { label: "Not found" }]}>
+      <AppShell crumbs={[{ label: "Apps", to: "/" }, { label: "Not found" }]}>
         <div className="grid h-full place-items-center gap-2 text-center">
           <p className="text-sm text-fg-secondary">{(project.error as Error).message}</p>
           <Link to="/" className="text-xs text-info hover:underline">
@@ -176,7 +176,7 @@ export function ProjectEditorPage() {
   return (
     <AppShell
       crumbs={[
-        { label: "Projects", to: "/" },
+        { label: "Apps", to: "/" },
         {
           label: current.name,
           badge: <Badge tone={STATUS_TONE[current.status] ?? "neutral"}>{current.status}</Badge>,
@@ -248,10 +248,15 @@ export function ProjectEditorPage() {
               pushing are the same trust level. */}
           {canEdit && <GitPanel projectId={id} />}
           {canEdit && hasBackend && <BackendPanel projectId={id} />}
-          {/* Every member sees Vault — viewers read names and history; the
-              panel itself hides what only an editor may do. */}
-          {role !== undefined && (
-            <VaultPanel projectId={id} canEdit={canEdit} hasBackend={hasBackend} />
+          {/* Every member sees the variables — viewers read names and history;
+              the panel itself hides what only an editor may do. */}
+          {role !== undefined && project.data && (
+            <ProjectVariablesPanel
+              projectId={id}
+              teamId={project.data.project.teamId}
+              canEdit={canEdit}
+              hasBackend={hasBackend}
+            />
           )}
         </>
       }

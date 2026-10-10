@@ -70,8 +70,9 @@ separates this from a chat with a black box.
       promise to keep current, and a wrong default breaks real installs instead of failing safely.
       Still open: unfiltered by default until an operator opts in. See [SECURITY.md](../SECURITY.md)
 - [ ] Per-user API keys, encrypted at rest
-- [x] **Vault** — per-project secrets per environment, encrypted, with history, `.env` import,
-  audited reveal, and names (never values) for the agent. See [vault-plan.md](./vault-plan.md).
+- [x] **Vault** — a module of its own: team and instance secrets, Protected keys, app variables
+  (typed or from Vault), Settings keys from Vault, service keys with an outside API,
+  `zelyq vault run`, Supabase Edge Function secrets. See [vault.md](./vault.md).
 - [ ] Invitation links, so someone can be added before they register
 - [x] SSO (OIDC) as an alternative to passwords — authorization code + PKCE, provider discovery,
       verified-email linking, identity persistence, and the existing httpOnly session cookie. See
@@ -81,6 +82,14 @@ separates this from a chat with a black box.
       on-demand, never automatic, never `--force`; a token is used once and never stored. Needs
       `git` on whatever `ZELYQ_RUNTIME=container` image is configured — the default project
       container image does not ship it today, the same gap clone already had
+
+## Next — Ship
+
+Zelyq is becoming a platform with modules grouped as **Build** (Apps, Studio), **Secure** (Vault),
+and **Ship**. See [platform-integration.md](./platform-integration.md).
+
+- [ ] **Pipelines**: build, test and deploy steps that read secrets as `vault://NAME`
+- [ ] **Deploy**: targets per app (a Docker host or VM, then Kubernetes)
 
 ## Later — depth
 

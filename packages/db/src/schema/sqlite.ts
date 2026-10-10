@@ -233,20 +233,73 @@ export const snapshots = sqliteTable(
 );
 
 /**
- * Vault: one row per secret name per environment. `value` is `SecretBox`
- * ciphertext and is decrypted only for the project's runtime or an audited
- * reveal — never for a list.
+ * Vault: a team's (or the instance's) secrets — one value per name. `value`
+ * is `SecretBox` ciphertext, decrypted only for an audited reveal or for the
+ * place a reference is resolved, never for a list.
+ *
+ * `scopeKey` is the team id, or "instance" for Zelyq's own credentials. It
+ * exists so one unique index covers both kinds: a nullable `teamId` would
+ * not, because SQL treats every NULL as distinct.
  */
-export const vaultSecrets = sqliteTable(
-  "vault_secrets",
+export const vaultEntries = sqliteTable(
+  "vault_entries",
+  {
+    id: text("id").primaryKey(),
+    scopeKey: text("scope_key").notNull(),
+    teamId: text("team_id").references(() => teams.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    value: text("value").notNull(),
+    description: text("description"),
+    /** Only admins and owners may reveal, change or point anything at it. */
+    protected: integer("protected", { mode: "boolean" }).notNull().default(false),
+    version: integer("version").notNull().default(1),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    nameIdx: uniqueIndex("vault_entries_scope_name_idx").on(table.scopeKey, table.name),
+  }),
+);
+
+export const vaultEntryVersions = sqliteTable(
+  "vault_entry_versions",
+  {
+    id: text("id").primaryKey(),
+    entryId: text("entry_id")
+      .notNull()
+      .references(() => vaultEntries.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    value: text("value").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    versionIdx: uniqueIndex("vault_entry_versions_entry_version_idx").on(
+      table.entryId,
+      table.version,
+    ),
+  }),
+);
+
+/**
+ * What a coding project's app is given. Each variable is either typed for
+ * this project (`source = "direct"`, ciphertext in `value`) or points at an
+ * entry in the project's team Vault (`source = "vault"`, by `vaultName`), so
+ * a change in Vault reaches every app that uses it.
+ */
+export const projectVariables = sqliteTable(
+  "project_variables",
   {
     id: text("id").primaryKey(),
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    environment: text("environment").notNull(),
-    value: text("value").notNull(),
+    source: text("source").notNull(),
+    value: text("value"),
+    vaultName: text("vault_name"),
     description: text("description"),
     version: integer("version").notNull().default(1),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -255,32 +308,61 @@ export const vaultSecrets = sqliteTable(
     updatedAt: text("updated_at").notNull(),
   },
   (table) => ({
-    nameIdx: uniqueIndex("vault_secrets_project_name_env_idx").on(
-      table.projectId,
-      table.name,
-      table.environment,
-    ),
+    nameIdx: uniqueIndex("project_variables_project_name_idx").on(table.projectId, table.name),
+    vaultIdx: index("project_variables_vault_name_idx").on(table.vaultName),
   }),
 );
 
-/** Every value a secret has held, current one included, newest kept. */
-export const vaultSecretVersions = sqliteTable(
-  "vault_secret_versions",
+/** Every typed value a variable has held. A Vault-sourced variable keeps its
+ * history in Vault, so it adds nothing here. */
+export const projectVariableVersions = sqliteTable(
+  "project_variable_versions",
   {
     id: text("id").primaryKey(),
-    secretId: text("secret_id")
+    variableId: text("variable_id")
       .notNull()
-      .references(() => vaultSecrets.id, { onDelete: "cascade" }),
+      .references(() => projectVariables.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
     value: text("value").notNull(),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: text("created_at").notNull(),
   },
   (table) => ({
-    versionIdx: uniqueIndex("vault_secret_versions_secret_version_idx").on(
-      table.secretId,
+    versionIdx: uniqueIndex("project_variable_versions_variable_version_idx").on(
+      table.variableId,
       table.version,
     ),
+  }),
+);
+
+/**
+ * Machine access to a team's Vault from outside Zelyq. The key itself is
+ * shown once and never stored — only its SHA-256, which is enough for a
+ * 256-bit random token. JSON columns hold string arrays; null means "any".
+ */
+export const vaultServiceKeys = sqliteTable(
+  "vault_service_keys",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull(),
+    scopes: text("scopes").notNull(),
+    namePatterns: text("name_patterns"),
+    allowedIps: text("allowed_ips"),
+    expiresAt: text("expires_at"),
+    revokedAt: text("revoked_at"),
+    lastUsedAt: text("last_used_at"),
+    lastUsedIp: text("last_used_ip"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    hashIdx: uniqueIndex("vault_service_keys_hash_idx").on(table.keyHash),
+    teamIdx: index("vault_service_keys_team_idx").on(table.teamId),
   }),
 );
 
@@ -588,8 +670,11 @@ export const schema = {
   sessions,
   messages,
   snapshots,
-  vaultSecrets,
-  vaultSecretVersions,
+  vaultEntries,
+  vaultEntryVersions,
+  projectVariables,
+  projectVariableVersions,
+  vaultServiceKeys,
   settings,
   auditLog,
   providerConnections,

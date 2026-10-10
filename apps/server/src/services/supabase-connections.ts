@@ -478,6 +478,43 @@ export class SupabaseConnectionService {
     return rowToResourceSummary(link.resource);
   }
 
+  /**
+   * Makes the linked development resource's Edge Function secrets match a
+   * project's variables: sets every value given, and removes names this sync
+   * set before that are no longer variables. Names someone set in Supabase by
+   * hand are never touched — only ones in `previouslySet`. Values are never
+   * logged or returned.
+   */
+  async syncFunctionSecrets(
+    zelyqProjectId: string,
+    values: Record<string, string>,
+    previouslySet: string[],
+  ): Promise<{ set: string[]; removed: string[] } | null> {
+    const link = await this.store.providerConnections.getLinkForProject(zelyqProjectId);
+    if (!link || link.connectionStatus === "revoked") return null;
+    if (link.resource.environment !== "development") {
+      throw new ZelyqError(
+        "forbidden",
+        `Variables reach a development resource only. This one is "${link.resource.environment}".`,
+      );
+    }
+    const ref = encodeURIComponent(link.resource.projectRef);
+    const set = Object.keys(values).sort();
+    const removed = previouslySet.filter((name) => !(name in values)).sort();
+    if (set.length > 0) {
+      await this.management(
+        link.connectionId,
+        "POST",
+        `/v1/projects/${ref}/secrets`,
+        set.map((name) => ({ name, value: values[name] })),
+      );
+    }
+    if (removed.length > 0) {
+      await this.management(link.connectionId, "DELETE", `/v1/projects/${ref}/secrets`, removed);
+    }
+    return { set, removed };
+  }
+
   // ──────────────────────── migrations + verification (build-agent bridge) ──
 
   /**
@@ -1017,7 +1054,9 @@ export class SupabaseConnectionService {
       throw new ZelyqError("bad_request", `Supabase API ${method} ${path} failed (${res.status}).`);
     }
     if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
+    // Some writes (function secrets) answer 201 with no body at all.
+    const text = await res.text();
+    return (text ? JSON.parse(text) : undefined) as T;
   }
 
   /** The publishable (public, anon-equivalent) key. A secret key is never read. */

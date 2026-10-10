@@ -251,9 +251,20 @@ test("unsupported inputs and missing configuration never reach the provider", as
   const beforeCalls = calls;
   assert.equal((await post({ ...input(), size: "999x999" as never })).statusCode, 400);
   assert.equal((await post({ ...input(), prompt: "  " })).statusCode, 400);
-  process.env.ZELYQ_IMAGE_API_KEY = "";
+  // Credentials live in Settings (the environment was copied in once, at
+  // start), so "missing configuration" means a key cleared there.
+  const setImageKey = async (value: string | null) => {
+    const response = await server.app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie: owner.cookie },
+      payload: { imageApiKey: value },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+  };
+  await setImageKey(null);
   assert.equal((await post()).statusCode, 502);
-  process.env.ZELYQ_IMAGE_API_KEY = "sk-test-image-only";
+  await setImageKey("sk-test-image-only");
   assert.equal(calls, beforeCalls);
 });
 

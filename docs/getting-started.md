@@ -15,8 +15,7 @@ git clone https://github.com/CrowPus/Zelyq.git
 cd Zelyq
 pnpm install
 
-cp .env.example .env
-$EDITOR .env          # set ANTHROPIC_API_KEY, or ZELYQ_PROVIDER=google + GEMINI_API_KEY
+cp .env.example .env  # nothing in it is required to start
 
 pnpm db:migrate       # creates ./data/zelyq.db
 pnpm dev
@@ -30,7 +29,7 @@ Three processes start:
 | server | <http://127.0.0.1:8787> | API, WebSocket, database |
 | agent | <http://127.0.0.1:8788> | Model loop and tools |
 
-Open the web URL and create a project.
+Open the web URL and create the first account. It administers the instance and owns a team.
 
 ## Windows
 
@@ -54,14 +53,24 @@ things to know:
   corruption above more likely in the first place. `C:\dev\zelyq` beats
   `…\OneDrive\Desktop\zelyq`.
 
-## Your first project
+## Your team and your keys
 
-1. **Create a project.** Pick a stack in the dialog — **React + Vite + Tailwind** (the default)
-   or **Expo — React Native**, which previews in the browser via Expo web. Either scaffolds into
-   `./workspace/<project-id>`; those are ordinary files, open them in your editor if you like.
-2. **Start the preview.** The first start runs `npm install`, so give it a minute — an Expo
-   project's first Metro build takes a minute or two more on top. The dev server gets a port from
-   the configured range and the UI embeds it. An Expo project runs on web only here; device and
+- **Team:** the team you are working in is at the top of the sidebar. Invite people from
+  **Team**, give each a role (viewer, editor, admin, owner); every module follows it.
+- **Model key:** open **Settings → Model**, choose a provider, and add its API key: type it, or
+  pick it **From Vault**. Keys are encrypted and never shown again.
+- **Vault:** keep keys you use in more than one place in **Vault** and pick them wherever a key is
+  asked for. See [Vault](./vault.md).
+
+## Your first app
+
+1. **Create an app.** Open **Apps** and click **New app**. Pick a stack in the dialog:
+   **React + Vite + Tailwind** (the default), **React + FastAPI** (with a Python backend), or
+   **Expo — React Native**, which previews in the browser via Expo web. It scaffolds into
+   `./workspace/<app-id>`; those are ordinary files, open them in your editor if you like.
+2. **Start the preview.** The first start runs `npm install`, so give it a minute. An Expo app's
+   first Metro build takes a minute or two more on top. The dev server gets a port from
+   the configured range and the UI embeds it. An Expo app runs on web only here; device and
    store builds are a separate step outside Zelyq.
 3. **Ask for a change.** Something concrete works best:
    *"Add a pricing page with three tiers and a monthly/annual toggle, linked from the header."*
@@ -107,16 +116,11 @@ and diffs against the render. One file, up to 15 frames. It reads frames, not pr
 
 ## Troubleshooting
 
-**"No … API key configured"** — the key for the selected provider is not reaching the agent
-process. The message names the exact variable it looked for. Check, in order:
-
-1. The key is in `.env` at the repository root, as `NAME=value` with no `export` and no quotes.
-2. You restarted after editing it — `.env` is read once, at startup.
-3. The agent logged `loaded /path/to/.env` on boot. No such line means it found no file.
-
-Setting a variable in your shell also works, but it must be **exported**:
-`export GEMINI_API_KEY=...`. Bash's `set NAME=value` does not create an environment variable — it
-assigns a positional parameter, and the process will never see it.
+**"No … API key is set"**: the selected provider has no key in Settings. Open **Settings → Model**
+and add it, typed or **From Vault**. Keys are not read from `.env`. One that is there the first time
+Zelyq starts is copied into Settings once, and the server log names it. A key that shows
+**missing** next to its Vault name points at a secret that was deleted from Vault: pick another or
+type one.
 
 **Nothing loads in the browser at all, on a VM or another remote machine** — check this first,
 before anything else here. `ZELYQ_SERVER_HOST` and `ZELYQ_WEB_HOST` default to `127.0.0.1`, so the

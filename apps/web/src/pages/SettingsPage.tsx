@@ -51,17 +51,17 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
   "image-generation": {
     label: "Image generation",
     icon: ImageIcon,
-    blurb: "Image Studio providers, models and limits",
+    blurb: "Studio image providers, models and limits",
   },
   "video-generation": {
     label: "Video generation",
     icon: Clapperboard,
-    blurb: "Video Studio providers, models and limits",
+    blurb: "Studio video providers, models and limits",
   },
   "voice-input": { label: "Voice input", icon: Mic, blurb: "Transcription for the microphone" },
   access: { label: "Access", icon: LockKeyhole, blurb: "Who may sign in, and for how long" },
-  runtime: { label: "Runtime", icon: Server, blurb: "Where project commands run" },
-  preview: { label: "Preview", icon: Monitor, blurb: "How project previews are reached" },
+  runtime: { label: "Runtime", icon: Server, blurb: "Where app commands run" },
+  preview: { label: "Preview", icon: Monitor, blurb: "How app previews are reached" },
   integrations: {
     label: "Integrations",
     icon: Puzzle,
@@ -178,23 +178,27 @@ export function SettingsPage() {
         className="mt-7 scroll-mt-6"
       >
         <h2 className="text-sm font-medium text-fg">
-          {group.name === "Image Studio" ? "Image generation" : group.name}
+          {group.name === "Image Studio"
+            ? "Image generation"
+            : group.name === "Video Studio"
+              ? "Video generation"
+              : group.name}
         </h2>
         <p className="mt-0.5 text-xs text-fg-secondary">{group.description}</p>
         {group.name === "Video Studio" && (
           <Link
-            to="/video-studio"
+            to="/studio/video"
             className="mt-2 inline-block text-xs text-fg underline underline-offset-4"
           >
-            Open Video Studio
+            Open Studio — Video
           </Link>
         )}
         {group.name === "Image Studio" && (
           <Link
-            to="/image-studio"
+            to="/studio/image"
             className="mt-2 inline-block text-xs text-fg underline underline-offset-4"
           >
-            Open Image Studio
+            Open Studio — Image
           </Link>
         )}
 
@@ -278,8 +282,9 @@ export function SettingsPage() {
           <header>
             <h1 className="text-xl font-semibold text-fg">Settings</h1>
             <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
-              These can also be set as environment variables. Anything the environment provides is
-              shown locked here, because the environment takes precedence.
+              API keys live here — typed, or taken from the instance Vault — and are never read from
+              the environment. Other settings can also be set as environment variables; one the
+              environment provides is shown locked here, because the environment takes precedence.
             </p>
           </header>
 
@@ -593,8 +598,11 @@ function FieldRow({
             </span>
           )}
           {field.restartRequired && <Badge tone="neutral">restart</Badge>}
-          {field.kind === "secret" && field.configured && (
+          {field.kind === "secret" && field.configured && !field.vaultName && (
             <Badge tone="success">{field.hint ?? "set"}</Badge>
+          )}
+          {field.vaultName && (
+            <Badge tone={field.vaultMissing ? "danger" : "info"}>Vault: {field.vaultName}</Badge>
           )}
         </div>
         <p className="mt-0.5 text-xs leading-relaxed text-fg-secondary">{field.description}</p>
@@ -670,6 +678,8 @@ function FieldRow({
               </option>
             ))}
           </select>
+        ) : field.kind === "secret" ? (
+          <CredentialInput field={field} pending={pending} onChange={onChange} />
         ) : field.kind === "boolean" ? (
           <label className="flex items-center gap-2 text-xs text-fg-secondary">
             <input
@@ -683,18 +693,12 @@ function FieldRow({
         ) : (
           <>
             <Input
-              type={
-                field.kind === "secret" ? "password" : field.kind === "number" ? "number" : "text"
-              }
-              value={String(pending ?? (field.kind === "secret" ? "" : (field.value ?? "")))}
+              type={field.kind === "number" ? "number" : "text"}
+              value={String(pending ?? field.value ?? "")}
               onChange={(event) => onChange(event.target.value)}
               aria-label={field.label}
-              autoComplete={field.kind === "secret" ? "new-password" : "off"}
-              placeholder={
-                field.kind === "secret" && field.configured
-                  ? "Enter a new value to replace"
-                  : field.placeholder
-              }
+              autoComplete="off"
+              placeholder={field.placeholder}
               list={field.suggestions ? `${field.key}-suggestions` : undefined}
             />
             {field.suggestions && (
@@ -707,6 +711,129 @@ function FieldRow({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A credential: typed here (the default, saved with the page's Save button,
+ * encrypted by the server), or taken from the instance Vault. Choosing a
+ * Vault secret applies at once — it is a pointer, not a value to review.
+ */
+function CredentialInput({
+  field,
+  pending,
+  onChange,
+}: {
+  field: SettingField;
+  pending: string | number | boolean | undefined;
+  onChange(value: string): void;
+}) {
+  const queryClient = useQueryClient();
+  const [mode, setMode] = useState<"typed" | "vault">(field.vaultName ? "vault" : "typed");
+  const choices = useQuery({
+    queryKey: ["settings-vault-choices"],
+    queryFn: () => api.settingsVaultChoices().then((r) => r.groups),
+    enabled: mode === "vault",
+  });
+  const point = useMutation({
+    mutationFn: (choice: string) => {
+      // Options are "<vault>::<name>"; "" clears the field.
+      if (!choice) return api.setCredentialSource(field.key, null);
+      const [vault, ...rest] = choice.split("::");
+      return api.setCredentialSource(field.key, rest.join("::"), vault);
+    },
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+  });
+  const current = field.vaultName ? `${field.vaultScope ?? "instance"}::${field.vaultName}` : "";
+  const anyChoices = choices.data?.some((group) => group.names.length > 0);
+  return (
+    <div className="grid gap-1.5 sm:w-[260px]">
+      <fieldset className="flex gap-0.5 rounded-md border border-border-default bg-surface-subtle p-0.5 text-xs">
+        <legend className="sr-only">Where {field.label} comes from</legend>
+        {(
+          [
+            ["typed", "Type a value"],
+            ["vault", "From Vault"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={mode === id}
+            onClick={() => setMode(id)}
+            className={`h-6 flex-1 rounded px-2 ${
+              mode === id ? "bg-surface text-fg shadow-sm" : "text-fg-secondary hover:text-fg"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </fieldset>
+      {mode === "typed" ? (
+        <Input
+          type="password"
+          value={String(pending ?? "")}
+          onChange={(event) => onChange(event.target.value)}
+          aria-label={field.label}
+          autoComplete="new-password"
+          placeholder={
+            field.vaultName
+              ? "Type a value to use instead of Vault"
+              : field.configured
+                ? "Enter a new value to replace"
+                : field.placeholder
+          }
+        />
+      ) : (
+        <>
+          <select
+            aria-label={`${field.label} from Vault`}
+            className="h-[30px] w-full rounded-md border border-border-default bg-surface px-2 font-mono text-sm"
+            value={current}
+            disabled={point.isPending}
+            onChange={(event) => point.mutate(event.target.value)}
+          >
+            <option value="">{choices.isPending ? "Loading…" : "Choose a secret…"}</option>
+            {choices.data
+              ?.filter((group) => group.names.length > 0)
+              .map((group) => (
+                <optgroup key={group.scope} label={group.label}>
+                  {group.names.map((name) => (
+                    <option key={`${group.scope}::${name}`} value={`${group.scope}::${name}`}>
+                      {name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            {field.vaultName &&
+              !choices.data?.some(
+                (group) =>
+                  group.scope === (field.vaultScope ?? "instance") &&
+                  group.names.includes(field.vaultName ?? ""),
+              ) && <option value={current}>{field.vaultName} (missing)</option>}
+          </select>
+          {choices.data && !anyChoices && (
+            <p className="text-2xs text-fg-muted">
+              Your Vault is empty.{" "}
+              <Link to="/vault" className="underline underline-offset-2">
+                Add a key in Vault
+              </Link>{" "}
+              first.
+            </p>
+          )}
+        </>
+      )}
+      {field.vaultMissing && (
+        <p role="alert" className="text-2xs text-danger">
+          {field.vaultName} is no longer in Vault, so this key is not set.
+        </p>
+      )}
+      {point.isError && (
+        <p role="alert" className="text-2xs text-danger">
+          {point.error instanceof Error ? point.error.message : "Could not change it."}
+        </p>
+      )}
     </div>
   );
 }

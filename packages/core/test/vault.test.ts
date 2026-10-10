@@ -1,19 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseDotEnv, vaultSecretNameSchema } from "../src/vault.js";
+import {
+  matchesNamePattern,
+  parseDotEnv,
+  variableNameSchema,
+  vaultNameSchema,
+} from "../src/vault.js";
 
 test("secret names are environment-variable shaped", () => {
-  assert.ok(vaultSecretNameSchema.parse("STRIPE_KEY"));
+  assert.ok(variableNameSchema.parse("STRIPE_KEY"));
   for (const name of ["lowercase", "WITH-DASH", "1LEADING", "WITH SPACE", "PATH="]) {
-    assert.equal(vaultSecretNameSchema.safeParse(name).success, false, name);
+    assert.equal(variableNameSchema.safeParse(name).success, false, name);
   }
 });
 
 test("names Zelyq sets, or that would be published to the browser, are refused", () => {
   for (const name of ["VITE_KEY", "ZELYQ_X", "DATABASE_URL", "AUTH_ISSUER", "PATH", "NODE_ENV"]) {
-    assert.equal(vaultSecretNameSchema.safeParse(name).success, false, name);
+    assert.equal(variableNameSchema.safeParse(name).success, false, name);
   }
-  assert.ok(vaultSecretNameSchema.parse("PATHWAY_KEY"), "PATH is reserved only as a whole name");
+  assert.ok(variableNameSchema.parse("PATHWAY_KEY"), "PATH is reserved only as a whole name");
 });
 
 test("a .env file is read the way it is written in practice", () => {
@@ -62,4 +67,29 @@ test("a hostile line cannot stall the parser", () => {
   parseDotEnv(`A${spaces}=1`);
   assert.ok(performance.now() - started < 500, "parsing took too long");
   assert.deepEqual(parseDotEnv(`A${spaces}=1`).entries, [{ name: "A", value: "1" }]);
+});
+
+test("a name pattern matches the way a shell glob does, with nothing else special", () => {
+  assert.equal(matchesNamePattern("STRIPE_KEY_LIVE", "STRIPE_*"), true);
+  assert.equal(matchesNamePattern("STRIPE_KEY_LIVE", "*_LIVE"), true);
+  assert.equal(matchesNamePattern("STRIPE_KEY_LIVE", "STRIPE_*_LIVE"), true);
+  assert.equal(matchesNamePattern("STRIPE_KEY_LIVE", "*"), true);
+  assert.equal(matchesNamePattern("STRIPE_KEY_LIVE", "STRIPE_KEY_LIVE"), true);
+  assert.equal(matchesNamePattern("DB_PASSWORD", "STRIPE_*"), false);
+  assert.equal(matchesNamePattern("A_LIVE", "A_*_LIVE"), false, "the middle needs its own room");
+  assert.equal(
+    matchesNamePattern("STRIPE.KEY", "STRIPE_*"),
+    false,
+    "no regular-expression meaning",
+  );
+  assert.equal(matchesNamePattern("ABXB", "A*B*B"), true);
+});
+
+test("Vault names are plain enough for URLs and patterns", () => {
+  for (const ok of ["STRIPE_KEY_LIVE", "gcp-service-account.json", "a"]) {
+    assert.ok(vaultNameSchema.safeParse(ok).success, ok);
+  }
+  for (const bad of ["", "1START", "has space", "slash/in", "x".repeat(129)]) {
+    assert.equal(vaultNameSchema.safeParse(bad).success, false, bad);
+  }
 });

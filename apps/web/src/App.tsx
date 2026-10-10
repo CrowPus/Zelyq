@@ -9,6 +9,7 @@ import { ProjectListPage } from "./pages/ProjectListPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { TeamPage } from "./pages/TeamPage";
+import { VaultPage } from "./pages/VaultPage";
 import { VideoStudioPage } from "./pages/VideoStudioPage";
 
 const queryClient = new QueryClient({
@@ -73,8 +74,13 @@ function Gate() {
       <Route path="/" element={<ProjectListPage />} />
       <Route path="/projects/:id" element={<ProjectEditorPage />} />
       <Route path="/teams/:id" element={<TeamPage />} />
-      <Route path="/image-studio" element={<ImageStudioPage />} />
-      <Route path="/video-studio" element={<VideoStudioPage />} />
+      <Route path="/studio" element={<Navigate to="/studio/image" replace />} />
+      <Route path="/studio/image" element={<ImageStudioPage />} />
+      <Route path="/studio/video" element={<VideoStudioPage />} />
+      {/* The old addresses, so a bookmark still lands. */}
+      <Route path="/image-studio" element={<Navigate to="/studio/image" replace />} />
+      <Route path="/video-studio" element={<Navigate to="/studio/video" replace />} />
+      <Route path="/vault" element={<VaultPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/account" element={<ProfilePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />

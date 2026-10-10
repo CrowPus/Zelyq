@@ -158,7 +158,7 @@ export function PreviewPanel({
       ref={iframeRef}
       key={`${reloadToken}-${frameToken}-${viewportId}`}
       src={previewUrl ?? ""}
-      title="Project preview"
+      title="App preview"
       className={`size-full border-0 bg-white ${inspecting ? "cursor-crosshair" : ""}`}
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
     />

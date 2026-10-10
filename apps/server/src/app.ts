@@ -20,6 +20,7 @@ import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectBackendRoutes } from "./routes/project-backend.js";
+import { registerProjectVariableRoutes } from "./routes/project-variables.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerProviderRoutes } from "./routes/providers.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
@@ -29,6 +30,7 @@ import { registerSupabaseBridgeRoutes } from "./routes/supabase-bridge.js";
 import { registerSupabaseConnectionRoutes } from "./routes/supabase-connections.js";
 import { registerTeamRoutes } from "./routes/teams.js";
 import { registerVaultRoutes } from "./routes/vault.js";
+import { registerVaultKeyRoutes } from "./routes/vault-keys.js";
 import { registerVideoBridgeRoutes } from "./routes/video-bridge.js";
 import { registerVideoRoutes } from "./routes/videos.js";
 import { registerVoiceRoutes } from "./routes/voice.js";
@@ -39,11 +41,13 @@ import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
 import { FigmaConnectionService } from "./services/figma-connections.js";
 import { FigmaExtractService } from "./services/figma-extract.js";
+import { FunctionSecretSync } from "./services/function-secrets.js";
 import { ImageAssetStore } from "./services/image-assets.js";
 import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
 import { ProjectBackendService } from "./services/project-backend.js";
+import { ProjectVariableService } from "./services/project-variables.js";
 import { ProjectService } from "./services/projects.js";
 import { resolveSecretKey, SecretBox } from "./services/secrets.js";
 import { SettingsService } from "./services/settings.js";
@@ -52,6 +56,7 @@ import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
 import { VaultService } from "./services/vault.js";
+import { VaultKeyService } from "./services/vault-keys.js";
 import { VideoAssetStore } from "./services/video-assets.js";
 import { VideoBridge } from "./services/video-bridge.js";
 import { VideoGenerationService } from "./services/video-generation.js";
@@ -73,9 +78,13 @@ export interface ZelyqServer {
   imageBridge: ImageBridge;
   /** The agent's video capability channel, exposed for tests the same way. */
   videoBridge: VideoBridge;
-  /** The agent's preview grant (which also reads Vault names), exposed for
-   *  tests the same way. */
+  /** The agent's preview grant (which also reads its project's variable
+   *  names), exposed for tests the same way. */
   previewGrants: Pick<ProjectBackendService, "mint">;
+  /** Exposed so tests can see exactly what a project's app would be given. */
+  projectVariables: ProjectVariableService;
+  /** Exposed so tests can ask which credential Zelyq would actually use. */
+  settings: SettingsService;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -133,13 +142,23 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     oidc: config.oidc,
   });
   const access = new AccessControl(store);
-  const vault = new VaultService(store, secrets, access, runtime);
+  const vault = new VaultService(store, secrets, access);
+  const variables = new ProjectVariableService(store, secrets, access, vault, runtime);
+  vault.listeners.teamEntryChanged = (teamId, name) => variables.vaultEntryChanged(teamId, name);
+  const vaultKeys = new VaultKeyService(store, access, vault);
+  // Settings credentials may point at the instance Vault or a team's, and each
+  // Vault shows which Settings fields use its secrets.
+  settings.vaultLookup = async ({ name, scope }) =>
+    (await vault.resolve(scope, [name])).get(name) ?? null;
+  vault.listeners.settingUsages = (scope) => settings.vaultUsages(scope);
   const supabaseConnections = new SupabaseConnectionService(store, secrets, access, {
     oauth: config.supabaseOAuth,
     verifyEmailDomain: config.supabaseVerifyEmailDomain,
   });
   const resolvePreviewEnv = makePreviewEnvResolver({ supabaseConnections });
-  const projectBackend = new ProjectBackendService(store, secrets, runtime, vault);
+  const functionSecrets = new FunctionSecretSync(store, access, supabaseConnections, variables);
+  variables.onChanged = (projectId) => functionSecrets.sync(projectId);
+  const projectBackend = new ProjectBackendService(store, secrets, runtime, variables);
   const supabaseBridge = new SupabaseBridge(store);
   const figmaConnections = new FigmaConnectionService(store, secrets, {
     oauth: config.figmaOAuth,
@@ -260,7 +279,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
 
   registerAuthRoutes(app, { auth, sessionTtlDays: () => settings.numberValue("sessionTtlDays") });
   registerAccountRoutes(app, { accounts, auth, access });
-  registerSettingsRoutes(app, { settings, access });
+  registerSettingsRoutes(app, { settings, access, store });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerTeamRoutes(app, { store, access });
@@ -282,7 +301,15 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     store,
   });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
-  registerVaultRoutes(app, { vault, access, store, previewGrants: projectBackend });
+  registerVaultRoutes(app, { vault, access });
+  registerVaultKeyRoutes(app, { keys: vaultKeys, access });
+  registerProjectVariableRoutes(app, {
+    variables,
+    functionSecrets,
+    access,
+    store,
+    previewGrants: projectBackend,
+  });
   // With the others, after the error handler — registered before it, these
   // answered in Fastify's own error shape, and the Backend panel showed
   // "Request failed with 400" in place of the reason.
@@ -300,14 +327,28 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerImageBridgeRoutes(app, { bridge: imageBridge, images, assets: imageAssets, store });
   registerVideoBridgeRoutes(app, { bridge: videoBridge, videos, store });
   app.addHook("onReady", async () => {
-    // Before the first request: a preview started now must already find its
-    // secrets in Vault. A failure is logged, not fatal — anything not moved is
-    // still read from where it was, and the next start tries again.
+    // Credentials used to come from the environment. They are copied into
+    // Settings once; after that only Settings (typed or from Vault) is read.
     try {
-      const moved = await vault.moveBackendSecrets(app.log);
-      if (moved > 0) app.log.info(`Vault: moved ${moved} backend secret(s) into Vault.`);
+      const copied = await settings.importCredentialsFromEnvironment();
+      if (copied.length > 0) {
+        app.log.warn(
+          `Copied ${copied.length} credential(s) from the environment into Settings: ${copied.join(", ")}. ` +
+            "Zelyq no longer reads them from the environment; remove them from .env.",
+        );
+      }
     } catch (error) {
-      app.log.error(error, "Vault: moving backend secrets failed; will retry on next start.");
+      app.log.error(error, "Copying credentials from the environment into Settings failed.");
+    }
+    // Before the first request: a preview started now must already find its
+    // secrets among the project's variables. A failure is logged, not fatal —
+    // anything not moved is still read from where it was, and the next start
+    // tries again.
+    try {
+      const moved = await variables.moveBackendSecrets(app.log);
+      if (moved > 0) app.log.info(`Moved ${moved} backend secret(s) into project variables.`);
+    } catch (error) {
+      app.log.error(error, "Moving backend secrets failed; will retry on next start.");
     }
     images.start();
     videos.start();
@@ -372,6 +413,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     imageBridge,
     videoBridge,
     previewGrants: projectBackend,
+    projectVariables: variables,
+    settings,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

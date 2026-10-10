@@ -2,50 +2,58 @@ import { z } from "zod";
 import { defineTool, type ToolResult } from "./types.js";
 
 /**
- * The project's Vault, as the agent may see it: names, and which environments
- * each is set in. Never a value — the server's endpoint cannot return one, so
- * nothing here depends on the model choosing not to look.
+ * The project's variables, as the agent may see them: names, and whether each
+ * will reach the app. Never a value — the server's endpoint cannot return one,
+ * so nothing here depends on the model choosing not to look.
  *
  * It rides the preview bridge: the same per-session, per-project, per-user
- * grant that starts the preview with these secrets in its environment.
+ * grant that starts the preview with these variables in its environment.
  */
-export const listVaultSecretsTool = defineTool({
-  name: "list_vault_secrets",
+export const listProjectVariablesTool = defineTool({
+  name: "list_project_variables",
   description:
-    "List the NAMES of this project's secrets in Vault (API keys, passwords, tokens) and the " +
-    "environments each is set in. Values are never shown. Development values reach the project's " +
-    "backend as environment variables when the preview runs. Call this before writing code that " +
-    "needs a credential: read it from the environment by this exact name, never hard-code a value, " +
-    "and never ask the user to paste one into the chat. If a name the code needs is not listed, " +
-    "build against the environment variable anyway and tell the user to add it in Vault (the " +
-    "Vault button in the project header).",
+    "List the NAMES of the variables this project's app is given (API keys, passwords, tokens). " +
+    "Values are never shown. Each is either typed for this project or taken from the team's Vault. " +
+    "A Python backend receives them as environment variables when the preview runs; a project " +
+    "linked to Supabase also gets them as Edge Function secrets (read with Deno.env.get). Call this before " +
+    "writing code that needs a credential: read it on the server from the environment variable of " +
+    "that exact name, never hard-code a value, and never ask the user to paste one into the chat. " +
+    "If a name the code needs is not listed, build against that environment variable anyway and " +
+    "tell the user to add it under Variables in the project header (typed, or from Vault).",
   schema: z.object({}),
   async run(context): Promise<ToolResult> {
     if (!context.previewBridge) {
-      return { output: "Vault is not available in this session.", isError: true };
+      return { output: "Project variables are not available in this session.", isError: true };
     }
-    const response = await fetch(`${context.previewBridge.url}/api/internal/vault/names`, {
-      headers: { "x-zelyq-preview-bridge": context.previewBridge.token },
-      signal: context.signal,
-    });
+    const response = await fetch(
+      `${context.previewBridge.url}/api/internal/project-variables/names`,
+      {
+        headers: { "x-zelyq-preview-bridge": context.previewBridge.token },
+        signal: context.signal,
+      },
+    );
     if (!response.ok) {
-      return { output: "Vault could not be read right now.", isError: true };
+      return { output: "The project's variables could not be read right now.", isError: true };
     }
-    const { secrets } = (await response.json()) as {
-      secrets: { name: string; environments: string[] }[];
+    const { variables } = (await response.json()) as {
+      variables: { name: string; source: string; missing: boolean }[];
     };
-    if (secrets.length === 0) {
+    if (variables.length === 0) {
       return {
         output:
-          "Vault has no secrets for this project yet. Read any credential the code needs from an " +
-          "environment variable, and tell the user which names to add in Vault.",
+          "This project has no variables yet. Read any credential the code needs from an " +
+          "environment variable on the server, and tell the user which names to add.",
       };
     }
-    const lines = secrets.map((secret) => `- ${secret.name} (${secret.environments.join(", ")})`);
+    const lines = variables.map(
+      (variable) =>
+        `- ${variable.name}${variable.source === "vault" ? " (from Vault)" : ""}` +
+        (variable.missing ? " — NOT SET: its Vault secret is gone; tell the user" : ""),
+    );
     return {
       output:
-        `Secrets in Vault (names only):\n${lines.join("\n")}\n\n` +
-        "Only development values reach the preview's backend.",
+        `Variables this app is given (names only):\n${lines.join("\n")}\n\n` +
+        "They reach server code only. Never put one in browser code: anything there is public.",
     };
   },
 });

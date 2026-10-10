@@ -54,7 +54,11 @@ test("a database that already ran the team-scoped 0009 is reconciled by 0010", a
   // recorded as applied so the migrator skips straight to 0010.
   await c.execute(`CREATE TABLE users (id text primary key)`);
   await c.execute(`CREATE TABLE teams (id text primary key)`);
-  await c.execute(`CREATE TABLE projects (id text primary key)`);
+  // name and slug come from 0000 and team_id from 0002, so a database that
+  // ran 0009 has them — and 0021 reads them when it moves old secrets.
+  await c.execute(
+    `CREATE TABLE projects (id text primary key, name text not null default '', slug text not null default '', team_id text not null default '')`,
+  );
   // A DB that ran everything up to 0009 has this from 0000; later migrations
   // (0011) alter it.
   await c.execute(`CREATE TABLE messages (id text primary key)`);

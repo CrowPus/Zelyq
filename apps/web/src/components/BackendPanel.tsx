@@ -209,8 +209,9 @@ export function BackendPanel({ projectId }: { projectId: string }) {
                   </label>
                 ))}
               <p className="text-sm text-fg-muted">
-                API keys and other secrets for the backend are kept in <strong>Vault</strong>, next
-                to this button. They reach the backend as environment variables.
+                API keys and other secrets for the backend are set under <strong>Variables</strong>,
+                next to this button — typed there, or taken from your team's Vault. They reach the
+                backend as environment variables.
               </p>
               {(query.error || save.error || inspect.error || disconnect.error) && (
                 <p role="alert" className="text-sm text-red-500">

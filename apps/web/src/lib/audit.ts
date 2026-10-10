@@ -11,7 +11,19 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "vault.secret.revealed": "revealed a Vault secret",
   "vault.secret.rolled_back": "restored an earlier value of a Vault secret",
   "vault.imported": "imported a .env file into Vault",
-  "vault.migrated": "moved backend secrets into Vault",
+  "vault.secret.fetched": "fetched a Vault secret",
+  "vault.secret.written_by_key": "set a Vault secret",
+  "vault.key.created": "created a service key",
+  "vault.key.rotated": "rotated a service key",
+  "vault.key.revoked": "revoked a service key",
+  "project.variable.created": "added a variable",
+  "project.variable.updated": "changed a variable",
+  "project.variable.deleted": "deleted a variable",
+  "project.variable.revealed": "revealed a variable",
+  "project.variable.rolled_back": "restored an earlier value of a variable",
+  "project.variables_imported": "imported a .env file into variables",
+  "project.variables_migrated": "moved backend secrets into variables",
+  "settings.credential_source_changed": "changed where a Settings key comes from",
   "project.deleted": "deleted the project",
   "project.pushed": "pushed to a remote",
   "project.git_remote_set": "changed where the project pushes to",
@@ -40,18 +52,15 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
 /** A short, human phrase for what `detail` actually says — never the raw JSON. */
 export function auditDetailSummary(detail: Record<string, unknown>): string | null {
   if (typeof detail.path === "string") return detail.path;
-  // Vault: which secret, and where — a production reveal reads very differently.
-  if (typeof detail.name === "string" && typeof detail.environment === "string") {
-    return `${detail.name} · ${detail.environment}`;
+  // Vault: which secret — and, for a fetch by a service key, which key.
+  if (typeof detail.name === "string" && typeof detail.key === "string") {
+    return `${detail.name} · key ${detail.key}`;
   }
   if (typeof detail.name === "string") return detail.name;
-  if (Array.isArray(detail.names) && typeof detail.environment === "string") {
-    return `${detail.names.join(", ")} · ${detail.environment}`;
-  }
+  if (Array.isArray(detail.names)) return detail.names.join(", ");
   if (Array.isArray(detail.created) && Array.isArray(detail.updated)) {
-    const names = [...detail.created, ...detail.updated];
-    const where = typeof detail.environment === "string" ? ` · ${detail.environment}` : "";
-    return `${names.length} secret${names.length === 1 ? "" : "s"}${where}`;
+    const count = detail.created.length + detail.updated.length;
+    return `${count} secret${count === 1 ? "" : "s"}`;
   }
   if (typeof detail.email === "string" && typeof detail.role === "string") {
     return `${detail.email} · ${detail.role}`;

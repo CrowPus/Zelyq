@@ -37,6 +37,7 @@ import {
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { StudioSwitch } from "../components/StudioSwitch";
 import { Button, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { ApiError, api } from "../lib/api";
@@ -284,7 +285,10 @@ export function VideoStudioPage() {
   }
   const busy = generate.isPending || upload.isPending || chooseImage.isPending;
   return (
-    <AppShell crumbs={[{ label: "Video Studio" }]}>
+    <AppShell
+      crumbs={[{ label: "Studio", to: "/studio" }, { label: "Video" }]}
+      actions={<StudioSwitch current="video" />}
+    >
       {/* AppShell's <main> is deliberately overflow-hidden — each page owns its
           own scrolling. Without this wrapper the composer's lower controls and
           the whole library below the fold are clipped, with no scrollbar to
@@ -296,7 +300,7 @@ export function VideoStudioPage() {
               <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-fg-muted">
                 <Clapperboard size={14} /> Create in motion
               </div>
-              <h1 className="text-3xl font-semibold tracking-tight text-fg">Video Studio</h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-fg">Video</h1>
               <p className="mt-2 text-sm text-fg-secondary">
                 Turn a scene, a story, or a single image into a film.
               </p>
@@ -357,10 +361,10 @@ export function VideoStudioPage() {
                   This provider needs a video API key.{" "}
                   {user?.instanceRole === "admin" ? (
                     <Link to="/settings#video-generation" className="underline">
-                      Configure Video Studio
+                      Configure video in Settings
                     </Link>
                   ) : (
-                    "Ask an administrator to configure Video Studio in Settings."
+                    "Ask an administrator to configure video in Settings."
                   )}
                 </p>
               )}
@@ -417,7 +421,7 @@ export function VideoStudioPage() {
                         className="mt-3 block w-full text-xs text-fg-secondary underline underline-offset-4"
                         onClick={() => setLibraryOpen(!libraryOpen)}
                       >
-                        Choose from Image Studio
+                        Choose from your images
                       </button>
                     </div>
                   )}

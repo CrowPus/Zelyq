@@ -9,7 +9,7 @@ export const settingKindSchema = z.enum(["text", "secret", "number", "boolean", 
 export type SettingKind = z.infer<typeof settingKindSchema>;
 
 /** Where the effective value came from. */
-export const settingSourceSchema = z.enum(["env", "database", "default"]);
+export const settingSourceSchema = z.enum(["env", "database", "vault", "default"]);
 export type SettingSource = z.infer<typeof settingSourceSchema>;
 
 export const settingFieldSchema = z.object({
@@ -23,6 +23,12 @@ export const settingFieldSchema = z.object({
   /** Secrets only: whether a value is stored, and its last few characters. */
   configured: z.boolean().optional(),
   hint: z.string().optional(),
+  /** Secrets only: the instance Vault secret this field takes its value from. */
+  vaultName: z.string().optional(),
+  /** Secrets only: which Vault — "instance", or a team id. */
+  vaultScope: z.string().optional(),
+  /** Secrets only: set when `vaultName` is no longer in the instance Vault. */
+  vaultMissing: z.boolean().optional(),
   source: settingSourceSchema,
   /** The variable that overrides this setting, and locks it when present. */
   envVar: z.string(),
