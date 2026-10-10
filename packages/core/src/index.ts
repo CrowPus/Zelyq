@@ -11,6 +11,7 @@ export * from "./project-runtime.js";
 export * from "./protocol.js";
 export * from "./settings.js";
 export * from "./skill-file.js";
+export * from "./tools.js";
 export * from "./topology.js";
 export * from "./vault.js";
 export * from "./videos.js";

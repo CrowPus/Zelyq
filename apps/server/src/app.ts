@@ -50,6 +50,7 @@ import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
 import { RunnerService } from "./services/pipelines/runners.js";
 import { PipelineService } from "./services/pipelines/service.js";
+import { ToolService } from "./services/pipelines/tools.js";
 import { PipelineTriggerService } from "./services/pipelines/triggers.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
 import { ProjectBackendService } from "./services/project-backend.js";
@@ -170,6 +171,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       error: (object, message) => app.log.error(object, message),
     },
     publicUrl: config.publicUrl,
+    tools: new ToolService(path.join(pipelinesDir, "tools")),
+    cacheDir: path.join(pipelinesDir, "cache"),
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
   const pipelineTriggers = new PipelineTriggerService(

@@ -37,6 +37,7 @@ const TABLES = [
   "pipelineSteps",
   "pipelineLogs",
   "pipelineArtifacts",
+  "pipelineApprovals",
   "pipelineTriggers",
   "settings",
   "auditLog",

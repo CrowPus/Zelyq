@@ -459,6 +459,8 @@ export const pipelineRuns = sqliteTable(
     source: text("source").notNull(),
     /** A git ref to check out instead of the default (a pushed commit). */
     ref: text("ref"),
+    /** The branch the run is for (a push's branch), which a cache belongs to. */
+    branch: text("branch"),
     /** Re-run from this stage: earlier stages are skipped. */
     fromStage: integer("from_stage"),
     error: text("error"),
@@ -485,6 +487,8 @@ export const pipelineSteps = sqliteTable(
     stepIndex: integer("step_index").notNull(),
     stage: text("stage").notNull(),
     name: text("name").notNull(),
+    /** run, checkout, setup, cache, docker or approval. */
+    kind: text("kind").notNull().default("run"),
     status: text("status").notNull(),
     exitCode: integer("exit_code"),
     startedAt: text("started_at"),
@@ -522,6 +526,32 @@ export const pipelineArtifacts = sqliteTable(
     createdAt: text("created_at").notNull(),
   },
   (table) => ({ runIdx: index("pipeline_artifacts_run_idx").on(table.runId) }),
+);
+
+/** A run waiting for a person, kept in the database so a restart does not lose it. */
+export const pipelineApprovals = sqliteTable(
+  "pipeline_approvals",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => pipelineRuns.id, { onDelete: "cascade" }),
+    stepId: text("step_id")
+      .notNull()
+      .references(() => pipelineSteps.id, { onDelete: "cascade" }),
+    message: text("message").notNull(),
+    /** admins or editors */
+    approvers: text("approvers").notNull(),
+    allowSelf: integer("allow_self", { mode: "boolean" }).notNull(),
+    deadline: text("deadline").notNull(),
+    /** null while waiting; approved or rejected */
+    decision: text("decision"),
+    decidedBy: text("decided_by").references(() => users.id, { onDelete: "set null" }),
+    comment: text("comment"),
+    createdAt: text("created_at").notNull(),
+    decidedAt: text("decided_at"),
+  },
+  (table) => ({ stepIdx: uniqueIndex("pipeline_approvals_step_idx").on(table.stepId) }),
 );
 
 export const pipelineTriggers = sqliteTable(
@@ -860,6 +890,7 @@ export const schema = {
   pipelineSteps,
   pipelineLogs,
   pipelineArtifacts,
+  pipelineApprovals,
   pipelineTriggers,
   settings,
   auditLog,

@@ -74,7 +74,11 @@ stages:
   const shell = parsed.issues.find((issue) => issue.path === "stages.0.steps.0.shell");
   assert.match(shell?.message ?? "", /Use one of: bash/);
   assert.equal(shell?.line, 7);
-  assert.ok(parsed.issues.some((issue) => /either run: or checkout: true/.test(issue.message)));
+  assert.ok(
+    parsed.issues.some((issue) =>
+      /A step is one thing; this one has run and checkout/.test(issue.message),
+    ),
+  );
 });
 
 test("a checkout without a source is reported once the steps themselves are valid", () => {
@@ -130,7 +134,9 @@ test("durations", () => {
   assert.equal(parseDuration("30m"), 1800);
   assert.equal(parseDuration("1h30m"), 5400);
   assert.equal(parseDuration(120), 120);
-  for (const bad of ["", "1d", "m", "-5m", "0s", 0, 1.5])
+  assert.equal(parseDuration("2d"), 172_800);
+  assert.equal(parseDuration("1d12h"), 129_600);
+  for (const bad of ["", "d", "m", "-5m", "0s", "1h2d", 0, 1.5])
     assert.equal(parseDuration(bad), null, String(bad));
 });
 

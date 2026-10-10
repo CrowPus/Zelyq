@@ -6,6 +6,7 @@ export const RUN_STATUS: Record<RunStatus | StepStatus, { label: string; tone: T
   queued: { label: "Queued", tone: "neutral" },
   pending: { label: "Waiting", tone: "neutral" },
   running: { label: "Running", tone: "info" },
+  waiting: { label: "Waiting for approval", tone: "warning" },
   passed: { label: "Passed", tone: "success" },
   failed: { label: "Failed", tone: "danger" },
   cancelled: { label: "Cancelled", tone: "warning" },

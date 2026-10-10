@@ -33,6 +33,7 @@ import type {
   PushToRemoteInput,
   Role,
   RunLogLine,
+  RunnerDisk,
   RunnerSummary,
   RunnerTestResult,
   SessionResponse,
@@ -265,6 +266,17 @@ export const api = {
       request<{ lines: RunLogLine[]; done: boolean }>(
         `/teams/${teamId}/pipeline-runs/${runId}/logs?after=${after}`,
       ),
+    decide: (
+      teamId: string,
+      runId: string,
+      approvalId: string,
+      decision: "approved" | "rejected",
+      comment: string | null,
+    ) =>
+      request<{ run: PipelineRunDetail }>(
+        `/teams/${teamId}/pipeline-runs/${runId}/approvals/${approvalId}`,
+        { method: "POST", body: JSON.stringify({ decision, comment }) },
+      ),
     cancel: (teamId: string, runId: string) =>
       request<{ run: PipelineRunSummary }>(`/teams/${teamId}/pipeline-runs/${runId}/cancel`, {
         method: "POST",
@@ -312,6 +324,13 @@ export const api = {
       request<{ runner: RunnerSummary }>(`/teams/${teamId}/runners/${id}/confirm`, {
         method: "POST",
         body: JSON.stringify({ fingerprint }),
+      }),
+    disk: (teamId: string, id: string) =>
+      request<{ disk: RunnerDisk }>(`/teams/${teamId}/runners/${id}/disk`),
+    clearDisk: (teamId: string, id: string, what: "tools" | "cache") =>
+      request<{ disk: RunnerDisk }>(`/teams/${teamId}/runners/${id}/disk/clear`, {
+        method: "POST",
+        body: JSON.stringify({ what }),
       }),
     keys: (teamId: string) => request<{ keys: TeamSshKeySummary[] }>(`/teams/${teamId}/ssh-keys`),
     rotateKey: (teamId: string, algorithm: "ed25519" | "rsa") =>

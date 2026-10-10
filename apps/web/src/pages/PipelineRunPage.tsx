@@ -1,16 +1,19 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type RunLogLine, type RunStep, summariseStages } from "@zelyq/core";
+import { type RunApproval, type RunLogLine, type RunStep, summariseStages } from "@zelyq/core";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Download,
   FileDown,
   GitBranch,
+  Hand,
   RotateCw,
   Search,
   Server,
   Square,
   UserRound,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -46,7 +49,9 @@ export function PipelineRunPage() {
     queryFn: () => api.pipelines.run(teamId, runId),
     enabled: Boolean(team),
     refetchInterval: (query) =>
-      ["queued", "running"].includes(query.state.data?.run.status ?? "queued") ? 1500 : false,
+      ["queued", "running", "waiting"].includes(query.state.data?.run.status ?? "queued")
+        ? 1500
+        : false,
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when another run is opened
@@ -134,7 +139,7 @@ export function PipelineRunPage() {
   }
 
   const status = RUN_STATUS[detail.status];
-  const active = detail.status === "queued" || detail.status === "running";
+  const active = ["queued", "running", "waiting"].includes(detail.status);
   const stageSteps = steps.filter((step) => step.stageIndex === selected);
   const firstStepSeq = lines.find((line) => line.stepId)?.seq ?? Number.POSITIVE_INFINITY;
   const setupLines = runLines.filter((line) => line.seq < firstStepSeq);
@@ -212,6 +217,18 @@ export function PipelineRunPage() {
               {vaultErrorMessage(cancel.error ?? rerun.error)}
             </p>
           )}
+
+          {detail.approvals
+            .filter((approval) => !approval.decision && detail.status === "waiting")
+            .map((approval) => (
+              <ApprovalBox
+                key={approval.id}
+                teamId={teamId}
+                runId={runId}
+                approval={approval}
+                onAnswered={() => void run.refetch()}
+              />
+            ))}
 
           <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
             <StageGraph stages={stages} selected={selected} onSelect={setPicked} />
@@ -441,5 +458,71 @@ function highlight(text: string, query: string) {
       </mark>
       {text.slice(at + query.length)}
     </>
+  );
+}
+
+/** The open question of an approval step, with Approve and Reject for those who may answer. */
+function ApprovalBox({
+  teamId,
+  runId,
+  approval,
+  onAnswered,
+}: {
+  teamId: string;
+  runId: string;
+  approval: RunApproval;
+  onAnswered: () => void;
+}) {
+  const [comment, setComment] = useState("");
+  const decide = useMutation({
+    mutationFn: (decision: "approved" | "rejected") =>
+      api.pipelines.decide(teamId, runId, approval.id, decision, comment.trim() || null),
+    onSuccess: onAnswered,
+  });
+  const who =
+    approval.approvers === "editors"
+      ? "Editors, admins and owners"
+      : "The team's admins and owners";
+  return (
+    <section className="mb-4 rounded-md border border-warning/40 bg-warning-subtle p-4">
+      <p className="flex items-center gap-2 text-sm font-semibold">
+        <Hand size={16} /> {approval.message}
+      </p>
+      <p className="mt-1 text-xs text-fg-secondary">
+        {who} can answer{approval.allowSelf ? "" : ", but not the person who started this run"}. If
+        nobody answers by {new Date(approval.deadline).toLocaleString()}, the step times out.
+      </p>
+      {approval.canDecide ? (
+        <div className="mt-3 grid gap-2">
+          <Input
+            aria-label="Comment"
+            placeholder="Comment (optional)"
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              icon={<Check size={14} />}
+              disabled={decide.isPending}
+              onClick={() => decide.mutate("approved")}
+            >
+              Approve
+            </Button>
+            <Button
+              variant="danger"
+              icon={<X size={14} />}
+              disabled={decide.isPending}
+              onClick={() => decide.mutate("rejected")}
+            >
+              Reject
+            </Button>
+          </div>
+          {decide.error && <p className="text-xs text-danger">{vaultErrorMessage(decide.error)}</p>}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs font-medium">You cannot answer this one.</p>
+      )}
+    </section>
   );
 }

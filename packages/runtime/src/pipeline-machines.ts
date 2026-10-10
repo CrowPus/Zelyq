@@ -38,6 +38,8 @@ export interface PipelineMachine {
 /** Projects' network — see `container.ts`; its firewall rules cover this too. */
 const PROJECT_NETWORK = "zelyq-projects";
 const RUN_LABEL = "zelyq.pipeline-run";
+/** Which Zelyq started a container: two on one host must not clean up each other's runs. */
+const INSTANCE_LABEL = "zelyq.instance";
 
 function pipe(child: ChildProcess, options: PipelineExecOptions): Promise<{ code: number | null }> {
   return new Promise((resolve) => {
@@ -93,6 +95,8 @@ export async function containerEngineAvailable(engine = "docker"): Promise<boole
 
 export interface PipelineContainerOptions {
   runId: string;
+  /** This Zelyq's identity, so it only ever removes its own containers. */
+  instance: string;
   image: string;
   engine?: string;
   memory?: string;
@@ -117,6 +121,8 @@ export async function startPipelineContainer(
       name,
       "--label",
       `${RUN_LABEL}=${options.runId}`,
+      "--label",
+      `${INSTANCE_LABEL}=${options.instance}`,
       "--init",
       "--security-opt",
       "no-new-privileges",
@@ -161,8 +167,22 @@ export async function startPipelineContainer(
 }
 
 /** Removes run containers a previous server process left behind. */
-export async function removeStalePipelineContainers(engine = "docker"): Promise<number> {
-  const listed = await capture(engine, ["ps", "-aq", "--filter", `label=${RUN_LABEL}`], 15_000);
+export async function removeStalePipelineContainers(
+  instance: string,
+  engine = "docker",
+): Promise<number> {
+  const listed = await capture(
+    engine,
+    [
+      "ps",
+      "-aq",
+      "--filter",
+      `label=${RUN_LABEL}`,
+      "--filter",
+      `label=${INSTANCE_LABEL}=${instance}`,
+    ],
+    15_000,
+  );
   if (listed.code !== 0) return 0;
   const ids = listed.out.split(/\s+/).filter(Boolean);
   if (ids.length > 0) await capture(engine, ["rm", "-f", ...ids], 60_000);

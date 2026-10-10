@@ -1,0 +1,496 @@
+{
+  "generated": "2026-10-10",
+  "tools": {
+    "node": [
+      {
+        "version": "24.21.0",
+        "lts": true,
+        "files": {
+          "linux-x64": {
+            "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz",
+            "sha256": "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
+            "home": "node-v24.21.0-linux-x64",
+            "bins": ["bin"]
+          },
+          "linux-arm64": {
+            "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.gz",
+            "sha256": "724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5",
+            "home": "node-v24.21.0-linux-arm64",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz",
+            "sha256": "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097",
+            "home": "node-v24.21.0-darwin-x64",
+            "bins": ["bin"]
+          },
+          "macos-arm64": {
+            "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz",
+            "sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
+            "home": "node-v24.21.0-darwin-arm64",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+            "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
+            "home": "node-v24.21.0-win-x64",
+            "bins": [""]
+          },
+          "windows-arm64": {
+            "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-arm64.zip",
+            "sha256": "8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921",
+            "home": "node-v24.21.0-win-arm64",
+            "bins": [""]
+          }
+        }
+      },
+      {
+        "version": "22.23.3",
+        "lts": true,
+        "files": {
+          "linux-x64": {
+            "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-x64.tar.gz",
+            "sha256": "1084aa36196bba4c3a5e69a1ee388a6e4ff729dad09445fbcd434b28fe3c24af",
+            "home": "node-v22.23.3-linux-x64",
+            "bins": ["bin"]
+          },
+          "linux-arm64": {
+            "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-arm64.tar.gz",
+            "sha256": "5ced2d48d1d7198739b7f86804de0171aefb6823b684b12341d3321afc3cb0b2",
+            "home": "node-v22.23.3-linux-arm64",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-darwin-x64.tar.gz",
+            "sha256": "8a677b0219178efd6eb0e475457c4afb452b521a92f6e67845a73bd85727f2a8",
+            "home": "node-v22.23.3-darwin-x64",
+            "bins": ["bin"]
+          },
+          "macos-arm64": {
+            "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-darwin-arm64.tar.gz",
+            "sha256": "23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53",
+            "home": "node-v22.23.3-darwin-arm64",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
+            "sha256": "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71",
+            "home": "node-v22.23.3-win-x64",
+            "bins": [""]
+          },
+          "windows-arm64": {
+            "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-arm64.zip",
+            "sha256": "33dad22e4cef5ee8f9fbb1b0d037fdacd0e56d12a4580f0d63f68b894deab535",
+            "home": "node-v22.23.3-win-arm64",
+            "bins": [""]
+          }
+        }
+      },
+      {
+        "version": "20.20.2",
+        "lts": true,
+        "files": {
+          "linux-x64": {
+            "url": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-linux-x64.tar.gz",
+            "sha256": "19e56f0825510207dd904f087fe52faa0a4eb6b2aab5f0ea7a33830d04888b8b",
+            "home": "node-v20.20.2-linux-x64",
+            "bins": ["bin"]
+          },
+          "linux-arm64": {
+            "url": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-linux-arm64.tar.gz",
+            "sha256": "47ef73d543ecf6eb19435f6c03a0ac4809b3bf0dd6b26c7c571efc2a6572a74d",
+            "home": "node-v20.20.2-linux-arm64",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-darwin-x64.tar.gz",
+            "sha256": "8be6f5e4bb128c82774f8a0b8d7a1cc1365a7977d9657cece0ca647b3fe04e61",
+            "home": "node-v20.20.2-darwin-x64",
+            "bins": ["bin"]
+          },
+          "macos-arm64": {
+            "url": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-darwin-arm64.tar.gz",
+            "sha256": "466e05f3477c20dfb723054dfebffe55bc74660ee77f612166fca121dacb65b6",
+            "home": "node-v20.20.2-darwin-arm64",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-win-x64.zip",
+            "sha256": "dc3700fdd57a63eedb8fd7e3c7baaa32e6a740a1b904167ff4204bc68ed8bf77",
+            "home": "node-v20.20.2-win-x64",
+            "bins": [""]
+          },
+          "windows-arm64": {
+            "url": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-win-arm64.zip",
+            "sha256": "d5c5b1d56f7f9469830eb1f57efeec0a6a9078c0a9e88cd5b4b4b48f46c22069",
+            "home": "node-v20.20.2-win-arm64",
+            "bins": [""]
+          }
+        }
+      }
+    ],
+    "python": [
+      {
+        "version": "3.15.0",
+        "files": {
+          "macos-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.15.0%2B20261009-aarch64-apple-darwin-install_only.tar.gz",
+            "sha256": "3fb079450ee57075a790b94634206759501166e0a99de459cdad095f6c158d39",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "windows-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.15.0%2B20261009-aarch64-pc-windows-msvc-install_only.tar.gz",
+            "sha256": "95052a0841dd039cfbbf5205dcde9c0c97341c629cd28294ddd1af93bd1fb55f",
+            "home": "python",
+            "bins": ["", "Scripts"]
+          },
+          "linux-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.15.0%2B20261009-aarch64-unknown-linux-gnu-install_only.tar.gz",
+            "sha256": "f02953d2c56c7eaa2fa3a21f2680a823b8748959c571ac149cd76b0fd1a1c33c",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.15.0%2B20261009-x86_64-apple-darwin-install_only.tar.gz",
+            "sha256": "5b73d275ef59c742ae58a13130381ddf3451a5a96b2d802c8d5aa0741511baa7",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.15.0%2B20261009-x86_64-pc-windows-msvc-install_only.tar.gz",
+            "sha256": "195aeb879561118627db196e1b07704bd873c7fe80ac8068aaecb475f9db25a4",
+            "home": "python",
+            "bins": ["", "Scripts"]
+          },
+          "linux-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.15.0%2B20261009-x86_64-unknown-linux-gnu-install_only.tar.gz",
+            "sha256": "95ba085863806dacf0fd7119c590154bbcd3351099e55c0808a9c61603e320a8",
+            "home": "python",
+            "bins": ["bin"]
+          }
+        }
+      },
+      {
+        "version": "3.14.8",
+        "files": {
+          "macos-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-aarch64-apple-darwin-install_only.tar.gz",
+            "sha256": "ff8e1ddc02a9df3190b62d5af475cb642a02cfc77901ef780f9826cc23b51934",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "windows-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-aarch64-pc-windows-msvc-install_only.tar.gz",
+            "sha256": "bc397fe30873c50d52c07d3489dd36ae05547c0c541e2f765d197bf0a4821c58",
+            "home": "python",
+            "bins": ["", "Scripts"]
+          },
+          "linux-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-aarch64-unknown-linux-gnu-install_only.tar.gz",
+            "sha256": "2a99838d2ba71c91d9c72929ee73cdfad2ccd093d7746a14094f50e583989ec3",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-x86_64-apple-darwin-install_only.tar.gz",
+            "sha256": "9694bf8c8c1fb1250dd6f05e7914ebbbe7180e0f11b7feaf5edb2f6acebe4153",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-x86_64-pc-windows-msvc-install_only.tar.gz",
+            "sha256": "6c03535bfa5888dd73b0c0ebd91b76a2fdfa06eedaa411b0c4c9e664db6b4bb4",
+            "home": "python",
+            "bins": ["", "Scripts"]
+          },
+          "linux-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-x86_64-unknown-linux-gnu-install_only.tar.gz",
+            "sha256": "83f9cb480b702548c592443f86209cf0fc03448d90692df257f095c01791dccc",
+            "home": "python",
+            "bins": ["bin"]
+          }
+        }
+      },
+      {
+        "version": "3.13.16",
+        "files": {
+          "macos-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-aarch64-apple-darwin-install_only.tar.gz",
+            "sha256": "3338fcd572a670ec45ac9ef75480b95595ea9b6b5dd320952fcf5df185089941",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "windows-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-aarch64-pc-windows-msvc-install_only.tar.gz",
+            "sha256": "76b76cbc2f3036b62cfa03bcc50acd24266be4099abd5b4e908844e761126fc2",
+            "home": "python",
+            "bins": ["", "Scripts"]
+          },
+          "linux-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-aarch64-unknown-linux-gnu-install_only.tar.gz",
+            "sha256": "397ca401f416c3c99330a6be16d735d0cbeaf53e82070b80395b2fb4a8891f34",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-x86_64-apple-darwin-install_only.tar.gz",
+            "sha256": "1c3ecfe6c0c1c200508ff9f93b436e3d8125faf9ff9e70a9dee65699593297da",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-x86_64-pc-windows-msvc-install_only.tar.gz",
+            "sha256": "286285f159bc711e4f0d89bd3d01993d3a321b84bd6593bd66dc816c23609388",
+            "home": "python",
+            "bins": ["", "Scripts"]
+          },
+          "linux-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-x86_64-unknown-linux-gnu-install_only.tar.gz",
+            "sha256": "1cca1041f693f110a2e0d16417090b8996258c7a121e90eeab66c2f40ea407f2",
+            "home": "python",
+            "bins": ["bin"]
+          }
+        }
+      },
+      {
+        "version": "3.12.15",
+        "files": {
+          "macos-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.12.15%2B20261009-aarch64-apple-darwin-install_only.tar.gz",
+            "sha256": "83dcb04777c798bd95f3687acf9ae84b09860272ee6bdfb05be8bcf9447f75b8",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "windows-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.12.15%2B20261009-aarch64-pc-windows-msvc-install_only.tar.gz",
+            "sha256": "4da354e7366d4437fceea714eab1bbdca1eb17bba4491a3d20b9c6af94b44f68",
+            "home": "python",
+            "bins": ["", "Scripts"]
+          },
+          "linux-arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.12.15%2B20261009-aarch64-unknown-linux-gnu-install_only.tar.gz",
+            "sha256": "b342ccfb577fda349d0237c98b24848234ca767c10f034628a5ff9fc858d662f",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.12.15%2B20261009-x86_64-apple-darwin-install_only.tar.gz",
+            "sha256": "4c84ef5abe4bc145646175fce9b881936d60126b9a3f9a24c6308e2d035ca5c6",
+            "home": "python",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.12.15%2B20261009-x86_64-pc-windows-msvc-install_only.tar.gz",
+            "sha256": "194c8f0d9e0de6f1c4576e5dfa67819a48c764be87608b74b8ad43387a57b93b",
+            "home": "python",
+            "bins": ["", "Scripts"]
+          },
+          "linux-x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.12.15%2B20261009-x86_64-unknown-linux-gnu-install_only.tar.gz",
+            "sha256": "5864001bf969db329fadc2b654c4878c6027d170c6bd77e28f88666260bcaf63",
+            "home": "python",
+            "bins": ["bin"]
+          }
+        }
+      }
+    ],
+    "java": [
+      {
+        "version": "25.0.4",
+        "files": {
+          "linux-x64": {
+            "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_linux_hotspot_25.0.4.1_1.tar.gz",
+            "sha256": "dbb698396d478e7fa2b1e50f4103324b2a99b90569ee27c33f2261f9215cf41e",
+            "home": "jdk-25.0.4.1+1",
+            "bins": ["bin"]
+          },
+          "linux-arm64": {
+            "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz",
+            "sha256": "69df11a02cfa3ef7d7ca645e03edce6778ec090e100f6ae2b42097865730ac52",
+            "home": "jdk-25.0.4.1+1",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz",
+            "sha256": "e6229d9504f7922053ab31821b9e6bee8761daf7b026a3476d1a027563009880",
+            "home": "jdk-25.0.4.1+1/Contents/Home",
+            "bins": ["bin"]
+          },
+          "macos-arm64": {
+            "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_aarch64_mac_hotspot_25.0.4.1_1.tar.gz",
+            "sha256": "61979887f7506a24a57439ff99adb8b3a7fc89977d9cfe3b8984f58a981b7b9d",
+            "home": "jdk-25.0.4.1+1/Contents/Home",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip",
+            "sha256": "00c847d804f4a78e9f04f2683faf14fed898535b177b7fc704486cb0284e9283",
+            "home": "jdk-25.0.4.1+1",
+            "bins": ["bin"]
+          }
+        }
+      },
+      {
+        "version": "21.0.12",
+        "files": {
+          "linux-x64": {
+            "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz",
+            "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94",
+            "home": "jdk-21.0.12.1+1",
+            "bins": ["bin"]
+          },
+          "linux-arm64": {
+            "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.12.1_1.tar.gz",
+            "sha256": "23e37e026f12f3e706f18938ff611db3032d075b09d0879a25d06718c773e223",
+            "home": "jdk-21.0.12.1+1",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_mac_hotspot_21.0.12.1_1.tar.gz",
+            "sha256": "44db0f08196daf19a47f90d13388b0c943b67663cb537f998fe29e836fa842ce",
+            "home": "jdk-21.0.12.1+1/Contents/Home",
+            "bins": ["bin"]
+          },
+          "macos-arm64": {
+            "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz",
+            "sha256": "3623232f33a9c3baadf304480b2535f9a3cba8a58d42ecbb438ba267315d9998",
+            "home": "jdk-21.0.12.1+1/Contents/Home",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip",
+            "sha256": "f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e",
+            "home": "jdk-21.0.12.1+1",
+            "bins": ["bin"]
+          },
+          "windows-arm64": {
+            "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_aarch64_windows_hotspot_21.0.12.1_1.zip",
+            "sha256": "ccf2e51f527d542a70ba5794a600d3aac04b4e967950e227834c7566cb1bec7b",
+            "home": "jdk-21.0.12.1+1",
+            "bins": ["bin"]
+          }
+        }
+      },
+      {
+        "version": "17.0.20",
+        "files": {
+          "linux-x64": {
+            "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz",
+            "sha256": "3808d1d15e3ec6bd5b84057fb5d84c33d8a1536a258146bcea2e603fc726e08e",
+            "home": "jdk-17.0.20.1+1",
+            "bins": ["bin"]
+          },
+          "linux-arm64": {
+            "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_aarch64_linux_hotspot_17.0.20.1_1.tar.gz",
+            "sha256": "457b57af8f9c93ec39080bb8c764f559dc8c89a6da1a39d718a400b7890d3e41",
+            "home": "jdk-17.0.20.1+1",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_mac_hotspot_17.0.20.1_1.tar.gz",
+            "sha256": "c01975da12ed4235250ff891fe8bba73a9e73037d444b269c9d0922b5dbc8e0a",
+            "home": "jdk-17.0.20.1+1/Contents/Home",
+            "bins": ["bin"]
+          },
+          "macos-arm64": {
+            "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.20.1_1.tar.gz",
+            "sha256": "196d13ba5f10414bef7f6a05a9b3f00edacb18ebacef2b99485db9e2ee18f0e8",
+            "home": "jdk-17.0.20.1+1/Contents/Home",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_windows_hotspot_17.0.20.1_1.zip",
+            "sha256": "e53a79c3c3d86865bd7e787903884331068e71321714ffd44f145785affc7cb0",
+            "home": "jdk-17.0.20.1+1",
+            "bins": ["bin"]
+          }
+        }
+      }
+    ],
+    "go": [
+      {
+        "version": "1.27.2",
+        "files": {
+          "linux-x64": {
+            "url": "https://go.dev/dl/go1.27.2.linux-amd64.tar.gz",
+            "sha256": "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "linux-arm64": {
+            "url": "https://go.dev/dl/go1.27.2.linux-arm64.tar.gz",
+            "sha256": "94f3e30b8e374bc285e7dadc11e0865726b9bc6e85b841ccceaabc0214c6b7c8",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://go.dev/dl/go1.27.2.darwin-amd64.tar.gz",
+            "sha256": "587b59182488b23aa6e5fc25110405a3e0e5b38ed2f5b2f46ed13c32aee356fe",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "macos-arm64": {
+            "url": "https://go.dev/dl/go1.27.2.darwin-arm64.tar.gz",
+            "sha256": "76812b213b1b2302c978d28fa52fa92d541704b9e7d9d5db8002c50e4018c4c5",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://go.dev/dl/go1.27.2.windows-amd64.zip",
+            "sha256": "1314008898bd40df77af4b014f777f08873dbdfbcd3d92308728ee03304fe04f",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "windows-arm64": {
+            "url": "https://go.dev/dl/go1.27.2.windows-arm64.zip",
+            "sha256": "5c4b294f23b558619ae8a4aa94d023e3bca03f52c8398bb41b9026002b0013de",
+            "home": "go",
+            "bins": ["bin"]
+          }
+        }
+      },
+      {
+        "version": "1.26.9",
+        "files": {
+          "linux-x64": {
+            "url": "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz",
+            "sha256": "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "linux-arm64": {
+            "url": "https://go.dev/dl/go1.26.9.linux-arm64.tar.gz",
+            "sha256": "4a97373d49fcacdcf3694fea368a500b00ee3e963974f3e7514132717632f052",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "macos-x64": {
+            "url": "https://go.dev/dl/go1.26.9.darwin-amd64.tar.gz",
+            "sha256": "00c29e3d4c8562f547410daa18d2959b641bd691ab00c4a525ea817a0253d4bd",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "macos-arm64": {
+            "url": "https://go.dev/dl/go1.26.9.darwin-arm64.tar.gz",
+            "sha256": "f9bb7c0a02506c5d9bf0d1eb1f7ee6c7684f844ae49558308a0427b830e022cc",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "windows-x64": {
+            "url": "https://go.dev/dl/go1.26.9.windows-amd64.zip",
+            "sha256": "d722201a9c0c086d1610e111c48203009af690892ed708072bd5ae20160e7a59",
+            "home": "go",
+            "bins": ["bin"]
+          },
+          "windows-arm64": {
+            "url": "https://go.dev/dl/go1.26.9.windows-arm64.zip",
+            "sha256": "05215f9e71ea27c9e843409314b1e6bf12dc6a5516318126b2357d497fed42c5",
+            "home": "go",
+            "bins": ["bin"]
+          }
+        }
+      }
+    ]
+  }
+}

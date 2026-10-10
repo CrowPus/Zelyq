@@ -151,6 +151,7 @@ export class PipelineTriggerService {
       row.pipelineId,
       "push",
       /^[0-9a-f]{7,64}$/i.test(commit) ? commit : branch,
+      branch,
     );
     await this.store.pipelines.triggers.update(row.id, { lastFiredAt: new Date().toISOString() });
     return { status: 201, message: `Started run #${run.number}.` };
