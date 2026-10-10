@@ -256,8 +256,9 @@ export async function probeMachine(session: SshSession): Promise<MachineFacts> {
       "unreachable",
     );
   }
-  const home = (await session.capture("cmd /c echo %USERPROFILE%")).stdout.trim();
-  const where = (await session.capture("cmd /c where pwsh powershell git docker tar 2>nul")).stdout;
+  // Already in cmd.exe: a second "cmd /c" would leave a stray quote behind.
+  const home = (await session.capture("echo %USERPROFILE%")).stdout.trim().replaceAll('"', "");
+  const where = (await session.capture("where pwsh powershell git docker tar 2>nul")).stdout;
   const found = new Set(
     where
       .split(/\r?\n/)

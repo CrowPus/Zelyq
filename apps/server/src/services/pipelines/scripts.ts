@@ -107,7 +107,7 @@ export function stepScript(input: StepScriptInput): string {
 export function stopCommand(os: RunnerOs, workspace: string, force: boolean): string {
   if (os === "windows") {
     const file = `${workspace}\\.zelyq-step`;
-    return `powershell -NoProfile -NonInteractive -Command "$p = Get-Content -LiteralPath '${file}' -ErrorAction SilentlyContinue; if ($p) { taskkill /PID $p /T /F | Out-Null }"`;
+    return `powershell -NoProfile -NonInteractive -Command "$p = Get-Content -LiteralPath ${psQuote(file)} -ErrorAction SilentlyContinue; if ($p) { taskkill /PID $p /T /F | Out-Null }"`;
   }
   const file = posixQuote(`${workspace}/.zelyq-step`);
   const signal = force ? "KILL" : "TERM";
@@ -123,29 +123,32 @@ export function workspacePath(os: RunnerOs, home: string, runId: string): string
 /** Makes the run's folder (and nothing else). */
 export function prepareCommand(os: RunnerOs, workspace: string): string {
   return os === "windows"
-    ? `powershell -NoProfile -NonInteractive -Command "New-Item -ItemType Directory -Force -Path '${workspace}' | Out-Null"`
+    ? `powershell -NoProfile -NonInteractive -Command "New-Item -ItemType Directory -Force -Path ${psQuote(workspace)} | Out-Null"`
     : `mkdir -p -- ${posixQuote(workspace)}`;
 }
 
 /** Removes the run's folder after a run that passed. */
 export function cleanupCommand(os: RunnerOs, workspace: string): string {
   return os === "windows"
-    ? `powershell -NoProfile -NonInteractive -Command "Remove-Item -LiteralPath '${workspace}' -Recurse -Force -ErrorAction SilentlyContinue"`
+    ? `powershell -NoProfile -NonInteractive -Command "Remove-Item -LiteralPath ${psQuote(workspace)} -Recurse -Force -ErrorAction SilentlyContinue"`
     : `rm -rf -- ${posixQuote(workspace)}`;
 }
 
 /** Unpacks a gzipped tar arriving on stdin into the run's folder. Windows 10+
- * ships bsdtar as tar.exe, so the same archive works everywhere. */
+ * ships bsdtar as tar.exe, so the same archive works everywhere. Windows
+ * commands are written for cmd.exe, which Windows' SSH server already runs
+ * them in (checked when the machine is probed) — wrapping them in another
+ * `cmd /c` leaves a stray quote behind. */
 export function unpackCommand(os: RunnerOs, workspace: string): string {
   return os === "windows"
-    ? `cmd /c "cd /d "${workspace}" && tar -xzf -"`
+    ? `cd /d "${workspace}" && tar -xzf -`
     : `cd -- ${posixQuote(workspace)} && tar -xzf -`;
 }
 
 /** Packs a path inside the run's folder as a gzipped tar on stdout. */
 export function packCommand(os: RunnerOs, workspace: string, path: string): string {
   return os === "windows"
-    ? `cmd /c "cd /d "${workspace}" && tar -czf - "${path.replaceAll("/", "\\")}""`
+    ? `cd /d "${workspace}" && tar -czf - "${path.replaceAll("/", "\\")}"`
     : `cd -- ${posixQuote(workspace)} && tar -czf - -- ${posixQuote(path)}`;
 }
 
