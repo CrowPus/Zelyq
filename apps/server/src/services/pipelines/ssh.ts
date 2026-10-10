@@ -237,10 +237,22 @@ export async function probeMachine(session: SshSession): Promise<MachineFacts> {
       latencyMs,
     };
   }
-  const ver = await session.capture("cmd /c ver");
-  if (!/windows/i.test(ver.stdout)) {
+  // Only Windows' cmd.exe answers this with Windows_NT; every other shell
+  // prints it back unchanged. It is also how Zelyq knows the SSH server starts
+  // commands in cmd.exe, which its Windows commands are written for.
+  const cmdOs = (await session.capture("echo %OS%")).stdout.trim();
+  if (!/Windows_NT/i.test(cmdOs)) {
+    // Git for Windows, MSYS2 and Cygwin put a uname on PATH that says this.
+    if (/^(MSYS|MINGW|CYGWIN)/i.test(kernel) || /\$env:OS|Windows/i.test(cmdOs)) {
+      throw new SshError(
+        `This is a Windows machine, but its SSH server starts commands in another shell (it answered "${kernel || cmdOs}"), not cmd.exe. ` +
+          "Zelyq needs the standard one: in an administrator PowerShell on the machine, run " +
+          "Remove-ItemProperty -Path HKLM:\\SOFTWARE\\OpenSSH -Name DefaultShell; Restart-Service sshd",
+        "unreachable",
+      );
+    }
     throw new SshError(
-      `Could not tell what ${kernel || "this machine"} is. Linux, macOS and Windows are supported.`,
+      `Could not tell what ${kernel || "this machine"} is (it answered "${cmdOs.slice(0, 80)}"). Linux, macOS and Windows are supported.`,
       "unreachable",
     );
   }

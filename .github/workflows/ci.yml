@@ -185,6 +185,8 @@ jobs:
         run: |
           Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
           Start-Service sshd
+          # Which shell the SSH server starts commands in (empty means cmd.exe).
+          Get-ItemProperty -Path HKLM:\SOFTWARE\OpenSSH -ErrorAction SilentlyContinue | Format-List DefaultShell*
           $file = 'C:\ProgramData\ssh\administrators_authorized_keys'
           Get-Content "$env:RUNNER_TEMP\zelyq_test_key.pub" | Set-Content -Path $file -Encoding ascii
           icacls $file /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F'
