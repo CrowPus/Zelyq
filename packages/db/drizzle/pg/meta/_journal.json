@@ -169,6 +169,13 @@
       "when": 1791641833009,
       "tag": "0023_pipelines",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791670976151,
+      "tag": "0024_pipeline_steps",
+      "breakpoints": true
     }
   ]
 }

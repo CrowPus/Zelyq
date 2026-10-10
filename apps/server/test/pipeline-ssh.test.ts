@@ -59,7 +59,7 @@ test("the fingerprint matches what OpenSSH prints for the key", {
   if (ours.subarray(4, 15).toString() === "ssh-ed25519") {
     assert.match(
       printed,
-      new RegExp(publicKeyFingerprint(`ssh-ed25519 ${hostKey}`).replace("+", "\\+")),
+      new RegExp(publicKeyFingerprint(`ssh-ed25519 ${hostKey}`).replaceAll("+", "\\+")),
     );
   }
   assert.equal(

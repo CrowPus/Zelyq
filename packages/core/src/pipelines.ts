@@ -22,9 +22,9 @@ const MAX_DURATION_SECONDS = 24 * 60 * 60;
 export function parseDuration(value: string | number): number | null {
   if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : null;
   const text = value.trim();
-  if (!/^(\d+h)?(\d+m)?(\d+s)?$/.test(text) || text === "") return null;
+  if (!/^(\d+d)?(\d+h)?(\d+m)?(\d+s)?$/.test(text) || text === "") return null;
   const part = (unit: string) => Number(new RegExp(`(\\d+)${unit}`).exec(text)?.[1] ?? 0);
-  const seconds = part("h") * 3600 + part("m") * 60 + part("s");
+  const seconds = part("d") * 86400 + part("h") * 3600 + part("m") * 60 + part("s");
   return seconds > 0 ? seconds : null;
 }
 
@@ -88,11 +88,182 @@ const relativePathSchema = z
     },
   );
 
+// ---------------------------------------------------------------------------
+// Built-in steps (see docs/pipeline-steps-plan.md)
+// ---------------------------------------------------------------------------
+
+/** Languages `setup` can put on a machine. */
+export const PIPELINE_TOOLS = ["node", "python", "java", "go"] as const;
+export type PipelineTool = (typeof PIPELINE_TOOLS)[number];
+const TOOL_NAMES: Record<PipelineTool, string> = {
+  node: "Node",
+  python: "Python",
+  java: "Java",
+  go: "Go",
+};
+
+const toolVersionSchema = z
+  .string()
+  .trim()
+  .regex(/^(lts|\d+(\.\d+){0,2})$/, "Use a version like 22, 22.11, 22.11.0 or lts.");
+
+/** `setup: node@22`, `setup: node`, or `setup: {tool: node, version: "22"}`. */
+const setupSchema = z
+  .union([
+    z.string().trim(),
+    z
+      .object({ tool: z.string().trim(), version: z.union([z.string(), z.number()]).optional() })
+      .strict(),
+  ])
+  .transform((value, ctx) => {
+    const [tool, version] =
+      typeof value === "string"
+        ? (value.split("@") as [string, string | undefined])
+        : [value.tool, value.version === undefined ? undefined : String(value.version)];
+    if (!(PIPELINE_TOOLS as readonly string[]).includes(tool)) {
+      ctx.addIssue({ code: "custom", message: `setup knows ${PIPELINE_TOOLS.join(", ")}.` });
+      return z.NEVER;
+    }
+    if (version !== undefined && !toolVersionSchema.safeParse(version).success) {
+      ctx.addIssue({ code: "custom", message: "Use a version like 22, 22.11, 22.11.0 or lts." });
+      return z.NEVER;
+    }
+    if (version === "lts" && tool !== "node") {
+      ctx.addIssue({
+        code: "custom",
+        message: "lts is a Node version; give a number for other tools.",
+      });
+      return z.NEVER;
+    }
+    return { tool: tool as PipelineTool, version: version ?? null };
+  });
+
+const cachePathSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(500)
+  .refine(
+    (path) =>
+      !path.startsWith("/") &&
+      !/^[A-Za-z]:/.test(path) &&
+      !path.split(/[\\/]/).includes("..") &&
+      path !== "~",
+    {
+      message: "Use a folder inside the run's folder (node_modules) or in the home folder (~/.m2).",
+    },
+  );
+
+/** `cache: node_modules` or `cache: {path: …, key: …}`. */
+const cacheSchema = z
+  .union([
+    cachePathSchema,
+    z
+      .object({
+        path: cachePathSchema,
+        key: z.union([relativePathSchema, z.array(relativePathSchema).min(1).max(20)]).optional(),
+      })
+      .strict(),
+  ])
+  .transform((value) =>
+    typeof value === "string"
+      ? { path: value, key: null as string[] | null }
+      : { path: value.path, key: value.key === undefined ? null : [value.key].flat() },
+  );
+
+const imageSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(\/[a-z0-9]+([._-][a-z0-9]+)*)*$/,
+    "Use an image name without a tag, like registry.example.com/team/shop.",
+  );
+const tagSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[A-Za-z0-9_.${}-]{1,128}$/,
+    "A tag is letters, digits, '.', '_' or '-' (or $ZELYQ_RUN_NUMBER).",
+  );
+
+const dockerSchema = z
+  .object({
+    image: imageSchema,
+    tags: z.array(tagSchema).min(1).max(20).default(["latest"]),
+    file: relativePathSchema.optional(),
+    context: relativePathSchema.optional(),
+    "build-args": z
+      .record(
+        envNameSchema,
+        envValueSchema.refine((value) => vaultReferenceName(value) === null, {
+          message: "A build argument ends up inside the image: never put a Vault secret in one.",
+        }),
+      )
+      .optional(),
+    push: z.boolean().default(false),
+    login: z
+      .object({
+        registry: z.string().trim().min(1).max(253).optional(),
+        username: z.string().trim().min(1).max(200),
+        password: envValueSchema.refine((value) => vaultReferenceName(value) !== null, {
+          message: "A registry password must come from Vault: vault://NAME.",
+        }),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const APPROVERS = ["admins", "editors"] as const;
+export type Approvers = (typeof APPROVERS)[number];
+const MAX_APPROVAL_SECONDS = 7 * 24 * 60 * 60;
+
+/** `approval: Deploy?` or `approval: {message, approvers, timeout, allow-self}`. */
+const approvalSchema = z
+  .preprocess(
+    // The short form is just the question.
+    (value) => (typeof value === "string" ? { message: value } : value),
+    z
+      .object({
+        message: z.string().trim().min(1, "Say what is being approved.").max(500),
+        approvers: z.enum(APPROVERS, { message: "Use admins or editors." }).optional(),
+        timeout: z
+          .union([z.string(), z.number()])
+          .transform((value, ctx) => {
+            const seconds = parseDuration(value);
+            if (seconds === null || seconds > MAX_APPROVAL_SECONDS) {
+              ctx.addIssue({
+                code: "custom",
+                message: "Use a duration like 4h or 2d, at most 7d.",
+              });
+              return z.NEVER;
+            }
+            return seconds;
+          })
+          .optional(),
+        "allow-self": z.boolean().optional(),
+      })
+      .strict(),
+  )
+  .transform((form) => ({
+    message: form.message,
+    approvers: form.approvers ?? ("admins" as Approvers),
+    timeout: form.timeout ?? 24 * 60 * 60,
+    allowSelf: form["allow-self"] ?? true,
+  }));
+
+export const STEP_KINDS = ["run", "checkout", "setup", "cache", "docker", "approval"] as const;
+export type StepKind = (typeof STEP_KINDS)[number];
+
 const stepSchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
     run: z.string().min(1).max(100_000).optional(),
     checkout: z.literal(true).optional(),
+    setup: setupSchema.optional(),
+    cache: cacheSchema.optional(),
+    docker: dockerSchema.optional(),
+    approval: approvalSchema.optional(),
     shell: z
       .enum(PIPELINE_SHELLS, { message: `Use one of: ${PIPELINE_SHELLS.join(", ")}.` })
       .optional(),
@@ -104,13 +275,43 @@ const stepSchema = z
   })
   .strict()
   .superRefine((step, ctx) => {
-    if ((step.run === undefined) === (step.checkout === undefined)) {
+    const kinds = STEP_KINDS.filter((kind) => step[kind] !== undefined);
+    if (kinds.length !== 1) {
       ctx.addIssue({
         code: "custom",
-        message: "A step has either run: or checkout: true — one of them.",
+        message:
+          kinds.length === 0
+            ? `A step needs one of: ${STEP_KINDS.join(", ")}.`
+            : `A step is one thing; this one has ${kinds.join(" and ")}. Make them separate steps.`,
       });
     }
   });
+
+/** Which kind a (valid) step is. */
+export function stepKind(step: { [K in StepKind]?: unknown }): StepKind {
+  return STEP_KINDS.find((kind) => step[kind] !== undefined) ?? "run";
+}
+
+/** What a step is called in the run's list, when the file does not name it. */
+export function stepLabel(step: PipelineStep): string {
+  if (step.name) return step.name;
+  switch (stepKind(step)) {
+    case "checkout":
+      return "Checkout";
+    case "setup":
+      return `Set up ${TOOL_NAMES[step.setup?.tool ?? "node"]}${step.setup?.version ? ` ${step.setup.version}` : ""}`;
+    case "cache":
+      return `Cache ${step.cache?.path ?? ""}`;
+    case "docker":
+      return `Docker: ${step.docker?.image.split("/").pop() ?? ""}${step.docker?.push ? " (push)" : ""}`;
+    case "approval":
+      return "Approval";
+    default: {
+      const first = (step.run ?? "").trim().split("\n")[0] ?? "";
+      return first.length > 60 ? `${first.slice(0, 57)}…` : first || "Run";
+    }
+  }
+}
 
 const stageSchema = z
   .object({
@@ -169,7 +370,7 @@ const notifySchema = z
       message: "A notification address must come from Vault: vault://NAME.",
     }),
     on: z
-      .array(z.enum(["passed", "failed", "cancelled", "timed_out"]))
+      .array(z.enum(["passed", "failed", "cancelled", "timed_out", "waiting"]))
       .min(1)
       .optional(),
   })
@@ -288,7 +489,10 @@ export function pipelineVaultNames(file: PipelineFile): string[] {
   add(file.source?.token);
   add(file.notify?.webhook);
   for (const stage of file.stages) {
-    for (const step of stage.steps) for (const value of Object.values(step.env ?? {})) add(value);
+    for (const step of stage.steps) {
+      for (const value of Object.values(step.env ?? {})) add(value);
+      add(step.docker?.login?.password);
+    }
   }
   return [...names].sort();
 }
@@ -314,6 +518,8 @@ stages:
   - name: Get
     steps:
       - checkout: true
+      - setup: node@22
+      - cache: node_modules
   - name: Check
     steps:
       - run: npm ci
@@ -334,10 +540,12 @@ stages:
   - name: Get
     steps:
       - checkout: true
+      - setup: python@3.12
+      - cache: .venv
   - name: Check
     steps:
       - run: |
-          python3 -m venv .venv
+          python -m venv .venv
           . .venv/bin/activate
           pip install -r requirements.txt
           python -m pytest
@@ -351,20 +559,42 @@ runs-on: [linux, docker]
 source:
   repo: https://github.com/you/your-app
   token: vault://GITHUB_TOKEN
-env:
-  REGISTRY_PASSWORD: vault://REGISTRY_PASSWORD
 stages:
   - name: Get
     steps:
       - checkout: true
-  - name: Build
+  - name: Build and push
     steps:
-      - run: docker build -t registry.example.com/you/app:latest .
-  - name: Push
+      - docker:
+          image: registry.example.com/you/app
+          tags: [latest, "$ZELYQ_RUN_NUMBER"]
+          push: true
+          login:
+            username: you
+            password: vault://REGISTRY_PASSWORD
+`,
+  },
+  {
+    id: "deploy",
+    label: "Deploy with approval",
+    source: `name: Deploy
+runs-on: local
+source:
+  app: My app
+stages:
+  - name: Test
     steps:
-      - run: |
-          echo "$REGISTRY_PASSWORD" | docker login registry.example.com -u you --password-stdin
-          docker push registry.example.com/you/app:latest
+      - checkout: true
+      - setup: node@22
+      - run: npm ci && npm test
+  - name: Production
+    steps:
+      - approval: Deploy to production?
+      - run: ./deploy.sh
+  - name: Tell someone
+    if: failure()
+    steps:
+      - run: echo "The deploy did not go through."
 `,
   },
   {
@@ -387,6 +617,7 @@ stages:
 export const RUN_STATUSES = [
   "queued",
   "running",
+  "waiting",
   "passed",
   "failed",
   "cancelled",
@@ -396,6 +627,7 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const STEP_STATUSES = [
   "pending",
   "running",
+  "waiting",
   "passed",
   "failed",
   "skipped",
@@ -439,6 +671,7 @@ export interface RunStep {
   stepIndex: number;
   stage: string;
   name: string;
+  kind: StepKind;
   status: StepStatus;
   exitCode: number | null;
   startedAt: string | null;
@@ -500,21 +733,23 @@ export function summariseStages(
       const finished = list.filter(
         (step) => step.status !== "pending" && step.status !== "running",
       );
-      const status: StepStatus = has("running")
-        ? "running"
-        : has("timed_out")
-          ? "timed_out"
-          : has("failed")
-            ? "failed"
-            : has("cancelled")
-              ? "cancelled"
-              : list.every((step) => step.status === "skipped")
-                ? "skipped"
-                : list.every((step) => step.status === "pending")
-                  ? "pending"
-                  : finished.length < list.length
-                    ? "running"
-                    : "passed";
+      const status: StepStatus = has("waiting")
+        ? "waiting"
+        : has("running")
+          ? "running"
+          : has("timed_out")
+            ? "timed_out"
+            : has("failed")
+              ? "failed"
+              : has("cancelled")
+                ? "cancelled"
+                : list.every((step) => step.status === "skipped")
+                  ? "skipped"
+                  : list.every((step) => step.status === "pending")
+                    ? "pending"
+                    : finished.length < list.length
+                      ? "running"
+                      : "passed";
       const starts = list
         .map((step) => step.startedAt)
         .filter((at): at is string => Boolean(at))
@@ -540,7 +775,31 @@ export interface PipelineRunDetail extends PipelineRunSummary {
   /** The pipeline file exactly as it was when this run started. */
   source: string;
   artifacts: { id: string; name: string; sizeBytes: number }[];
+  approvals: RunApproval[];
 }
+
+/** An approval step's question, and its answer once there is one. */
+export interface RunApproval {
+  id: string;
+  stepId: string;
+  message: string;
+  approvers: Approvers;
+  allowSelf: boolean;
+  deadline: string;
+  decision: "approved" | "rejected" | "timed_out" | null;
+  decidedBy: PipelineActor | null;
+  comment: string | null;
+  decidedAt: string | null;
+  /** Whether the person asking may answer it now. */
+  canDecide: boolean;
+}
+
+export const approvalDecisionSchema = z
+  .object({
+    decision: z.enum(["approved", "rejected"]),
+    comment: z.string().trim().max(1000).nullable().optional(),
+  })
+  .strict();
 
 // ---------------------------------------------------------------------------
 // Runners
@@ -622,6 +881,15 @@ export interface RunnerTestResult {
   shells: string[];
   tools: string[];
   message: string;
+}
+
+/** What Zelyq keeps on a runner, and how much room is left. */
+export interface RunnerDisk {
+  toolsBytes: number;
+  cacheBytes: number;
+  /** Free space where the runner's home folder is; null when not known. */
+  freeBytes: number | null;
+  totalBytes: number | null;
 }
 
 export interface TeamSshKeySummary {

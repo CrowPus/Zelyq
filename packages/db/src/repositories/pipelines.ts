@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, gt, inArray, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import {
+  pipelineApprovals as approvals,
   pipelineArtifacts as artifacts,
   teamSshKeys as keys,
   pipelineLogs as logs,
@@ -19,6 +20,7 @@ export type PipelineStepRow = typeof steps.$inferSelect;
 export type PipelineLogRow = typeof logs.$inferSelect;
 export type PipelineArtifactRow = typeof artifacts.$inferSelect;
 export type PipelineTriggerRow = typeof triggers.$inferSelect;
+export type PipelineApprovalRow = typeof approvals.$inferSelect;
 
 /** See `vault.ts`: one write transaction at a time per handle, because libsql's
  * synchronous BEGIN IMMEDIATE deadlocks a second in-process transaction. */
@@ -203,11 +205,11 @@ export function pipelineRepository(db: ZelyqDb) {
         const [row] = await db.update(runs).set(patch).where(eq(runs.id, id)).returning();
         return row ?? null;
       },
-      async countRunningOn(runnerId: string): Promise<number> {
+      async countRunningOn(runnerId: string, statuses: string[] = ["running"]): Promise<number> {
         const [row] = await db
           .select({ count: sql<number>`count(*)` })
           .from(runs)
-          .where(and(eq(runs.runnerId, runnerId), eq(runs.status, "running")));
+          .where(and(eq(runs.runnerId, runnerId), inArray(runs.status, statuses)));
         return Number(row?.count ?? 0);
       },
     },
@@ -287,6 +289,45 @@ export function pipelineRepository(db: ZelyqDb) {
       },
       async findById(id: string): Promise<PipelineArtifactRow | null> {
         return (await db.select().from(artifacts).where(eq(artifacts.id, id)).limit(1))[0] ?? null;
+      },
+    },
+
+    // ------------------------------------------------------------ approvals
+    approvals: {
+      async create(row: PipelineApprovalRow): Promise<PipelineApprovalRow> {
+        await db.insert(approvals).values(row);
+        return row;
+      },
+      async listForRun(runId: string): Promise<PipelineApprovalRow[]> {
+        return await db
+          .select()
+          .from(approvals)
+          .where(eq(approvals.runId, runId))
+          .orderBy(asc(approvals.createdAt));
+      },
+      async findByStep(stepId: string): Promise<PipelineApprovalRow | null> {
+        return (
+          (await db.select().from(approvals).where(eq(approvals.stepId, stepId)).limit(1))[0] ??
+          null
+        );
+      },
+      async findById(id: string): Promise<PipelineApprovalRow | null> {
+        return (await db.select().from(approvals).where(eq(approvals.id, id)).limit(1))[0] ?? null;
+      },
+      /** Records the answer, only if nobody answered first. */
+      async decide(
+        id: string,
+        decision: "approved" | "rejected" | "timed_out",
+        decidedBy: string | null,
+        comment: string | null,
+        now: string,
+      ): Promise<PipelineApprovalRow | null> {
+        const [row] = await db
+          .update(approvals)
+          .set({ decision, decidedBy, comment, decidedAt: now })
+          .where(and(eq(approvals.id, id), isNull(approvals.decision)))
+          .returning();
+        return row ?? null;
       },
     },
 

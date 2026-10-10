@@ -1,4 +1,5 @@
 import {
+  type Approvers,
   newId,
   type PipelineActor,
   type PipelineDetail,
@@ -10,19 +11,30 @@ import {
   parsePipelineFile,
   pipelineTarget,
   pipelineVaultNames,
+  type Role,
+  type RunApproval,
   type RunLogLine,
   type RunStatus,
   type RunStep,
   type RunTrigger,
+  resolveToolVersion,
+  roleAtLeast,
+  type StepKind,
   type StepStatus,
+  stepKind,
+  stepLabel,
   summariseStages,
+  toolReleases,
   type User,
   ZelyqError,
 } from "@zelyq/core";
 import type { PipelineRow, PipelineRunRow, PipelineStepRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
 import type { VaultService } from "../vault.js";
-import { type PipelineEngine, stepLabel } from "./engine.js";
+import type { PipelineEngine } from "./engine.js";
+
+/** A run that has not ended yet. */
+const ACTIVE = new Set(["queued", "running", "waiting"]);
 
 export interface PipelineCheck {
   ok: boolean;
@@ -140,7 +152,7 @@ export class PipelineService {
     await this.access.requireTeamRole(user, teamId, "editor");
     const row = await this.find(teamId, pipelineId);
     const runs = await this.store.pipelines.runs.listForPipeline(row.id, 20);
-    if (runs.some((run) => run.status === "running" || run.status === "queued")) {
+    if (runs.some((run) => ACTIVE.has(run.status))) {
       throw new ZelyqError("conflict", "This pipeline has a run in progress. Cancel it first.");
     }
     await this.store.pipelines.pipelines.remove(row.id);
@@ -212,10 +224,11 @@ export class PipelineService {
     pipelineId: string,
     trigger: Exclude<RunTrigger, "manual" | "rerun">,
     ref: string | null,
+    branch: string | null = null,
   ): Promise<PipelineRunSummary> {
     const pipeline = await this.store.pipelines.pipelines.findById(pipelineId);
     if (!pipeline) throw ZelyqError.notFound("Pipeline", pipelineId);
-    return this.enqueue(pipeline, { trigger, triggeredBy: null, ref });
+    return this.enqueue(pipeline, { trigger, triggeredBy: null, ref, branch });
   }
 
   /** A run asked for by a service key with the `pipelines` scope, for its own team only. */
@@ -231,7 +244,7 @@ export class PipelineService {
   async cancel(user: User, teamId: string, runId: string): Promise<PipelineRunSummary> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const run = await this.findRun(teamId, runId);
-    if (run.status !== "queued" && run.status !== "running") {
+    if (!ACTIVE.has(run.status)) {
       throw ZelyqError.badRequest("This run has already finished.");
     }
     await this.engine.cancel(run);
@@ -275,6 +288,7 @@ export class PipelineService {
         stepIndex: step.stepIndex,
         stage: step.stage,
         name: step.name,
+        kind: step.kind as StepKind,
         status: step.status as StepStatus,
         exitCode: step.exitCode,
         startedAt: step.startedAt,
@@ -285,7 +299,77 @@ export class PipelineService {
         name: artifact.name,
         sizeBytes: artifact.sizeBytes,
       })),
+      approvals: await this.presentApprovals(user, teamId, run),
     };
+  }
+
+  /** The run's approval steps, and whether this person may answer the open one. */
+  private async presentApprovals(
+    user: User,
+    teamId: string,
+    run: PipelineRunRow,
+  ): Promise<RunApproval[]> {
+    const rows = await this.store.pipelines.approvals.listForRun(run.id);
+    if (rows.length === 0) return [];
+    const role = await this.store.teams.roleOf(teamId, user.id);
+    const actors = await this.actors(rows.map((row) => row.decidedBy));
+    return rows.map((row) => ({
+      id: row.id,
+      stepId: row.stepId,
+      message: row.message,
+      approvers: row.approvers as Approvers,
+      allowSelf: row.allowSelf,
+      deadline: row.deadline,
+      decision: row.decision as RunApproval["decision"],
+      decidedBy: row.decidedBy ? (actors.get(row.decidedBy) ?? null) : null,
+      comment: row.comment,
+      decidedAt: row.decidedAt,
+      canDecide: !row.decision && mayApprove(row, run, user, role) === null,
+    }));
+  }
+
+  /**
+   * Answers an approval. Who may answer is checked now, with the person's role
+   * today — not when the run started — and only a person can answer, never a
+   * service key.
+   */
+  async decide(
+    user: User,
+    teamId: string,
+    runId: string,
+    approvalId: string,
+    decision: "approved" | "rejected",
+    comment: string | null,
+  ): Promise<PipelineRunDetail> {
+    const role = await this.access.requireTeamRole(user, teamId, "viewer");
+    const run = await this.findRun(teamId, runId);
+    const approval = await this.store.pipelines.approvals.findById(approvalId);
+    if (!approval || approval.runId !== run.id) throw ZelyqError.notFound("Approval", approvalId);
+    if (approval.decision) throw new ZelyqError("conflict", "This has already been answered.");
+    if (run.status !== "waiting")
+      throw new ZelyqError("conflict", "This run is not waiting for an answer.");
+    const refusal = mayApprove(approval, run, user, role);
+    if (refusal) throw new ZelyqError("forbidden", refusal);
+    const decided = await this.store.pipelines.approvals.decide(
+      approval.id,
+      decision,
+      user.id,
+      comment?.trim() || null,
+      new Date().toISOString(),
+    );
+    if (!decided) throw new ZelyqError("conflict", "Someone answered first.");
+    this.engine.decided(run.id);
+    const pipeline = await this.store.pipelines.pipelines.findById(run.pipelineId);
+    await this.access.recordChange(user, {
+      teamId,
+      action: decision === "approved" ? "pipeline.run_approved" : "pipeline.run_rejected",
+      detail: {
+        label: pipeline?.name ?? run.pipelineId,
+        run: run.number,
+        message: approval.message,
+      },
+    });
+    return this.getRun(user, teamId, run.id);
   }
 
   /** Log lines after a sequence number; `done` once the run has ended and all is read. */
@@ -298,7 +382,7 @@ export class PipelineService {
     await this.access.requireTeamRole(user, teamId, "viewer");
     const run = await this.findRun(teamId, runId);
     const rows = await this.store.pipelines.logs.after(run.id, after);
-    const finished = run.status !== "queued" && run.status !== "running";
+    const finished = !ACTIVE.has(run.status);
     return {
       lines: rows.map((row) => ({
         seq: row.seq,
@@ -358,6 +442,8 @@ export class PipelineService {
       trigger: RunTrigger;
       triggeredBy: string | null;
       ref: string | null;
+      /** The branch a run is for, which its caches belong to. */
+      branch?: string | null;
       fromStage?: number | null;
       source?: string;
     },
@@ -380,6 +466,7 @@ export class PipelineService {
         runnerName: null,
         source,
         ref: input.ref,
+        branch: input.branch ?? null,
         fromStage: input.fromStage ?? null,
         error: null,
         logBytes: 0,
@@ -394,6 +481,7 @@ export class PipelineService {
           stepIndex,
           stage: stage.name,
           name: stepLabel(step),
+          kind: stepKind(step),
           status: "pending",
           exitCode: null,
           startedAt: null,
@@ -443,6 +531,23 @@ export class PipelineService {
       );
       if (found.length === 0) warnings.push(`There is no app called ${app} in this team.`);
       if (found.length > 1) warnings.push(`Two apps are called ${app}; use the app's id instead.`);
+    }
+    const steps = file.stages.flatMap((stage) => stage.steps);
+    for (const step of steps) {
+      if (step.setup?.version && !resolveToolVersion(step.setup.tool, step.setup.version)) {
+        warnings.push(
+          `${step.setup.tool} ${step.setup.version} is not on the approved tools list. Approved: ${toolReleases(
+            step.setup.tool,
+          )
+            .map((release) => release.version)
+            .join(", ")}.`,
+        );
+      }
+    }
+    if (pipelineTarget(file).kind === "local" && steps.some((step) => step.docker)) {
+      warnings.push(
+        "docker steps need a machine with Docker; the local runner's container has none. Use an SSH runner (runs-on: [docker]).",
+      );
     }
     const target = pipelineTarget(file);
     if (
@@ -530,4 +635,23 @@ export class PipelineService {
       stages: summariseStages(steps as RunStep[]),
     };
   }
+}
+
+/** Why this person may not answer this approval, or null when they may. */
+function mayApprove(
+  approval: { approvers: string; allowSelf: boolean },
+  run: { triggeredBy: string | null },
+  user: User,
+  role: Role | null,
+): string | null {
+  const needed: Role = approval.approvers === "editors" ? "editor" : "admin";
+  if (!role || !roleAtLeast(role, needed)) {
+    return approval.approvers === "editors"
+      ? "Only editors, admins and owners can answer this."
+      : "Only the team's admins and owners can answer this.";
+  }
+  if (!approval.allowSelf && run.triggeredBy === user.id) {
+    return "This one needs someone other than the person who started the run.";
+  }
+  return null;
 }

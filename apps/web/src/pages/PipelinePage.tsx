@@ -334,7 +334,23 @@ artifacts:
     path: dist               # kept for download after the run
 notify:
   webhook: vault://SLACK_WEBHOOK   # Slack, Discord or any URL
-  on: [failed]`}</pre>
+  on: [failed, waiting]`}</pre>
+      <p className="mt-3 font-medium text-fg">Built-in steps</p>
+      <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`- setup: node@22             # also node@lts, python@3.12, java@21, go@1.26
+- setup: node                # the version in .nvmrc / .node-version
+- cache: node_modules        # kept between runs; also .venv, ~/.m2, …
+- cache: {path: build/deps, key: deps.lock}
+- docker:                    # needs a runner with Docker
+    image: registry.example.com/team/app
+    tags: [latest, "$ZELYQ_RUN_NUMBER"]
+    push: true
+    login: {username: deploy, password: vault://REGISTRY_PASSWORD}
+- approval: Deploy to production?   # waits for an admin's Approve
+- approval:
+    message: Ship it?
+    approvers: editors       # admins (default) or editors
+    timeout: 4h              # default 24h, at most 7d
+    allow-self: false        # someone else than who started the run`}</pre>
     </details>
   );
 }

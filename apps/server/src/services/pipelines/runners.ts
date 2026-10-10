@@ -1,6 +1,7 @@
 import {
   newId,
   RUNNER_OS,
+  type RunnerDisk,
   type RunnerOs,
   type RunnerSummary,
   type RunnerTestResult,
@@ -14,6 +15,7 @@ import {
 import type { RunnerRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
 import type { TeamSshKeyService } from "./keys.js";
+import { shellCommand } from "./scripts.js";
 import {
   hostKeyFingerprint,
   type MachineFacts,
@@ -148,7 +150,8 @@ export class RunnerService {
   async remove(user: User, teamId: string, runnerId: string): Promise<void> {
     await this.access.requireTeamRole(user, teamId, "admin");
     const row = await this.find(teamId, runnerId);
-    if ((await this.store.pipelines.runs.countRunningOn(row.id)) > 0) {
+    // A waiting run's files are on this machine too.
+    if ((await this.store.pipelines.runs.countRunningOn(row.id, ["running", "waiting"])) > 0) {
       throw new ZelyqError(
         "conflict",
         `${row.name} is running a pipeline. Cancel it or wait, then remove the runner.`,
@@ -289,6 +292,79 @@ export class RunnerService {
     return this.present(updated);
   }
 
+  /** How much the tools and caches Zelyq keeps on the machine use, and the room left. */
+  async disk(user: User, teamId: string, runnerId: string): Promise<RunnerDisk> {
+    await this.access.requireTeamRole(user, teamId, "admin");
+    const row = await this.find(teamId, runnerId);
+    const session = await SshSession.open(await this.target(row));
+    try {
+      const windows = row.os === "windows";
+      // Windows gets its script as input: a | inside a cmd.exe command line is not safe.
+      const result = windows
+        ? await capturing(
+            session,
+            shellCommand("powershell"),
+            [
+              "$z = Join-Path $env:USERPROFILE 'zelyq'",
+              "function size($p) { if (Test-Path $p) { [int64](Get-ChildItem -LiteralPath $p -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Sum Length).Sum } else { 0 } }",
+              "$d = Get-PSDrive -Name $env:SystemDrive.Substring(0,1)",
+              "Write-Output ('{0} {1} {2} {3}' -f (size (Join-Path $z 'tools')), (size (Join-Path $z 'cache')), $d.Free, ($d.Free + $d.Used))",
+              "",
+            ].join("\r\n"),
+          )
+        : await session.capture(
+            `sh -c 'k() { [ -d "$1" ] && du -sk "$1" | cut -f1 || echo 0; }; set -- $(df -kP "$HOME" | tail -1); echo "$(( $(k "$HOME/zelyq/tools") * 1024 )) $(( $(k "$HOME/zelyq/cache") * 1024 )) $(( $4 * 1024 )) $(( $2 * 1024 ))"'`,
+            60_000,
+          );
+      const [tools, cache, free, total] = result.stdout.trim().split(/\s+/).map(Number);
+      return {
+        toolsBytes: tools || 0,
+        cacheBytes: cache || 0,
+        freeBytes: Number.isFinite(free) ? (free ?? null) : null,
+        totalBytes: Number.isFinite(total) ? (total ?? null) : null,
+      };
+    } finally {
+      session.close();
+    }
+  }
+
+  /** Removes the tools or the caches Zelyq keeps on the machine; the next run fetches again. */
+  async clearDisk(
+    user: User,
+    teamId: string,
+    runnerId: string,
+    what: "tools" | "cache",
+  ): Promise<RunnerDisk> {
+    await this.access.requireTeamRole(user, teamId, "admin");
+    const row = await this.find(teamId, runnerId);
+    if ((await this.store.pipelines.runs.countRunningOn(row.id, ["running", "waiting"])) > 0) {
+      throw new ZelyqError(
+        "conflict",
+        `${row.name} has a run in progress. Clear it once the run ends.`,
+      );
+    }
+    const session = await SshSession.open(await this.target(row));
+    try {
+      if (row.os === "windows") {
+        await capturing(
+          session,
+          shellCommand("powershell"),
+          `Remove-Item -LiteralPath (Join-Path (Join-Path $env:USERPROFILE 'zelyq') '${what}') -Recurse -Force -ErrorAction SilentlyContinue\r\n`,
+        );
+      } else {
+        await session.capture(`rm -rf "$HOME/zelyq/${what}"`, 120_000);
+      }
+    } finally {
+      session.close();
+    }
+    await this.access.recordChange(user, {
+      teamId,
+      action: "runner.updated",
+      detail: { label: row.name, cleared: what },
+    });
+    return this.disk(user, teamId, runnerId);
+  }
+
   /** How the engine reaches a runner. Server-internal. */
   async target(row: RunnerRow): Promise<SshTarget> {
     if (!row.hostKey)
@@ -358,4 +434,20 @@ function uniqueLabels(labels: string[]): string[] {
 function describe(facts: MachineFacts): string {
   const os = facts.os === "macos" ? "macOS" : facts.os === "windows" ? "Windows" : "Linux";
   return `${os} (${[...facts.shells, ...facts.tools].join(", ") || "no tools found"})`;
+}
+
+/** Runs a command with a script on its input, and collects what it prints. */
+async function capturing(
+  session: SshSession,
+  command: string,
+  stdin: string,
+): Promise<{ stdout: string }> {
+  let stdout = "";
+  await session.exec(command, {
+    stdin,
+    onStdout: (chunk) => {
+      stdout += chunk.toString("utf8");
+    },
+  });
+  return { stdout };
 }

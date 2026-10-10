@@ -30,6 +30,7 @@ artifacts:
 - [Where a pipeline runs](#where-a-pipeline-runs)
 - [Adding a machine (SSH runner)](#adding-a-machine-ssh-runner)
 - [The file](#the-file)
+- [Built-in steps](#built-in-steps): `setup`, `cache`, `docker`, `approval`
 - [Secrets](#secrets)
 - [Runs](#runs)
 - [Starting a run without pressing Run](#starting-a-run-without-pressing-run)
@@ -153,6 +154,106 @@ notify:
 
 The editor checks the file as you type, with line numbers. It also warns about things that will only
 stop a run, such as a secret not in Vault yet or a runner not added yet.
+
+## Built-in steps
+
+Besides `checkout` and `run`, four ready-made steps do common work the same way on Linux, macOS
+and Windows. Each is one line in the common case.
+
+### setup: a language at a version
+
+```yaml
+- setup: node@22          # newest approved 22.x
+- setup: node@lts         # newest long-term-support Node
+- setup: node             # the version in .nvmrc or .node-version, else lts
+- setup: python@3.12      # the version in .python-version when no version is given
+- setup: java@21          # Eclipse Temurin; sets JAVA_HOME
+- setup: go@1.26          # the version in go.mod when none is given; sets GOROOT
+```
+
+The tool is put at the front of `PATH` for every later step of the run.
+
+- Only versions on Zelyq's **approved tools list** can be installed. That list is
+  `packages/core/src/tools.json` in the Zelyq repository: for each version and each system (Linux,
+  macOS, Windows; Intel/AMD and ARM), the official download address and its SHA-256. A new tool or
+  version is proposed with a pull request; merging it is the approval. `scripts/tools-index.mjs`
+  builds the list from the official sources.
+- An SSH runner downloads the file itself, the first time, checks it against the approved SHA-256,
+  and keeps it in `~/zelyq/tools/`. Later runs on that machine use the copy and download nothing.
+  The machine needs `curl` or `wget` (Linux, macOS) or PowerShell (Windows).
+- For the local runner, the Zelyq server downloads the file once, checks it, and hands it to the
+  container.
+- Linux machines need glibc (Debian, Ubuntu, Fedora, Amazon Linux…); Alpine is not supported.
+
+### cache: keep a folder between runs
+
+```yaml
+- cache: node_modules          # decided by package-lock.json, yarn.lock or pnpm-lock.yaml
+- cache: .venv                 # requirements.txt, poetry.lock, uv.lock or Pipfile.lock
+- cache:
+    path: ~/.m2/repository     # a folder in the home folder is fine too
+    key: pom.xml               # one file or a list
+```
+
+- Where the step stands, the folder is **restored** if a copy saved with the same key files exists
+  (`Cache hit`). Otherwise the run goes on (`Cache miss`), and the folder is **saved at the end, only
+  if the run passed**.
+- A cache belongs to one pipeline and one branch. A run for a branch also uses the copy made for the
+  pipeline's default branch, but a branch never writes into another branch's cache.
+- On an SSH runner caches stay on that machine (`~/zelyq/cache/`), so a hit copies nothing over the
+  network. The local runner's caches are kept on the Zelyq server.
+- A cache larger than 2 GB is not saved; the three newest copies per folder are kept.
+
+### docker: build and push an image
+
+```yaml
+- docker:
+    image: registry.example.com/team/shop     # without a tag
+    tags: [latest, "$ZELYQ_RUN_NUMBER"]       # default [latest]
+    file: Dockerfile                          # default Dockerfile
+    context: .                                # default the step's folder
+    build-args:
+      NODE_ENV: production                    # never a secret: build arguments end up in the image
+    push: true                                # default false: build only
+    login:                                    # only for a private registry
+      registry: registry.example.com          # default: the host in image
+      username: deploy
+      password: vault://REGISTRY_PASSWORD
+```
+
+- It needs a runner with Docker (`runs-on: [docker]`). The local runner's container has none, and
+  the editor says so.
+- The password reaches Docker through its input only. The login is kept in a Docker folder of this
+  step only, inside the run's folder, and deleted when the step ends — never in the machine's own
+  `~/.docker`. The password shows as `***` in the log.
+
+### approval: wait for a person
+
+```yaml
+- approval: Deploy to production?
+- approval:
+    message: Ship it?
+    approvers: editors        # admins (default: admins and owners) or editors
+    timeout: 4h               # default 24h, at most 7d
+    allow-self: false         # someone other than the person who started the run
+```
+
+- The run shows **Waiting for approval**, with **Approve** and **Reject** (and a comment) for the
+  people who may answer. Who may answer is checked when they answer, with their role at that moment.
+  Service keys cannot answer.
+- **Approve**: the next step runs. **Reject**: the step fails and the run goes on as after any failure
+  (`if: failure()` stages run). **No answer** by the timeout: the step times out.
+- While it waits, the run holds no runner: other runs can use the machine. When approved, it continues
+  on the same machine, where its files are. The run's own `timeout` does not count the waiting time.
+- A run that is waiting when Zelyq restarts is still waiting afterwards. (On the local runner in a
+  container, the container does not survive a restart; that run fails and says so.)
+- With `notify:` on the pipeline, `on: [waiting]` sends a message when a run starts waiting.
+- Every answer is in the team's Activity.
+
+### Disk on a runner
+
+On **Runners**, **Disk** shows a machine's free space and how much Zelyq's tools and caches use, with
+a **Clear** button for each. Clearing is safe: the next run fetches what it needs again.
 
 ## Secrets
 

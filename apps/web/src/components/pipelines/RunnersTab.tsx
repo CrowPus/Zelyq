@@ -11,6 +11,7 @@ import {
 import {
   Check,
   Copy,
+  HardDrive,
   KeyRound,
   Pencil,
   Plug,
@@ -469,6 +470,7 @@ function RunnerRow({
           {runner.lastTest.message} ({formatRelative(runner.lastTest.at)})
         </p>
       )}
+      {confirmed && isAdmin && <DiskUse teamId={teamId} runnerId={runner.id} />}
       {confirmed && (
         <p className="mt-1 flex items-center gap-1 text-2xs text-fg-muted">
           <ShieldCheck size={12} /> Only talks to {runner.hostKeyFingerprint}
@@ -504,5 +506,86 @@ function RunnerRow({
       )}
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     </li>
+  );
+}
+
+/** What Zelyq keeps on the machine (tools, caches) and the room left, on request. */
+function DiskUse({ teamId, runnerId }: { teamId: string; runnerId: string }) {
+  const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const disk = useQuery({
+    queryKey: ["runner-disk", teamId, runnerId],
+    queryFn: () => api.runners.disk(teamId, runnerId),
+    enabled: open,
+  });
+  const clear = useMutation({
+    mutationFn: (what: "tools" | "cache") => api.runners.clearDisk(teamId, runnerId, what),
+    onSuccess: (next) => queryClient.setQueryData(["runner-disk", teamId, runnerId], next),
+  });
+  const size = (bytes: number | null) =>
+    bytes === null
+      ? "?"
+      : bytes >= 1024 ** 3
+        ? `${(bytes / 1024 ** 3).toFixed(1)} GB`
+        : `${Math.round(bytes / 1024 ** 2)} MB`;
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-1 flex items-center gap-1 text-2xs text-fg-secondary hover:underline"
+      >
+        <HardDrive size={12} /> Disk
+      </button>
+    );
+  }
+  const data = disk.data?.disk;
+  const used =
+    data?.totalBytes && data.freeBytes !== null ? 1 - data.freeBytes / data.totalBytes : null;
+  return (
+    <div className="mt-2 rounded border border-border-default p-2 text-xs">
+      {disk.isLoading ? (
+        <Spinner />
+      ) : disk.error ? (
+        <p className="text-danger">{vaultErrorMessage(disk.error)}</p>
+      ) : data ? (
+        <div className="grid gap-1">
+          <p className={used !== null && used > 0.85 ? "font-medium text-warning" : ""}>
+            <HardDrive size={12} className="mr-1 inline" />
+            {size(data.freeBytes)} free of {size(data.totalBytes)}
+            {used !== null && ` (${Math.round(used * 100)}% used)`}
+            {used !== null && used > 0.85 && " — builds may run out of space."}
+          </p>
+          {(["tools", "cache"] as const).map((what) => (
+            <p key={what} className="flex items-center gap-2">
+              <span className="w-28">{what === "tools" ? "Tools (setup)" : "Caches"}</span>
+              <span className="w-16 text-fg-secondary">
+                {size(what === "tools" ? data.toolsBytes : data.cacheBytes)}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={
+                  clear.isPending || (what === "tools" ? data.toolsBytes : data.cacheBytes) === 0
+                }
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Remove all ${what === "tools" ? "tools" : "caches"} from this machine? The next run fetches them again.`,
+                    )
+                  ) {
+                    clear.mutate(what);
+                  }
+                }}
+              >
+                Clear
+              </Button>
+            </p>
+          ))}
+          {clear.error && <p className="text-danger">{vaultErrorMessage(clear.error)}</p>}
+        </div>
+      ) : null}
+    </div>
   );
 }

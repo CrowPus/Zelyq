@@ -51,6 +51,8 @@ export interface StepScriptInput {
   /** Relative to the workspace, already validated not to escape it. */
   workingDirectory?: string;
   env: Record<string, string>;
+  /** Folders put in front of PATH, in order (from setup steps). */
+  path?: string[];
   /** The step's own commands. */
   commands: string;
 }
@@ -70,6 +72,7 @@ export function stepScript(input: StepScriptInput): string {
     return [
       "export TERM=dumb NO_COLOR=1 CI=true",
       ...Object.entries(input.env).map(([name, value]) => `export ${name}=${posixQuote(value)}`),
+      ...(input.path?.length ? [`export PATH=${posixQuote(input.path.join(":"))}:"$PATH"`] : []),
       // Strict before cd: a step whose folder is missing fails, rather than
       // running somewhere else.
       strict,
@@ -89,6 +92,9 @@ export function stepScript(input: StepScriptInput): string {
     "$ProgressPreference = 'SilentlyContinue'",
     "$env:TERM = 'dumb'; $env:NO_COLOR = '1'; $env:CI = 'true'",
     ...Object.entries(input.env).map(([name, value]) => `$env:${name} = ${psQuote(value)}`),
+    ...(input.path?.length
+      ? [`$env:PATH = ${psQuote(`${input.path.join(";")};`)} + $env:PATH`]
+      : []),
     `Set-Location -LiteralPath ${psQuote(dir.replaceAll("/", "\\"))}`,
     `Set-Content -LiteralPath ${psQuote(`${input.workspace}\\.zelyq-step`)} -Value $PID`,
     "try {",

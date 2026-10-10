@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -44,6 +45,15 @@ import {
   workspacePath,
 } from "./scripts.js";
 import { probeMachine, SshSession } from "./ssh.js";
+import {
+  applyTool,
+  type Machine,
+  type RunState,
+  runStepKind,
+  type StepContext,
+  type StepResult,
+} from "./steps.js";
+import type { ToolService } from "./tools.js";
 
 /**
  * The pipeline engine: takes queued runs, finds each a runner with room, and
@@ -73,6 +83,10 @@ export interface EngineDeps {
   log: { info(message: string): void; error(object: unknown, message: string): void };
   /** The public address, for links in notifications. */
   publicUrl?: string;
+  /** Where setup gets tools. */
+  tools: ToolService;
+  /** The local runner's caches, on this server. */
+  cacheDir: string;
 }
 
 type EndReason = "cancelled" | "timed_out";
@@ -81,17 +95,67 @@ interface ActiveRun {
   controller: AbortController;
   reason: EndReason | null;
   runnerKey: string;
+  /** Whether the run counts against its runner now (not while it waits for a person). */
+  holding: boolean;
+  /** True while it waits for an approval: a shutdown leaves it waiting. */
+  waiting?: boolean;
 }
 
-/** What a step is called in the run's list, when the file does not name it. */
-export function stepLabel(step: PipelineStep): string {
-  if (step.name) return step.name;
-  if (step.checkout) return "Checkout";
-  const first = (step.run ?? "").trim().split("\n")[0] ?? "";
-  return first.length > 60 ? `${first.slice(0, 57)}…` : first || "Run";
+/** Step states that are over: on a resume they are not run again. */
+const FINISHED = new Set<StepStatus>(["passed", "failed", "skipped", "cancelled", "timed_out"]);
+
+/** Whether a step's ending makes the rest of the run "after a failure". */
+function isFailure(status: StepStatus, step: PipelineStep): boolean {
+  if (status === "timed_out" || status === "cancelled") return true;
+  return status === "failed" && !step["continue-on-error"];
+}
+
+/** The run's time limit, which stands still while the run waits for a person. */
+class RunClock {
+  private left: number;
+  private since: number | null = Date.now();
+  private timer: NodeJS.Timeout | null = null;
+
+  constructor(
+    limitMs: number,
+    private readonly onTimeout: () => void,
+  ) {
+    this.left = limitMs;
+    this.arm();
+  }
+
+  remainingMs(): number {
+    return Math.max(0, this.left - (this.since === null ? 0 : Date.now() - this.since));
+  }
+
+  pause(): void {
+    if (this.since === null) return;
+    this.left = this.remainingMs();
+    this.since = null;
+    if (this.timer) clearTimeout(this.timer);
+  }
+
+  resume(): void {
+    if (this.since !== null) return;
+    this.since = Date.now();
+    this.arm();
+  }
+
+  stop(): void {
+    this.since = null;
+    if (this.timer) clearTimeout(this.timer);
+  }
+
+  private arm(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(this.onTimeout, this.left);
+  }
 }
 
 class RunError extends Error {}
+
+/** Leaves a waiting run as it is: Zelyq is shutting down, and the next start resumes it. */
+class Suspended extends Error {}
 
 export class PipelineEngine {
   private readonly active = new Map<string, ActiveRun>();
@@ -102,8 +166,18 @@ export class PipelineEngine {
   private again = false;
   private closed = false;
   private docker: { at: number; ok: boolean } | null = null;
+  /** Wakes a run waiting for an approval, by run id. */
+  private readonly waiters = new Map<string, () => void>();
 
-  constructor(private readonly deps: EngineDeps) {}
+  /** This Zelyq's identity on the host: its data folder, hashed. */
+  private readonly instance: string;
+
+  constructor(private readonly deps: EngineDeps) {
+    this.instance = createHash("sha256")
+      .update(path.resolve(deps.artifactsDir))
+      .digest("hex")
+      .slice(0, 16);
+  }
 
   /** Recovers from a previous process, then starts taking runs. */
   async start(): Promise<void> {
@@ -116,7 +190,13 @@ export class PipelineEngine {
         finishedAt: now,
       });
     }
-    await removeStalePipelineContainers().catch(() => 0);
+    await removeStalePipelineContainers(this.instance).catch(() => 0);
+    // A run waiting for a person keeps waiting across a restart.
+    for (const run of await this.deps.store.pipelines.runs.listByStatus("waiting")) {
+      await this.resumeWaiting(run).catch((error) =>
+        this.deps.log.error(error, `pipeline run ${run.id} could not resume`),
+      );
+    }
     this.timer = setInterval(() => this.wake(), TICK_MS);
     this.wake();
   }
@@ -124,12 +204,16 @@ export class PipelineEngine {
   async close(): Promise<void> {
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
+    // A run waiting for a person is doing nothing: it stays waiting, and the
+    // next start picks it up. Everything else is stopped.
+    for (const wake of this.waiters.values()) wake();
     for (const run of this.active.values()) {
+      if (run.waiting) continue;
       run.reason = "cancelled";
       run.controller.abort();
     }
     const deadline = Date.now() + STOP_GRACE_MS * 3;
-    while (this.active.size > 0 && Date.now() < deadline) {
+    while ([...this.active.values()].some((run) => !run.waiting) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
@@ -212,16 +296,67 @@ export class PipelineEngine {
       if (!claimed) continue;
       const key = placement.runner?.id ?? "local";
       this.busy.set(key, (this.busy.get(key) ?? 0) + 1);
-      const active: ActiveRun = { controller: new AbortController(), reason: null, runnerKey: key };
-      this.active.set(run.id, active);
-      void this.execute(claimed, parsed.file, placement.runner, active)
-        .catch((error) => this.deps.log.error(error, `pipeline run ${run.id} failed unexpectedly`))
-        .finally(() => {
-          this.active.delete(run.id);
-          this.busy.set(key, Math.max(0, (this.busy.get(key) ?? 1) - 1));
-          this.wake();
-        });
+      const active: ActiveRun = {
+        controller: new AbortController(),
+        reason: null,
+        runnerKey: key,
+        holding: true,
+      };
+      this.launch(claimed, parsed.file, placement.runner, active, false);
     }
+  }
+
+  private launch(
+    run: PipelineRunRow,
+    file: PipelineFile,
+    runner: RunnerRow | null,
+    active: ActiveRun,
+    resume: boolean,
+  ): void {
+    this.active.set(run.id, active);
+    void this.execute(run, file, runner, active, resume)
+      .catch((error) => this.deps.log.error(error, `pipeline run ${run.id} failed unexpectedly`))
+      .finally(() => {
+        this.active.delete(run.id);
+        this.release(active);
+        this.wake();
+      });
+  }
+
+  /** Picks a waiting run up again after a restart, holding nothing until approved. */
+  private async resumeWaiting(run: PipelineRunRow): Promise<void> {
+    const parsed = parsePipelineFile(run.source);
+    const runner = run.runnerId
+      ? await this.deps.store.pipelines.runners.findById(run.runnerId)
+      : null;
+    const lost = !parsed.ok
+      ? "The pipeline file is not valid any more."
+      : run.runnerId && !runner
+        ? "Its runner was removed while it waited."
+        : !run.runnerId && (await this.deps.settings.value("pipelineLocalRunner")) !== "host"
+          ? "Its local container was lost when Zelyq restarted; run it again."
+          : null;
+    if (lost || !parsed.ok) {
+      await this.finishSteps(run.id, "skipped");
+      await this.deps.store.pipelines.runs.update(run.id, {
+        status: "failed",
+        error: lost,
+        finishedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    this.launch(
+      run,
+      parsed.file,
+      runner,
+      {
+        controller: new AbortController(),
+        reason: null,
+        runnerKey: runner?.id ?? "local",
+        holding: false,
+      },
+      true,
+    );
   }
 
   /** Which runner takes this run: one with room now, later, or none at all. */
@@ -315,22 +450,53 @@ export class PipelineEngine {
     file: PipelineFile,
     runner: RunnerRow | null,
     active: ActiveRun,
+    resume = false,
   ): Promise<void> {
     const store = this.deps.store;
     const log = new RunLog(store, run.id, await store.pipelines.logs.lastSeq(run.id));
     const steps = await store.pipelines.steps.list(run.id);
-    let machine: (PipelineMachine & { shells: string[] | null }) | null = null;
+    const state: RunState = { path: [], env: {}, post: [] };
+    let machine: Machine | null = null;
     let status: RunStatus = "passed";
     let error: string | null = null;
     let masker = new Masker([]);
-    const timeout = setTimeout(
-      () => {
-        active.reason ??= "timed_out";
-        active.controller.abort();
-      },
-      (file.timeout ?? DEFAULT_RUN_TIMEOUT_S) * 1000,
-    );
-    const deadline = Date.now() + (file.timeout ?? DEFAULT_RUN_TIMEOUT_S) * 1000;
+    const clock = new RunClock((file.timeout ?? DEFAULT_RUN_TIMEOUT_S) * 1000, () => {
+      active.reason ??= "timed_out";
+      active.controller.abort();
+    });
+
+    /** The machine, opened the first time a step needs it, and again after a wait. */
+    const ensureMachine = async (): Promise<Machine> => {
+      if (machine) {
+        if (!active.holding) await this.reacquire(run, runner, active);
+        return machine;
+      }
+      if (!active.holding) await this.reacquire(run, runner, active);
+      if (runner) {
+        log.add(null, "system", `Connecting to ${runner.username}@${runner.host}:${runner.port}.`);
+      } else if ((await this.deps.settings.value("pipelineLocalRunner")) !== "host") {
+        const image = (await this.deps.settings.value("pipelineLocalImage")) || "node:22-bookworm";
+        log.add(null, "system", `Starting a container from ${image} (the first run downloads it).`);
+      }
+      await log.flush();
+      const opened = await this.openMachine(run, runner);
+      const prepared = await opened.exec(prepareCommand(opened.os, opened.workspace));
+      if (prepared.code !== 0) {
+        await opened.close().catch(() => undefined);
+        throw new RunError(`Could not create the run's folder ${opened.workspace}.`);
+      }
+      machine = opened;
+      return opened;
+    };
+    /** Gives the runner back while the run waits for a person. A local
+     * container is kept (its files are the run's), but stops counting. */
+    const releaseMachine = async () => {
+      if (machine && runner) {
+        await machine.close().catch(() => undefined);
+        machine = null;
+      }
+      this.release(active);
+    };
 
     try {
       const secrets = await this.resolveSecrets(run, file);
@@ -348,20 +514,10 @@ export class PipelineEngine {
       log.add(
         null,
         "system",
-        `Run #${run.number} on ${runner ? runner.name : "the local runner"}.`,
+        resume
+          ? `Run #${run.number} continues after Zelyq restarted.`
+          : `Run #${run.number} on ${runner ? runner.name : "the local runner"}.`,
       );
-      if (!runner && (await this.deps.settings.value("pipelineLocalRunner")) !== "host") {
-        const image = (await this.deps.settings.value("pipelineLocalImage")) || "node:22-bookworm";
-        log.add(null, "system", `Starting a container from ${image} (the first run downloads it).`);
-      } else if (runner) {
-        log.add(null, "system", `Connecting to ${runner.username}@${runner.host}:${runner.port}.`);
-      }
-      await log.flush();
-      machine = await this.openMachine(run, runner);
-      if (active.controller.signal.aborted) throw new RunError("Stopped before the first step.");
-      const prepared = await machine.exec(prepareCommand(machine.os, machine.workspace));
-      if (prepared.code !== 0)
-        throw new RunError(`Could not create the run's folder ${machine.workspace}.`);
 
       let failed = false;
       for (const [stageIndex, stage] of file.stages.entries()) {
@@ -371,6 +527,14 @@ export class PipelineEngine {
         for (const [stepIndex, step] of stage.steps.entries()) {
           const row = stageRows.find((candidate) => candidate.stepIndex === stepIndex);
           if (!row) continue;
+          // After a restart, what already happened stands.
+          if (resume && FINISHED.has(row.status as StepStatus)) {
+            if (isFailure(row.status as StepStatus, step)) failed = true;
+            if (row.status === "passed" && step.setup) {
+              await this.restoreSetup(step, await ensureMachine(), state);
+            }
+            continue;
+          }
           // On a re-run from a later stage, earlier stages only fetch the source again.
           const skip =
             !stageRuns ||
@@ -382,45 +546,74 @@ export class PipelineEngine {
             await store.pipelines.steps.update(row.id, { status: "skipped" });
             continue;
           }
-          const outcome = await this.runStep({
-            run,
-            file,
-            step,
-            row,
-            stageName: stage.name,
-            machine,
-            secrets,
-            masker,
-            log,
-            active,
-            deadline,
-          });
-          if (outcome === "failed" && !step["continue-on-error"]) failed = true;
-          if (outcome === "timed_out" || outcome === "cancelled") failed = true;
+          let outcome: StepStatus;
+          if (step.approval) {
+            outcome = await this.awaitApproval({
+              run,
+              file,
+              row,
+              stageName: stage.name,
+              approval: step.approval,
+              log,
+              active,
+              clock,
+              release: releaseMachine,
+            });
+          } else {
+            outcome = await this.runStep({
+              run,
+              file,
+              step,
+              row,
+              stageName: stage.name,
+              machine: await ensureMachine(),
+              secrets,
+              masker,
+              log,
+              active,
+              clock,
+              state,
+            });
+          }
+          if (isFailure(outcome, step)) failed = true;
         }
+      }
+      if (!failed && !active.controller.signal.aborted && machine) {
+        for (const work of state.post) await work(machine, log);
       }
       status = active.reason ?? (failed ? "failed" : "passed");
       if (active.reason === "timed_out") error = `The run took longer than its timeout.`;
     } catch (caught) {
+      if (caught instanceof Suspended) {
+        clock.stop();
+        log.add(null, "system", "Zelyq is restarting; the run keeps waiting.");
+        await log.close();
+        const kept = machine as Machine | null;
+        if (kept) await kept.close().catch(() => undefined);
+        return;
+      }
       status = active.reason ?? "failed";
       error = masker.mask(caught instanceof Error ? caught.message : String(caught));
       log.add(null, "system", error);
     } finally {
-      clearTimeout(timeout);
+      clock.stop();
     }
 
-    if (machine) {
-      if (file.artifacts?.length) await this.collectArtifacts(run, file, machine, log);
+    const finalMachine = machine as Machine | null;
+    if (finalMachine) {
+      if (file.artifacts?.length) await this.collectArtifacts(run, file, finalMachine, log);
       if (status === "passed") {
-        await machine.exec(cleanupCommand(machine.os, machine.workspace)).catch(() => undefined);
+        await finalMachine
+          .exec(cleanupCommand(finalMachine.os, finalMachine.workspace))
+          .catch(() => undefined);
       } else if (runner) {
         log.add(
           null,
           "system",
-          `The run's folder is kept on ${runner.name} for a look: ${machine.workspace}`,
+          `The run's folder is kept on ${runner.name} for a look: ${finalMachine.workspace}`,
         );
       }
-      await machine.close().catch(() => undefined);
+      await finalMachine.close().catch(() => undefined);
     }
 
     await this.finishSteps(run.id, status === "cancelled" ? "cancelled" : "skipped");
@@ -438,20 +631,180 @@ export class PipelineEngine {
     }
   }
 
+  /** Stops counting a run against its runner (it is waiting for a person). */
+  private release(active: ActiveRun): void {
+    if (!active.holding) return;
+    active.holding = false;
+    this.busy.set(active.runnerKey, Math.max(0, (this.busy.get(active.runnerKey) ?? 1) - 1));
+    this.wake();
+  }
+
+  /** Counts the run against its runner again, waiting for room on that same
+   * runner: the run's files are there. */
+  private async reacquire(
+    run: PipelineRunRow,
+    runner: RunnerRow | null,
+    active: ActiveRun,
+  ): Promise<void> {
+    if (active.holding) return;
+    if (runner) {
+      let announced = false;
+      for (;;) {
+        if (active.controller.signal.aborted)
+          throw new RunError("Stopped while waiting for a runner.");
+        const fresh = await this.deps.store.pipelines.runners.findById(runner.id);
+        if (!fresh) throw new RunError(`${runner.name} was removed while this run waited.`);
+        if ((this.busy.get(runner.id) ?? 0) < fresh.maxConcurrent) break;
+        if (!announced) {
+          announced = true;
+          const log = new RunLog(
+            this.deps.store,
+            run.id,
+            await this.deps.store.pipelines.logs.lastSeq(run.id),
+          );
+          log.add(null, "system", `Waiting for room on ${runner.name}.`);
+          await log.close();
+        }
+        await sleep(TICK_MS);
+      }
+    }
+    this.busy.set(active.runnerKey, (this.busy.get(active.runnerKey) ?? 0) + 1);
+    active.holding = true;
+  }
+
+  /** Called once an approval has been answered (or the server learns it was). */
+  decided(runId: string): void {
+    this.waiters.get(runId)?.();
+  }
+
+  private async awaitApproval(input: {
+    run: PipelineRunRow;
+    file: PipelineFile;
+    row: PipelineStepRow;
+    stageName: string;
+    approval: NonNullable<PipelineStep["approval"]>;
+    log: RunLog;
+    active: ActiveRun;
+    clock: RunClock;
+    release: () => Promise<void>;
+  }): Promise<StepStatus> {
+    const { run, row, approval, log, active } = input;
+    const store = this.deps.store;
+    const now = new Date();
+    let record = await store.pipelines.approvals.findByStep(row.id);
+    if (!record) {
+      record = await store.pipelines.approvals.create({
+        id: newId("pipelineApproval"),
+        runId: run.id,
+        stepId: row.id,
+        message: approval.message,
+        approvers: approval.approvers,
+        allowSelf: approval.allowSelf,
+        deadline: new Date(now.getTime() + approval.timeout * 1000).toISOString(),
+        decision: null,
+        decidedBy: null,
+        comment: null,
+        createdAt: now.toISOString(),
+        decidedAt: null,
+      });
+      log.add(row.id, "system", `${input.stageName} › ${row.name}`);
+      log.add(
+        row.id,
+        "system",
+        `Waiting for approval: "${approval.message}" — ${approval.approvers === "editors" ? "editors, admins and owners" : "admins and owners"} can answer${approval.allowSelf ? "" : ", but not the person who started the run"}.`,
+      );
+    }
+    await store.pipelines.steps.update(row.id, {
+      status: "waiting",
+      startedAt: row.startedAt ?? now.toISOString(),
+    });
+    const waitingRun = await store.pipelines.runs.update(run.id, { status: "waiting" });
+    await log.flush();
+    if (waitingRun && input.file.notify && !record.decision) {
+      await this.notify(waitingRun, input.file).catch((caught) =>
+        this.deps.log.error(caught, `pipeline run ${run.id}: notification failed`),
+      );
+    }
+    await input.release();
+    input.clock.pause();
+    active.waiting = true;
+
+    // Until someone answers, the time runs out, or the run is cancelled.
+    const deadline = Date.parse(record.deadline);
+    for (;;) {
+      const current = await store.pipelines.approvals.findById(record.id);
+      if (current?.decision) {
+        record = current;
+        break;
+      }
+      if (active.controller.signal.aborted || this.closed) break;
+      if (Date.now() >= deadline) {
+        record =
+          (await store.pipelines.approvals.decide(
+            record.id,
+            "timed_out",
+            null,
+            null,
+            new Date().toISOString(),
+          )) ??
+          (await store.pipelines.approvals.findById(record.id)) ??
+          record;
+        break;
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(done, Math.min(deadline - Date.now(), 30_000));
+        const onAbort = () => done();
+        function done() {
+          clearTimeout(timer);
+          active.controller.signal.removeEventListener("abort", onAbort);
+          resolve();
+        }
+        active.controller.signal.addEventListener("abort", onAbort, { once: true });
+        this.waiters.set(run.id, done);
+      });
+      this.waiters.delete(run.id);
+    }
+    active.waiting = false;
+    if (this.closed && !record.decision) throw new Suspended();
+    input.clock.resume();
+    await store.pipelines.runs.update(run.id, { status: "running" });
+
+    const finish = async (status: StepStatus) => {
+      await store.pipelines.steps.update(row.id, { status, finishedAt: new Date().toISOString() });
+      return status;
+    };
+    if (active.controller.signal.aborted && !record.decision)
+      return finish(active.reason ?? "cancelled");
+    const by = record.decidedBy ? await store.users.findById(record.decidedBy) : null;
+    const note = record.comment ? `: ${record.comment}` : ".";
+    switch (record.decision) {
+      case "approved":
+        log.add(row.id, "system", `Approved by ${by?.name ?? "someone"}${note}`);
+        return finish("passed");
+      case "rejected":
+        log.add(row.id, "system", `Rejected by ${by?.name ?? "someone"}${note}`);
+        return finish("failed");
+      default:
+        log.add(row.id, "system", "Nobody answered in time.");
+        return finish("timed_out");
+    }
+  }
+
   private async runStep(input: {
     run: PipelineRunRow;
     file: PipelineFile;
     step: PipelineStep;
     row: PipelineStepRow;
     stageName: string;
-    machine: PipelineMachine & { shells: string[] | null };
+    machine: Machine;
     secrets: Map<string, string>;
     masker: Masker;
     log: RunLog;
     active: ActiveRun;
-    deadline: number;
+    clock: RunClock;
+    state: RunState;
   }): Promise<StepStatus> {
-    const { run, file, step, row, machine, log, active } = input;
+    const { run, file, step, row, machine, log } = input;
     const store = this.deps.store;
     await store.pipelines.steps.update(row.id, {
       status: "running",
@@ -487,55 +840,86 @@ export class PipelineEngine {
       ZELYQ_RUN_NUMBER: String(run.number),
       ZELYQ_PIPELINE: file.name,
       ZELYQ_WORKSPACE: machine.workspace,
+      ...input.state.env,
     };
     for (const [name, value] of Object.entries({ ...file.env, ...step.env })) {
       const secret = vaultReferenceName(value);
       env[name] = secret ? (input.secrets.get(secret) ?? "") : value;
     }
 
-    let command: string;
-    let stdin: string | Buffer;
-    if (step.checkout && file.source?.app) {
-      const archive = await this.deps.runtime.archive(await this.appId(run, file.source.app));
-      await machine.exec(prepareCommand(machine.os, dir));
-      command = unpackCommand(machine.os, dir);
-      stdin = archive;
-      log.add(row.id, "system", `Copying ${file.source.app} (${formatBytes(archive.length)}).`);
-    } else if (step.checkout && file.source?.repo) {
-      await machine.exec(prepareCommand(machine.os, dir));
-      const checkout = checkoutCommands({
-        shell,
-        repo: file.source.repo,
-        ref: run.ref ?? file.source.ref ?? null,
-      });
-      const tokenName = file.source.token ? vaultReferenceName(file.source.token) : null;
-      Object.assign(env, checkout.env(tokenName ? (input.secrets.get(tokenName) ?? null) : null));
+    const context: StepContext = {
+      run,
+      file,
+      step,
+      stepId: row.id,
+      machine,
+      shell,
+      dir,
+      env,
+      state: input.state,
+      secrets: input.secrets,
+      system: (text) => log.add(row.id, "system", text),
+      exec: (command, stdin, options) =>
+        this.execInStep({ ...input, command, stdin, quiet: options?.quiet ?? false }),
+      script: (commands, extra = {}) =>
+        this.execInStep({
+          ...input,
+          command: shellCommand(shell),
+          stdin: stepScript({
+            shell,
+            workspace: machine.workspace,
+            workingDirectory: step["working-directory"],
+            env: { ...env, ...extra },
+            path: input.state.path,
+            commands,
+          }),
+          quiet: false,
+        }),
+      tools: this.deps.tools,
+      cacheDir: this.deps.cacheDir,
+      archive: (projectId) => this.deps.runtime.archive(projectId),
+      appId: (app) => this.appId(run, app),
+    };
+
+    let result: StepResult;
+    try {
+      result = await runStepKind(context);
+    } catch (caught) {
       log.add(
         row.id,
         "system",
-        `Fetching ${file.source.repo}${(run.ref ?? file.source.ref) ? ` at ${run.ref ?? file.source.ref}` : ""}.`,
+        input.masker.mask(caught instanceof Error ? caught.message : String(caught)),
       );
-      command = shellCommand(shell);
-      stdin = stepScript({
-        shell,
-        workspace: machine.workspace,
-        workingDirectory: step["working-directory"],
-        env,
-        commands: checkout.commands,
-      });
-    } else {
-      command = shellCommand(shell);
-      stdin = stepScript({
-        shell,
-        workspace: machine.workspace,
-        workingDirectory: step["working-directory"],
-        env,
-        commands: step.run ?? "",
-      });
+      return finish("failed", null);
     }
+    if (result.ended) return finish(result.ended, result.code);
+    if (result.code === 0) return finish("passed", 0);
+    if (result.code === null) {
+      log.add(row.id, "system", "The connection to the machine was lost during this step.");
+    } else {
+      log.add(row.id, "system", `Exited with code ${result.code}.`);
+    }
+    return finish("failed", result.code);
+  }
 
+  /** Runs one command for a step: output streamed (masked) into the step's
+   * log, and stopped — with everything it started — on timeout or Cancel. */
+  private async execInStep(input: {
+    step: PipelineStep;
+    row: PipelineStepRow;
+    machine: Machine;
+    masker: Masker;
+    log: RunLog;
+    active: ActiveRun;
+    clock: RunClock;
+    command: string;
+    stdin: PipelineExecOptions["stdin"];
+    quiet: boolean;
+  }): Promise<StepResult & { stdout: string }> {
+    const { step, row, machine, log, active } = input;
     const out = input.masker.fork();
     const err = input.masker.fork();
+    let stdout = "";
     let ended: EndReason | null = null;
     let done = false;
     const channel = new AbortController();
@@ -556,7 +940,7 @@ export class PipelineEngine {
     };
     const stepSeconds = Math.min(
       step.timeout ?? Number.POSITIVE_INFINITY,
-      (input.deadline - Date.now()) / 1000,
+      input.clock.remainingMs() / 1000,
     );
     const stepTimer = setTimeout(() => void stop("timed_out"), Math.max(0, stepSeconds * 1000));
     const onAbort = () => void stop(active.reason ?? "cancelled");
@@ -564,9 +948,13 @@ export class PipelineEngine {
     if (active.controller.signal.aborted) onAbort();
 
     const options: PipelineExecOptions = {
-      stdin,
+      stdin: input.stdin,
       signal: channel.signal,
       onStdout: (chunk) => {
+        if (input.quiet) {
+          stdout += chunk.toString("utf8");
+          return;
+        }
         for (const line of out.push(chunk)) log.add(row.id, "out", line);
       },
       onStderr: (chunk) => {
@@ -575,7 +963,7 @@ export class PipelineEngine {
     };
     let code: number | null = null;
     try {
-      code = (await machine.exec(command, options)).code;
+      code = (await machine.exec(input.command, options)).code;
     } catch (caught) {
       log.add(
         row.id,
@@ -589,15 +977,14 @@ export class PipelineEngine {
     }
     for (const line of out.flush()) log.add(row.id, "out", line);
     for (const line of err.flush()) log.add(row.id, "err", line);
+    return { code, ended, stdout };
+  }
 
-    if (ended) return finish(ended, code);
-    if (code === 0) return finish("passed", 0);
-    if (code === null) {
-      log.add(row.id, "system", "The connection to the machine was lost during this step.");
-    } else {
-      log.add(row.id, "system", `Exited with code ${code}.`);
-    }
-    return finish("failed", code);
+  /** After a restart: a setup step that already passed puts its tool back on PATH. */
+  private async restoreSetup(step: PipelineStep, machine: Machine, state: RunState): Promise<void> {
+    if (!step.setup) return;
+    const found = await this.deps.tools.locate(step.setup, machine);
+    if (found) applyTool(found, machine, state);
   }
 
   /** Every Vault secret the file names, read once at the start of the run. */
@@ -627,23 +1014,26 @@ export class PipelineEngine {
     return values;
   }
 
-  private async openMachine(
-    run: PipelineRunRow,
-    runner: RunnerRow | null,
-  ): Promise<PipelineMachine & { shells: string[] | null }> {
+  private async openMachine(run: PipelineRunRow, runner: RunnerRow | null): Promise<Machine> {
     if (!runner) {
       const mode = await this.deps.settings.value("pipelineLocalRunner");
       if (mode === "host") {
         const short = run.id.replace(/^[a-z]+_/, "").slice(0, 12);
+        const pipelinesDir = path.join(this.deps.artifactsDir, "..");
         return {
-          ...(await hostPipelineMachine(
-            path.join(this.deps.artifactsDir, "..", "pipeline-runs", short),
-          )),
+          ...(await hostPipelineMachine(path.join(pipelinesDir, "pipeline-runs", short))),
+          kind: "host",
           shells: null,
+          zelyqDir: path.join(pipelinesDir, "host"),
         };
       }
       const image = (await this.deps.settings.value("pipelineLocalImage")) || "node:22-bookworm";
-      return { ...(await startPipelineContainer({ runId: run.id, image })), shells: null };
+      return {
+        ...(await startPipelineContainer({ runId: run.id, image, instance: this.instance })),
+        kind: "container",
+        shells: null,
+        zelyqDir: "/zelyq",
+      };
     }
     const session = await SshSession.open(await this.deps.runners.target(runner));
     try {
@@ -657,6 +1047,8 @@ export class PipelineEngine {
       return {
         os: facts.os as RunnerOs,
         workspace: workspacePath(facts.os, facts.home, run.id),
+        kind: "ssh",
+        zelyqDir: facts.os === "windows" ? `${facts.home}\\zelyq` : `${facts.home}/zelyq`,
         shells: facts.shells,
         exec: (command, options = {}) => session.exec(command, options),
         close: async () => session.close(),
@@ -751,7 +1143,7 @@ export class PipelineEngine {
   private async finishSteps(runId: string, status: StepStatus): Promise<void> {
     const now = new Date().toISOString();
     for (const step of await this.deps.store.pipelines.steps.list(runId)) {
-      if (step.status === "pending")
+      if (step.status === "pending" || step.status === "waiting")
         await this.deps.store.pipelines.steps.update(step.id, { status });
       if (step.status === "running") {
         await this.deps.store.pipelines.steps.update(step.id, {
@@ -766,6 +1158,7 @@ export class PipelineEngine {
 const STATUS_WORDS: Record<RunStatus, string> = {
   queued: "queued",
   running: "running",
+  waiting: "waiting",
   passed: "passed",
   failed: "failed",
   cancelled: "cancelled",

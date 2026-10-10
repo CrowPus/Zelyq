@@ -1,5 +1,10 @@
 import { createReadStream } from "node:fs";
-import { sshRunnerInputSchema, sshRunnerUpdateSchema, triggerInputSchema } from "@zelyq/core";
+import {
+  approvalDecisionSchema,
+  sshRunnerInputSchema,
+  sshRunnerUpdateSchema,
+  triggerInputSchema,
+} from "@zelyq/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
@@ -15,6 +20,7 @@ const rerunBody = z.object({ fromStage: z.number().int().min(0).nullable().optio
 const confirmBody = z.object({ fingerprint: z.string().trim().min(8).max(200) }).strict();
 const rotateBody = z.object({ algorithm: z.enum(["ed25519", "rsa"]).default("ed25519") }).strict();
 const enabledBody = z.object({ enabled: z.boolean() }).strict();
+const clearBody = z.object({ what: z.enum(["tools", "cache"]) }).strict();
 
 /**
  * Pipelines, runs, runners and the team's SSH key, under the team; plus the
@@ -135,6 +141,23 @@ export function registerPipelineRoutes(
     reply.header("content-disposition", `attachment; filename="${log.name}"`);
     return log.text;
   });
+  app.post<{ Params: { teamId: string; runId: string; approvalId: string } }>(
+    "/api/teams/:teamId/pipeline-runs/:runId/approvals/:approvalId",
+    async (request) => {
+      const user = access.requireUser(request);
+      const body = approvalDecisionSchema.parse(request.body);
+      return {
+        run: await pipelines.decide(
+          user,
+          request.params.teamId,
+          request.params.runId,
+          request.params.approvalId,
+          body.decision,
+          body.comment ?? null,
+        ),
+      };
+    },
+  );
   app.post<Run>("/api/teams/:teamId/pipeline-runs/:runId/cancel", async (request) => ({
     run: await pipelines.cancel(
       access.requireUser(request),
@@ -255,6 +278,22 @@ export function registerPipelineRoutes(
       request.params.teamId,
       request.params.runnerId,
       confirmBody.parse(request.body).fingerprint,
+    ),
+  }));
+
+  app.get<Runner>("/api/teams/:teamId/runners/:runnerId/disk", async (request) => ({
+    disk: await runners.disk(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.runnerId,
+    ),
+  }));
+  app.post<Runner>("/api/teams/:teamId/runners/:runnerId/disk/clear", async (request) => ({
+    disk: await runners.clearDisk(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.runnerId,
+      clearBody.parse(request.body).what,
     ),
   }));
 

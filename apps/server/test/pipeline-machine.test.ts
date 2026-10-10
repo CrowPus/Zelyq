@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { resolveToolVersion, type ToolPlatform } from "@zelyq/core";
 import { tarGz } from "@zelyq/runtime";
 import ssh2 from "ssh2";
 import { publicKeyFingerprint } from "../src/services/pipelines/keys.js";
@@ -22,6 +23,8 @@ import {
   SshSession,
   type SshTarget,
 } from "../src/services/pipelines/ssh.js";
+import { cacheRestoreScript, cacheSaveScript } from "../src/services/pipelines/steps.js";
+import { posixInstallScript, windowsInstallScript } from "../src/services/pipelines/tools.js";
 import { type SshServer, sshImageAvailable, startSshServer } from "./helpers/ssh-server.js";
 
 /**
@@ -152,6 +155,113 @@ test("Stop ends a step and what it started", { skip: !enabled }, async () => {
   const result = await long;
   assert.ok(Date.now() - started < 30_000, "the step did not stop");
   assert.notEqual(result.code, 0);
+});
+
+test("setup: Node from the approved list is downloaded, checked against its checksum, and runs", {
+  skip: !enabled,
+}, async (t) => {
+  const windows = facts.os === "windows";
+  const sep = windows ? "\\" : "/";
+  if (!windows) {
+    const libc = await session.capture("ldd --version 2>&1 | head -1");
+    if (/musl/i.test(libc.stdout)) return t.skip("musl machine: setup needs glibc");
+  }
+  const arch = (await session.capture(windows ? "echo %PROCESSOR_ARCHITECTURE%" : "uname -m"))
+    .stdout;
+  const cpu = /arm64|aarch64/i.test(arch) ? "arm64" : "x64";
+  const platform = `${facts.os}-${cpu}` as ToolPlatform;
+  const release = resolveToolVersion("node", "22");
+  const file = release?.files[platform];
+  assert.ok(release && file, `an approved Node 22 for ${platform}`);
+  const dir = [facts.home, "zelyq", "tools-test", "node", release.version, platform].join(sep);
+  const extension = file.url.endsWith(".zip") ? ".zip" : ".tar.gz";
+  let out = "";
+  const installed = await session.exec(shellCommand(windows ? "powershell" : "sh"), {
+    stdin: windows
+      ? windowsInstallScript(dir, file, extension)
+      : posixInstallScript(dir, file, extension, true, "node"),
+    onStdout: (chunk) => {
+      out += chunk;
+    },
+    onStderr: (chunk) => {
+      out += chunk;
+    },
+  });
+  assert.equal(installed.code, 0, out);
+
+  const home = [dir, ...file.home.split("/")].join(sep);
+  const bins = file.bins.map((bin) => (bin ? [home, ...bin.split("/")].join(sep) : home));
+  const shell = defaultShell(facts.os);
+  let version = "";
+  const ran = await session.exec(shellCommand(shell), {
+    stdin: stepScript({ shell, workspace: ws, env: {}, path: bins, commands: "node --version" }),
+    onStdout: (chunk) => {
+      version += chunk;
+    },
+  });
+  assert.equal(ran.code, 0, version);
+  assert.equal(version.trim(), `v${release.version}`);
+
+  // A file that does not match the approved checksum is thrown away.
+  const forged = { ...file, sha256: "0".repeat(64) };
+  const refused = await session.exec(shellCommand(windows ? "powershell" : "sh"), {
+    stdin: windows
+      ? windowsInstallScript(`${dir}-forged`, forged, extension)
+      : posixInstallScript(`${dir}-forged`, forged, extension, true, "node"),
+  });
+  assert.notEqual(refused.code, 0, "a file with the wrong checksum was installed");
+  await session.exec(cleanupCommand(facts.os, [facts.home, "zelyq", "tools-test"].join(sep)));
+});
+
+test("cache: a folder is saved, removed, and restored as it was", { skip: !enabled }, async () => {
+  const windows = facts.os === "windows";
+  const sep = windows ? "\\" : "/";
+  const shell = defaultShell(facts.os);
+  const target = [ws, "deps"].join(sep);
+  const made = await session.exec(shellCommand(shell), {
+    stdin: stepScript({
+      shell,
+      workspace: ws,
+      env: {},
+      commands: windows
+        ? "New-Item -ItemType Directory -Force -Path deps\\inner | Out-Null; Set-Content -Path deps\\inner\\marker.txt -Value cached"
+        : "mkdir -p deps/inner && echo cached > deps/inner/marker.txt",
+    }),
+  });
+  assert.equal(made.code, 0);
+  const folder = [facts.home, "zelyq", "cache-test", "p1", "main", "deps"].join(sep);
+  const destination = [folder, "key1.tar.gz"].join(sep);
+  const install = shellCommand(windows ? "powershell" : "sh");
+
+  const saved = await session.exec(install, {
+    stdin: cacheSaveScript(facts.os, target, "deps", folder, destination),
+  });
+  assert.equal(saved.code, 0, "saved");
+  assert.equal((await session.exec(cleanupCommand(facts.os, target))).code, 0);
+
+  let printed = "";
+  const restored = await session.exec(install, {
+    stdin: cacheRestoreScript(facts.os, target, [[folder, "other.tar.gz"].join(sep), destination]),
+    onStdout: (chunk) => {
+      printed += chunk;
+    },
+  });
+  assert.equal(restored.code, 0);
+  assert.match(printed, /key1\.tar\.gz/, "says which copy it used");
+  let content = "";
+  await session.exec(shellCommand(shell), {
+    stdin: stepScript({
+      shell,
+      workspace: ws,
+      env: {},
+      commands: windows ? "Get-Content deps\\inner\\marker.txt" : "cat deps/inner/marker.txt",
+    }),
+    onStdout: (chunk) => {
+      content += chunk;
+    },
+  });
+  assert.equal(content.trim(), "cached");
+  await session.exec(cleanupCommand(facts.os, [facts.home, "zelyq", "cache-test"].join(sep)));
 });
 
 test("a step whose folder is missing fails; the run's folder is removed afterwards", {

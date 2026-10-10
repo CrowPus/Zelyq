@@ -22,6 +22,7 @@ BLOCKED.addSubnet("fe80::", 10, "ipv6");
 const WORDS: Record<RunStatus, string> = {
   queued: "is queued",
   running: "is running",
+  waiting: "is waiting for approval",
   passed: "passed",
   failed: "failed",
   cancelled: "was cancelled",
