@@ -8,7 +8,10 @@ import { MANAGED_CAPABILITY, resetManagedCapabilities } from "../src/managed.js"
 
 /**
  * A stand-in container engine: the sandbox image does not exist yet, and
- * building it takes several seconds. Everything else answers at once.
+ * building it takes far longer than a health check may. Everything else
+ * answers at once. The gap between the two is wide on purpose: a busy CI
+ * machine took 4.9 s for a health check that waits on nothing, so a 6 s
+ * build against a 5 s limit failed on load alone.
  */
 async function slowBuildEngine(dir: string): Promise<string> {
   const engine = path.join(dir, "docker");
@@ -19,7 +22,7 @@ async function slowBuildEngine(dir: string): Promise<string> {
       'case "$1" in',
       "  version) echo 99.0.0 ;;",
       "  image) exit 1 ;;",
-      "  build) sleep 6 ;;",
+      "  build) sleep 12 ;;",
       "  run) echo 'uv 0.12.16' ;;",
       "  *) exit 0 ;;",
       "esac",
@@ -50,7 +53,7 @@ test("health does not wait out a sandbox image build, and still offers Python", 
   try {
     const started = Date.now();
     const health = await driver.health();
-    assert.ok(Date.now() - started < 5_000, `health took ${Date.now() - started} ms`);
+    assert.ok(Date.now() - started < 9_000, `health took ${Date.now() - started} ms`);
     assert.deepEqual(health.capabilities, [MANAGED_CAPABILITY]);
   } finally {
     await driver.dispose();

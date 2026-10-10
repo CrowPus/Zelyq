@@ -5,6 +5,13 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "project.updated": "updated the project",
   "project.backend.updated": "updated backend configuration",
   "project.backend.disconnected": "disconnected backend configuration",
+  "vault.secret.created": "added a secret to Vault",
+  "vault.secret.updated": "changed a Vault secret",
+  "vault.secret.deleted": "deleted a Vault secret",
+  "vault.secret.revealed": "revealed a Vault secret",
+  "vault.secret.rolled_back": "restored an earlier value of a Vault secret",
+  "vault.imported": "imported a .env file into Vault",
+  "vault.migrated": "moved backend secrets into Vault",
   "project.deleted": "deleted the project",
   "project.pushed": "pushed to a remote",
   "project.git_remote_set": "changed where the project pushes to",
@@ -33,7 +40,19 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
 /** A short, human phrase for what `detail` actually says — never the raw JSON. */
 export function auditDetailSummary(detail: Record<string, unknown>): string | null {
   if (typeof detail.path === "string") return detail.path;
+  // Vault: which secret, and where — a production reveal reads very differently.
+  if (typeof detail.name === "string" && typeof detail.environment === "string") {
+    return `${detail.name} · ${detail.environment}`;
+  }
   if (typeof detail.name === "string") return detail.name;
+  if (Array.isArray(detail.names) && typeof detail.environment === "string") {
+    return `${detail.names.join(", ")} · ${detail.environment}`;
+  }
+  if (Array.isArray(detail.created) && Array.isArray(detail.updated)) {
+    const names = [...detail.created, ...detail.updated];
+    const where = typeof detail.environment === "string" ? ` · ${detail.environment}` : "";
+    return `${names.length} secret${names.length === 1 ? "" : "s"}${where}`;
+  }
   if (typeof detail.email === "string" && typeof detail.role === "string") {
     return `${detail.email} · ${detail.role}`;
   }

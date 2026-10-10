@@ -112,11 +112,14 @@ test("JWT auth without an issuer, audience and JWKS URL is refused", () => {
   );
 });
 
-test("secret names are environment-variable shaped", () => {
-  assert.ok(backendConfigurationSchema.parse({ secrets: { STRIPE_KEY: "x" } }));
-  for (const name of ["lowercase", "WITH-DASH", "1LEADING", "WITH SPACE", "PATH="]) {
-    assert.throws(() => backendConfigurationSchema.parse({ secrets: { [name]: "x" } }));
-  }
+test("secrets are no longer part of the backend configuration: they live in Vault", () => {
+  // An empty map is what older clients send, and must keep working.
+  assert.ok(backendConfigurationSchema.parse({ secrets: {} }));
+  assert.throws(
+    () => backendConfigurationSchema.parse({ secrets: { STRIPE_KEY: "x" } }),
+    /moved to Vault/,
+  );
+  assert.equal("secrets" in backendConfigurationSchema.parse({ secrets: {} }), false);
 });
 
 test("schema and table names are identifiers, so they cannot carry SQL", () => {

@@ -22,6 +22,7 @@ import { LiveBrowser } from "../components/LiveBrowser";
 import { PlanPanel } from "../components/PlanPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
 import { Badge, Button, IconButton, Spinner } from "../components/ui";
+import { VaultPanel } from "../components/VaultPanel";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { fileToBase64, MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
@@ -87,6 +88,10 @@ export function ProjectEditorPage() {
 
   const role = teams.data?.teams.find((team) => team.id === project.data?.project.teamId)?.role;
   const canEdit = role !== undefined && roleAtLeast(role, "editor");
+  // A Python backend is the one place a project's secrets are read today.
+  const hasBackend =
+    project.data?.project.template === "react-fastapi" ||
+    Boolean(files.data?.entries.some((entry) => entry.path === "zelyq.runtime.json"));
 
   // When the agent reports file changes, refresh the tree, the open file, and
   // the preview frame. HMR usually beats us to it, but config and dependency
@@ -242,11 +247,12 @@ export function ProjectEditorPage() {
           {/* Same role the route itself already requires — editing and
               pushing are the same trust level. */}
           {canEdit && <GitPanel projectId={id} />}
-          {canEdit &&
-            (project.data?.project.template === "react-fastapi" ||
-              files.data?.entries.some((entry) => entry.path === "zelyq.runtime.json")) && (
-              <BackendPanel projectId={id} />
-            )}
+          {canEdit && hasBackend && <BackendPanel projectId={id} />}
+          {/* Every member sees Vault — viewers read names and history; the
+              panel itself hides what only an editor may do. */}
+          {role !== undefined && (
+            <VaultPanel projectId={id} canEdit={canEdit} hasBackend={hasBackend} />
+          )}
         </>
       }
     >

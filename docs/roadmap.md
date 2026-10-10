@@ -70,6 +70,8 @@ separates this from a chat with a black box.
       promise to keep current, and a wrong default breaks real installs instead of failing safely.
       Still open: unfiltered by default until an operator opts in. See [SECURITY.md](../SECURITY.md)
 - [ ] Per-user API keys, encrypted at rest
+- [x] **Vault** — per-project secrets per environment, encrypted, with history, `.env` import,
+  audited reveal, and names (never values) for the agent. See [vault-plan.md](./vault-plan.md).
 - [ ] Invitation links, so someone can be added before they register
 - [x] SSO (OIDC) as an alternative to passwords — authorization code + PKCE, provider discovery,
       verified-email linking, identity persistence, and the existing httpOnly session cookie. See

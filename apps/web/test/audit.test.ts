@@ -23,6 +23,21 @@ test("a project-updated action summarises to which fields changed", () => {
   assert.equal(auditDetailSummary({ fields: ["name", "description"] }), "name, description");
 });
 
+test("a Vault action names the secret and the environment, never a value", () => {
+  assert.equal(
+    auditDetailSummary({ name: "STRIPE_KEY", environment: "production", version: 3 }),
+    "STRIPE_KEY · production",
+  );
+  assert.equal(
+    auditDetailSummary({ environment: "development", names: ["A_KEY", "B_KEY"] }),
+    "A_KEY, B_KEY · development",
+  );
+  assert.equal(
+    auditDetailSummary({ environment: "test", created: ["A"], updated: ["B"], skipped: 1 }),
+    "2 secrets · test",
+  );
+});
+
 test("an unrecognised shape summarises to nothing rather than raw JSON", () => {
   assert.equal(auditDetailSummary({ somethingElse: 42 }), null);
 });

@@ -221,6 +221,58 @@ export const snapshots = pgTable(
   }),
 );
 
+/**
+ * Vault: one row per secret name per environment. `value` is `SecretBox`
+ * ciphertext and is decrypted only for the project's runtime or an audited
+ * reveal — never for a list.
+ */
+export const vaultSecrets = pgTable(
+  "vault_secrets",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    environment: text("environment").notNull(),
+    value: text("value").notNull(),
+    description: text("description"),
+    version: integer("version").notNull().default(1),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    nameIdx: uniqueIndex("vault_secrets_project_name_env_idx").on(
+      table.projectId,
+      table.name,
+      table.environment,
+    ),
+  }),
+);
+
+/** Every value a secret has held, current one included, newest kept. */
+export const vaultSecretVersions = pgTable(
+  "vault_secret_versions",
+  {
+    id: text("id").primaryKey(),
+    secretId: text("secret_id")
+      .notNull()
+      .references(() => vaultSecrets.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    value: text("value").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    versionIdx: uniqueIndex("vault_secret_versions_secret_version_idx").on(
+      table.secretId,
+      table.version,
+    ),
+  }),
+);
+
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -525,6 +577,8 @@ export const schema = {
   sessions,
   messages,
   snapshots,
+  vaultSecrets,
+  vaultSecretVersions,
   settings,
   auditLog,
   providerConnections,

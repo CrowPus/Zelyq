@@ -11,6 +11,7 @@ import { settingsRepository } from "./repositories/settings.js";
 import { snapshotRepository } from "./repositories/snapshots.js";
 import { teamRepository } from "./repositories/teams.js";
 import { userRepository } from "./repositories/users.js";
+import { vaultRepository } from "./repositories/vault.js";
 import { videoRepository } from "./repositories/videos.js";
 
 export * from "./client.js";
@@ -27,6 +28,12 @@ export type { SettingsRepository } from "./repositories/settings.js";
 export type { SnapshotRepository } from "./repositories/snapshots.js";
 export type { TeamRepository } from "./repositories/teams.js";
 export type { UserRepository } from "./repositories/users.js";
+export type {
+  VaultRepository,
+  VaultSecretRow,
+  VaultSecretSummaryRow,
+  VaultVersionRow,
+} from "./repositories/vault.js";
 export type { VideoJobRow, VideoReferenceRow } from "./repositories/videos.js";
 export * from "./schema/index.js";
 export { resolveSetting, type SettingsReader } from "./settings-resolver.js";
@@ -45,6 +52,7 @@ export interface Store extends DatabaseHandle {
   settings: ReturnType<typeof settingsRepository>;
   auditLog: ReturnType<typeof auditLogRepository>;
   providerConnections: ReturnType<typeof providerConnectionRepository>;
+  vault: ReturnType<typeof vaultRepository>;
 }
 
 /**
@@ -69,5 +77,6 @@ export function createStore(url: string): Store {
     settings: settingsRepository(handle.db),
     auditLog: auditLogRepository(handle.db),
     providerConnections: providerConnectionRepository(handle.db),
+    vault: vaultRepository(handle.db),
   };
 }
