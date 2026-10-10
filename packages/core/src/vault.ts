@@ -118,26 +118,31 @@ export function parseDotEnv(content: string): {
 } {
   const values = new Map<string, string>();
   const invalid: string[] = [];
-  for (const raw of content.split(/\r?\n/)) {
+  // No regular expression here may backtrack: a pasted file is untrusted input,
+  // and a pattern like `\s*=\s*(.*)` takes quadratic time on a line of spaces.
+  // Splitting on the first `=` and searching for fixed-width markers is linear.
+  for (const raw of content.split("\n")) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
-    const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)$/.exec(line);
-    if (!match) {
+    const equals = line.indexOf("=");
+    let name = equals > 0 ? line.slice(0, equals).trim() : "";
+    if (name.startsWith("export ") || name.startsWith("export\t")) name = name.slice(7).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(name)) {
       invalid.push(line.length > 40 ? `${line.slice(0, 40)}…` : line);
       continue;
     }
-    const name = match[1] as string;
-    let value = match[2] as string;
+    let value = line.slice(equals + 1).trim();
     const quote = value[0];
     if ((quote === '"' || quote === "'") && value.length >= 2) {
       const end = value.lastIndexOf(quote);
       if (end > 0) {
         value = value.slice(1, end);
-        if (quote === '"') value = value.replace(/\\n/g, "\n").replace(/\\"/g, '"');
+        if (quote === '"') value = value.replaceAll("\\n", "\n").replaceAll('\\"', '"');
       }
     } else {
-      // An unquoted value ends at an inline comment.
-      value = value.replace(/\s+#.*$/, "").trim();
+      // An unquoted value ends at an inline comment: a `#` after whitespace.
+      const comment = /\s#/.exec(value);
+      if (comment) value = value.slice(0, comment.index).trim();
     }
     values.set(name, value);
   }

@@ -51,3 +51,15 @@ test("Windows line endings and a hash inside quotes are kept intact", () => {
     { name: "B", value: "has # inside" },
   ]);
 });
+
+test("a hostile line cannot stall the parser", () => {
+  // Shapes that make a backtracking pattern run in quadratic time.
+  const spaces = " ".repeat(100_000);
+  const started = performance.now();
+  parseDotEnv(`A=${spaces}x`);
+  parseDotEnv(`A=x${spaces}y`);
+  parseDotEnv(`export${spaces}`);
+  parseDotEnv(`A${spaces}=1`);
+  assert.ok(performance.now() - started < 500, "parsing took too long");
+  assert.deepEqual(parseDotEnv(`A${spaces}=1`).entries, [{ name: "A", value: "1" }]);
+});
