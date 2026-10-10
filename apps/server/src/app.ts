@@ -28,6 +28,7 @@ import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerSupabaseBridgeRoutes } from "./routes/supabase-bridge.js";
 import { registerSupabaseConnectionRoutes } from "./routes/supabase-connections.js";
 import { registerTeamRoutes } from "./routes/teams.js";
+import { registerVaultRoutes } from "./routes/vault.js";
 import { registerVideoBridgeRoutes } from "./routes/video-bridge.js";
 import { registerVideoRoutes } from "./routes/videos.js";
 import { registerVoiceRoutes } from "./routes/voice.js";
@@ -50,6 +51,7 @@ import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
+import { VaultService } from "./services/vault.js";
 import { VideoAssetStore } from "./services/video-assets.js";
 import { VideoBridge } from "./services/video-bridge.js";
 import { VideoGenerationService } from "./services/video-generation.js";
@@ -71,6 +73,9 @@ export interface ZelyqServer {
   imageBridge: ImageBridge;
   /** The agent's video capability channel, exposed for tests the same way. */
   videoBridge: VideoBridge;
+  /** The agent's preview grant (which also reads Vault names), exposed for
+   *  tests the same way. */
+  previewGrants: Pick<ProjectBackendService, "mint">;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -128,12 +133,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     oidc: config.oidc,
   });
   const access = new AccessControl(store);
+  const vault = new VaultService(store, secrets, access, runtime);
   const supabaseConnections = new SupabaseConnectionService(store, secrets, access, {
     oauth: config.supabaseOAuth,
     verifyEmailDomain: config.supabaseVerifyEmailDomain,
   });
   const resolvePreviewEnv = makePreviewEnvResolver({ supabaseConnections });
-  const projectBackend = new ProjectBackendService(store, secrets, runtime);
+  const projectBackend = new ProjectBackendService(store, secrets, runtime, vault);
   const supabaseBridge = new SupabaseBridge(store);
   const figmaConnections = new FigmaConnectionService(store, secrets, {
     oauth: config.figmaOAuth,
@@ -276,6 +282,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     store,
   });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
+  registerVaultRoutes(app, { vault, access, store, previewGrants: projectBackend });
   // With the others, after the error handler — registered before it, these
   // answered in Fastify's own error shape, and the Backend panel showed
   // "Request failed with 400" in place of the reason.
@@ -293,6 +300,15 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerImageBridgeRoutes(app, { bridge: imageBridge, images, assets: imageAssets, store });
   registerVideoBridgeRoutes(app, { bridge: videoBridge, videos, store });
   app.addHook("onReady", async () => {
+    // Before the first request: a preview started now must already find its
+    // secrets in Vault. A failure is logged, not fatal — anything not moved is
+    // still read from where it was, and the next start tries again.
+    try {
+      const moved = await vault.moveBackendSecrets(app.log);
+      if (moved > 0) app.log.info(`Vault: moved ${moved} backend secret(s) into Vault.`);
+    } catch (error) {
+      app.log.error(error, "Vault: moving backend secrets failed; will retry on next start.");
+    }
     images.start();
     videos.start();
   });
@@ -355,6 +371,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     app,
     imageBridge,
     videoBridge,
+    previewGrants: projectBackend,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

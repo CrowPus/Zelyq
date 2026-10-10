@@ -106,12 +106,24 @@ export const backendConfigurationSchema = z
     jwksUrl: z.string().url().optional(),
     // Values are write-only. Undefined preserves; null clears.
     databaseUrl: z.string().max(4000).nullable().optional(),
-    secrets: z
-      .record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/), z.string().max(16000).nullable())
-      .default({}),
+    /**
+     * Secrets live in Vault now. The field is still accepted so a client that
+     * sends the old empty map keeps working, but a value in it is refused
+     * rather than dropped: silently losing a key someone just typed is worse
+     * than telling them where it goes.
+     */
+    secrets: z.record(z.string(), z.string().nullable()).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
+    const names = Object.keys(value.secrets ?? {});
+    if (names.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["secrets"],
+        message: `Backend secrets have moved to Vault. Add ${names.join(", ")} there instead.`,
+      });
+    }
     if (value.auth === "jwt" && (!value.issuer || !value.audience || !value.jwksUrl)) {
       ctx.addIssue({
         code: "custom",
@@ -119,7 +131,7 @@ export const backendConfigurationSchema = z
       });
     }
   })
-  .transform((value) => ({
+  .transform(({ secrets: _moved, ...value }) => ({
     ...value,
     readOnly: value.readOnly ?? value.ownership === "external",
   }));
@@ -128,10 +140,9 @@ export type BackendConfigurationInput = z.input<typeof backendConfigurationSchem
 export type BackendConfigurationResolved = z.output<typeof backendConfigurationSchema>;
 export type BackendConfiguration = Omit<
   z.output<typeof backendConfigurationSchema>,
-  "databaseUrl" | "secrets"
+  "databaseUrl"
 > & {
   configured: boolean;
-  secretNames: string[];
   revision: string;
 };
 

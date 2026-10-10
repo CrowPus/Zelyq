@@ -151,7 +151,7 @@ Two things hold state:
 | Project files | `ZELYQ_WORKSPACE_DIR` | Volume snapshot or `rsync` |
 | Generated images | `ZELYQ_IMAGE_ASSETS_DIR` | Volume snapshot or `rsync` |
 | Generated videos | `ZELYQ_VIDEO_ASSETS_DIR` | Volume snapshot or `rsync` — the largest of these by far |
-| Encryption key | `ZELYQ_SECRET_KEY` / `ZELYQ_SECRET_KEY_FILE` | Your secret store — without it, stored API keys cannot be read |
+| Encryption key | `ZELYQ_SECRET_KEY` / `ZELYQ_SECRET_KEY_FILE` | Your secret store — without it, stored API keys and every project's **Vault** secrets cannot be read |
 
 Do not back up SQLite by copying `zelyq.db`. It runs in WAL mode, so recent writes sit in
 `zelyq.db-wal` until SQLite folds them into the main file, and a copy of `zelyq.db` alone can be

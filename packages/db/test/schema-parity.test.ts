@@ -25,6 +25,8 @@ const TABLES = [
   "sessions",
   "messages",
   "snapshots",
+  "vaultSecrets",
+  "vaultSecretVersions",
   "settings",
   "auditLog",
   "providerConnections",

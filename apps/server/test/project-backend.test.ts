@@ -4,9 +4,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { vaultSecretNameSchema } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { RuntimeDriver } from "@zelyq/runtime";
-import { ProjectBackendService } from "../src/services/project-backend.js";
+import {
+  type BackendSecretSource,
+  ProjectBackendService,
+} from "../src/services/project-backend.js";
 import { SecretBox } from "../src/services/secrets.js";
 import { listTemplates } from "../src/services/templates.js";
 
@@ -70,11 +74,37 @@ const fakeLookup = async (hostname: string) => {
   return found;
 };
 
-function service(runtime: RuntimeDriver = runtimeWithManifest()): ProjectBackendService {
+/** Vault, reduced to what the backend reads: plaintext per project, and a
+ * revision that moves whenever the plaintext does. */
+function memoryVault(initial: Record<string, string> = {}) {
+  const values = new Map(Object.entries(initial));
+  let revision = Object.keys(initial).length;
+  const source: BackendSecretSource = {
+    async environmentFor() {
+      return Object.fromEntries(values);
+    },
+    async fingerprint() {
+      return values.size === 0 ? "" : `r${revision}`;
+    },
+  };
+  return {
+    source,
+    set(name: string, value: string) {
+      values.set(name, value);
+      revision++;
+    },
+  };
+}
+
+function service(
+  runtime: RuntimeDriver = runtimeWithManifest(),
+  vault: BackendSecretSource = memoryVault().source,
+): ProjectBackendService {
   return new ProjectBackendService(
     memoryStore(),
     new SecretBox(randomBytes(32)),
     runtime,
+    vault,
     fakeLookup,
   );
 }
@@ -87,7 +117,6 @@ test("a new project already has a database it can write to", async () => {
   assert.equal(configuration.ownership, "application");
   assert.equal(configuration.readOnly, false, "an app's own database is writable");
   assert.equal(configuration.configured, true);
-  assert.deepEqual(configuration.secretNames, []);
 });
 
 test("the local database is handed to the API, and may migrate itself", async () => {
@@ -146,16 +175,13 @@ test("a saved connection URL is never read back, only its presence", async () =>
     readOnly: true,
     auth: "none",
     databaseUrl: "postgresql://user:hunter2@db.example.com/app",
-    secrets: { STRIPE_KEY: "sk_live_secret" },
   });
 
   assert.equal(saved.configured, true);
-  assert.deepEqual(saved.secretNames, ["STRIPE_KEY"]);
   assert.equal(JSON.stringify(saved).includes("hunter2"), false, "no credential in the response");
-  assert.equal(JSON.stringify(saved).includes("sk_live_secret"), false);
 });
 
-test("secrets survive a save that does not mention them, and can be cleared by name", async () => {
+test("a secret sent with the backend configuration is pointed at Vault, not dropped", async () => {
   const backend = service();
   const base = {
     engine: "none" as const,
@@ -164,29 +190,17 @@ test("secrets survive a save that does not mention them, and can be cleared by n
     readOnly: true,
     auth: "none" as const,
   };
-  await backend.save("p1", { ...base, secrets: { A_KEY: "one", B_KEY: "two" } });
-  const kept = await backend.save("p1", { ...base, secrets: {} });
-  assert.deepEqual(kept.secretNames.sort(), ["A_KEY", "B_KEY"]);
-
-  const cleared = await backend.save("p1", { ...base, secrets: { A_KEY: null } });
-  assert.deepEqual(cleared.secretNames, ["B_KEY"]);
+  await assert.rejects(
+    () => backend.save("p1", { ...base, secrets: { STRIPE_KEY: "sk_live_secret" } }),
+    /moved to Vault/,
+  );
+  // An empty map is what an older client always sends; it must keep working.
+  await backend.save("p1", { ...base, secrets: {} });
 });
 
-test("platform-owned variable names cannot be claimed by a project secret", async () => {
-  const backend = service();
-  const base = {
-    engine: "none" as const,
-    ownership: "external" as const,
-    tables: [],
-    readOnly: true,
-    auth: "none" as const,
-  };
+test("platform-owned variable names cannot be claimed by a secret", () => {
   for (const name of ["DATABASE_URL", "ZELYQ_DATA_DIR", "PATH", "AUTH_ISSUER", "SUPABASE_URL"]) {
-    await assert.rejects(
-      () => backend.save("p1", { ...base, secrets: { [name]: "x" } }),
-      new RegExp(name),
-      `${name} must be refused`,
-    );
+    assert.equal(vaultSecretNameSchema.safeParse(name).success, false, `${name} must be refused`);
   }
 });
 
@@ -254,8 +268,11 @@ test("identity endpoints must be HTTPS", async () => {
   );
 });
 
-test("secrets reach the backend service only, never the browser environment", async () => {
-  const backend = service();
+test("Vault secrets reach the backend service only, never the browser environment", async () => {
+  const backend = service(
+    runtimeWithManifest(),
+    memoryVault({ STRIPE_KEY: "sk_live_secret" }).source,
+  );
   await backend.save("p1", {
     engine: "postgresql",
     ownership: "external",
@@ -263,7 +280,6 @@ test("secrets reach the backend service only, never the browser environment", as
     readOnly: true,
     auth: "none",
     databaseUrl: "postgresql://user:hunter2@db.example.com/app",
-    secrets: { STRIPE_KEY: "sk_live_secret" },
   });
 
   const options = await backend.previewOptions("p1", {
@@ -292,6 +308,21 @@ test("saving changes the revision so a running preview is restarted", async () =
   const first = await backend.save("p1", base);
   const second = await backend.save("p1", base);
   assert.notEqual(first.revision, second.revision);
+});
+
+test("a Vault change changes the revision, so the running preview restarts with it", async () => {
+  const vault = memoryVault();
+  const backend = service(runtimeWithManifest(), vault.source);
+  const before = (await backend.previewOptions("p1")).configurationRevision;
+  assert.equal(before, "local-development", "no Vault secrets leaves the revision as it was");
+
+  vault.set("STRIPE_KEY", "one");
+  const afterAdd = (await backend.previewOptions("p1")).configurationRevision;
+  vault.set("STRIPE_KEY", "two");
+  const afterChange = (await backend.previewOptions("p1")).configurationRevision;
+  assert.notEqual(afterAdd, before);
+  assert.notEqual(afterChange, afterAdd);
+  assert.equal(JSON.stringify([afterAdd, afterChange]).includes("two"), false);
 });
 
 test("a project without a Python manifest gets no backend environment at all", async () => {

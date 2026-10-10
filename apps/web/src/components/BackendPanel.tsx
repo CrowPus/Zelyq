@@ -23,37 +23,18 @@ export function BackendPanel({ projectId }: { projectId: string }) {
     tables: [],
     readOnly: true,
     auth: "none",
-    secrets: {},
   });
-  const [secretName, setSecretName] = useState("");
-  const [secretValue, setSecretValue] = useState("");
   const [inspection, setInspection] = useState("");
   useEffect(() => {
     if (query.data) {
-      const {
-        configured: _configured,
-        secretNames: _names,
-        revision: _revision,
-        ...config
-      } = query.data.configuration;
-      setForm({ ...config, secrets: {} });
-      setSecretValue("");
+      const { configured: _configured, revision: _revision, ...config } = query.data.configuration;
+      setForm(config);
       setInspection("");
     }
   }, [query.data]);
   const save = useMutation({
-    mutationFn: () =>
-      api.saveBackend(
-        projectId,
-        {
-          ...form,
-          secrets: { ...form.secrets, ...(secretName ? { [secretName]: secretValue } : {}) },
-        },
-        environment,
-      ),
+    mutationFn: () => api.saveBackend(projectId, form, environment),
     onSuccess: async () => {
-      setSecretValue("");
-      setSecretName("");
       await cache.invalidateQueries({ queryKey: ["backend", projectId] });
       await cache.invalidateQueries({ queryKey: ["preview", projectId] });
     },
@@ -227,40 +208,10 @@ export function BackendPanel({ projectId }: { projectId: string }) {
                     />
                   </label>
                 ))}
-              <fieldset className="grid gap-2">
-                <legend className="mb-2">Backend secrets</legend>
-                {query.data?.configuration.secretNames.map((name) => (
-                  <label key={name} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.secrets[name] === null}
-                      onChange={(e) => {
-                        const secrets = { ...form.secrets };
-                        if (e.target.checked) secrets[name] = null;
-                        else delete secrets[name];
-                        setForm({ ...form, secrets });
-                      }}
-                    />
-                    Remove {name}
-                  </label>
-                ))}
-                <input
-                  aria-label="Secret name"
-                  className={inputClass}
-                  placeholder="API_KEY"
-                  value={secretName}
-                  onChange={(e) => setSecretName(e.target.value)}
-                />
-                <input
-                  aria-label="Secret value"
-                  className={inputClass}
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="New value (never shown again)"
-                  value={secretValue}
-                  onChange={(e) => setSecretValue(e.target.value)}
-                />
-              </fieldset>
+              <p className="text-sm text-fg-muted">
+                API keys and other secrets for the backend are kept in <strong>Vault</strong>, next
+                to this button. They reach the backend as environment variables.
+              </p>
               {(query.error || save.error || inspect.error || disconnect.error) && (
                 <p role="alert" className="text-sm text-red-500">
                   {String(query.error || save.error || inspect.error || disconnect.error)}

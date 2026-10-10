@@ -7,19 +7,29 @@ import {
   type BackendConfigurationResolved,
   backendConfigurationSchema,
   LOCAL_DEVELOPMENT_DATABASE,
+  type VaultEnvironment,
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import { type PreviewOptions, type RuntimeDriver, readRuntimeManifest } from "@zelyq/runtime";
 import type { SecretBox } from "./secrets.js";
 
-type Environment = "development" | "test" | "production";
+type Environment = VaultEnvironment;
 interface Stored {
   config: BackendConfigurationResolved;
   revision: string;
 }
-const reserved =
-  /^(?:ZELYQ_|VITE_|EXPO_|NODE_|PYTHON|UV_|PATH$|HOME$|LD_|DYLD_|DATABASE_|AUTH_|SUPABASE_)/;
+
+/**
+ * Where a backend's secrets come from: Vault. An interface rather than the
+ * service so this file does not need Vault's permissions or audit machinery —
+ * the runtime environment is resolved for a project that is already starting.
+ */
+export interface BackendSecretSource {
+  environmentFor(projectId: string, environment: VaultEnvironment): Promise<Record<string, string>>;
+  /** Changes whenever a secret is added, removed or given a new value. */
+  fingerprint(projectId: string, environment: VaultEnvironment): Promise<string>;
+}
 
 /**
  * Refuse database hosts that only ever name this machine or its cloud
@@ -203,6 +213,7 @@ export class ProjectBackendService {
     private store: Store,
     private secrets: SecretBox,
     private runtime: RuntimeDriver,
+    private vault: BackendSecretSource,
     private resolveHost: HostLookup = systemLookup,
   ) {}
 
@@ -231,11 +242,18 @@ export class ProjectBackendService {
   }
   async get(id: string, environment: Environment = "development"): Promise<BackendConfiguration> {
     const { config, revision } = await this.load(id, environment);
-    const { databaseUrl, secrets, ...publicConfig } = config;
+    // `secrets` only exists on a configuration saved before Vault and not yet
+    // moved; it is never part of what a client sees.
+    const {
+      databaseUrl,
+      secrets: _beforeVault,
+      ...publicConfig
+    } = config as typeof config & {
+      secrets?: unknown;
+    };
     return {
       ...publicConfig,
       configured: Boolean(databaseUrl) || config.engine === "sqlite",
-      secretNames: Object.keys(secrets),
       revision,
     };
   }
@@ -249,18 +267,15 @@ export class ProjectBackendService {
     // remembered to resolve the defaults first.
     const input = backendConfigurationSchema.parse(raw);
     const previous = await this.load(id, environment);
+    // Secrets not yet moved into Vault ride along untouched, so a save made
+    // before the move finishes cannot lose them.
+    const notYetMoved = (previous.config as { secrets?: Record<string, string | null> }).secrets;
     const config = {
       ...input,
       databaseUrl:
         input.databaseUrl === undefined ? previous.config.databaseUrl : input.databaseUrl,
-      secrets: { ...previous.config.secrets },
+      ...(notYetMoved ? { secrets: notYetMoved } : {}),
     };
-    for (const [key, value] of Object.entries(input.secrets)) {
-      if (reserved.test(key))
-        throw ZelyqError.badRequest(`Use the dedicated configuration fields for ${key}.`);
-      if (value === null) delete config.secrets[key];
-      else config.secrets[key] = value;
-    }
     if (config.databaseUrl) {
       if (config.engine === "none" || config.engine === "supabase")
         throw ZelyqError.badRequest("Select a SQL engine to configure a database URL.");
@@ -320,9 +335,22 @@ export class ProjectBackendService {
       // asking, whatever the project's manifest says.
       ...(isLocalBuildDatabase(config) ? { ZELYQ_DB_AUTOMIGRATE: "1" } : {}),
     };
-    for (const [key, value] of Object.entries(config.secrets))
+    // A secret the move into Vault has not reached yet (it failed, or was
+    // interrupted) still reaches the app; Vault wins wherever both have one.
+    const notYetMoved = (config as { secrets?: Record<string, string | null> }).secrets ?? {};
+    for (const [key, value] of Object.entries(notYetMoved))
       if (value !== null) backendEnv[key] = value;
-    return { env: publicEnv, backendEnv, configurationRevision: revision };
+    // Vault names cannot collide with the keys above: the names Zelyq sets are
+    // reserved and refused when a secret is created.
+    Object.assign(backendEnv, await this.vault.environmentFor(id, "development"));
+    // A running preview is reused while the revision is unchanged, so a Vault
+    // change has to change it too — or the app keeps the value it started with.
+    const vaultRevision = await this.vault.fingerprint(id, "development");
+    return {
+      env: publicEnv,
+      backendEnv,
+      configurationRevision: vaultRevision ? `${revision}+vault:${vaultRevision}` : revision,
+    };
   }
   async inspect(id: string): Promise<unknown> {
     const options = await this.previewOptions(id);

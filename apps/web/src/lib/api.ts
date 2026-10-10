@@ -34,6 +34,13 @@ import type {
   UpdateSettingsInput,
   UploadSkillInput,
   User,
+  VaultEnvironment,
+  VaultImport,
+  VaultImportResult,
+  VaultSecret,
+  VaultSecretCreate,
+  VaultSecretUpdate,
+  VaultSecretVersion,
   VideoCapabilities,
   VideoFrameSet,
   VideoGeneration,
@@ -133,6 +140,36 @@ export const api = {
     ),
   disconnectBackend: (id: string, environment = "development") =>
     request(`/projects/${id}/backend?environment=${environment}`, { method: "DELETE" }),
+
+  /** Vault. No call here returns a value except `revealVaultSecret`. */
+  listVaultSecrets: (id: string, environment: VaultEnvironment) =>
+    request<{ secrets: VaultSecret[] }>(`/projects/${id}/vault?environment=${environment}`),
+  createVaultSecret: (id: string, input: VaultSecretCreate) =>
+    request<{ secret: VaultSecret }>(`/projects/${id}/vault`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateVaultSecret: (id: string, secretId: string, input: VaultSecretUpdate) =>
+    request<{ secret: VaultSecret }>(`/projects/${id}/vault/${secretId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteVaultSecret: (id: string, secretId: string) =>
+    request<{ ok: true }>(`/projects/${id}/vault/${secretId}`, { method: "DELETE" }),
+  revealVaultSecret: (id: string, secretId: string) =>
+    request<{ value: string }>(`/projects/${id}/vault/${secretId}/reveal`, { method: "POST" }),
+  vaultSecretVersions: (id: string, secretId: string) =>
+    request<{ versions: VaultSecretVersion[] }>(`/projects/${id}/vault/${secretId}/versions`),
+  rollbackVaultSecret: (id: string, secretId: string, version: number) =>
+    request<{ secret: VaultSecret }>(`/projects/${id}/vault/${secretId}/rollback`, {
+      method: "POST",
+      body: JSON.stringify({ version }),
+    }),
+  importVault: (id: string, input: VaultImport) =>
+    request<{ result: VaultImportResult }>(`/projects/${id}/vault/import`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   inspectBackend: (id: string) => request(`/projects/${id}/backend/inspect`, { method: "POST" }),
   imageCapabilities: () => request<ImageCapabilities>("/images/capabilities"),
   videoCapabilities: () => request<VideoCapabilities>("/videos/capabilities"),
