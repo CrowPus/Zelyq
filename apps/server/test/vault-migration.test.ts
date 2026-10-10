@@ -10,6 +10,7 @@ import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 import { AccessControl } from "../src/services/access.js";
 import { ProjectBackendService } from "../src/services/project-backend.js";
+import { ProjectVariableService } from "../src/services/project-variables.js";
 import { resolveSecretKey, SecretBox } from "../src/services/secrets.js";
 import { VaultService } from "../src/services/vault.js";
 
@@ -79,8 +80,13 @@ after(async () => {
 });
 
 function backendFor(server: ZelyqServer, box: SecretBox) {
-  const vault = new VaultService(server.store, box, new AccessControl(server.store), pythonRuntime);
-  return { vault, backend: new ProjectBackendService(server.store, box, pythonRuntime, vault) };
+  const access = new AccessControl(server.store);
+  const vault = new VaultService(server.store, box, access);
+  const variables = new ProjectVariableService(server.store, box, access, vault, pythonRuntime);
+  return {
+    variables,
+    backend: new ProjectBackendService(server.store, box, pythonRuntime, variables),
+  };
 }
 
 test("backend secrets saved before Vault move into it on start, and the app sees the same values", async () => {
@@ -132,12 +138,13 @@ test("backend secrets saved before Vault move into it on start, and the app sees
     `project-backend:${project.id}:production`,
     oldShape({ PROD_ONLY: "prod-value" }, "rev-p"),
   );
-  // Someone already put a newer value into Vault for one of the names.
-  await server.store.vault.create({
+  // Someone already set a newer value for one of the names.
+  await server.store.vault.variables.create({
     projectId: project.id,
     name: "ALREADY_IN_VAULT",
-    environment: "development",
+    source: "direct",
     value: box.encrypt("newer-value"),
+    vaultName: null,
     description: null,
     userId: null,
     now: new Date().toISOString(),
@@ -148,16 +155,19 @@ test("backend secrets saved before Vault move into it on start, and the app sees
   server = await buildServer(config);
   await server.app.ready();
   try {
-    const { vault, backend } = backendFor(server, box);
+    const { variables, backend } = backendFor(server, box);
 
-    const development = await vault.environmentFor(project.id, "development");
-    assert.deepEqual(development, {
+    // Development values reached the app before: they are its variables now.
+    assert.deepEqual(await variables.environmentFor(project.id), {
       STRIPE_KEY: "sk_old_stripe",
       ALREADY_IN_VAULT: "newer-value",
     });
-    assert.deepEqual(await vault.environmentFor(project.id, "production"), {
-      PROD_ONLY: "prod-value",
-    });
+    // A production value reached nothing: it is kept, Protected, in the team
+    // Vault — and the app is not given it.
+    const kept = await server.store.vault.list(project.teamId);
+    assert.equal(kept.length, 1);
+    assert.match(kept[0]?.name ?? "", /^PROD_ONLY__PRODUCTION__/);
+    assert.equal(kept[0]?.protected, true);
 
     // The old configuration no longer holds them…
     for (const environment of ["development", "production"]) {
@@ -183,12 +193,12 @@ test("backend secrets saved before Vault move into it on start, and the app sees
         headers: { cookie },
       })
     ).json().entries as { action: string; detail: { names: string[] } }[];
-    const moved = entries.filter((entry) => entry.action === "vault.migrated");
+    const moved = entries.filter((entry) => entry.action === "project.variables_migrated");
     assert.equal(moved.length, 2);
-    assert.deepEqual(moved.flatMap((entry) => entry.detail.names).sort(), [
-      "PROD_ONLY",
-      "STRIPE_KEY",
-    ]);
+    const movedNames = moved.flatMap((entry) => entry.detail.names).sort();
+    assert.equal(movedNames.length, 2);
+    assert.equal(movedNames[1], "STRIPE_KEY");
+    assert.match(movedNames[0] ?? "", /^PROD_ONLY__PRODUCTION__/);
     assert.equal(JSON.stringify(entries).includes("sk_old_stripe"), false);
   } finally {
     await server.close();
@@ -198,9 +208,10 @@ test("backend secrets saved before Vault move into it on start, and the app sees
   server = await buildServer(config);
   await server.app.ready();
   try {
-    assert.equal((await server.store.vault.list(project.id)).length, 3);
-    const { vault } = backendFor(server, box);
-    assert.equal(await vault.moveBackendSecrets({ warn: () => undefined }), 0);
+    assert.equal((await server.store.vault.variables.list(project.id)).length, 2);
+    assert.equal((await server.store.vault.list(project.teamId)).length, 1);
+    const { variables } = backendFor(server, box);
+    assert.equal(await variables.moveBackendSecrets({ warn: () => undefined }), 0);
   } finally {
     await server.close();
   }

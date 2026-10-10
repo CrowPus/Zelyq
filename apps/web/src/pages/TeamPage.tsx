@@ -68,7 +68,7 @@ export function TeamPage() {
             <div>
               <h1 className="text-xl font-semibold text-fg">{team?.name ?? "Team"}</h1>
               <p className="mt-1 text-xs text-fg-secondary">
-                Everyone here sees every project in this team. What they may change depends on their
+                Everyone here sees every app in this team. What they may change depends on their
                 role.
               </p>
             </div>

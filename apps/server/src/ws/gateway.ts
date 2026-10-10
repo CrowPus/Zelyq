@@ -463,7 +463,10 @@ export class ChatGateway {
         engineerMode: override.engineerMode ?? false,
         architectMode: override.architectMode ?? false,
         autoMode: override.autoMode ?? false,
-        ...(apiKey ? { apiKey } : {}),
+        // Always sent, even empty: the key comes from Settings (typed or
+        // from Vault) and nowhere else. Omitting it would let the agent fall
+        // back to whatever key its own environment happens to hold.
+        apiKey: apiKey ?? "",
         ...(authMode !== "api_key" ? { authMode } : {}),
         ...(baseUrl ? { baseUrl } : {}),
         ...(anthropicWorkspaceId ? { anthropicWorkspaceId } : {}),

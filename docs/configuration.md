@@ -14,6 +14,12 @@ Precedence is fixed and one-directional:
 environment  >  settings screen  >  built-in default
 ```
 
+**API keys are the exception: they are never read from the environment.** Every key field in Settings
+is typed there or taken from [Vault](./vault.md). If a key variable is set in the environment the
+first time Zelyq starts on this version, it is copied into Settings once (the server log names it)
+and the environment is not read for it again, so a key cleared in Settings stays cleared. The key
+variables in the tables below are what that first copy reads.
+
 An operator who sets a variable expects it to hold, so a value in the environment cannot be
 overridden from the UI. Those fields appear in Settings as read-only, labelled with the variable
 that supplies them, and trying to write one returns an error rather than storing a value that would

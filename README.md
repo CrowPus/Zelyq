@@ -4,19 +4,19 @@
 
 # Zelyq
 
-**Vibecoding writes code. Zelyq builds like an engineer.**
+**The open-source developer platform: build apps with AI, keep their secrets safe, ship them.**
 
 ### [Try it live → zelyq.com](https://zelyq.com)
 
 <video src="https://github.com/user-attachments/assets/499f90a6-0749-472c-a711-a2f3b5247f9e" autoplay loop muted playsinline controls width="900"></video>
 
-<sub>▶ <b>Video Studio</b> — create videos from a prompt or animate a starting image, then preview and download your results.</sub>
+<sub>▶ <b>Studio — Video</b>: create videos from a prompt or animate a starting image, then preview and download your results.</sub>
 
 <br />
 
 <video src="https://github.com/user-attachments/assets/e34e9ca2-c99d-463a-b459-8475f343bd69" controls muted loop playsinline width="900"></video>
 
-<sub>▶ <b>Image Studio</b> — generate original images with prompts, reference images, and creative controls.</sub>
+<sub>▶ <b>Studio — Image</b>: generate original images with prompts, reference images, and creative controls.</sub>
 
 <br />
 
@@ -28,7 +28,19 @@
 
 <video src="https://github.com/user-attachments/assets/b2782b9e-d020-4a09-99e8-1e96e52ac9af" controls muted loop playsinline width="900"></video>
 
-<sub>▶ And building a <b>real mobile app</b> — pick <b>Expo — React Native</b> when you create a project and the agent builds native screens (<code>View</code> / <code>Text</code> / Expo Router, not <code>div</code>), previewed in the browser via Expo web.</sub>
+<sub>▶ And building a <b>real mobile app</b> — pick <b>Expo — React Native</b> when you create an app and the agent builds native screens (<code>View</code> / <code>Text</code> / Expo Router, not <code>div</code>), previewed in the browser via Expo web.</sub>
+
+Zelyq is one place for the work around an app, organised the way you do it:
+
+| | Module | What it is for |
+| --- | --- | --- |
+| **Build** | **Apps** | Describe an app and an agent builds it like an engineer, in real files you own |
+| | **Studio** | Generate images and video, for your apps or on their own |
+| **Secure** | **[Vault](./docs/vault.md)** | Keep every credential once, encrypted, and use it in apps, Settings, and your own servers |
+| **Ship** | Pipelines, Deploy | Coming next: see the [roadmap](./docs/roadmap.md) |
+
+Teams are the workspace: invite people, give them a role, and every module follows it. Self-hosted,
+AGPL-3.0, no telemetry.
 
 Most "prompt to app" tools generate something that looks right and leave you to find out where it
 isn't. Zelyq's agent plans before it acts, verifies its own work before it calls a turn finished,
@@ -43,7 +55,7 @@ live.
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.base.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](./CONTRIBUTING.md)
 
-[Live demo](https://zelyq.com) · [Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
+[Live demo](https://zelyq.com) · [Docs](./docs/README.md) · [Vault](./docs/vault.md) · [Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
 [How it works](#how-it-works) · [Modes](./docs/modes.md) · [Architecture](./docs/architecture.md) ·
 [Configuration](./docs/configuration.md) · [Self-hosting](./docs/self-hosting.md) ·
 [Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
@@ -158,6 +170,11 @@ built so that nothing about it is magic and nothing is locked in:
   Grok, Groq, or OpenRouter, chosen with one variable and a key. Or point `ZELYQ_PROVIDER=custom` at
   anything speaking the OpenAI dialect — Ollama, vLLM, LM Studio, a gateway of your own — and nothing
   about your project ever leaves your network. No proxy, no Zelyq account, no telemetry, either way.
+- **Vault: secrets, once.** API keys and passwords live in Vault, encrypted, with history, a
+  Protected flag for live keys, and an audit trail of every reveal. An app's variables are typed or
+  taken from Vault; Settings keys too. Your own servers and CI fetch them with a service key, or run
+  `zelyq vault run -- <command>` to start with them and write nothing to disk. Credentials are never
+  read from `.env`. See [Vault](./docs/vault.md).
 - **Every turn is a change you can inspect and undo.** A snapshot before each turn, a diff of exactly
   what changed, one-click revert to any turn — and an audit log of who did what, once more than one
   person is working on an instance.
@@ -171,26 +188,26 @@ built so that nothing about it is magic and nothing is locked in:
   first, then the screens, with the real images and fonts mirrored in (substitutes logged where
   it couldn't get one), and a screenshot-diff loop against the original. Every fetch is
   SSRF-guarded — public hosts only. Only clone what you own or have permission to reproduce.
-- **Image Studio, and an agent that can use it.** A signed-in page for generating original images
+- **Studio — Image, and an agent that can use it.** A signed-in page for generating original images
   from a prompt (OpenAI, Google, or xAI — your key, billed to you), with a private library, reference
   images, and durable history. Switch it on for a project and the agent can generate artwork for the
   app it is building, reuse an image you made yourself, and place either into the project. Anything
   it generates lands in your own library. It is **off by default per project**, because each image
   spends money, and bounded by a per-hour and a per-conversation limit you set. The agent is told to
   use real stock photography for anything your copy claims is real — a generated landmark is not a
-  photograph of it. See [Image Studio](./docs/Image-gen/implementation.md) and
+  photograph of it. See [Studio — Image](./docs/Image-gen/implementation.md) and
   [agent integration](./docs/Image-gen/agent-integration.md).
-- **Video Studio.** A signed-in page for generating short clips from a prompt, or animating a still
+- **Studio — Video.** A signed-in page for generating short clips from a prompt, or animating a still
   image — Google (Veo) or xAI (Grok Imagine), your key, billed to you. Text-to-video and
   image-to-video, with the ratio, duration, resolution and audio options each model actually
-  supports; a starting frame can be uploaded or picked from your Image Studio library. Jobs are long
+  supports; a starting frame can be uploaded or picked from your Studio images. Jobs are long
   and asynchronous, so they survive a refresh and a server restart: the provider's operation handle
   is persisted, polling resumes on boot, and a submission whose outcome cannot be established says
   so rather than quietly generating (and billing) a second time. Finished clips are saved to your own
   storage — they keep playing after the provider's temporary URL expires — and stream back with HTTP
   range support so seeking works. A finished clip can also be **split into a numbered image
   sequence** — WebP, JPEG, PNG or AVIF, with a poster and a manifest — which is exactly what a
-  scroll-scrubbed hero paints onto a canvas. See [Video Studio](./docs/Video-gen/README.md) and
+  scroll-scrubbed hero paints onto a canvas. See [Studio — Video](./docs/Video-gen/README.md) and
   [frame export](./docs/Video-gen/frame-export.md).
 - **`/video` and `/cinematic` — moving footage in a page, built the right way.** `/video` puts a
   muted loop behind a section; `/cinematic` makes a section play as you scroll, frame by frame on a
@@ -226,16 +243,14 @@ git clone https://github.com/CrowPus/Zelyq.git
 cd Zelyq
 pnpm install
 
-cp .env.example .env
-# Claude:  ANTHROPIC_API_KEY=sk-ant-...
-# Gemini:  ZELYQ_PROVIDER=google and GEMINI_API_KEY=...
-# OpenAI, or your own model on your own machine — see Models below
+cp .env.example .env    # nothing in it is required to start
 
 pnpm dev            # builds the libraries, then web :5173 · server :8787 · agent :8788
 ```
 
-Open <http://localhost:5173>, create a project, and type what you want built. The first preview runs
-`npm install`, so give it a minute.
+Open <http://localhost:5173> and create the first account; it administers the instance. Add your
+model's API key in **Settings → Model** (typed, or from Vault). Then open **Apps**, create an app, and
+type what you want built. The first preview runs `npm install`, so give it a minute.
 
 Prefer containers? `docker compose -f docker/docker-compose.yml up` — see
 [self-hosting](./docs/self-hosting.md).
@@ -283,7 +298,7 @@ Full detail: [docs/architecture.md](./docs/architecture.md).
 
 ## Models
 
-| Provider | `ZELYQ_PROVIDER` | Default model | Key |
+| Provider | `ZELYQ_PROVIDER` | Default model | Key (first start) |
 | --- | --- | --- | --- |
 | Claude | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
 | Gemini | `google` | `gemini-3.7-flash` | `GEMINI_API_KEY` |
@@ -295,7 +310,9 @@ Full detail: [docs/architecture.md](./docs/architecture.md).
 | OpenRouter | `openrouter` | none — set `ZELYQ_MODEL` | `OPENROUTER_API_KEY` |
 | Your own — Ollama, vLLM, LM Studio, anything OpenAI-compatible | `custom` | none — set `ZELYQ_MODEL` | none required |
 
-Only the selected provider's key is needed. `custom` also needs `ZELYQ_MODEL_BASE_URL` pointed at your
+Only the selected provider's key is needed, and it is set in **Settings → Model**, typed or from
+[Vault](./docs/vault.md). The key column is the variable a key is copied from once, the first time Zelyq
+starts, if it is in `.env`; after that the environment is not read for keys. `custom` also needs `ZELYQ_MODEL_BASE_URL` pointed at your
 endpoint (e.g. `http://localhost:11434/v1` for Ollama) — see [.env.example](./.env.example). Tested
 live against a local, CPU-only 8B model: real tool calls, real self-correction from a validation error,
 same behaviour as the cloud providers — just slower without a GPU.

@@ -82,14 +82,14 @@ export function GitPanel({ projectId }: { projectId: string }) {
           <div className="absolute top-full right-0 z-20 mt-1.5 w-[22rem] rounded-lg border border-border-default bg-overlay p-3 shadow-overlay">
             {status.isPending && (
               <p className="flex items-center gap-1.5 text-2xs text-fg-secondary">
-                <Spinner className="size-3" /> Reading this project's git…
+                <Spinner className="size-3" /> Reading this app's git…
               </p>
             )}
             {status.isError && (
               <Message tone="danger">
                 {status.error instanceof ApiError
                   ? status.error.message
-                  : "Could not read this project's git."}
+                  : "Could not read this app's git."}
               </Message>
             )}
             {state && <GitBody projectId={projectId} state={state} />}
@@ -200,7 +200,7 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
       setRemoteUrl("");
       setConfirmReplace(null);
       setPane("main");
-      setNote({ tone: "success", text: "This project now pushes to the new address." });
+      setNote({ tone: "success", text: "This app now pushes to the new address." });
     },
     onError: (error) => {
       const current =
@@ -316,7 +316,7 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
             <RemoteField
               value={remoteUrl}
               onChange={setRemoteUrl}
-              label="This project has no remote yet. Paste the repository address to push to."
+              label="This app has no remote yet. Paste the repository address to push to."
             />
           )}
 
@@ -382,14 +382,14 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
               setRemoteUrl(next);
               setConfirmReplace(null);
             }}
-            label="Where this project pushes to. There is only ever one."
+            label="Where this app pushes to. There is only ever one."
           />
 
           {confirmReplace && (
             <div className="rounded-md border border-warning/40 bg-warning/5 p-2">
               <p className="text-2xs leading-relaxed text-fg-secondary">
                 This project currently pushes to <Mono>{confirmReplace}</Mono>. Point it at{" "}
-                <Mono>{remoteUrl.trim()}</Mono> instead? Commits already made stay in this project —
+                <Mono>{remoteUrl.trim()}</Mono> instead? Commits already made stay in this app —
                 they simply will not go to the old address any more.
               </p>
               <div className="mt-2 flex gap-1.5">

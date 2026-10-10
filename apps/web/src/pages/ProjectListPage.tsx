@@ -14,6 +14,7 @@ import {
   Spinner,
   StatusDot,
 } from "../components/ui";
+import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 
 const STATUS_TONE = {
@@ -38,6 +39,9 @@ export function ProjectListPage() {
   const [confirming, setConfirming] = useState<string | null>(null);
 
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.listProjects });
+  // The team chosen at the top of the sidebar: its apps are the ones listed,
+  // and a new app goes into it.
+  const { team } = useActiveTeam();
   const templates = useQuery({ queryKey: ["templates"], queryFn: api.listTemplates });
   // Deleting takes admin on the project's team. The server decides for real;
   // this only keeps a button nobody may press off the screen.
@@ -57,7 +61,11 @@ export function ProjectListPage() {
 
   const createProject = useMutation({
     mutationFn: (input: { name: string; gitUrl?: string; gitToken?: string; template?: string }) =>
-      api.createProject({ template: "vite-react", ...input }),
+      api.createProject({
+        template: "vite-react",
+        ...input,
+        ...(team ? { teamId: team.id } : {}),
+      }),
     // Whatever happens, the token does not linger in the page.
     onSettled: () => setGitToken(""),
     onSuccess: ({ project }) => {
@@ -96,7 +104,9 @@ export function ProjectListPage() {
     });
   }
 
-  const list = projects.data?.projects ?? [];
+  const list = (projects.data?.projects ?? []).filter(
+    (project) => !team || project.teamId === team.id,
+  );
   const agent = health.data?.agent;
   const roleByTeam = new Map((teams.data?.teams ?? []).map((team) => [team.id, team.role]));
   const canDelete = (teamId: string): boolean => {
@@ -109,7 +119,7 @@ export function ProjectListPage() {
 
   return (
     <AppShell
-      crumbs={[{ label: "Projects" }]}
+      crumbs={[{ label: "Apps" }]}
       actions={
         <Button
           variant="primary"
@@ -117,7 +127,7 @@ export function ProjectListPage() {
           icon={<Plus size={13} strokeWidth={2} />}
           onClick={() => setComposing(true)}
         >
-          New project
+          New app
         </Button>
       }
     >
@@ -125,9 +135,10 @@ export function ProjectListPage() {
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <h1 className="text-xl font-semibold text-fg">Projects</h1>
+              <h1 className="text-xl font-semibold text-fg">Apps</h1>
               <p className="mt-1 text-xs text-fg-secondary">
-                Each project is a real directory of files you can open, edit, and take with you.
+                Build an app by describing it. Each one is a real directory of files you can open,
+                edit, and take with you.
               </p>
             </div>
             {agent && (
@@ -146,8 +157,8 @@ export function ProjectListPage() {
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   onKeyDown={(event) => event.key === "Escape" && setComposing(false)}
-                  placeholder="Project name"
-                  aria-label="Project name"
+                  placeholder="App name"
+                  aria-label="App name"
                   className="max-w-xs"
                 />
                 <Button
@@ -247,7 +258,7 @@ export function ProjectListPage() {
                     "read-only token is enough. The token is used once and never stored. Cloning " +
                     "can take a minute."
                   : (templates.data?.templates.length ?? 0) > 1
-                    ? "Leave the address empty and Zelyq scaffolds a new project in the stack you pick above."
+                    ? "Leave the address empty and Zelyq scaffolds a new app in the stack you pick above."
                     : "Leave the address empty and Zelyq starts a new React app instead."}
               </p>
             </form>
@@ -270,13 +281,13 @@ export function ProjectListPage() {
           <div className="mt-6 overflow-hidden rounded-lg border border-border-default bg-surface">
             {projects.isLoading && (
               <div className="flex items-center gap-2 px-4 py-8 text-xs text-fg-muted">
-                <Spinner /> Loading projects…
+                <Spinner /> Loading apps…
               </div>
             )}
 
             {!projects.isLoading && list.length === 0 && (
               <EmptyState
-                title="No projects yet"
+                title={team ? `No apps in ${team.name} yet` : "No apps yet"}
                 description="Create one and describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read."
                 action={
                   <Button
@@ -284,7 +295,7 @@ export function ProjectListPage() {
                     icon={<Plus size={13} strokeWidth={2} />}
                     onClick={() => setComposing(true)}
                   >
-                    New project
+                    New app
                   </Button>
                 }
               />

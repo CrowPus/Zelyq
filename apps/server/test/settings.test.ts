@@ -9,6 +9,7 @@ import { createStore, runMigrations } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 import { maskSecret, resolveSecretKey, SecretBox } from "../src/services/secrets.js";
+import { SettingsService } from "../src/services/settings.js";
 
 const tmp = path.join(os.tmpdir(), `zelyq-settings-${Date.now()}`);
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -498,10 +499,9 @@ test("clearing an overridden provider falls back to the environment, not straigh
   }
 });
 
-test("an environment-supplied API key counts as configured", async () => {
+test("an API key in the environment is not read: Settings is what Zelyq uses", async () => {
   const previous = process.env.GEMINI_API_KEY;
   process.env.GEMINI_API_KEY = "AIza-from-the-environment";
-
   try {
     const read = await server.app.inject({
       method: "GET",
@@ -509,17 +509,128 @@ test("an environment-supplied API key counts as configured", async () => {
       headers: { cookie: adminCookie },
     });
     assert.ok(!read.body.includes("AIza-from-the-environment"), "an env key must not be echoed");
-
     const field = read
       .json()
       .groups.flatMap((group: { fields: Array<{ key: string }> }) => group.fields)
       .find((f: { key: string }) => f.key === "geminiApiKey");
-    assert.equal(field.configured, true);
-    assert.equal(field.source, "env");
-    assert.equal(field.managedByEnv, true);
+    assert.equal(field.configured, false, "the environment no longer supplies credentials");
+    assert.equal(field.managedByEnv, false, "and no longer locks the field");
+    assert.equal(await server.settings.apiKeyFor("google"), "");
   } finally {
     process.env.GEMINI_API_KEY = previous ?? "";
   }
+});
+
+test("credentials in the environment are copied into Settings once, and never again", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zelyq-env-import-"));
+  const url = `file:${dir}/import.db`;
+  await runMigrations(url);
+  const store = createStore(url);
+  try {
+    const box = new SecretBox(randomBytes(32));
+    const env = { OPENAI_API_KEY: "sk-from-env", ANTHROPIC_API_KEY: "sk-ant-from-env", PATH: "/x" };
+    const settings = new SettingsService(store, box, env);
+    await store.settings.set("anthropicApiKey", box.encrypt("sk-ant-already-typed"));
+
+    assert.deepEqual(await settings.importCredentialsFromEnvironment(), ["OPENAI_API_KEY"]);
+    assert.equal(await settings.apiKeyFor("openai"), "sk-from-env");
+    assert.equal(
+      await settings.apiKeyFor("anthropic"),
+      "sk-ant-already-typed",
+      "a value already in Settings is never replaced",
+    );
+
+    // Cleared in Settings, it stays cleared: the environment is not read again.
+    await settings.update({ openaiApiKey: null });
+    assert.deepEqual(await settings.importCredentialsFromEnvironment(), []);
+    assert.equal(await settings.apiKeyFor("openai"), "");
+  } finally {
+    await store.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a Settings key can come from the instance Vault, and follows it", async () => {
+  const created = await server.app.inject({
+    method: "POST",
+    url: "/api/instance/vault",
+    headers: { cookie: adminCookie },
+    payload: { name: "OPENAI_PLATFORM_KEY", value: "sk-vault-1" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const entryId = created.json().secret.id;
+
+  const pointed = await server.app.inject({
+    method: "PUT",
+    url: "/api/settings/openaiApiKey/source",
+    headers: { cookie: adminCookie },
+    payload: { vaultName: "OPENAI_PLATFORM_KEY" },
+  });
+  assert.equal(pointed.statusCode, 200, pointed.body);
+  const field = pointed
+    .json()
+    .groups.flatMap((group: { fields: Array<{ key: string }> }) => group.fields)
+    .find((f: { key: string }) => f.key === "openaiApiKey");
+  assert.equal(field.source, "vault");
+  assert.equal(field.vaultName, "OPENAI_PLATFORM_KEY");
+  assert.ok(!pointed.body.includes("sk-vault-1"));
+  assert.equal(await server.settings.apiKeyFor("openai"), "sk-vault-1");
+
+  // A new value in Vault is what Zelyq uses next.
+  await server.app.inject({
+    method: "PATCH",
+    url: `/api/instance/vault/${entryId}`,
+    headers: { cookie: adminCookie },
+    payload: { value: "sk-vault-2" },
+  });
+  assert.equal(await server.settings.apiKeyFor("openai"), "sk-vault-2");
+
+  // The Vault says where it is used.
+  const listed = await server.app.inject({
+    method: "GET",
+    url: "/api/instance/vault",
+    headers: { cookie: adminCookie },
+  });
+  const entry = listed
+    .json()
+    .secrets.find((s: { name: string }) => s.name === "OPENAI_PLATFORM_KEY");
+  assert.deepEqual(entry.usedBy, [{ kind: "setting", key: "openaiApiKey", label: field.label }]);
+
+  // A name not in the instance Vault is refused.
+  const unknown = await server.app.inject({
+    method: "PUT",
+    url: "/api/settings/openaiApiKey/source",
+    headers: { cookie: adminCookie },
+    payload: { vaultName: "NOT_THERE" },
+  });
+  assert.equal(unknown.statusCode, 400);
+
+  // Deleted from Vault, the field says so instead of quietly using nothing.
+  await server.app.inject({
+    method: "DELETE",
+    url: `/api/instance/vault/${entryId}`,
+    headers: { cookie: adminCookie },
+  });
+  const after = await server.app.inject({
+    method: "GET",
+    url: "/api/settings",
+    headers: { cookie: adminCookie },
+  });
+  const gone = after
+    .json()
+    .groups.flatMap((group: { fields: Array<{ key: string }> }) => group.fields)
+    .find((f: { key: string }) => f.key === "openaiApiKey");
+  assert.equal(gone.vaultMissing, true);
+  assert.equal(gone.configured, false);
+
+  // Typing a value replaces the reference.
+  await server.app.inject({
+    method: "PUT",
+    url: "/api/settings",
+    headers: { cookie: adminCookie },
+    payload: { openaiApiKey: "sk-typed" },
+  });
+  assert.equal(await server.settings.apiKeyFor("openai"), "sk-typed");
 });
 
 test("registration can be closed from settings, and takes effect at once", async () => {
@@ -628,4 +739,51 @@ test("the model field suggests the current provider's known models, not a fixed 
       payload: { provider: null },
     });
   }
+});
+
+test("a key added to the team's Vault can be chosen in Settings, and works", async () => {
+  const teamId = (
+    await server.app.inject({ method: "GET", url: "/api/teams", headers: { cookie: adminCookie } })
+  ).json().teams[0].id;
+  const created = await server.app.inject({
+    method: "POST",
+    url: `/api/teams/${teamId}/vault`,
+    headers: { cookie: adminCookie },
+    payload: { name: "GEMINI_TEAM_KEY", value: "AIza-team-vault", protected: true },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const choices = await server.app.inject({
+    method: "GET",
+    url: "/api/settings/vault-choices",
+    headers: { cookie: adminCookie },
+  });
+  const team = choices.json().groups.find((g: { scope: string }) => g.scope === teamId);
+  assert.ok(team?.names.includes("GEMINI_TEAM_KEY"), "the team's key is offered");
+
+  const pointed = await server.app.inject({
+    method: "PUT",
+    url: "/api/settings/geminiApiKey/source",
+    headers: { cookie: adminCookie },
+    payload: { vaultName: "GEMINI_TEAM_KEY", vault: teamId },
+  });
+  assert.equal(pointed.statusCode, 200, pointed.body);
+  assert.equal(await server.settings.apiKeyFor("google"), "AIza-team-vault");
+
+  const listed = await server.app.inject({
+    method: "GET",
+    url: `/api/teams/${teamId}/vault`,
+    headers: { cookie: adminCookie },
+  });
+  const entry = listed.json().secrets.find((s: { name: string }) => s.name === "GEMINI_TEAM_KEY");
+  assert.equal(entry.usedBy[0]?.kind, "setting");
+
+  // A team the administrator does not administer cannot be used.
+  const other = await server.app.inject({
+    method: "PUT",
+    url: "/api/settings/geminiApiKey/source",
+    headers: { cookie: adminCookie },
+    payload: { vaultName: "GEMINI_TEAM_KEY", vault: "tem_not_mine" },
+  });
+  assert.equal(other.statusCode, 404);
 });

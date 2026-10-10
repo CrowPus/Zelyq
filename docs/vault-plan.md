@@ -1,4 +1,8 @@
-# Vault: plan
+# Vault: plan (superseded)
+
+> **Superseded by [vault-standalone-plan.md](./vault-standalone-plan.md).** This first plan put
+> Vault inside a coding project; Vault is now a module of its own, owned by the team. Kept for
+> history. The user guide is [vault.md](./vault.md).
 
 > **Status (2026-10-10): built.** V1 to V5 are implemented on `feat/vault`. Where the build
 > differed from this plan, the text below says so under "As built".

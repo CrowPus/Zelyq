@@ -1,12 +1,14 @@
 import {
-  Boxes,
+  BookOpen,
+  Check,
   ChevronRight,
-  CircleHelp,
-  Clapperboard,
-  ImagePlus,
+  ChevronsUpDown,
+  KeyRound,
+  LayoutGrid,
   LogOut,
   Monitor,
   Moon,
+  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -16,6 +18,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { useTheme } from "../hooks/useTheme";
 import { Button, IconButton } from "./ui";
@@ -96,7 +99,7 @@ function RailLink({
   to?: string;
   href?: string;
   label: string;
-  icon: typeof Boxes;
+  icon: typeof LayoutGrid;
   active?: boolean;
   open: boolean;
 }) {
@@ -128,30 +131,41 @@ function RailLink({
   );
 }
 
+/**
+ * The modules, grouped by what you are doing with them. A new module joins a
+ * group instead of making one long list; "Ship" is where Pipelines and Deploy
+ * arrive.
+ */
+const SECTIONS: {
+  title: string;
+  items: { to: string; label: string; icon: typeof LayoutGrid; match: (p: string) => boolean }[];
+}[] = [
+  {
+    title: "Build",
+    items: [
+      {
+        to: "/",
+        label: "Apps",
+        icon: LayoutGrid,
+        match: (p) => p === "/" || p.startsWith("/projects"),
+      },
+      {
+        to: "/studio",
+        label: "Studio",
+        icon: Palette,
+        match: (p) => p.startsWith("/studio"),
+      },
+    ],
+  },
+  {
+    title: "Secure",
+    items: [{ to: "/vault", label: "Vault", icon: KeyRound, match: (p) => p.startsWith("/vault") }],
+  },
+];
+
 function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const { pathname } = useLocation();
-  // Projects first: it is what this product is for. The studios are tools you
-  // reach for while building one.
-  const items = [
-    {
-      to: "/",
-      label: "Projects",
-      icon: Boxes,
-      match: (p: string) => p === "/" || p.startsWith("/projects"),
-    },
-    {
-      to: "/image-studio",
-      label: "Image Studio",
-      icon: ImagePlus,
-      match: (p: string) => p.startsWith("/image-studio"),
-    },
-    {
-      to: "/video-studio",
-      label: "Video Studio",
-      icon: Clapperboard,
-      match: (p: string) => p.startsWith("/video-studio"),
-    },
-  ];
+  const { team } = useActiveTeam();
 
   return (
     <nav
@@ -181,18 +195,35 @@ function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
         )}
       </div>
 
-      {items.map((item) => (
-        <RailLink
-          key={item.to}
-          to={item.to}
-          label={item.label}
-          icon={item.icon}
-          active={item.match(pathname)}
-          open={open}
-        />
-      ))}
+      <TeamSwitcher open={open} />
 
-      <TeamLinks open={open} />
+      {SECTIONS.map((section) => (
+        <div key={section.title} className={`flex flex-col gap-1 ${open ? "mt-3" : "mt-2"}`}>
+          {open ? (
+            <p className="px-2 pb-0.5 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
+              {section.title}
+            </p>
+          ) : (
+            <span aria-hidden className="mx-auto mb-1 h-px w-5 bg-border-default" />
+          )}
+          {section.items.map((item) => (
+            <RailLink
+              key={item.to}
+              to={item.to}
+              label={item.label}
+              icon={item.icon}
+              active={item.match(pathname)}
+              open={open}
+            />
+          ))}
+        </div>
+      ))}
+      {open && (
+        <div className="mt-3 px-2">
+          <p className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">Ship</p>
+          <p className="mt-1 text-2xs text-fg-muted">Pipelines and Deploy — coming soon</p>
+        </div>
+      )}
 
       <div className="flex-1" />
 
@@ -207,10 +238,19 @@ function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
           <PanelLeftOpen size={16} strokeWidth={1.75} />
         </button>
       )}
+      {team && (
+        <RailLink
+          to={`/teams/${team.id}`}
+          label="Team"
+          icon={Users}
+          active={pathname.startsWith("/teams/")}
+          open={open}
+        />
+      )}
       <RailLink
-        href="https://github.com/CrowPus/Zelyq#readme"
-        label="Documentation"
-        icon={CircleHelp}
+        href="https://github.com/CrowPus/Zelyq/tree/main/docs"
+        label="Docs"
+        icon={BookOpen}
         open={open}
       />
       <SettingsLink open={open} />
@@ -218,27 +258,88 @@ function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   );
 }
 
-/** One entry per team the user belongs to, for managing its members. */
-function TeamLinks({ open }: { open: boolean }) {
-  const { teams } = useSession();
-  const { pathname } = useLocation();
+/**
+ * Which team you are working in, at the top like a workspace. Choosing one
+ * changes which apps are listed, where a new app goes, and which Vault opens.
+ */
+function TeamSwitcher({ open }: { open: boolean }) {
+  const { team, teams, setTeam } = useActiveTeam();
+  const [menu, setMenu] = useState(false);
+  if (!team) return null;
+  const letter = team.name.trim()[0]?.toUpperCase() ?? "T";
 
   return (
-    <>
-      {teams.map((team) => {
-        const active = pathname === `/teams/${team.id}`;
-        return (
-          <RailLink
-            key={team.id}
-            to={`/teams/${team.id}`}
-            label={team.name}
-            icon={Users}
-            active={active}
-            open={open}
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setMenu((value) => !value)}
+        aria-haspopup="menu"
+        aria-expanded={menu}
+        aria-label={`Team: ${team.name}. Switch team`}
+        title={open ? undefined : `Team: ${team.name}`}
+        className={`flex items-center rounded-md border border-border-default transition-colors hover:bg-surface-hover ${
+          open ? "h-9 w-full gap-2 px-2" : "size-8 justify-center"
+        }`}
+      >
+        <span className="grid size-5 shrink-0 place-items-center rounded bg-fg text-2xs font-semibold text-canvas">
+          {letter}
+        </span>
+        {open && (
+          <>
+            <span className="min-w-0 flex-1 truncate text-left text-xs font-medium text-fg">
+              {team.name}
+            </span>
+            <ChevronsUpDown size={13} className="shrink-0 text-fg-muted" />
+          </>
+        )}
+      </button>
+      {menu && (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            className="fixed inset-0 z-10 cursor-default"
+            onClick={() => setMenu(false)}
           />
-        );
-      })}
-    </>
+          <div
+            role="menu"
+            className={`absolute z-20 w-56 rounded-lg border border-border-default bg-overlay p-1 shadow-overlay ${
+              open ? "top-full left-0 mt-1" : "top-0 left-full ml-2"
+            }`}
+          >
+            <p className="px-2 py-1 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
+              Teams
+            </p>
+            {teams.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={t.id === team.id}
+                onClick={() => {
+                  setTeam(t.id);
+                  setMenu(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
+              >
+                <span className="min-w-0 flex-1 truncate">{t.name}</span>
+                <span className="text-2xs text-fg-muted">{t.role}</span>
+                {t.id === team.id && <Check size={12} className="text-fg" />}
+              </button>
+            ))}
+            <div className="my-1 h-px bg-border-default" />
+            <Link
+              to={`/teams/${team.id}`}
+              onClick={() => setMenu(false)}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
+            >
+              <Users size={12} /> Members and invites
+            </Link>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -358,21 +459,21 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
       <div className="ml-auto flex items-center gap-1">
         {actions}
         <Link
-          to="/image-studio"
-          aria-label="Image Studio"
-          title="Image Studio"
+          to="/studio"
+          aria-label="Studio"
+          title="Studio"
           className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
         >
-          <ImagePlus size={16} />
+          <Palette size={16} />
         </Link>
         <ThemeToggle />
         <Link
-          to="/video-studio"
-          aria-label="Video Studio"
-          title="Video Studio"
+          to="/vault"
+          aria-label="Vault"
+          title="Vault"
           className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
         >
-          <Clapperboard size={16} />
+          <KeyRound size={16} />
         </Link>
         <AccountMenu />
       </div>

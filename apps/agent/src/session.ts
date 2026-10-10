@@ -440,8 +440,8 @@ const BUILDER_TOOL_NAMES = [
   "delete_file",
   "run_command",
   // A builder writing backend code reads credentials from the environment by
-  // the names Vault actually has.
-  "list_vault_secrets",
+  // the names the project's variables actually have.
+  "list_project_variables",
   // No-ops (they refuse) unless a Supabase resource is linked;
   // when it is, the backend builder applies its migration itself.
   "supabase_apply_migration",
@@ -1262,8 +1262,8 @@ function specialistActivityTitle(
     case "document_environment":
     case "detect_missing_secret_declarations":
       return "Checking environment & secrets";
-    case "list_vault_secrets":
-      return "Checking Vault";
+    case "list_project_variables":
+      return "Checking the project's variables";
     case "build_artifact_report":
       return "Checking the build output";
     case "run_command":
@@ -1643,8 +1643,8 @@ export class AgentSession {
       .filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name))
       .filter((t) => imagesAllowed || !IMAGE_TOOL_NAMES.includes(t.name as never))
       .filter((t) => videosAllowed || !VIDEO_TOOL_NAMES.includes(t.name as never))
-      // Vault is read through the preview grant; without one there is no way in.
-      .filter((t) => t.name !== "list_vault_secrets" || Boolean(options.previewBridge))
+      // Variables are read through the preview grant; without one there is no way in.
+      .filter((t) => t.name !== "list_project_variables" || Boolean(options.previewBridge))
       // One plan, one owner. Architect Mode's plan is `build-plan.md`;
       // `update_plan` (which writes `PLAN.md`) belongs to default and Engineer
       // Mode only, so the two never compete.

@@ -7,28 +7,28 @@ import {
   type BackendConfigurationResolved,
   backendConfigurationSchema,
   LOCAL_DEVELOPMENT_DATABASE,
-  type VaultEnvironment,
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import { type PreviewOptions, type RuntimeDriver, readRuntimeManifest } from "@zelyq/runtime";
 import type { SecretBox } from "./secrets.js";
 
-type Environment = VaultEnvironment;
+type Environment = "development" | "test" | "production";
 interface Stored {
   config: BackendConfigurationResolved;
   revision: string;
 }
 
 /**
- * Where a backend's secrets come from: Vault. An interface rather than the
- * service so this file does not need Vault's permissions or audit machinery —
- * the runtime environment is resolved for a project that is already starting.
+ * Where a backend's secrets come from: the project's variables, each typed
+ * or taken from the team Vault. An interface rather than the service so this
+ * file does not need their permissions or audit machinery — the environment
+ * is resolved for a project that is already starting.
  */
 export interface BackendSecretSource {
-  environmentFor(projectId: string, environment: VaultEnvironment): Promise<Record<string, string>>;
-  /** Changes whenever a secret is added, removed or given a new value. */
-  fingerprint(projectId: string, environment: VaultEnvironment): Promise<string>;
+  environmentFor(projectId: string): Promise<Record<string, string>>;
+  /** Changes whenever what the app would be given changes. */
+  fingerprint(projectId: string): Promise<string>;
 }
 
 /**
@@ -213,7 +213,7 @@ export class ProjectBackendService {
     private store: Store,
     private secrets: SecretBox,
     private runtime: RuntimeDriver,
-    private vault: BackendSecretSource,
+    private variables: BackendSecretSource,
     private resolveHost: HostLookup = systemLookup,
   ) {}
 
@@ -342,10 +342,10 @@ export class ProjectBackendService {
       if (value !== null) backendEnv[key] = value;
     // Vault names cannot collide with the keys above: the names Zelyq sets are
     // reserved and refused when a secret is created.
-    Object.assign(backendEnv, await this.vault.environmentFor(id, "development"));
+    Object.assign(backendEnv, await this.variables.environmentFor(id));
     // A running preview is reused while the revision is unchanged, so a Vault
     // change has to change it too — or the app keeps the value it started with.
-    const vaultRevision = await this.vault.fingerprint(id, "development");
+    const vaultRevision = await this.variables.fingerprint(id);
     return {
       env: publicEnv,
       backendEnv,

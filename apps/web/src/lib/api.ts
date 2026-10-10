@@ -21,6 +21,9 @@ import type {
   ImageHistory,
   Preview,
   Project,
+  ProjectVariable,
+  ProjectVariableCreate,
+  ProjectVariableUpdate,
   PullRequestResult,
   PushToRemoteInput,
   Role,
@@ -34,13 +37,16 @@ import type {
   UpdateSettingsInput,
   UploadSkillInput,
   User,
-  VaultEnvironment,
+  VaultEntry,
+  VaultEntryCreate,
+  VaultEntryUpdate,
   VaultImport,
   VaultImportResult,
-  VaultSecret,
-  VaultSecretCreate,
-  VaultSecretUpdate,
-  VaultSecretVersion,
+  VaultScope,
+  VaultServiceKey,
+  VaultServiceKeyCreate,
+  VaultServiceKeyCreated,
+  VaultVersion,
   VideoCapabilities,
   VideoFrameSet,
   VideoGeneration,
@@ -128,6 +134,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+/** Whether a linked Supabase project's function secrets match — names only. */
+export interface FunctionSecretsStatus {
+  linked: boolean;
+  names: string[];
+  at: string | null;
+  error: string | null;
+}
+
+function vaultPath(scope: VaultScope): string {
+  return scope.kind === "instance" ? "/instance/vault" : `/teams/${scope.teamId}/vault`;
+}
+
 export const api = {
   getBackend: (id: string, environment = "development") =>
     request<{ configuration: BackendConfiguration }>(
@@ -141,35 +159,98 @@ export const api = {
   disconnectBackend: (id: string, environment = "development") =>
     request(`/projects/${id}/backend?environment=${environment}`, { method: "DELETE" }),
 
-  /** Vault. No call here returns a value except `revealVaultSecret`. */
-  listVaultSecrets: (id: string, environment: VaultEnvironment) =>
-    request<{ secrets: VaultSecret[] }>(`/projects/${id}/vault?environment=${environment}`),
-  createVaultSecret: (id: string, input: VaultSecretCreate) =>
-    request<{ secret: VaultSecret }>(`/projects/${id}/vault`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
-  updateVaultSecret: (id: string, secretId: string, input: VaultSecretUpdate) =>
-    request<{ secret: VaultSecret }>(`/projects/${id}/vault/${secretId}`, {
-      method: "PATCH",
-      body: JSON.stringify(input),
-    }),
-  deleteVaultSecret: (id: string, secretId: string) =>
-    request<{ ok: true }>(`/projects/${id}/vault/${secretId}`, { method: "DELETE" }),
-  revealVaultSecret: (id: string, secretId: string) =>
-    request<{ value: string }>(`/projects/${id}/vault/${secretId}/reveal`, { method: "POST" }),
-  vaultSecretVersions: (id: string, secretId: string) =>
-    request<{ versions: VaultSecretVersion[] }>(`/projects/${id}/vault/${secretId}/versions`),
-  rollbackVaultSecret: (id: string, secretId: string, version: number) =>
-    request<{ secret: VaultSecret }>(`/projects/${id}/vault/${secretId}/rollback`, {
-      method: "POST",
-      body: JSON.stringify({ version }),
-    }),
-  importVault: (id: string, input: VaultImport) =>
-    request<{ result: VaultImportResult }>(`/projects/${id}/vault/import`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+  /** Vault — a team's, or the instance's. No call returns a value except the reveals. */
+  vault: {
+    list: (scope: VaultScope) => request<{ secrets: VaultEntry[] }>(vaultPath(scope)),
+    choices: (scope: VaultScope) =>
+      request<{ choices: { name: string; protected: boolean; selectable: boolean }[] }>(
+        `${vaultPath(scope)}/choices`,
+      ),
+    create: (scope: VaultScope, input: VaultEntryCreate) =>
+      request<{ secret: VaultEntry }>(vaultPath(scope), {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (scope: VaultScope, id: string, input: VaultEntryUpdate) =>
+      request<{ secret: VaultEntry }>(`${vaultPath(scope)}/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    remove: (scope: VaultScope, id: string) =>
+      request<{ ok: true }>(`${vaultPath(scope)}/${id}`, { method: "DELETE" }),
+    reveal: (scope: VaultScope, id: string) =>
+      request<{ value: string }>(`${vaultPath(scope)}/${id}/reveal`, { method: "POST" }),
+    versions: (scope: VaultScope, id: string) =>
+      request<{ versions: VaultVersion[] }>(`${vaultPath(scope)}/${id}/versions`),
+    rollback: (scope: VaultScope, id: string, version: number) =>
+      request<{ secret: VaultEntry }>(`${vaultPath(scope)}/${id}/rollback`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      }),
+    import: (scope: VaultScope, input: VaultImport) =>
+      request<{ result: VaultImportResult }>(`${vaultPath(scope)}/import`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    activity: (scope: VaultScope) =>
+      request<{ entries: AuditLogEntry[] }>(`${vaultPath(scope)}/activity`),
+    keys: (teamId: string) => request<{ keys: VaultServiceKey[] }>(`/teams/${teamId}/vault-keys`),
+    createKey: (teamId: string, input: VaultServiceKeyCreate) =>
+      request<VaultServiceKeyCreated>(`/teams/${teamId}/vault-keys`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    rotateKey: (teamId: string, id: string) =>
+      request<VaultServiceKeyCreated>(`/teams/${teamId}/vault-keys/${id}/rotate`, {
+        method: "POST",
+      }),
+    revokeKey: (teamId: string, id: string) =>
+      request<{ key: VaultServiceKey }>(`/teams/${teamId}/vault-keys/${id}/revoke`, {
+        method: "POST",
+      }),
+  },
+
+  /** A project's variables — each typed, or taken from the team Vault. */
+  variables: {
+    list: (projectId: string) =>
+      request<{ variables: ProjectVariable[] }>(`/projects/${projectId}/variables`),
+    create: (projectId: string, input: ProjectVariableCreate) =>
+      request<{ variable: ProjectVariable }>(`/projects/${projectId}/variables`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (projectId: string, id: string, input: ProjectVariableUpdate) =>
+      request<{ variable: ProjectVariable }>(`/projects/${projectId}/variables/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    remove: (projectId: string, id: string) =>
+      request<{ ok: true }>(`/projects/${projectId}/variables/${id}`, { method: "DELETE" }),
+    reveal: (projectId: string, id: string) =>
+      request<{ value: string }>(`/projects/${projectId}/variables/${id}/reveal`, {
+        method: "POST",
+      }),
+    versions: (projectId: string, id: string) =>
+      request<{ versions: VaultVersion[] }>(`/projects/${projectId}/variables/${id}/versions`),
+    rollback: (projectId: string, id: string, version: number) =>
+      request<{ variable: ProjectVariable }>(`/projects/${projectId}/variables/${id}/rollback`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      }),
+    import: (projectId: string, input: VaultImport) =>
+      request<{ result: VaultImportResult }>(`/projects/${projectId}/variables/import`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+
+    functions: (projectId: string) =>
+      request<{ status: FunctionSecretsStatus }>(`/projects/${projectId}/variables/functions`),
+    syncFunctions: (projectId: string) =>
+      request<{ status: FunctionSecretsStatus }>(
+        `/projects/${projectId}/variables/functions/sync`,
+        { method: "POST" },
+      ),
+  },
   inspectBackend: (id: string) => request(`/projects/${id}/backend/inspect`, { method: "POST" }),
   imageCapabilities: () => request<ImageCapabilities>("/images/capabilities"),
   videoCapabilities: () => request<VideoCapabilities>("/videos/capabilities"),
@@ -257,6 +338,18 @@ export const api = {
   /** What the chat's model picker offers — open to anyone signed in. */
   getProviders: () => request<AvailableProviders>("/providers"),
 
+  /** Point a credential field at a Vault secret — the instance's, or a team's
+   * (`vault` is "instance" or a team id) — or (null) clear it. */
+  setCredentialSource: (key: string, vaultName: string | null, vault = "instance") =>
+    request<SettingsResponse>(`/settings/${encodeURIComponent(key)}/source`, {
+      method: "PUT",
+      body: JSON.stringify({ vaultName, vault }),
+    }),
+  /** Every Vault an administrator can take a Settings key from, names only. */
+  settingsVaultChoices: () =>
+    request<{ groups: { scope: string; label: string; names: string[] }[] }>(
+      "/settings/vault-choices",
+    ),
   updateSettings: (changes: UpdateSettingsInput) =>
     request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),
 

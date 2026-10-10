@@ -66,9 +66,8 @@ export function SupabaseIntegration() {
         <Database size={13} strokeWidth={1.75} /> Supabase
       </h2>
       <p className="mt-0.5 text-xs text-fg-secondary">
-        Connect a Supabase account so a project&apos;s preview runs against a real backend. The
-        access token stays on the server — projects only ever receive the public URL and publishable
-        key.
+        Connect a Supabase account so an app&apos;s preview runs against a real backend. The access
+        token stays on the server — projects only ever receive the public URL and publishable key.
       </p>
 
       {error && (
@@ -275,10 +274,10 @@ function ProjectLinker({
   return (
     <div className="rounded-md border border-border-default bg-surface-subtle p-2.5">
       <p className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-        Linked to a project
+        Linked to an app
       </p>
       {(projects.data?.projects ?? []).length === 0 && (
-        <p className="mt-1.5 text-xs text-fg-muted">No projects yet.</p>
+        <p className="mt-1.5 text-xs text-fg-muted">No apps yet.</p>
       )}
       <ul className="mt-1.5 flex flex-col gap-1.5">
         {(projects.data?.projects ?? []).map((project) => (

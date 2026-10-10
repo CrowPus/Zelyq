@@ -168,17 +168,23 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
 
     // A session may name a provider other than the process default, so the key
     // is resolved for the provider actually being used.
-    const apiKey =
-      input.apiKey ??
-      (provider === config.provider ? config.apiKey : undefined) ??
-      apiKeyFromEnv(provider);
+    // The Zelyq server always sends a key — empty when none is set — because
+    // its Settings (typed, or from Vault) are the only source of credentials.
+    // Only a caller that sends none at all (the eval harness, a developer
+    // running the agent on its own) falls back to this process's environment.
+    const fromServer = input.apiKey !== undefined;
+    const apiKey = fromServer
+      ? input.apiKey
+      : ((provider === config.provider ? config.apiKey : undefined) ?? apiKeyFromEnv(provider));
 
     // A model on your own network usually has no key at all, so demanding one
     // is how this provider quietly fails for the person it exists for.
     if (!apiKey && !info.apiKeyOptional) {
       throw new ZelyqError(
         "unauthorized",
-        `No ${info.label} API key configured. Set ${info.apiKeyEnv.join(" or ")} (${info.docsUrl}), or pass a key when creating the session.`,
+        fromServer
+          ? `No ${info.label} API key is set. An administrator can add one in Settings — typed, or from the instance Vault (${info.docsUrl}).`
+          : `No ${info.label} API key configured. Set ${info.apiKeyEnv.join(" or ")} (${info.docsUrl}), or pass a key when creating the session.`,
       );
     }
 

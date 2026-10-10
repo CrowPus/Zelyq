@@ -23,19 +23,14 @@ test("a project-updated action summarises to which fields changed", () => {
   assert.equal(auditDetailSummary({ fields: ["name", "description"] }), "name, description");
 });
 
-test("a Vault action names the secret and the environment, never a value", () => {
+test("a Vault action names the secret, and the key that fetched it — never a value", () => {
+  assert.equal(auditDetailSummary({ name: "STRIPE_KEY", scope: "team" }), "STRIPE_KEY");
   assert.equal(
-    auditDetailSummary({ name: "STRIPE_KEY", environment: "production", version: 3 }),
-    "STRIPE_KEY · production",
+    auditDetailSummary({ name: "STRIPE_KEY", key: "zvk_xxxxxxxx", ip: "203.0.113.9" }),
+    "STRIPE_KEY · key zvk_xxxxxxxx",
   );
-  assert.equal(
-    auditDetailSummary({ environment: "development", names: ["A_KEY", "B_KEY"] }),
-    "A_KEY, B_KEY · development",
-  );
-  assert.equal(
-    auditDetailSummary({ environment: "test", created: ["A"], updated: ["B"], skipped: 1 }),
-    "2 secrets · test",
-  );
+  assert.equal(auditDetailSummary({ names: ["A_KEY", "B_KEY"] }), "A_KEY, B_KEY");
+  assert.equal(auditDetailSummary({ created: ["A"], updated: ["B"], skipped: 1 }), "2 secrets");
 });
 
 test("an unrecognised shape summarises to nothing rather than raw JSON", () => {

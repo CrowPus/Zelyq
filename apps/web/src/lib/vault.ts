@@ -1,14 +1,7 @@
-import type { VaultEnvironment } from "@zelyq/core";
 import { ApiError } from "./api";
 
 /** How long a revealed value stays on screen before it hides itself. */
 export const REVEAL_SECONDS = 30;
-
-export const ENVIRONMENT_NOTES: Record<VaultEnvironment, string> = {
-  development: "Used by the preview. A change restarts it.",
-  test: "Stored securely. Nothing reads test values yet.",
-  production: "Stored securely. Nothing reads production values yet; deployment will.",
-};
 
 /**
  * The sentence a person should read when a Vault call fails. A validation
@@ -23,4 +16,14 @@ export function vaultErrorMessage(error: unknown): string {
     return error.message;
   }
   return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+/** Relative for the recent past, absolute once "3 days ago" stops helping. */
+export function formatRelative(iso: string): string {
+  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604_800) return `${Math.floor(seconds / 86_400)}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

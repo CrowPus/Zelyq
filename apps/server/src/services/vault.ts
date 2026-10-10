@@ -1,96 +1,134 @@
-import { createHash } from "node:crypto";
 import {
-  newId,
-  type Project,
   parseDotEnv,
+  type Role,
+  roleAtLeast,
   type User,
   type VaultActor,
-  type VaultEnvironment,
+  type VaultEntry,
+  type VaultEntryCreate,
+  type VaultEntryUpdate,
   type VaultImport,
   type VaultImportResult,
-  type VaultSecret,
-  type VaultSecretCreate,
-  type VaultSecretUpdate,
-  type VaultSecretVersion,
+  type VaultScope,
+  type VaultUsage,
+  type VaultVersion,
   vaultImportSchema,
-  vaultSecretNameSchema,
+  vaultNameSchema,
   ZelyqError,
 } from "@zelyq/core";
-import type { Store, VaultSecretRow, VaultSecretSummaryRow } from "@zelyq/db";
-import type { RuntimeDriver } from "@zelyq/runtime";
+import type { Store, VaultEntryRow, VaultEntrySummaryRow, VersionRow } from "@zelyq/db";
 import type { AccessControl } from "./access.js";
 import type { SecretBox } from "./secrets.js";
 
+type VaultAction =
+  | "vault.secret.created"
+  | "vault.secret.updated"
+  | "vault.secret.deleted"
+  | "vault.secret.revealed"
+  | "vault.secret.rolled_back"
+  | "vault.imported";
+
+/** What the caller may do in one Vault, decided once per request. */
+interface Grant {
+  scopeKey: string;
+  teamId: string | null;
+  /** May create and change unprotected secrets, and reveal them. */
+  canWrite: boolean;
+  /** May delete, and do anything at all to a Protected secret. */
+  canAdmin: boolean;
+}
+
+/** Hooks other modules attach so Vault can say where a secret is used and
+ * tell them when one changes. Set once at start-up. */
+export interface VaultListeners {
+  /** Settings credentials pointing into a Vault ("instance" or a team id). */
+  settingUsages?: (scope: string) => Promise<{ key: string; label: string; vaultName: string }[]>;
+  /** A team secret's value changed or it was removed. */
+  teamEntryChanged?: (teamId: string, name: string) => Promise<void>;
+}
+
 /**
- * A project's secrets. Every path through here is either value-free (lists,
- * history, the agent's view of names) or decrypts for exactly one purpose: an
- * audited reveal to a person, or the project's own runtime environment.
+ * Vault: a team's secrets, and the instance's own credentials, as a module of
+ * its own. Everything here is either value-free (lists, history, where-used)
+ * or decrypts for exactly one purpose: an audited reveal to a person, or a
+ * reference being resolved for the place that uses it.
  *
- * Permissions are the project's team roles, as everywhere else: viewers see
- * names, editors change and reveal. Reveal sits at editor rather than admin
- * because an editor can already change the code that reads the variable; a
- * stricter rule would only look stricter. What makes it accountable is that
- * every reveal is in the audit log.
+ * Permissions are team roles, as everywhere else in Zelyq:
+ *   viewer   — names, history, where each secret is used
+ *   editor   — create and change unprotected secrets; reveal them (audited)
+ *   admin+   — delete; anything at all on a Protected secret
+ * The instance Vault is for instance administrators only.
  */
 export class VaultService {
+  readonly listeners: VaultListeners = {};
+
   constructor(
     private readonly store: Store,
     private readonly secrets: SecretBox,
     private readonly access: AccessControl,
-    private readonly runtime: RuntimeDriver,
   ) {}
 
-  async list(
-    user: User,
-    projectId: string,
-    environment?: VaultEnvironment,
-  ): Promise<VaultSecret[]> {
-    await this.access.requireProject(user, projectId, "viewer");
-    return this.present(await this.store.vault.list(projectId, environment));
+  async list(user: User, scope: VaultScope): Promise<VaultEntry[]> {
+    const grant = await this.grant(user, scope, "viewer");
+    return this.present(grant, await this.store.vault.list(grant.scopeKey));
   }
 
-  async create(user: User, projectId: string, input: VaultSecretCreate): Promise<VaultSecret> {
-    const { project } = await this.access.requireProject(user, projectId, "editor");
-    const existing = await this.store.vault.findByName(project.id, input.name, input.environment);
-    if (existing) {
+  async create(user: User, scope: VaultScope, input: VaultEntryCreate): Promise<VaultEntry> {
+    const grant = await this.grant(user, scope, "editor");
+    if (input.protected && !grant.canAdmin) throw this.adminOnly("mark a secret Protected");
+    if (await this.store.vault.findByName(grant.scopeKey, input.name)) {
       throw new ZelyqError(
         "conflict",
-        `${input.name} already exists in ${input.environment}. Edit it to change its value.`,
+        `${input.name} is already in this Vault. Change it instead.`,
       );
     }
-    let row: VaultSecretRow;
+    let row: VaultEntryRow;
     try {
       row = await this.store.vault.create({
-        projectId: project.id,
+        scopeKey: grant.scopeKey,
+        teamId: grant.teamId,
         name: input.name,
-        environment: input.environment,
         value: this.secrets.encrypt(input.value),
         description: input.description ?? null,
+        protected: input.protected ?? false,
         userId: user.id,
         now: new Date().toISOString(),
       });
     } catch (error) {
       // Two people adding the same name at once: the unique index decides.
-      if (await this.store.vault.findByName(project.id, input.name, input.environment)) {
-        throw new ZelyqError("conflict", `${input.name} already exists in ${input.environment}.`);
+      if (await this.store.vault.findByName(grant.scopeKey, input.name)) {
+        throw new ZelyqError("conflict", `${input.name} is already in this Vault.`);
       }
       throw error;
     }
-    await this.changed(user, project, "vault.secret.created", row);
-    return (await this.present([row]))[0] as VaultSecret;
+    await this.record(user, grant, "vault.secret.created", row);
+    return (await this.present(grant, [row]))[0] as VaultEntry;
   }
 
   async update(
     user: User,
-    projectId: string,
-    secretId: string,
-    input: VaultSecretUpdate,
-  ): Promise<VaultSecret> {
-    const { project } = await this.access.requireProject(user, projectId, "editor");
-    let row = await this.find(project.id, secretId);
+    scope: VaultScope,
+    entryId: string,
+    input: VaultEntryUpdate,
+  ): Promise<VaultEntry> {
+    const grant = await this.grant(user, scope, "editor");
+    let row = await this.find(grant, entryId);
+    this.requireWrite(grant, row);
+    if (input.protected !== undefined && input.protected !== row.protected && !grant.canAdmin) {
+      throw this.adminOnly("change whether a secret is Protected");
+    }
     const now = new Date().toISOString();
-    if (input.description !== undefined) {
-      row = (await this.store.vault.setDescription(row.id, input.description, user.id, now)) ?? row;
+    if (input.description !== undefined || input.protected !== undefined) {
+      row =
+        (await this.store.vault.setDetails(
+          row.id,
+          {
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.protected !== undefined ? { protected: input.protected } : {}),
+          },
+          user.id,
+          now,
+        )) ?? row;
     }
     if (input.value !== undefined) {
       const written = await this.store.vault.setValue(
@@ -99,60 +137,54 @@ export class VaultService {
         user.id,
         now,
       );
-      if (!written) throw ZelyqError.notFound("Secret", secretId);
+      if (!written) throw ZelyqError.notFound("Secret", entryId);
       row = written;
     }
-    await this.changed(user, project, "vault.secret.updated", row, {
+    await this.record(user, grant, "vault.secret.updated", row, {
       valueChanged: input.value !== undefined,
+      ...(input.protected !== undefined ? { protected: input.protected } : {}),
     });
-    return (await this.present([row]))[0] as VaultSecret;
+    if (input.value !== undefined) await this.changed(grant, row.name);
+    return (await this.present(grant, [row]))[0] as VaultEntry;
   }
 
-  async remove(user: User, projectId: string, secretId: string): Promise<void> {
-    const { project } = await this.access.requireProject(user, projectId, "editor");
-    const row = await this.find(project.id, secretId);
+  async remove(user: User, scope: VaultScope, entryId: string): Promise<void> {
+    const grant = await this.grant(user, scope, "viewer");
+    if (!grant.canAdmin) throw this.adminOnly("delete a secret");
+    const row = await this.find(grant, entryId);
     await this.store.vault.remove(row.id);
-    await this.changed(user, project, "vault.secret.deleted", row);
+    await this.record(user, grant, "vault.secret.deleted", row);
+    await this.changed(grant, row.name);
   }
 
-  async reveal(user: User, projectId: string, secretId: string): Promise<{ value: string }> {
-    const { project } = await this.access.requireProject(user, projectId, "editor");
-    const row = await this.find(project.id, secretId);
+  async reveal(user: User, scope: VaultScope, entryId: string): Promise<{ value: string }> {
+    const grant = await this.grant(user, scope, "editor");
+    const row = await this.find(grant, entryId);
+    this.requireWrite(grant, row);
     const value = this.secrets.decrypt(row.value);
     if (value === null) throw this.unreadable(row.name);
-    // Recorded only once the value is in hand: a failed reveal revealed nothing.
-    await this.access.recordChange(user, {
-      teamId: project.teamId,
-      projectId: project.id,
-      action: "vault.secret.revealed",
-      detail: { name: row.name, environment: row.environment, version: row.version },
-    });
+    // Recorded once the value is in hand: a failed reveal revealed nothing.
+    await this.record(user, grant, "vault.secret.revealed", row, { version: row.version });
     return { value };
   }
 
-  async versions(user: User, projectId: string, secretId: string): Promise<VaultSecretVersion[]> {
-    await this.access.requireProject(user, projectId, "viewer");
-    const row = await this.find(projectId, secretId);
-    const versions = await this.store.vault.listVersions(row.id);
-    const actors = await this.actors(versions.map((version) => version.createdBy));
-    return versions.map((version) => ({
-      version: version.version,
-      current: version.version === row.version,
-      createdBy: version.createdBy ? (actors.get(version.createdBy) ?? null) : null,
-      createdAt: version.createdAt,
-    }));
+  async versions(user: User, scope: VaultScope, entryId: string): Promise<VaultVersion[]> {
+    const grant = await this.grant(user, scope, "viewer");
+    const row = await this.find(grant, entryId);
+    return this.presentVersions(await this.store.vault.listVersions(row.id), row.version);
   }
 
-  /** Restoring an old value writes it again as the newest version, so the
-   * value being replaced stays in the history too. */
+  /** Restoring writes the old value again as the newest version, so the value
+   * being replaced stays in the history too. */
   async rollback(
     user: User,
-    projectId: string,
-    secretId: string,
+    scope: VaultScope,
+    entryId: string,
     version: number,
-  ): Promise<VaultSecret> {
-    const { project } = await this.access.requireProject(user, projectId, "editor");
-    const row = await this.find(project.id, secretId);
+  ): Promise<VaultEntry> {
+    const grant = await this.grant(user, scope, "editor");
+    const row = await this.find(grant, entryId);
+    this.requireWrite(grant, row);
     if (version === row.version) throw ZelyqError.badRequest("That is already the current value.");
     const value = await this.store.vault.versionValue(row.id, version);
     if (value === null) throw ZelyqError.notFound("Version", String(version));
@@ -162,13 +194,16 @@ export class VaultService {
       user.id,
       new Date().toISOString(),
     );
-    if (!written) throw ZelyqError.notFound("Secret", secretId);
-    await this.changed(user, project, "vault.secret.rolled_back", written, { from: version });
-    return (await this.present([written]))[0] as VaultSecret;
+    if (!written) throw ZelyqError.notFound("Secret", entryId);
+    await this.record(user, grant, "vault.secret.rolled_back", written, { from: version });
+    await this.changed(grant, written.name);
+    return (await this.present(grant, [written]))[0] as VaultEntry;
   }
 
-  async import(user: User, projectId: string, raw: VaultImport): Promise<VaultImportResult> {
-    const { project } = await this.access.requireProject(user, projectId, "editor");
+  /** A one-time way to move existing keys in. Protected secrets are never
+   * overwritten from a paste unless the person may change them anyway. */
+  async import(user: User, scope: VaultScope, raw: VaultImport): Promise<VaultImportResult> {
+    const grant = await this.grant(user, scope, "editor");
     const input = vaultImportSchema.parse(raw);
     const { entries, invalid } = parseDotEnv(input.content);
     if (entries.length === 0 && invalid.length === 0) {
@@ -179,7 +214,7 @@ export class VaultService {
 
     const now = new Date().toISOString();
     for (const { name, value } of entries) {
-      const checked = vaultSecretNameSchema.safeParse(name);
+      const checked = vaultNameSchema.safeParse(name);
       if (!checked.success) {
         result.skipped.push({ name, reason: checked.error.issues[0]?.message ?? "Invalid name" });
         continue;
@@ -188,209 +223,138 @@ export class VaultService {
         result.skipped.push({ name, reason: "Empty value" });
         continue;
       }
-      const existing = await this.store.vault.findByName(project.id, name, input.environment);
+      const existing = await this.store.vault.findByName(grant.scopeKey, name);
       if (existing && !input.overwrite) {
         result.skipped.push({ name, reason: "Already in Vault" });
+        continue;
+      }
+      if (existing?.protected && !grant.canAdmin) {
+        result.skipped.push({ name, reason: "Protected: only an admin or owner can change it" });
         continue;
       }
       const encrypted = this.secrets.encrypt(value);
       if (existing) {
         await this.store.vault.setValue(existing.id, encrypted, user.id, now);
         result.updated.push(name);
+        await this.changed(grant, name);
       } else {
         await this.store.vault.create({
-          projectId: project.id,
+          scopeKey: grant.scopeKey,
+          teamId: grant.teamId,
           name,
-          environment: input.environment,
           value: encrypted,
           description: null,
+          protected: false,
           userId: user.id,
           now,
         });
         result.created.push(name);
       }
     }
-
     if (result.created.length + result.updated.length > 0) {
       await this.access.recordChange(user, {
-        teamId: project.teamId,
-        projectId: project.id,
+        teamId: grant.teamId,
         action: "vault.imported",
         detail: {
-          environment: input.environment,
           created: result.created,
           updated: result.updated,
           skipped: result.skipped.length,
         },
       });
-      if (input.environment === "development") await this.restartPreview(project.id);
     }
     return result;
   }
 
-  /**
-   * Plaintext for one environment — for the project's own runtime only.
-   * There is no user here on purpose: the caller has already decided this
-   * project is starting, and nothing it returns may travel back to a client.
-   * A value the key can no longer read is left out rather than failing the
-   * start: the app sees it as unset, which is what it is.
-   */
-  async environmentFor(
-    projectId: string,
-    environment: VaultEnvironment,
-  ): Promise<Record<string, string>> {
-    const env: Record<string, string> = {};
-    for (const { name, value } of await this.store.vault.valuesFor(projectId, environment)) {
-      const plain = this.secrets.decrypt(value);
-      if (plain !== null) env[name] = plain;
-    }
-    return env;
+  async activity(user: User, scope: VaultScope) {
+    const grant = await this.grant(user, scope, "viewer");
+    return this.store.auditLog.listVaultActivity(grant.teamId);
+  }
+
+  /** The names a person may pick in a "From Vault" dropdown, with whether each
+   * is Protected — for the place they are picking from. */
+  async choices(
+    user: User,
+    scope: VaultScope,
+  ): Promise<{ name: string; protected: boolean; selectable: boolean }[]> {
+    const grant = await this.grant(user, scope, "viewer");
+    return (await this.store.vault.list(grant.scopeKey)).map((row) => ({
+      name: row.name,
+      protected: row.protected,
+      selectable: row.protected ? grant.canAdmin : grant.canWrite,
+    }));
   }
 
   /**
-   * Changes whenever a secret in this environment is added, removed or given a
-   * new value — built from ids and version numbers, so it says nothing about
-   * any value. Empty when there are no secrets, which leaves a project that
-   * never used Vault with exactly the revision it had before.
+   * Plaintext for references being resolved — no user here on purpose: the
+   * caller has already decided the place asking (a project's runtime, a
+   * Settings field, a service key) may use these, and nothing it returns goes
+   * back to a person. A missing name, or one the key can no longer read, is
+   * absent from the result rather than failing the caller.
    */
-  async fingerprint(projectId: string, environment: VaultEnvironment): Promise<string> {
-    const rows = await this.store.vault.list(projectId, environment);
-    if (rows.length === 0) return "";
-    const material = rows
-      .map((row) => `${row.id}:${row.version}`)
-      .sort()
-      .join(",");
-    return createHash("sha256").update(material).digest("hex").slice(0, 16);
-  }
-
-  /**
-   * Moves secrets saved in a project's backend configuration — where they
-   * lived before Vault — into Vault. Runs at every start and does nothing
-   * once there is nothing left to move.
-   *
-   * The order is what makes it safe to interrupt: a secret is written to Vault
-   * first and removed from the old configuration only afterwards, so a crash
-   * between the two leaves it in both places, never in neither. A name that
-   * already exists in Vault is not overwritten — what is in Vault is newer.
-   */
-  async moveBackendSecrets(log: { warn(message: string): void }): Promise<number> {
-    let moved = 0;
-    for (const [key, encrypted] of Object.entries(await this.store.settings.all())) {
-      const match = /^project-backend:(.+):(development|test|production)$/.exec(key);
-      if (!match) continue;
-      const projectId = match[1] as string;
-      const environment = match[2] as VaultEnvironment;
-
-      const raw = this.secrets.decrypt(encrypted);
-      if (raw === null) {
-        log.warn(`Vault: could not decrypt ${key}; its secrets were left where they are.`);
-        continue;
-      }
-      const stored = JSON.parse(raw) as {
-        config: { secrets?: Record<string, string | null> };
-        revision: string;
-      };
-      const old = stored.config.secrets;
-      if (!old || Object.keys(old).length === 0) continue;
-
-      const project = await this.store.projects.findById(projectId);
-      if (!project) continue; // The settings row outlived its project; nothing can use it.
-
-      const kept: Record<string, string | null> = {};
-      const names: string[] = [];
-      for (const [name, value] of Object.entries(old)) {
-        if (value === null) continue;
-        if (!vaultSecretNameSchema.safeParse(name).success) {
-          kept[name] = value;
-          log.warn(`Vault: ${name} in ${projectId} is not a valid secret name; left in place.`);
-          continue;
-        }
-        if (!(await this.store.vault.findByName(projectId, name, environment))) {
-          await this.store.vault.create({
-            projectId,
-            name,
-            environment,
-            value: this.secrets.encrypt(value),
-            description: "Moved from the backend configuration",
-            userId: null,
-            now: new Date().toISOString(),
-          });
-          names.push(name);
-          moved++;
-        }
-      }
-
-      const remaining = { ...stored, config: { ...stored.config } };
-      if (Object.keys(kept).length > 0) remaining.config.secrets = kept;
-      else delete remaining.config.secrets;
-      await this.store.settings.set(key, this.secrets.encrypt(JSON.stringify(remaining)));
-
-      if (names.length > 0) {
-        await this.store.auditLog.record({
-          id: newId("audit"),
-          teamId: project.teamId,
-          projectId,
-          userId: null,
-          actorName: "Zelyq",
-          actorEmail: "",
-          action: "vault.migrated",
-          detail: { environment, names },
-          createdAt: new Date().toISOString(),
-        });
-      }
+  async resolve(scopeKey: string, names: string[]): Promise<Map<string, string>> {
+    const values = new Map<string, string>();
+    for (const row of await this.store.vault.findByNames(scopeKey, [...new Set(names)])) {
+      const plain = this.secrets.decrypt(row.value);
+      if (plain !== null) values.set(row.name, plain);
     }
-    return moved;
+    return values;
   }
 
-  /** What the agent may know: names, and where each is set. Never a value. */
-  async namesFor(projectId: string): Promise<{ name: string; environments: VaultEnvironment[] }[]> {
-    const byName = new Map<string, VaultEnvironment[]>();
-    for (const row of await this.store.vault.list(projectId)) {
-      const list = byName.get(row.name) ?? [];
-      list.push(row.environment as VaultEnvironment);
-      byName.set(row.name, list);
-    }
-    return [...byName].map(([name, environments]) => ({ name, environments }));
+  /** Ciphertext for a value arriving some other way than a person's form —
+   * a service key's write. Same box, same format. */
+  encrypt(value: string): string {
+    return this.secrets.encrypt(value);
   }
 
-  private async find(projectId: string, secretId: string): Promise<VaultSecretRow> {
-    const row = await this.store.vault.findById(secretId);
-    // Another project's secret answers exactly like a missing one.
-    if (!row || row.projectId !== projectId) throw ZelyqError.notFound("Secret", secretId);
+  /** Whether `user` may point something at this secret: editor for an
+   * ordinary one, admin or owner for a Protected one. Throws otherwise. */
+  async requireUse(user: User, scope: VaultScope, name: string): Promise<VaultEntrySummaryRow> {
+    const grant = await this.grant(user, scope, "editor");
+    const row = await this.store.vault.findByName(grant.scopeKey, name);
+    if (!row) throw ZelyqError.badRequest(`${name} is not in Vault.`);
+    this.requireWrite(grant, row);
     return row;
   }
 
-  private async changed(
-    user: User,
-    project: Project,
-    action:
-      | "vault.secret.created"
-      | "vault.secret.updated"
-      | "vault.secret.deleted"
-      | "vault.secret.rolled_back",
-    row: VaultSecretSummaryRow,
-    extra: Record<string, unknown> = {},
-  ): Promise<void> {
-    await this.access.recordChange(user, {
-      teamId: project.teamId,
-      projectId: project.id,
-      action,
-      detail: { name: row.name, environment: row.environment, ...extra },
-    });
-    // Only a change to what the app's environment holds needs the preview
-    // restarted; a new description does not.
-    if (row.environment === "development" && extra.valueChanged !== false) {
-      await this.restartPreview(project.id);
+  // ---------------------------------------------------------------- helpers
+
+  private async grant(user: User, scope: VaultScope, minimum: Role): Promise<Grant> {
+    if (scope.kind === "instance") {
+      if (user.instanceRole !== "admin") {
+        throw new ZelyqError(
+          "forbidden",
+          "Only an instance administrator can use the instance Vault.",
+        );
+      }
+      return { scopeKey: "instance", teamId: null, canWrite: true, canAdmin: true };
+    }
+    const role = await this.access.requireTeamRole(user, scope.teamId, minimum);
+    return {
+      scopeKey: scope.teamId,
+      teamId: scope.teamId,
+      canWrite: roleAtLeast(role, "editor"),
+      canAdmin: roleAtLeast(role, "admin"),
+    };
+  }
+
+  private requireWrite(grant: Grant, row: VaultEntrySummaryRow): void {
+    if (row.protected && !grant.canAdmin) {
+      throw this.adminOnly(`use ${row.name}, which is Protected`);
+    }
+    if (!grant.canWrite) {
+      throw new ZelyqError("forbidden", "This needs the editor role or higher.");
     }
   }
 
-  /**
-   * The development values are what the running preview was started with, so
-   * a change stops it; the next start picks the new ones up. Same rule as
-   * saving the backend configuration.
-   */
-  private async restartPreview(projectId: string): Promise<void> {
-    await this.runtime.stopPreview(projectId).catch(() => undefined);
+  private async find(grant: Grant, entryId: string): Promise<VaultEntryRow> {
+    const row = await this.store.vault.findById(entryId);
+    // Another Vault's secret answers exactly like a missing one.
+    if (!row || row.scopeKey !== grant.scopeKey) throw ZelyqError.notFound("Secret", entryId);
+    return row;
+  }
+
+  private adminOnly(what: string): ZelyqError {
+    return new ZelyqError("forbidden", `Only an admin or owner can ${what}.`);
   }
 
   private unreadable(name: string): ZelyqError {
@@ -399,16 +363,59 @@ export class VaultService {
     );
   }
 
-  private async present(rows: VaultSecretSummaryRow[]): Promise<VaultSecret[]> {
-    const actors = await this.actors(rows.flatMap((row) => [row.createdBy, row.updatedBy]));
+  private async record(
+    user: User,
+    grant: Grant,
+    action: VaultAction,
+    row: VaultEntrySummaryRow,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    await this.access.recordChange(user, {
+      teamId: grant.teamId,
+      action,
+      detail: { name: row.name, scope: grant.teamId ? "team" : "instance", ...extra },
+    });
+  }
+
+  private async changed(grant: Grant, name: string): Promise<void> {
+    if (grant.teamId) await this.listeners.teamEntryChanged?.(grant.teamId, name);
+  }
+
+  private async usages(grant: Grant): Promise<Map<string, VaultUsage[]>> {
+    const byName = new Map<string, VaultUsage[]>();
+    const add = (name: string, usage: VaultUsage) =>
+      byName.set(name, [...(byName.get(name) ?? []), usage]);
+    if (grant.teamId) {
+      for (const use of await this.store.vault.teamUsages(grant.teamId)) {
+        add(use.vaultName, {
+          kind: "project",
+          projectId: use.projectId,
+          projectName: use.projectName,
+          variable: use.variable,
+        });
+      }
+    }
+    for (const use of (await this.listeners.settingUsages?.(grant.scopeKey)) ?? []) {
+      add(use.vaultName, { kind: "setting", key: use.key, label: use.label });
+    }
+    return byName;
+  }
+
+  private async present(grant: Grant, rows: VaultEntrySummaryRow[]): Promise<VaultEntry[]> {
+    const [actors, usages] = await Promise.all([
+      this.actors(rows.flatMap((row) => [row.createdBy, row.updatedBy])),
+      this.usages(grant),
+    ]);
     const actor = (id: string | null) => (id ? (actors.get(id) ?? null) : null);
     return rows.map((row) => ({
       id: row.id,
-      projectId: row.projectId,
+      scope: grant.teamId ? "team" : "instance",
+      teamId: grant.teamId,
       name: row.name,
-      environment: row.environment as VaultEnvironment,
       description: row.description,
+      protected: row.protected,
       version: row.version,
+      usedBy: usages.get(row.name) ?? [],
       createdBy: actor(row.createdBy),
       updatedBy: actor(row.updatedBy),
       createdAt: row.createdAt,
@@ -416,7 +423,17 @@ export class VaultService {
     }));
   }
 
-  private async actors(ids: (string | null)[]): Promise<Map<string, VaultActor>> {
+  async presentVersions(versions: VersionRow[], current: number): Promise<VaultVersion[]> {
+    const actors = await this.actors(versions.map((version) => version.createdBy));
+    return versions.map((version) => ({
+      version: version.version,
+      current: version.version === current,
+      createdBy: version.createdBy ? (actors.get(version.createdBy) ?? null) : null,
+      createdAt: version.createdAt,
+    }));
+  }
+
+  async actors(ids: (string | null)[]): Promise<Map<string, VaultActor>> {
     const found = new Map<string, VaultActor>();
     for (const id of new Set(ids.filter((id): id is string => Boolean(id)))) {
       const user = await this.store.users.findById(id);

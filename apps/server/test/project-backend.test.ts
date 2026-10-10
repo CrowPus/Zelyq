@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { vaultSecretNameSchema } from "@zelyq/core";
+import { variableNameSchema } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import {
@@ -200,7 +200,7 @@ test("a secret sent with the backend configuration is pointed at Vault, not drop
 
 test("platform-owned variable names cannot be claimed by a secret", () => {
   for (const name of ["DATABASE_URL", "ZELYQ_DATA_DIR", "PATH", "AUTH_ISSUER", "SUPABASE_URL"]) {
-    assert.equal(vaultSecretNameSchema.safeParse(name).success, false, `${name} must be refused`);
+    assert.equal(variableNameSchema.safeParse(name).success, false, `${name} must be refused`);
   }
 });
 

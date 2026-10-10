@@ -29,10 +29,13 @@ export type { SnapshotRepository } from "./repositories/snapshots.js";
 export type { TeamRepository } from "./repositories/teams.js";
 export type { UserRepository } from "./repositories/users.js";
 export type {
+  ProjectVariableRow,
+  ProjectVariableSummaryRow,
+  VaultEntryRow,
+  VaultEntrySummaryRow,
   VaultRepository,
-  VaultSecretRow,
-  VaultSecretSummaryRow,
-  VaultVersionRow,
+  VaultServiceKeyRow,
+  VersionRow,
 } from "./repositories/vault.js";
 export type { VideoJobRow, VideoReferenceRow } from "./repositories/videos.js";
 export * from "./schema/index.js";
