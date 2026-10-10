@@ -18,6 +18,7 @@ import { registerFigmaRoutes } from "./routes/figma.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
+import { registerPipelineRoutes } from "./routes/pipelines.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectBackendRoutes } from "./routes/project-backend.js";
 import { registerProjectVariableRoutes } from "./routes/project-variables.js";
@@ -45,6 +46,11 @@ import { FunctionSecretSync } from "./services/function-secrets.js";
 import { ImageAssetStore } from "./services/image-assets.js";
 import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
+import { PipelineEngine } from "./services/pipelines/engine.js";
+import { TeamSshKeyService } from "./services/pipelines/keys.js";
+import { RunnerService } from "./services/pipelines/runners.js";
+import { PipelineService } from "./services/pipelines/service.js";
+import { PipelineTriggerService } from "./services/pipelines/triggers.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
 import { ProjectBackendService } from "./services/project-backend.js";
 import { ProjectVariableService } from "./services/project-variables.js";
@@ -146,6 +152,34 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const variables = new ProjectVariableService(store, secrets, access, vault, runtime);
   vault.listeners.teamEntryChanged = (teamId, name) => variables.vaultEntryChanged(teamId, name);
   const vaultKeys = new VaultKeyService(store, access, vault);
+  const pipelinesDir =
+    config.pipelinesDir ?? path.join(path.dirname(config.attachmentsDir), "pipelines");
+  const sshKeys = new TeamSshKeyService(store, access, secrets);
+  const runners = new RunnerService(store, access, sshKeys);
+  const pipelineEngine = new PipelineEngine({
+    store,
+    vault,
+    runners,
+    settings,
+    runtime,
+    artifactsDir: path.join(pipelinesDir, "artifacts"),
+    log: {
+      info: (message) => app.log.info(message),
+      error: (object, message) => app.log.error(object, message),
+    },
+    publicUrl: config.publicUrl,
+  });
+  const pipelines = new PipelineService(store, access, vault, pipelineEngine);
+  const pipelineTriggers = new PipelineTriggerService(
+    store,
+    access,
+    secrets,
+    pipelines,
+    config.publicUrl,
+    {
+      error: (object, message) => app.log.error(object, message),
+    },
+  );
   // Settings credentials may point at the instance Vault or a team's, and each
   // Vault shows which Settings fields use its secrets.
   settings.vaultLookup = async ({ name, scope }) =>
@@ -303,6 +337,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSnapshotRoutes(app, { projects, runtime, store, access });
   registerVaultRoutes(app, { vault, access });
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
+  registerPipelineRoutes(app, {
+    access,
+    pipelines,
+    runners,
+    keys: sshKeys,
+    triggers: pipelineTriggers,
+    serviceKeys: vaultKeys,
+  });
   registerProjectVariableRoutes(app, {
     variables,
     functionSecrets,
@@ -352,10 +394,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     }
     images.start();
     videos.start();
+    await pipelineEngine.start();
+    pipelineTriggers.start();
   });
   app.addHook("onClose", async () => {
     await images.close();
     await videos.close();
+    pipelineTriggers.stop();
+    await pipelineEngine.close();
   });
 
   const gateway = new ChatGateway(

@@ -19,6 +19,11 @@ import type {
   ImageGeneration,
   ImageGenerationInput,
   ImageHistory,
+  PipelineDetail,
+  PipelineRunDetail,
+  PipelineRunSummary,
+  PipelineSummary,
+  PipelineTriggerSummary,
   Preview,
   Project,
   ProjectVariable,
@@ -27,12 +32,19 @@ import type {
   PullRequestResult,
   PushToRemoteInput,
   Role,
+  RunLogLine,
+  RunnerSummary,
+  RunnerTestResult,
   SessionResponse,
   SetGitRemoteInput,
   SettingsResponse,
   Snapshot,
+  SshRunnerInput,
+  SshRunnerUpdate,
   TeamMember,
   TeamMembership,
+  TeamSshKeySummary,
+  TriggerInput,
   UpdateProfileInput,
   UpdateSettingsInput,
   UploadSkillInput,
@@ -134,6 +146,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+/** What is wrong with a pipeline file, and what will stop it from running. */
+export interface PipelineCheck {
+  ok: boolean;
+  issues: { path: string; line: number | null; message: string }[];
+  warnings: string[];
+}
+
 /** Whether a linked Supabase project's function secrets match — names only. */
 export interface FunctionSecretsStatus {
   linked: boolean;
@@ -208,6 +227,100 @@ export const api = {
       request<{ key: VaultServiceKey }>(`/teams/${teamId}/vault-keys/${id}/revoke`, {
         method: "POST",
       }),
+  },
+
+  /** Pipelines, their runs, the team's runners and SSH key. */
+  pipelines: {
+    list: (teamId: string) =>
+      request<{ pipelines: PipelineSummary[] }>(`/teams/${teamId}/pipelines`),
+    get: (teamId: string, id: string) =>
+      request<{ pipeline: PipelineDetail }>(`/teams/${teamId}/pipelines/${id}`),
+    check: (teamId: string, source: string) =>
+      request<PipelineCheck>(`/teams/${teamId}/pipelines/check`, {
+        method: "POST",
+        body: JSON.stringify({ source }),
+      }),
+    create: (teamId: string, source: string) =>
+      request<{ pipeline: PipelineDetail }>(`/teams/${teamId}/pipelines`, {
+        method: "POST",
+        body: JSON.stringify({ source }),
+      }),
+    update: (teamId: string, id: string, source: string) =>
+      request<{ pipeline: PipelineDetail }>(`/teams/${teamId}/pipelines/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ source }),
+      }),
+    remove: (teamId: string, id: string) =>
+      request<void>(`/teams/${teamId}/pipelines/${id}`, { method: "DELETE" }),
+    runs: (teamId: string, id: string) =>
+      request<{ runs: PipelineRunSummary[] }>(`/teams/${teamId}/pipelines/${id}/runs`),
+    start: (teamId: string, id: string, ref?: string | null) =>
+      request<{ run: PipelineRunSummary }>(`/teams/${teamId}/pipelines/${id}/runs`, {
+        method: "POST",
+        body: JSON.stringify(ref ? { ref } : {}),
+      }),
+    run: (teamId: string, runId: string) =>
+      request<{ run: PipelineRunDetail }>(`/teams/${teamId}/pipeline-runs/${runId}`),
+    logs: (teamId: string, runId: string, after: number) =>
+      request<{ lines: RunLogLine[]; done: boolean }>(
+        `/teams/${teamId}/pipeline-runs/${runId}/logs?after=${after}`,
+      ),
+    cancel: (teamId: string, runId: string) =>
+      request<{ run: PipelineRunSummary }>(`/teams/${teamId}/pipeline-runs/${runId}/cancel`, {
+        method: "POST",
+      }),
+    rerun: (teamId: string, runId: string, fromStage: number | null) =>
+      request<{ run: PipelineRunSummary }>(`/teams/${teamId}/pipeline-runs/${runId}/rerun`, {
+        method: "POST",
+        body: JSON.stringify({ fromStage }),
+      }),
+    artifactUrl: (teamId: string, artifactId: string) =>
+      `/api/teams/${teamId}/pipeline-artifacts/${artifactId}`,
+    triggers: (teamId: string, id: string) =>
+      request<{ triggers: PipelineTriggerSummary[] }>(`/teams/${teamId}/pipelines/${id}/triggers`),
+    addTrigger: (teamId: string, id: string, input: TriggerInput) =>
+      request<{ trigger: PipelineTriggerSummary; secret: string | null }>(
+        `/teams/${teamId}/pipelines/${id}/triggers`,
+        { method: "POST", body: JSON.stringify(input) },
+      ),
+    setTrigger: (teamId: string, id: string, triggerId: string, enabled: boolean) =>
+      request<{ trigger: PipelineTriggerSummary }>(
+        `/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`,
+        { method: "PATCH", body: JSON.stringify({ enabled }) },
+      ),
+    removeTrigger: (teamId: string, id: string, triggerId: string) =>
+      request<void>(`/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`, { method: "DELETE" }),
+  },
+
+  runners: {
+    list: (teamId: string) => request<{ runners: RunnerSummary[] }>(`/teams/${teamId}/runners`),
+    create: (teamId: string, input: SshRunnerInput) =>
+      request<{ runner: RunnerSummary }>(`/teams/${teamId}/runners`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (teamId: string, id: string, input: SshRunnerUpdate) =>
+      request<{ runner: RunnerSummary }>(`/teams/${teamId}/runners/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    remove: (teamId: string, id: string) =>
+      request<void>(`/teams/${teamId}/runners/${id}`, { method: "DELETE" }),
+    test: (teamId: string, id: string) =>
+      request<RunnerTestResult>(`/teams/${teamId}/runners/${id}/test`, { method: "POST" }),
+    confirm: (teamId: string, id: string, fingerprint: string) =>
+      request<{ runner: RunnerSummary }>(`/teams/${teamId}/runners/${id}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ fingerprint }),
+      }),
+    keys: (teamId: string) => request<{ keys: TeamSshKeySummary[] }>(`/teams/${teamId}/ssh-keys`),
+    rotateKey: (teamId: string, algorithm: "ed25519" | "rsa") =>
+      request<{ keys: TeamSshKeySummary[] }>(`/teams/${teamId}/ssh-keys/rotate`, {
+        method: "POST",
+        body: JSON.stringify({ algorithm }),
+      }),
+    retireOldKeys: (teamId: string) =>
+      request<void>(`/teams/${teamId}/ssh-keys/retire-old`, { method: "POST" }),
   },
 
   /** A project's variables — each typed, or taken from the team Vault. */

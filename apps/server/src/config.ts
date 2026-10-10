@@ -93,6 +93,10 @@ export interface ServerConfig {
    * for a directory both processes need to agree on.
    */
   uploadedSkillsDir: string;
+  /** Pipeline artifacts, and the folders of runs on the host local runner. */
+  pipelinesDir?: string;
+  /** The address people open Zelyq at, for links sent outside it. */
+  publicUrl?: string;
   /**
    * Where Claude Code's own CLI stores its session. Always the server
    * process's own `$HOME` in a real
@@ -277,6 +281,11 @@ export function loadServerConfig(): ServerConfig {
       process.env.ZELYQ_SKILLS_UPLOAD_DIR ??
         path.join(dataDirFrom(process.env.DATABASE_URL), "skills"),
     ),
+    pipelinesDir: resolveFromRepoRoot(
+      process.env.ZELYQ_PIPELINES_DIR ??
+        path.join(dataDirFrom(process.env.DATABASE_URL), "pipelines"),
+    ),
+    publicUrl: process.env.ZELYQ_PUBLIC_URL || undefined,
     webDir: process.env.ZELYQ_WEB_DIR
       ? resolveFromRepoRoot(process.env.ZELYQ_WEB_DIR)
       : process.env.NODE_ENV === "production"

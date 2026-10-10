@@ -15,6 +15,7 @@ import {
   Sun,
   UserRound,
   Users,
+  Workflow,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -161,6 +162,17 @@ const SECTIONS: {
     title: "Secure",
     items: [{ to: "/vault", label: "Vault", icon: KeyRound, match: (p) => p.startsWith("/vault") }],
   },
+  {
+    title: "Ship",
+    items: [
+      {
+        to: "/pipelines",
+        label: "Pipelines",
+        icon: Workflow,
+        match: (p) => p.startsWith("/pipelines"),
+      },
+    ],
+  },
 ];
 
 function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
@@ -218,13 +230,6 @@ function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
           ))}
         </div>
       ))}
-      {open && (
-        <div className="mt-3 px-2">
-          <p className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">Ship</p>
-          <p className="mt-1 text-2xs text-fg-muted">Pipelines and Deploy — coming soon</p>
-        </div>
-      )}
-
       <div className="flex-1" />
 
       {!open && (
@@ -474,6 +479,14 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
           className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
         >
           <KeyRound size={16} />
+        </Link>
+        <Link
+          to="/pipelines"
+          aria-label="Pipelines"
+          title="Pipelines"
+          className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
+        >
+          <Workflow size={16} />
         </Link>
         <AccountMenu />
       </div>

@@ -32,11 +32,14 @@ them. These pages follow the sidebar.
 
 ## Ship
 
-Pipelines and Deploy are next. See the [roadmap](./roadmap.md) and the
-[platform plan](./platform-integration.md).
+- [Pipelines](./pipelines.md): test, build and deploy on this server or your own machines over
+  SSH (Linux, macOS, Windows); triggers, artifacts, notifications
+
+Deploy is next. See the [roadmap](./roadmap.md) and the [platform plan](./platform-integration.md).
 
 ## How it is built
 
 - [Architecture](./architecture.md), [runtime protocol](./runtime-protocol.md),
   [decision records](./adr/)
 - [Vault design](./vault-standalone-plan.md)
+- [Pipelines design](./pipelines-plan.md)

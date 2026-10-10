@@ -25,6 +25,7 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
+    "yaml": "^2.9.1",
     "zod": "^4.5.4"
   },
   "devDependencies": {

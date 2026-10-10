@@ -10,6 +10,7 @@ const SCOPE_TEXT: Record<VaultKeyScope, string> = {
   list: "List names",
   read: "Read values",
   write: "Set values (never Protected ones)",
+  pipelines: "Start pipeline runs",
 };
 
 /**

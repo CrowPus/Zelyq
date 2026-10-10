@@ -3,6 +3,9 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { Spinner } from "./components/ui";
 import { useSession } from "./hooks/useSession";
 import { ImageStudioPage } from "./pages/ImageStudioPage";
+import { PipelinePage } from "./pages/PipelinePage";
+import { PipelineRunPage } from "./pages/PipelineRunPage";
+import { PipelinesPage } from "./pages/PipelinesPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { ProjectEditorPage } from "./pages/ProjectEditorPage";
 import { ProjectListPage } from "./pages/ProjectListPage";
@@ -81,6 +84,9 @@ function Gate() {
       <Route path="/image-studio" element={<Navigate to="/studio/image" replace />} />
       <Route path="/video-studio" element={<Navigate to="/studio/video" replace />} />
       <Route path="/vault" element={<VaultPage />} />
+      <Route path="/pipelines" element={<PipelinesPage />} />
+      <Route path="/pipelines/:id" element={<PipelinePage />} />
+      <Route path="/pipelines/:id/runs/:runId" element={<PipelineRunPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/account" element={<ProfilePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />

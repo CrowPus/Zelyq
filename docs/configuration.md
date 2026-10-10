@@ -279,6 +279,8 @@ Migrations run automatically when the server boots.
 | `ZELYQ_VIDEO_CONCURRENCY` | `2` | Outstanding provider jobs across the instance (1–10). Deliberately separate from image capacity, so a slow video cannot occupy an image slot. |
 | `ZELYQ_VIDEO_SESSION_LIMIT` | `2` | Clips the build agent may generate in one conversation. Far lower than the image equivalent because a clip costs much more; a hero needs one, not six. Agent video is additionally **off per project** until switched on, and that permission is separate from the image one. |
 | `ZELYQ_SKILLS_UPLOAD_DIR` | `<data dir>/skills` | Where a skill uploaded through Settings is written. Resolved independently by the server and the agent — must be the same directory for both, same requirement `ZELYQ_WORKSPACE_DIR` already has. See [skills.md](./skills.md). |
+| `ZELYQ_PIPELINES_DIR` | `<data dir>/pipelines` | Pipeline artifacts, and the run folders of the local runner when it runs on the server itself. Back it up with the database if you keep artifacts. |
+| `ZELYQ_PUBLIC_URL` | — | The address people open Zelyq at. Used for webhook URLs shown in Pipelines → Triggers and for links in run notifications; without it the browser's own address is shown. |
 | `ZELYQ_CLONE_ENABLED` | `true` | Set `false` to disable `/clone`: the `capture_reference` tool then refuses with a message the agent relays. The SSRF guard on `capture_reference` (private/loopback/link-local address denylist, per-redirect re-validation, pinned connect, port and byte/time limits) is always on and has no switch. |
 | `ZELYQ_FIGMA_CLIENT_ID` / `ZELYQ_FIGMA_CLIENT_SECRET` | — | A Figma OAuth app registration (create one at figma.com → Settings → Account → OAuth apps). Both set ⇒ the composer offers `/figma <link>` and Settings shows a per-user "Connect Figma" card. The user's token is `SecretBox`-encrypted at rest and used only in-process by `FigmaConnectionService` — it never reaches an env var, a shell, the runtime, or the agent (proposal 068). |
 | `ZELYQ_FIGMA_REDIRECT_URL` | `<ZELYQ_PUBLIC_URL>/api/integrations/figma/oauth/callback` | The OAuth redirect URL registered on the Figma app. |
@@ -366,6 +368,20 @@ anycast, for instance — does not show this at all.
 Requires a container engine on the host. Commands cost about **120ms more** each
 — roughly 2.4 seconds across a twenty-command turn, against turns measured in
 minutes.
+
+## Pipelines
+
+Set in **Settings → Pipelines** (or by these variables until first saved there). See
+[Pipelines](./pipelines.md).
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `ZELYQ_PIPELINE_LOCAL_RUNNER` | `container` | Where `runs-on: local` runs: `container` (a fresh container per run, needs Docker), `host` (directly on the server, as Zelyq's own user), or `off`. |
+| `ZELYQ_PIPELINE_LOCAL_IMAGE` | `node:22-bookworm` | The image local runs start from. Needs `sh` and `tar`. |
+| `ZELYQ_PIPELINE_LOCAL_CONCURRENCY` | `2` | Local runs at the same time; the rest wait in the queue. |
+
+Local run containers join the projects' network (`zelyq-projects`) when it exists, so the same
+metadata block and egress allowlist apply to them.
 
 ## Choosing a configuration
 

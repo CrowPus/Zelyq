@@ -173,6 +173,12 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
     return body.logs;
   }
 
+  async archive(_projectId: string): Promise<Buffer> {
+    throw ZelyqError.badRequest(
+      "Pipelines cannot send an app's files from a remote runtime yet. Use a git repository as the pipeline's source.",
+    );
+  }
+
   async createSnapshot(projectId: string, label: string): Promise<Snapshot> {
     return await this.request<Snapshot>("POST", `/v1/projects/${projectId}/snapshots`, { label });
   }

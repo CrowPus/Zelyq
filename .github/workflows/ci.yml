@@ -126,6 +126,79 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # Pipeline runners are people's own machines — macOS and Windows as well as
+  # Linux. These start the machine's own SSH server and run everything a
+  # runner does to a machine against it (test/pipeline-machine.test.ts).
+  runner-machines:
+    name: Runner machine (${{ matrix.expect }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            expect: macos
+            tests: test/pipeline-machine.test.ts test/pipeline-scripts.test.ts
+          - os: windows-latest
+            expect: windows
+            tests: test/pipeline-machine.test.ts
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm --filter "./packages/*" build
+
+      # A fresh key for this job only, made the way Zelyq makes a team's key.
+      - name: Make a test key
+        working-directory: apps/server
+        shell: bash
+        run: |
+          node -e "const fs=require('fs');const {utils}=require('ssh2');const p=utils.generateKeyPairSync('ed25519');fs.writeFileSync(process.argv[1],p.private,{mode:0o600});fs.writeFileSync(process.argv[1]+'.pub',p.public+'\\n')" "$RUNNER_TEMP/zelyq_test_key"
+          echo "ZELYQ_TEST_SSH_KEY_FILE=$RUNNER_TEMP/zelyq_test_key" >> "$GITHUB_ENV"
+
+      - name: Start SSH (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat "$RUNNER_TEMP/zelyq_test_key.pub" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+          sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist || true
+          for i in $(seq 1 30); do nc -z 127.0.0.1 22 && break; sleep 1; done
+          echo "ZELYQ_TEST_SSH_USER=$(whoami)" >> "$GITHUB_ENV"
+
+      # The runner's user is an administrator, and Windows OpenSSH reads an
+      # administrator's keys from one shared file, which must allow only
+      # Administrators and SYSTEM.
+      - name: Start SSH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+          Start-Service sshd
+          # Which shell the SSH server starts commands in (empty means cmd.exe).
+          Get-ItemProperty -Path HKLM:\SOFTWARE\OpenSSH -ErrorAction SilentlyContinue | Format-List DefaultShell*
+          $file = 'C:\ProgramData\ssh\administrators_authorized_keys'
+          Get-Content "$env:RUNNER_TEMP\zelyq_test_key.pub" | Set-Content -Path $file -Encoding ascii
+          icacls $file /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F'
+          "ZELYQ_TEST_SSH_USER=$env:USERNAME" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Runner machine tests
+        working-directory: apps/server
+        env:
+          ZELYQ_TEST_SSH_HOST: 127.0.0.1
+          ZELYQ_TEST_EXPECT_OS: ${{ matrix.expect }}
+        run: node --import tsx --test ${{ matrix.tests }}
+
   # The React/FastAPI starter is scaffolded verbatim into a user's project, so
   # its own checks are the thing that has to keep passing — a green workspace
   # says nothing about whether a generated Python app still installs and runs.

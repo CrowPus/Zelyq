@@ -558,6 +558,47 @@ const DEFINITIONS: Definition[] = [
     placeholder: "registry.npmjs.org,github.com",
     restartRequired: true,
   },
+  {
+    key: "pipelineLocalRunner",
+    label: "Local runner",
+    description:
+      "Where pipelines with runs-on: local run. In a container: a fresh container per run, removed " +
+      "afterwards (needs Docker on this server). On this server: directly, as the user Zelyq runs as, " +
+      "with access to everything that user can reach — only for a machine you trust every editor with. " +
+      "Off: only SSH runners.",
+    kind: "select",
+    group: "Pipelines",
+    envVar: "ZELYQ_PIPELINE_LOCAL_RUNNER",
+    envOverridable: true,
+    fallback: "container",
+    options: [
+      { value: "container", label: "In a container" },
+      { value: "host", label: "On this server (no container)" },
+      { value: "off", label: "Off" },
+    ],
+  },
+  {
+    key: "pipelineLocalImage",
+    label: "Local runner image",
+    description:
+      "The container image local runs start from. It needs sh and tar; the default also has bash, git, node and python3.",
+    kind: "text",
+    group: "Pipelines",
+    envVar: "ZELYQ_PIPELINE_LOCAL_IMAGE",
+    envOverridable: true,
+    fallback: "node:22-bookworm",
+    placeholder: "node:22-bookworm",
+  },
+  {
+    key: "pipelineLocalConcurrency",
+    label: "Local runs at once",
+    description: "How many local runs may run at the same time; the rest wait in the queue.",
+    kind: "number",
+    group: "Pipelines",
+    envVar: "ZELYQ_PIPELINE_LOCAL_CONCURRENCY",
+    envOverridable: true,
+    fallback: "2",
+  },
 ];
 
 const BY_KEY = new Map(DEFINITIONS.map((definition) => [definition.key, definition]));
