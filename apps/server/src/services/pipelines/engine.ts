@@ -5,9 +5,11 @@ import path from "node:path";
 import {
   fillRunValues,
   newId,
+  onOwnMachine,
   type PipelineCondition,
   type PipelineFile,
   type PipelineShell,
+  type PipelineStage,
   type PipelineStep,
   parsePipelineFile,
   pipelineTarget,
@@ -16,6 +18,7 @@ import {
   type RunStatus,
   roleAtLeast,
   type StepStatus,
+  stageGroups,
   vaultReferenceName,
 } from "@zelyq/core";
 import type { PipelineLogRow, PipelineRunRow, PipelineStepRow, RunnerRow, Store } from "@zelyq/db";
@@ -405,6 +408,14 @@ export class PipelineEngine {
       );
       if (ahead) return { wait: true };
     }
+    return this.pick(run, file);
+  }
+
+  /** A runner for this target with room now, later, or none at all. */
+  private async pick(
+    run: PipelineRunRow,
+    file: { "runs-on": string | string[] },
+  ): Promise<{ runner: RunnerRow | null } | { wait: true } | { fail: string }> {
     const target = pipelineTarget(file);
     if (target.kind === "local") {
       const mode = await this.deps.settings.value("pipelineLocalRunner");
@@ -447,6 +458,36 @@ export class PipelineEngine {
       .filter((runner) => this.hasRoom(runner))
       .sort((a, b) => (this.busy.get(a.id) ?? 0) - (this.busy.get(b.id) ?? 0));
     return free[0] ? { runner: free[0] } : { wait: true };
+  }
+
+  /**
+   * A machine's place for a stage that runs on its own: waits for room on a
+   * runner of the stage's target, and counts the stage against it.
+   */
+  private async acquire(
+    run: PipelineRunRow,
+    target: string | string[],
+    stageName: string,
+    active: ActiveRun,
+    log: RunLog,
+  ): Promise<{ runner: RunnerRow | null; key: string }> {
+    let announced = false;
+    for (;;) {
+      if (active.controller.signal.aborted)
+        throw new RunError("Stopped while waiting for a runner.");
+      const picked = await this.pick(run, { "runs-on": target });
+      if ("fail" in picked) throw new RunError(picked.fail);
+      if ("runner" in picked) {
+        const key = picked.runner?.id ?? "local";
+        this.busy.set(key, (this.busy.get(key) ?? 0) + 1);
+        return { runner: picked.runner, key };
+      }
+      if (!announced) {
+        announced = true;
+        log.add(null, "system", `${stageName}: waiting for a free runner.`);
+      }
+      await sleep(TICK_MS);
+    }
   }
 
   private hasRoom(runner: RunnerRow): boolean {
@@ -593,11 +634,18 @@ export class PipelineEngine {
           : `Run #${run.number} on ${runner ? runner.name : "the local runner"}.`,
       );
 
-      let failed = false;
-      for (const [stageIndex, stage] of file.stages.entries()) {
+      /** One stage's steps, on the run's machine or (lane) one of its own. Returns whether the run has failed. */
+      const runStage = async (
+        stageIndex: number,
+        failedBefore: boolean,
+        lane: { machine: Machine; state: RunState } | null,
+      ): Promise<boolean> => {
+        const stage = file.stages[stageIndex] as PipelineStage;
+        let failed = failedBefore;
         const stageRows = steps.filter((row) => row.stageIndex === stageIndex);
         const beforeRerun = run.fromStage !== null && stageIndex < run.fromStage;
-        const stageRuns = !active.controller.signal.aborted && conditionHolds(stage.if, failed);
+        const stageRuns =
+          !active.controller.signal.aborted && conditionHolds(stage.if, failedBefore);
         for (const [stepIndex, step] of stage.steps.entries()) {
           const row = stageRows.find((candidate) => candidate.stepIndex === stepIndex);
           if (!row) continue;
@@ -605,7 +653,7 @@ export class PipelineEngine {
           if (resume && FINISHED.has(row.status as StepStatus)) {
             if (isFailure(row.status as StepStatus, step)) failed = true;
             if (step.id) state.outputs[step.id] = JSON.parse(row.outputs) as Record<string, string>;
-            if (row.status === "passed" && step.setup) {
+            if (row.status === "passed" && step.setup && !lane) {
               await this.restoreSetup(step, await ensureMachine(), state);
             }
             continue;
@@ -614,7 +662,7 @@ export class PipelineEngine {
           const skip =
             !stageRuns ||
             active.controller.signal.aborted ||
-            (beforeRerun && !step.checkout) ||
+            (beforeRerun && (lane !== null || !step.checkout)) ||
             // A step follows its stage's condition unless it has its own.
             !conditionHolds(step.if ?? stage.if, failed);
           if (skip) {
@@ -625,7 +673,19 @@ export class PipelineEngine {
           // A protected environment: an admin approves every deploy first.
           if (step.deploy) {
             const environment = await this.deps.deploys.environmentFor(run.teamId, step.deploy.to);
-            if (!("error" in environment) && environment.protected) {
+            if (!("error" in environment) && environment.protected && lane) {
+              // Waiting for an admin would hold this stage's machine for hours.
+              log.add(
+                row.id,
+                "system",
+                `${environment.name} needs an approval; deploy to it from a stage on the run's own machine.`,
+              );
+              await store.pipelines.steps.update(row.id, {
+                status: "failed",
+                finishedAt: new Date().toISOString(),
+              });
+              outcome = "failed";
+            } else if (!("error" in environment) && environment.protected) {
               const asked = await this.awaitApproval({
                 run,
                 file,
@@ -677,17 +737,134 @@ export class PipelineEngine {
               step,
               row,
               stageName: stage.name,
-              machine: await ensureMachine(),
+              machine: lane ? lane.machine : await ensureMachine(),
               secrets,
               masker,
               log,
               active,
               clock,
-              state,
+              state: lane ? lane.state : state,
             });
           }
           if (isFailure(outcome, step)) failed = true;
         }
+        return failed;
+      };
+
+      /** A stage on a machine of its own: found, opened, used and given back. */
+      const runLane = async (stageIndex: number, failedBefore: boolean): Promise<boolean> => {
+        const stage = file.stages[stageIndex] as PipelineStage;
+        const rows = steps.filter((row) => row.stageIndex === stageIndex);
+        const failure = (row: PipelineStepRow) =>
+          isFailure(row.status as StepStatus, stage.steps[row.stepIndex] as PipelineStep);
+        if (resume && rows.every((row) => FINISHED.has(row.status as StepStatus))) {
+          for (const row of rows) {
+            const step = stage.steps[row.stepIndex];
+            if (step?.id)
+              state.outputs[step.id] = JSON.parse(row.outputs) as Record<string, string>;
+          }
+          return failedBefore || rows.some(failure);
+        }
+        const beforeRerun = run.fromStage !== null && stageIndex < run.fromStage;
+        if (
+          beforeRerun ||
+          active.controller.signal.aborted ||
+          !conditionHolds(stage.if, failedBefore)
+        ) {
+          for (const row of rows) await store.pipelines.steps.update(row.id, { status: "skipped" });
+          return failedBefore;
+        }
+        let place: { runner: RunnerRow | null; key: string } | null = null;
+        let laneMachine: Machine | null = null;
+        let stopLaneServices: ((current: Machine | null) => Promise<void>) | null = null;
+        let failed = failedBefore;
+        try {
+          place = await this.acquire(
+            run,
+            stage["runs-on"] ?? file["runs-on"],
+            stage.name,
+            active,
+            log,
+          );
+          log.add(
+            null,
+            "system",
+            `${stage.name} on ${place.runner ? place.runner.name : "the local runner"}.`,
+          );
+          await log.flush();
+          const opened = await this.openMachine(run, place.runner, stageIndex);
+          laneMachine = opened;
+          const prepared = await opened.exec(prepareCommand(opened.os, opened.workspace));
+          if (prepared.code !== 0) {
+            throw new RunError(`Could not create the stage's folder ${opened.workspace}.`);
+          }
+          // Its own PATH and services; step outputs are the run's, shared.
+          const laneState: RunState = {
+            path: [],
+            env: {},
+            post: [],
+            outputs: state.outputs,
+            services: {},
+          };
+          if (file.services) {
+            stopLaneServices = await this.startServices(
+              { ...run, id: `${run.id}-s${stageIndex}` },
+              place.runner,
+              file,
+              opened,
+              secretsFor,
+              log,
+              laneState,
+            );
+          }
+          failed = await runStage(stageIndex, failedBefore, { machine: opened, state: laneState });
+          if (!failed && !active.controller.signal.aborted) {
+            for (const work of laneState.post) await work(opened, log);
+          }
+        } catch (caught) {
+          log.add(
+            null,
+            "system",
+            `${stage.name}: ${masker.mask(caught instanceof Error ? caught.message : String(caught))}`,
+          );
+          for (const row of await store.pipelines.steps.list(run.id)) {
+            if (row.stageIndex === stageIndex && !FINISHED.has(row.status as StepStatus)) {
+              await store.pipelines.steps.update(row.id, { status: "skipped" });
+            }
+          }
+          failed = true;
+        } finally {
+          const opened = laneMachine as Machine | null;
+          const stopping = stopLaneServices as ((current: Machine | null) => Promise<void>) | null;
+          if (stopping) await stopping(opened).catch(() => undefined);
+          if (opened) {
+            if (!failed) {
+              await opened.exec(cleanupCommand(opened.os, opened.workspace)).catch(() => undefined);
+            }
+            await opened.close().catch(() => undefined);
+          }
+          if (place) {
+            this.busy.set(place.key, Math.max(0, (this.busy.get(place.key) ?? 1) - 1));
+            this.wake();
+          }
+        }
+        return failed;
+      };
+
+      let failed = false;
+      for (const group of stageGroups(file)) {
+        const [first] = group;
+        if (first === undefined) continue;
+        if (group.length === 1 && !onOwnMachine(file, first)) {
+          failed = await runStage(first, failed, null);
+          continue;
+        }
+        // The run's own runner is not needed meanwhile; give it back, so a
+        // stage can take it, and take it again afterwards.
+        await releaseMachine();
+        const before = failed;
+        const results = await Promise.all(group.map((index) => runLane(index, before)));
+        failed = before || results.some(Boolean);
       }
       if (!failed && !active.controller.signal.aborted && machine) {
         for (const work of state.post) await work(machine, log);
@@ -1553,11 +1730,17 @@ export class PipelineEngine {
     return values;
   }
 
-  private async openMachine(run: PipelineRunRow, runner: RunnerRow | null): Promise<Machine> {
+  /** `lane`: a stage on a machine of its own gets its own folder and container. */
+  private async openMachine(
+    run: PipelineRunRow,
+    runner: RunnerRow | null,
+    lane: number | null = null,
+  ): Promise<Machine> {
+    const key = lane === null ? run.id : `${run.id}-s${lane}`;
     if (!runner) {
       const mode = await this.deps.settings.value("pipelineLocalRunner");
       if (mode === "host") {
-        const short = run.id.replace(/^[a-z]+_/, "").slice(0, 12);
+        const short = `${run.id.replace(/^[a-z]+_/, "").slice(0, 12)}${lane === null ? "" : `-s${lane}`}`;
         const pipelinesDir = path.join(this.deps.artifactsDir, "..");
         return {
           ...(await hostPipelineMachine(path.join(pipelinesDir, "pipeline-runs", short))),
@@ -1568,7 +1751,7 @@ export class PipelineEngine {
       }
       const image = (await this.deps.settings.value("pipelineLocalImage")) || "node:22-bookworm";
       return {
-        ...(await startPipelineContainer({ runId: run.id, image, instance: this.instance })),
+        ...(await startPipelineContainer({ runId: key, image, instance: this.instance })),
         kind: "container",
         shells: null,
         zelyqDir: "/zelyq",
@@ -1585,7 +1768,7 @@ export class PipelineEngine {
       });
       return {
         os: facts.os as RunnerOs,
-        workspace: workspacePath(facts.os, facts.home, run.id),
+        workspace: workspacePath(facts.os, facts.home, run.id, lane),
         kind: "ssh",
         zelyqDir: facts.os === "windows" ? `${facts.home}\\zelyq` : `${facts.home}/zelyq`,
         shells: facts.shells,

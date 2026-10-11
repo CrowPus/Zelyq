@@ -224,6 +224,18 @@ export function registerPipelineRoutes(
       ),
     }),
   );
+  app.put<Trigger>(
+    "/api/teams/:teamId/pipelines/:pipelineId/triggers/:triggerId",
+    async (request) => ({
+      trigger: await triggers.edit(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.pipelineId,
+        request.params.triggerId,
+        triggerInputSchema.parse(request.body),
+      ),
+    }),
+  );
   app.delete<Trigger>(
     "/api/teams/:teamId/pipelines/:pipelineId/triggers/:triggerId",
     async (request, reply) => {

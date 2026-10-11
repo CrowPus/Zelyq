@@ -64,28 +64,12 @@ export class PipelineTriggerService {
     const pipeline = await this.pipeline(teamId, pipelineId);
     const input = triggerInputSchema.parse(raw);
     const secret = input.kind === "push" ? randomBytes(24).toString("hex") : null;
-    if (input.kind === "pipeline") {
-      const upstream = await this.store.pipelines.pipelines.findById(input.pipelineId);
-      if (!upstream || upstream.teamId !== teamId) {
-        throw ZelyqError.badRequest("Choose another pipeline of this team.");
-      }
-      if (upstream.id === pipelineId) {
-        throw ZelyqError.badRequest("A pipeline cannot start after itself.");
-      }
-    }
+    await this.checkUpstream(teamId, pipelineId, input);
     const row: PipelineTriggerRow = {
       id: newId("pipelineTrigger"),
       pipelineId,
       kind: input.kind,
-      config: JSON.stringify(
-        input.kind === "push"
-          ? { branches: input.branches, paths: input.paths, pullRequests: input.pullRequests }
-          : input.kind === "schedule"
-            ? { cron: input.cron }
-            : input.kind === "pipeline"
-              ? { pipelineId: input.pipelineId, on: input.on }
-              : {},
-      ),
+      config: configOf(input),
       secret: secret ? this.box.encrypt(secret) : null,
       enabled: true,
       lastFiredAt: null,
@@ -99,6 +83,50 @@ export class PipelineTriggerService {
       detail: { label: pipeline.name, kind: input.kind },
     });
     return { trigger: await this.present(row), secret };
+  }
+
+  /**
+   * Changes what a trigger listens for. The kind stays, and so do a push
+   * trigger's address and secret: the webhook in GitHub or GitLab keeps working.
+   */
+  async edit(
+    user: User,
+    teamId: string,
+    pipelineId: string,
+    triggerId: string,
+    raw: TriggerInput,
+  ): Promise<PipelineTriggerSummary> {
+    await this.access.requireTeamRole(user, teamId, "editor");
+    const pipeline = await this.pipeline(teamId, pipelineId);
+    const row = await this.find(teamId, pipelineId, triggerId);
+    const input = triggerInputSchema.parse(raw);
+    if (input.kind !== row.kind) {
+      throw ZelyqError.badRequest("A trigger keeps its kind; add a new one instead.");
+    }
+    await this.checkUpstream(teamId, pipelineId, input);
+    const config = configOf(input);
+    await this.store.pipelines.triggers.update(row.id, { config });
+    await this.access.recordChange(user, {
+      teamId,
+      action: "pipeline.trigger_changed",
+      detail: { label: pipeline.name, kind: input.kind },
+    });
+    return await this.present({ ...row, config });
+  }
+
+  private async checkUpstream(
+    teamId: string,
+    pipelineId: string,
+    input: ReturnType<typeof triggerInputSchema.parse>,
+  ): Promise<void> {
+    if (input.kind !== "pipeline") return;
+    const upstream = await this.store.pipelines.pipelines.findById(input.pipelineId);
+    if (!upstream || upstream.teamId !== teamId) {
+      throw ZelyqError.badRequest("Choose another pipeline of this team.");
+    }
+    if (upstream.id === pipelineId) {
+      throw ZelyqError.badRequest("A pipeline cannot start after itself.");
+    }
   }
 
   async setEnabled(
@@ -375,6 +403,18 @@ function verified(
   }
   const token = header(headers, "x-gitlab-token");
   return token !== undefined && same(token, secret);
+}
+
+function configOf(input: ReturnType<typeof triggerInputSchema.parse>): string {
+  return JSON.stringify(
+    input.kind === "push"
+      ? { branches: input.branches, paths: input.paths, pullRequests: input.pullRequests }
+      : input.kind === "schedule"
+        ? { cron: input.cron }
+        : input.kind === "pipeline"
+          ? { pipelineId: input.pipelineId, on: input.on }
+          : {},
+  );
 }
 
 /** "main", "release/*" — `*` matches anything but "/", `**` anything at all. */

@@ -121,8 +121,13 @@ export function stopCommand(os: RunnerOs, workspace: string, force: boolean): st
 }
 
 /** The run's folder, for a run id, on that kind of machine. */
-export function workspacePath(os: RunnerOs, home: string, runId: string): string {
-  const short = runId.replace(/^[a-z]+_/, "").slice(0, 12);
+export function workspacePath(
+  os: RunnerOs,
+  home: string,
+  runId: string,
+  lane: number | null = null,
+): string {
+  const short = `${runId.replace(/^[a-z]+_/, "").slice(0, 12)}${lane === null ? "" : `-s${lane}`}`;
   return os === "windows" ? `${home}\\zelyq\\r\\${short}` : `${home}/zelyq/runs/${short}`;
 }
 
