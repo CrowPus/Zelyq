@@ -10,7 +10,7 @@ import {
   type User,
   ZelyqError,
 } from "@zelyq/core";
-import type { PipelineTriggerRow, Store } from "@zelyq/db";
+import type { PipelineRunRow, PipelineTriggerRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
 import type { SecretBox } from "../secrets.js";
 import type { PipelineService } from "./service.js";
@@ -48,7 +48,9 @@ export class PipelineTriggerService {
   async list(user: User, teamId: string, pipelineId: string): Promise<PipelineTriggerSummary[]> {
     await this.access.requireTeamRole(user, teamId, "viewer");
     await this.pipeline(teamId, pipelineId);
-    return (await this.store.pipelines.triggers.list(pipelineId)).map((row) => this.present(row));
+    return Promise.all(
+      (await this.store.pipelines.triggers.list(pipelineId)).map((row) => this.present(row)),
+    );
   }
 
   /** Adds a trigger. A push trigger's secret is in the answer once, and never again. */
@@ -62,6 +64,15 @@ export class PipelineTriggerService {
     const pipeline = await this.pipeline(teamId, pipelineId);
     const input = triggerInputSchema.parse(raw);
     const secret = input.kind === "push" ? randomBytes(24).toString("hex") : null;
+    if (input.kind === "pipeline") {
+      const upstream = await this.store.pipelines.pipelines.findById(input.pipelineId);
+      if (!upstream || upstream.teamId !== teamId) {
+        throw ZelyqError.badRequest("Choose another pipeline of this team.");
+      }
+      if (upstream.id === pipelineId) {
+        throw ZelyqError.badRequest("A pipeline cannot start after itself.");
+      }
+    }
     const row: PipelineTriggerRow = {
       id: newId("pipelineTrigger"),
       pipelineId,
@@ -71,7 +82,9 @@ export class PipelineTriggerService {
           ? { branches: input.branches }
           : input.kind === "schedule"
             ? { cron: input.cron }
-            : {},
+            : input.kind === "pipeline"
+              ? { pipelineId: input.pipelineId, on: input.on }
+              : {},
       ),
       secret: secret ? this.box.encrypt(secret) : null,
       enabled: true,
@@ -85,7 +98,7 @@ export class PipelineTriggerService {
       action: "pipeline.trigger_added",
       detail: { label: pipeline.name, kind: input.kind },
     });
-    return { trigger: this.present(row), secret };
+    return { trigger: await this.present(row), secret };
   }
 
   async setEnabled(
@@ -98,7 +111,7 @@ export class PipelineTriggerService {
     await this.access.requireTeamRole(user, teamId, "editor");
     const row = await this.find(teamId, pipelineId, triggerId);
     await this.store.pipelines.triggers.update(row.id, { enabled });
-    return this.present({ ...row, enabled });
+    return await this.present({ ...row, enabled });
   }
 
   async remove(user: User, teamId: string, pipelineId: string, triggerId: string): Promise<void> {
@@ -188,6 +201,33 @@ export class PipelineTriggerService {
     return started;
   }
 
+  /**
+   * A run ended: pipelines that start "after" its pipeline (on that ending)
+   * start now, with the same commit and branch, linked to it as upstream.
+   */
+  async runFinished(run: PipelineRunRow): Promise<number> {
+    let started = 0;
+    for (const row of await this.store.pipelines.triggers.listEnabled("pipeline").catch(() => [])) {
+      try {
+        const config = JSON.parse(row.config) as { pipelineId?: string; on?: string[] };
+        if (config.pipelineId !== run.pipelineId) continue;
+        if (!(config.on ?? ["passed"]).includes(run.status)) continue;
+        const downstream = await this.store.pipelines.pipelines.findById(row.pipelineId);
+        if (!downstream || downstream.teamId !== run.teamId) continue;
+        await this.store.pipelines.triggers.update(row.id, {
+          lastFiredAt: new Date().toISOString(),
+        });
+        await this.pipelines.startTriggered(row.pipelineId, "pipeline", run.ref, run.branch, {
+          upstream: run,
+        });
+        started += 1;
+      } catch (error) {
+        this.log.error(error, `pipeline trigger ${row.id} failed`);
+      }
+    }
+    return started;
+  }
+
   /** Fires every schedule whose minute it is, once. */
   async tick(now = new Date()): Promise<void> {
     const minute = new Date(now);
@@ -223,12 +263,30 @@ export class PipelineTriggerService {
     return row;
   }
 
-  private present(row: PipelineTriggerRow): PipelineTriggerSummary {
-    const config = JSON.parse(row.config) as { branches?: string[]; cron?: string };
+  private async present(row: PipelineTriggerRow): Promise<PipelineTriggerSummary> {
+    const config = JSON.parse(row.config) as {
+      branches?: string[];
+      cron?: string;
+      pipelineId?: string;
+      on?: ("passed" | "failed")[];
+    };
     const base = (this.publicUrl ?? "").replace(/\/$/, "");
+    const upstream = config.pipelineId
+      ? await this.store.pipelines.pipelines.findById(config.pipelineId)
+      : null;
     return {
       id: row.id,
-      kind: row.kind === "schedule" ? "schedule" : row.kind === "app" ? "app" : "push",
+      kind:
+        row.kind === "schedule" || row.kind === "app" || row.kind === "pipeline"
+          ? row.kind
+          : "push",
+      upstream: config.pipelineId
+        ? {
+            id: config.pipelineId,
+            name: upstream?.name ?? "(removed)",
+            on: config.on ?? ["passed"],
+          }
+        : null,
       branches: config.branches ?? null,
       cron: config.cron ?? null,
       enabled: row.enabled,

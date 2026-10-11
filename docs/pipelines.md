@@ -31,6 +31,8 @@ artifacts:
 - [Adding a machine (SSH runner)](#adding-a-machine-ssh-runner)
 - [The file](#the-file)
 - [Built-in steps](#built-in-steps): `setup`, `cache`, `docker`, `approval`
+- [Pipelines working together](#pipelines-working-together): inputs, upstream/downstream, one at a
+  time, retry, keeping runs
 - [Secrets](#secrets)
 - [Runs](#runs)
 - [Starting a run without pressing Run](#starting-a-run-without-pressing-run)
@@ -254,6 +256,84 @@ The tool is put at the front of `PATH` for every later step of the run.
 
 On **Runners**, **Disk** shows a machine's free space and how much Zelyq's tools and caches use, with
 a **Clear** button for each. Clearing is safe: the next run fetches what it needs again.
+
+## Pipelines working together
+
+### Inputs
+
+A pipeline can ask for values when it starts. **Run now** shows a small form; the API takes
+`{"inputs": {…}}`; another pipeline passes them with `with:`.
+
+```yaml
+inputs:
+  environment: {description: Where to deploy, choices: [staging, production], default: staging}
+  version: {}                       # no default: it must be given
+stages:
+  - name: Ship
+    steps:
+      - run: echo "Deploying $ZELYQ_INPUT_VERSION"
+      - deploy: {to: "${{ inputs.environment }}", port: 3000}
+```
+
+`${{ inputs.NAME }}` works in any text of the file, and every step gets `ZELYQ_INPUT_<NAME>`. A value
+outside `choices` is refused before the run starts. Triggers without a person use the defaults.
+**Run again** uses the same values.
+
+### Upstream and downstream
+
+**After another pipeline** (Triggers tab): this pipeline starts whenever the chosen one passes (or
+also when it fails), with the same commit. Its run shows "started by Shop build #12".
+
+**The `pipeline` step** starts another pipeline of the team, and by default waits for it and passes or
+fails with it. While waiting it holds no runner; cancelling cancels the run it waits for.
+
+```yaml
+- pipeline:
+    run: Shop deploy
+    wait: true                      # default
+    with: {environment: staging}
+```
+
+**The `download` step** takes an artifact another run kept, instead of building again:
+
+```yaml
+- download:
+    artifact: dist
+    from: upstream                  # default: the run that started this one; or a pipeline's name
+    path: .                         # where to unpack; default the step's folder
+```
+
+With a pipeline's name, the artifact comes from its newest run that passed. A chain of pipelines
+starting each other stops after 10 in a row, so a loop cannot run for ever.
+
+### One at a time
+
+```yaml
+concurrency: one-at-a-time          # a new run waits for the one running
+# concurrency: newest-wins          # a new run cancels the older one
+```
+
+Without it, runs of a pipeline can run side by side.
+
+### Retry
+
+```yaml
+- run: npm ci
+  retry: 2                          # up to 2 more attempts, at most 5
+```
+
+Only a failed step is tried again (not a cancelled or timed-out one), for `run`, `checkout`, `setup`
+and `docker`. The run page shows "attempt 2".
+
+### Keeping runs
+
+```yaml
+keep: {runs: 50, artifacts: 14d}
+```
+
+Without it, **Settings → Pipelines** decides: 100 runs per pipeline and 30 days of artifacts. Older
+runs, with their logs and artifacts, are deleted once an hour. The newest run, a run still going and
+a run a live deploy came from are always kept.
 
 ## Secrets
 

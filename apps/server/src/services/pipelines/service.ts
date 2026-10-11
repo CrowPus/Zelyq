@@ -17,6 +17,7 @@ import {
   type RunStatus,
   type RunStep,
   type RunTrigger,
+  resolveRunInputs,
   resolveToolVersion,
   roleAtLeast,
   type StepKind,
@@ -170,7 +171,7 @@ export class PipelineService {
     user: User,
     teamId: string,
     pipelineId: string,
-    options: { ref?: string | null } = {},
+    options: { ref?: string | null; inputs?: Record<string, string> } = {},
   ): Promise<PipelineRunSummary> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const pipeline = await this.find(teamId, pipelineId);
@@ -178,6 +179,7 @@ export class PipelineService {
       trigger: "manual",
       triggeredBy: user.id,
       ref: options.ref ?? null,
+      inputs: options.inputs ?? {},
     });
     await this.access.recordChange(user, {
       teamId,
@@ -208,6 +210,7 @@ export class PipelineService {
       ref: previous.ref,
       fromStage,
       source: previous.source,
+      inputs: JSON.parse(previous.inputs) as Record<string, string>,
     });
     await this.access.recordChange(user, {
       teamId,
@@ -226,10 +229,37 @@ export class PipelineService {
     trigger: Exclude<RunTrigger, "manual" | "rerun">,
     ref: string | null,
     branch: string | null = null,
+    options: { inputs?: Record<string, string>; upstream?: PipelineRunRow } = {},
   ): Promise<PipelineRunSummary> {
     const pipeline = await this.store.pipelines.pipelines.findById(pipelineId);
     if (!pipeline) throw ZelyqError.notFound("Pipeline", pipelineId);
-    return this.enqueue(pipeline, { trigger, triggeredBy: null, ref, branch });
+    return this.enqueue(pipeline, {
+      trigger,
+      triggeredBy: null,
+      ref,
+      branch,
+      inputs: options.inputs ?? {},
+      upstream: options.upstream ?? null,
+    });
+  }
+
+  /** A `pipeline` step starting another pipeline of its team, by name. */
+  async startChild(
+    parent: PipelineRunRow,
+    name: string,
+    inputs: Record<string, string>,
+  ): Promise<PipelineRunRow> {
+    const pipeline = await this.store.pipelines.pipelines.findByName(parent.teamId, name);
+    if (!pipeline) throw ZelyqError.badRequest(`There is no pipeline called ${name} in this team.`);
+    const summary = await this.enqueue(pipeline, {
+      trigger: "pipeline",
+      triggeredBy: parent.triggeredBy,
+      ref: parent.ref,
+      branch: parent.branch,
+      inputs,
+      upstream: parent,
+    });
+    return (await this.store.pipelines.runs.findById(summary.id)) as PipelineRunRow;
   }
 
   /** A run asked for by a service key with the `pipelines` scope, for its own team only. */
@@ -237,9 +267,10 @@ export class PipelineService {
     teamId: string,
     pipelineId: string,
     ref: string | null,
+    inputs: Record<string, string> = {},
   ): Promise<PipelineRunSummary> {
     const pipeline = await this.find(teamId, pipelineId);
-    return this.enqueue(pipeline, { trigger: "api", triggeredBy: null, ref });
+    return this.enqueue(pipeline, { trigger: "api", triggeredBy: null, ref, inputs });
   }
 
   async cancel(user: User, teamId: string, runId: string): Promise<PipelineRunSummary> {
@@ -268,7 +299,10 @@ export class PipelineService {
     const rows = await this.store.pipelines.runs.listForPipeline(pipeline.id, 100);
     const actors = await this.actors(rows.map((row) => row.triggeredBy));
     const steps = await this.store.pipelines.steps.listForRuns(rows.map((row) => row.id));
-    return rows.map((row) => this.runSummary(row, pipeline.name, steps.get(row.id) ?? [], actors));
+    const upstreams = await this.upstreamsOf(rows);
+    return rows.map((row) =>
+      this.runSummary(row, pipeline.name, steps.get(row.id) ?? [], actors, upstreams),
+    );
   }
 
   async getRun(user: User, teamId: string, runId: string): Promise<PipelineRunDetail> {
@@ -280,8 +314,20 @@ export class PipelineService {
       this.store.pipelines.artifacts.list(run.id),
       this.actors([run.triggeredBy]),
     ]);
+    // The runs `pipeline` steps started, for their links.
+    const children = new Map<string, { id: string; pipelineId: string; number: number }>();
+    for (const step of steps) {
+      if (!step.childRunId) continue;
+      const child = await this.store.pipelines.runs.findById(step.childRunId);
+      if (child)
+        children.set(child.id, {
+          id: child.id,
+          pipelineId: child.pipelineId,
+          number: child.number,
+        });
+    }
     return {
-      ...this.runSummary(run, pipeline?.name ?? "", steps, actors),
+      ...this.runSummary(run, pipeline?.name ?? "", steps, actors, await this.upstreamsOf([run])),
       source: run.source,
       steps: steps.map((step) => ({
         id: step.id,
@@ -290,6 +336,8 @@ export class PipelineService {
         stage: step.stage,
         name: step.name,
         kind: step.kind as StepKind,
+        attempt: step.attempt,
+        child: step.childRunId ? (children.get(step.childRunId) ?? null) : null,
         status: step.status as StepStatus,
         exitCode: step.exitCode,
         startedAt: step.startedAt,
@@ -447,14 +495,45 @@ export class PipelineService {
       branch?: string | null;
       fromStage?: number | null;
       source?: string;
+      /** Input values as given; defaults are filled in and checked here. */
+      inputs?: Record<string, string>;
+      /** The run of another pipeline that started this one. */
+      upstream?: PipelineRunRow | null;
     },
   ): Promise<PipelineRunSummary> {
     const source = input.source ?? pipeline.source;
-    const parsed = parsePipelineFile(source);
+    const declared = parsePipelineFile(source);
+    if (!declared.ok)
+      throw ZelyqError.badRequest(
+        `The pipeline file is not valid: ${declared.issues[0]?.message ?? ""}`,
+      );
+    const resolved = resolveRunInputs(declared.file, input.inputs ?? {});
+    if ("error" in resolved) throw ZelyqError.badRequest(resolved.error);
+    // A chain of pipelines starting each other stops at ten: a loop cannot run for ever.
+    if (input.upstream) {
+      let depth = 1;
+      let link: PipelineRunRow | null = input.upstream;
+      while (link?.upstreamRunId && depth < MAX_CHAIN) {
+        link = await this.store.pipelines.runs.findById(link.upstreamRunId);
+        depth += 1;
+      }
+      if (depth >= MAX_CHAIN) {
+        throw ZelyqError.badRequest(
+          `Pipelines started each other ${MAX_CHAIN} times in a row; ${pipeline.name} was not started again. Check for a loop.`,
+        );
+      }
+    }
+    const parsed = parsePipelineFile(source, resolved.values);
     if (!parsed.ok)
       throw ZelyqError.badRequest(
-        `The pipeline file is not valid: ${parsed.issues[0]?.message ?? ""}`,
+        `The pipeline file is not valid with these inputs: ${parsed.issues[0]?.message ?? ""}`,
       );
+    // newest-wins: what is still queued or running gives way to this run.
+    if (parsed.file.concurrency === "newest-wins") {
+      for (const older of await this.store.pipelines.runs.listActiveForPipeline(pipeline.id)) {
+        await this.engine.cancel(older);
+      }
+    }
     const run = await this.store.pipelines.runs.create(
       {
         id: newId("pipelineRun"),
@@ -468,6 +547,8 @@ export class PipelineService {
         source,
         ref: input.ref,
         branch: input.branch ?? null,
+        inputs: JSON.stringify(resolved.values),
+        upstreamRunId: input.upstream?.id ?? null,
         fromStage: input.fromStage ?? null,
         error: null,
         logBytes: 0,
@@ -483,6 +564,8 @@ export class PipelineService {
           stage: stage.name,
           name: stepLabel(step),
           kind: stepKind(step),
+          attempt: 1,
+          childRunId: null,
           status: "pending",
           exitCode: null,
           startedAt: null,
@@ -497,7 +580,26 @@ export class PipelineService {
       pipeline.name,
       await this.store.pipelines.steps.list(run.id),
       actors,
+      await this.upstreamsOf([run]),
     );
+  }
+
+  /** The runs that started these ones, for "started by Shop build #12". */
+  private async upstreamsOf(rows: PipelineRunRow[]): Promise<Map<string, RunUpstream>> {
+    const found = new Map<string, RunUpstream>();
+    for (const row of rows) {
+      if (!row.upstreamRunId || found.has(row.upstreamRunId)) continue;
+      const upstream = await this.store.pipelines.runs.findById(row.upstreamRunId);
+      if (!upstream) continue;
+      const pipeline = await this.store.pipelines.pipelines.findById(upstream.pipelineId);
+      found.set(upstream.id, {
+        id: upstream.id,
+        pipelineId: upstream.pipelineId,
+        pipelineName: pipeline?.name ?? "",
+        number: upstream.number,
+      });
+    }
+    return found;
   }
 
   /** Parses, then checks every Vault secret the file uses — as the person saving it. */
@@ -627,7 +729,7 @@ export class PipelineService {
             number: last.number,
             status: last.status as RunStatus,
             createdAt: last.createdAt,
-            stages: summariseStages(lastSteps as RunStep[]),
+            stages: summariseStages(lastSteps as unknown as RunStep[]),
           }
         : null,
       updatedAt: row.updatedAt,
@@ -640,6 +742,7 @@ export class PipelineService {
     pipelineName: string,
     steps: PipelineStepRow[],
     actors: Map<string, PipelineActor> = new Map(),
+    upstreams: Map<string, RunUpstream> = new Map(),
   ): PipelineRunSummary {
     return {
       id: row.id,
@@ -654,10 +757,17 @@ export class PipelineService {
       createdAt: row.createdAt,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt,
-      stages: summariseStages(steps as RunStep[]),
+      stages: summariseStages(steps as unknown as RunStep[]),
+      inputs: JSON.parse(row.inputs) as Record<string, string>,
+      upstream: row.upstreamRunId ? (upstreams.get(row.upstreamRunId) ?? null) : null,
     };
   }
 }
+
+type RunUpstream = NonNullable<PipelineRunSummary["upstream"]>;
+
+/** Pipelines starting each other: at most this many in a row. */
+const MAX_CHAIN = 10;
 
 /** Why this person may not answer this approval, or null when they may. */
 function mayApprove(

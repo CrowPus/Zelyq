@@ -8,6 +8,7 @@ import {
 import {
   Clock,
   GitBranch,
+  Link2,
   Play,
   Plus,
   Save,
@@ -53,9 +54,16 @@ export function PipelinePage() {
     enabled: Boolean(team) && !isNew,
   });
   const start = useMutation({
-    mutationFn: () => api.pipelines.start(team?.id ?? "", id),
+    mutationFn: (inputs?: Record<string, string>) =>
+      api.pipelines.start(team?.id ?? "", id, inputs),
     onSuccess: ({ run }) => navigate(`/pipelines/${id}/runs/${run.id}`),
   });
+  // A pipeline with inputs asks for them first.
+  const [asking, setAsking] = useState(false);
+  const declaredInputs = useMemo(() => {
+    const parsed = pipeline.data ? parsePipelineFile(pipeline.data.pipeline.source) : null;
+    return parsed?.ok ? (parsed.file.inputs ?? {}) : {};
+  }, [pipeline.data]);
 
   const name = isNew ? "New pipeline" : (pipeline.data?.pipeline.name ?? "…");
   return (
@@ -71,7 +79,9 @@ export function PipelinePage() {
                 variant="primary"
                 icon={<Play size={14} />}
                 disabled={start.isPending}
-                onClick={() => start.mutate()}
+                onClick={() =>
+                  Object.keys(declaredInputs).length > 0 ? setAsking(true) : start.mutate(undefined)
+                }
               >
                 Run now
               </Button>
@@ -79,6 +89,14 @@ export function PipelinePage() {
           </header>
           {start.error && (
             <p className="mb-3 text-xs text-danger">{vaultErrorMessage(start.error)}</p>
+          )}
+          {asking && (
+            <InputsForm
+              inputs={declaredInputs}
+              busy={start.isPending}
+              onCancel={() => setAsking(false)}
+              onStart={(values) => start.mutate(values)}
+            />
           )}
 
           {!isNew && (
@@ -365,7 +383,22 @@ notify:
     to: production
     port: 3000               # the app's port inside its container
     host-port: 80            # on the machine; default the same
-    health: /health          # checked after starting; default /`}</pre>
+    health: /health          # checked after starting; default /
+- pipeline: {run: Shop deploy, with: {environment: staging}}   # start another; waits by default
+- download: {artifact: dist}  # files the run that started this one kept`}</pre>
+      <p className="mt-3 font-medium text-fg">Inputs, one at a time, retry, keeping runs</p>
+      <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`inputs:                      # asked for by Run now
+  environment: {choices: [staging, production], default: staging}
+  version: {}                # no default: required
+concurrency: one-at-a-time   # or newest-wins
+keep: {runs: 50, artifacts: 14d}
+stages:
+  - name: Ship
+    steps:
+      - run: npm ci
+        retry: 2             # try a failed step again, up to 5
+      - deploy: {to: "\${{ inputs.environment }}", port: 3000}
+      - run: echo "$ZELYQ_INPUT_VERSION"`}</pre>
     </details>
   );
 }
@@ -389,7 +422,14 @@ function Triggers({
     queryKey: ["pipeline-triggers", teamId, pipelineId],
     queryFn: () => api.pipelines.triggers(teamId, pipelineId),
   });
-  const [kind, setKind] = useState<"push" | "schedule" | null>(null);
+  const [kind, setKind] = useState<"push" | "schedule" | "pipeline" | null>(null);
+  const [upstreamId, setUpstreamId] = useState("");
+  const [onFailed, setOnFailed] = useState(false);
+  const otherPipelines = useQuery({
+    queryKey: ["pipelines", teamId],
+    queryFn: () => api.pipelines.list(teamId),
+    enabled: kind === "pipeline",
+  });
   const [branches, setBranches] = useState("main");
   const [cron, setCron] = useState("0 3 * * *");
   const [created, setCreated] = useState<{
@@ -413,7 +453,13 @@ function Triggers({
                 .map((b) => b.trim())
                 .filter(Boolean),
             }
-          : { kind: "schedule", cron: cron.trim() },
+          : kind === "pipeline"
+            ? {
+                kind: "pipeline",
+                pipelineId: upstreamId,
+                on: onFailed ? ["passed", "failed"] : ["passed"],
+              }
+            : { kind: "schedule", cron: cron.trim() },
       ),
     onSuccess: (result) => {
       setCreated(result);
@@ -475,6 +521,8 @@ function Triggers({
                 <GitBranch size={14} />
               ) : trigger.kind === "app" ? (
                 <Sparkles size={14} />
+              ) : trigger.kind === "pipeline" ? (
+                <Link2 size={14} />
               ) : (
                 <Clock size={14} />
               )}
@@ -488,6 +536,11 @@ function Triggers({
                   </>
                 ) : trigger.kind === "app" ? (
                   <>When the agent changes the app</>
+                ) : trigger.kind === "pipeline" ? (
+                  <>
+                    After <span className="font-medium">{trigger.upstream?.name}</span>{" "}
+                    {trigger.upstream?.on.includes("failed") ? "ends (passed or failed)" : "passes"}
+                  </>
                 ) : (
                   <>
                     On the schedule <span className="font-mono">{trigger.cron}</span>{" "}
@@ -539,10 +592,44 @@ function Triggers({
             >
               When the app changes
             </Button>
+            <Button size="sm" icon={<Link2 size={13} />} onClick={() => setKind("pipeline")}>
+              After another pipeline
+            </Button>
           </div>
         ) : (
           <div className="grid gap-2 rounded-md border border-border-default p-3">
-            {kind === "push" ? (
+            {kind === "pipeline" ? (
+              <div className="grid gap-2">
+                <FieldLabel>Start this pipeline after</FieldLabel>
+                <select
+                  aria-label="Upstream pipeline"
+                  className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
+                  value={upstreamId}
+                  onChange={(event) => setUpstreamId(event.target.value)}
+                >
+                  <option value="">Choose a pipeline…</option>
+                  {otherPipelines.data?.pipelines
+                    .filter((other) => other.id !== pipelineId)
+                    .map((other) => (
+                      <option key={other.id} value={other.id}>
+                        {other.name}
+                      </option>
+                    ))}
+                </select>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={onFailed}
+                    onChange={(event) => setOnFailed(event.target.checked)}
+                  />
+                  Also when it fails (default: only when it passes)
+                </label>
+                <span className="text-2xs text-fg-muted">
+                  It runs with the same commit, and can take that run's artifacts with a download
+                  step.
+                </span>
+              </div>
+            ) : kind === "push" ? (
               <div className="grid gap-1">
                 <FieldLabel>Branches (comma-separated, release/* allowed)</FieldLabel>
                 <Input
@@ -572,7 +659,7 @@ function Triggers({
                 size="sm"
                 variant="primary"
                 icon={<Plus size={13} />}
-                disabled={add.isPending}
+                disabled={add.isPending || (kind === "pipeline" && !upstreamId)}
                 onClick={() => add.mutate()}
               >
                 Add trigger
@@ -598,5 +685,80 @@ function Triggers({
         </pre>
       </details>
     </div>
+  );
+}
+
+/** Run now, for a pipeline with inputs: one field each (a list for choices). */
+function InputsForm({
+  inputs,
+  busy,
+  onStart,
+  onCancel,
+}: {
+  inputs: Record<string, { description?: string; choices?: string[]; default?: string }>;
+  busy: boolean;
+  onStart: (values: Record<string, string>) => void;
+  onCancel: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      Object.entries(inputs).map(([name, input]) => [
+        name,
+        input.default ?? input.choices?.[0] ?? "",
+      ]),
+    ),
+  );
+  const missing = Object.entries(values)
+    .filter(([, value]) => !value.trim())
+    .map(([name]) => name);
+  return (
+    <form
+      className="mb-4 grid gap-3 rounded-md border border-border-default p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onStart(values);
+      }}
+    >
+      <p className="text-sm font-medium">Start with:</p>
+      {Object.entries(inputs).map(([name, input]) => (
+        <div key={name} className="grid gap-1">
+          <FieldLabel>{name}</FieldLabel>
+          {input.choices ? (
+            <select
+              aria-label={name}
+              className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
+              value={values[name]}
+              onChange={(event) => setValues({ ...values, [name]: event.target.value })}
+            >
+              {input.choices.map((choice) => (
+                <option key={choice} value={choice}>
+                  {choice}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Input
+              aria-label={name}
+              value={values[name] ?? ""}
+              onChange={(event) => setValues({ ...values, [name]: event.target.value })}
+            />
+          )}
+          {input.description && <span className="text-2xs text-fg-muted">{input.description}</span>}
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          variant="primary"
+          icon={<Play size={14} />}
+          disabled={busy || missing.length > 0}
+        >
+          Start the run
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -450,6 +450,10 @@ export const pipelineRuns = pgTable(
     ref: text("ref"),
     /** The branch the run is for (a push's branch), which a cache belongs to. */
     branch: text("branch"),
+    /** JSON: the input values it was started with. */
+    inputs: text("inputs").notNull().default("{}"),
+    /** The run that started it (another pipeline), if any. */
+    upstreamRunId: text("upstream_run_id"),
     /** Re-run from this stage: earlier stages are skipped. */
     fromStage: integer("from_stage"),
     error: text("error"),
@@ -478,6 +482,10 @@ export const pipelineSteps = pgTable(
     name: text("name").notNull(),
     /** run, checkout, setup, cache, docker or approval. */
     kind: text("kind").notNull().default("run"),
+    /** Which attempt (above 1 after a retry). */
+    attempt: integer("attempt").notNull().default(1),
+    /** For a `pipeline` step: the run it started. */
+    childRunId: text("child_run_id"),
     status: text("status").notNull(),
     exitCode: integer("exit_code"),
     startedAt: text("started_at"),

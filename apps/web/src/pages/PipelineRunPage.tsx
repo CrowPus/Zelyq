@@ -170,6 +170,19 @@ export function PipelineRunPage() {
                   {detail.triggeredBy ? <UserRound size={12} /> : <GitBranch size={12} />}
                   {detail.triggeredBy ? detail.triggeredBy.name : TRIGGER_WORDS[detail.trigger]}
                 </span>
+                {detail.upstream && (
+                  <Link
+                    to={`/pipelines/${detail.upstream.pipelineId}/runs/${detail.upstream.id}`}
+                    className="text-info hover:underline"
+                  >
+                    started by {detail.upstream.pipelineName} #{detail.upstream.number}
+                  </Link>
+                )}
+                {Object.entries(detail.inputs).map(([name, value]) => (
+                  <span key={name} className="rounded bg-surface-subtle px-1.5 font-mono">
+                    {name}={value}
+                  </span>
+                ))}
                 {detail.runner && (
                   <span className="flex items-center gap-1">
                     <Server size={12} /> {detail.runner}
@@ -347,6 +360,11 @@ function StepSection({
         >
           {step.name}
         </span>
+        {step.attempt > 1 && (
+          <span className="text-2xs text-fg-muted" title="It was tried again after failing">
+            attempt {step.attempt}
+          </span>
+        )}
         {step.exitCode !== null && step.exitCode !== 0 && (
           <span className="font-mono text-2xs text-danger">exit {step.exitCode}</span>
         )}
@@ -354,6 +372,14 @@ function StepSection({
           {step.status === "skipped" ? "skipped" : duration(step.startedAt, step.finishedAt)}
         </span>
       </button>
+      {step.child && (
+        <Link
+          to={`/pipelines/${step.child.pipelineId}/runs/${step.child.id}`}
+          className="block px-10 pb-2 text-xs text-info hover:underline"
+        >
+          → the run it started: #{step.child.number}
+        </Link>
+      )}
       {open && canOpen && (
         <LogLines lines={lines} query={query} follow={step.status === "running"} />
       )}

@@ -62,7 +62,11 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
   "voice-input": { label: "Voice input", icon: Mic, blurb: "Transcription for the microphone" },
   access: { label: "Access", icon: LockKeyhole, blurb: "Who may sign in, and for how long" },
   runtime: { label: "Runtime", icon: Server, blurb: "Where app commands run" },
-  pipelines: { label: "Pipelines", icon: Workflow, blurb: "Where local pipeline runs happen" },
+  pipelines: {
+    label: "Pipelines",
+    icon: Workflow,
+    blurb: "The local runner, and how long runs are kept",
+  },
   preview: { label: "Preview", icon: Monitor, blurb: "How app previews are reached" },
   integrations: {
     label: "Integrations",
@@ -125,6 +129,7 @@ export function SettingsPage() {
       "voice-input",
       "access",
       "runtime",
+      "pipelines",
       "preview",
     ].filter((id) => fromGroups.includes(id));
     // Anything the server adds later still gets a menu entry rather than

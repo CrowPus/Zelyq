@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import {
   approvalDecisionSchema,
+  runStartSchema,
   sshRunnerInputSchema,
   sshRunnerUpdateSchema,
   triggerInputSchema,
@@ -15,7 +16,6 @@ import type { PipelineTriggerService } from "../services/pipelines/triggers.js";
 import type { VaultKeyService } from "../services/vault-keys.js";
 
 const sourceBody = z.object({ source: z.string().max(200_000) }).strict();
-const runBody = z.object({ ref: z.string().trim().min(1).max(200).nullable().optional() }).strict();
 const rerunBody = z.object({ fromStage: z.number().int().min(0).nullable().optional() }).strict();
 const confirmBody = z.object({ fingerprint: z.string().trim().min(8).max(200) }).strict();
 const rotateBody = z.object({ algorithm: z.enum(["ed25519", "rsa"]).default("ed25519") }).strict();
@@ -103,14 +103,13 @@ export function registerPipelineRoutes(
   }));
   app.post<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/runs", async (request, reply) => {
     reply.code(201);
+    const body = runStartSchema.parse(request.body ?? {});
     return {
       run: await pipelines.startRun(
         access.requireUser(request),
         request.params.teamId,
         request.params.pipelineId,
-        {
-          ref: runBody.parse(request.body ?? {}).ref ?? null,
-        },
+        { ref: body.ref ?? null, inputs: body.inputs ?? {} },
       ),
     };
   });
@@ -321,8 +320,13 @@ export function registerPipelineRoutes(
     handler: async (request, reply) => {
       const context = await serviceKeys.authenticate(request.headers.authorization, request.ip);
       serviceKeys.requireScope(context, "pipelines");
-      const ref = runBody.parse(request.body ?? {}).ref ?? null;
-      const run = await pipelines.startForKey(context.key.teamId, request.params.pipelineId, ref);
+      const body = runStartSchema.parse(request.body ?? {});
+      const run = await pipelines.startForKey(
+        context.key.teamId,
+        request.params.pipelineId,
+        body.ref ?? null,
+        body.inputs ?? {},
+      );
       reply.code(201);
       return { run };
     },

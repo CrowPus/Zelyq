@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, max, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import {
   pipelineApprovals as approvals,
@@ -100,6 +100,9 @@ export function pipelineRepository(db: ZelyqDb) {
 
     // ------------------------------------------------------------ pipelines
     pipelines: {
+      async listAll(): Promise<PipelineRow[]> {
+        return await db.select().from(pipelines);
+      },
       async listForTeam(teamId: string): Promise<PipelineRow[]> {
         return await db
           .select()
@@ -205,6 +208,50 @@ export function pipelineRepository(db: ZelyqDb) {
         const [row] = await db.update(runs).set(patch).where(eq(runs.id, id)).returning();
         return row ?? null;
       },
+      /** Runs of a pipeline that have not ended, oldest first. */
+      async listActiveForPipeline(pipelineId: string): Promise<PipelineRunRow[]> {
+        return await db
+          .select()
+          .from(runs)
+          .where(
+            and(
+              eq(runs.pipelineId, pipelineId),
+              inArray(runs.status, ["queued", "running", "waiting"]),
+            ),
+          )
+          .orderBy(asc(runs.createdAt));
+      },
+      /** Ended runs of a pipeline, newest first. */
+      async listFinishedForPipeline(pipelineId: string): Promise<PipelineRunRow[]> {
+        return await db
+          .select()
+          .from(runs)
+          .where(
+            and(
+              eq(runs.pipelineId, pipelineId),
+              inArray(runs.status, ["passed", "failed", "cancelled", "timed_out"]),
+            ),
+          )
+          .orderBy(desc(runs.number));
+      },
+      /** The newest run of a pipeline that passed. */
+      async lastPassed(pipelineId: string): Promise<PipelineRunRow | null> {
+        return (
+          (
+            await db
+              .select()
+              .from(runs)
+              .where(and(eq(runs.pipelineId, pipelineId), eq(runs.status, "passed")))
+              .orderBy(desc(runs.number))
+              .limit(1)
+          )[0] ?? null
+        );
+      },
+      /** Deletes runs; their steps, logs, artifacts and approvals go with them. */
+      async removeMany(ids: string[]): Promise<void> {
+        if (ids.length === 0) return;
+        await db.delete(runs).where(inArray(runs.id, ids));
+      },
       async countRunningOn(runnerId: string, statuses: string[] = ["running"]): Promise<number> {
         const [row] = await db
           .select({ count: sql<number>`count(*)` })
@@ -286,6 +333,16 @@ export function pipelineRepository(db: ZelyqDb) {
           .from(artifacts)
           .where(eq(artifacts.runId, runId))
           .orderBy(asc(artifacts.name));
+      },
+      async listOlderThan(before: string): Promise<PipelineArtifactRow[]> {
+        return await db.select().from(artifacts).where(lt(artifacts.createdAt, before));
+      },
+      async listForRuns(runIds: string[]): Promise<PipelineArtifactRow[]> {
+        if (runIds.length === 0) return [];
+        return await db.select().from(artifacts).where(inArray(artifacts.runId, runIds));
+      },
+      async remove(id: string): Promise<void> {
+        await db.delete(artifacts).where(eq(artifacts.id, id));
       },
       async findById(id: string): Promise<PipelineArtifactRow | null> {
         return (await db.select().from(artifacts).where(eq(artifacts.id, id)).limit(1))[0] ?? null;

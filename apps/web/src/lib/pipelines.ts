@@ -6,7 +6,7 @@ export const RUN_STATUS: Record<RunStatus | StepStatus, { label: string; tone: T
   queued: { label: "Queued", tone: "neutral" },
   pending: { label: "Waiting", tone: "neutral" },
   running: { label: "Running", tone: "info" },
-  waiting: { label: "Waiting for approval", tone: "warning" },
+  waiting: { label: "Waiting", tone: "warning" },
   passed: { label: "Passed", tone: "success" },
   failed: { label: "Failed", tone: "danger" },
   cancelled: { label: "Cancelled", tone: "warning" },
@@ -21,6 +21,7 @@ export const TRIGGER_WORDS: Record<string, string> = {
   schedule: "the schedule",
   api: "the API",
   app: "a change to the app",
+  pipeline: "another pipeline",
 };
 
 /** "1m 05s" — how long something took, or has been running. */
