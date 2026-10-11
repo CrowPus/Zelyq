@@ -3,6 +3,7 @@ import { createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  fillRunValues,
   newId,
   type PipelineCondition,
   type PipelineFile,
@@ -26,18 +27,28 @@ import {
   type RuntimeDriver,
   removeStalePipelineContainers,
   startPipelineContainer,
+  startServiceContainers,
 } from "@zelyq/runtime";
 import type { DeployService } from "../deploy.js";
 import type { SettingsService } from "../settings.js";
 import type { VaultService } from "../vault.js";
+import { addJunit, emptySummary } from "./junit.js";
 import { Masker } from "./mask.js";
 import { sendNotification } from "./notify.js";
+import {
+  outputFileScript,
+  parseOutputs,
+  safeTestPattern,
+  splitTestFiles,
+  testFilesScript,
+} from "./results.js";
 import { parseList, type RunnerService } from "./runners.js";
 import {
   checkoutCommands,
   cleanupCommand,
   defaultShell,
   packCommand,
+  posixQuote,
   prepareCommand,
   shellCommand,
   stepScript,
@@ -46,6 +57,7 @@ import {
   workspacePath,
 } from "./scripts.js";
 import { probeMachine, SshSession } from "./ssh.js";
+import { type ReportState, reportStatus, type StatusTarget } from "./status.js";
 import {
   applyTool,
   type Machine,
@@ -183,6 +195,8 @@ export class PipelineEngine {
 
   /** This Zelyq's identity on the host: its data folder, hashed. */
   private readonly instance: string;
+  /** Sends a run's ✓ / ✗ to GitHub or GitLab; tests put a fake here. */
+  reporter: (target: StatusTarget, state: ReportState) => Promise<void> = reportStatus;
 
   constructor(private readonly deps: EngineDeps) {
     this.instance = createHash("sha256")
@@ -482,9 +496,18 @@ export class PipelineEngine {
     const store = this.deps.store;
     const log = new RunLog(store, run.id, await store.pipelines.logs.lastSeq(run.id));
     const steps = await store.pipelines.steps.list(run.id);
-    const state: RunState = { path: [], env: {}, post: [] };
-    let machine: Machine | null = null;
+    const state: RunState = { path: [], env: {}, post: [], outputs: {}, services: {} };
+    // Service containers of this run, started with the machine and removed at the end.
+    let stopServices: ((current: Machine | null) => Promise<void>) | null = null;
     let status: RunStatus = "passed";
+    let statusTarget: StatusTarget | null = null;
+    const report = async (reportState: ReportState) => {
+      if (!statusTarget) return;
+      await this.reporter(statusTarget, reportState).catch((caught: Error) =>
+        log.add(null, "system", `Could not report the status to the repository: ${caught.message}`),
+      );
+    };
+    let machine: Machine | null = null;
     let error: string | null = null;
     let masker = new Masker([]);
     const clock = new RunClock((file.timeout ?? DEFAULT_RUN_TIMEOUT_S) * 1000, () => {
@@ -513,8 +536,12 @@ export class PipelineEngine {
         throw new RunError(`Could not create the run's folder ${opened.workspace}.`);
       }
       machine = opened;
+      if (file.services && !stopServices) {
+        stopServices = await this.startServices(run, runner, file, opened, secretsFor, log, state);
+      }
       return opened;
     };
+    let secretsFor = new Map<string, string>();
     /** Gives the runner back while the run waits for a person. A local
      * container is kept (its files are the run's), but stops counting. */
     const releaseMachine = async () => {
@@ -537,6 +564,26 @@ export class PipelineEngine {
             "",
         );
       masker = new Masker(sensitive);
+      secretsFor = secrets;
+      // ✓ / ✗ on the commit, when the file asks and the run is for a commit.
+      if (
+        file.source?.repo &&
+        file.source["report-status"] &&
+        token &&
+        /^[0-9a-f]{40}$/i.test(run.ref ?? "")
+      ) {
+        statusTarget = {
+          repo: file.source.repo,
+          sha: run.ref as string,
+          token,
+          context: `zelyq/${file.name}`,
+          description: `Run #${run.number}`,
+          url: this.deps.publicUrl
+            ? `${this.deps.publicUrl.replace(/\/$/, "")}/pipelines/${run.pipelineId}/runs/${run.id}`
+            : null,
+        };
+        await report("pending");
+      }
 
       log.add(
         null,
@@ -557,6 +604,7 @@ export class PipelineEngine {
           // After a restart, what already happened stands.
           if (resume && FINISHED.has(row.status as StepStatus)) {
             if (isFailure(row.status as StepStatus, step)) failed = true;
+            if (step.id) state.outputs[step.id] = JSON.parse(row.outputs) as Record<string, string>;
             if (row.status === "passed" && step.setup) {
               await this.restoreSetup(step, await ensureMachine(), state);
             }
@@ -652,6 +700,8 @@ export class PipelineEngine {
         log.add(null, "system", "Zelyq is restarting; the run keeps waiting.");
         await log.close();
         const kept = machine as Machine | null;
+        const services = stopServices as ((current: Machine | null) => Promise<void>) | null;
+        if (services) await services(kept).catch(() => undefined);
         if (kept) await kept.close().catch(() => undefined);
         return;
       }
@@ -663,6 +713,13 @@ export class PipelineEngine {
     }
 
     const finalMachine = machine as Machine | null;
+    const stopping = stopServices as ((current: Machine | null) => Promise<void>) | null;
+    if (stopping) await stopping(finalMachine).catch(() => undefined);
+    if (statusTarget) {
+      await report(
+        status === "passed" ? "success" : status === "cancelled" ? "cancelled" : "failure",
+      );
+    }
     if (finalMachine) {
       if (file.artifacts?.length) await this.collectArtifacts(run, file, finalMachine, log);
       if (status === "passed") {
@@ -1056,13 +1113,17 @@ export class PipelineEngine {
     clock: RunClock;
     state: RunState;
   }): Promise<StepStatus> {
-    const { run, file, step, row, machine, log } = input;
+    const { run, row, machine, log } = input;
     const store = this.deps.store;
     await store.pipelines.steps.update(row.id, {
       status: "running",
       startedAt: new Date().toISOString(),
     });
     log.add(row.id, "system", `${input.stageName} › ${row.name}`);
+    // Values earlier steps wrote, and where the services answer.
+    const missing: string[] = [];
+    const step = fillRunValues(input.step, input.state, missing);
+    const file = { ...input.file, env: fillRunValues(input.file.env, input.state, missing) };
 
     const finish = async (status: StepStatus, exitCode: number | null) => {
       await store.pipelines.steps.update(row.id, {
@@ -1072,6 +1133,14 @@ export class PipelineEngine {
       });
       return status;
     };
+    if (missing.length) {
+      log.add(
+        row.id,
+        "system",
+        `Not known when this step starts: ${[...new Set(missing)].join(", ")}. A step's id and output name must match a step that ran before it.`,
+      );
+      return finish("failed", null);
+    }
 
     const shell: PipelineShell = step.shell ?? defaultShell(machine.os);
     if (machine.shells && !machine.shells.includes(shell)) {
@@ -1100,6 +1169,8 @@ export class PipelineEngine {
       ),
       ...input.state.env,
     };
+    const outputFile = step.id ? `${machine.workspace}${sep}.zelyq-output` : null;
+    if (outputFile) env.ZELYQ_OUTPUT = outputFile;
     for (const [name, value] of Object.entries({ ...file.env, ...step.env })) {
       const secret = vaultReferenceName(value);
       env[name] = secret ? (input.secrets.get(secret) ?? "") : value;
@@ -1143,6 +1214,16 @@ export class PipelineEngine {
       findArtifact: (from, name) => this.findArtifact(run, from, name),
     };
 
+    const leftovers = async (read: boolean) =>
+      outputFile
+        ? context.exec(
+            shellCommand(machine.os === "windows" ? "powershell" : "sh"),
+            outputFileScript(machine.os, outputFile, read),
+            { quiet: true },
+          )
+        : null;
+    await leftovers(false);
+
     // A failed step is tried again, up to `retry` more times; a cancelled or timed-out one is not.
     const attempts = 1 + (step.retry ?? 0);
     let result: StepResult = { code: 1, ended: null };
@@ -1171,6 +1252,7 @@ export class PipelineEngine {
       );
     }
     if (result.ended) return finish(result.ended, result.code);
+    await this.collectStepResults(context, row, input.masker, leftovers);
     if (result.code === 0) return finish("passed", 0);
     if (result.code === null) {
       log.add(row.id, "system", "The connection to the machine was lost during this step.");
@@ -1178,6 +1260,185 @@ export class PipelineEngine {
       log.add(row.id, "system", `Exited with code ${result.code}.`);
     }
     return finish("failed", result.code);
+  }
+
+  /**
+   * Starts the file's service containers on the run's machine and waits until
+   * each port answers. Returns how to remove them again.
+   */
+  private async startServices(
+    run: PipelineRunRow,
+    runner: RunnerRow | null,
+    file: PipelineFile,
+    machine: Machine,
+    secrets: Map<string, string>,
+    log: RunLog,
+    state: RunState,
+  ): Promise<(current: Machine | null) => Promise<void>> {
+    if (machine.os === "windows") {
+      throw new RunError("Services need Docker on a Linux or macOS runner, not Windows.");
+    }
+    const services = Object.entries(file.services ?? {}).map(([name, service]) => ({
+      name,
+      image: service.image,
+      port: service.port,
+      env: Object.fromEntries(
+        Object.entries(service.env ?? {}).map(([key, value]) => {
+          const secret = vaultReferenceName(value);
+          return [key, secret ? (secrets.get(secret) ?? "") : value];
+        }),
+      ),
+    }));
+    log.add(
+      null,
+      "system",
+      `Starting services: ${services.map((s) => `${s.name} (${s.image})`).join(", ")}.`,
+    );
+    await log.flush();
+
+    let hosts: Record<string, { host: string; port: number }>;
+    let stop: (current: Machine | null) => Promise<void>;
+    if (machine.kind === "ssh") {
+      const label = `zelyq.pipeline-run=${run.id}`;
+      const removeAll = `ids=$(docker ps -aq --filter ${posixQuote(`label=${label}`)}); [ -n "$ids" ] && docker rm -f $ids >/dev/null 2>&1; true\n`;
+      let out = "";
+      const started = await machine.exec(shellCommand("sh"), {
+        stdin: [
+          removeAll,
+          ...services.flatMap((service) => {
+            const name = `zelyq-svc-${run.id.slice(-12)}-${service.name}`;
+            return [
+              ...Object.entries(service.env).map(
+                ([key, value]) => `export ${key}=${posixQuote(value)}`,
+              ),
+              `docker run -d --rm --name ${name} --label ${posixQuote(label)} -p 127.0.0.1::${service.port} ${Object.keys(
+                service.env,
+              )
+                .map((key) => `-e ${key}`)
+                .join(
+                  " ",
+                )} ${posixQuote(service.image)} >/dev/null 2>&1 || { echo "FAILED ${service.name}"; exit 3; }`,
+              `echo "PORT ${service.name} $(docker port ${name} ${service.port}/tcp | head -n 1 | sed 's/.*://')"`,
+            ];
+          }),
+          "",
+        ].join("\n"),
+        onStdout: (chunk) => {
+          out += chunk.toString("utf8");
+        },
+      });
+      stop = async (current) => {
+        const target = current ?? (await this.openMachine(run, runner));
+        await target.exec(shellCommand("sh"), { stdin: removeAll }).catch(() => undefined);
+        if (!current) await target.close().catch(() => undefined);
+      };
+      if (started.code !== 0) {
+        await stop(machine);
+        const failed = /FAILED (\S+)/.exec(out)?.[1];
+        throw new RunError(
+          failed
+            ? `The service ${failed} did not start. Is Docker installed on the runner, and may its user use it?`
+            : "Could not start the services: Docker did not answer on the runner.",
+        );
+      }
+      hosts = {};
+      for (const [, name, port] of out.matchAll(/^PORT (\S+) (\d+)$/gm)) {
+        hosts[name as string] = { host: "127.0.0.1", port: Number(port) };
+      }
+    } else {
+      const started = await startServiceContainers({
+        runId: run.id,
+        ...(machine.container ? { runContainer: machine.container } : {}),
+        instance: this.instance,
+        services,
+      }).catch((caught: Error) => {
+        throw new RunError(caught.message);
+      });
+      hosts = started.hosts;
+      stop = () => started.stop();
+    }
+
+    // Each port must answer before the first step: up to 60 seconds.
+    const waitScript = [
+      "if command -v bash >/dev/null 2>&1; then",
+      ...Object.values(hosts).map(
+        ({ host, port }) =>
+          `  bash -c 'for i in $(seq 60); do (exec 3<>/dev/tcp/${host}/${port}) 2>/dev/null && exit 0; sleep 1; done; exit 1' || exit 4`,
+      ),
+      "else sleep 10; fi",
+      "",
+    ].join("\n");
+    const waited = await machine.exec(shellCommand("sh"), { stdin: waitScript });
+    if (waited.code !== 0) {
+      await stop(machine);
+      throw new RunError("A service did not open its port within 60 seconds.");
+    }
+    for (const [name, where] of Object.entries(hosts)) {
+      state.services[name] = where;
+      state.env[`ZELYQ_SERVICE_${name.toUpperCase()}_HOST`] = where.host;
+      state.env[`ZELYQ_SERVICE_${name.toUpperCase()}_PORT`] = String(where.port);
+    }
+    log.add(null, "system", "Services are ready.");
+    return stop;
+  }
+
+  /** After a step: what it wrote to $ZELYQ_OUTPUT, and its test report. */
+  private async collectStepResults(
+    context: StepContext,
+    row: PipelineStepRow,
+    masker: Masker,
+    leftovers: (read: boolean) => Promise<{ stdout: string; ended: unknown } | null>,
+  ): Promise<void> {
+    const { step, machine } = context;
+    const store = this.deps.store;
+    const written = await leftovers(true);
+    if (step.id && written && !written.ended) {
+      const values = parseOutputs(written.stdout);
+      context.state.outputs[step.id] = values;
+      const names = Object.keys(values);
+      if (names.length) {
+        await store.pipelines.steps.update(row.id, {
+          outputs: JSON.stringify(
+            Object.fromEntries(names.map((name) => [name, masker.mask(values[name] as string)])),
+          ),
+        });
+        context.system(`Outputs: ${names.join(", ")}.`);
+      }
+    }
+    if (!step.tests) return;
+    if (!safeTestPattern(step.tests)) {
+      context.system(`tests: ${step.tests} — use only letters, digits, . _ - / * and ?.`);
+      return;
+    }
+    const bash = machine.os !== "windows" && (machine.shells?.includes("bash") ?? true);
+    const read = await context.exec(
+      shellCommand(machine.os === "windows" ? "powershell" : bash ? "bash" : "sh"),
+      testFilesScript(machine.os, context.dir, step.tests, bash),
+      { quiet: true },
+    );
+    if (read.ended) return;
+    const { files, big } = splitTestFiles(read.stdout);
+    for (const name of big) context.system(`${name} is larger than 5 MB; not read.`);
+    if (files.length === 0) {
+      context.system(`No test report matches ${step.tests}.`);
+      return;
+    }
+    const summary = emptySummary();
+    for (const found of files) {
+      try {
+        addJunit(summary, found.xml);
+      } catch {
+        context.system(`${found.name} is not a JUnit XML report.`);
+      }
+    }
+    for (const failure of summary.failures) {
+      failure.message = masker.mask(failure.message);
+      failure.details = masker.mask(failure.details);
+    }
+    await store.pipelines.steps.update(row.id, { tests: JSON.stringify(summary) });
+    context.system(
+      `Tests: ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped.`,
+    );
   }
 
   /** Runs one command for a step: output streamed (masked) into the step's

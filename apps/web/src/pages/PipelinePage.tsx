@@ -399,6 +399,23 @@ stages:
         retry: 2             # try a failed step again, up to 5
       - deploy: {to: "\${{ inputs.environment }}", port: 3000}
       - run: echo "$ZELYQ_INPUT_VERSION"`}</pre>
+      <p className="mt-3 font-medium text-fg">Outputs, services, test reports, commit status</p>
+      <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`source:
+  repo: https://github.com/you/shop
+  token: vault://GITHUB_TOKEN
+  report-status: true        # ✓ / ✗ on the commit and the pull request
+services:                    # removed when the run ends; Docker on Linux/macOS
+  postgres: {image: postgres:16, env: {POSTGRES_PASSWORD: test}, port: 5432}
+stages:
+  - name: Test
+    steps:
+      - id: meta
+        run: echo "version=1.4.2" >> "$ZELYQ_OUTPUT"
+      - run: npx vitest run --reporter=junit --outputFile=reports/junit.xml
+        tests: reports/*.xml   # JUnit files: passed / failed on the step
+        env:
+          DATABASE_URL: postgres://postgres:test@\${{ services.postgres.host }}:\${{ services.postgres.port }}/postgres
+      - run: echo "Shipping \${{ steps.meta.outputs.version }}"`}</pre>
     </details>
   );
 }
@@ -431,6 +448,8 @@ function Triggers({
     enabled: kind === "pipeline",
   });
   const [branches, setBranches] = useState("main");
+  const [paths, setPaths] = useState("");
+  const [pullRequests, setPullRequests] = useState(false);
   const [cron, setCron] = useState("0 3 * * *");
   const [created, setCreated] = useState<{
     trigger: PipelineTriggerSummary;
@@ -452,6 +471,11 @@ function Triggers({
                 .split(",")
                 .map((b) => b.trim())
                 .filter(Boolean),
+              paths: paths
+                .split(",")
+                .map((p) => p.trim())
+                .filter(Boolean),
+              pullRequests,
             }
           : kind === "pipeline"
             ? {
@@ -530,6 +554,13 @@ function Triggers({
                 {trigger.kind === "push" ? (
                   <>
                     On a push to <span className="font-mono">{trigger.branches?.join(", ")}</span>
+                    {trigger.paths?.length ? (
+                      <>
+                        {" "}
+                        changing <span className="font-mono">{trigger.paths.join(", ")}</span>
+                      </>
+                    ) : null}
+                    {trigger.pullRequests ? <> · also pull requests</> : null}
                     <span className="block truncate font-mono text-2xs text-fg-muted">
                       {absolute(trigger.webhookUrl)}
                     </span>
@@ -637,6 +668,29 @@ function Triggers({
                   value={branches}
                   onChange={(event) => setBranches(event.target.value)}
                 />
+                <FieldLabel>Only when these files change (optional, comma-separated)</FieldLabel>
+                <Input
+                  aria-label="Paths"
+                  value={paths}
+                  placeholder="frontend/**, package.json"
+                  onChange={(event) => setPaths(event.target.value)}
+                  className="font-mono"
+                />
+                <span className="text-2xs text-fg-muted">
+                  * matches within a folder, ** across folders. Empty: any change.
+                </span>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={pullRequests}
+                    onChange={(event) => setPullRequests(event.target.checked)}
+                  />
+                  Also for pull requests (GitHub) and merge requests (GitLab)
+                </label>
+                <span className="text-2xs text-fg-muted">
+                  Runs on the request's newest commit, when it targets one of the branches. Requests
+                  from forks never run.
+                </span>
               </div>
             ) : (
               <div className="grid gap-1">

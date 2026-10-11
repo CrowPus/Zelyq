@@ -197,6 +197,13 @@
       "when": 1791718051294,
       "tag": "0027_pipeline_chaining",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791719795288,
+      "tag": "0028_pipeline_group2",
+      "breakpoints": true
     }
   ]
 }

@@ -335,6 +335,76 @@ Without it, **Settings → Pipelines** decides: 100 runs per pipeline and 30 day
 runs, with their logs and artifacts, are deleted once an hour. The newest run, a run still going and
 a run a live deploy came from are always kept.
 
+## Results, services and test reports
+
+### Passing values to later steps
+
+A step with an `id` writes `name=value` lines to the file `$ZELYQ_OUTPUT` (`$env:ZELYQ_OUTPUT` in
+PowerShell); later steps use `${{ steps.ID.outputs.NAME }}`. For a value over several lines, write
+`name<<END`, the lines, then `END`.
+
+```yaml
+- id: meta
+  run: echo "version=$(node -p "require('./package.json').version")" >> "$ZELYQ_OUTPUT"
+- run: echo "Shipping ${{ steps.meta.outputs.version }}"
+```
+
+The run page shows a step's outputs under it, masked like the log. A step that uses an output no
+earlier step wrote fails before it starts, naming it.
+
+### Service containers
+
+A database or cache that exists only for the run:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    env: {POSTGRES_PASSWORD: test}   # vault://NAME works here too
+    port: 5432
+  redis: {image: redis:7, port: 6379}
+stages:
+  - name: Test
+    steps:
+      - run: npm test
+        env:
+          DATABASE_URL: postgres://postgres:test@${{ services.postgres.host }}:${{ services.postgres.port }}/postgres
+```
+
+- At most 5, named with lower-case letters, digits and `_`. They start before the first step, Zelyq
+  waits until each port answers (up to 60 seconds), and they are removed when the run ends, however
+  it ended.
+- Steps also get `ZELYQ_SERVICE_<NAME>_HOST` and `ZELYQ_SERVICE_<NAME>_PORT`.
+- On an SSH runner the runner's user must be able to use Docker; the ports are published on
+  `127.0.0.1` only. Beside the local runner's container they share a network of their own with the
+  run, and the host is the service's name. Not on Windows runners.
+
+### Test reports
+
+```yaml
+- run: npx vitest run --reporter=junit --outputFile=reports/junit.xml
+  tests: reports/**/*.xml
+```
+
+After the step, passed or failed, Zelyq reads the JUnit XML files (Jest, Vitest, pytest, Go, JUnit,
+PHPUnit and .NET can all write it) and shows **2 passed · 1 failed · 1 skipped** on the step, with
+each failing test's name and message. Files over 5 MB are skipped, with a line in the log.
+
+### ✓ / ✗ on GitHub and GitLab
+
+```yaml
+source:
+  repo: https://github.com/you/shop
+  token: vault://GITHUB_TOKEN     # GitHub: "Commit statuses: write"; GitLab: "api"
+  report-status: true
+```
+
+A run started for a commit (a push, a pull request, or `{"ref": "<40-character sha>"}`) reports
+*pending* when it starts, then *success* or *failure*, as `zelyq/<pipeline name>` with a link to the
+run. That is the check shown on a pull request. If the repository refuses, the run goes on and says
+so in its log. GitHub Enterprise and self-hosted GitLab work too (any host with "gitlab" in its name
+is GitLab).
+
 ## Secrets
 
 `vault://NAME` takes a secret from the team's [Vault](./vault.md).
@@ -383,6 +453,14 @@ payload URL and a secret, once.
 
 A push to a matching branch starts a run at the pushed commit. A call with the wrong secret is
 refused.
+
+- **Only when certain files change.** Fill in **Paths** (`frontend/**, package.json`): the push
+  starts a run only if it changed a matching file. `*` matches within a folder, `**` across folders.
+  A push too big for the webhook to list every file (20 commits or more) runs anyway.
+- **Pull requests.** Tick **Also for pull requests**, and in the webhook also send "Pull requests"
+  (GitHub) or tick **Merge request events** (GitLab). A request into one of the branches runs on its
+  newest commit when it is opened or gets new commits; the trigger shows "pull request". **Requests
+  from forks never run**: their code would run with the team's secrets on the team's machines.
 
 **On a schedule.** Five-field cron, in UTC: `0 3 * * *` is 03:00 every day, `*/15 * * * *` every 15
 minutes, `0 9 * * 1-5` 09:00 on weekdays.

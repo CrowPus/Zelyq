@@ -46,6 +46,10 @@ export interface RunState {
   path: string[];
   /** Variables such as JAVA_HOME. */
   env: Record<string, string>;
+  /** Values steps wrote to $ZELYQ_OUTPUT, by step id. */
+  outputs: Record<string, Record<string, string>>;
+  /** Where each service container answers. */
+  services: Record<string, { host: string; port: number }>;
   /** Work done after the last step, only when the run passed (saving caches). */
   post: ((
     machine: Machine,

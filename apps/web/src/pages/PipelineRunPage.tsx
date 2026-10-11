@@ -1,5 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type RunApproval, type RunLogLine, type RunStep, summariseStages } from "@zelyq/core";
+import {
+  type RunApproval,
+  type RunLogLine,
+  type RunStep,
+  summariseStages,
+  type TestSummary,
+} from "@zelyq/core";
 import {
   Check,
   ChevronDown,
@@ -368,10 +374,32 @@ function StepSection({
         {step.exitCode !== null && step.exitCode !== 0 && (
           <span className="font-mono text-2xs text-danger">exit {step.exitCode}</span>
         )}
+        {step.tests && (
+          <span className="text-2xs">
+            <span className="text-success">{step.tests.passed} passed</span>
+            {step.tests.failed > 0 && (
+              <span className="text-danger"> · {step.tests.failed} failed</span>
+            )}
+            {step.tests.skipped > 0 && (
+              <span className="text-fg-muted"> · {step.tests.skipped} skipped</span>
+            )}
+          </span>
+        )}
         <span className="text-xs text-fg-muted">
           {step.status === "skipped" ? "skipped" : duration(step.startedAt, step.finishedAt)}
         </span>
       </button>
+      {open && Object.keys(step.outputs).length > 0 && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 px-10 pb-2 text-xs">
+          {Object.entries(step.outputs).map(([name, value]) => (
+            <div key={name} className="contents">
+              <dt className="font-mono text-fg-muted">{name}</dt>
+              <dd className="min-w-0 truncate font-mono">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {open && step.tests && step.tests.failures.length > 0 && <TestFailures tests={step.tests} />}
       {step.child && (
         <Link
           to={`/pipelines/${step.child.pipelineId}/runs/${step.child.id}`}
@@ -383,6 +411,39 @@ function StepSection({
       {open && canOpen && (
         <LogLines lines={lines} query={query} follow={step.status === "running"} />
       )}
+    </div>
+  );
+}
+
+/** The failing tests of a step's report, each opening onto what it said. */
+function TestFailures({ tests }: { tests: TestSummary }) {
+  return (
+    <div className="mx-10 mb-2 rounded-md border border-border-default">
+      <p className="border-b border-border-default px-3 py-1.5 text-xs font-medium">Failed tests</p>
+      <ul className="divide-y divide-border-default">
+        {tests.failures.map((failure, index) => (
+          <li
+            // biome-ignore lint/suspicious/noArrayIndexKey: a report may list the same test twice
+            key={`${failure.suite}-${failure.name}-${index}`}
+            className="px-3 py-1.5 text-xs"
+          >
+            <details>
+              <summary className="cursor-pointer">
+                <span className="font-medium">{failure.name}</span>
+                {failure.suite && <span className="text-fg-muted"> · {failure.suite}</span>}
+                {failure.message && (
+                  <span className="block truncate text-danger">{failure.message}</span>
+                )}
+              </summary>
+              {failure.details && (
+                <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-2xs text-fg-secondary">
+                  {failure.details}
+                </pre>
+              )}
+            </details>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

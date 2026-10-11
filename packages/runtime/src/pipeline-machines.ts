@@ -33,6 +33,8 @@ export interface PipelineMachine {
   workspace: string;
   exec(command: string, options?: PipelineExecOptions): Promise<{ code: number | null }>;
   close(): Promise<void>;
+  /** The container's name, for the local runner in a container. */
+  container?: string;
 }
 
 /** Projects' network — see `container.ts`; its firewall rules cover this too. */
@@ -66,9 +68,13 @@ function capture(
   command: string,
   args: string[],
   timeoutMs = 30_000,
+  env?: Record<string, string>,
 ): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(env ? { env: { ...process.env, ...env } } : {}),
+    });
     let out = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.stdout.on("data", (chunk) => {
@@ -153,6 +159,7 @@ export async function startPipelineContainer(
   return {
     os: "linux",
     workspace: "/zelyq/run",
+    container: name,
     exec: (command, execOptions = {}) =>
       pipe(
         spawn(engine, ["exec", "-i", name, "sh", "-c", command], {
@@ -186,6 +193,14 @@ export async function removeStalePipelineContainers(
   if (listed.code !== 0) return 0;
   const ids = listed.out.split(/\s+/).filter(Boolean);
   if (ids.length > 0) await capture(engine, ["rm", "-f", ...ids], 60_000);
+  // Service networks of runs that never finished.
+  const networks = await capture(
+    engine,
+    ["network", "ls", "-q", "--filter", `label=${INSTANCE_LABEL}=${instance}`],
+    15_000,
+  );
+  const networkIds = networks.code === 0 ? networks.out.split(/\s+/).filter(Boolean) : [];
+  if (networkIds.length > 0) await capture(engine, ["network", "rm", ...networkIds], 30_000);
   return ids.length;
 }
 
@@ -212,4 +227,110 @@ export async function hostPipelineMachine(workspace: string): Promise<PipelineMa
       ),
     close: async () => undefined,
   };
+}
+
+export interface ServiceSpec {
+  name: string;
+  image: string;
+  env: Record<string, string>;
+  port: number;
+}
+
+/**
+ * Service containers (a database, a cache) for one run. Beside the local
+ * runner's container they share a network of their own with it, and the run
+ * reaches each by its name; on the server itself (no run container) each
+ * port is published on 127.0.0.1 only. Nothing outside reaches them.
+ * Values go to Docker as variables of its own process, never as arguments.
+ */
+export async function startServiceContainers(input: {
+  runId: string;
+  /** The run's container; absent when the run is on the server itself. */
+  runContainer?: string;
+  instance: string;
+  services: ServiceSpec[];
+  engine?: string;
+}): Promise<{ hosts: Record<string, { host: string; port: number }>; stop(): Promise<void> }> {
+  const engine = input.engine ?? "docker";
+  const short = input.runId.replace(/[^A-Za-z0-9_-]/g, "").slice(-24);
+  const network = input.runContainer ? `zelyq-run-${short}` : null;
+  const names: string[] = [];
+  const stop = async () => {
+    if (names.length) await capture(engine, ["rm", "-f", ...names], 60_000);
+    if (network && input.runContainer) {
+      await capture(engine, ["network", "disconnect", "-f", network, input.runContainer], 30_000);
+      await capture(engine, ["network", "rm", network], 30_000);
+    }
+  };
+  if (network && input.runContainer) {
+    const created = await capture(
+      engine,
+      [
+        "network",
+        "create",
+        "--internal",
+        "--label",
+        `${RUN_LABEL}=${input.runId}`,
+        "--label",
+        `${INSTANCE_LABEL}=${input.instance}`,
+        network,
+      ],
+      30_000,
+    );
+    if (created.code !== 0)
+      throw new Error(`Could not create the run's network: ${created.out.trim()}`);
+    const connected = await capture(
+      engine,
+      ["network", "connect", network, input.runContainer],
+      30_000,
+    );
+    if (connected.code !== 0) {
+      await stop();
+      throw new Error(`Could not join the run's network: ${connected.out.trim()}`);
+    }
+  }
+  const hosts: Record<string, { host: string; port: number }> = {};
+  for (const service of input.services) {
+    const name = `zelyq-svc-${short}-${service.name}`;
+    names.push(name);
+    const started = await capture(
+      engine,
+      [
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        name,
+        "--label",
+        `${RUN_LABEL}=${input.runId}`,
+        "--label",
+        `${INSTANCE_LABEL}=${input.instance}`,
+        ...(network
+          ? ["--network", network, "--network-alias", service.name]
+          : ["-p", `127.0.0.1::${service.port}`]),
+        ...Object.keys(service.env).flatMap((key) => ["-e", key]),
+        service.image,
+      ],
+      600_000,
+      service.env,
+    );
+    if (started.code !== 0) {
+      await stop();
+      throw new Error(
+        `The service ${service.name} (${service.image}) did not start: ${started.out.trim().split("\n").pop()}`,
+      );
+    }
+    if (network) {
+      hosts[service.name] = { host: service.name, port: service.port };
+      continue;
+    }
+    const published = await capture(engine, ["port", name, `${service.port}/tcp`], 15_000);
+    const port = Number(/:(\d+)\s*$/m.exec(published.out.trim().split("\n")[0] ?? "")?.[1]);
+    if (published.code !== 0 || !port) {
+      await stop();
+      throw new Error(`Could not find the port of the service ${service.name}.`);
+    }
+    hosts[service.name] = { host: "127.0.0.1", port };
+  }
+  return { hosts, stop };
 }

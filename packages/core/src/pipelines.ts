@@ -181,9 +181,14 @@ const imageSchema = z
 const tagSchema = z
   .string()
   .trim()
-  .regex(
-    /^[A-Za-z0-9_.${}-]{1,128}$/,
-    "A tag is letters, digits, '.', '_' or '-' (or $ZELYQ_RUN_NUMBER).",
+  .refine(
+    (tag) =>
+      /^[A-Za-z0-9_.${}-]{1,128}$/.test(tag) ||
+      /^\$\{\{\s*steps\.[a-z][a-z0-9_-]*\.outputs\.[A-Za-z_]\w*\s*\}\}$/.test(tag),
+    {
+      message:
+        "A tag is letters, digits, '.', '_' or '-' (or $ZELYQ_RUN_NUMBER, or a step's output).",
+    },
   );
 
 const dockerSchema = z
@@ -318,6 +323,21 @@ export type StepKind = (typeof STEP_KINDS)[number];
 const stepSchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
+    /** For `${{ steps.ID.outputs.NAME }}` in later steps. */
+    id: z
+      .string()
+      .regex(/^[a-z][a-z0-9_-]{0,39}$/, "Use lower-case letters, digits, '_' or '-' (meta).")
+      .optional(),
+    /** JUnit XML file(s) the step writes, read after it ends. */
+    tests: z
+      .string()
+      .trim()
+      .min(1)
+      .max(300)
+      .refine((value) => !value.startsWith("/") && !value.split(/[\\/]/).includes(".."), {
+        message: "Use a path inside the run's folder, like reports/*.xml.",
+      })
+      .optional(),
     run: z.string().min(1).max(100_000).optional(),
     checkout: z.literal(true).optional(),
     setup: setupSchema.optional(),
@@ -407,6 +427,8 @@ const sourceSchema = z
     repo: z.string().url("Use the repository's https:// address.").optional(),
     ref: z.string().trim().min(1).max(200).optional(),
     token: envValueSchema.optional(),
+    /** Tell GitHub / GitLab how a run for a commit went (✓ / ✗ on the commit). */
+    "report-status": z.boolean().optional(),
   })
   .strict()
   .superRefine((source, ctx) => {
@@ -495,6 +517,21 @@ export const pipelineFileSchema = z
     artifacts: z.array(artifactSchema).max(20).optional(),
     notify: notifySchema.optional(),
     inputs: z.record(inputNameSchema, inputSchema).optional(),
+    services: z
+      .record(
+        z
+          .string()
+          .regex(/^[a-z][a-z0-9_]{0,30}$/, "Use lower-case letters, digits and '_' (postgres)."),
+        z
+          .object({
+            image: z.string().trim().min(1).max(300),
+            env: envSchema.optional(),
+            port: z.number().int().min(1).max(65535),
+          })
+          .strict(),
+      )
+      .refine((services) => Object.keys(services).length <= 5, { message: "At most 5 services." })
+      .optional(),
     concurrency: z
       .enum(CONCURRENCY_MODES, { message: "Use one-at-a-time or newest-wins." })
       .optional(),
@@ -529,6 +566,20 @@ export const pipelineFileSchema = z
       }
       names.add(stage.name);
     });
+    const ids = new Set<string>();
+    for (const [stageIndex, stage] of file.stages.entries()) {
+      for (const [stepIndex, step] of stage.steps.entries()) {
+        if (!step.id) continue;
+        if (ids.has(step.id)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["stages", stageIndex, "steps", stepIndex, "id"],
+            message: `Two steps have the id ${step.id}.`,
+          });
+        }
+        ids.add(step.id);
+      }
+    }
     const checkouts = file.stages.flatMap((stage) => stage.steps).filter((step) => step.checkout);
     if (checkouts.length > 0 && !file.source) {
       ctx.addIssue({
@@ -641,6 +692,9 @@ export function pipelineVaultNames(file: PipelineFile): string[] {
       for (const value of Object.values(step.env ?? {})) add(value);
       add(step.docker?.login?.password);
     }
+  }
+  for (const service of Object.values(file.services ?? {})) {
+    for (const value of Object.values(service.env ?? {})) add(value);
   }
   return [...names].sort();
 }
@@ -791,7 +845,15 @@ export const STEP_STATUSES = [
   "timed_out",
 ] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
-export type RunTrigger = "manual" | "rerun" | "push" | "schedule" | "api" | "app" | "pipeline";
+export type RunTrigger =
+  | "manual"
+  | "rerun"
+  | "push"
+  | "pull_request"
+  | "schedule"
+  | "api"
+  | "app"
+  | "pipeline";
 
 export interface PipelineActor {
   id: string;
@@ -832,6 +894,10 @@ export interface RunStep {
   attempt: number;
   /** For a `pipeline` step: the run it started. */
   child: { id: string; pipelineId: string; number: number } | null;
+  /** Values it wrote to $ZELYQ_OUTPUT. */
+  outputs: Record<string, string>;
+  /** What its JUnit report said, when it has `tests:`. */
+  tests: TestSummary | null;
   status: StepStatus;
   exitCode: number | null;
   startedAt: string | null;
@@ -1075,6 +1141,10 @@ export const triggerInputSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("push"),
       branches: z.array(z.string().trim().min(1).max(200)).min(1).max(20).default(["main"]),
+      /** Only when the push changed a file matching one of these (empty: any change). */
+      paths: z.array(z.string().trim().min(1).max(300)).max(50).default([]),
+      /** Also on pull/merge requests (never from forks). */
+      pullRequests: z.boolean().default(false),
     })
     .strict(),
   z
@@ -1110,6 +1180,8 @@ export interface PipelineTriggerSummary {
   /** After another pipeline: which one, and on which endings. */
   upstream: { id: string; name: string; on: ("passed" | "failed")[] } | null;
   branches: string[] | null;
+  paths: string[];
+  pullRequests: boolean;
   cron: string | null;
   enabled: boolean;
   lastFiredAt: string | null;
@@ -1496,3 +1568,55 @@ export const runStartSchema = z
       .optional(),
   })
   .strict();
+
+// ---------------------------------------------------------------------------
+// Test reports, and values filled in while a run goes
+// ---------------------------------------------------------------------------
+
+export interface TestSummary {
+  passed: number;
+  failed: number;
+  skipped: number;
+  /** The failing tests (at most 100). */
+  failures: { name: string; suite: string; message: string; details: string }[];
+}
+
+const RUNTIME_REFERENCE =
+  /\$\{\{\s*(steps\.([a-z][a-z0-9_-]*)\.outputs\.([A-Za-z_][A-Za-z0-9_]*)|services\.([a-z][a-z0-9_]*)\.(host|port))\s*\}\}/g;
+
+/**
+ * Fills `${{ steps.ID.outputs.NAME }}` and `${{ services.NAME.host|port }}`
+ * into a step (or any value) just before it runs. What is not known yet is
+ * left empty and reported, so a step never runs with the text of a reference.
+ */
+export function fillRunValues<T>(
+  value: T,
+  known: {
+    outputs: Record<string, Record<string, string>>;
+    services: Record<string, { host: string; port: number }>;
+  },
+  missing: string[] = [],
+): T {
+  if (typeof value === "string") {
+    return value.replaceAll(RUNTIME_REFERENCE, (match, _all, stepId, output, service, field) => {
+      if (stepId) {
+        const found = known.outputs[stepId]?.[output];
+        if (found === undefined) missing.push(match);
+        return found ?? "";
+      }
+      const entry = known.services[service];
+      if (!entry) {
+        missing.push(match);
+        return "";
+      }
+      return field === "host" ? entry.host : String(entry.port);
+    }) as T;
+  }
+  if (Array.isArray(value)) return value.map((item) => fillRunValues(item, known, missing)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, fillRunValues(item, known, missing)]),
+    ) as T;
+  }
+  return value;
+}
