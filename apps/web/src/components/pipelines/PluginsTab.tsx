@@ -1,11 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type PipelinePluginSummary, roleAtLeast, type TeamMembership } from "@zelyq/core";
-import { Check, Copy, Lock, Package, Trash2, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Lock,
+  Package,
+  Search,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { type ReactNode, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
-import { Badge, Button, EmptyState, IconButton, Spinner } from "../ui";
+import { Button, EmptyState, Input, Spinner } from "../ui";
 
 const OS_LABEL: Record<string, string> = { linux: "Linux", macos: "macOS", windows: "Windows" };
 
@@ -48,7 +58,8 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
   });
 
   return (
-    <div className="grid gap-4">
+    // minmax(0, 1fr): a long name in a row may never make the page wider than the screen.
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-xl text-xs text-fg-secondary">
           A plugin is a ready-made step: a pipeline uses it with{" "}
@@ -101,17 +112,12 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
           }
         />
       ) : (
-        <ul className="grid gap-3">
-          {plugins.data?.plugins.map((plugin) => (
-            <PluginCard
-              key={plugin.id}
-              plugin={plugin}
-              canRemove={isAdmin}
-              removing={remove.isPending}
-              onRemove={() => remove.mutate(plugin.id)}
-            />
-          ))}
-        </ul>
+        <PluginList
+          plugins={plugins.data?.plugins ?? []}
+          canRemove={isAdmin}
+          removing={remove.isPending}
+          onRemove={(id) => remove.mutate(id)}
+        />
       )}
 
       <details className="rounded-md border border-border-default p-3 text-xs text-fg-secondary">
@@ -150,7 +156,159 @@ steps:
   );
 }
 
-function PluginCard({
+/**
+ * The installed plugins as a list that stays usable with hundreds: search and
+ * a category filter on top, one compact row each, and one row open at a time
+ * with its inputs, how to use it, and Remove.
+ */
+function PluginList({
+  plugins,
+  canRemove,
+  removing,
+  onRemove,
+}: {
+  plugins: PipelinePluginSummary[];
+  canRemove: boolean;
+  removing: boolean;
+  onRemove: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  const categories = [...new Set(plugins.map((plugin) => plugin.category))].sort();
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = plugins.filter(
+    (plugin) =>
+      (!category || plugin.category === category) &&
+      words.every((word) =>
+        `${plugin.name} ${plugin.pluginId} ${plugin.description}`.toLowerCase().includes(word),
+      ),
+  );
+  return (
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-48 flex-1">
+          <Search size={13} className="pointer-events-none absolute top-2 left-2 text-fg-muted" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search plugins by name or what they do"
+            aria-label="Search plugins"
+            className="pl-7"
+          />
+        </div>
+        <select
+          aria-label="Category"
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+          className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
+        >
+          <option value="">All categories</option>
+          {categories.map((name) => (
+            <option key={name} value={name}>
+              {name[0]?.toUpperCase()}
+              {name.slice(1)}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-fg-muted">
+          {shown.length === plugins.length
+            ? `${plugins.length} installed`
+            : `${shown.length} of ${plugins.length}`}
+        </span>
+      </div>
+      {shown.length === 0 ? (
+        <p className="rounded-md border border-border-default px-3 py-4 text-center text-xs text-fg-muted">
+          No plugin matches.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border-default rounded-md border border-border-default bg-surface">
+          {shown.map((plugin) => (
+            <PluginRow
+              key={plugin.id}
+              plugin={plugin}
+              open={open === plugin.id}
+              onToggle={() => setOpen(open === plugin.id ? null : plugin.id)}
+              canRemove={canRemove}
+              removing={removing}
+              onRemove={() => onRemove(plugin.id)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function Tag({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded bg-surface-hover px-1.5 py-0.5 text-2xs text-fg-secondary">
+      {children}
+    </span>
+  );
+}
+
+function PluginRow({
+  plugin,
+  open,
+  onToggle,
+  canRemove,
+  removing,
+  onRemove,
+}: {
+  plugin: PipelinePluginSummary;
+  open: boolean;
+  onToggle: () => void;
+  canRemove: boolean;
+  removing: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-3 px-3 py-2 text-left hover:bg-surface-hover"
+      >
+        {open ? (
+          <ChevronDown size={14} className="shrink-0 text-fg-muted" />
+        ) : (
+          <ChevronRight size={14} className="shrink-0 text-fg-muted" />
+        )}
+        <Package size={14} className="shrink-0 text-fg-secondary" />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-sm font-medium">{plugin.name}</span>
+            <span className="truncate font-mono text-2xs text-fg-muted">
+              {plugin.pluginId}@{plugin.version}
+            </span>
+          </span>
+          <span className="block truncate text-xs text-fg-secondary">{plugin.description}</span>
+        </span>
+        <span className="hidden shrink-0 items-center gap-1 sm:flex">
+          <Tag>{plugin.category}</Tag>
+          {(plugin.os ?? []).map((os) => (
+            <Tag key={os}>{OS_LABEL[os] ?? os}</Tag>
+          ))}
+        </span>
+        <span className="w-20 shrink-0 text-right text-2xs text-fg-muted">
+          {plugin.usedBy.length > 0 ? `used by ${plugin.usedBy.length}` : "not used"}
+        </span>
+      </button>
+      {open && (
+        <PluginDetails
+          plugin={plugin}
+          canRemove={canRemove}
+          removing={removing}
+          onRemove={onRemove}
+        />
+      )}
+    </li>
+  );
+}
+
+function PluginDetails({
   plugin,
   canRemove,
   removing,
@@ -173,45 +331,38 @@ function PluginCard({
       : ""
   }`;
   return (
-    <li className="rounded-md border border-border-default p-3 text-sm">
+    <div className="grid gap-3 border-t border-border-default bg-surface-subtle px-3 py-3 pl-10 text-sm">
       <div className="flex flex-wrap items-start gap-2">
-        <Package size={16} className="mt-0.5 shrink-0 text-fg-secondary" />
-        <div className="min-w-0 flex-1">
-          <p className="font-medium">
-            {plugin.name}{" "}
-            <span className="font-mono text-xs font-normal text-fg-secondary">
-              {plugin.pluginId}@{plugin.version}
-            </span>
-          </p>
-          <p className="text-xs text-fg-secondary">{plugin.description}</p>
-          <p className="mt-1 flex flex-wrap gap-1 text-2xs text-fg-muted">
-            <Badge>{plugin.category}</Badge>
-            {(plugin.os ?? ["linux", "macos", "windows"]).map((os) => (
-              <Badge key={os}>{OS_LABEL[os] ?? os}</Badge>
-            ))}
-            {plugin.needs.length > 0 && <span>needs {plugin.needs.join(", ")}</span>}
+        <div className="min-w-0 flex-1 text-xs text-fg-secondary">
+          <p>{plugin.description}</p>
+          <p className="mt-1">
+            Runs on{" "}
+            {(plugin.os ?? ["linux", "macos", "windows"])
+              .map((os) => OS_LABEL[os] ?? os)
+              .join(", ")}
+            {plugin.needs.length > 0 && <> · needs {plugin.needs.join(", ")}</>}
           </p>
         </div>
         {canRemove && (
-          <IconButton
+          <Button
             size="sm"
             variant="danger"
-            label={`Remove ${plugin.pluginId}@${plugin.version}`}
+            icon={<Trash2 size={12} />}
             disabled={removing || plugin.usedBy.length > 0}
             title={
               plugin.usedBy.length > 0
-                ? "Used by a pipeline: change it first"
-                : `Remove ${plugin.pluginId}@${plugin.version}`
+                ? "A pipeline uses it: change that pipeline first"
+                : undefined
             }
             onClick={onRemove}
           >
-            <Trash2 size={13} />
-          </IconButton>
+            Remove
+          </Button>
         )}
       </div>
 
       {plugin.inputs.length > 0 && (
-        <table className="mt-3 w-full text-xs">
+        <table className="w-full text-xs">
           <thead className="text-left text-fg-muted">
             <tr>
               <th className="py-1 pr-3 font-medium">Input</th>
@@ -237,7 +388,7 @@ function PluginCard({
         </table>
       )}
 
-      <div className="mt-3 rounded bg-surface-subtle p-2">
+      <div className="rounded border border-border-default bg-surface p-2">
         <div className="mb-1 flex items-center justify-between text-2xs text-fg-muted">
           <span>In a pipeline</span>
           <button
@@ -255,7 +406,7 @@ function PluginCard({
         <pre className="overflow-x-auto font-mono text-2xs leading-5">{usage}</pre>
       </div>
 
-      <p className="mt-2 text-2xs text-fg-muted">
+      <p className="text-2xs text-fg-muted">
         {plugin.steps.length} step{plugin.steps.length === 1 ? "" : "s"}: {plugin.steps.join(" · ")}
         {" · "}
         installed {formatRelative(plugin.installedAt)}
@@ -267,7 +418,7 @@ function PluginCard({
             {plugin.usedBy.map((pipeline, index) => (
               <span key={pipeline.id}>
                 {index > 0 && ", "}
-                <Link className="text-primary hover:underline" to={`/pipelines/${pipeline.id}`}>
+                <Link className="underline hover:text-fg" to={`/pipelines/${pipeline.id}`}>
                   {pipeline.name}
                 </Link>
               </span>
@@ -275,6 +426,6 @@ function PluginCard({
           </>
         )}
       </p>
-    </li>
+    </div>
   );
 }

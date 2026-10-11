@@ -266,3 +266,53 @@ test("favourites: a person stars a pipeline for themselves", async () => {
   const unstarred = (await call("GET", team("/pipelines"))).json().pipelines;
   assert.equal(unstarred.find((p: { id: string }) => p.id === id).favorite, false);
 });
+
+test("the overview counts runs, success rates, times and the slowest stages", async () => {
+  const good = await create(
+    "name: Stats good\nruns-on: local\nstages:\n  - name: Slow\n    steps:\n      - run: sleep 1\n",
+  );
+  const bad = await create(
+    "name: Stats bad\nruns-on: local\nstages:\n  - name: Breaks\n    steps:\n      - run: exit 1\n",
+  );
+  for (const id of [good, good, bad]) {
+    const run = (await call("POST", team(`/pipelines/${id}/runs`), {})).json().run;
+    await finished(run.id);
+  }
+  const response = await call("GET", team("/pipeline-stats?days=7"));
+  assert.equal(response.statusCode, 200, response.body);
+  const stats = response.json().stats as {
+    days: number;
+    totals: {
+      runs: number;
+      passed: number;
+      failed: number;
+      successRate: number;
+      failingNow: number;
+    };
+    daily: { day: string; passed: number; failed: number }[];
+    pipelines: {
+      name: string;
+      runs: number;
+      successRate: number | null;
+      averageMs: number | null;
+    }[];
+    slowStages: { stage: string; pipelineName: string; averageMs: number; runs: number }[];
+  };
+  assert.equal(stats.days, 7);
+  assert.equal(stats.daily.length, 7);
+  const today = stats.daily[stats.daily.length - 1];
+  assert.equal(today?.day, new Date().toISOString().slice(0, 10));
+  assert.ok((today?.passed ?? 0) >= 2 && (today?.failed ?? 0) >= 1);
+  const goodStats = stats.pipelines.find((pipeline) => pipeline.name === "Stats good");
+  const badStats = stats.pipelines.find((pipeline) => pipeline.name === "Stats bad");
+  assert.equal(goodStats?.runs, 2);
+  assert.equal(goodStats?.successRate, 1);
+  assert.ok((goodStats?.averageMs ?? 0) >= 1000);
+  assert.equal(badStats?.successRate, 0);
+  assert.equal(stats.pipelines[0]?.name, "Stats bad", "the failing ones first");
+  assert.ok(stats.totals.failingNow >= 1);
+  const slow = stats.slowStages.find((stage) => stage.stage === "Slow");
+  assert.equal(slow?.pipelineName, "Stats good");
+  assert.equal(slow?.runs, 2);
+  assert.ok((slow?.averageMs ?? 0) >= 900);
+});

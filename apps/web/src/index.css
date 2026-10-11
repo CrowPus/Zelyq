@@ -45,6 +45,8 @@
   --warning: #a16207;
   --warning-subtle: #fdf6e3;
   --danger: #c2372c;
+  /* Passed runs in charts: a quiet neutral, apart from danger by lightness (checked for colour blindness). */
+  --chart-passed: #8a8a84;
   --danger-subtle: #fdeceb;
   --info: #2563a8;
   --info-subtle: #e8f1fa;
@@ -89,6 +91,7 @@
   --warning: #d29922;
   --warning-subtle: #2a2011;
   --danger: #f0625a;
+  --chart-passed: #5c5c58;
   --danger-subtle: #2d1615;
   --info: #58a6ff;
   --info-subtle: #11203a;
@@ -130,6 +133,7 @@
     --warning: #d29922;
     --warning-subtle: #2a2011;
     --danger: #f0625a;
+    --chart-passed: #5c5c58;
     --danger-subtle: #2d1615;
     --info: #58a6ff;
     --info-subtle: #11203a;

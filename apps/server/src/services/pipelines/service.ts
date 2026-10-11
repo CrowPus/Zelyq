@@ -8,6 +8,7 @@ import {
   type PipelineFileIssue,
   type PipelineRunDetail,
   type PipelineRunSummary,
+  type PipelineStats,
   type PipelineSummary,
   parsePipelineFile,
   parsePluginRef,
@@ -86,6 +87,129 @@ export class PipelineService {
         favorite: starred.has(row.id),
       };
     });
+  }
+
+  /** How the team's pipelines went over the last `days` days. */
+  async stats(user: User, teamId: string, days: number): Promise<PipelineStats> {
+    await this.access.requireTeamRole(user, teamId, "viewer");
+    const span = Math.min(90, Math.max(1, Math.round(days)));
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const start = new Date(today.getTime() - (span - 1) * 86_400_000);
+    const pipelines = await this.store.pipelines.pipelines.listForTeam(teamId);
+    const names = new Map(pipelines.map((row) => [row.id, row.name]));
+    const runs = (
+      await this.store.pipelines.runs.listForTeamSince(teamId, start.toISOString())
+    ).filter((run) => names.has(run.pipelineId));
+    const failedStatus = (status: string) => status === "failed" || status === "timed_out";
+    const took = (run: PipelineRunRow) =>
+      run.startedAt && run.finishedAt
+        ? Date.parse(run.finishedAt) - Date.parse(run.startedAt)
+        : null;
+    const rate = (passed: number, failed: number) =>
+      passed + failed > 0 ? passed / (passed + failed) : null;
+    const average = (values: number[]) =>
+      values.length
+        ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+        : null;
+
+    const daily = Array.from({ length: span }, (_, offset) => ({
+      day: new Date(start.getTime() + offset * 86_400_000).toISOString().slice(0, 10),
+      passed: 0,
+      failed: 0,
+      other: 0,
+    }));
+    for (const run of runs) {
+      const entry = daily.find((day) => day.day === run.createdAt.slice(0, 10));
+      if (!entry) continue;
+      if (run.status === "passed") entry.passed += 1;
+      else if (failedStatus(run.status)) entry.failed += 1;
+      else entry.other += 1;
+    }
+
+    const durations = runs
+      .map(took)
+      .filter((value): value is number => value !== null)
+      .sort((a, b) => a - b);
+    const passed = runs.filter((run) => run.status === "passed").length;
+    const failed = runs.filter((run) => failedStatus(run.status)).length;
+    const newest = await this.store.pipelines.runs.lastForPipelines(pipelines.map((row) => row.id));
+
+    const perPipeline = pipelines.map((row) => {
+      const own = runs.filter((run) => run.pipelineId === row.id);
+      const ownPassed = own.filter((run) => run.status === "passed").length;
+      const ownFailed = own.filter((run) => failedStatus(run.status)).length;
+      const last = newest.get(row.id) ?? null;
+      return {
+        id: row.id,
+        name: row.name,
+        runs: own.length,
+        passed: ownPassed,
+        failed: ownFailed,
+        successRate: rate(ownPassed, ownFailed),
+        averageMs: average(own.map(took).filter((value): value is number => value !== null)),
+        last: last
+          ? {
+              id: last.id,
+              number: last.number,
+              status: last.status as RunStatus,
+              createdAt: last.createdAt,
+            }
+          : null,
+      };
+    });
+
+    // A stage's time in a run: from its first step's start to its last step's end.
+    const steps = await this.store.pipelines.steps.listForRuns(runs.map((run) => run.id));
+    const stageTimes = new Map<string, { pipelineId: string; stage: string; times: number[] }>();
+    for (const run of runs) {
+      const spans = new Map<string, { from: number; to: number }>();
+      for (const step of steps.get(run.id) ?? []) {
+        if (!step.startedAt || !step.finishedAt) continue;
+        const from = Date.parse(step.startedAt);
+        const to = Date.parse(step.finishedAt);
+        const current = spans.get(step.stage);
+        spans.set(step.stage, {
+          from: Math.min(current?.from ?? from, from),
+          to: Math.max(current?.to ?? to, to),
+        });
+      }
+      for (const [stage, { from, to }] of spans) {
+        const key = `${run.pipelineId}\u0000${stage}`;
+        const entry = stageTimes.get(key) ?? { pipelineId: run.pipelineId, stage, times: [] };
+        entry.times.push(to - from);
+        stageTimes.set(key, entry);
+      }
+    }
+    const slowStages = [...stageTimes.values()]
+      .map((entry) => ({
+        pipelineId: entry.pipelineId,
+        pipelineName: names.get(entry.pipelineId) ?? "",
+        stage: entry.stage,
+        averageMs: average(entry.times) ?? 0,
+        runs: entry.times.length,
+      }))
+      .sort((a, b) => b.averageMs - a.averageMs)
+      .slice(0, 8);
+
+    return {
+      days: span,
+      totals: {
+        runs: runs.length,
+        passed,
+        failed,
+        successRate: rate(passed, failed),
+        medianMs: durations.length ? (durations[Math.floor(durations.length / 2)] ?? null) : null,
+        failingNow: perPipeline.filter(
+          (pipeline) => pipeline.last && failedStatus(pipeline.last.status),
+        ).length,
+      },
+      daily,
+      pipelines: perPipeline.sort(
+        (a, b) => b.failed - a.failed || b.runs - a.runs || a.name.localeCompare(b.name),
+      ),
+      slowStages,
+    };
   }
 
   /** Stars or unstars a pipeline for the person asking; anyone who can see it may. */

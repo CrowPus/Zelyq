@@ -1187,6 +1187,42 @@ export interface PipelineSummary {
   favorite: boolean;
 }
 
+/** The team's pipelines over a period, for the overview. */
+export interface PipelineStats {
+  days: number;
+  totals: {
+    runs: number;
+    passed: number;
+    failed: number;
+    /** Passed out of passed and failed (cancelled runs do not count); null without either. */
+    successRate: number | null;
+    /** The middle duration of the finished runs, in milliseconds. */
+    medianMs: number | null;
+    /** Pipelines whose newest run failed. */
+    failingNow: number;
+  };
+  /** One entry per day, oldest first, in UTC. */
+  daily: { day: string; passed: number; failed: number; other: number }[];
+  pipelines: {
+    id: string;
+    name: string;
+    runs: number;
+    passed: number;
+    failed: number;
+    successRate: number | null;
+    averageMs: number | null;
+    last: { id: string; number: number; status: RunStatus; createdAt: string } | null;
+  }[];
+  /** The stages that take longest on average, slowest first. */
+  slowStages: {
+    pipelineId: string;
+    pipelineName: string;
+    stage: string;
+    averageMs: number;
+    runs: number;
+  }[];
+}
+
 export interface PipelineDetail extends PipelineSummary {
   source: string;
   createdAt: string;

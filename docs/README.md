@@ -41,6 +41,9 @@ and test, build and deploy them on your own machines. These pages follow the sid
   - [where a pipeline runs](./pipelines.md#where-a-pipeline-runs) and
     [adding your own machines](./pipelines.md#adding-a-machine-ssh-runner) (Linux, macOS, Windows),
     [firewalls and ports](./pipelines.md#firewalls-and-ports)
+  - [visual or YAML](./pipelines.md#visual-or-yaml-two-ways-to-edit): editing a pipeline by clicking
+    and dragging, with its latest run on the picture
+  - [the overview](./pipelines.md#the-overview): success rates, run times and the slowest stages
   - [the file](./pipelines.md#the-file) and
     [where the files come from](./pipelines.md#where-the-files-come-from)
   - [built-in steps](./pipelines.md#built-in-steps): `setup`, `cache`, `docker`, `approval`

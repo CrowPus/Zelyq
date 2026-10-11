@@ -66,6 +66,17 @@ What happens:
 The run page shows each stage as a box. Click one to see its steps and their output. If a step fails,
 its output says why. **Run again** runs the same file again.
 
+**The same, by clicking.** Press **New pipeline**, choose **Node app**, and stay on **Visual**:
+
+1. Click the bar at the top. Set **Name** to `Shop tests`, **Runs on** to **This Zelyq server
+   (local)**, and **App** to `Shop`. Under **Variables for every step**, press **+ Add**, and write
+   `SHOP_API_KEY` and `vault://SHOP_API_KEY`.
+2. Click the **Check** stage, then **Add a step** in it, and choose **Commands**. In **Commands**,
+   write `echo "The key is $SHOP_API_KEY"`.
+3. Switch to **YAML** to see the file you just made, then press **Create pipeline** and **Run now**.
+
+Either way works for everything in this tutorial; the YAML is shown because it is shorter to read.
+
 > **Where do the files come from?** From the app in Zelyq, because the file says `source: {app: Shop}`.
 > For a GitHub repository, a subfolder, or files already on a machine, see
 > [Where the files come from](./pipelines.md#where-the-files-come-from).

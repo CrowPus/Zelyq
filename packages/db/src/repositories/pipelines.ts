@@ -166,6 +166,19 @@ export function pipelineRepository(db: ZelyqDb) {
       async findById(id: string): Promise<PipelineRunRow | null> {
         return (await db.select().from(runs).where(eq(runs.id, id)).limit(1))[0] ?? null;
       },
+      /** A team's runs since a moment, newest first: what the overview counts. */
+      async listForTeamSince(
+        teamId: string,
+        since: string,
+        limit = 5000,
+      ): Promise<PipelineRunRow[]> {
+        return await db
+          .select()
+          .from(runs)
+          .where(and(eq(runs.teamId, teamId), gt(runs.createdAt, since)))
+          .orderBy(desc(runs.createdAt))
+          .limit(limit);
+      },
       async listForPipeline(pipelineId: string, limit = 50): Promise<PipelineRunRow[]> {
         return await db
           .select()

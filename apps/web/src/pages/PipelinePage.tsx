@@ -25,6 +25,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { StageStrip, StatusIcon } from "../components/pipelines/Stages";
+import { VisualEditor } from "../components/pipelines/VisualEditor";
 import {
   Badge,
   Button,
@@ -73,7 +74,7 @@ export function PipelinePage() {
   return (
     <AppShell crumbs={[{ label: "Pipelines", to: "/pipelines" }, { label: name }]}>
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl px-4 py-6">
+        <div className={`mx-auto w-full px-4 py-6 ${tab === "file" ? "max-w-6xl" : "max-w-4xl"}`}>
           <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h1 className="flex items-center gap-2 text-lg font-semibold">
               <Workflow size={18} strokeWidth={1.75} /> {name}
@@ -364,6 +365,22 @@ function FileEditor({
   const [source, setSource] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [check, setCheck] = useState<PipelineCheck | null>(null);
+  // Visual or YAML: the same file either way; the last choice is remembered.
+  const [mode, setMode] = useState<"visual" | "yaml">(() => {
+    try {
+      return localStorage.getItem("zelyq.pipeline-editor") === "yaml" ? "yaml" : "visual";
+    } catch {
+      return "visual";
+    }
+  });
+  const choose = (next: "visual" | "yaml") => {
+    setMode(next);
+    try {
+      localStorage.setItem("zelyq.pipeline-editor", next);
+    } catch {
+      // Private windows may refuse; the choice just is not remembered.
+    }
+  };
   const parsed = useMemo(() => parsePipelineFile(source), [source]);
 
   // The same rules the server uses, as you type; the server adds what only it
@@ -409,25 +426,80 @@ function FileEditor({
           ))}
         </div>
       )}
-      <textarea
-        aria-label="Pipeline file"
-        spellCheck={false}
-        readOnly={!canWrite}
-        value={source}
-        onChange={(event) => setSource(event.target.value)}
-        onKeyDown={(event) => {
-          // Tab indents, as in any editor, instead of leaving the field.
-          if (event.key === "Tab" && !event.shiftKey) {
-            event.preventDefault();
-            const target = event.currentTarget;
-            const at = target.selectionStart;
-            setSource(`${source.slice(0, at)}  ${source.slice(target.selectionEnd)}`);
-            requestAnimationFrame(() => target.setSelectionRange(at + 2, at + 2));
-          }
-        }}
-        rows={Math.min(40, Math.max(16, source.split("\n").length + 2))}
-        className="w-full rounded-md border border-border-default bg-surface p-3 font-mono text-xs leading-5 focus-visible:outline-2 focus-visible:outline-focus"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <div
+          role="tablist"
+          aria-label="Editor"
+          className="inline-flex rounded-md border border-border-default bg-surface p-0.5 text-xs"
+        >
+          {(["visual", "yaml"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="tab"
+              aria-selected={mode === option}
+              onClick={() => choose(option)}
+              className={`rounded px-3 py-1 ${
+                mode === option
+                  ? "bg-surface-hover font-medium text-fg"
+                  : "text-fg-secondary hover:text-fg"
+              }`}
+            >
+              {option === "visual" ? "Visual" : "YAML"}
+            </button>
+          ))}
+        </div>
+        {canWrite && (
+          <span className="ml-auto flex items-center gap-2">
+            {!isNew && source !== initial && (
+              <>
+                <span className="text-xs text-warning">Unsaved changes</span>
+                <Button size="sm" variant="ghost" onClick={() => setSource(initial)}>
+                  Undo all
+                </Button>
+              </>
+            )}
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Save size={13} />}
+              disabled={!parsed.ok || save.isPending || (!isNew && source === initial)}
+              onClick={() => save.mutate()}
+            >
+              {isNew ? "Create pipeline" : "Save"}
+            </Button>
+          </span>
+        )}
+      </div>
+      {mode === "visual" ? (
+        <VisualEditor
+          teamId={teamId}
+          pipelineId={pipelineId}
+          source={source}
+          onChange={setSource}
+          canWrite={canWrite}
+        />
+      ) : (
+        <textarea
+          aria-label="Pipeline file"
+          spellCheck={false}
+          readOnly={!canWrite}
+          value={source}
+          onChange={(event) => setSource(event.target.value)}
+          onKeyDown={(event) => {
+            // Tab indents, as in any editor, instead of leaving the field.
+            if (event.key === "Tab" && !event.shiftKey) {
+              event.preventDefault();
+              const target = event.currentTarget;
+              const at = target.selectionStart;
+              setSource(`${source.slice(0, at)}  ${source.slice(target.selectionEnd)}`);
+              requestAnimationFrame(() => target.setSelectionRange(at + 2, at + 2));
+            }
+          }}
+          rows={Math.min(40, Math.max(16, source.split("\n").length + 2))}
+          className="w-full rounded-md border border-border-default bg-surface p-3 font-mono text-xs leading-5 focus-visible:outline-2 focus-visible:outline-focus"
+        />
+      )}
       {!parsed.ok ? (
         <ul className="grid gap-1 rounded-md border border-danger/30 bg-danger-subtle p-2 text-xs text-danger">
           {parsed.issues.map((issue) => (
@@ -447,14 +519,6 @@ function FileEditor({
       {error && <p className="text-xs text-danger">{error}</p>}
       {canWrite && (
         <div className="flex items-center gap-2">
-          <Button
-            variant="primary"
-            icon={<Save size={14} />}
-            disabled={!parsed.ok || save.isPending || (!isNew && source === initial)}
-            onClick={() => save.mutate()}
-          >
-            {isNew ? "Create pipeline" : "Save"}
-          </Button>
           {!isNew && (
             <Button
               variant="danger"
