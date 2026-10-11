@@ -3,6 +3,7 @@ import type { ZelyqDb } from "../client.js";
 import {
   pipelineApprovals as approvals,
   pipelineArtifacts as artifacts,
+  pipelineFavorites as favorites,
   teamSshKeys as keys,
   pipelineLogs as logs,
   pipelines,
@@ -420,6 +421,28 @@ export function pipelineRepository(db: ZelyqDb) {
           (await db.delete(triggers).where(eq(triggers.id, id)).returning({ id: triggers.id }))
             .length > 0
         );
+      },
+    },
+
+    // ------------------------------------------------------------ favorites
+    favorites: {
+      /** The pipelines a person starred. */
+      async listForUser(userId: string): Promise<Set<string>> {
+        const rows = await db
+          .select({ pipelineId: favorites.pipelineId })
+          .from(favorites)
+          .where(eq(favorites.userId, userId));
+        return new Set(rows.map((row) => row.pipelineId));
+      },
+      async set(userId: string, pipelineId: string, on: boolean): Promise<void> {
+        await db
+          .delete(favorites)
+          .where(and(eq(favorites.userId, userId), eq(favorites.pipelineId, pipelineId)));
+        if (on) {
+          await db
+            .insert(favorites)
+            .values({ userId, pipelineId, createdAt: new Date().toISOString() });
+        }
       },
     },
 

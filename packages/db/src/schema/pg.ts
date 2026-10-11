@@ -450,6 +450,10 @@ export const pipelineRuns = pgTable(
     ref: text("ref"),
     /** The branch the run is for (a push's branch), which a cache belongs to. */
     branch: text("branch"),
+    /** The pushed commit's message, first line, when the push said it. */
+    commitMessage: text("commit_message"),
+    /** JSON {number, title, url, base}: the pull/merge request a run is for. */
+    pullRequest: text("pull_request"),
     /** JSON: the input values it was started with. */
     inputs: text("inputs").notNull().default("{}"),
     /** The run that started it (another pipeline), if any. */
@@ -639,6 +643,23 @@ export const pipelineTriggers = pgTable(
     createdAt: text("created_at").notNull(),
   },
   (table) => ({ pipelineIdx: index("pipeline_triggers_pipeline_idx").on(table.pipelineId) }),
+);
+
+/** A pipeline someone starred: shown first in their Pipelines list. */
+export const pipelineFavorites = pgTable(
+  "pipeline_favorites",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    pipelineId: text("pipeline_id")
+      .notNull()
+      .references(() => pipelines.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    pairIdx: uniqueIndex("pipeline_favorites_user_pipeline_idx").on(table.userId, table.pipelineId),
+  }),
 );
 
 /** A pipeline plugin a team installed: one exact version, kept on this server. */

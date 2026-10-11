@@ -17,6 +17,7 @@ import {
   type Role,
   type RunApproval,
   type RunLogLine,
+  type RunPullRequest,
   type RunStatus,
   type RunStep,
   type RunTrigger,
@@ -77,10 +78,26 @@ export class PipelineService {
       [...last.values()].map((run) => run.id),
     );
     const actors = await this.actors(rows.map((row) => row.updatedBy));
+    const starred = await this.store.pipelines.favorites.listForUser(user.id);
     return rows.map((row) => {
       const run = last.get(row.id) ?? null;
-      return this.summary(row, run, actors, run ? (steps.get(run.id) ?? []) : []);
+      return {
+        ...this.summary(row, run, actors, run ? (steps.get(run.id) ?? []) : []),
+        favorite: starred.has(row.id),
+      };
     });
+  }
+
+  /** Stars or unstars a pipeline for the person asking; anyone who can see it may. */
+  async setFavorite(
+    user: User,
+    teamId: string,
+    pipelineId: string,
+    favorite: boolean,
+  ): Promise<void> {
+    await this.access.requireTeamRole(user, teamId, "viewer");
+    const row = await this.find(teamId, pipelineId);
+    await this.store.pipelines.favorites.set(user.id, row.id, favorite);
   }
 
   async get(user: User, teamId: string, pipelineId: string): Promise<PipelineDetail> {
@@ -91,6 +108,7 @@ export class PipelineService {
     const actors = await this.actors([row.createdBy, row.updatedBy]);
     return {
       ...this.summary(row, run, actors, steps),
+      favorite: (await this.store.pipelines.favorites.listForUser(user.id)).has(row.id),
       source: row.source,
       createdAt: row.createdAt,
       createdBy: row.createdBy ? (actors.get(row.createdBy) ?? null) : null,
@@ -221,9 +239,14 @@ export class PipelineService {
       trigger: "rerun",
       triggeredBy: user.id,
       ref: previous.ref,
+      branch: previous.branch,
       fromStage,
       source: previous.source,
       inputs: JSON.parse(previous.inputs) as Record<string, string>,
+      commitMessage: previous.commitMessage,
+      pullRequest: previous.pullRequest
+        ? (JSON.parse(previous.pullRequest) as RunPullRequest)
+        : null,
     });
     await this.access.recordChange(user, {
       teamId,
@@ -242,7 +265,12 @@ export class PipelineService {
     trigger: Exclude<RunTrigger, "manual" | "rerun">,
     ref: string | null,
     branch: string | null = null,
-    options: { inputs?: Record<string, string>; upstream?: PipelineRunRow } = {},
+    options: {
+      inputs?: Record<string, string>;
+      upstream?: PipelineRunRow;
+      commitMessage?: string | null;
+      pullRequest?: RunPullRequest | null;
+    } = {},
   ): Promise<PipelineRunSummary> {
     const pipeline = await this.store.pipelines.pipelines.findById(pipelineId);
     if (!pipeline) throw ZelyqError.notFound("Pipeline", pipelineId);
@@ -253,6 +281,8 @@ export class PipelineService {
       branch,
       inputs: options.inputs ?? {},
       upstream: options.upstream ?? null,
+      commitMessage: options.commitMessage ?? null,
+      pullRequest: options.pullRequest ?? null,
     });
   }
 
@@ -521,6 +551,8 @@ export class PipelineService {
       inputs?: Record<string, string>;
       /** The run of another pipeline that started this one. */
       upstream?: PipelineRunRow | null;
+      commitMessage?: string | null;
+      pullRequest?: RunPullRequest | null;
     },
   ): Promise<PipelineRunSummary> {
     // A re-run keeps the file its run had; a new run copies templates in now.
@@ -570,6 +602,8 @@ export class PipelineService {
         source,
         ref: input.ref,
         branch: input.branch ?? null,
+        commitMessage: input.commitMessage?.split("\n")[0]?.slice(0, 300) ?? null,
+        pullRequest: input.pullRequest ? JSON.stringify(input.pullRequest) : null,
         inputs: JSON.stringify(resolved.values),
         upstreamRunId: input.upstream?.id ?? null,
         fromStage: input.fromStage ?? null,
@@ -823,6 +857,7 @@ export class PipelineService {
         : null,
       updatedAt: row.updatedAt,
       updatedBy: row.updatedBy ? (actors.get(row.updatedBy) ?? null) : null,
+      favorite: false,
     };
   }
 
@@ -849,6 +884,10 @@ export class PipelineService {
       stages: summariseStages(steps as unknown as RunStep[]),
       inputs: JSON.parse(row.inputs) as Record<string, string>,
       upstream: row.upstreamRunId ? (upstreams.get(row.upstreamRunId) ?? null) : null,
+      branch: row.branch,
+      commit: row.ref && /^[0-9a-f]{40}$/i.test(row.ref) ? row.ref : null,
+      commitMessage: row.commitMessage,
+      pullRequest: row.pullRequest ? (JSON.parse(row.pullRequest) as RunPullRequest) : null,
     };
   }
 }

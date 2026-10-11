@@ -313,6 +313,11 @@ export const api = {
       ),
     removeTrigger: (teamId: string, id: string, triggerId: string) =>
       request<void>(`/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`, { method: "DELETE" }),
+    setFavorite: (teamId: string, id: string, favorite: boolean) =>
+      request<void>(`/teams/${teamId}/pipelines/${id}/favorite`, {
+        method: "PUT",
+        body: JSON.stringify({ favorite }),
+      }),
     plugins: (teamId: string) =>
       request<{ plugins: PipelinePluginSummary[] }>(`/teams/${teamId}/pipeline-plugins`),
     /** A plugin package (.tar.gz), sent as the body itself. */

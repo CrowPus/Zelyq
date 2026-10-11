@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
-import { Plus, Workflow } from "lucide-react";
+import { Plus, Star, Workflow } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { PluginsTab } from "../components/pipelines/PluginsTab";
@@ -90,14 +90,23 @@ export function PipelinesPage() {
 }
 
 function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean }) {
+  const queryClient = useQueryClient();
   const list = useQuery({
     queryKey: ["pipelines", teamId],
     queryFn: () => api.pipelines.list(teamId),
     refetchInterval: 5000,
   });
+  const star = useMutation({
+    mutationFn: (input: { id: string; favorite: boolean }) =>
+      api.pipelines.setFavorite(teamId, input.id, input.favorite),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["pipelines", teamId] }),
+  });
 
   if (list.isLoading) return <Spinner />;
-  const pipelines = list.data?.pipelines ?? [];
+  // Starred first, each group in the server's order.
+  const pipelines = [...(list.data?.pipelines ?? [])].sort(
+    (a, b) => Number(b.favorite) - Number(a.favorite),
+  );
   if (pipelines.length === 0) {
     return (
       <EmptyState
@@ -120,10 +129,25 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
       {pipelines.map((pipeline) => {
         const status = pipeline.lastRun ? RUN_STATUS[pipeline.lastRun.status] : null;
         return (
-          <li key={pipeline.id}>
+          <li key={pipeline.id} className="flex items-center hover:bg-surface-hover">
+            <button
+              type="button"
+              aria-label={pipeline.favorite ? `Unstar ${pipeline.name}` : `Star ${pipeline.name}`}
+              aria-pressed={pipeline.favorite}
+              title={pipeline.favorite ? "Starred: shown first" : "Star it, to show it first"}
+              disabled={star.isPending}
+              onClick={() => star.mutate({ id: pipeline.id, favorite: !pipeline.favorite })}
+              className="py-2.5 pr-1 pl-3 text-fg-muted hover:text-warning"
+            >
+              <Star
+                size={15}
+                className={pipeline.favorite ? "fill-warning text-warning" : ""}
+                strokeWidth={1.75}
+              />
+            </button>
             <Link
               to={`/pipelines/${pipeline.id}`}
-              className="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover"
+              className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-3 pl-2"
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{pipeline.name}</p>

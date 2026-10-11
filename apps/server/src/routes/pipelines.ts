@@ -24,6 +24,7 @@ const rerunBody = z.object({ fromStage: z.number().int().min(0).nullable().optio
 const confirmBody = z.object({ fingerprint: z.string().trim().min(8).max(200) }).strict();
 const rotateBody = z.object({ algorithm: z.enum(["ed25519", "rsa"]).default("ed25519") }).strict();
 const enabledBody = z.object({ enabled: z.boolean() }).strict();
+const favoriteBody = z.object({ favorite: z.boolean() }).strict();
 const clearBody = z.object({ what: z.enum(["tools", "cache"]) }).strict();
 
 /**
@@ -106,6 +107,15 @@ export function registerPipelineRoutes(
       request.params.pipelineId,
     ),
   }));
+  app.put<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/favorite", async (request, reply) => {
+    await pipelines.setFavorite(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.pipelineId,
+      favoriteBody.parse(request.body).favorite,
+    );
+    reply.code(204);
+  });
   app.post<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/runs", async (request, reply) => {
     reply.code(201);
     const body = runStartSchema.parse(request.body ?? {});

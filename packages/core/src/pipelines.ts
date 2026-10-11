@@ -1183,6 +1183,8 @@ export interface PipelineSummary {
   } | null;
   updatedAt: string;
   updatedBy: PipelineActor | null;
+  /** Starred by the person asking: listed first. */
+  favorite: boolean;
 }
 
 export interface PipelineDetail extends PipelineSummary {
@@ -1239,6 +1241,22 @@ export interface PipelineRunSummary {
   inputs: Record<string, string>;
   /** The run that started it, if another pipeline did. */
   upstream: { id: string; pipelineId: string; pipelineName: string; number: number } | null;
+  /** The branch it is for (a push's, or a pull request's own branch). */
+  branch: string | null;
+  /** The commit it checked out, when it was started for one. */
+  commit: string | null;
+  /** That commit's message, first line. */
+  commitMessage: string | null;
+  /** The pull or merge request it is for. */
+  pullRequest: RunPullRequest | null;
+}
+
+export interface RunPullRequest {
+  number: number;
+  title: string;
+  url: string | null;
+  /** The branch it would merge into. */
+  base: string;
 }
 
 /** A stage of a run, worked out from its steps. */
