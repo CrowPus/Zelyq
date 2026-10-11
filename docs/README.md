@@ -46,6 +46,8 @@ and test, build and deploy them on your own machines. These pages follow the sid
   - [the overview](./pipelines.md#the-overview): success rates, run times and the slowest stages
   - [the file](./pipelines.md#the-file) and
     [where the files come from](./pipelines.md#where-the-files-come-from)
+  - [keep the file in your repository](./pipelines.md#keep-the-file-in-your-repository): each branch
+    and pull request runs its own copy
   - [built-in steps](./pipelines.md#built-in-steps): `setup`, `cache`, `docker`, `approval`
   - [stages at the same time, a machine per stage, matrix](./pipelines.md#stages-at-the-same-time-a-machine-per-stage-matrix)
   - [templates](./pipelines.md#templates-reuse-another-pipelines-stages)

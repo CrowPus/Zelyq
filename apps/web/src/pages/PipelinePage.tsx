@@ -24,6 +24,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { RepoFileBar } from "../components/pipelines/RepoFile";
 import { StageStrip, StatusIcon } from "../components/pipelines/Stages";
 import { VisualEditor } from "../components/pipelines/VisualEditor";
 import {
@@ -157,6 +158,8 @@ export function PipelinePage() {
               teamId={team.id}
               pipelineId={id}
               initial={pipeline.data.pipeline.source}
+              name={pipeline.data.pipeline.name}
+              repoPath={pipeline.data.pipeline.repoPath}
               canWrite={canWrite}
               onSaved={() => {
                 void queryClient.invalidateQueries({ queryKey: ["pipeline", team.id, id] });
@@ -352,16 +355,22 @@ function FileEditor({
   pipelineId,
   initial,
   isNew = false,
-  canWrite,
+  name = "",
+  repoPath = null,
+  canWrite: allowed,
   onSaved,
 }: {
   teamId: string;
   pipelineId?: string;
   initial: string;
   isNew?: boolean;
+  name?: string;
+  /** Kept in the repository: changed there, so shown here without editing. */
+  repoPath?: string | null;
   canWrite: boolean;
   onSaved: (id: string) => void;
 }) {
+  const canWrite = allowed && !repoPath;
   const [source, setSource] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [check, setCheck] = useState<PipelineCheck | null>(null);
@@ -416,6 +425,17 @@ function FileEditor({
 
   return (
     <div className="grid gap-3">
+      {!isNew && pipelineId && (
+        <RepoFileBar
+          teamId={teamId}
+          pipelineId={pipelineId}
+          name={name}
+          source={initial}
+          repoPath={repoPath}
+          canWrite={allowed && source === initial}
+          onChanged={() => onSaved(pipelineId)}
+        />
+      )}
       {isNew && (
         <div className="flex flex-wrap items-center gap-2">
           <FieldLabel>Start from</FieldLabel>
@@ -517,7 +537,7 @@ function FileEditor({
         </ul>
       ) : null}
       {error && <p className="text-xs text-danger">{error}</p>}
-      {canWrite && (
+      {allowed && (
         <div className="flex items-center gap-2">
           {!isNew && (
             <Button

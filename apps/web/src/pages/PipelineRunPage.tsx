@@ -275,14 +275,17 @@ export function PipelineRunPage() {
             </button>
           )}
 
-          <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
-            <StageGraph
-              stages={stages}
-              groups={detail?.stageGroups}
-              selected={selected}
-              onSelect={setPicked}
-            />
-          </section>
+          {/* A run that could not start (no file at that commit) has no steps to show. */}
+          {stages.length > 0 && (
+            <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
+              <StageGraph
+                stages={stages}
+                groups={detail?.stageGroups}
+                selected={selected}
+                onSelect={setPicked}
+              />
+            </section>
+          )}
 
           {detail.artifacts.length > 0 && (
             <section className="mb-4 flex flex-wrap items-center gap-2 text-xs">
@@ -302,52 +305,54 @@ export function PipelineRunPage() {
 
           <RunTests steps={steps} onShow={(stageIndex) => setPicked(stageIndex)} />
 
-          <section className="rounded-md border border-border-default">
-            <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
-              <h2 className="flex-1 text-sm font-semibold">
-                {stages.find((stage) => stage.index === selected)?.name ?? "Steps"}
-              </h2>
-              {!active && selected !== null && selected > 0 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon={<RotateCw size={12} />}
-                  onClick={() => rerun.mutate(selected)}
-                >
-                  Run again from this stage
-                </Button>
-              )}
-              <div className="relative w-56">
-                <Search
-                  size={12}
-                  className="pointer-events-none absolute top-2 left-2 text-fg-muted"
-                />
-                <Input
-                  aria-label="Search the log"
-                  placeholder="Search the log"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  className="h-7 pl-6 text-xs"
-                />
+          {stages.length > 0 && (
+            <section className="rounded-md border border-border-default">
+              <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
+                <h2 className="flex-1 text-sm font-semibold">
+                  {stages.find((stage) => stage.index === selected)?.name ?? "Steps"}
+                </h2>
+                {!active && selected !== null && selected > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<RotateCw size={12} />}
+                    onClick={() => rerun.mutate(selected)}
+                  >
+                    Run again from this stage
+                  </Button>
+                )}
+                <div className="relative w-56">
+                  <Search
+                    size={12}
+                    className="pointer-events-none absolute top-2 left-2 text-fg-muted"
+                  />
+                  <Input
+                    aria-label="Search the log"
+                    placeholder="Search the log"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    className="h-7 pl-6 text-xs"
+                  />
+                </div>
               </div>
-            </div>
 
-            {selected === stages[0]?.index && setupLines.length > 0 && (
-              <LogSection title="Set up" lines={setupLines} query={query} defaultOpen={false} />
-            )}
-            {stageSteps.map((step) => (
-              <StepSection
-                key={step.id}
-                step={step}
-                lines={byStep.get(step.id) ?? []}
-                query={query}
-                focus={step.id === failure?.id && !active ? focus + 1 : 0}
-              />
-            ))}
-            {selected === stages[stages.length - 1]?.index && finishLines.length > 0 && (
-              <LogSection title="Finish" lines={finishLines} query={query} defaultOpen={false} />
-            )}
-          </section>
+              {selected === stages[0]?.index && setupLines.length > 0 && (
+                <LogSection title="Set up" lines={setupLines} query={query} defaultOpen={false} />
+              )}
+              {stageSteps.map((step) => (
+                <StepSection
+                  key={step.id}
+                  step={step}
+                  lines={byStep.get(step.id) ?? []}
+                  query={query}
+                  focus={step.id === failure?.id && !active ? focus + 1 : 0}
+                />
+              ))}
+              {selected === stages[stages.length - 1]?.index && finishLines.length > 0 && (
+                <LogSection title="Finish" lines={finishLines} query={query} defaultOpen={false} />
+              )}
+            </section>
+          )}
 
           <p className="mt-3">
             <Link to={`/pipelines/${id}`} className="text-xs text-fg-secondary hover:underline">

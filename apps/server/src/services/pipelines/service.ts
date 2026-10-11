@@ -22,6 +22,7 @@ import {
   type RunStatus,
   type RunStep,
   type RunTrigger,
+  repoPathSchema,
   resolveRunInputs,
   resolveToolVersion,
   roleAtLeast,
@@ -34,6 +35,7 @@ import {
   type TestSummary,
   toolReleases,
   type User,
+  vaultReferenceName,
   ZelyqError,
 } from "@zelyq/core";
 import type { PipelineRow, PipelineRunRow, PipelineStepRow, Store } from "@zelyq/db";
@@ -41,6 +43,7 @@ import type { AccessControl } from "../access.js";
 import type { VaultService } from "../vault.js";
 import type { PipelineEngine } from "./engine.js";
 import type { PipelinePluginService } from "./plugins.js";
+import { RepoFiles } from "./repo-files.js";
 import { appSlug } from "./steps.js";
 
 /** A run that has not ended yet. */
@@ -61,6 +64,8 @@ export interface PipelineCheck {
 export class PipelineService {
   /** The team's installed plugins, for checking `plugin:` steps. */
   plugins: Pick<PipelinePluginService, "find"> | null = null;
+  /** Reads a pipeline file kept in its repository. */
+  repoFiles: Pick<RepoFiles, "read" | "defaultBranch"> = new RepoFiles();
 
   constructor(
     private readonly store: Store,
@@ -263,6 +268,7 @@ export class PipelineService {
       teamId,
       name: file.name,
       source,
+      repoPath: null,
       createdBy: user.id,
       updatedBy: user.id,
       createdAt: now,
@@ -284,6 +290,12 @@ export class PipelineService {
   ): Promise<PipelineDetail> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const row = await this.find(teamId, pipelineId);
+    if (row.repoPath) {
+      throw new ZelyqError(
+        "conflict",
+        `This file is kept in the repository at ${row.repoPath}. Change it there; each branch runs its own copy.`,
+      );
+    }
     const file = await this.validate(user, teamId, source);
     if (file.name !== row.name) {
       const other = await this.store.pipelines.pipelines.findByName(teamId, file.name);
@@ -320,6 +332,189 @@ export class PipelineService {
     });
   }
 
+  // ------------------------------------------------- the file in the repository
+
+  /**
+   * Keeps the file in the repository from now on: every run reads it there,
+   * at the run's own branch or commit. The file must be on the default branch
+   * already; it is checked as the person linking it, like a save.
+   */
+  async linkRepo(
+    user: User,
+    teamId: string,
+    pipelineId: string,
+    rawPath: string,
+  ): Promise<PipelineDetail> {
+    await this.access.requireTeamRole(user, teamId, "editor");
+    const row = await this.find(teamId, pipelineId);
+    const checked = repoPathSchema.safeParse(rawPath);
+    if (!checked.success) {
+      throw ZelyqError.badRequest(checked.error.issues[0]?.message ?? "Check the path.");
+    }
+    await this.takeFromRepo(user, row, checked.data);
+    await this.access.recordChange(user, {
+      teamId,
+      action: "pipeline.repo_linked",
+      detail: { label: row.name, path: checked.data },
+    });
+    return this.get(user, teamId, row.id);
+  }
+
+  /** Reads the file on the default branch again, as the person asking. */
+  async pullFromRepo(user: User, teamId: string, pipelineId: string): Promise<PipelineDetail> {
+    await this.access.requireTeamRole(user, teamId, "editor");
+    const row = await this.find(teamId, pipelineId);
+    if (!row.repoPath) throw ZelyqError.badRequest("This file is not kept in a repository.");
+    if (await this.takeFromRepo(user, row, row.repoPath)) {
+      await this.access.recordChange(user, {
+        teamId,
+        action: "pipeline.repo_pulled",
+        detail: { label: row.name, path: row.repoPath },
+      });
+    }
+    return this.get(user, teamId, row.id);
+  }
+
+  /** Keeps the file only in Zelyq again, as it last was on the default branch. */
+  async unlinkRepo(user: User, teamId: string, pipelineId: string): Promise<PipelineDetail> {
+    await this.access.requireTeamRole(user, teamId, "editor");
+    const row = await this.find(teamId, pipelineId);
+    if (row.repoPath) {
+      await this.store.pipelines.pipelines.update(row.id, { repoPath: null });
+      await this.access.recordChange(user, {
+        teamId,
+        action: "pipeline.repo_unlinked",
+        detail: { label: row.name, path: row.repoPath },
+      });
+    }
+    return this.get(user, teamId, row.id);
+  }
+
+  /** Saves the default branch's file as the pipeline's copy; false when nothing changed. */
+  private async takeFromRepo(user: User, row: PipelineRow, path: string): Promise<boolean> {
+    const saved = parsePipelineFile(await this.withTemplates(row.teamId, row.source));
+    const source = saved.ok ? saved.file.source : undefined;
+    if (!source?.repo) {
+      throw ZelyqError.badRequest(
+        "To keep the file in a repository, the file needs source: with repo: (the repository's https:// address).",
+      );
+    }
+    const read = await this.repoFiles.read({
+      repo: source.repo,
+      ref: source.ref ?? null,
+      path,
+      token: await this.repoToken(row.teamId, source.token),
+    });
+    if (!read.ok) {
+      throw ZelyqError.badRequest(
+        read.missing
+          ? `${read.message} Add this pipeline's file there first (Download the file), then try again.`
+          : read.message,
+        { missing: read.missing },
+      );
+    }
+    const file = await this.validate(user, row.teamId, read.text);
+    if (file.name !== row.name) {
+      const other = await this.store.pipelines.pipelines.findByName(row.teamId, file.name);
+      if (other && other.id !== row.id)
+        throw new ZelyqError("conflict", `There is already a pipeline called ${file.name}.`);
+    }
+    if (read.text === row.source && path === row.repoPath) return false;
+    await this.store.pipelines.pipelines.update(row.id, {
+      name: file.name,
+      source: read.text,
+      repoPath: path,
+      updatedBy: user.id,
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  }
+
+  private async repoToken(teamId: string, token: string | undefined): Promise<string | null> {
+    const name = token ? vaultReferenceName(token) : null;
+    if (!name) return null;
+    return (await this.vault.resolve(teamId, [name])).get(name) ?? null;
+  }
+
+  /**
+   * A run's file, read from the repository at the run's commit or branch.
+   * What a push can change there is limited to what the saved copy allows:
+   * the same repository and token, and no Vault secret the saved copy does
+   * not already use — those take a person, with "Update from the repository".
+   * A file read from the default branch also becomes the saved copy.
+   */
+  private async fromRepo(
+    pipeline: PipelineRow & { repoPath: string },
+    ref: string | null,
+    branch: string | null,
+  ): Promise<{ text: string; commit: string }> {
+    const problem = (message: string) => ZelyqError.badRequest(message, { repoFile: true });
+    const saved = parsePipelineFile(await this.withTemplates(pipeline.teamId, pipeline.source));
+    const source = saved.ok ? saved.file.source : undefined;
+    if (!saved.ok || !source?.repo) {
+      throw problem("The file is kept in the repository, but its saved copy has no source: repo:.");
+    }
+    const token = await this.repoToken(pipeline.teamId, source.token);
+    const wanted = ref ?? branch ?? source.ref ?? null;
+    const read = await this.repoFiles.read({
+      repo: source.repo,
+      ref: wanted,
+      path: pipeline.repoPath,
+      token,
+    });
+    if (!read.ok) throw problem(read.message);
+
+    const where = pipeline.repoPath;
+    const invalid = (issue: PipelineFileIssue | undefined) =>
+      problem(
+        `${where} is not valid: ${issue ? `${issue.line ? `Line ${issue.line}: ` : ""}${issue.message}` : ""}`,
+      );
+    const expanded = expandTemplates(read.text, await this.templates(pipeline.teamId));
+    if (!expanded.ok) throw invalid(expanded.issues[0]);
+    const parsed = parsePipelineFile(expanded.text);
+    if (!parsed.ok) throw invalid(parsed.issues[0]);
+    const plugin = (await this.pluginProblems(pipeline.teamId, parsed.file, read.text))[0];
+    if (plugin) throw problem(`${where}: ${plugin.message}`);
+    if (
+      parsed.file.source?.repo !== source.repo ||
+      parsed.file.source?.token !== source.token ||
+      parsed.file.source?.app !== undefined
+    ) {
+      throw problem(
+        `${where} changes source:. The repository and its token change only in Zelyq: an editor presses "Update from the repository".`,
+      );
+    }
+    const allowed = new Set(pipelineVaultNames(saved.file));
+    const extra = pipelineVaultNames(parsed.file).filter((name) => !allowed.has(name));
+    if (extra.length > 0) {
+      throw problem(
+        `${where} uses ${extra.join(", ")} from Vault, which this pipeline may not use yet. An editor allows it by pressing "Update from the repository".`,
+      );
+    }
+
+    // The default branch's file is the pipeline's file: keep the copy current.
+    // The person who last saved it stays: Protected secrets depend on them.
+    const onDefault =
+      wanted === null ||
+      wanted === source.ref ||
+      (ref !== null &&
+        branch !== null &&
+        source.ref === undefined &&
+        branch === (await this.repoFiles.defaultBranch(source.repo, token)));
+    if (onDefault && read.text !== pipeline.source) {
+      const other = await this.store.pipelines.pipelines.findByName(
+        pipeline.teamId,
+        parsed.file.name,
+      );
+      await this.store.pipelines.pipelines.update(pipeline.id, {
+        ...(other && other.id !== pipeline.id ? {} : { name: parsed.file.name }),
+        source: read.text,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return { text: expanded.text, commit: read.commit };
+  }
+
   // ------------------------------------------------------------------- runs
 
   async startRun(
@@ -354,6 +549,25 @@ export class PipelineService {
     await this.access.requireTeamRole(user, teamId, "editor");
     const previous = await this.findRun(teamId, runId);
     const pipeline = await this.find(teamId, previous.pipelineId);
+    // A run that never started (its file could not be read) reads the file again.
+    if (pipeline.repoPath && (await this.store.pipelines.steps.list(previous.id)).length === 0) {
+      const run = await this.enqueue(pipeline, {
+        trigger: "rerun",
+        triggeredBy: user.id,
+        ref: previous.ref,
+        branch: previous.branch,
+        commitMessage: previous.commitMessage,
+        pullRequest: previous.pullRequest
+          ? (JSON.parse(previous.pullRequest) as RunPullRequest)
+          : null,
+      });
+      await this.access.recordChange(user, {
+        teamId,
+        action: "pipeline.run_started",
+        detail: { label: pipeline.name, run: run.number, rerunOf: previous.number },
+      });
+      return run;
+    }
     const parsed = parsePipelineFile(previous.source);
     if (!parsed.ok) throw ZelyqError.badRequest("That run's pipeline file is not valid any more.");
     if (fromStage !== null && (fromStage < 0 || fromStage >= parsed.file.stages.length)) {
@@ -398,7 +612,7 @@ export class PipelineService {
   ): Promise<PipelineRunSummary> {
     const pipeline = await this.store.pipelines.pipelines.findById(pipelineId);
     if (!pipeline) throw ZelyqError.notFound("Pipeline", pipelineId);
-    return this.enqueue(pipeline, {
+    const input = {
       trigger,
       triggeredBy: null,
       ref,
@@ -407,7 +621,57 @@ export class PipelineService {
       upstream: options.upstream ?? null,
       commitMessage: options.commitMessage ?? null,
       pullRequest: options.pullRequest ?? null,
-    });
+    };
+    try {
+      return await this.enqueue(pipeline, input);
+    } catch (error) {
+      // Nobody is there to see the error: a run that failed at once says why.
+      if (!(error instanceof ZelyqError) || !error.details?.repoFile) throw error;
+      return this.failedAtStart(pipeline, input, error.message);
+    }
+  }
+
+  /** A run that could not start, with the reason, so the pipeline's page shows it. */
+  private async failedAtStart(
+    pipeline: PipelineRow,
+    input: {
+      trigger: RunTrigger;
+      ref: string | null;
+      branch: string | null;
+      upstream: PipelineRunRow | null;
+      commitMessage: string | null;
+      pullRequest: RunPullRequest | null;
+    },
+    error: string,
+  ): Promise<PipelineRunSummary> {
+    const now = new Date().toISOString();
+    const run = await this.store.pipelines.runs.create(
+      {
+        id: newId("pipelineRun"),
+        pipelineId: pipeline.id,
+        teamId: pipeline.teamId,
+        status: "failed",
+        trigger: input.trigger,
+        triggeredBy: null,
+        runnerId: null,
+        runnerName: null,
+        source: pipeline.source,
+        ref: input.ref,
+        branch: input.branch,
+        commitMessage: input.commitMessage?.split("\n")[0]?.slice(0, 300) ?? null,
+        pullRequest: input.pullRequest ? JSON.stringify(input.pullRequest) : null,
+        inputs: "{}",
+        upstreamRunId: input.upstream?.id ?? null,
+        fromStage: null,
+        error,
+        logBytes: 0,
+        createdAt: now,
+        startedAt: now,
+        finishedAt: now,
+      },
+      [],
+    );
+    return this.runSummary(run, pipeline.name, [], new Map(), await this.upstreamsOf([run]));
   }
 
   /** A `pipeline` step starting another pipeline of its team, by name. */
@@ -679,8 +943,24 @@ export class PipelineService {
       pullRequest?: RunPullRequest | null;
     },
   ): Promise<PipelineRunSummary> {
-    // A re-run keeps the file its run had; a new run copies templates in now.
-    const source = input.source ?? (await this.withTemplates(pipeline.teamId, pipeline.source));
+    // A re-run keeps the file its run had; a new run copies templates in now,
+    // from the file in the repository at the run's commit when it is kept there.
+    let ref = input.ref;
+    let source: string;
+    if (input.source !== undefined) {
+      source = input.source;
+    } else if (pipeline.repoPath) {
+      const read = await this.fromRepo(
+        { ...pipeline, repoPath: pipeline.repoPath },
+        input.ref,
+        input.branch ?? null,
+      );
+      source = read.text;
+      // The code comes from the same commit as the file, even if a push lands meanwhile.
+      ref = input.ref ?? read.commit;
+    } else {
+      source = await this.withTemplates(pipeline.teamId, pipeline.source);
+    }
     const declared = parsePipelineFile(source);
     if (!declared.ok)
       throw ZelyqError.badRequest(
@@ -724,7 +1004,7 @@ export class PipelineService {
         runnerId: null,
         runnerName: null,
         source,
-        ref: input.ref,
+        ref,
         branch: input.branch ?? null,
         commitMessage: input.commitMessage?.split("\n")[0]?.slice(0, 300) ?? null,
         pullRequest: input.pullRequest ? JSON.stringify(input.pullRequest) : null,
@@ -982,6 +1262,7 @@ export class PipelineService {
       updatedAt: row.updatedAt,
       updatedBy: row.updatedBy ? (actors.get(row.updatedBy) ?? null) : null,
       favorite: false,
+      repoPath: row.repoPath ?? null,
     };
   }
 

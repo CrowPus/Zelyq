@@ -25,6 +25,7 @@ const confirmBody = z.object({ fingerprint: z.string().trim().min(8).max(200) })
 const rotateBody = z.object({ algorithm: z.enum(["ed25519", "rsa"]).default("ed25519") }).strict();
 const enabledBody = z.object({ enabled: z.boolean() }).strict();
 const favoriteBody = z.object({ favorite: z.boolean() }).strict();
+const repoBody = z.object({ path: z.string().max(500) }).strict();
 const clearBody = z.object({ what: z.enum(["tools", "cache"]) }).strict();
 
 /**
@@ -97,6 +98,31 @@ export function registerPipelineRoutes(
     );
     reply.code(204);
   });
+
+  // ------------------------------------------------- the file in the repository
+
+  app.put<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/repo", async (request) => ({
+    pipeline: await pipelines.linkRepo(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.pipelineId,
+      repoBody.parse(request.body).path,
+    ),
+  }));
+  app.post<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/repo/pull", async (request) => ({
+    pipeline: await pipelines.pullFromRepo(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.pipelineId,
+    ),
+  }));
+  app.delete<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/repo", async (request) => ({
+    pipeline: await pipelines.unlinkRepo(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.pipelineId,
+    ),
+  }));
 
   // ------------------------------------------------------------------- runs
 
