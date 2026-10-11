@@ -90,6 +90,11 @@ export interface StepContext {
   line(stream: "out" | "err" | "system", text: string): void;
   /** Aborted when the run is cancelled or times out. */
   signal: AbortSignal;
+  /** Where a `download` step's artifact is kept on this server. */
+  findArtifact(
+    from: string,
+    name: string,
+  ): Promise<{ path: string; label: string } | { error: string }>;
   archive(projectId: string): Promise<Buffer>;
   appId(app: string): Promise<string>;
 }
@@ -109,6 +114,8 @@ export async function runStepKind(context: StepContext): Promise<StepResult> {
       return docker(context);
     case "deploy":
       return deploy(context);
+    case "download":
+      return download(context);
     default:
       return context.script(context.step.run ?? "");
   }
@@ -654,4 +661,22 @@ async function deploy(context: StepContext): Promise<StepResult> {
   await packing;
   if (context.signal.aborted) return { code: null, ended: "cancelled" };
   return result.ok ? OK : FAILED;
+}
+
+// ------------------------------------------------------------------ download
+
+/** Unpacks an artifact another run kept into the step's folder (or `path:`). */
+async function download(context: StepContext): Promise<StepResult> {
+  const spec = context.step.download;
+  if (!spec) return FAILED;
+  const found = await context.findArtifact(spec.from, spec.artifact);
+  if ("error" in found) {
+    context.system(found.error);
+    return FAILED;
+  }
+  const { machine } = context;
+  const target = spec.path ? join(machine, context.dir, spec.path) : context.dir;
+  await machine.exec(prepareCommand(machine.os, target));
+  context.system(`Unpacking ${found.label}.`);
+  return context.exec(unpackCommand(machine.os, target), createReadStream(found.path));
 }

@@ -168,6 +168,16 @@ export class PipelineEngine {
   private again = false;
   private closed = false;
   private docker: { at: number; ok: boolean } | null = null;
+  /** Set by the server: how a `pipeline` step starts another pipeline, and who hears a run ended. */
+  hooks: {
+    startChild?: (
+      parent: PipelineRunRow,
+      name: string,
+      inputs: Record<string, string>,
+    ) => Promise<PipelineRunRow>;
+    runFinished?: (run: PipelineRunRow) => Promise<unknown>;
+  } = {};
+  private cleaner: NodeJS.Timeout | null = null;
   /** Wakes a run waiting for an approval, by run id. */
   private readonly waiters = new Map<string, () => void>();
 
@@ -200,12 +210,18 @@ export class PipelineEngine {
       );
     }
     this.timer = setInterval(() => this.wake(), TICK_MS);
+    // Keeping runs: once an hour, and once shortly after start.
+    const clean = () =>
+      void this.cleanUp().catch((error) => this.deps.log.error(error, "pipeline clean-up failed"));
+    this.cleaner = setInterval(clean, 60 * 60 * 1000);
+    setTimeout(clean, 60_000).unref();
     this.wake();
   }
 
   async close(): Promise<void> {
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
+    if (this.cleaner) clearInterval(this.cleaner);
     // A run waiting for a person is doing nothing: it stays waiting, and the
     // next start picks it up. Everything else is stopped.
     for (const wake of this.waiters.values()) wake();
@@ -273,7 +289,7 @@ export class PipelineEngine {
     const queued = await this.deps.store.pipelines.runs.listByStatus("queued");
     for (const run of queued) {
       if (this.closed) return;
-      const parsed = parsePipelineFile(run.source);
+      const parsed = parsePipelineFile(run.source, runInputs(run));
       if (!parsed.ok) {
         await this.failQueued(
           run,
@@ -327,7 +343,7 @@ export class PipelineEngine {
 
   /** Picks a waiting run up again after a restart, holding nothing until approved. */
   private async resumeWaiting(run: PipelineRunRow): Promise<void> {
-    const parsed = parsePipelineFile(run.source);
+    const parsed = parsePipelineFile(run.source, runInputs(run));
     const runner = run.runnerId
       ? await this.deps.store.pipelines.runners.findById(run.runnerId)
       : null;
@@ -366,6 +382,15 @@ export class PipelineEngine {
     run: PipelineRunRow,
     file: PipelineFile,
   ): Promise<{ runner: RunnerRow | null } | { wait: true } | { fail: string }> {
+    // one-at-a-time: earlier runs of this pipeline go first.
+    if (file.concurrency === "one-at-a-time") {
+      const active = await this.deps.store.pipelines.runs.listActiveForPipeline(run.pipelineId);
+      const ahead = active.find(
+        (other) =>
+          other.id !== run.id && (other.status !== "queued" || other.createdAt < run.createdAt),
+      );
+      if (ahead) return { wait: true };
+    }
     const target = pipelineTarget(file);
     if (target.kind === "local") {
       const mode = await this.deps.settings.value("pipelineLocalRunner");
@@ -574,6 +599,17 @@ export class PipelineEngine {
           }
           if (outcome !== null) {
             // Not approved: the deploy does not happen.
+          } else if (step.pipeline) {
+            outcome = await this.awaitChild({
+              run,
+              row,
+              stageName: stage.name,
+              spec: step.pipeline,
+              log,
+              active,
+              clock,
+              release: releaseMachine,
+            });
           } else if (step.approval) {
             outcome = await this.awaitApproval({
               run,
@@ -656,6 +692,195 @@ export class PipelineEngine {
         this.deps.log.error(caught, `pipeline run ${run.id}: notification failed`),
       );
     }
+    // A run waiting on this one (a `pipeline` step) goes on; "after" triggers fire.
+    this.waiters.get(`child:${run.id}`)?.();
+    if (finished && this.hooks.runFinished) {
+      await this.hooks
+        .runFinished(finished)
+        .catch((caught) =>
+          this.deps.log.error(
+            caught,
+            `pipeline run ${run.id}: downstream pipelines failed to start`,
+          ),
+        );
+    }
+  }
+
+  /**
+   * A `pipeline` step: starts the other pipeline and, if asked, waits for it —
+   * holding no runner meanwhile — and takes its result. After a restart it
+   * finds the run it had started instead of starting another.
+   */
+  private async awaitChild(input: {
+    run: PipelineRunRow;
+    row: PipelineStepRow;
+    stageName: string;
+    spec: NonNullable<PipelineStep["pipeline"]>;
+    log: RunLog;
+    active: ActiveRun;
+    clock: RunClock;
+    release: () => Promise<void>;
+  }): Promise<StepStatus> {
+    const { run, row, spec, log, active } = input;
+    const store = this.deps.store;
+    const finish = async (status: StepStatus) => {
+      await store.pipelines.steps.update(row.id, { status, finishedAt: new Date().toISOString() });
+      return status;
+    };
+    let child = row.childRunId ? await store.pipelines.runs.findById(row.childRunId) : null;
+    if (!child) {
+      await store.pipelines.steps.update(row.id, {
+        status: "running",
+        startedAt: new Date().toISOString(),
+      });
+      log.add(row.id, "system", `${input.stageName} › ${row.name}`);
+      if (!this.hooks.startChild) {
+        log.add(row.id, "system", "Pipelines cannot start other pipelines here.");
+        return finish("failed");
+      }
+      try {
+        child = await this.hooks.startChild(run, spec.run, spec.with);
+      } catch (caught) {
+        log.add(row.id, "system", caught instanceof Error ? caught.message : String(caught));
+        return finish("failed");
+      }
+      await store.pipelines.steps.update(row.id, { childRunId: child.id });
+      log.add(row.id, "system", `Started ${spec.run} #${child.number}.`);
+      if (!spec.wait) return finish("passed");
+    }
+
+    // Wait for it like for an approval: no runner held, the clock paused, kept across a restart.
+    await store.pipelines.steps.update(row.id, { status: "waiting" });
+    await store.pipelines.runs.update(run.id, { status: "waiting" });
+    await log.flush();
+    await input.release();
+    input.clock.pause();
+    active.waiting = true;
+    for (;;) {
+      const current = await store.pipelines.runs.findById(child.id);
+      if (!current || !["queued", "running", "waiting"].includes(current.status)) {
+        child = current ?? child;
+        break;
+      }
+      if (active.controller.signal.aborted) {
+        // Cancelling this run cancels the one it is waiting for.
+        await this.cancel(current);
+        child = current;
+        break;
+      }
+      if (this.closed) break;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(done, 15_000);
+        const onAbort = () => done();
+        function done() {
+          clearTimeout(timer);
+          active.controller.signal.removeEventListener("abort", onAbort);
+          resolve();
+        }
+        active.controller.signal.addEventListener("abort", onAbort, { once: true });
+        this.waiters.set(`child:${child?.id}`, done);
+      });
+      this.waiters.delete(`child:${child.id}`);
+    }
+    active.waiting = false;
+    if (this.closed && ["queued", "running", "waiting"].includes(child.status))
+      throw new Suspended();
+    input.clock.resume();
+    await store.pipelines.runs.update(run.id, { status: "running" });
+    if (active.controller.signal.aborted) return finish(active.reason ?? "cancelled");
+    log.add(
+      row.id,
+      "system",
+      `${spec.run} #${child.number} ${STATUS_WORDS[child.status as RunStatus] ?? child.status}.`,
+    );
+    return finish(child.status === "passed" ? "passed" : "failed");
+  }
+
+  /** The artifact a `download` step asks for: from the run that started this one, or another pipeline's newest passing run. */
+  private async findArtifact(
+    run: PipelineRunRow,
+    from: string,
+    name: string,
+  ): Promise<{ path: string; label: string } | { error: string }> {
+    const store = this.deps.store;
+    let source: PipelineRunRow | null;
+    let pipelineName: string;
+    if (from === "upstream") {
+      if (!run.upstreamRunId) {
+        return {
+          error:
+            "This run was not started by another pipeline. Name the pipeline instead: download: {artifact: …, from: Shop build}.",
+        };
+      }
+      source = await store.pipelines.runs.findById(run.upstreamRunId);
+      pipelineName = source
+        ? ((await store.pipelines.pipelines.findById(source.pipelineId))?.name ?? "")
+        : "";
+    } else {
+      const pipeline = await store.pipelines.pipelines.findByName(run.teamId, from);
+      if (!pipeline) return { error: `There is no pipeline called ${from} in this team.` };
+      source = await store.pipelines.runs.lastPassed(pipeline.id);
+      pipelineName = pipeline.name;
+      if (!source) return { error: `${from} has no run that passed yet.` };
+    }
+    if (!source) return { error: "The run that started this one no longer exists." };
+    const artifact = (await store.pipelines.artifacts.list(source.id)).find((a) => a.name === name);
+    if (!artifact)
+      return { error: `${pipelineName} #${source.number} kept no artifact called ${name}.` };
+    return { path: artifact.storagePath, label: `${name} from ${pipelineName} #${source.number}` };
+  }
+
+  /**
+   * Keeping runs: the newest N finished runs of each pipeline (the file's
+   * `keep.runs`, else the instance setting), and artifacts younger than their
+   * limit. The newest run, a run still going, and a run a live deploy came
+   * from are never deleted.
+   */
+  async cleanUp(now = new Date()): Promise<{ runs: number; artifacts: number }> {
+    const store = this.deps.store;
+    const defaultRuns = Math.max(1, await this.deps.settings.numberValue("pipelineKeepRuns"));
+    const defaultDays = Math.max(
+      1,
+      await this.deps.settings.numberValue("pipelineKeepArtifactsDays"),
+    );
+    let removedRuns = 0;
+    let removedArtifacts = 0;
+    const artifactLimit = new Map<string, number>();
+    for (const pipeline of await store.pipelines.pipelines.listAll()) {
+      const parsed = parsePipelineFile(pipeline.source);
+      const keep = parsed.ok ? parsed.file.keep : undefined;
+      artifactLimit.set(pipeline.id, (keep?.artifacts ?? defaultDays * 86_400) * 1000);
+      const finished = await store.pipelines.runs.listFinishedForPipeline(pipeline.id);
+      const beyond = finished.slice(Math.max(1, keep?.runs ?? defaultRuns));
+      if (beyond.length === 0) continue;
+      const liveRuns = new Set(
+        (await store.deploy.deployments.listByStatus("live")).map((deployment) => deployment.runId),
+      );
+      const doomed = beyond.filter((candidate) => !liveRuns.has(candidate.id));
+      for (const artifact of await store.pipelines.artifacts.listForRuns(doomed.map((r) => r.id))) {
+        await fs.rm(artifact.storagePath, { force: true }).catch(() => undefined);
+      }
+      for (const old of doomed) {
+        await fs
+          .rm(path.join(this.deps.artifactsDir, old.id), { recursive: true, force: true })
+          .catch(() => undefined);
+      }
+      await store.pipelines.runs.removeMany(doomed.map((r) => r.id));
+      removedRuns += doomed.length;
+    }
+    // Artifacts past their pipeline's limit.
+    const oldest = Math.min(...[...artifactLimit.values(), defaultDays * 86_400_000]);
+    for (const artifact of await store.pipelines.artifacts.listOlderThan(
+      new Date(now.getTime() - oldest).toISOString(),
+    )) {
+      const run = await store.pipelines.runs.findById(artifact.runId);
+      const limit = (run && artifactLimit.get(run.pipelineId)) ?? defaultDays * 86_400_000;
+      if (now.getTime() - Date.parse(artifact.createdAt) < limit) continue;
+      await fs.rm(artifact.storagePath, { force: true }).catch(() => undefined);
+      await store.pipelines.artifacts.remove(artifact.id);
+      removedArtifacts += 1;
+    }
+    return { runs: removedRuns, artifacts: removedArtifacts };
   }
 
   /** Stops counting a run against its runner (it is waiting for a person). */
@@ -867,6 +1092,12 @@ export class PipelineEngine {
       ZELYQ_RUN_NUMBER: String(run.number),
       ZELYQ_PIPELINE: file.name,
       ZELYQ_WORKSPACE: machine.workspace,
+      ...Object.fromEntries(
+        Object.entries(runInputs(run)).map(([name, value]) => [
+          `ZELYQ_INPUT_${name.toUpperCase()}`,
+          value,
+        ]),
+      ),
       ...input.state.env,
     };
     for (const [name, value] of Object.entries({ ...file.env, ...step.env })) {
@@ -909,18 +1140,35 @@ export class PipelineEngine {
       signal: input.active.controller.signal,
       archive: (projectId) => this.deps.runtime.archive(projectId),
       appId: (app) => this.appId(run, app),
+      findArtifact: (from, name) => this.findArtifact(run, from, name),
     };
 
-    let result: StepResult;
-    try {
-      result = await runStepKind(context);
-    } catch (caught) {
+    // A failed step is tried again, up to `retry` more times; a cancelled or timed-out one is not.
+    const attempts = 1 + (step.retry ?? 0);
+    let result: StepResult = { code: 1, ended: null };
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      if (attempt > 1) {
+        log.add(row.id, "system", `Attempt ${attempt} of ${attempts}.`);
+        await store.pipelines.steps.update(row.id, { attempt });
+      }
+      try {
+        result = await runStepKind(context);
+      } catch (caught) {
+        log.add(
+          row.id,
+          "system",
+          input.masker.mask(caught instanceof Error ? caught.message : String(caught)),
+        );
+        result = { code: null, ended: null };
+        if (attempt === attempts) return finish("failed", null);
+      }
+      if (result.ended || result.code === 0 || attempt === attempts) break;
+      if (input.active.controller.signal.aborted) break;
       log.add(
         row.id,
         "system",
-        input.masker.mask(caught instanceof Error ? caught.message : String(caught)),
+        result.code === null ? "The step failed." : `The step failed with code ${result.code}.`,
       );
-      return finish("failed", null);
     }
     if (result.ended) return finish(result.ended, result.code);
     if (result.code === 0) return finish("passed", 0);
@@ -1281,5 +1529,14 @@ class RunLog {
   async close(): Promise<void> {
     clearInterval(this.timer);
     await this.flush();
+  }
+}
+
+/** The input values a run was started with. */
+function runInputs(run: PipelineRunRow): Record<string, string> {
+  try {
+    return JSON.parse(run.inputs) as Record<string, string>;
+  } catch {
+    return {};
   }
 }

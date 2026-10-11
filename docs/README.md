@@ -44,4 +44,5 @@ them. These pages follow the sidebar.
   [decision records](./adr/)
 - [Vault design](./vault-standalone-plan.md)
 - [Pipelines design](./pipelines-plan.md), [built-in steps design](./pipeline-steps-plan.md),
-  [Deploy design](./deploy-plan.md)
+  [Deploy design](./deploy-plan.md),
+  [chaining design](./pipeline-chaining-plan.md)

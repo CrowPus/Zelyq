@@ -260,10 +260,10 @@ export const api = {
       request<void>(`/teams/${teamId}/pipelines/${id}`, { method: "DELETE" }),
     runs: (teamId: string, id: string) =>
       request<{ runs: PipelineRunSummary[] }>(`/teams/${teamId}/pipelines/${id}/runs`),
-    start: (teamId: string, id: string, ref?: string | null) =>
+    start: (teamId: string, id: string, inputs?: Record<string, string>) =>
       request<{ run: PipelineRunSummary }>(`/teams/${teamId}/pipelines/${id}/runs`, {
         method: "POST",
-        body: JSON.stringify(ref ? { ref } : {}),
+        body: JSON.stringify(inputs && Object.keys(inputs).length ? { inputs } : {}),
       }),
     run: (teamId: string, runId: string) =>
       request<{ run: PipelineRunDetail }>(`/teams/${teamId}/pipeline-runs/${runId}`),

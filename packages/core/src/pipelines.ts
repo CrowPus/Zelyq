@@ -279,6 +279,29 @@ const deploySchema = z
   })
   .strict();
 
+/** `pipeline: {run: Shop deploy, wait: true, with: {…}}` — start a downstream pipeline. */
+const pipelineStepSchema = z
+  .object({
+    run: z.string().trim().min(1).max(100),
+    wait: z.boolean().default(true),
+    with: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]).transform(String))
+      .default({}),
+  })
+  .strict();
+
+/** `download: {artifact: dist, from: upstream}` — files another run kept. */
+const downloadSchema = z
+  .object({
+    artifact: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9._-]{1,100}$/, "Use the artifact's name, like dist."),
+    from: z.string().trim().min(1).max(100).default("upstream"),
+    path: relativePathSchema.optional(),
+  })
+  .strict();
+
 export const STEP_KINDS = [
   "run",
   "checkout",
@@ -287,6 +310,8 @@ export const STEP_KINDS = [
   "docker",
   "approval",
   "deploy",
+  "pipeline",
+  "download",
 ] as const;
 export type StepKind = (typeof STEP_KINDS)[number];
 
@@ -300,6 +325,9 @@ const stepSchema = z
     docker: dockerSchema.optional(),
     approval: approvalSchema.optional(),
     deploy: deploySchema.optional(),
+    pipeline: pipelineStepSchema.optional(),
+    download: downloadSchema.optional(),
+    retry: z.number().int().min(0).max(5).optional(),
     shell: z
       .enum(PIPELINE_SHELLS, { message: `Use one of: ${PIPELINE_SHELLS.join(", ")}.` })
       .optional(),
@@ -311,6 +339,16 @@ const stepSchema = z
   })
   .strict()
   .superRefine((step, ctx) => {
+    if (
+      step.retry !== undefined &&
+      (step.deploy || step.approval || step.pipeline || step.download)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["retry"],
+        message: "retry is for run, checkout, setup and docker steps.",
+      });
+    }
     const kinds = STEP_KINDS.filter((kind) => step[kind] !== undefined);
     if (kinds.length !== 1) {
       ctx.addIssue({
@@ -344,6 +382,10 @@ export function stepLabel(step: PipelineStep): string {
       return "Approval";
     case "deploy":
       return `Deploy to ${step.deploy?.to ?? ""}`;
+    case "pipeline":
+      return `Run ${step.pipeline?.run ?? ""}`;
+    case "download":
+      return `Download ${step.download?.artifact ?? ""}`;
     default: {
       const first = (step.run ?? "").trim().split("\n")[0] ?? "";
       return first.length > 60 ? `${first.slice(0, 57)}…` : first || "Run";
@@ -414,6 +456,34 @@ const notifySchema = z
   })
   .strict();
 
+export const CONCURRENCY_MODES = ["one-at-a-time", "newest-wins"] as const;
+export type ConcurrencyMode = (typeof CONCURRENCY_MODES)[number];
+
+const inputNameSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/, "Use letters, digits and underscores (environment).");
+const inputSchema = z
+  .object({
+    description: z.string().trim().max(300).optional(),
+    choices: z
+      .array(z.union([z.string(), z.number()]).transform(String))
+      .min(1)
+      .max(50)
+      .optional(),
+    default: z.union([z.string(), z.number(), z.boolean()]).transform(String).optional(),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.choices && input.default !== undefined && !input.choices.includes(input.default)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["default"],
+        message: "The default must be one of the choices.",
+      });
+    }
+  });
+export type PipelineInput = z.output<typeof inputSchema>;
+
 export const pipelineFileSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
@@ -424,6 +494,27 @@ export const pipelineFileSchema = z
     stages: z.array(stageSchema).min(1, "A pipeline needs at least one stage.").max(50),
     artifacts: z.array(artifactSchema).max(20).optional(),
     notify: notifySchema.optional(),
+    inputs: z.record(inputNameSchema, inputSchema).optional(),
+    concurrency: z
+      .enum(CONCURRENCY_MODES, { message: "Use one-at-a-time or newest-wins." })
+      .optional(),
+    keep: z
+      .object({
+        runs: z.number().int().min(1).max(10_000).optional(),
+        artifacts: z
+          .union([z.string(), z.number()])
+          .transform((value, ctx) => {
+            const seconds = parseDuration(value);
+            if (seconds === null || seconds > 3650 * 86_400) {
+              ctx.addIssue({ code: "custom", message: "Use a duration like 14d." });
+              return z.NEVER;
+            }
+            return seconds;
+          })
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((file, ctx) => {
@@ -468,7 +559,11 @@ export type ParsedPipelineFile =
  * Reads a pipeline file and says, in plain words and with a line number, what
  * is wrong with it. The same function runs in the editor and on the server.
  */
-export function parsePipelineFile(text: string): ParsedPipelineFile {
+export function parsePipelineFile(
+  text: string,
+  /** The values a run was started with; without them, defaults (or a stand-in) are used. */
+  inputs?: Record<string, string>,
+): ParsedPipelineFile {
   if (text.length > 200_000) {
     return {
       ok: false,
@@ -488,7 +583,22 @@ export function parsePipelineFile(text: string): ParsedPipelineFile {
       })),
     };
   }
-  const parsed = pipelineFileSchema.safeParse(document.toJS());
+  const raw = document.toJS() as unknown;
+  const unknown: string[] = [];
+  const values = inputValues(raw, inputs);
+  const filled = fillInputs(raw, values, unknown);
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      file: null,
+      issues: [...new Set(unknown)].map((name) => ({
+        path: "inputs",
+        line: null,
+        message: `\${{ inputs.${name} }} is used, but there is no input called ${name} under inputs:.`,
+      })),
+    };
+  }
+  const parsed = pipelineFileSchema.safeParse(filled);
   if (parsed.success) return { ok: true, file: parsed.data, issues: [] };
   const lineCounter = text.split("\n");
   return {
@@ -681,7 +791,7 @@ export const STEP_STATUSES = [
   "timed_out",
 ] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
-export type RunTrigger = "manual" | "rerun" | "push" | "schedule" | "api" | "app";
+export type RunTrigger = "manual" | "rerun" | "push" | "schedule" | "api" | "app" | "pipeline";
 
 export interface PipelineActor {
   id: string;
@@ -718,6 +828,10 @@ export interface RunStep {
   stage: string;
   name: string;
   kind: StepKind;
+  /** Which attempt this is (above 1 after a retry). */
+  attempt: number;
+  /** For a `pipeline` step: the run it started. */
+  child: { id: string; pipelineId: string; number: number } | null;
   status: StepStatus;
   exitCode: number | null;
   startedAt: string | null;
@@ -747,6 +861,10 @@ export interface PipelineRunSummary {
   finishedAt: string | null;
   /** One entry per stage, in order: what the stage picture shows. */
   stages: RunStageSummary[];
+  /** The values it was started with. */
+  inputs: Record<string, string>;
+  /** The run that started it, if another pipeline did. */
+  upstream: { id: string; pipelineId: string; pipelineName: string; number: number } | null;
 }
 
 /** A stage of a run, worked out from its steps. */
@@ -972,12 +1090,25 @@ export const triggerInputSchema = z.discriminatedUnion("kind", [
     .strict(),
   // When the agent changes the pipeline's source app.
   z.object({ kind: z.literal("app") }).strict(),
+  // After another pipeline of the team ends (by default: when it passes).
+  z
+    .object({
+      kind: z.literal("pipeline"),
+      pipelineId: z.string().min(1),
+      on: z
+        .array(z.enum(["passed", "failed"]))
+        .min(1)
+        .default(["passed"]),
+    })
+    .strict(),
 ]);
 export type TriggerInput = z.input<typeof triggerInputSchema>;
 
 export interface PipelineTriggerSummary {
   id: string;
-  kind: "push" | "schedule" | "app";
+  kind: "push" | "schedule" | "app" | "pipeline";
+  /** After another pipeline: which one, and on which endings. */
+  upstream: { id: string; name: string; on: ("passed" | "failed")[] } | null;
   branches: string[] | null;
   cron: string | null;
   enabled: boolean;
@@ -1276,3 +1407,92 @@ export interface EnvironmentSummary {
   live: DeploymentSummary[];
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Inputs: ${{ inputs.NAME }}
+// ---------------------------------------------------------------------------
+
+const INPUT_REFERENCE = /\$\{\{\s*inputs\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+
+/** The value for each input: what the run was given, else its default, else a stand-in to check the file. */
+function inputValues(
+  raw: unknown,
+  given: Record<string, string> | undefined,
+): Record<string, string> {
+  const declared =
+    raw &&
+    typeof raw === "object" &&
+    "inputs" in raw &&
+    typeof (raw as { inputs: unknown }).inputs === "object"
+      ? ((raw as { inputs: Record<string, { default?: unknown; choices?: unknown[] }> | null })
+          .inputs ?? {})
+      : {};
+  const values: Record<string, string> = {};
+  for (const [name, input] of Object.entries(declared)) {
+    const fallback =
+      input?.default !== undefined
+        ? String(input.default)
+        : Array.isArray(input?.choices) && input.choices.length > 0
+          ? String(input.choices[0])
+          : "value";
+    values[name] = given?.[name] ?? fallback;
+  }
+  return values;
+}
+
+/** Puts input values into every text of the file (never into keys). */
+function fillInputs(value: unknown, values: Record<string, string>, unknown: string[]): unknown {
+  if (typeof value === "string") {
+    return value.replaceAll(INPUT_REFERENCE, (_match, name: string) => {
+      if (!(name in values)) {
+        unknown.push(name);
+        return "";
+      }
+      return values[name] ?? "";
+    });
+  }
+  if (Array.isArray(value)) return value.map((item) => fillInputs(item, values, unknown));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        key === "inputs" ? item : fillInputs(item, values, unknown),
+      ]),
+    );
+  }
+  return value;
+}
+
+/**
+ * Checks the values a run is started with against the file's inputs: every
+ * required one given, choices respected, no unknown names. Returns the full
+ * set (defaults filled in), or what is wrong.
+ */
+export function resolveRunInputs(
+  file: PipelineFile,
+  given: Record<string, string>,
+): { values: Record<string, string> } | { error: string } {
+  const declared = file.inputs ?? {};
+  for (const name of Object.keys(given)) {
+    if (!(name in declared)) return { error: `This pipeline has no input called ${name}.` };
+  }
+  const values: Record<string, string> = {};
+  for (const [name, input] of Object.entries(declared)) {
+    const value = given[name] ?? input.default;
+    if (value === undefined) return { error: `${name} is needed to start this pipeline.` };
+    if (input.choices && !input.choices.includes(value)) {
+      return { error: `${name} must be one of: ${input.choices.join(", ")}.` };
+    }
+    values[name] = value;
+  }
+  return { values };
+}
+
+export const runStartSchema = z
+  .object({
+    ref: z.string().trim().min(1).max(200).nullable().optional(),
+    inputs: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]).transform(String))
+      .optional(),
+  })
+  .strict();

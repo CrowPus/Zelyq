@@ -96,6 +96,8 @@ export interface ZelyqServer {
   settings: SettingsService;
   /** Exposed so tests can run the schedule at a chosen time, or say an app changed. */
   pipelineTriggers: Pick<PipelineTriggerService, "tick" | "appChanged">;
+  /** Exposed so tests can run the clean-up at a chosen time. */
+  pipelineEngine: Pick<PipelineEngine, "cleanUp">;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -437,6 +439,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
 
+  // Pipelines starting other pipelines: a `pipeline` step, and "after another pipeline" triggers.
+  pipelineEngine.hooks = {
+    startChild: (parent, name, inputs) => pipelines.startChild(parent, name, inputs),
+    runFinished: (run) => pipelineTriggers.runFinished(run),
+  };
+
   gateway.appChanged = async (projectId) => {
     const project = await store.projects.findById(projectId);
     if (project) await pipelineTriggers.appChanged(project);
@@ -478,6 +486,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     projectVariables: variables,
     settings,
     pipelineTriggers,
+    pipelineEngine,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

@@ -101,6 +101,10 @@ const GROUPS: Array<{ name: string; description: string }> = [
     description:
       "How and where the agent executes project code. Container-mode settings only apply when ZELYQ_RUNTIME=container.",
   },
+  {
+    name: "Pipelines",
+    description: "Where runs-on: local pipelines run, and how long runs and artifacts are kept.",
+  },
 ];
 
 const DEFINITIONS: Definition[] = [
@@ -588,6 +592,27 @@ const DEFINITIONS: Definition[] = [
     envOverridable: true,
     fallback: "node:22-bookworm",
     placeholder: "node:22-bookworm",
+  },
+  {
+    key: "pipelineKeepRuns",
+    label: "Runs kept per pipeline",
+    description:
+      "The newest finished runs of each pipeline that are kept, with their logs and artifacts; older ones are deleted once an hour. A pipeline's own keep: runs wins.",
+    kind: "number",
+    group: "Pipelines",
+    envVar: "ZELYQ_PIPELINE_KEEP_RUNS",
+    envOverridable: true,
+    fallback: "100",
+  },
+  {
+    key: "pipelineKeepArtifactsDays",
+    label: "Days artifacts are kept",
+    description: "Artifacts older than this are deleted. A pipeline's own keep: artifacts wins.",
+    kind: "number",
+    group: "Pipelines",
+    envVar: "ZELYQ_PIPELINE_KEEP_ARTIFACTS_DAYS",
+    envOverridable: true,
+    fallback: "30",
   },
   {
     key: "pipelineLocalConcurrency",
