@@ -28,6 +28,7 @@ import type {
   PipelinePluginSummary,
   PipelineRunDetail,
   PipelineRunSummary,
+  PipelineStats,
   PipelineSummary,
   PipelineTriggerSummary,
   Preview,
@@ -313,6 +314,8 @@ export const api = {
       ),
     removeTrigger: (teamId: string, id: string, triggerId: string) =>
       request<void>(`/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`, { method: "DELETE" }),
+    stats: (teamId: string, days: number) =>
+      request<{ stats: PipelineStats }>(`/teams/${teamId}/pipeline-stats?days=${days}`),
     setFavorite: (teamId: string, id: string, favorite: boolean) =>
       request<void>(`/teams/${teamId}/pipelines/${id}/favorite`, {
         method: "PUT",

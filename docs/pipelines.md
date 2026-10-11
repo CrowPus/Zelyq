@@ -33,6 +33,7 @@ tested, deployed and rolled back. This page is the full reference.
 - [Where a pipeline runs](#where-a-pipeline-runs)
 - [Adding a machine (SSH runner)](#adding-a-machine-ssh-runner), and
   [firewalls and ports](#firewalls-and-ports)
+- [Visual or YAML: two ways to edit](#visual-or-yaml-two-ways-to-edit)
 - [The file](#the-file)
 - [Where the files come from](#where-the-files-come-from): an app, a git repository, anything else;
   subfolders; files already on the machine
@@ -46,7 +47,7 @@ tested, deployed and rolled back. This page is the full reference.
 - [Results, services and test reports](#results-services-and-test-reports): outputs, service
   containers, JUnit, ✓ / ✗ on GitHub and GitLab
 - [Secrets](#secrets)
-- [Runs](#runs)
+- [Runs](#runs) and [the overview](#the-overview)
 - [Starting a run without pressing Run](#starting-a-run-without-pressing-run): git push, pull
   requests, schedules, other CI; [changing a trigger](#changing-a-trigger);
   [when a webhook does not start a run](#when-a-webhook-does-not-start-a-run)
@@ -126,6 +127,61 @@ is closed fails **Test connection** with a timeout.
 encrypted on the Zelyq server and never shown. **New key** makes a new one. The old key keeps working
 for 7 days while you add the new one to each machine, or until you press **stop the old key now**.
 Ed25519 is the default; RSA 4096 is there for old servers.
+
+## Visual or YAML: two ways to edit
+
+A pipeline's **File** tab has a switch at the top: **Visual** draws the pipeline and lets you edit it
+by clicking and dragging; **YAML** shows the file itself. Both edit the same file, so you can switch
+at any time, and comments and anything the visual editor does not show are kept exactly as written.
+Zelyq remembers which one you used last.
+
+Nothing is saved until you press **Save** (top right). While there are changes, it says **Unsaved
+changes**, and **Undo all** goes back to the saved file.
+
+**What you see.** A bar at the top for the whole pipeline; under it, its **latest run**; then the
+stages, left to right in the order they run, joined by lines. Each stage is numbered in run order;
+stages that run at the same time stand in one dashed box ("2 at the same time") and share a number.
+Inside each box are its steps, each with an icon for its kind. Labels on a stage show what is special
+about it: **On mac-mini** (its own machine), **Matrix × 4**, **Only after a failure**, **Always
+runs**, **Template: Node checks**. When the stages do not all fit, the row scrolls: it says **"6
+stages · scroll to see them all"**, with **‹ ›** to move along.
+
+**The latest run** is shown on the picture: the bar says how it went (**Latest run #12 · Failed ·
+1m 20s**, with **Open the run**), each stage has ✓, ✗ or a spinner, and so does each step while the
+file is still the one that ran. While a run is going, it updates by itself.
+
+**Editing.** Click something, and its form opens on the right:
+
+| Click | You can set |
+| --- | --- |
+| The bar at the top | The name; where it runs (this server, one of your runners, or any runner with some labels); where the code comes from (one of your apps, or a git repository with its branch, token and ✓ / ✗ on GitHub); the timeout; variables for every step |
+| A stage | Its name; when it runs (after success, only after a failure, or always); whether it runs at the same time as the stage before it; its own machine; a matrix; or, for a template stage, which pipeline it uses and that pipeline's inputs |
+| A step | Its kind and name, then a form for that kind: the commands and shell; the language and version; the folder to cache; the Docker image; the environment and ports to deploy to; the approval's question; the pipeline to start; the artifact to download; or the plugin (found by searching your installed plugins) and its inputs. **More** holds its id, condition, timeout, folder, "carry on if it fails" and variables. |
+
+**Adding.**
+
+- The small round **+** on a line between two stages puts a new stage there; the one at the end adds
+  a last stage.
+- Hover a stage and a small dashed **+** appears under it: a stage that runs **at the same time**.
+  A stage's form has the same two as buttons: **Add a stage after this one**, **Add a stage at the
+  same time as this one**.
+- **Add a step** at the bottom of a stage lists every kind of step, each with what it is for.
+
+**Moving and deleting.** Drag a step to another place in its stage, or into another stage; drag a
+stage by its name onto another stage to put it before that one. A blue line shows where it will land.
+The forms also have arrows to move, and **Delete stage** / **Delete step**.
+
+**Choosing.** Fields that name something your team has are lists of what exists: runners, apps,
+environments, pipelines and installed plugins. A name in the file that does not exist (a typo, a
+removed runner, the `My app` of a template) shows as **(not found)**, so you can see it and pick
+the right one.
+
+**Problems** show where they are: a stage with something wrong has a red border and **1 problem**,
+the step a red dot, and its form lists what is wrong at the top. The same problems are listed
+under the editor, with their line in the file.
+
+Some things are only in YAML: inputs, services, artifacts, notifications, `concurrency`, `keep`, a
+step's `retry` and `tests`, and a Docker registry login. The visual editor keeps them as they are.
 
 ## The file
 
@@ -603,6 +659,19 @@ except their `checkout` steps.
 A run that loses its connection to the machine fails; it is not retried. If Zelyq restarts during a
 run, that run is marked failed. The log keeps up to 20 MB per run; after that the run continues, but
 its output is not recorded.
+
+## The overview
+
+**Pipelines → Overview** shows how the team's pipelines are doing over the last 7, 14 or 30 days:
+
+- **Runs**, the **success rate** (passed out of passed and failed; cancelled runs do not count), the
+  **typical run** (the middle duration), and how many pipelines are **failing now** (their newest run
+  failed).
+- **Runs per day**, passed and failed; hover a day for its numbers, or **Show as a table**.
+- **Pipelines**: each one's runs, success rate, average time and newest run, the failing ones first.
+- **Slowest stages**: the stages that take longest on average, which is where a faster runner, a
+  [cache](#cache-keep-a-folder-between-runs) or [stages at the same
+  time](#stages-at-the-same-time-a-machine-per-stage-matrix) help most.
 
 ## Starting a run without pressing Run
 

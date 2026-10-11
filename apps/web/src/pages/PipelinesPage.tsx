@@ -3,6 +3,7 @@ import { roleAtLeast } from "@zelyq/core";
 import { Plus, Star, Workflow } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { OverviewTab } from "../components/pipelines/OverviewTab";
 import { PluginsTab } from "../components/pipelines/PluginsTab";
 import { RunnersTab } from "../components/pipelines/RunnersTab";
 import { StageStrip } from "../components/pipelines/Stages";
@@ -12,7 +13,7 @@ import { api } from "../lib/api";
 import { RUN_STATUS } from "../lib/pipelines";
 import { formatRelative } from "../lib/vault";
 
-type Tab = "pipelines" | "runners" | "plugins";
+type Tab = "pipelines" | "overview" | "runners" | "plugins";
 
 /**
  * Pipelines — the work after the code is written (test, build, deploy), run
@@ -24,7 +25,8 @@ export function PipelinesPage() {
   const { team } = useActiveTeam();
   const [params, setParams] = useSearchParams();
   const asked = params.get("tab");
-  const tab: Tab = asked === "runners" || asked === "plugins" ? asked : "pipelines";
+  const tab: Tab =
+    asked === "runners" || asked === "plugins" || asked === "overview" ? asked : "pipelines";
   const canWrite = team ? roleAtLeast(team.role, "editor") : false;
 
   return (
@@ -51,7 +53,7 @@ export function PipelinesPage() {
           </header>
 
           <div role="tablist" className="mb-4 flex gap-1 border-b border-border-default">
-            {(["pipelines", "runners", "plugins"] as const).map((name) => (
+            {(["pipelines", "overview", "runners", "plugins"] as const).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -66,7 +68,13 @@ export function PipelinesPage() {
                     : "border-transparent text-fg-secondary hover:text-fg"
                 }`}
               >
-                {name === "pipelines" ? "Pipelines" : name === "runners" ? "Runners" : "Plugins"}
+                {name === "pipelines"
+                  ? "Pipelines"
+                  : name === "overview"
+                    ? "Overview"
+                    : name === "runners"
+                      ? "Runners"
+                      : "Plugins"}
               </button>
             ))}
           </div>
@@ -80,6 +88,8 @@ export function PipelinesPage() {
             <RunnersTab team={team} />
           ) : tab === "plugins" ? (
             <PluginsTab team={team} />
+          ) : tab === "overview" ? (
+            <OverviewTab teamId={team.id} />
           ) : (
             <PipelineList teamId={team.id} canWrite={canWrite} />
           )}

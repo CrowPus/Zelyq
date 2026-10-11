@@ -107,6 +107,16 @@ export function registerPipelineRoutes(
       request.params.pipelineId,
     ),
   }));
+  app.get<Team & { Querystring: { days?: string } }>(
+    "/api/teams/:teamId/pipeline-stats",
+    async (request) => ({
+      stats: await pipelines.stats(
+        access.requireUser(request),
+        request.params.teamId,
+        Number(request.query.days ?? 14) || 14,
+      ),
+    }),
+  );
   app.put<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/favorite", async (request, reply) => {
     await pipelines.setFavorite(
       access.requireUser(request),
