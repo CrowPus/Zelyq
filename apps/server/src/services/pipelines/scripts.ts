@@ -36,7 +36,7 @@ export function shellCommand(shell: PipelineShell): string {
   }
 }
 
-function posixQuote(value: string): string {
+export function posixQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 

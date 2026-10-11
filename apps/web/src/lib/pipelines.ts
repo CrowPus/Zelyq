@@ -18,6 +18,7 @@ export const TRIGGER_WORDS: Record<string, string> = {
   manual: "started by hand",
   rerun: "re-run",
   push: "a push",
+  pull_request: "a pull request",
   schedule: "the schedule",
   api: "the API",
   app: "a change to the app",

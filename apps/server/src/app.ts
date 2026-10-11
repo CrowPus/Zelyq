@@ -97,7 +97,7 @@ export interface ZelyqServer {
   /** Exposed so tests can run the schedule at a chosen time, or say an app changed. */
   pipelineTriggers: Pick<PipelineTriggerService, "tick" | "appChanged">;
   /** Exposed so tests can run the clean-up at a chosen time. */
-  pipelineEngine: Pick<PipelineEngine, "cleanUp">;
+  pipelineEngine: Pick<PipelineEngine, "cleanUp" | "reporter">;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;

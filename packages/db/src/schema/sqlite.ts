@@ -497,6 +497,10 @@ export const pipelineSteps = sqliteTable(
     attempt: integer("attempt").notNull().default(1),
     /** For a `pipeline` step: the run it started. */
     childRunId: text("child_run_id"),
+    /** JSON: values the step wrote to $ZELYQ_OUTPUT. */
+    outputs: text("outputs").notNull().default("{}"),
+    /** JSON: its test report summary, when it has `tests:`. */
+    tests: text("tests"),
     status: text("status").notNull(),
     exitCode: integer("exit_code"),
     startedAt: text("started_at"),
