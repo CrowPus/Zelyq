@@ -300,6 +300,11 @@ export const api = {
         `/teams/${teamId}/pipelines/${id}/triggers`,
         { method: "POST", body: JSON.stringify(input) },
       ),
+    editTrigger: (teamId: string, id: string, triggerId: string, input: TriggerInput) =>
+      request<{ trigger: PipelineTriggerSummary }>(
+        `/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`,
+        { method: "PUT", body: JSON.stringify(input) },
+      ),
     setTrigger: (teamId: string, id: string, triggerId: string, enabled: boolean) =>
       request<{ trigger: PipelineTriggerSummary }>(
         `/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`,

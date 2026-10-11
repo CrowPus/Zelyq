@@ -4,11 +4,13 @@ import {
   type PipelineTriggerSummary,
   parsePipelineFile,
   roleAtLeast,
+  type TriggerInput,
 } from "@zelyq/core";
 import {
   Clock,
   GitBranch,
   Link2,
+  Pencil,
   Play,
   Plus,
   Save,
@@ -416,6 +418,39 @@ stages:
         env:
           DATABASE_URL: postgres://postgres:test@\${{ services.postgres.host }}:\${{ services.postgres.port }}/postgres
       - run: echo "Shipping \${{ steps.meta.outputs.version }}"`}</pre>
+      <p className="mt-3 font-medium text-fg">
+        Stages at the same time, a machine per stage, matrix
+      </p>
+      <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`stages:
+  - name: Build
+    steps: [{checkout: true}, {run: npm run build}]
+  - name: Test on Mac
+    runs-on: mac-mini          # this stage on another runner
+    steps: [{checkout: true}, {run: npm test}]
+  - name: Lint
+    parallel: true             # at the same time as the stage above
+    steps: [{checkout: true}, {run: npm run lint}]
+  - name: Node
+    matrix: {node: [20, 22]}   # one copy per value, all at the same time
+    steps:
+      - checkout: true
+      - setup: node@\${{ matrix.node }}
+      - run: npm test
+  - name: Ship                 # waits for all of them
+    steps: [{run: echo ok}]
+
+# A stage with runs-on, or beside another, starts in an empty folder
+# of its own: check out again there. No approvals in such a stage.`}</pre>
+      <p className="mt-3 font-medium text-fg">Templates: reuse another pipeline's stages</p>
+      <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`stages:
+  - name: Checks
+    uses: Node checks          # another pipeline of this team, by name
+    with: {node: "22"}         # its inputs
+  - name: Ship
+    steps: [{run: ./deploy.sh}]
+
+# Its stages (and env) are copied in when a run starts; the run keeps
+# that copy, so changing the template changes only later runs.`}</pre>
     </details>
   );
 }
@@ -440,6 +475,8 @@ function Triggers({
     queryFn: () => api.pipelines.triggers(teamId, pipelineId),
   });
   const [kind, setKind] = useState<"push" | "schedule" | "pipeline" | null>(null);
+  /** The trigger being changed; null when adding one. */
+  const [editing, setEditing] = useState<string | null>(null);
   const [upstreamId, setUpstreamId] = useState("");
   const [onFailed, setOnFailed] = useState(false);
   const otherPipelines = useQuery({
@@ -459,40 +496,67 @@ function Triggers({
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["pipeline-triggers", teamId, pipelineId] });
 
+  const input = (): TriggerInput =>
+    kind === "push"
+      ? {
+          kind: "push",
+          branches: branches
+            .split(",")
+            .map((b) => b.trim())
+            .filter(Boolean),
+          paths: paths
+            .split(",")
+            .map((p) => p.trim())
+            .filter(Boolean),
+          pullRequests,
+        }
+      : kind === "pipeline"
+        ? {
+            kind: "pipeline",
+            pipelineId: upstreamId,
+            on: onFailed ? ["passed", "failed"] : ["passed"],
+          }
+        : { kind: "schedule", cron: cron.trim() };
+  const close = () => {
+    setKind(null);
+    setEditing(null);
+    setError(null);
+  };
   const add = useMutation({
-    mutationFn: () =>
-      api.pipelines.addTrigger(
-        teamId,
-        pipelineId,
-        kind === "push"
-          ? {
-              kind: "push",
-              branches: branches
-                .split(",")
-                .map((b) => b.trim())
-                .filter(Boolean),
-              paths: paths
-                .split(",")
-                .map((p) => p.trim())
-                .filter(Boolean),
-              pullRequests,
-            }
-          : kind === "pipeline"
-            ? {
-                kind: "pipeline",
-                pipelineId: upstreamId,
-                on: onFailed ? ["passed", "failed"] : ["passed"],
-              }
-            : { kind: "schedule", cron: cron.trim() },
-      ),
+    mutationFn: () => api.pipelines.addTrigger(teamId, pipelineId, input()),
     onSuccess: (result) => {
       setCreated(result);
-      setKind(null);
-      setError(null);
+      close();
       void refresh();
     },
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
+  const save = useMutation({
+    mutationFn: (triggerId: string) =>
+      api.pipelines.editTrigger(teamId, pipelineId, triggerId, input()),
+    onSuccess: () => {
+      close();
+      void refresh();
+    },
+    onError: (caught) => setError(vaultErrorMessage(caught)),
+  });
+  const startEditing = (trigger: PipelineTriggerSummary) => {
+    if (trigger.kind === "app") return;
+    setCreated(null);
+    setError(null);
+    setEditing(trigger.id);
+    setKind(trigger.kind);
+    if (trigger.kind === "push") {
+      setBranches(trigger.branches?.join(", ") ?? "main");
+      setPaths(trigger.paths.join(", "));
+      setPullRequests(trigger.pullRequests);
+    } else if (trigger.kind === "schedule") {
+      setCron(trigger.cron ?? "");
+    } else {
+      setUpstreamId(trigger.upstream?.id ?? "");
+      setOnFailed(trigger.upstream?.on.includes("failed") ?? false);
+    }
+  };
   const addApp = useMutation({
     mutationFn: () => api.pipelines.addTrigger(teamId, pipelineId, { kind: "app" }),
     onSuccess: () => void refresh(),
@@ -524,8 +588,9 @@ function Triggers({
             <dd className="font-mono">application/json</dd>
           </dl>
           <p className="mt-2 text-fg-secondary">
-            GitHub: Settings → Webhooks → Add webhook, events "Just the push event". GitLab:
-            Settings → Webhooks, put the secret in "Secret token", tick "Push events".
+            GitHub: Settings → Webhooks → Add webhook, events "Just the push event" (also "Pull
+            requests" when ticked). GitLab: Settings → Webhooks, put the secret in "Secret token",
+            tick "Push events".
           </p>
           <Button size="sm" className="mt-2" onClick={() => setCreated(null)}>
             I've added it
@@ -587,6 +652,15 @@ function Triggers({
               {!trigger.enabled && <Badge>Off</Badge>}
               {canWrite && (
                 <>
+                  {trigger.kind !== "app" && (
+                    <IconButton
+                      size="sm"
+                      label="Edit trigger"
+                      onClick={() => startEditing(trigger)}
+                    >
+                      <Pencil size={13} />
+                    </IconButton>
+                  )}
                   <Button size="sm" variant="ghost" onClick={() => toggle.mutate(trigger)}>
                     {trigger.enabled ? "Turn off" : "Turn on"}
                   </Button>
@@ -629,6 +703,17 @@ function Triggers({
           </div>
         ) : (
           <div className="grid gap-2 rounded-md border border-border-default p-3">
+            {editing && (
+              <p className="text-xs font-medium">
+                Changing a trigger
+                {kind === "push" && (
+                  <span className="font-normal text-fg-secondary">
+                    {" "}
+                    — its webhook address and secret stay the same.
+                  </span>
+                )}
+              </p>
+            )}
             {kind === "pipeline" ? (
               <div className="grid gap-2">
                 <FieldLabel>Start this pipeline after</FieldLabel>
@@ -712,13 +797,13 @@ function Triggers({
               <Button
                 size="sm"
                 variant="primary"
-                icon={<Plus size={13} />}
-                disabled={add.isPending || (kind === "pipeline" && !upstreamId)}
-                onClick={() => add.mutate()}
+                icon={editing ? <Save size={13} /> : <Plus size={13} />}
+                disabled={add.isPending || save.isPending || (kind === "pipeline" && !upstreamId)}
+                onClick={() => (editing ? save.mutate(editing) : add.mutate())}
               >
-                Add trigger
+                {editing ? "Save trigger" : "Add trigger"}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setKind(null)}>
+              <Button size="sm" variant="ghost" onClick={close}>
                 Cancel
               </Button>
             </div>

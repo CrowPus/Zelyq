@@ -78,56 +78,97 @@ export function StageStrip({ stages }: { stages: RunStageSummary[] }) {
 
 /**
  * The run as a picture: a box per stage, left to right, joined by arrows.
- * Clicking a box shows that stage's steps.
+ * Stages that ran at the same time stand in one column. Clicking a box
+ * shows that stage's steps.
  */
 export function StageGraph({
   stages,
+  groups = [],
   selected,
   onSelect,
 }: {
   stages: RunStageSummary[];
+  groups?: number[][];
   selected: number | null;
   onSelect: (index: number) => void;
 }) {
+  const columns: RunStageSummary[][] = [];
+  for (const stage of stages) {
+    const group = groups.find((members) => members.includes(stage.index));
+    const last = columns[columns.length - 1];
+    if (group && last?.[0] && group.includes(last[0].index)) {
+      last.push(stage);
+    } else {
+      columns.push([stage]);
+    }
+  }
   return (
     <div className="overflow-x-auto pb-2">
       <ol className="flex min-w-max items-center">
-        {stages.map((stage, position) => {
-          const tone = RUN_STATUS[stage.status].tone;
-          const isSelected = selected === stage.index;
-          return (
-            <li key={stage.index} className="flex items-center">
-              {position > 0 && (
-                <span aria-hidden className="flex w-8 items-center">
-                  <span className="h-px flex-1 bg-border-strong" />
-                  <span className="size-0 border-y-4 border-l-[6px] border-y-transparent border-l-border-strong" />
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => onSelect(stage.index)}
-                aria-pressed={isSelected}
-                className={`flex w-44 flex-col gap-1 rounded-md border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong ${
-                  isSelected ? "border-primary ring-1 ring-primary" : "border-border-default"
-                } ${stage.status === "skipped" ? "opacity-60" : ""}`}
-              >
-                <span className="flex items-center gap-1.5">
-                  <StatusIcon status={stage.status} />
-                  <span className="truncate text-sm font-medium">{stage.name}</span>
-                </span>
-                <span className={`text-2xs ${COLOURS[tone]}`}>
-                  {RUN_STATUS[stage.status].label}
-                  <span className="text-fg-muted">
-                    {" "}
-                    · {stage.done}/{stage.total} steps
-                    {stage.startedAt && ` · ${duration(stage.startedAt, stage.finishedAt)}`}
-                  </span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
+        {columns.map((column, position) => (
+          <li key={column[0]?.index} className="flex items-center">
+            {position > 0 && (
+              <span aria-hidden className="flex w-8 items-center">
+                <span className="h-px flex-1 bg-border-strong" />
+                <span className="size-0 border-y-4 border-l-[6px] border-y-transparent border-l-border-strong" />
+              </span>
+            )}
+            <div
+              className={`flex flex-col gap-1.5 ${
+                column.length > 1
+                  ? "rounded-lg border border-dashed border-border-default p-1.5"
+                  : ""
+              }`}
+            >
+              {column.map((stage) => (
+                <StageBox
+                  key={stage.index}
+                  stage={stage}
+                  selected={selected === stage.index}
+                  onSelect={onSelect}
+                />
+              ))}
+            </div>
+          </li>
+        ))}
       </ol>
     </div>
+  );
+}
+
+function StageBox({
+  stage,
+  selected,
+  onSelect,
+}: {
+  stage: RunStageSummary;
+  selected: boolean;
+  onSelect: (index: number) => void;
+}) {
+  const tone = RUN_STATUS[stage.status].tone;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(stage.index)}
+      aria-pressed={selected}
+      className={`flex w-44 flex-col gap-1 rounded-md border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong ${
+        selected ? "border-primary ring-1 ring-primary" : "border-border-default"
+      } ${stage.status === "skipped" ? "opacity-60" : ""}`}
+    >
+      <span className="flex items-center gap-1.5">
+        <StatusIcon status={stage.status} />
+        <span className="truncate text-sm font-medium" title={stage.name}>
+          {stage.name}
+        </span>
+      </span>
+      <span className={`text-2xs ${COLOURS[tone]}`}>
+        {RUN_STATUS[stage.status].label}
+        <span className="text-fg-muted">
+          {" "}
+          · {stage.done}/{stage.total} steps
+          {stage.startedAt && ` · ${duration(stage.startedAt, stage.finishedAt)}`}
+        </span>
+      </span>
+    </button>
   );
 }

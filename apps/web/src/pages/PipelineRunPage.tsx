@@ -250,7 +250,12 @@ export function PipelineRunPage() {
             ))}
 
           <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
-            <StageGraph stages={stages} selected={selected} onSelect={setPicked} />
+            <StageGraph
+              stages={stages}
+              groups={detail?.stageGroups}
+              selected={selected}
+              onSelect={setPicked}
+            />
           </section>
 
           {detail.artifacts.length > 0 && (

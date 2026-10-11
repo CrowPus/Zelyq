@@ -1,4 +1,4 @@
-import { parseDocument } from "yaml";
+import { parseDocument, stringify } from "yaml";
 import { z } from "zod";
 
 /**
@@ -413,10 +413,21 @@ export function stepLabel(step: PipelineStep): string {
   }
 }
 
+const runsOnSchema = z.union([
+  z.string().trim().min(1).max(100),
+  z.array(z.string().trim().min(1).max(50)).min(1).max(20),
+]);
+
 const stageSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
     if: conditionSchema.optional(),
+    /** A machine of its own for this stage, instead of the run's. */
+    "runs-on": runsOnSchema.optional(),
+    /** Runs at the same time as the stage above it. */
+    parallel: z.boolean().optional(),
+    /** One copy's values, once a `matrix:` stage is split into copies. */
+    matrix: z.record(z.string(), z.string()).optional(),
     steps: z.array(stepSchema).min(1, "A stage needs at least one step.").max(100),
   })
   .strict();
@@ -450,11 +461,6 @@ const sourceSchema = z
       });
     }
   });
-
-const runsOnSchema = z.union([
-  z.string().trim().min(1).max(100),
-  z.array(z.string().trim().min(1).max(50)).min(1).max(20),
-]);
 
 const artifactSchema = z
   .object({
@@ -566,18 +572,57 @@ export const pipelineFileSchema = z
       }
       names.add(stage.name);
     });
-    const ids = new Set<string>();
+    // Copies of one matrix stage share their steps' ids.
+    const ids = new Map<string, string>();
     for (const [stageIndex, stage] of file.stages.entries()) {
+      const family = stage.matrix ? matrixFamily(stage.name) : null;
+      const own = new Set<string>();
       for (const [stepIndex, step] of stage.steps.entries()) {
         if (!step.id) continue;
-        if (ids.has(step.id)) {
+        const seen = ids.get(step.id);
+        if (own.has(step.id) || (seen !== undefined && (family === null || seen !== family))) {
           ctx.addIssue({
             code: "custom",
             path: ["stages", stageIndex, "steps", stepIndex, "id"],
             message: `Two steps have the id ${step.id}.`,
           });
         }
-        ids.add(step.id);
+        own.add(step.id);
+        ids.set(step.id, family ?? "");
+      }
+    }
+    file.stages.forEach((stage, index) => {
+      if (stage.parallel && index === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["stages", 0, "parallel"],
+          message: "The first stage has no stage above it to run beside.",
+        });
+      }
+      // A stage on a machine of its own cannot stop and wait for a person or another run.
+      if (!onOwnMachine(file, index)) return;
+      stage.steps.forEach((step, stepIndex) => {
+        if (step.approval || step.pipeline?.wait) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["stages", index, "steps", stepIndex],
+            message: step.approval
+              ? "An approval needs a stage on the run's own machine (no runs-on, not parallel)."
+              : "A pipeline step that waits needs a stage on the run's own machine; add wait: false.",
+          });
+        }
+      });
+    });
+    let group = 0;
+    for (const stage of file.stages) {
+      group = stage.parallel ? group + 1 : 1;
+      if (group > MAX_PARALLEL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["stages"],
+          message: `At most ${MAX_PARALLEL} stages run at the same time.`,
+        });
+        break;
       }
     }
     const checkouts = file.stages.flatMap((stage) => stage.steps).filter((step) => step.checkout);
@@ -591,6 +636,42 @@ export const pipelineFileSchema = z
   });
 
 export type PipelineFile = z.output<typeof pipelineFileSchema>;
+
+/** Stages (and matrix copies) that run at the same time, at most. */
+export const MAX_PARALLEL = 20;
+
+/** The stage a matrix copy came from: "Test (20, linux)" → "Test". */
+function matrixFamily(name: string): string {
+  return name.replace(/ \([^()]*\)$/, "");
+}
+
+/**
+ * Whether a stage runs on a machine of its own: it names one, or it runs at
+ * the same time as another stage. Every other stage shares the run's machine.
+ */
+export function onOwnMachine(
+  file: { stages: { "runs-on"?: unknown; parallel?: boolean }[] },
+  index: number,
+): boolean {
+  const stage = file.stages[index];
+  if (!stage) return false;
+  return (
+    stage["runs-on"] !== undefined ||
+    stage.parallel === true ||
+    file.stages[index + 1]?.parallel === true
+  );
+}
+
+/** Consecutive stages that run at the same time: [[0], [1, 2, 3], [4]]. */
+export function stageGroups(file: { stages: { parallel?: boolean }[] }): number[][] {
+  const groups: number[][] = [];
+  file.stages.forEach((stage, index) => {
+    const last = groups[groups.length - 1];
+    if (stage.parallel && last) last.push(index);
+    else groups.push([index]);
+  });
+  return groups;
+}
 export type PipelineStage = PipelineFile["stages"][number];
 export type PipelineStep = PipelineStage["steps"][number];
 
@@ -649,13 +730,33 @@ export function parsePipelineFile(
       })),
     };
   }
-  const parsed = pipelineFileSchema.safeParse(filled);
+  const expanded = expandMatrix(filled);
+  if ("issues" in expanded) {
+    return {
+      ok: false,
+      file: null,
+      issues: expanded.issues.map((issue) => {
+        const node = document.getIn(issue.path, true);
+        const offset = (node as { range?: [number, number] } | null)?.range?.[0];
+        return {
+          path: issue.path.join("."),
+          line: offset === undefined ? null : lineOf(text.split("\n"), offset),
+          message: issue.message,
+        };
+      }),
+    };
+  }
+  const parsed = pipelineFileSchema.safeParse(expanded.raw);
   if (parsed.success) return { ok: true, file: parsed.data, issues: [] };
   const lineCounter = text.split("\n");
   return {
     ok: false,
     file: null,
     issues: parsed.error.issues.map((issue) => {
+      // A matrix copy's issue is shown at the stage it came from.
+      if (issue.path[0] === "stages" && typeof issue.path[1] === "number") {
+        issue.path[1] = expanded.origin[issue.path[1]] ?? issue.path[1];
+      }
       const path = issue.path.map(String);
       const node = path.length > 0 ? document.getIn(issue.path as (string | number)[], true) : null;
       const offset = (node as { range?: [number, number] } | null)?.range?.[0];
@@ -700,9 +801,9 @@ export function pipelineVaultNames(file: PipelineFile): string[] {
 }
 
 /** The labels a pipeline asks for, or the one runner it names, or the local runner. */
-export function pipelineTarget(
-  file: PipelineFile,
-): { kind: "local" } | { kind: "name"; name: string } | { kind: "labels"; labels: string[] } {
+export function pipelineTarget(file: {
+  "runs-on": string | string[];
+}): { kind: "local" } | { kind: "name"; name: string } | { kind: "labels"; labels: string[] } {
   const target = file["runs-on"];
   if (Array.isArray(target)) return { kind: "labels", labels: target };
   return target === "local" ? { kind: "local" } : { kind: "name", name: target };
@@ -1004,6 +1105,8 @@ export interface PipelineRunDetail extends PipelineRunSummary {
   steps: RunStep[];
   /** The pipeline file exactly as it was when this run started. */
   source: string;
+  /** Stages that ran at the same time, by index: [[0], [1, 2], [3]]. */
+  stageGroups: number[][];
   artifacts: { id: string; name: string; sizeBytes: number }[];
   approvals: RunApproval[];
 }
@@ -1483,6 +1586,272 @@ export interface EnvironmentSummary {
 // ---------------------------------------------------------------------------
 // Inputs: ${{ inputs.NAME }}
 // ---------------------------------------------------------------------------
+
+const USES_KEYS = new Set(["uses", "with", "name", "if", "runs-on", "parallel"]);
+
+function isUses(stage: unknown): stage is Record<string, unknown> & { uses: unknown } {
+  return Boolean(stage && typeof stage === "object" && "uses" in stage);
+}
+
+/**
+ * Copies other pipelines' stages in where a stage says `uses: NAME`, with
+ * that pipeline's inputs filled from `with:` and its `env:` given to each of
+ * its steps. A file without `uses:` comes back exactly as it was. The result
+ * is what a run stores: re-running it does the same, whatever the template
+ * becomes later.
+ */
+export function expandTemplates(
+  text: string,
+  /** The team's pipelines, by name. */
+  templates: Record<string, string>,
+): { ok: true; text: string } | { ok: false; issues: PipelineFileIssue[] } {
+  const document = parseDocument(text, { prettyErrors: false, uniqueKeys: true });
+  if (document.errors.length > 0) return { ok: true, text };
+  const raw = document.toJS() as { stages?: unknown } | null;
+  if (!raw || !Array.isArray(raw.stages) || !raw.stages.some(isUses)) return { ok: true, text };
+  const lines = text.split("\n");
+  const issues: PipelineFileIssue[] = [];
+  const issue = (path: (string | number)[], message: string) => {
+    const node = document.getIn(path, true) ?? document.getIn(path.slice(0, 2), true);
+    const offset = (node as { range?: [number, number] } | null)?.range?.[0];
+    issues.push({
+      path: path.join("."),
+      line: offset === undefined ? null : lineOf(lines, offset),
+      message,
+    });
+  };
+  const byName = new Map(
+    Object.entries(templates).map(([name, source]) => [name.toLowerCase(), source]),
+  );
+  const stages: unknown[] = [];
+  raw.stages.forEach((stage: unknown, index) => {
+    if (!isUses(stage)) {
+      stages.push(stage);
+      return;
+    }
+    const at = ["stages", index];
+    const extra = Object.keys(stage).filter((key) => !USES_KEYS.has(key));
+    if (extra.length > 0) {
+      issue(
+        [...at, extra[0] ?? ""],
+        "A uses: stage takes only name, with, if, runs-on and parallel.",
+      );
+      return;
+    }
+    const name = typeof stage.uses === "string" ? stage.uses.trim() : "";
+    const source = byName.get(name.toLowerCase());
+    if (source === undefined) {
+      issue(
+        [...at, "uses"],
+        `There is no pipeline called ${name || "(empty)"} in this team to use.`,
+      );
+      return;
+    }
+    const template = parseDocument(source, { prettyErrors: false }).toJS() as {
+      stages?: unknown;
+      env?: unknown;
+      inputs?: Record<string, { default?: unknown; choices?: unknown[] } | null>;
+    } | null;
+    if (!template || !Array.isArray(template.stages)) {
+      issue([...at, "uses"], `${name} is not a valid pipeline file.`);
+      return;
+    }
+    if (template.stages.some(isUses)) {
+      issue([...at, "uses"], `${name} uses another pipeline itself; templates go one level deep.`);
+      return;
+    }
+    const given =
+      stage.with && typeof stage.with === "object" ? (stage.with as Record<string, unknown>) : {};
+    const declared = template.inputs && typeof template.inputs === "object" ? template.inputs : {};
+    const values: Record<string, string> = {};
+    for (const [input, spec] of Object.entries(declared)) {
+      const value = given[input] ?? spec?.default;
+      if (value === undefined || value === null) {
+        issue([...at, "with"], `${name} needs with: ${input}.`);
+        return;
+      }
+      values[input] = String(value);
+    }
+    const unexpected = Object.keys(given).find((key) => !(key in declared));
+    if (unexpected) {
+      issue([...at, "with", unexpected], `${name} has no input called ${unexpected}.`);
+      return;
+    }
+    const unknown: string[] = [];
+    const copied = fillInputs(template.stages, values, unknown) as Record<string, unknown>[];
+    if (unknown.length > 0) {
+      issue([...at, "uses"], `${name} uses \${{ inputs.${unknown[0]} }} without declaring it.`);
+      return;
+    }
+    const env =
+      template.env && typeof template.env === "object"
+        ? (template.env as Record<string, unknown>)
+        : {};
+    copied.forEach((copy, position) => {
+      const steps = Array.isArray(copy.steps)
+        ? copy.steps.map((step: unknown) =>
+            Object.keys(env).length > 0 && step && typeof step === "object"
+              ? {
+                  ...step,
+                  env: { ...env, ...((step as { env?: Record<string, unknown> }).env ?? {}) },
+                }
+              : step,
+          )
+        : copy.steps;
+      stages.push({
+        ...copy,
+        name:
+          typeof stage.name === "string" && stage.name.trim()
+            ? `${stage.name.trim()} › ${String(copy.name ?? "")}`.slice(0, 100)
+            : copy.name,
+        ...(stage.if !== undefined && copy.if === undefined ? { if: stage.if } : {}),
+        ...(stage["runs-on"] !== undefined && copy["runs-on"] === undefined
+          ? { "runs-on": stage["runs-on"] }
+          : {}),
+        ...(position === 0 && stage.parallel === true ? { parallel: true } : {}),
+        steps,
+      });
+    });
+  });
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true, text: stringify({ ...raw, stages }, { lineWidth: 0 }) };
+}
+
+const MATRIX_REFERENCE = /\$\{\{\s*matrix\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+
+/**
+ * Splits each stage with a `matrix:` into one copy per combination of its
+ * values, all running at the same time, with `${{ matrix.NAME }}` filled in.
+ * `origin` says which stage of the file each resulting stage came from.
+ */
+function expandMatrix(
+  raw: unknown,
+):
+  | { raw: unknown; origin: number[] }
+  | { issues: { path: (string | number)[]; message: string }[] } {
+  const stages = (raw as { stages?: unknown } | null)?.stages;
+  if (!Array.isArray(stages)) return { raw, origin: [] };
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  const out: unknown[] = [];
+  const origin: number[] = [];
+  stages.forEach((stage: unknown, index) => {
+    // A `uses:` stage not copied in yet (only the server can): one stand-in
+    // step, so the rest of the file can still be read and checked.
+    if (isUses(stage)) {
+      const name = String(stage.uses);
+      out.push({
+        name: typeof stage.name === "string" ? stage.name : `Uses ${name}`,
+        ...(stage.if !== undefined ? { if: stage.if } : {}),
+        ...(stage["runs-on"] !== undefined ? { "runs-on": stage["runs-on"] } : {}),
+        ...(stage.parallel !== undefined ? { parallel: stage.parallel } : {}),
+        steps: [{ name: `Stages of ${name}`, run: "true" }],
+      });
+      origin.push(index);
+      return;
+    }
+    const record = stage && typeof stage === "object" ? (stage as Record<string, unknown>) : null;
+    const matrix = record?.matrix;
+    if (!record || matrix === undefined) {
+      if (record) {
+        const unknown = new Set<string>();
+        collectMatrixNames(record, unknown);
+        if (unknown.size > 0) {
+          issues.push({
+            path: ["stages", index],
+            message: `\${{ matrix.${[...unknown][0]} }} is used, but this stage has no matrix:.`,
+          });
+        }
+      }
+      out.push(stage);
+      origin.push(index);
+      return;
+    }
+    const at = ["stages", index, "matrix"];
+    if (!matrix || typeof matrix !== "object" || Array.isArray(matrix)) {
+      issues.push({ path: at, message: "Give each name its values: node: [20, 22]." });
+      return;
+    }
+    const axes: [string, string[]][] = [];
+    for (const [name, value] of Object.entries(matrix)) {
+      const list = (Array.isArray(value) ? value : [value]).filter((item) =>
+        ["string", "number", "boolean"].includes(typeof item),
+      );
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,30}$/.test(name) || list.length === 0) {
+        issues.push({
+          path: [...at, name],
+          message: "Use a name of letters, digits and '_', with a list of values.",
+        });
+        return;
+      }
+      axes.push([name, [...new Set(list.map(String))]]);
+    }
+    let combinations: Record<string, string>[] = [{}];
+    for (const [name, values] of axes) {
+      combinations = combinations.flatMap((done) =>
+        values.map((value) => ({ ...done, [name]: value })),
+      );
+    }
+    if (axes.length === 0 || combinations.length > MAX_PARALLEL) {
+      issues.push({
+        path: at,
+        message:
+          axes.length === 0
+            ? "A matrix needs at least one name with values."
+            : `This matrix makes ${combinations.length} copies; at most ${MAX_PARALLEL}.`,
+      });
+      return;
+    }
+    const used = new Set<string>();
+    collectMatrixNames(record, used);
+    const missing = [...used].filter((name) => !axes.some(([axis]) => axis === name));
+    if (missing.length > 0) {
+      issues.push({
+        path: at,
+        message: `\${{ matrix.${missing[0]} }} is used, but the matrix has no ${missing[0]}.`,
+      });
+      return;
+    }
+    const { matrix: _matrix, ...rest } = record;
+    combinations.forEach((values, copy) => {
+      const filled = fillMatrix(rest, values) as Record<string, unknown>;
+      const base = typeof rest.name === "string" ? rest.name.trim() : "Stage";
+      const label = ` (${Object.values(values).join(", ")})`;
+      out.push({
+        ...filled,
+        name: `${base.slice(0, Math.max(1, 100 - label.length))}${label}`,
+        matrix: values,
+        // Every copy runs beside the others; the first keeps the stage's own choice.
+        ...(copy > 0 ? { parallel: true } : {}),
+      });
+      origin.push(index);
+    });
+  });
+  if (issues.length > 0) return { issues };
+  return { raw: { ...(raw as object), stages: out }, origin };
+}
+
+function collectMatrixNames(value: unknown, names: Set<string>): void {
+  if (typeof value === "string") {
+    for (const match of value.matchAll(MATRIX_REFERENCE)) names.add(match[1] ?? "");
+  } else if (Array.isArray(value)) {
+    for (const item of value) collectMatrixNames(item, names);
+  } else if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectMatrixNames(item, names);
+  }
+}
+
+function fillMatrix(value: unknown, values: Record<string, string>): unknown {
+  if (typeof value === "string") {
+    return value.replaceAll(MATRIX_REFERENCE, (_match, name: string) => values[name] ?? "");
+  }
+  if (Array.isArray(value)) return value.map((item) => fillMatrix(item, values));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, fillMatrix(item, values)]),
+    );
+  }
+  return value;
+}
 
 const INPUT_REFERENCE = /\$\{\{\s*inputs\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
 

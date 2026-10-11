@@ -1,5 +1,6 @@
 import {
   type Approvers,
+  expandTemplates,
   newId,
   type PipelineActor,
   type PipelineDetail,
@@ -22,6 +23,7 @@ import {
   roleAtLeast,
   type StepKind,
   type StepStatus,
+  stageGroups,
   stepKind,
   stepLabel,
   summariseStages,
@@ -92,7 +94,9 @@ export class PipelineService {
   /** What is wrong with a file, before it is saved. */
   async check(user: User, teamId: string, source: string): Promise<PipelineCheck> {
     await this.access.requireTeamRole(user, teamId, "viewer");
-    const parsed = parsePipelineFile(source);
+    const expanded = expandTemplates(source, await this.templates(teamId));
+    if (!expanded.ok) return { ok: false, issues: expanded.issues, warnings: [] };
+    const parsed = parsePipelineFile(expanded.text);
     if (!parsed.ok) return { ok: false, issues: parsed.issues, warnings: [] };
     return { ok: true, issues: [], warnings: await this.warnings(teamId, parsed.file) };
   }
@@ -330,6 +334,13 @@ export class PipelineService {
     return {
       ...this.runSummary(run, pipeline?.name ?? "", steps, actors, await this.upstreamsOf([run])),
       source: run.source,
+      stageGroups: (() => {
+        const parsed = parsePipelineFile(
+          run.source,
+          JSON.parse(run.inputs) as Record<string, string>,
+        );
+        return parsed.ok ? stageGroups(parsed.file) : [];
+      })(),
       steps: steps.map((step) => ({
         id: step.id,
         stageIndex: step.stageIndex,
@@ -504,7 +515,8 @@ export class PipelineService {
       upstream?: PipelineRunRow | null;
     },
   ): Promise<PipelineRunSummary> {
-    const source = input.source ?? pipeline.source;
+    // A re-run keeps the file its run had; a new run copies templates in now.
+    const source = input.source ?? (await this.withTemplates(pipeline.teamId, pipeline.source));
     const declared = parsePipelineFile(source);
     if (!declared.ok)
       throw ZelyqError.badRequest(
@@ -589,6 +601,27 @@ export class PipelineService {
     );
   }
 
+  /** The team's pipelines by name: what `uses:` can copy stages from. */
+  private async templates(teamId: string): Promise<Record<string, string>> {
+    return Object.fromEntries(
+      (await this.store.pipelines.pipelines.listForTeam(teamId)).map((row) => [
+        row.name,
+        row.source,
+      ]),
+    );
+  }
+
+  private async withTemplates(teamId: string, source: string): Promise<string> {
+    const expanded = expandTemplates(source, await this.templates(teamId));
+    if (!expanded.ok) {
+      const issue = expanded.issues[0];
+      throw ZelyqError.badRequest(
+        `The pipeline file is not valid: ${issue ? `${issue.line ? `Line ${issue.line}: ` : ""}${issue.message}` : ""}`,
+      );
+    }
+    return expanded.text;
+  }
+
   /** The runs that started these ones, for "started by Shop build #12". */
   private async upstreamsOf(rows: PipelineRunRow[]): Promise<Map<string, RunUpstream>> {
     const found = new Map<string, RunUpstream>();
@@ -609,7 +642,10 @@ export class PipelineService {
 
   /** Parses, then checks every Vault secret the file uses — as the person saving it. */
   private async validate(user: User, teamId: string, source: string): Promise<PipelineFile> {
-    const parsed = parsePipelineFile(source);
+    const expanded = expandTemplates(source, await this.templates(teamId));
+    const parsed = expanded.ok
+      ? parsePipelineFile(expanded.text)
+      : { ok: false as const, file: null, issues: expanded.issues };
     if (!parsed.ok) {
       const issue = parsed.issues[0];
       throw ZelyqError.badRequest(
