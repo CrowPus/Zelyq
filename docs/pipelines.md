@@ -27,15 +27,27 @@ artifacts:
     path: dist
 ```
 
+New to pipelines? Follow [the tutorial](./tutorial.md) once, from an empty Zelyq to an app that is
+tested, deployed and rolled back. This page is the full reference.
+
 - [Where a pipeline runs](#where-a-pipeline-runs)
-- [Adding a machine (SSH runner)](#adding-a-machine-ssh-runner)
+- [Adding a machine (SSH runner)](#adding-a-machine-ssh-runner), and
+  [firewalls and ports](#firewalls-and-ports)
 - [The file](#the-file)
+- [Where the files come from](#where-the-files-come-from): an app, a git repository, anything else;
+  subfolders; files already on the machine
 - [Built-in steps](#built-in-steps): `setup`, `cache`, `docker`, `approval`
+- [Stages at the same time, a machine per stage, matrix](#stages-at-the-same-time-a-machine-per-stage-matrix)
+- [Templates: reuse another pipeline's stages](#templates-reuse-another-pipelines-stages)
 - [Pipelines working together](#pipelines-working-together): inputs, upstream/downstream, one at a
   time, retry, keeping runs
+- [Results, services and test reports](#results-services-and-test-reports): outputs, service
+  containers, JUnit, ✓ / ✗ on GitHub and GitLab
 - [Secrets](#secrets)
 - [Runs](#runs)
-- [Starting a run without pressing Run](#starting-a-run-without-pressing-run)
+- [Starting a run without pressing Run](#starting-a-run-without-pressing-run): git push, pull
+  requests, schedules, other CI; [changing a trigger](#changing-a-trigger);
+  [when a webhook does not start a run](#when-a-webhook-does-not-start-a-run)
 - [Windows and macOS machines](#windows-and-macos-machines)
 - [Who can do what](#who-can-do-what)
 - [What a pipeline never does](#what-a-pipeline-never-does)
@@ -96,6 +108,18 @@ Each run gets its own folder on the machine: `~/zelyq/runs/<id>` (on Windows,
 `%USERPROFILE%\zelyq\r\<id>`). The folder is removed after a run that passes. It is kept after a run
 that fails, so you can sign in and look.
 
+### Firewalls and ports
+
+| From → to | Port | Needed for |
+| --- | --- | --- |
+| Zelyq server → runner | the runner's SSH port (`22` unless you changed it) | every run and deploy on that runner. Zelyq always connects out; a runner never connects in to Zelyq. |
+| GitHub / GitLab → Zelyq | `443` (Zelyq behind HTTPS) | push and pull-request triggers. Zelyq must be reachable from the internet, and `ZELYQ_PUBLIC_URL` set to its public address so the webhook URL it shows is right. |
+| People → a deploy machine | each app's `host-port` | opening a deployed app. See [Deploy](./deploy.md#ports-and-firewalls). |
+
+On a cloud VM, open these in the provider's firewall too (Google Cloud: **VPC network → Firewall**;
+AWS: the instance's **Security group**; Azure: **Network security group**). A runner whose SSH port
+is closed fails **Test connection** with a timeout.
+
 **The team's key.** One key per team, made the first time someone opens Runners. Its private half is
 encrypted on the Zelyq server and never shown. **New key** makes a new one. The old key keeps working
 for 7 days while you add the new one to each machine, or until you press **stop the old key now**.
@@ -155,7 +179,25 @@ notify:
   accepts JSON. It sends nothing to this machine's own addresses.
 
 The editor checks the file as you type, with line numbers. It also warns about things that will only
-stop a run, such as a secret not in Vault yet or a runner not added yet.
+stop a run, such as a secret not in Vault yet or a runner not added yet. The **?** panel beside the
+editor has a short example of everything a file can hold.
+
+## Where the files come from
+
+Each run starts in an **empty folder** of its own on the machine. Nothing is there until a step puts
+it there.
+
+| You want | Do this |
+| --- | --- |
+| The files of an app built in Zelyq | `source: {app: Shop}` and a `checkout: true` step. It copies the app's files exactly as they are in Zelyq now (what you see in the app's editor), without `node_modules`, `.git` and `.env` files. |
+| A GitHub or GitLab repository | `source: {repo: https://github.com/you/shop}` (with `token: vault://GITHUB_TOKEN` for a private one) and `checkout: true`. Without `ref:`, the default branch; a push or pull request trigger checks out its own commit. |
+| Something else | Fetch it in a `run` step: `git clone …`, `curl -O …`, `scp …`. |
+| To work in a subfolder | `working-directory: web` on the step. Paths are always inside the run's folder. |
+| A file that already lives on the runner | Copy it in with a `run` step: `cp ~/config/settings.json .`. The run's folder is `~/zelyq/runs/<id>`; anything outside it stays as it is between runs. Keep secrets in Vault instead of in files on the machine. |
+| A file from another pipeline's run | A [`download` step](#upstream-and-downstream). |
+
+The folder is deleted after a run that passes, and kept after one that fails, so you can sign in and
+look. Files that must outlive a run are [artifacts](#the-file) or a [cache](#cache-keep-a-folder-between-runs).
 
 ## Built-in steps
 
@@ -256,6 +298,110 @@ The tool is put at the front of `PATH` for every later step of the run.
 
 On **Runners**, **Disk** shows a machine's free space and how much Zelyq's tools and caches use, with
 a **Clear** button for each. Clearing is safe: the next run fetches what it needs again.
+
+## Stages at the same time, a machine per stage, matrix
+
+Stages run one after another, on one machine, unless the file says otherwise.
+
+```yaml
+name: Shop
+runs-on: local
+source: {repo: https://github.com/you/shop}
+stages:
+  - name: Build
+    steps: [{checkout: true}, {run: npm ci && npm run build}]
+
+  - name: Test on Linux
+    steps: [{checkout: true}, {run: npm ci && npm test}]
+  - name: Test on Mac
+    runs-on: mac-mini            # this stage on another runner
+    parallel: true               # at the same time as the stage above
+    steps: [{checkout: true}, {run: npm ci && npm test}]
+
+  - name: Node
+    matrix:
+      node: [20, 22]
+      os: [linux, windows]       # 2 × 2 = 4 copies, all at the same time
+    runs-on:
+      - ${{ matrix.os }}         # any runner with that label
+    steps:
+      - checkout: true
+      - setup: node@${{ matrix.node }}
+      - run: npm test
+
+  - name: Ship                   # waits until every stage above is over
+    steps: [{run: echo ready}]
+```
+
+- **`parallel: true`** runs a stage at the same time as the stage above it. Several in a row all run
+  together, and the next stage without `parallel` waits for all of them. At most 20 at once.
+- **`runs-on:` on a stage** runs that stage on another runner (a name, `[labels]`, or `local`). The
+  other stages stay on the pipeline's own `runs-on`.
+- **`matrix:`** makes one copy of the stage for every combination of the values, all at the same
+  time. `${{ matrix.NAME }}` is filled in anywhere in the stage, including its `runs-on`. Copies are
+  named after their values: **Node (20, linux)**. At most 20 copies.
+- A failing stage does not stop the others running beside it. The run fails, and the stages after the
+  group follow their `if:` as after any failure.
+- The run page shows stages that ran together stacked in one column.
+
+**What changes for such a stage.** A stage that names its own `runs-on`, or that runs beside another
+one, gets a **machine of its own**:
+
+- It starts in an **empty folder**: check out again in it (`checkout: true`), and set up tools again.
+  Files made by earlier stages are not there; pass small values with
+  [outputs](#passing-values-to-later-steps), which every later stage can read.
+- On the local runner it gets its own container; on an SSH runner its own folder
+  (`~/zelyq/runs/<id>-s<stage>`). Its [services](#service-containers) are its own, too.
+- It cannot wait for a person: no `approval` step, no `pipeline` step with `wait: true`, and a
+  `deploy` to a protected environment fails. Put those in a stage on the run's own machine.
+- It counts against its runner like a run does. With the local runner, **Settings → Pipelines →
+  Local runs at once** (2 by default) limits how many stages run at the same time; the rest wait
+  their turn.
+- `artifacts:` are kept from the run's own machine only.
+
+## Templates: reuse another pipeline's stages
+
+Write the stages once, in a pipeline of their own, and use them in any pipeline of the team:
+
+```yaml
+# A pipeline called "Node checks"
+name: Node checks
+runs-on: local
+source: {app: Shop}            # used only when this pipeline runs on its own
+inputs:
+  node: {default: "22"}
+env:
+  CI: "true"
+stages:
+  - name: Lint
+    steps: [{checkout: true}, {setup: "node@${{ inputs.node }}"}, {run: npm ci && npm run lint}]
+  - name: Unit tests
+    steps: [{checkout: true}, {setup: "node@${{ inputs.node }}"}, {run: npm ci && npm test}]
+```
+
+```yaml
+# Any other pipeline
+name: Shop
+runs-on: local
+source: {app: Shop}
+stages:
+  - name: Checks
+    uses: Node checks          # the other pipeline's name
+    with: {node: "20"}         # its inputs; the rest take their defaults
+  - name: Deploy
+    steps: [{deploy: {to: staging, port: 3000}}]
+```
+
+- The stages of **Node checks** are copied in where `uses:` stands, named **Checks › Lint** and
+  **Checks › Unit tests**. Its `env:` is given to each of its steps. Its `source`, `services`,
+  `artifacts` and triggers are not copied: the pipeline that uses it decides those.
+- A `uses:` stage takes only `name`, `with`, `if`, `runs-on` (for every copied stage that has none)
+  and `parallel`.
+- The copy is made when a run starts, and the run keeps it: **Run again** does exactly the same,
+  even if the template has changed since. A change to the template applies to the next new runs.
+- A template cannot use another template. Saving a pipeline checks that the template exists, that
+  every input it needs is given, and that `with:` names only its inputs.
+- A template is an ordinary pipeline, so you can run it on its own to try it.
 
 ## Pipelines working together
 
@@ -445,11 +591,17 @@ its output is not recorded.
 Open a pipeline's **Triggers** tab.
 
 **On a git push.** Add the trigger with the branches to watch (`main`, `release/*`). Zelyq shows a
-payload URL and a secret, once.
+payload URL and a secret, **once**: copy both before closing the box.
 
-- GitHub: Settings → Webhooks → Add webhook. Paste the URL and the secret, choose content type
-  `application/json` and "Just the push event".
-- GitLab: Settings → Webhooks. Paste the URL, put the secret in **Secret token**, tick **Push events**.
+- GitHub: the repository's **Settings → Webhooks → Add webhook**. Paste the URL in **Payload URL** and
+  the secret in **Secret**, choose content type `application/json`, and under "Which events" choose
+  "Just the push event" (or **Let me select individual events** → **Pushes** and **Pull requests**
+  when the trigger is also for pull requests).
+- GitLab: **Settings → Webhooks**. Paste the URL, put the secret in **Secret token**, tick **Push
+  events** (and **Merge request events** for merge requests).
+
+GitHub sends a *ping* as soon as the webhook is saved; **Recent Deliveries** on the webhook should
+show it answered `200` with `pong`.
 
 A push to a matching branch starts a run at the pushed commit. A call with the wrong secret is
 refused.
@@ -474,6 +626,35 @@ curl -X POST https://zelyq.example.com/api/v1/pipelines/<pipeline id>/runs \
 ```
 
 Send `{"ref": "v1.2.0"}` to check out a particular branch, tag or commit.
+
+**When the app changes.** For a pipeline whose source is an app: it runs every time the agent
+finishes a turn that changed the app.
+
+**After another pipeline.** See [upstream and downstream](#upstream-and-downstream).
+
+### Changing a trigger
+
+The **pencil** on a trigger changes its branches, paths, pull requests, schedule or upstream pipeline.
+A push trigger keeps its payload URL and secret, so nothing changes in GitHub or GitLab. **Turn off**
+pauses a trigger; the bin removes it. To change a trigger into another kind, add a new one.
+
+### When a webhook does not start a run
+
+GitHub shows Zelyq's answer under the webhook's **Recent Deliveries → Response** (GitLab: **Edit →
+Recent events**). **Redeliver** sends the same call again after you fix something.
+
+| Answer | What it means | What to do |
+| --- | --- | --- |
+| `401` Unknown trigger or wrong secret. | The URL is not one of Zelyq's triggers, or the secret is not the trigger's. | Paste the secret again. Lost it? Remove the trigger, add a new one, and put its new URL **and** secret in the webhook. |
+| `200` pong | GitHub's test call. | Nothing; it works. |
+| `202` … is not one of this trigger's branches. | The push was to another branch. | Add the branch to the trigger (pencil). |
+| `202` The push changed none of this trigger's paths. | The trigger has paths and none matched. | Change the paths, or empty them for any change. |
+| `202` This trigger does not run for pull requests. | A pull-request event, and the trigger is for pushes only. | Tick **Also for pull requests** (pencil). |
+| `202` This trigger is turned off. | | **Turn on**. |
+| `201` Started run #N. | A run started. | |
+
+No delivery at all means GitHub could not reach Zelyq: check that its address is public and on HTTPS
+(see [firewalls and ports](#firewalls-and-ports)).
 
 ## Windows and macOS machines
 

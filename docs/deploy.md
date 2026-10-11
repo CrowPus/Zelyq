@@ -8,6 +8,7 @@ does not come up, the previous one is put back by itself.
 - [Deploying from a pipeline](#deploying-from-a-pipeline)
 - [What a deploy does](#what-a-deploy-does)
 - [Roll back](#roll-back)
+- [Ports and firewalls](#ports-and-firewalls)
 - [Deploy every change the agent makes](#deploy-every-change-the-agent-makes)
 - [Who can do what](#who-can-do-what)
 
@@ -88,6 +89,33 @@ A deploy takes a few seconds of downtime while the containers swap.
 On a card, **History · roll back** lists every deploy of that app. **Roll back to this** puts an
 earlier version back, with the same health check. The last three good versions can be rolled back to;
 older images are removed from the machine.
+
+### The app's name: what a history and a roll back belong to
+
+Each deploy belongs to an **app name in an environment**: one card on Deployments, one history, one
+container (`zelyq-<app>-<environment>`) on the machine. The name is the step's `app:`, or the source
+app's name when there is none.
+
+- Deploy the same app to `staging` and `production`: two cards, two histories, each rolled back on its
+  own.
+- Two pipelines deploying the same `app:` to the same environment replace each other's version: one
+  card, one history. Use that on purpose, or give each its own `app:`.
+- Renaming `app:` starts a new card and a new container. The old one keeps running until you stop it on
+  the machine (`docker rm -f zelyq-<old name>-<environment>`), and its history cannot be rolled back
+  from the new name.
+
+## Ports and firewalls
+
+- `port` is what the app listens on **inside** its container; `host-port` is where it answers **on the
+  machine**. Two apps in one environment need two different `host-port`s.
+- People reach an app at `http://<public address>:<host-port>`. Open that port in the machine's
+  firewall and in the cloud provider's (Google Cloud: **VPC network → Firewall**; AWS: **Security
+  group**; Azure: **Network security group**). The health check itself runs on the machine and needs no
+  open port.
+- For a name and HTTPS, put a reverse proxy (nginx, Caddy, Traefik) on the machine in front of the
+  `host-port`, and set the step's `url:` so Deployments links to the right address.
+- Zelyq reaches the machine over SSH only; see [Pipelines → firewalls and
+  ports](./pipelines.md#firewalls-and-ports).
 
 ## Deploy every change the agent makes
 
