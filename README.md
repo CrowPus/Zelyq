@@ -150,6 +150,8 @@ stages:
   macOS and Windows** machines over SSH, with each machine's fingerprint pinned.
 - **Fast and flexible.** Stages that run at the same time, a different machine per stage, matrix builds,
   and reusable templates shared across pipelines.
+- **Plugins.** Package a step once — with inputs, secrets from Vault and outputs — install it in your
+  team and use it in any pipeline. See [Pipeline plugins](./docs/pipeline-plugins.md).
 - **Started by anything.** By hand, a git push (with path filters), a pull request, a schedule, another
   pipeline finishing, an app change from the agent, or any CI with a service key.
 - **Everything a real pipeline needs.** Tool setup and caches, service containers (Postgres, Redis),
