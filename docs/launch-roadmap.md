@@ -54,10 +54,8 @@ _Tracked in [#99](https://github.com/CrowPus/Zelyq/issues/99), [#100](https://gi
 
 _Tracked in [#101](https://github.com/CrowPus/Zelyq/issues/101), [#102](https://github.com/CrowPus/Zelyq/issues/102)._
 
-- [ ] `deploy/` — replace the box-specific values (`136.112.104.233`,
-      `app.zelyq.com`, `/home/crow/...`) with `<your-vm-ip>` / `<your-domain>`
-      placeholders, or move the concrete files to a private ops repo and keep
-      only a generic template here.
+- [x] Server-specific deployment files moved out of this repository; how to
+      run Zelyq behind your own domain is in [self-hosting](./self-hosting.md).
 - [ ] A social-preview image for the repo (GitHub Settings → Social preview) —
       high leverage for launch-day link shares.
 - [ ] README pass: the licence badge, the nav row, and the screenshots/videos

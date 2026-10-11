@@ -20,7 +20,7 @@ test("follows the browser's own address, not the server's guess", () => {
   // The bug this guards: ZELYQ_PREVIEW_HOST defaults to loopback, and the
   // server bakes it into `url` regardless of where the browser actually is.
   const preview = running({ url: "http://127.0.0.1:4300" });
-  assert.equal(resolvePreviewUrl(preview, "136.112.104.233"), "http://136.112.104.233:4300");
+  assert.equal(resolvePreviewUrl(preview, "203.0.113.10"), "http://203.0.113.10:4300");
 });
 
 test("matches when the browser and the server agree", () => {
@@ -30,7 +30,7 @@ test("matches when the browser and the server agree", () => {
 
 test("falls back to the server's url when no port is available", () => {
   const preview = running({ port: null, url: "http://example.internal:4300" });
-  assert.equal(resolvePreviewUrl(preview, "136.112.104.233"), "http://example.internal:4300");
+  assert.equal(resolvePreviewUrl(preview, "203.0.113.10"), "http://example.internal:4300");
 });
 
 test("uses a templated reverse-proxy URL verbatim, port and scheme included", () => {
@@ -47,9 +47,9 @@ test("still rewrites a loopback url to the browser's address even when a port is
 
 test("is null while not running, regardless of a stale url or port", () => {
   const preview = running({ status: "starting", url: null });
-  assert.equal(resolvePreviewUrl(preview, "136.112.104.233"), null);
+  assert.equal(resolvePreviewUrl(preview, "203.0.113.10"), null);
 });
 
 test("is null for no preview at all", () => {
-  assert.equal(resolvePreviewUrl(null, "136.112.104.233"), null);
+  assert.equal(resolvePreviewUrl(null, "203.0.113.10"), null);
 });
