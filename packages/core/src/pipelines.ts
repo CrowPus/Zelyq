@@ -1185,6 +1185,8 @@ export interface PipelineSummary {
   updatedBy: PipelineActor | null;
   /** Starred by the person asking: listed first. */
   favorite: boolean;
+  /** Where the file lives in the repository (each run reads it there); null: only in Zelyq. */
+  repoPath: string | null;
 }
 
 /** The team's pipelines over a period, for the overview. */
@@ -2249,4 +2251,31 @@ export function fillRunValues<T>(
     ) as T;
   }
   return value;
+}
+
+/**
+ * A pipeline file's place in its repository: a relative path to a .yml or
+ * .yaml file, such as .zelyq/pipelines/build.yml. Nothing outside the
+ * repository, nothing a command line could take for an option.
+ */
+export const repoPathSchema = z
+  .string()
+  .trim()
+  .max(200, "Keep the path under 200 characters.")
+  .regex(/^[A-Za-z0-9._][A-Za-z0-9._/-]*\.ya?ml$/, "Use a path like .zelyq/pipelines/build.yml.")
+  .refine(
+    (path) => !path.split("/").some((part) => part === "" || part === "." || part === ".."),
+    "Use a path inside the repository, like .zelyq/pipelines/build.yml.",
+  );
+
+/** Where a pipeline's file goes in its repository when nobody says: .zelyq/pipelines/<name>.yml. */
+export function defaultRepoPath(name: string): string {
+  // Words joined by "-", built word by word: no pattern that could run slow on a long name.
+  const slug = name
+    .toLowerCase()
+    .split(/[^a-z0-9]/)
+    .filter(Boolean)
+    .join("-")
+    .slice(0, 60);
+  return `.zelyq/pipelines/${slug || "pipeline"}.yml`;
 }

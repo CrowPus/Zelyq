@@ -99,6 +99,8 @@ export interface ZelyqServer {
   pipelineTriggers: Pick<PipelineTriggerService, "tick" | "appChanged">;
   /** Exposed so tests can run the clean-up at a chosen time. */
   pipelineEngine: Pick<PipelineEngine, "cleanUp" | "reporter">;
+  /** Exposed so tests can read pipeline files from a local repository. */
+  pipelines: Pick<PipelineService, "repoFiles">;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -496,6 +498,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     settings,
     pipelineTriggers,
     pipelineEngine,
+    pipelines,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

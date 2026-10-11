@@ -1,0 +1,1 @@
+ALTER TABLE `pipelines` ADD `repo_path` text;

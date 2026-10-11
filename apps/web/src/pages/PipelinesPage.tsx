@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
-import { Plus, Star, Workflow } from "lucide-react";
+import { GitBranch, Plus, Star, Workflow } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { OverviewTab } from "../components/pipelines/OverviewTab";
@@ -160,7 +160,18 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
               className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-3 pl-2"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{pipeline.name}</p>
+                <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                  <span className="truncate">{pipeline.name}</span>
+                  {pipeline.repoPath && (
+                    <GitBranch
+                      size={12}
+                      className="shrink-0 text-fg-muted"
+                      aria-label={`File kept in the repository at ${pipeline.repoPath}`}
+                    >
+                      <title>{`Kept in the repository at ${pipeline.repoPath}`}</title>
+                    </GitBranch>
+                  )}
+                </p>
                 <p className="text-xs text-fg-secondary">
                   runs on <span className="font-mono">{pipeline.runsOn}</span>
                   {pipeline.updatedBy && <> · changed by {pipeline.updatedBy.name}</>} ·{" "}

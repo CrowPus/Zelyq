@@ -257,6 +257,47 @@ it there.
 The folder is deleted after a run that passes, and kept after one that fails, so you can sign in and
 look. Files that must outlive a run are [artifacts](#the-file) or a [cache](#cache-keep-a-folder-between-runs).
 
+## Keep the file in your repository
+
+A pipeline's file can live in Zelyq (the default) or in your repository, next to your code, like a
+`Jenkinsfile` or a GitHub workflow. In the repository, a change to the pipeline goes through the same
+review as a change to the code, and **every branch and pull request runs its own copy of the file**.
+
+**To move a pipeline's file into the repository:**
+
+1. The file needs `source:` with `repo:` (and `token:` for a private repository). That is where Zelyq
+   reads it.
+2. Open the pipeline → **File** → **Keep it in the repository**.
+3. Keep the suggested path (`.zelyq/pipelines/<name>.yml`) or type another. Press **Download the
+   file**, add it to your repository at that path, and push it to the default branch.
+4. Press **Link**. Zelyq reads the file there and checks it, the same as a save.
+
+From then on:
+
+| What happens | What it does |
+| --- | --- |
+| A push or pull request | The run reads the file **at that commit**. A branch can change its pipeline, and its run tests that change. |
+| **Run now**, a schedule | The run reads the file on the default branch (or `source: ref:`), and checks out the code from the same commit. |
+| A run on the default branch | Its file becomes the copy you see in **File**, so Zelyq always shows what main runs. |
+| You want to change the pipeline | Change the file in the repository. In Zelyq, **File** shows it without editing. |
+| **Update from the repository** | Reads the default branch now, without waiting for a run. |
+| **Stop keeping it there** | Back to a file in Zelyq, as it last was on the default branch. |
+
+A pipeline kept in the repository has a small branch icon in the Pipelines list.
+
+**What a push cannot do.** Anyone who can push to the repository can change what the pipeline runs,
+as with any CI. So a file read from a branch must keep to what the copy in Zelyq allows:
+
+- the same `source: repo:` and `token:`: a branch cannot send your token to another address;
+- no Vault secret that the copy in Zelyq does not already use. To allow a new one, an editor (an admin
+  for a Protected secret) presses **Update from the repository** after it is on the default branch.
+
+Pull requests from forks never run, as before.
+
+**When the file cannot be used**, the run fails at once and says why, at the top of the run:
+`There is no .zelyq/pipelines/shop.yml in the repository at 4872bcd.`, `… is not valid: Line 4: …`,
+`… uses DEPLOY_KEY from Vault, which this pipeline may not use yet.` Fix the file and push again.
+
 ## Built-in steps
 
 Besides `checkout` and `run`, four ready-made steps do common work the same way on Linux, macOS

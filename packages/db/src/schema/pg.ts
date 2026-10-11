@@ -421,7 +421,10 @@ export const pipelines = pgTable(
       .notNull()
       .references(() => teams.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** The saved file; for a file kept in the repository, its last copy from the default branch. */
     source: text("source").notNull(),
+    /** Where the file lives in the repository, e.g. .zelyq/pipelines/build.yml; null: only here. */
+    repoPath: text("repo_path"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: text("created_at").notNull(),

@@ -316,6 +316,20 @@ export const api = {
       request<void>(`/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`, { method: "DELETE" }),
     stats: (teamId: string, days: number) =>
       request<{ stats: PipelineStats }>(`/teams/${teamId}/pipeline-stats?days=${days}`),
+    /** Keeps the file in its repository at `path`: every run reads it there. */
+    linkRepo: (teamId: string, id: string, path: string) =>
+      request<{ pipeline: PipelineDetail }>(`/teams/${teamId}/pipelines/${id}/repo`, {
+        method: "PUT",
+        body: JSON.stringify({ path }),
+      }),
+    pullRepo: (teamId: string, id: string) =>
+      request<{ pipeline: PipelineDetail }>(`/teams/${teamId}/pipelines/${id}/repo/pull`, {
+        method: "POST",
+      }),
+    unlinkRepo: (teamId: string, id: string) =>
+      request<{ pipeline: PipelineDetail }>(`/teams/${teamId}/pipelines/${id}/repo`, {
+        method: "DELETE",
+      }),
     setFavorite: (teamId: string, id: string, favorite: boolean) =>
       request<void>(`/teams/${teamId}/pipelines/${id}/favorite`, {
         method: "PUT",
