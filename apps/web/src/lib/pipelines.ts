@@ -20,6 +20,7 @@ export const TRIGGER_WORDS: Record<string, string> = {
   push: "a push",
   schedule: "the schedule",
   api: "the API",
+  app: "a change to the app",
 };
 
 /** "1m 05s" — how long something took, or has been running. */

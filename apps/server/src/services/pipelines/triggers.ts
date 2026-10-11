@@ -4,6 +4,7 @@ import {
   newId,
   type PipelineTriggerSummary,
   parseCron,
+  parsePipelineFile,
   type TriggerInput,
   triggerInputSchema,
   type User,
@@ -66,7 +67,11 @@ export class PipelineTriggerService {
       pipelineId,
       kind: input.kind,
       config: JSON.stringify(
-        input.kind === "push" ? { branches: input.branches } : { cron: input.cron },
+        input.kind === "push"
+          ? { branches: input.branches }
+          : input.kind === "schedule"
+            ? { cron: input.cron }
+            : {},
       ),
       secret: secret ? this.box.encrypt(secret) : null,
       enabled: true,
@@ -157,6 +162,32 @@ export class PipelineTriggerService {
     return { status: 201, message: `Started run #${run.number}.` };
   }
 
+  /**
+   * The agent changed an app's files: every pipeline whose source is that app
+   * and that has a "when the app changes" trigger starts a run.
+   */
+  async appChanged(project: { id: string; name: string; teamId: string }): Promise<number> {
+    let started = 0;
+    for (const row of await this.store.pipelines.triggers.listEnabled("app").catch(() => [])) {
+      try {
+        const pipeline = await this.store.pipelines.pipelines.findById(row.pipelineId);
+        if (!pipeline || pipeline.teamId !== project.teamId) continue;
+        const parsed = parsePipelineFile(pipeline.source);
+        const app = parsed.ok ? parsed.file.source?.app : undefined;
+        if (!app || (app !== project.id && app.toLowerCase() !== project.name.toLowerCase()))
+          continue;
+        await this.store.pipelines.triggers.update(row.id, {
+          lastFiredAt: new Date().toISOString(),
+        });
+        await this.pipelines.startTriggered(row.pipelineId, "app", null);
+        started += 1;
+      } catch (error) {
+        this.log.error(error, `app trigger ${row.id} failed`);
+      }
+    }
+    return started;
+  }
+
   /** Fires every schedule whose minute it is, once. */
   async tick(now = new Date()): Promise<void> {
     const minute = new Date(now);
@@ -197,7 +228,7 @@ export class PipelineTriggerService {
     const base = (this.publicUrl ?? "").replace(/\/$/, "");
     return {
       id: row.id,
-      kind: row.kind === "schedule" ? "schedule" : "push",
+      kind: row.kind === "schedule" ? "schedule" : row.kind === "app" ? "app" : "push",
       branches: config.branches ?? null,
       cron: config.cron ?? null,
       enabled: row.enabled,

@@ -39,6 +39,8 @@ export const ID_PREFIXES = {
   pipelineArtifact: "par",
   pipelineTrigger: "ptr",
   pipelineApproval: "pap",
+  deployEnvironment: "env",
+  deployment: "dep",
   runner: "rnr",
   teamSshKey: "tsk",
 } as const;

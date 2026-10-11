@@ -105,6 +105,9 @@ export class ChatGateway {
     private readonly figma: { extract: FigmaExtractService; enabled: boolean },
   ) {}
 
+  /** Set by the server: an agent turn changed an app's files. */
+  appChanged?: (projectId: string) => Promise<unknown>;
+
   /**
    * The browser sends its session cookie with the upgrade request, so the
    * socket is authenticated exactly like an HTTP call. A viewer may watch a
@@ -691,6 +694,12 @@ export class ChatGateway {
       // on top of the turn, never a reason to have failed it.
       try {
         const commit = await this.projects.commitTurn(room.projectId, prompt);
+        // Pipelines that run "when the app changes" start now (never failing the turn).
+        if (commit.committed) {
+          void this.appChanged?.(room.projectId).catch((error) =>
+            this.log.error(error, "could not start the app's pipelines"),
+          );
+        }
         // Said now rather than discovered at push time. The count costs no
         // network — it reads refs already fetched — so a turn never waits on a
         // git host to produce it, and somebody collaborating finds out that the

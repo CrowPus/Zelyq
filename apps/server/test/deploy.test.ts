@@ -1,0 +1,450 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs/promises";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { after, before, test } from "node:test";
+import { runMigrations } from "@zelyq/db";
+import { buildServer, type ZelyqServer } from "../src/app.js";
+import type { ServerConfig } from "../src/config.js";
+import { type DockerSsh, dockerHostAvailable, startDockerSsh } from "./helpers/docker-ssh.js";
+
+/**
+ * Deploy end to end: a real app with a Dockerfile, deployed by a pipeline to
+ * a Debian machine over SSH with real Docker, reached over HTTP — replaced,
+ * broken and rolled back by itself, rolled back by hand, protected, frozen.
+ */
+
+const tmp = path.join(os.tmpdir(), `zelyq-deploy-${Date.now()}`);
+const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
+const SECRET = "xxxxxxxx-deploy-secret-xxxxxxxx";
+const available = dockerHostAvailable();
+
+const config: ServerConfig = {
+  host: "127.0.0.1",
+  port: 0,
+  logLevel: "silent",
+  isProduction: true,
+  corsOrigin: ["*"],
+  databaseUrl: `file:${path.join(tmp, "deploy.db")}`,
+  agentUrl: "http://127.0.0.1:59999",
+  provider: "anthropic",
+  model: "claude-opus-5",
+  effort: "high",
+  allowRegistration: true,
+  sessionTtlDays: 30,
+  templatesDir: path.join(repoRoot, "templates"),
+  webDir: null,
+  secretKey: undefined,
+  secretKeyFile: path.join(tmp, "secret.key"),
+  attachmentsDir: path.join(tmp, "attachments"),
+  uploadedSkillsDir: path.join(tmp, "skills"),
+  pipelinesDir: path.join(tmp, "pipelines"),
+  runtime: {
+    kind: "local",
+    workspaceDir: path.join(tmp, "workspace"),
+    execTimeoutMs: 30_000,
+    previewPortRange: [4956, 4959],
+    previewHost: "127.0.0.1",
+  },
+};
+
+let server: ZelyqServer;
+const cookies = { owner: "", admin: "", editor: "" };
+let teamId: string;
+let projectId: string;
+let machine: DockerSsh | null = null;
+let runnerId = "";
+let hostPort = 0;
+const app = `shop${Date.now().toString(36)}`;
+
+function call(
+  cookie: string,
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  url: string,
+  payload?: unknown,
+) {
+  return server.app.inject({
+    method,
+    url,
+    headers: { cookie },
+    ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }),
+  });
+}
+const team = (suffix: string) => `/api/teams/${teamId}${suffix}`;
+
+async function register(email: string, name: string): Promise<string> {
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: { email, name, password: "correct-horse-battery" },
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  const cookie = response.cookies.find((c) => c.name === "zelyq_session");
+  assert.ok(cookie);
+  return `zelyq_session=${cookie.value}`;
+}
+
+function freePort(): Promise<number> {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address() as net.AddressInfo;
+      probe.close(() => resolve(address.port));
+    });
+  });
+}
+
+/** The app: answers with its version and the variables it was given. */
+async function writeApp(version: string, broken = false) {
+  await server.runtime.writeFile(
+    projectId,
+    "Dockerfile",
+    'FROM node:22-bookworm\nWORKDIR /app\nCOPY server.js .\nCMD ["node", "server.js"]\n',
+  );
+  await server.runtime.writeFile(
+    projectId,
+    "server.js",
+    broken
+      ? "process.exit(1);\n"
+      : `require("http").createServer((q, s) => s.end(JSON.stringify({ version: "${version}", greeting: process.env.GREETING, secret: process.env.API_KEY }))).listen(3000);\n`,
+  );
+}
+
+async function pipeline(name: string, to: string): Promise<string> {
+  const created = await call(cookies.owner, "POST", team("/pipelines"), {
+    source: `name: ${name}
+runs-on: local
+source:
+  app: Shop
+stages:
+  - name: Ship
+    steps:
+      - checkout: true
+      - deploy:
+          to: ${to}
+          app: ${app}
+          port: 3000
+          host-port: ${hostPort}
+          health-timeout: 60s
+`,
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  return created.json().pipeline.id;
+}
+
+async function runToEnd(pipelineId: string, cookie = cookies.owner) {
+  const started = await call(cookie, "POST", team(`/pipelines/${pipelineId}/runs`), {});
+  assert.equal(started.statusCode, 201, started.body);
+  return waitFor(started.json().run.id);
+}
+
+async function waitFor(runId: string, statuses = ["passed", "failed", "cancelled", "timed_out"]) {
+  const deadline = Date.now() + 600_000;
+  for (;;) {
+    const run = (await call(cookies.owner, "GET", team(`/pipeline-runs/${runId}`))).json().run;
+    if (statuses.includes(run.status)) {
+      const lines = (
+        await call(cookies.owner, "GET", team(`/pipeline-runs/${runId}/logs?after=0`))
+      ).json().lines;
+      return { run, log: lines.map((line: { text: string }) => line.text).join("\n") as string };
+    }
+    if (Date.now() > deadline) throw new Error(`run did not finish: ${run.status}`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+async function served(): Promise<{ version: string; greeting: string; secret: string } | null> {
+  return fetch(`http://127.0.0.1:${hostPort}/`, { signal: AbortSignal.timeout(3000) })
+    .then((response) => response.json())
+    .catch(() => null);
+}
+
+async function environments() {
+  return (await call(cookies.owner, "GET", team("/environments"))).json().environments as {
+    id: string;
+    name: string;
+    live: { id: string; number: number; status: string; url: string; app: string }[];
+  }[];
+}
+
+before(async () => {
+  await fs.mkdir(tmp, { recursive: true });
+  await runMigrations(config.databaseUrl);
+  server = await buildServer(config);
+  cookies.owner = await register("owner@example.com", "Owner");
+  teamId = (await call(cookies.owner, "GET", "/api/teams")).json().teams[0].id;
+  for (const role of ["admin", "editor"] as const) {
+    cookies[role] = await register(`${role}@example.com`, role[0]?.toUpperCase() + role.slice(1));
+    await call(cookies.owner, "POST", team("/members"), { email: `${role}@example.com`, role });
+  }
+  await call(cookies.owner, "PUT", "/api/settings", { pipelineLocalRunner: "host" });
+  projectId = (await call(cookies.owner, "POST", "/api/projects", { name: "Shop", teamId })).json()
+    .project.id;
+  hostPort = await freePort();
+  if (!available) return;
+  const keys = (await call(cookies.owner, "GET", team("/ssh-keys"))).json().keys;
+  machine = await startDockerSsh(keys[0].publicKey);
+  if (!machine) return;
+  const added = await call(cookies.owner, "POST", team("/runners"), {
+    name: "deploy-box",
+    host: machine.host,
+    port: machine.port,
+    username: machine.username,
+  });
+  runnerId = added.json().runner.id;
+  const tested = (await call(cookies.owner, "POST", team(`/runners/${runnerId}/test`))).json();
+  const confirmed = await call(cookies.owner, "POST", team(`/runners/${runnerId}/confirm`), {
+    fingerprint: tested.hostKeyFingerprint,
+  });
+  assert.equal(confirmed.statusCode, 200, confirmed.body);
+  const secret = await call(cookies.owner, "POST", team("/vault"), {
+    name: "SHOP_API_KEY",
+    value: SECRET,
+  });
+  assert.equal(secret.statusCode, 201, secret.body);
+});
+
+after(async () => {
+  for (const name of ["staging", "production"]) {
+    try {
+      execFileSync(
+        "docker",
+        ["rm", "-f", `zelyq-${app}-${name}`, `zelyq-${app}-${name}-previous`],
+        { stdio: "ignore" },
+      );
+    } catch {
+      // not there
+    }
+  }
+  try {
+    const images = execFileSync("docker", ["images", "-q", `zelyq-${app}`])
+      .toString()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (images.length) execFileSync("docker", ["rmi", "-f", ...images], { stdio: "ignore" });
+  } catch {
+    // nothing kept
+  }
+  machine?.stop();
+  await server?.close();
+  await fs.rm(tmp, { recursive: true, force: true });
+});
+
+const ready = () => (machine ? false : "no Docker host for the test machine");
+
+test("environments: admins make them, values never come back, editors cannot", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  const refused = await call(cookies.editor, "POST", team("/environments"), {
+    name: "staging",
+    runnerId,
+  });
+  assert.equal(refused.statusCode, 403);
+  const created = await call(cookies.admin, "POST", team("/environments"), {
+    name: "staging",
+    runnerId,
+    address: "127.0.0.1",
+    variables: { GREETING: "hello from staging", API_KEY: "vault://SHOP_API_KEY" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  assert.deepEqual(created.json().environment.variables, [
+    { name: "GREETING", fromVault: false },
+    { name: "API_KEY", fromVault: true },
+  ]);
+  assert.ok(!created.body.includes("hello from staging"), "a typed value came back");
+});
+
+test("deploy: built on the machine, started, reachable, with its variables, secrets kept out of the log", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  await writeApp("1");
+  const id = await pipeline("Ship to staging", "staging");
+  const { run, log } = await runToEnd(id);
+  assert.equal(run.status, "passed", log);
+  assert.match(log, /Building zelyq-/);
+  assert.match(log, /Healthy: http:\/\/127\.0\.0\.1:\d+\/ answered 200/);
+  assert.match(log, new RegExp(`${app} #1 is live on staging: http://127\\.0\\.0\\.1:${hostPort}`));
+  assert.ok(!log.includes(SECRET), "the secret appeared in the log");
+  const answer = await served();
+  assert.deepEqual(answer, { version: "1", greeting: "hello from staging", secret: SECRET });
+  const staging = (await environments()).find((e) => e.name === "staging");
+  assert.equal(staging?.live[0]?.number, 1);
+  assert.equal(staging?.live[0]?.url, `http://127.0.0.1:${hostPort}`);
+});
+
+test("deploy: a new version replaces the old; a broken one is rolled back by itself", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  const id = (await call(cookies.owner, "GET", team("/pipelines"))).json().pipelines[0].id;
+  await writeApp("2");
+  const second = await runToEnd(id);
+  assert.equal(second.run.status, "passed", second.log);
+  assert.equal((await served())?.version, "2");
+
+  await writeApp("3", true);
+  const broken = await runToEnd(id);
+  assert.equal(broken.run.status, "failed");
+  assert.match(broken.log, /The new version did not come up/);
+  assert.match(broken.log, /Rolled back automatically/);
+  assert.equal((await served())?.version, "2", "version 2 is serving again");
+
+  const staging = (await environments()).find((e) => e.name === "staging");
+  assert.equal(staging?.live[0]?.number, 2);
+  const history = (
+    await call(cookies.owner, "GET", team(`/environments/${staging?.id}/deployments?app=${app}`))
+  ).json().deployments;
+  assert.deepEqual(
+    history.map((d: { number: number; status: string }) => `${d.number}:${d.status}`),
+    ["3:failed", "2:live", "1:replaced"],
+  );
+});
+
+test("roll back: by hand, to an earlier version still on the machine", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  const staging = (await environments()).find((e) => e.name === "staging");
+  const history = (
+    await call(cookies.owner, "GET", team(`/environments/${staging?.id}/deployments?app=${app}`))
+  ).json().deployments;
+  const first = history.find((d: { number: number }) => d.number === 1);
+  assert.equal(first.canRollBackTo, true);
+  const rolled = await call(cookies.editor, "POST", team(`/deployments/${first.id}/roll-back`));
+  assert.equal(rolled.statusCode, 200, rolled.body);
+  // It answers at once, still going; the page then follows it to the end.
+  assert.equal(rolled.json().deployment.status, "deploying");
+  assert.equal(rolled.json().deployment.kind, "rollback");
+  const id = rolled.json().deployment.id;
+  let detail = (await call(cookies.editor, "GET", team(`/deployments/${id}`))).json().deployment;
+  for (let i = 0; i < 120 && detail.status === "deploying"; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    detail = (await call(cookies.editor, "GET", team(`/deployments/${id}`))).json().deployment;
+  }
+  assert.equal(detail.status, "live");
+  const lines = detail.log.map((line: { text: string }) => line.text).join("\n");
+  assert.match(lines, /Rolling back to #1/);
+  assert.match(lines, /Healthy: /);
+  assert.match(lines, /#\d+ is live on staging/);
+  assert.equal((await served())?.version, "1");
+
+  // A pipeline that would take another app's port is warned about while it is written.
+  const warned = await call(cookies.owner, "POST", team("/pipelines/check"), {
+    source: `name: x\nruns-on: local\nstages:\n  - name: A\n    steps:\n      - deploy: {to: staging, app: other, port: 3000, host-port: ${hostPort}}\n`,
+  });
+  assert.ok(
+    warned
+      .json()
+      .warnings.some((w: string) => w.includes(`Port ${hostPort} on staging is used by ${app}`)),
+    JSON.stringify(warned.json()),
+  );
+});
+
+test("protected and frozen environments", { skip: !available && "no Docker" }, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  const production = await call(cookies.owner, "POST", team("/environments"), {
+    name: "production",
+    runnerId,
+    address: "127.0.0.1",
+    protected: true,
+    variables: { GREETING: "hello from production" },
+  });
+  assert.equal(production.statusCode, 201, production.body);
+  hostPort = await freePort();
+  await writeApp("4");
+  const id = await pipeline("Ship to production", "production");
+  const started = await call(cookies.editor, "POST", team(`/pipelines/${id}/runs`), {});
+  const runId = started.json().run.id;
+  const waiting = await waitFor(runId, ["waiting"]);
+  assert.equal(waiting.run.approvals[0].message, "Deploy to production?");
+  const open = waiting.run.approvals[0];
+  assert.equal(
+    (
+      await call(cookies.editor, "POST", team(`/pipeline-runs/${runId}/approvals/${open.id}`), {
+        decision: "approved",
+      })
+    ).statusCode,
+    403,
+  );
+  await call(cookies.admin, "POST", team(`/pipeline-runs/${runId}/approvals/${open.id}`), {
+    decision: "approved",
+  });
+  const done = await waitFor(runId);
+  assert.equal(done.run.status, "passed", done.log);
+  assert.equal((await served())?.greeting, "hello from production");
+
+  // An editor cannot roll back a protected environment.
+  const env = (await environments()).find((e) => e.name === "production");
+  const live = env?.live[0];
+  assert.equal(
+    (await call(cookies.editor, "POST", team(`/deployments/${live?.id}/roll-back`))).statusCode,
+    403,
+  );
+
+  const frozen = await call(cookies.admin, "PATCH", team(`/environments/${env?.id}`), {
+    frozen: true,
+    frozenReason: "release freeze",
+  });
+  assert.equal(frozen.statusCode, 200, frozen.body);
+  const refused = await runToEnd(id);
+  assert.equal(refused.run.status, "failed");
+  assert.match(refused.log, /production is frozen: release freeze/);
+});
+
+test("a port already in use is said plainly; a first deploy says nothing was there before", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  const busy = net.createServer().listen(0, "0.0.0.0");
+  await new Promise((resolve) => busy.once("listening", resolve));
+  const taken = (busy.address() as net.AddressInfo).port;
+  try {
+    const created = await call(cookies.owner, "POST", team("/pipelines"), {
+      source: `name: Port taken
+runs-on: local
+source:
+  app: Shop
+stages:
+  - name: Ship
+    steps:
+      - checkout: true
+      - deploy:
+          to: staging
+          app: ${app}-other
+          port: 3000
+          host-port: ${taken}
+`,
+    });
+    await writeApp("5");
+    const { run, log } = await runToEnd(created.json().pipeline.id);
+    assert.equal(run.status, "failed");
+    assert.match(log, new RegExp(`Port ${taken} on deploy-box is already used by something else`));
+    assert.match(log, /Nothing was running here before it/);
+    assert.doesNotMatch(log, /Rolled back automatically/);
+  } finally {
+    busy.close();
+  }
+});
+
+test("when the app changes, its pipelines start by themselves", async () => {
+  const id = (
+    await call(cookies.owner, "POST", team("/pipelines"), {
+      source:
+        "name: On change\nruns-on: local\nsource:\n  app: Shop\nstages:\n  - name: A\n    steps:\n      - run: echo changed\n",
+    })
+  ).json().pipeline.id;
+  const added = await call(cookies.editor, "POST", team(`/pipelines/${id}/triggers`), {
+    kind: "app",
+  });
+  assert.equal(added.statusCode, 201, added.body);
+  const project = await server.store.projects.findById(projectId);
+  assert.ok(project);
+  assert.equal(await server.pipelineTriggers.appChanged(project), 1);
+  const runs = (await call(cookies.owner, "GET", team(`/pipelines/${id}/runs`))).json().runs;
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].trigger, "app");
+});

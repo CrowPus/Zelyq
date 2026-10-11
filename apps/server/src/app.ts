@@ -14,6 +14,7 @@ import type { ServerConfig } from "./config.js";
 import { registerAccountRoutes } from "./routes/accounts.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
+import { registerDeployRoutes } from "./routes/deploy.js";
 import { registerFigmaRoutes } from "./routes/figma.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
@@ -40,6 +41,7 @@ import { AccountService } from "./services/accounts.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
+import { DeployService } from "./services/deploy.js";
 import { FigmaConnectionService } from "./services/figma-connections.js";
 import { FigmaExtractService } from "./services/figma-extract.js";
 import { FunctionSecretSync } from "./services/function-secrets.js";
@@ -92,8 +94,8 @@ export interface ZelyqServer {
   projectVariables: ProjectVariableService;
   /** Exposed so tests can ask which credential Zelyq would actually use. */
   settings: SettingsService;
-  /** Exposed so tests can run the schedule at a chosen time. */
-  pipelineTriggers: Pick<PipelineTriggerService, "tick">;
+  /** Exposed so tests can run the schedule at a chosen time, or say an app changed. */
+  pipelineTriggers: Pick<PipelineTriggerService, "tick" | "appChanged">;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -159,6 +161,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     config.pipelinesDir ?? path.join(path.dirname(config.attachmentsDir), "pipelines");
   const sshKeys = new TeamSshKeyService(store, access, secrets);
   const runners = new RunnerService(store, access, sshKeys);
+  const deploys = new DeployService(store, access, secrets, vault, runners);
   const pipelineEngine = new PipelineEngine({
     store,
     vault,
@@ -173,6 +176,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     publicUrl: config.publicUrl,
     tools: new ToolService(path.join(pipelinesDir, "tools")),
     cacheDir: path.join(pipelinesDir, "cache"),
+    deploys,
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
   const pipelineTriggers = new PipelineTriggerService(
@@ -342,6 +346,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSnapshotRoutes(app, { projects, runtime, store, access });
   registerVaultRoutes(app, { vault, access });
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
+  registerDeployRoutes(app, { access, deploys });
   registerPipelineRoutes(app, {
     access,
     pipelines,
@@ -399,6 +404,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     }
     images.start();
     videos.start();
+    await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
   });
@@ -430,6 +436,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     { bridge: videoBridge, serverInternalUrl: config.serverInternalUrl },
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
+
+  gateway.appChanged = async (projectId) => {
+    const project = await store.projects.findById(projectId);
+    if (project) await pipelineTriggers.appChanged(project);
+  };
 
   app.get<{ Params: { id: string } }>(
     "/ws/projects/:id",

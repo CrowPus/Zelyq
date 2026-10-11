@@ -5,7 +5,17 @@ import {
   parsePipelineFile,
   roleAtLeast,
 } from "@zelyq/core";
-import { Clock, GitBranch, Play, Plus, Save, TerminalSquare, Trash2, Workflow } from "lucide-react";
+import {
+  Clock,
+  GitBranch,
+  Play,
+  Plus,
+  Save,
+  Sparkles,
+  TerminalSquare,
+  Trash2,
+  Workflow,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
@@ -350,7 +360,12 @@ notify:
     message: Ship it?
     approvers: editors       # admins (default) or editors
     timeout: 4h              # default 24h, at most 7d
-    allow-self: false        # someone else than who started the run`}</pre>
+    allow-self: false        # someone else than who started the run
+- deploy:                    # to an environment in Deployments (needs a Dockerfile)
+    to: production
+    port: 3000               # the app's port inside its container
+    host-port: 80            # on the machine; default the same
+    health: /health          # checked after starting; default /`}</pre>
     </details>
   );
 }
@@ -408,6 +423,11 @@ function Triggers({
     },
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
+  const addApp = useMutation({
+    mutationFn: () => api.pipelines.addTrigger(teamId, pipelineId, { kind: "app" }),
+    onSuccess: () => void refresh(),
+    onError: (caught) => setError(vaultErrorMessage(caught)),
+  });
   const toggle = useMutation({
     mutationFn: (trigger: PipelineTriggerSummary) =>
       api.pipelines.setTrigger(teamId, pipelineId, trigger.id, !trigger.enabled),
@@ -451,7 +471,13 @@ function Triggers({
         <ul className="divide-y divide-border-default rounded-md border border-border-default">
           {triggers.data?.triggers.map((trigger) => (
             <li key={trigger.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-              {trigger.kind === "push" ? <GitBranch size={14} /> : <Clock size={14} />}
+              {trigger.kind === "push" ? (
+                <GitBranch size={14} />
+              ) : trigger.kind === "app" ? (
+                <Sparkles size={14} />
+              ) : (
+                <Clock size={14} />
+              )}
               <span className="min-w-0 flex-1">
                 {trigger.kind === "push" ? (
                   <>
@@ -460,6 +486,8 @@ function Triggers({
                       {absolute(trigger.webhookUrl)}
                     </span>
                   </>
+                ) : trigger.kind === "app" ? (
+                  <>When the agent changes the app</>
                 ) : (
                   <>
                     On the schedule <span className="font-mono">{trigger.cron}</span>{" "}
@@ -501,6 +529,15 @@ function Triggers({
             </Button>
             <Button size="sm" icon={<Clock size={13} />} onClick={() => setKind("schedule")}>
               On a schedule
+            </Button>
+            <Button
+              size="sm"
+              icon={<Sparkles size={13} />}
+              disabled={addApp.isPending}
+              onClick={() => addApp.mutate()}
+              title="For pipelines whose source is an app: run whenever the agent changes it"
+            >
+              When the app changes
             </Button>
           </div>
         ) : (

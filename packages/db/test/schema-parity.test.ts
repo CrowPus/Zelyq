@@ -38,6 +38,8 @@ const TABLES = [
   "pipelineLogs",
   "pipelineArtifacts",
   "pipelineApprovals",
+  "deployEnvironments",
+  "deployments",
   "pipelineTriggers",
   "settings",
   "auditLog",

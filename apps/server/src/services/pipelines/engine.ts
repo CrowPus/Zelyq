@@ -27,6 +27,7 @@ import {
   removeStalePipelineContainers,
   startPipelineContainer,
 } from "@zelyq/runtime";
+import type { DeployService } from "../deploy.js";
 import type { SettingsService } from "../settings.js";
 import type { VaultService } from "../vault.js";
 import { Masker } from "./mask.js";
@@ -87,6 +88,7 @@ export interface EngineDeps {
   tools: ToolService;
   /** The local runner's caches, on this server. */
   cacheDir: string;
+  deploys: DeployService;
 }
 
 type EndReason = "cancelled" | "timed_out";
@@ -546,8 +548,33 @@ export class PipelineEngine {
             await store.pipelines.steps.update(row.id, { status: "skipped" });
             continue;
           }
-          let outcome: StepStatus;
-          if (step.approval) {
+          let outcome: StepStatus | null = null;
+          // A protected environment: an admin approves every deploy first.
+          if (step.deploy) {
+            const environment = await this.deps.deploys.environmentFor(run.teamId, step.deploy.to);
+            if (!("error" in environment) && environment.protected) {
+              const asked = await this.awaitApproval({
+                run,
+                file,
+                row,
+                stageName: stage.name,
+                approval: {
+                  message: `Deploy to ${environment.name}?`,
+                  approvers: "admins",
+                  timeout: 24 * 60 * 60,
+                  allowSelf: true,
+                },
+                log,
+                active,
+                clock,
+                release: releaseMachine,
+              });
+              if (asked !== "passed") outcome = asked;
+            }
+          }
+          if (outcome !== null) {
+            // Not approved: the deploy does not happen.
+          } else if (step.approval) {
             outcome = await this.awaitApproval({
               run,
               file,
@@ -877,6 +904,9 @@ export class PipelineEngine {
         }),
       tools: this.deps.tools,
       cacheDir: this.deps.cacheDir,
+      deploys: this.deps.deploys,
+      line: (stream, text) => log.add(row.id, stream, text),
+      signal: input.active.controller.signal,
       archive: (projectId) => this.deps.runtime.archive(projectId),
       appId: (app) => this.appId(run, app),
     };

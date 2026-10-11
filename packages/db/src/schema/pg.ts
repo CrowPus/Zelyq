@@ -517,6 +517,72 @@ export const pipelineArtifacts = pgTable(
   (table) => ({ runIdx: index("pipeline_artifacts_run_idx").on(table.runId) }),
 );
 
+/** A named place a team's apps run (staging, production), on one of its runners. */
+export const deployEnvironments = pgTable(
+  "deploy_environments",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    runnerId: text("runner_id").references(() => runners.id, { onDelete: "set null" }),
+    address: text("address"),
+    protected: boolean("protected").notNull().default(false),
+    frozen: boolean("frozen").notNull().default(false),
+    frozenReason: text("frozen_reason"),
+    /** JSON: name → typed value (SecretBox ciphertext) or vault://NAME */
+    variables: text("variables").notNull().default("{}"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    nameIdx: uniqueIndex("deploy_environments_team_name_idx").on(table.teamId, table.name),
+  }),
+);
+
+/** Every deploy and roll back of an app to an environment. */
+export const deployments = pgTable(
+  "deployments",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull(),
+    environmentId: text("environment_id")
+      .notNull()
+      .references(() => deployEnvironments.id, { onDelete: "cascade" }),
+    app: text("app").notNull(),
+    number: integer("number").notNull(),
+    /** deploying, live, failed, rolled_back, replaced */
+    status: text("status").notNull(),
+    /** deploy or rollback */
+    kind: text("kind").notNull(),
+    /** The image on the machine: zelyq-<app>:<number> */
+    image: text("image").notNull(),
+    /** For a roll back: the deploy whose image it used. */
+    rolledBackTo: integer("rolled_back_to"),
+    runId: text("run_id").references(() => pipelineRuns.id, { onDelete: "set null" }),
+    triggeredBy: text("triggered_by").references(() => users.id, { onDelete: "set null" }),
+    url: text("url"),
+    port: integer("port").notNull(),
+    hostPort: integer("host_port").notNull(),
+    healthPath: text("health_path").notNull(),
+    error: text("error"),
+    /** What happened, one JSON line per log line ({"s": stream, "t": text}). */
+    log: text("log").notNull().default(""),
+    createdAt: text("created_at").notNull(),
+    finishedAt: text("finished_at"),
+  },
+  (table) => ({
+    numberIdx: uniqueIndex("deployments_env_app_number_idx").on(
+      table.environmentId,
+      table.app,
+      table.number,
+    ),
+  }),
+);
+
 /** A run waiting for a person, kept in the database so a restart does not lose it. */
 export const pipelineApprovals = pgTable(
   "pipeline_approvals",
@@ -881,6 +947,8 @@ export const schema = {
   pipelineArtifacts,
   pipelineApprovals,
   pipelineTriggers,
+  deployEnvironments,
+  deployments,
   settings,
   auditLog,
   providerConnections,
