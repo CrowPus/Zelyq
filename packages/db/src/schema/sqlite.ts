@@ -652,6 +652,34 @@ export const pipelineTriggers = sqliteTable(
   (table) => ({ pipelineIdx: index("pipeline_triggers_pipeline_idx").on(table.pipelineId) }),
 );
 
+/** A pipeline plugin a team installed: one exact version, kept on this server. */
+export const pipelinePlugins = sqliteTable(
+  "pipeline_plugins",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** publisher/name, as a pipeline names it. */
+    pluginId: text("plugin_id").notNull(),
+    version: text("version").notNull(),
+    /** JSON: the package's zelyq-plugin.yml, checked. */
+    manifest: text("manifest").notNull(),
+    /** SHA-256 of the package file; installing the same version again must match it. */
+    sha256: text("sha256").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    installedBy: text("installed_by").references(() => users.id, { onDelete: "set null" }),
+    installedAt: text("installed_at").notNull(),
+  },
+  (table) => ({
+    versionIdx: uniqueIndex("pipeline_plugins_team_version_idx").on(
+      table.teamId,
+      table.pluginId,
+      table.version,
+    ),
+  }),
+);
+
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

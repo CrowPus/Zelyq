@@ -451,6 +451,13 @@ stages:
 
 # Its stages (and env) are copied in when a run starts; the run keeps
 # that copy, so changing the template changes only later runs.`}</pre>
+      <p className="mt-3 font-medium text-fg">Plugins: ready-made steps</p>
+      <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`- id: hello
+  plugin: acme/hello@1.0.0     # installed in Pipelines → Plugins
+  with:
+    who: team
+    token: vault://API_TOKEN   # a secret input comes from Vault
+- run: echo "\${{ steps.hello.outputs.greeting }}"`}</pre>
     </details>
   );
 }

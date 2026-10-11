@@ -39,6 +39,7 @@ export const ID_PREFIXES = {
   pipelineArtifact: "par",
   pipelineTrigger: "ptr",
   pipelineApproval: "pap",
+  pipelinePlugin: "ppl",
   deployEnvironment: "env",
   deployment: "dep",
   runner: "rnr",

@@ -204,6 +204,13 @@
       "when": 1791719795288,
       "tag": "0028_pipeline_group2",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791741766745,
+      "tag": "0029_pipeline_plugins",
+      "breakpoints": true
     }
   ]
 }

@@ -10,8 +10,10 @@ import {
   type PipelineRunSummary,
   type PipelineSummary,
   parsePipelineFile,
+  parsePluginRef,
   pipelineTarget,
   pipelineVaultNames,
+  pluginInputProblems,
   type Role,
   type RunApproval,
   type RunLogLine,
@@ -36,6 +38,7 @@ import type { PipelineRow, PipelineRunRow, PipelineStepRow, Store } from "@zelyq
 import type { AccessControl } from "../access.js";
 import type { VaultService } from "../vault.js";
 import type { PipelineEngine } from "./engine.js";
+import type { PipelinePluginService } from "./plugins.js";
 import { appSlug } from "./steps.js";
 
 /** A run that has not ended yet. */
@@ -54,6 +57,9 @@ export interface PipelineCheck {
  * only be saved by an admin (the Vault decides, the same as anywhere else).
  */
 export class PipelineService {
+  /** The team's installed plugins, for checking `plugin:` steps. */
+  plugins: Pick<PipelinePluginService, "find"> | null = null;
+
   constructor(
     private readonly store: Store,
     private readonly access: AccessControl,
@@ -98,6 +104,8 @@ export class PipelineService {
     if (!expanded.ok) return { ok: false, issues: expanded.issues, warnings: [] };
     const parsed = parsePipelineFile(expanded.text);
     if (!parsed.ok) return { ok: false, issues: parsed.issues, warnings: [] };
+    const plugins = await this.pluginProblems(teamId, parsed.file, source);
+    if (plugins.length > 0) return { ok: false, issues: plugins, warnings: [] };
     return { ok: true, issues: [], warnings: await this.warnings(teamId, parsed.file) };
   }
 
@@ -655,10 +663,50 @@ export class PipelineService {
         { issues: parsed.issues },
       );
     }
+    const plugin = (await this.pluginProblems(teamId, parsed.file, source))[0];
+    if (plugin) {
+      throw ZelyqError.badRequest(
+        `${plugin.line ? `Line ${plugin.line}: ` : ""}${plugin.message}`,
+        { issues: [plugin] },
+      );
+    }
     for (const name of pipelineVaultNames(parsed.file)) {
       await this.vault.requireUse(user, { kind: "team", teamId }, name);
     }
     return parsed.file;
+  }
+
+  /** `plugin:` steps whose plugin is not installed for the team, or whose with: is wrong. */
+  private async pluginProblems(
+    teamId: string,
+    file: PipelineFile,
+    source: string,
+  ): Promise<PipelineFileIssue[]> {
+    const issues: PipelineFileIssue[] = [];
+    const lines = source.split("\n");
+    for (const [stageIndex, stage] of file.stages.entries()) {
+      for (const [stepIndex, step] of stage.steps.entries()) {
+        const ref = step.plugin ? parsePluginRef(step.plugin) : null;
+        if (!ref || !step.plugin) continue;
+        const at = lines.findIndex((line) => line.includes(step.plugin as string));
+        const found = this.plugins
+          ? await this.plugins.find(teamId, ref.pluginId, ref.version)
+          : null;
+        const problems = found
+          ? pluginInputProblems(found.manifest, step.with ?? {})
+          : [
+              `${ref.pluginId}@${ref.version} is not installed for this team. An admin installs it in Pipelines → Plugins.`,
+            ];
+        for (const message of problems) {
+          issues.push({
+            path: `stages.${stageIndex}.steps.${stepIndex}.plugin`,
+            line: at >= 0 ? at + 1 : null,
+            message,
+          });
+        }
+      }
+    }
+    return issues;
   }
 
   private async warnings(teamId: string, file: PipelineFile): Promise<string[]> {

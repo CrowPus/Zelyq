@@ -50,6 +50,7 @@ import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
+import { PipelinePluginService } from "./services/pipelines/plugins.js";
 import { RunnerService } from "./services/pipelines/runners.js";
 import { PipelineService } from "./services/pipelines/service.js";
 import { ToolService } from "./services/pipelines/tools.js";
@@ -164,6 +165,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const sshKeys = new TeamSshKeyService(store, access, secrets);
   const runners = new RunnerService(store, access, sshKeys);
   const deploys = new DeployService(store, access, secrets, vault, runners);
+  const pipelinePlugins = new PipelinePluginService(
+    store,
+    access,
+    path.join(pipelinesDir, "plugins"),
+  );
   const pipelineEngine = new PipelineEngine({
     store,
     vault,
@@ -179,8 +185,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     tools: new ToolService(path.join(pipelinesDir, "tools")),
     cacheDir: path.join(pipelinesDir, "cache"),
     deploys,
+    plugins: pipelinePlugins,
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
+  pipelines.plugins = pipelinePlugins;
   const pipelineTriggers = new PipelineTriggerService(
     store,
     access,
@@ -356,6 +364,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     keys: sshKeys,
     triggers: pipelineTriggers,
     serviceKeys: vaultKeys,
+    plugins: pipelinePlugins,
   });
   registerProjectVariableRoutes(app, {
     variables,

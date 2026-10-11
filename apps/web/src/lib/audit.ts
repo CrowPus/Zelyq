@@ -24,6 +24,8 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "pipeline.trigger_added": "added a pipeline trigger",
   "pipeline.trigger_removed": "removed a pipeline trigger",
   "pipeline.trigger_changed": "changed a pipeline trigger",
+  "pipeline.plugin_installed": "installed a pipeline plugin",
+  "pipeline.plugin_removed": "removed a pipeline plugin",
   "pipeline.run_approved": "approved a pipeline run",
   "pipeline.run_rejected": "rejected a pipeline run",
   "environment.created": "added an environment",

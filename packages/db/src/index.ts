@@ -27,6 +27,7 @@ export type {
   PipelineApprovalRow,
   PipelineArtifactRow,
   PipelineLogRow,
+  PipelinePluginRow,
   PipelineRepository,
   PipelineRow,
   PipelineRunRow,

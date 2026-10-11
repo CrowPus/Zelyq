@@ -25,6 +25,7 @@ import type {
   ImageGenerationInput,
   ImageHistory,
   PipelineDetail,
+  PipelinePluginSummary,
   PipelineRunDetail,
   PipelineRunSummary,
   PipelineSummary,
@@ -312,6 +313,17 @@ export const api = {
       ),
     removeTrigger: (teamId: string, id: string, triggerId: string) =>
       request<void>(`/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`, { method: "DELETE" }),
+    plugins: (teamId: string) =>
+      request<{ plugins: PipelinePluginSummary[] }>(`/teams/${teamId}/pipeline-plugins`),
+    /** A plugin package (.tar.gz), sent as the body itself. */
+    installPlugin: (teamId: string, file: Blob) =>
+      request<{ plugin: PipelinePluginSummary }>(`/teams/${teamId}/pipeline-plugins`, {
+        method: "POST",
+        body: file,
+        headers: { "content-type": "application/gzip" },
+      }),
+    removePlugin: (teamId: string, id: string) =>
+      request<void>(`/teams/${teamId}/pipeline-plugins/${id}`, { method: "DELETE" }),
   },
 
   deploys: {

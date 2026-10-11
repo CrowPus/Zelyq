@@ -307,6 +307,191 @@ const downloadSchema = z
   })
   .strict();
 
+// ---------------------------------------------------------------------------
+// Plugins: a packaged set of steps, installed for a team, used with `plugin:`
+// ---------------------------------------------------------------------------
+
+/** acme/slack-notify@1.2.0 — a publisher, a name and an exact version. */
+const PLUGIN_REF =
+  /^([a-z0-9][a-z0-9-]{0,38})\/([a-z0-9][a-z0-9-]{0,62})@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/;
+const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9-]{0,62}$/;
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/** A `plugin:` value's parts, or null when it is not publisher/name@version. */
+export function parsePluginRef(ref: string): { pluginId: string; version: string } | null {
+  const match = PLUGIN_REF.exec(ref.trim());
+  return match ? { pluginId: `${match[1]}/${match[2]}`, version: match[3] ?? "" } : null;
+}
+
+export const PLUGIN_CATEGORIES = [
+  "notifications",
+  "deploy",
+  "cloud",
+  "testing",
+  "security",
+  "build",
+  "other",
+] as const;
+
+const pluginInputNameSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/, "Use letters, digits and underscores.");
+
+const pluginInputSchema = z
+  .object({
+    description: z.string().trim().max(300).optional(),
+    required: z.boolean().default(false),
+    default: z.union([z.string(), z.number(), z.boolean()]).transform(String).optional(),
+    /** Must be given as vault://NAME; masked in the log. */
+    secret: z.boolean().default(false),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.secret && input.default !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["default"],
+        message: "A secret input has no default.",
+      });
+    }
+  });
+
+const pluginStepSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    run: z.string().min(1).max(100_000).optional(),
+    setup: setupSchema.optional(),
+    cache: cacheSchema.optional(),
+    shell: z
+      .enum(PIPELINE_SHELLS, { message: `Use one of: ${PIPELINE_SHELLS.join(", ")}.` })
+      .optional(),
+    env: z
+      .record(
+        envNameSchema,
+        z.string().refine((value) => vaultReferenceName(value) === null, {
+          message: "A plugin takes secrets as inputs, never vault:// in its own file.",
+        }),
+      )
+      .optional(),
+  })
+  .strict()
+  .superRefine((step, ctx) => {
+    const kinds = (["run", "setup", "cache"] as const).filter((kind) => step[kind] !== undefined);
+    if (kinds.length !== 1) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          kinds.length === 0
+            ? "A plugin's step is one of: run, setup, cache."
+            : `A step is one thing; this one has ${kinds.join(" and ")}.`,
+      });
+    }
+  });
+
+/** zelyq-plugin.yml: what a plugin is, what it takes, and the steps it runs. */
+export const pluginManifestSchema = z
+  .object({
+    id: z.string().regex(PLUGIN_ID, "Use publisher/name, in lower-case letters, digits and '-'."),
+    version: z.string().regex(SEMVER, "Use a version like 1.2.0."),
+    name: z.string().trim().min(1).max(100),
+    description: z.string().trim().min(1).max(500),
+    category: z
+      .enum(PLUGIN_CATEGORIES, { message: `Use one of: ${PLUGIN_CATEGORIES.join(", ")}.` })
+      .default("other"),
+    "runs-on": z
+      .object({
+        os: z
+          .array(z.enum(["linux", "macos", "windows"]))
+          .min(1)
+          .optional(),
+        /** Tools the machine must have, as a reminder for whoever installs it. */
+        needs: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
+      })
+      .strict()
+      .optional(),
+    inputs: z.record(pluginInputNameSchema, pluginInputSchema).default({}),
+    outputs: z.record(pluginInputNameSchema, z.string().trim().max(300)).default({}),
+    steps: z.array(pluginStepSchema).min(1, "A plugin needs at least one step.").max(30),
+  })
+  .strict();
+export type PluginManifest = z.output<typeof pluginManifestSchema>;
+export type PluginStep = PluginManifest["steps"][number];
+
+/** Reads a zelyq-plugin.yml: the manifest, or what is wrong with it. */
+export function parsePluginManifest(
+  text: string,
+): { ok: true; manifest: PluginManifest } | { ok: false; message: string } {
+  const document = parseDocument(text, { prettyErrors: false, uniqueKeys: true });
+  if (document.errors.length > 0) {
+    return {
+      ok: false,
+      message: `not valid YAML: ${document.errors[0]?.message.split("\n")[0] ?? ""}`,
+    };
+  }
+  const parsed = pluginManifestSchema.safeParse(document.toJS());
+  if (parsed.success) return { ok: true, manifest: parsed.data };
+  const issue = parsed.error.issues[0];
+  return {
+    ok: false,
+    message: `${issue?.path.length ? `${issue.path.join(".")}: ` : ""}${issue?.message ?? "not valid"}`,
+  };
+}
+
+/**
+ * What a `plugin:` step gives a plugin, against what the plugin takes:
+ * unknown names, missing required inputs, and secrets typed instead of
+ * taken from Vault. Empty when it is right.
+ */
+export function pluginInputProblems(
+  manifest: Pick<PluginManifest, "id" | "inputs">,
+  given: Record<string, string>,
+): string[] {
+  const problems: string[] = [];
+  for (const name of Object.keys(given)) {
+    if (!(name in manifest.inputs)) problems.push(`${manifest.id} has no input called ${name}.`);
+  }
+  for (const [name, input] of Object.entries(manifest.inputs)) {
+    const value = given[name];
+    if (value === undefined) {
+      if (input.required && input.default === undefined) {
+        problems.push(`${manifest.id} needs with: ${name}.`);
+      }
+      continue;
+    }
+    if (input.secret && vaultReferenceName(value) === null) {
+      problems.push(`${manifest.id}'s ${name} is a secret: give it as vault://NAME.`);
+    }
+  }
+  return problems;
+}
+
+/** A plugin installed for a team, as the Plugins page and the API show it. */
+export interface PipelinePluginSummary {
+  id: string;
+  pluginId: string;
+  version: string;
+  name: string;
+  description: string;
+  category: string;
+  os: string[] | null;
+  needs: string[];
+  inputs: {
+    name: string;
+    description: string | null;
+    required: boolean;
+    default: string | null;
+    secret: boolean;
+  }[];
+  outputs: { name: string; description: string }[];
+  steps: string[];
+  sha256: string;
+  sizeBytes: number;
+  installedBy: { id: string; name: string } | null;
+  installedAt: string;
+  /** Pipelines of the team whose file uses this version. */
+  usedBy: { id: string; name: string }[];
+}
+
 export const STEP_KINDS = [
   "run",
   "checkout",
@@ -317,6 +502,7 @@ export const STEP_KINDS = [
   "deploy",
   "pipeline",
   "download",
+  "plugin",
 ] as const;
 export type StepKind = (typeof STEP_KINDS)[number];
 
@@ -347,6 +533,21 @@ const stepSchema = z
     deploy: deploySchema.optional(),
     pipeline: pipelineStepSchema.optional(),
     download: downloadSchema.optional(),
+    /** An installed plugin, at an exact version: acme/slack-notify@1.2.0. */
+    plugin: z
+      .string()
+      .trim()
+      .refine((value) => parsePluginRef(value) !== null, {
+        message: "Name a plugin and its exact version: acme/slack-notify@1.2.0.",
+      })
+      .optional(),
+    /** A plugin's inputs. */
+    with: z
+      .record(
+        pluginInputNameSchema,
+        z.union([z.string(), z.number(), z.boolean()]).transform(String),
+      )
+      .optional(),
     retry: z.number().int().min(0).max(5).optional(),
     shell: z
       .enum(PIPELINE_SHELLS, { message: `Use one of: ${PIPELINE_SHELLS.join(", ")}.` })
@@ -361,13 +562,16 @@ const stepSchema = z
   .superRefine((step, ctx) => {
     if (
       step.retry !== undefined &&
-      (step.deploy || step.approval || step.pipeline || step.download)
+      (step.deploy || step.approval || step.pipeline || step.download || step.plugin)
     ) {
       ctx.addIssue({
         code: "custom",
         path: ["retry"],
         message: "retry is for run, checkout, setup and docker steps.",
       });
+    }
+    if (step.with !== undefined && step.plugin === undefined) {
+      ctx.addIssue({ code: "custom", path: ["with"], message: "with: is for a plugin: step." });
     }
     const kinds = STEP_KINDS.filter((kind) => step[kind] !== undefined);
     if (kinds.length !== 1) {
@@ -406,6 +610,8 @@ export function stepLabel(step: PipelineStep): string {
       return `Run ${step.pipeline?.run ?? ""}`;
     case "download":
       return `Download ${step.download?.artifact ?? ""}`;
+    case "plugin":
+      return `Plugin ${parsePluginRef(step.plugin ?? "")?.pluginId ?? step.plugin ?? ""}`;
     default: {
       const first = (step.run ?? "").trim().split("\n")[0] ?? "";
       return first.length > 60 ? `${first.slice(0, 57)}…` : first || "Run";
@@ -791,6 +997,7 @@ export function pipelineVaultNames(file: PipelineFile): string[] {
   for (const stage of file.stages) {
     for (const step of stage.steps) {
       for (const value of Object.values(step.env ?? {})) add(value);
+      for (const value of Object.values(step.with ?? {})) add(value);
       add(step.docker?.login?.password);
     }
   }

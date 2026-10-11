@@ -10,6 +10,10 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { TeamSshKeyService } from "../services/pipelines/keys.js";
+import {
+  MAX_PLUGIN_PACKAGE_BYTES,
+  type PipelinePluginService,
+} from "../services/pipelines/plugins.js";
 import type { RunnerService } from "../services/pipelines/runners.js";
 import type { PipelineService } from "../services/pipelines/service.js";
 import type { PipelineTriggerService } from "../services/pipelines/triggers.js";
@@ -37,9 +41,10 @@ export function registerPipelineRoutes(
     keys: TeamSshKeyService;
     triggers: PipelineTriggerService;
     serviceKeys: VaultKeyService;
+    plugins: PipelinePluginService;
   },
 ): void {
-  const { access, pipelines, runners, keys, triggers, serviceKeys } = deps;
+  const { access, pipelines, runners, keys, triggers, serviceKeys, plugins } = deps;
   type Team = { Params: { teamId: string } };
   type Pipe = { Params: { teamId: string; pipelineId: string } };
   type Run = { Params: { teamId: string; runId: string } };
@@ -342,6 +347,39 @@ export function registerPipelineRoutes(
       reply.code(201);
       return { run };
     },
+  });
+
+  // ---------------------------------------------------------------- plugins
+
+  app.get<Team>("/api/teams/:teamId/pipeline-plugins", async (request) => ({
+    plugins: await plugins.list(access.requireUser(request), request.params.teamId),
+  }));
+  app.delete<{ Params: { teamId: string; pluginId: string } }>(
+    "/api/teams/:teamId/pipeline-plugins/:pluginId",
+    async (request, reply) => {
+      await plugins.remove(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.pluginId,
+      );
+      reply.code(204);
+    },
+  );
+  // The package arrives as the body itself (a .tar.gz), so it gets its own parser.
+  void app.register(async (upload) => {
+    upload.removeAllContentTypeParsers();
+    upload.addContentTypeParser(
+      "*",
+      { parseAs: "buffer", bodyLimit: MAX_PLUGIN_PACKAGE_BYTES + 1024 },
+      (_request, body, done) => done(null, body),
+    );
+    upload.post<Team>("/api/teams/:teamId/pipeline-plugins", async (request, reply) => {
+      const body = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+      reply.code(201);
+      return {
+        plugin: await plugins.install(access.requireUser(request), request.params.teamId, body),
+      };
+    });
   });
 
   // --------------------------------------------------------------- webhook
