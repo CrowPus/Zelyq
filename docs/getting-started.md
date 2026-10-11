@@ -15,8 +15,6 @@ git clone https://github.com/CrowPus/Zelyq.git
 cd Zelyq
 pnpm install
 
-cp .env.example .env  # nothing in it is required to start
-
 pnpm db:migrate       # creates ./data/zelyq.db
 pnpm dev
 ```
@@ -30,6 +28,10 @@ Three processes start:
 | agent | <http://127.0.0.1:8788> | Model loop and tools |
 
 Open the web URL and create the first account. It administers the instance and owns a team.
+
+You do not need a `.env` file. Model keys and every other credential are entered in **Settings** or
+kept in **Vault**. A `.env` is only for running Zelyq on a server (its address, ports, database and
+public URL): see [Self-hosting](./self-hosting.md).
 
 ## Windows
 
@@ -76,6 +78,12 @@ things to know:
    *"Add a pricing page with three tiers and a monthly/annual toggle, linked from the header."*
 4. **Watch it work.** Tool calls appear as they run — expand one to see its output. Files the agent
    touches refresh in the file tree.
+
+## Next: test it, deploy it
+
+Once you have an app, the [tutorial](./tutorial.md) takes it the rest of the way, step by step: a
+secret in Vault, a pipeline that tests it, your own machine as a runner, a deploy with automatic roll
+back, and runs on every GitHub push and pull request.
 
 ## Modes
 

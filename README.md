@@ -4,51 +4,11 @@
 
 # Zelyq
 
-**The open-source developer platform: build apps with AI, keep their secrets safe, ship them.**
+### The open-source developer platform for building, securing and shipping apps.
 
-### [Try it live → zelyq.com](https://zelyq.com)
-
-<video src="https://github.com/user-attachments/assets/499f90a6-0749-472c-a711-a2f3b5247f9e" autoplay loop muted playsinline controls width="900"></video>
-
-<sub>▶ <b>Studio — Video</b>: create videos from a prompt or animate a starting image, then preview and download your results.</sub>
-
-<br />
-
-<video src="https://github.com/user-attachments/assets/e34e9ca2-c99d-463a-b459-8475f343bd69" controls muted loop playsinline width="900"></video>
-
-<sub>▶ <b>Studio — Image</b>: generate original images with prompts, reference images, and creative controls.</sub>
-
-<br />
-
-<video src="https://github.com/user-attachments/assets/a59cd007-fe2f-4396-98c6-b9aaf27345e5" controls muted loop playsinline width="900"></video>
-
-<sub>▶ And checking the build at real mobile, tablet, and desktop widths right in the preview — no resizing the window.</sub>
-
-<br />
-
-<video src="https://github.com/user-attachments/assets/b2782b9e-d020-4a09-99e8-1e96e52ac9af" controls muted loop playsinline width="900"></video>
-
-<sub>▶ And building a <b>real mobile app</b> — pick <b>Expo — React Native</b> when you create an app and the agent builds native screens (<code>View</code> / <code>Text</code> / Expo Router, not <code>div</code>), previewed in the browser via Expo web.</sub>
-
-Zelyq is one place for the work around an app, organised the way you do it:
-
-| | Module | What it is for |
-| --- | --- | --- |
-| **Build** | **Apps** | Describe an app and an agent builds it like an engineer, in real files you own |
-| | **Studio** | Generate images and video, for your apps or on their own |
-| **Secure** | **[Vault](./docs/vault.md)** | Keep every credential once, encrypted, and use it in apps, Settings, and your own servers |
-| **Ship** | **[Pipelines](./docs/pipelines.md)** | Test, build and deploy the same way every time, on this server or your own Linux, macOS and Windows machines over SSH |
-| | **[Deploy](./docs/deploy.md)** | Put apps on your own machines per environment (staging, production), with approval, freeze and roll back |
-
-Teams are the workspace: invite people, give them a role, and every module follows it. Self-hosted,
-AGPL-3.0, no telemetry.
-
-Most "prompt to app" tools generate something that looks right and leave you to find out where it
-isn't. Zelyq's agent plans before it acts, verifies its own work before it calls a turn finished,
-tells you plainly what it checked versus what it assumed, and stops to ask instead of guessing when
-a request is too vague to build responsibly. It writes files, runs commands, starts a dev server,
-and reports back — while you watch every tool call, every file it touched, and the running result,
-live.
+Build apps with an AI agent that works like an engineer. Keep every credential in one encrypted vault.
+Test, build and deploy on your own machines — with pipelines, environments and automatic roll back.
+**Self-hosted. Bring your own model. No telemetry.**
 
 [![CI](https://github.com/CrowPus/Zelyq/actions/workflows/ci.yml/badge.svg)](https://github.com/CrowPus/Zelyq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
@@ -56,189 +16,166 @@ live.
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.base.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](./CONTRIBUTING.md)
 
-[Live demo](https://zelyq.com) · [Docs](./docs/README.md) · [Vault](./docs/vault.md) · [Pipelines](./docs/pipelines.md) · [Why an engineer](#it-behaves-like-an-engineer-not-a-generator) · [Quickstart](#quickstart) ·
-[How it works](#how-it-works) · [Modes](./docs/modes.md) · [Architecture](./docs/architecture.md) ·
-[Configuration](./docs/configuration.md) · [Self-hosting](./docs/self-hosting.md) ·
+**[Live demo](https://zelyq.com)** · [Quickstart](#quickstart) · [Tutorial](./docs/tutorial.md) ·
+[Documentation](./docs/README.md) ·
+[Self-hosting](./docs/self-hosting.md) · [Architecture](./docs/architecture.md) ·
 [Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
+
+<br />
+
+<video src="https://github.com/user-attachments/assets/64062944-e922-4407-8a4c-91c85d9a452d" autoplay loop muted playsinline controls width="900"></video>
 
 </div>
 
 ---
 
-## It behaves like an engineer, not a generator
+## One platform, from idea to production
 
-A code generator's job ends when something compiles. An engineer's job includes knowing what they
-actually built, whether it works, and when they don't have enough information to keep going
-responsibly. Zelyq's agent is built toward the second one:
+Most teams stitch together an AI app builder, a secrets manager, a CI service and a deploy tool — four
+products, four logins, four places for a key to leak. Zelyq is one self-hosted platform for the whole
+path, organised the way the work happens:
 
-- **It verifies before it calls anything done.** The moment the model stops asking for tools, Zelyq
-  runs the project's own typecheck (or build) and checks the live preview for a crash — automatically,
-  not because the prompt asked nicely. A turn that broke something gets handed back to fix, not
-  reported as finished.
-- **It says what it knows versus what it guessed.** Turn on **Engineer Mode** and every turn that
-  changes something states its purpose up front, then separates what it verified (ran, read, tested)
-  from what it inferred and what it assumed — instead of one confident-sounding paragraph that blurs
-  the three together.
-- **It names the alternative it didn't pick.** When a real choice existed — an architecture, a
-  library, a tradeoff with no obviously-better answer — Engineer Mode has it say what it didn't choose
-  and why, in a sentence or two, not silently.
-- **It plans before it builds, when the ask is big enough to need one.** **Architect Mode** turns a
-  vague request into a real design package first — requirements, decisions with the alternative named
-  and why it lost, a data model and API, a `DESIGN.md` design system, a build plan broken into
-  review-sized tasks — and waits for you to say "build it" before writing any code. Then it
-  dispatches each task to a bounded builder, has a separate session verify the running app, and
-  claims "done" only against a checklist it can show you. Turn on **Auto Mode** and it runs the
-  passes itself, to a hard ceiling, instead of you typing "keep going".
-- **It has specialists.** After a build verifies, named agents finish the job — each owns a spec
-  file it surveys, writes, and implements, and each streams into the chat as a labelled sub-thread.
-  The **Designer** (`DESIGN.md` — a coherent design system, no generic-AI look), the **DevOps
-  agent** (`OPERATIONS.md` — CI, a Dockerfile, `.env.example`, deploy config), the **Security/QA
-  agent** (`QA.md` — writes and runs the test suite, runs the security scan), and the **Cinematic
-  engineer** (`CINEMATIC.md` — turns one screen into a scroll-driven film: a hero that scrubs your
-  footage frame by frame as you scroll, a pinned reveal, a horizontal story, built to a
-  senior-engineer skill). In Engineer Mode you call any of them yourself: *"make it look
-  professionally designed"*, *"set up CI"*, *"write tests"*, *"make the hero play as I scroll"*.
-  See [docs/modes.md](./docs/modes.md).
-- **A specialist can pause for something only you have.** A cinematic hero *is* the footage, so the
-  Cinematic engineer doesn't fake it against a placeholder: it writes a plain-language brief of
-  exactly what to provide, creates the folder, and stops. You drop the file in and reply `go` — it
-  validates what you gave it against the brief and takes it from there. A dispatched pass that asks,
-  waits, and resumes from a plan it already wrote.
-- **It builds the backend, not just the screen.** When a project needs saved data or accounts, the
-  agent designs a Supabase Postgres schema with Row-Level-Security written per operation, applies the
-  migration, wires the client, and has a separate session verify that a second user genuinely can't
-  read the first user's rows. AI features too — a chatbot, an extractor, a classifier — with the
-  provider key living in the backend, never shipped to the browser.
-- **It builds what was asked, then stops.** No invented navbars, no sample-data toggles nobody
-  requested, no filling a vague ask with guesses. A request too shapeless to build responsibly gets one
-  clarifying question instead of eight files you didn't want.
-- **It reaches for expert practice only when a task needs it.** A catalog of packaged, senior-level
-  skills — frontend engineering, UI/UX design, application security, CI/CD — loads into a turn only
-  when its description actually matches, so the agent isn't running a security review on a landing
-  page or a deployment checklist on a button.
-- **It stops and asks instead of guessing on anything irreversible.** Deleting data, an action with no
-  undo, a request that's really a conversation ("I want to test you," "how would you build X") rather
-  than a spec — Engineer Mode treats these as a reason to ask, not a reason to improvise.
+| | Module | What it does |
+| --- | --- | --- |
+| **Build** | **[Apps](#build--apps-built-by-an-agent-that-works-like-an-engineer)** | Describe an app; an agent plans it, builds it in real files you own, and verifies it before calling it done |
+| | **[Studio](#studio--images-and-video)** | Generate images and video — for your apps, or on their own |
+| **Secure** | **[Vault](#secure--vault)** | Every credential once, encrypted, versioned and audited — used by apps, pipelines and your own servers |
+| **Ship** | **[Pipelines](#ship--pipelines)** | Test and build the same way every time, on the Zelyq server or your own Linux, macOS and Windows machines |
+| | **[Deployments](#ship--deployments)** | Put apps on your machines per environment, with approvals, freeze and automatic roll back |
 
-None of this is a black box promise — every mechanism above is real code, not marketing copy: the
-verification gate and Engineer Mode both live in [`apps/agent/src/session.ts`](./apps/agent/src/session.ts)
-and [`apps/agent/src/prompt.ts`](./apps/agent/src/prompt.ts), and [docs/agent-behaviour.md](./docs/agent-behaviour.md)
-documents exactly how the turn loop decides what to do.
+Everything lives in **teams**: invite people, give them a role, and every module follows it.
 
 <div align="center">
 <br />
 
-<img src="assets/screenshots/editor.png" alt="Architect Mode's output for a habit tracker: a full architecture package — decisions, a data model, an API spec, risks, a build plan broken into review-sized tasks — open in the code view, with the agent explaining it's ready for 'build it' before writing a line of application code" width="900" />
-
-<sub>Architect Mode on a real request: a full design package, reviewable before any code exists —
-not just this one file, the whole <code>architecture/</code> package on the left.</sub>
-
-<br /><br />
-
-<table>
-<tr>
-<td width="50%"><img src="assets/screenshots/restaurant.png" alt="A restaurant table-booking system built by the Zelyq agent — guest mobile ordering menu with dietary filters and allergen labels — as the build left it: working, but with flat white cards and no consistent visual system" /></td>
-<td width="50%"><img src="assets/screenshots/restaurant-after.png" alt="The same restaurant ordering menu after the Designer agent applied its DESIGN.md — a coherent dark surface system, the amber accent carried through consistently, real card elevation, and tighter typography" /></td>
-</tr>
-<tr>
-<td align="center"><sub><b>Before</b> — the build, verified and running. Same restaurant system: guest ordering,
-a kitchen display, floor dispatch, and manager admin, with real allergen and dietary data.</sub></td>
-<td align="center"><sub><b>After</b> — the <b>Designer agent</b> wrote <code>DESIGN.md</code> and applied it:
-one dark surface system, the accent colour carried through, real elevation, tighter type. Same content, no
-functional change.</sub></td>
-</tr>
-</table>
+<video src="https://github.com/user-attachments/assets/d27ac811-30f6-4e97-b419-c087698a378e" controls muted loop playsinline width="900"></video>
 
 </div>
 
-## What it is
+---
 
-Most "prompt to app" tools are a product with an engine hidden inside. Zelyq is the engine, and it is
-built so that nothing about it is magic and nothing is locked in:
+## Build — apps built by an agent that works like an engineer
 
-- **One execution seam.** Every filesystem and shell operation goes through a single
-  `RuntimeDriver` interface, so nothing above it knows where the code runs. `local` — child
-  processes on your machine — is the zero-setup default. `container` is the same with agent shell
-  commands and the dev server preview jailed one container per project. `remote` speaks a
-  [documented HTTP protocol](./docs/runtime-protocol.md) to a runtime host, and a reference host
-  ships in `apps/runtime-host`; one conformance suite runs against all three drivers, so they are
-  provably interchangeable. **Isolation is partial** — container mode always blocks one project's
-  container from reaching another's and blocks the cloud metadata endpoint, but does not otherwise
-  filter outbound network access unless you opt into `ZELYQ_CONTAINER_EGRESS_ALLOWLIST`, which you
-  name and maintain yourself. Read
-  [SECURITY.md](./SECURITY.md#threat-model--read-this-before-deploying) before deploying.
-- **Bring your own model — cloud or your own machine.** Claude, Gemini, OpenAI, DeepSeek, Mistral,
-  Grok, Groq, or OpenRouter, chosen with one variable and a key. Or point `ZELYQ_PROVIDER=custom` at
-  anything speaking the OpenAI dialect — Ollama, vLLM, LM Studio, a gateway of your own — and nothing
-  about your project ever leaves your network. No proxy, no Zelyq account, no telemetry, either way.
-- **Vault: secrets, once.** API keys and passwords live in Vault, encrypted, with history, a
-  Protected flag for live keys, and an audit trail of every reveal. An app's variables are typed or
-  taken from Vault; Settings keys too. Your own servers and CI fetch them with a service key, or run
-  `zelyq vault run -- <command>` to start with them and write nothing to disk. Credentials are never
-  read from `.env`. See [Vault](./docs/vault.md).
-- **Pipelines: ship the same way every time.** A short YAML file of stages and commands, run on the
-  Zelyq server in a throwaway container or on your own machines over SSH, with the machine's
-  fingerprint pinned. Secrets come from Vault and show as `***` in the log. Runs start by hand, on a
-  git push, on a schedule, or from another CI. See [Pipelines](./docs/pipelines.md).
-- **Every turn is a change you can inspect and undo.** A snapshot before each turn, a diff of exactly
-  what changed, one-click revert to any turn — and an audit log of who did what, once more than one
-  person is working on an instance.
-- **Boring, inspectable storage.** SQLite by default (one file), PostgreSQL when you scale. Project
-  files are plain files on disk — you can `cd` into them and take them with you.
-- **Web or mobile.** Pick **React + Vite** or **Expo — React Native** when you create a project.
-  The Expo stack previews in the browser via Expo web, and the agent knows it's React Native —
-  it builds `View`/`Text`/Expo Router, not `div`. Device and store builds are a separate step.
-- **`/clone <url>` — rebuild a live site, page for page.** The agent visits the URL with a real
-  browser, walks the pages, and rebuilds it in your project's framework: a `REPLICA.md` plan
-  first, then the screens, with the real images and fonts mirrored in (substitutes logged where
-  it couldn't get one), and a screenshot-diff loop against the original. Every fetch is
-  SSRF-guarded — public hosts only. Only clone what you own or have permission to reproduce.
-- **Studio — Image, and an agent that can use it.** A signed-in page for generating original images
-  from a prompt (OpenAI, Google, or xAI — your key, billed to you), with a private library, reference
-  images, and durable history. Switch it on for a project and the agent can generate artwork for the
-  app it is building, reuse an image you made yourself, and place either into the project. Anything
-  it generates lands in your own library. It is **off by default per project**, because each image
-  spends money, and bounded by a per-hour and a per-conversation limit you set. The agent is told to
-  use real stock photography for anything your copy claims is real — a generated landmark is not a
-  photograph of it. See [Studio — Image](./docs/Image-gen/implementation.md) and
-  [agent integration](./docs/Image-gen/agent-integration.md).
-- **Studio — Video.** A signed-in page for generating short clips from a prompt, or animating a still
-  image — Google (Veo) or xAI (Grok Imagine), your key, billed to you. Text-to-video and
-  image-to-video, with the ratio, duration, resolution and audio options each model actually
-  supports; a starting frame can be uploaded or picked from your Studio images. Jobs are long
-  and asynchronous, so they survive a refresh and a server restart: the provider's operation handle
-  is persisted, polling resumes on boot, and a submission whose outcome cannot be established says
-  so rather than quietly generating (and billing) a second time. Finished clips are saved to your own
-  storage — they keep playing after the provider's temporary URL expires — and stream back with HTTP
-  range support so seeking works. A finished clip can also be **split into a numbered image
-  sequence** — WebP, JPEG, PNG or AVIF, with a poster and a manifest — which is exactly what a
-  scroll-scrubbed hero paints onto a canvas. See [Studio — Video](./docs/Video-gen/README.md) and
-  [frame export](./docs/Video-gen/frame-export.md).
-- **`/video` and `/cinematic` — moving footage in a page, built the right way.** `/video` puts a
-  muted loop behind a section; `/cinematic` makes a section play as you scroll, frame by frame on a
-  canvas. The agent generates the footage itself and knows which technique the request calls for —
-  a loop when the motion is ambient, a scrubbed sequence when it must follow scroll position, and
-  real stock photography for anything the copy claims is real. Off per project until you switch it
-  on, because clips cost real money. See
-  [video agent integration](./docs/Video-gen/agent-integration.md).
-- **`/figma <link>` — build from a Figma frame.** Connect Figma in Settings (OAuth; the token
-  stays on the server). Paste a frame's link and the agent pulls its node tree, a render, the
-  assets, and the design tokens, then rebuilds it in your project — auto-layout becomes
-  flexbox, Variables become the Tailwind theme — and diffs against the render.
+<img src="assets/screenshots/apps.png" alt="Creating an app: name it, pick a stack (Expo React Native, React with a Python backend, or React + Vite), or start from an existing GitHub repository; the team's apps listed below" width="100%" />
 
-## Status
+Describe what you want. The agent reads, plans, writes files, runs commands and starts a live preview —
+and you watch every tool call and every file it touches as it happens.
 
-**Early, and honest about it.** The end-to-end path works — create a project, prompt the agent, watch
-it read and edit files, run a live preview — and the interfaces around it were deliberately settled
-first. Expect breaking changes before `1.0`.
+- **Verified, not just generated.** When the agent finishes, Zelyq runs the project's own typecheck or
+  build and checks the preview for a crash. A turn that broke something is handed back to fix — not
+  reported as done.
+- **Honest about what it knows.** *Engineer Mode* separates what was verified from what was inferred
+  or assumed, names the alternative it did not choose, and asks instead of guessing on anything
+  irreversible.
+- **Plans before it builds.** *Architect Mode* turns a request into a reviewable design — requirements,
+  decisions, data model, API, a build plan — and waits for your go-ahead. *Auto Mode* then runs the
+  passes itself, to a hard limit.
+- **Specialist agents.** A Designer (`DESIGN.md`), a DevOps engineer (CI, Dockerfile, deploy config),
+  a Security/QA engineer (tests and a security scan) and a Cinematic engineer (scroll-driven heroes).
+- **Full stack.** React + Vite, React with a Python (FastAPI) backend, or Expo React Native. Supabase Postgres with
+  row-level security written per operation and verified by a second session.
+- **Start from what exists.** Bring in an existing GitHub repository when you create the app;
+  `/clone <url>` rebuilds a live site page for page; `/figma <link>` builds from a Figma frame, with
+  its design tokens.
+- **Every turn can be undone.** A snapshot before each turn, a diff of exactly what changed, and
+  one-click revert. Project files are plain files on disk — `cd` into them and take them with you.
 
-Two limits worth knowing before you invest time. **There is no sandbox in `local` mode:** agent shell
-commands run as your own user, so that mode is for one trusted developer on one machine — read the
-[threat model](./SECURITY.md#threat-model--read-this-before-deploying) before deploying it anywhere
-else. And **`container` mode's outbound network access is unfiltered by default** — it blocks the
-cloud metadata endpoint and cross-project reachability, but a project can otherwise reach anything on
-your network unless you opt into `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` yourself. See the
-[roadmap](./docs/roadmap.md) for what is next and what is explicitly out of scope.
+See [Modes](./docs/modes.md) and [how the agent decides what to do](./docs/agent-behaviour.md).
+
+### Studio — images and video
+
+<table>
+<tr>
+<td width="50%"><img src="assets/screenshots/studio-image.png" alt="Studio Image: a prompt, provider, aspect ratio and quality on the left; the generated image on the canvas" /></td>
+<td width="50%"><img src="assets/screenshots/studio-video.png" alt="Studio Video: text to video or animate an image, with model, aspect ratio, duration, resolution and audio; the finished clip in the preview" /></td>
+</tr>
+<tr>
+<td align="center"><sub><b>Image</b> — OpenAI, Google or xAI, with reference images and a private library.</sub></td>
+<td align="center"><sub><b>Video</b> — Google Veo or xAI, from text or from a still image.</sub></td>
+</tr>
+</table>
+
+Your keys, billed to your own provider account. Turn it on for a project and the agent can generate
+artwork and footage for the app it is building — always within the limits you set. Clips can be split
+into image sequences for scroll-driven heroes. See [Studio — Image](./docs/Image-gen/implementation.md)
+and [Studio — Video](./docs/Video-gen/README.md).
+
+---
+
+## Secure — Vault
+
+<img src="assets/screenshots/vault.png" alt="Vault: team secrets with versions, a Protected flag, where each is used, and who changed it" width="100%" />
+
+Keep each credential **once**, and use it everywhere — without ever pasting it into a file.
+
+- **Encrypted at rest** (AES-256-GCM), with **version history**, a **Protected** flag for live keys,
+  and an **audit trail** of every reveal and change.
+- **Used by reference.** App variables, model keys in Settings, pipelines and deployments all point to
+  `vault://NAME` — the value is filled in only where and when it is needed.
+- **Masked everywhere.** A secret that reaches a pipeline log shows as `***`.
+- **Your own servers too.** Fetch secrets with a scoped service key, or run
+  `zelyq vault run -- <command>` to start a process with them and write nothing to disk.
+- **Import a `.env`** to move in, and never read credentials from one again.
+
+See [Vault](./docs/vault.md).
+
+---
+
+## Ship — Pipelines
+
+<img src="assets/screenshots/pipeline-run.png" alt="A pipeline run: Get, Build and Deploy stages passed, the deploy step's log showing the new container starting" width="100%" />
+
+A pipeline is a short YAML file: stages run in order, steps run in order, every step is a command.
+
+```yaml
+name: Shop
+runs-on: local                      # the Zelyq server, or one of your machines over SSH
+source: { app: Shop }
+stages:
+  - name: Test
+    matrix: { node: [20, 22] }      # one copy per version, at the same time
+    steps:
+      - checkout: true
+      - setup: node@${{ matrix.node }}
+      - run: npm ci && npm test
+        tests: reports/*.xml        # JUnit: passed / failed on the step
+  - name: Deploy
+    steps:
+      - deploy: { to: production, port: 3000 }
+```
+
+<img src="assets/screenshots/pipeline-parallel.png" alt="A run where Left and Right ran at the same time, and a matrix ran Node 20 and Node 22 side by side" width="100%" />
+
+- **Runs where you choose.** In a throwaway container on the Zelyq server, or on your own **Linux,
+  macOS and Windows** machines over SSH, with each machine's fingerprint pinned.
+- **Fast and flexible.** Stages that run at the same time, a different machine per stage, matrix builds,
+  and reusable templates shared across pipelines.
+- **Started by anything.** By hand, a git push (with path filters), a pull request, a schedule, another
+  pipeline finishing, an app change from the agent, or any CI with a service key.
+- **Everything a real pipeline needs.** Tool setup and caches, service containers (Postgres, Redis),
+  step outputs, JUnit test reports, artifacts, approvals, retries, timeouts and concurrency control.
+- **Reports back.** ✓ / ✗ on the commit and the pull request in GitHub or GitLab, and notifications when
+  a run ends.
+
+See [Pipelines](./docs/pipelines.md).
+
+## Ship — Deployments
+
+<img src="assets/screenshots/deployments.png" alt="Deployments: an environment with its live apps, each with its deploy history and a one-click roll back" width="100%" />
+
+- **Environments** such as `staging` and `production`, each on one of your machines, each with its own
+  variables — the test key on staging, the live key on production, from Vault.
+- **Deploy from a pipeline**, so an app is tested before it ships. Zelyq builds the image on your
+  machine from the app's `Dockerfile` — no registry needed.
+- **Automatic roll back.** If the new version does not pass its health check, the previous one is put
+  back by itself.
+- **One-click roll back** to any of the last three good versions, from the deploy history.
+- **Protected environments** wait for an admin's approval; **freeze** stops all deploys during a
+  release.
+
+See [Deploy](./docs/deploy.md).
+
+---
 
 ## Quickstart
 
@@ -247,153 +184,136 @@ your network unless you opt into `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` yourself. Se
 git clone https://github.com/CrowPus/Zelyq.git
 cd Zelyq
 pnpm install
-
-cp .env.example .env    # nothing in it is required to start
-
-pnpm dev            # builds the libraries, then web :5173 · server :8787 · agent :8788
+pnpm dev                # web :5173 · server :8787 · agent :8788
 ```
 
-Open <http://localhost:5173> and create the first account; it administers the instance. Add your
-model's API key in **Settings → Model** (typed, or from Vault). Then open **Apps**, create an app, and
-type what you want built. The first preview runs `npm install`, so give it a minute.
+Open <http://localhost:5173> and create the first account — it administers the instance. Add your
+model's key in **Settings → Model**, open **Apps**, create an app and describe what you want.
+
+**No `.env` needed.** Keys and passwords are entered in **Settings** or kept in **Vault**, never in a
+file. A `.env` is only for running Zelyq on a server — its address, ports, database and public URL —
+see [Self-hosting](./docs/self-hosting.md) and [Configuration](./docs/configuration.md).
 
 Prefer containers? `docker compose -f docker/docker-compose.yml up` — see
-[self-hosting](./docs/self-hosting.md).
+[Self-hosting](./docs/self-hosting.md).
+
+**Next:** the [tutorial](./docs/tutorial.md) takes an app from Zelyq to production, step by step —
+Vault, a pipeline, your own machine, a deploy with roll back, and GitHub pushes and pull requests.
+
+## Bring your own model
+
+| Provider | `ZELYQ_PROVIDER` | Default model |
+| --- | --- | --- |
+| Claude | `anthropic` | `claude-opus-5` |
+| Gemini | `google` | `gemini-3.7-flash` |
+| OpenAI | `openai` | `gpt-5.1` |
+| DeepSeek | `deepseek` | `deepseek-chat` |
+| Mistral | `mistral` | `mistral-large-latest` |
+| Grok (xAI), Groq, OpenRouter | `xai`, `groq`, `openrouter` | set `ZELYQ_MODEL` |
+| **Your own** — Ollama, vLLM, LM Studio, anything OpenAI-compatible | `custom` | set `ZELYQ_MODEL` |
+
+Keys are set in **Settings → Model**, typed or from Vault. With `custom`, nothing about your projects
+ever leaves your network. See [Configuration](./docs/configuration.md).
 
 ## How it works
 
-Three processes over four libraries. The agent never touches your disk directly; it goes through the
-runtime driver, which is the seam that makes local and cloud identical.
+Three processes and a command-line tool, over four shared libraries. An app's files and commands
+are reached through one seam only, the `RuntimeDriver`, which is what makes local and remote the
+same.
 
 ```
-        ┌───────────────┐
-        │  apps/web     │  React + Vite — chat, file tree, editor, live preview
-        └───────┬───────┘
-                │  REST + WebSocket
-        ┌───────▼───────┐
-        │  apps/server  │  Fastify. Projects, files, previews, snapshots.
-        │               │  Owns the database. Relays agent events to the browser.
-        └───────┬───────┘
-                │  HTTP + SSE
-        ┌───────▼───────┐
-        │  apps/agent   │  Runs the model loop, executes tools, streams events.
-        └───────┬───────┘
-                │  RuntimeDriver  (the only path to disk or shell)
-     ┌──────────┴───────────┐
-┌────▼─────┐        ┌───────▼────────┐
-│  local   │        │     remote     │  container / VM / k8s runtime host
-│ child_   │        │  HTTP contract │
-│ process  │        │                │
-└──────────┘        └────────────────┘
+   Browser                                 zelyq CLI  (zelyq vault run …)
+      │                                        │
+      │  REST + WebSocket                      │  HTTPS, service key
+      ▼                                        ▼
+ ┌──────────────────────────────────────────────────────────┐
+ │ apps/server   Fastify · owns the database                │
+ │ teams · apps · Vault · pipeline engine · deploys         │
+ └────┬───────────────────────┬─────────────────────┬───────┘
+      │ HTTP + SSE            │                     │ SSH (pinned fingerprint)
+      ▼                       │                     ▼
+ ┌──────────────┐             │             ┌────────────────────────────┐
+ │ apps/agent   │             │             │ Runners and environments   │
+ │ model loop,  │             │             │ your Linux, macOS, Windows │
+ │ tools        │             │             │ machines: pipelines,deploys│
+ └──────┬───────┘             │             └────────────────────────────┘
+        │                     │  files, previews, snapshots
+        ▼                     ▼
+ ┌──────────────────────────────────────────────────────────┐
+ │ RuntimeDriver   the only path to disk and shell          │
+ │ local · container (one per project) · remote host        │
+ └──────────────────────────────────────────────────────────┘
 ```
+
+- **apps/web** is the UI: chat, editor and preview, Studio, Vault, Pipelines, Deployments.
+- **apps/server** holds everything shared — teams, apps, Vault, the pipeline engine and deploys — and
+  is the only process that talks to the database.
+- **apps/agent** runs the model loop. It never touches files itself: every tool goes through the
+  `RuntimeDriver`.
+- **Pipelines** run on the Zelyq server (`runs-on: local`, a fresh container per run) or on your own
+  machines over SSH; **deploys** go to your machines over SSH too.
 
 | Package | Responsibility |
 | --- | --- |
-| [`@zelyq/core`](./packages/core) | Domain types and the wire protocol — Zod schemas shared by every process |
-| [`@zelyq/runtime`](./packages/runtime) | `RuntimeDriver` plus the `local` and `remote` implementations |
-| [`@zelyq/db`](./packages/db) | Drizzle schema and migrations, SQLite and PostgreSQL |
+| [`@zelyq/core`](./packages/core) | Domain types, the pipeline file format and the wire protocol — shared by every process |
+| [`@zelyq/runtime`](./packages/runtime) | `RuntimeDriver` and its implementations; the only code that starts processes |
+| [`@zelyq/db`](./packages/db) | Drizzle schema and migrations — SQLite by default, PostgreSQL when you scale |
 | [`@zelyq/tools`](./packages/tools) | The agent's tools, written once against `RuntimeDriver` |
 
-Model vendors sit behind a `ModelProvider` interface. Each keeps its own native conversation history,
-because Anthropic requires thinking blocks echoed back unchanged and Gemini requires thought
-signatures preserved across tool calls — flattening both into one format loses what the next request
-needs.
+Full detail: [Architecture](./docs/architecture.md).
 
-Full detail: [docs/architecture.md](./docs/architecture.md).
-
-## Models
-
-| Provider | `ZELYQ_PROVIDER` | Default model | Key (first start) |
-| --- | --- | --- | --- |
-| Claude | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
-| Gemini | `google` | `gemini-3.7-flash` | `GEMINI_API_KEY` |
-| OpenAI | `openai` | `gpt-5.1` | `OPENAI_API_KEY` |
-| DeepSeek | `deepseek` | `deepseek-chat` | `DEEPSEEK_API_KEY` |
-| Mistral | `mistral` | `mistral-large-latest` | `MISTRAL_API_KEY` |
-| Grok (xAI) | `xai` | none — set `ZELYQ_MODEL` | `XAI_API_KEY` |
-| Groq | `groq` | none — set `ZELYQ_MODEL` | `GROQ_API_KEY` |
-| OpenRouter | `openrouter` | none — set `ZELYQ_MODEL` | `OPENROUTER_API_KEY` |
-| Your own — Ollama, vLLM, LM Studio, anything OpenAI-compatible | `custom` | none — set `ZELYQ_MODEL` | none required |
-
-Only the selected provider's key is needed, and it is set in **Settings → Model**, typed or from
-[Vault](./docs/vault.md). The key column is the variable a key is copied from once, the first time Zelyq
-starts, if it is in `.env`; after that the environment is not read for keys. `custom` also needs `ZELYQ_MODEL_BASE_URL` pointed at your
-endpoint (e.g. `http://localhost:11434/v1` for Ollama) — see [.env.example](./.env.example). Tested
-live against a local, CPU-only 8B model: real tool calls, real self-correction from a validation error,
-same behaviour as the cloud providers — just slower without a GPU.
-
-Adding another provider is a registry entry plus one implementation — nothing in the server, the UI,
-or the tools changes.
-
-## Local vs. cloud
-
-|  | Local | Cloud |
-| --- | --- | --- |
-| Database | SQLite file (`./data/zelyq.db`) | PostgreSQL (`DATABASE_URL=postgres://…`) |
-| Project files | `./workspace/<project-id>` | Volume or runtime host storage |
-| Shell and dev servers | `child_process` on your machine | Runtime host (`ZELYQ_RUNTIME=remote`) |
-| Accounts | Built in — first account owns the instance | Same, with signup closed |
-| Model key | Your `.env` | Per user |
-
-One variable (`ZELYQ_RUNTIME`) moves between them. No code changes.
-
-## Configuration
-
-Everything is an environment variable, and most of it can also be set in **Settings** inside the app,
-so an instance can be run by someone who never opens a terminal — including entering the model API
-key. The environment always wins; fields it supplies appear locked in the UI, labelled with the
-variable that supplies them, so the two can never disagree silently.
-
-Keys entered through Settings are encrypted with AES-256-GCM before storage and never sent back to
-the browser. Only an instance administrator — the first account created — can see or change them.
-
-## Access control
-
-Everyone signs in, and every route checks who they are. Projects belong to a team; your role in that
-team decides what you can do:
+## Teams and access
 
 | Role | Can |
 | --- | --- |
-| `viewer` | Read projects, files, and conversations |
-| `editor` | Everything above, plus prompt the agent, edit files, and run previews |
-| `admin` | Everything above, plus manage members and delete projects |
+| `viewer` | See apps, files, runs, environments and deploy history |
+| `editor` | Everything above, plus prompt the agent, run pipelines and deploy |
+| `admin` | Everything above, plus members, environments, approvals and protected secrets |
 | `owner` | Full control, including the team itself |
 
-The first account created owns the instance; set `ZELYQ_ALLOW_REGISTRATION=false` afterwards so
-people join by invitation rather than by signing themselves up.
-
-Roles are not a sandbox. An `editor` can make the agent run shell commands, which in local mode run
-as the server's user — give `editor` to people you would trust with a shell on that machine.
+Every change — a secret revealed, a pipeline edited, a deploy rolled back — is in the team's Activity.
 
 ## Security
 
-Local mode runs generated code **on your machine with your permissions**. It is meant for projects you
-trust, on your own machine. It is not a sandbox.
+Zelyq is built to be inspected: boring storage, plain files, no telemetry, and secrets that are
+encrypted at rest and never passed on a command line or written to a log. Two limits are worth
+knowing before you deploy:
 
-For anything multi-tenant or internet-reachable, run the remote runtime with container isolation. The
-threat model, and what Zelyq does and does not protect against, is written out in
-[SECURITY.md](./SECURITY.md). Read it before you deploy.
+- **`local` runtime mode is not a sandbox.** Agent shell commands run as the server's user — use it
+  for one trusted developer on one machine. For anything shared or internet-facing, use container
+  isolation.
+- **Container mode's outbound network is open by default.** It always blocks the cloud metadata
+  endpoint and cross-project traffic; set `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` to restrict the rest.
+
+Read the [threat model](./SECURITY.md#threat-model--read-this-before-deploying) before deploying.
+
+## Status
+
+Zelyq is **early, and moving fast**. Apps, Studio, Vault, Pipelines and Deployments all work end to
+end and are used daily. Expect breaking changes before `1.0`. See the [roadmap](./docs/roadmap.md).
 
 ## Contributing
 
-Issues, discussions, and pull requests are welcome. [CONTRIBUTING.md](./CONTRIBUTING.md) covers the dev
-loop, the repository layout, and where a given change usually belongs. Everyone participating follows
-the [Code of Conduct](./CODE_OF_CONDUCT.md).
+Issues, discussions and pull requests are welcome. [CONTRIBUTING.md](./CONTRIBUTING.md) covers the dev
+loop, the repository layout and where a change usually belongs. Everyone participating follows the
+[Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ## License
 
-Zelyq is **open source**, licensed under the [GNU AGPL-3.0](./LICENSE). Run it,
-modify it, self-host it, fork it. If you run a *modified* Zelyq as a service other
-people use over a network, the AGPL requires you to offer them your source.
+Zelyq is **open source** under the [GNU AGPL-3.0](./LICENSE): run it, modify it, self-host it, fork
+it. If you run a *modified* Zelyq as a service for others over a network, the AGPL requires you to
+offer them your source.
 
-A **commercial license** — the same code without the AGPL's network-source
-requirement — is available for embedding Zelyq in a closed-source product, or for
-organisations whose policy blocks AGPL software: **support@dee-empire.com**.
-Features designated "Zelyq Enterprise" (`ee/` paths) are a separate paid
-subscription under the [Zelyq Enterprise License](./LICENSE_EE.md).
+A **commercial license** — the same code without the AGPL's network-source requirement — is available
+for closed-source products and organisations whose policy blocks AGPL software:
+**support@dee-empire.com**. Features marked "Zelyq Enterprise" (`ee/` paths) are a separate
+subscription under the [Zelyq Enterprise License](./LICENSE_EE.md). See [LICENSING.md](./LICENSING.md)
+for the plain-language version. Releases up to and including `v0.1.0` remain available under
+Apache-2.0.
 
-See [LICENSING.md](./LICENSING.md) for the plain-language version. Releases up to
-and including `v0.1.0` remain available under Apache-2.0.
+<div align="center">
+<br />
 
-© 2026 [Dee Empire](https://dee-empire.com). "Zelyq" and the Zelyq logo are
-trademarks of Dee Empire. Commercial licensing and support: support@dee-empire.com.
+© 2026 [Dee Empire](https://dee-empire.com) · "Zelyq" and the Zelyq logo are trademarks of Dee Empire.
+
+</div>
