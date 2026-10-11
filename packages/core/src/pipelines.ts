@@ -2270,10 +2270,12 @@ export const repoPathSchema = z
 
 /** Where a pipeline's file goes in its repository when nobody says: .zelyq/pipelines/<name>.yml. */
 export function defaultRepoPath(name: string): string {
+  // Words joined by "-", built word by word: no pattern that could run slow on a long name.
   const slug = name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .split(/[^a-z0-9]/)
+    .filter(Boolean)
+    .join("-")
     .slice(0, 60);
   return `.zelyq/pipelines/${slug || "pipeline"}.yml`;
 }
