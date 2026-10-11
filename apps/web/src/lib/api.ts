@@ -8,6 +8,11 @@ import type {
   ChangePasswordInput,
   CreateProjectInput,
   CreatePullRequestInput,
+  DeploymentDetail,
+  DeploymentSummary,
+  EnvironmentInput,
+  EnvironmentSummary,
+  EnvironmentUpdate,
   FileContent,
   FileEntry,
   FrameExportInput,
@@ -302,6 +307,36 @@ export const api = {
       ),
     removeTrigger: (teamId: string, id: string, triggerId: string) =>
       request<void>(`/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`, { method: "DELETE" }),
+  },
+
+  deploys: {
+    environments: (teamId: string) =>
+      request<{ environments: EnvironmentSummary[] }>(`/teams/${teamId}/environments`),
+    createEnvironment: (teamId: string, input: EnvironmentInput) =>
+      request<{ environment: EnvironmentSummary }>(`/teams/${teamId}/environments`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    updateEnvironment: (teamId: string, id: string, input: EnvironmentUpdate) =>
+      request<{ environment: EnvironmentSummary }>(`/teams/${teamId}/environments/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    removeEnvironment: (teamId: string, id: string) =>
+      request<void>(`/teams/${teamId}/environments/${id}`, { method: "DELETE" }),
+    history: (teamId: string, environmentId: string, app: string) =>
+      request<{ deployments: DeploymentSummary[] }>(
+        `/teams/${teamId}/environments/${environmentId}/deployments?app=${encodeURIComponent(app)}`,
+      ),
+    deployment: (teamId: string, deploymentId: string) =>
+      request<{ deployment: DeploymentDetail }>(`/teams/${teamId}/deployments/${deploymentId}`),
+    rollBack: (teamId: string, deploymentId: string) =>
+      request<{ deployment: DeploymentSummary }>(
+        `/teams/${teamId}/deployments/${deploymentId}/roll-back`,
+        {
+          method: "POST",
+        },
+      ),
   },
 
   runners: {

@@ -252,7 +252,42 @@ const approvalSchema = z
     allowSelf: form["allow-self"] ?? true,
   }));
 
-export const STEP_KINDS = ["run", "checkout", "setup", "cache", "docker", "approval"] as const;
+/** Environment names: staging, production, eu-1 … */
+export const environmentNameSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z][a-z0-9-]{0,39}$/, "Use lower-case letters, digits and '-' (staging, production).");
+
+/** `deploy: {to: production, port: 3000, …}` — see docs/deploy-plan.md. */
+const deploySchema = z
+  .object({
+    to: environmentNameSchema,
+    app: z
+      .string()
+      .trim()
+      .regex(/^[a-z0-9][a-z0-9-]{0,39}$/, "Use lower-case letters, digits and '-' (shop).")
+      .optional(),
+    port: z.number().int().min(1).max(65535),
+    "host-port": z.number().int().min(1).max(65535).optional(),
+    health: z
+      .string()
+      .trim()
+      .regex(/^\/[^\s]*$/, "A path on the app, like / or /health.")
+      .default("/"),
+    "health-timeout": durationSchema.optional(),
+    url: z.string().url("Use the full address, like https://shop.example.com.").optional(),
+  })
+  .strict();
+
+export const STEP_KINDS = [
+  "run",
+  "checkout",
+  "setup",
+  "cache",
+  "docker",
+  "approval",
+  "deploy",
+] as const;
 export type StepKind = (typeof STEP_KINDS)[number];
 
 const stepSchema = z
@@ -264,6 +299,7 @@ const stepSchema = z
     cache: cacheSchema.optional(),
     docker: dockerSchema.optional(),
     approval: approvalSchema.optional(),
+    deploy: deploySchema.optional(),
     shell: z
       .enum(PIPELINE_SHELLS, { message: `Use one of: ${PIPELINE_SHELLS.join(", ")}.` })
       .optional(),
@@ -306,6 +342,8 @@ export function stepLabel(step: PipelineStep): string {
       return `Docker: ${step.docker?.image.split("/").pop() ?? ""}${step.docker?.push ? " (push)" : ""}`;
     case "approval":
       return "Approval";
+    case "deploy":
+      return `Deploy to ${step.deploy?.to ?? ""}`;
     default: {
       const first = (step.run ?? "").trim().split("\n")[0] ?? "";
       return first.length > 60 ? `${first.slice(0, 57)}…` : first || "Run";
@@ -576,7 +614,7 @@ stages:
   },
   {
     id: "deploy",
-    label: "Deploy with approval",
+    label: "Deploy an app",
     source: `name: Deploy
 runs-on: local
 source:
@@ -587,10 +625,18 @@ stages:
       - checkout: true
       - setup: node@22
       - run: npm ci && npm test
+  - name: Staging
+    steps:
+      - deploy:
+          to: staging
+          port: 3000
+          host-port: 8080
   - name: Production
     steps:
-      - approval: Deploy to production?
-      - run: ./deploy.sh
+      - deploy:
+          to: production
+          port: 3000
+          host-port: 80
   - name: Tell someone
     if: failure()
     steps:
@@ -635,7 +681,7 @@ export const STEP_STATUSES = [
   "timed_out",
 ] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
-export type RunTrigger = "manual" | "rerun" | "push" | "schedule" | "api";
+export type RunTrigger = "manual" | "rerun" | "push" | "schedule" | "api" | "app";
 
 export interface PipelineActor {
   id: string;
@@ -924,12 +970,14 @@ export const triggerInputSchema = z.discriminatedUnion("kind", [
         }),
     })
     .strict(),
+  // When the agent changes the pipeline's source app.
+  z.object({ kind: z.literal("app") }).strict(),
 ]);
 export type TriggerInput = z.input<typeof triggerInputSchema>;
 
 export interface PipelineTriggerSummary {
   id: string;
-  kind: "push" | "schedule";
+  kind: "push" | "schedule" | "app";
   branches: string[] | null;
   cron: string | null;
   enabled: boolean;
@@ -1138,4 +1186,93 @@ export function runnerSetupScript(input: {
     "ZELYQ",
     "",
   ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Deploy (see docs/deploy-plan.md)
+// ---------------------------------------------------------------------------
+
+const variableValueSchema = z
+  .string()
+  .max(10_000)
+  .refine((value) => !value.startsWith("vault://") || vaultReferenceName(value) !== null, {
+    message: "A Vault reference is vault://NAME, with the secret's name.",
+  });
+
+export const environmentInputSchema = z
+  .object({
+    name: environmentNameSchema,
+    runnerId: z.string().min(1),
+    address: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9.:[\]-]{1,253}$/, "Use the machine's address: an IP or a host name.")
+      .nullable()
+      .optional(),
+    protected: z.boolean().default(false),
+    variables: z
+      .record(
+        z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/, "Use letters, digits and underscores."),
+        variableValueSchema,
+      )
+      .default({}),
+  })
+  .strict();
+export type EnvironmentInput = z.input<typeof environmentInputSchema>;
+export const environmentUpdateSchema = environmentInputSchema
+  .partial()
+  .extend({
+    frozen: z.boolean().optional(),
+    frozenReason: z.string().trim().max(300).nullable().optional(),
+  })
+  .strict();
+export type EnvironmentUpdate = z.input<typeof environmentUpdateSchema>;
+
+export const DEPLOYMENT_STATUSES = [
+  "deploying",
+  "live",
+  "failed",
+  "rolled_back",
+  "replaced",
+] as const;
+export type DeploymentStatus = (typeof DEPLOYMENT_STATUSES)[number];
+
+export interface DeploymentSummary {
+  id: string;
+  environmentId: string;
+  app: string;
+  number: number;
+  status: DeploymentStatus;
+  kind: "deploy" | "rollback";
+  url: string | null;
+  /** The pipeline run it came from, if any. */
+  run: { id: string; pipelineId: string; number: number; ref: string | null } | null;
+  /** For a roll back: the deploy it went back to. */
+  rolledBackTo: number | null;
+  by: PipelineActor | null;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  /** Whether its image is still on the machine, so it can be rolled back to. */
+  canRollBackTo: boolean;
+}
+
+/** One deploy with what happened, line by line. */
+export interface DeploymentDetail extends DeploymentSummary {
+  log: { stream: "out" | "err" | "system"; text: string }[];
+}
+
+export interface EnvironmentSummary {
+  id: string;
+  name: string;
+  runner: { id: string; name: string; host: string } | null;
+  address: string | null;
+  protected: boolean;
+  frozen: boolean;
+  frozenReason: string | null;
+  /** Names only; values never leave the server. */
+  variables: { name: string; fromVault: boolean }[];
+  /** The live deploy of each app here. */
+  live: DeploymentSummary[];
+  updatedAt: string;
 }

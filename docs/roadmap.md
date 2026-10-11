@@ -90,7 +90,8 @@ and **Ship**. See [platform-integration.md](./platform-integration.md).
 
 - [x] **Pipelines**: build, test and deploy steps that read secrets as `vault://NAME`, on the
   server or the team's own machines over SSH. See [Pipelines](./pipelines.md).
-- [ ] **Deploy**: targets per app (a Docker host or VM, then Kubernetes)
+- [x] **Deploy**: environments, deploys to a Docker host over SSH from a pipeline, automatic and
+  one-click roll back. See [Deploy](./deploy.md). Kubernetes is next.
 
 ## Later — depth
 

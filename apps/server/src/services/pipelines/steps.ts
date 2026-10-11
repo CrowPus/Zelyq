@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Readable } from "node:stream";
+import { PassThrough, type Readable } from "node:stream";
 import {
   type PipelineFile,
   type PipelineShell,
@@ -13,6 +13,7 @@ import {
 } from "@zelyq/core";
 import type { PipelineRunRow } from "@zelyq/db";
 import type { PipelineMachine } from "@zelyq/runtime";
+import type { DeployService } from "../deploy.js";
 import {
   checkoutCommands,
   isPosix,
@@ -84,6 +85,11 @@ export interface StepContext {
   tools: ToolService;
   /** The local runner's caches, on this server. */
   cacheDir: string;
+  deploys: DeployService;
+  /** A line in the step's log, with its stream. */
+  line(stream: "out" | "err" | "system", text: string): void;
+  /** Aborted when the run is cancelled or times out. */
+  signal: AbortSignal;
   archive(projectId: string): Promise<Buffer>;
   appId(app: string): Promise<string>;
 }
@@ -101,6 +107,8 @@ export async function runStepKind(context: StepContext): Promise<StepResult> {
       return cache(context);
     case "docker":
       return docker(context);
+    case "deploy":
+      return deploy(context);
     default:
       return context.script(context.step.run ?? "");
   }
@@ -582,4 +590,68 @@ export function cacheSaveScript(
     "exit 0",
     "",
   ].join("\n");
+}
+
+// -------------------------------------------------------------------- deploy
+
+/** An app's name on a machine: lower-case letters, digits and '-'. */
+export function appSlug(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, "-")
+      .replaceAll(/^-+|-+$/g, "")
+      .slice(0, 40) || "app"
+  );
+}
+
+async function deploy(context: StepContext): Promise<StepResult> {
+  const spec = context.step.deploy;
+  if (!spec) return FAILED;
+  const { machine, run, file } = context;
+  const environment = await context.deploys.environmentFor(run.teamId, spec.to);
+  if ("error" in environment) {
+    context.system(environment.error);
+    return FAILED;
+  }
+  const app = spec.app ?? appSlug(file.source?.app ?? file.name);
+
+  // The step's folder, packed where the run is and streamed to the environment's machine.
+  const source = new PassThrough();
+  const windows = machine.os === "windows";
+  const packing = machine
+    .exec(
+      windows
+        ? `cd /d "${context.dir}" && tar -czf - --exclude=node_modules --exclude=.git .`
+        : `cd ${sq(context.dir)} && tar -czf - --exclude=./node_modules --exclude=./.git .`,
+      {
+        onStdout: (chunk) => {
+          source.write(chunk);
+        },
+        signal: context.signal,
+      },
+    )
+    .catch(() => ({ code: null }))
+    .finally(() => source.end());
+
+  const result = await context.deploys.deploy({
+    teamId: run.teamId,
+    environment,
+    app,
+    port: spec.port,
+    hostPort: spec["host-port"] ?? spec.port,
+    healthPath: spec.health,
+    healthTimeoutS: spec["health-timeout"] ?? 60,
+    url: spec.url ?? null,
+    runId: run.id,
+    triggeredBy: run.triggeredBy,
+    source,
+    reuse: null,
+    onLine: (stream, text) => context.line(stream, text),
+    signal: context.signal,
+  });
+  source.resume();
+  await packing;
+  if (context.signal.aborted) return { code: null, ended: "cancelled" };
+  return result.ok ? OK : FAILED;
 }

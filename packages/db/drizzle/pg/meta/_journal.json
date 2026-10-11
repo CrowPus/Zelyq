@@ -176,6 +176,20 @@
       "when": 1791670976151,
       "tag": "0024_pipeline_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791675177668,
+      "tag": "0025_deploy",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791716666292,
+      "tag": "0026_deploy_log",
+      "breakpoints": true
     }
   ]
 }

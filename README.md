@@ -38,6 +38,7 @@ Zelyq is one place for the work around an app, organised the way you do it:
 | | **Studio** | Generate images and video, for your apps or on their own |
 | **Secure** | **[Vault](./docs/vault.md)** | Keep every credential once, encrypted, and use it in apps, Settings, and your own servers |
 | **Ship** | **[Pipelines](./docs/pipelines.md)** | Test, build and deploy the same way every time, on this server or your own Linux, macOS and Windows machines over SSH |
+| | **[Deploy](./docs/deploy.md)** | Put apps on your own machines per environment (staging, production), with approval, freeze and roll back |
 
 Teams are the workspace: invite people, give them a role, and every module follows it. Self-hosted,
 AGPL-3.0, no telemetry.

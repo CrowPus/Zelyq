@@ -1,0 +1,1 @@
+ALTER TABLE "deployments" ADD COLUMN "log" text DEFAULT '' NOT NULL;

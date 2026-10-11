@@ -35,11 +35,13 @@ them. These pages follow the sidebar.
 - [Pipelines](./pipelines.md): test, build and deploy on this server or your own machines over
   SSH (Linux, macOS, Windows); triggers, artifacts, notifications
 
-Deploy is next. See the [roadmap](./roadmap.md) and the [platform plan](./platform-integration.md).
+- [Deploy](./deploy.md): environments (staging, production), deploys from a pipeline to your
+  machines with Docker, automatic and one-click roll back
 
 ## How it is built
 
 - [Architecture](./architecture.md), [runtime protocol](./runtime-protocol.md),
   [decision records](./adr/)
 - [Vault design](./vault-standalone-plan.md)
-- [Pipelines design](./pipelines-plan.md)
+- [Pipelines design](./pipelines-plan.md), [built-in steps design](./pipeline-steps-plan.md),
+  [Deploy design](./deploy-plan.md)

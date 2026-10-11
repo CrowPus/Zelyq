@@ -32,6 +32,7 @@ import type { PipelineRow, PipelineRunRow, PipelineStepRow, Store } from "@zelyq
 import type { AccessControl } from "../access.js";
 import type { VaultService } from "../vault.js";
 import type { PipelineEngine } from "./engine.js";
+import { appSlug } from "./steps.js";
 
 /** A run that has not ended yet. */
 const ACTIVE = new Set(["queued", "running", "waiting"]);
@@ -541,6 +542,27 @@ export class PipelineService {
           )
             .map((release) => release.version)
             .join(", ")}.`,
+        );
+      }
+    }
+    for (const step of steps) {
+      if (!step.deploy) continue;
+      const environment = await this.store.deploy.environments.findByName(teamId, step.deploy.to);
+      if (!environment) {
+        warnings.push(
+          `There is no environment called ${step.deploy.to} yet. An admin adds it in Deployments.`,
+        );
+        continue;
+      }
+      // Another app already answers on that port there: this deploy could not start.
+      const app = step.deploy.app ?? appSlug(file.source?.app ?? file.name);
+      const hostPort = step.deploy["host-port"] ?? step.deploy.port;
+      const other = (await this.store.deploy.deployments.live([environment.id])).find(
+        (live) => live.hostPort === hostPort && live.app !== app,
+      );
+      if (other) {
+        warnings.push(
+          `Port ${hostPort} on ${environment.name} is used by ${other.app}. Write app: ${other.app} to replace it, or choose another host-port.`,
         );
       }
     }

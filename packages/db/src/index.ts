@@ -1,6 +1,7 @@
 import { createDatabase, type DatabaseHandle } from "./client.js";
 import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
+import { deployRepository } from "./repositories/deploy.js";
 import { imageRepository } from "./repositories/images.js";
 import { messageRepository } from "./repositories/messages.js";
 import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
@@ -70,6 +71,7 @@ export interface Store extends DatabaseHandle {
   providerConnections: ReturnType<typeof providerConnectionRepository>;
   vault: ReturnType<typeof vaultRepository>;
   pipelines: ReturnType<typeof pipelineRepository>;
+  deploy: ReturnType<typeof deployRepository>;
 }
 
 /**
@@ -96,5 +98,8 @@ export function createStore(url: string): Store {
     providerConnections: providerConnectionRepository(handle.db),
     vault: vaultRepository(handle.db),
     pipelines: pipelineRepository(handle.db),
+    deploy: deployRepository(handle.db),
   };
 }
+
+export type { DeployEnvironmentRow, DeploymentRow } from "./repositories/deploy.js";
