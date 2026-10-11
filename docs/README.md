@@ -52,6 +52,8 @@ and test, build and deploy them on your own machines. These pages follow the sid
     outputs, Postgres/Redis for a run, JUnit, ✓ / ✗ on GitHub and GitLab
   - [triggers](./pipelines.md#starting-a-run-without-pressing-run): git push, pull requests,
     schedules, other CI, and [when a webhook does not start a run](./pipelines.md#when-a-webhook-does-not-start-a-run)
+- [Pipeline plugins](./pipeline-plugins.md): build your own ready-made steps, pack them, install them
+  in your team and use them with `plugin:`
 - [Deploy](./deploy.md): environments, deploying from a pipeline, protected environments and freeze,
   automatic and one-click roll back, ports
 

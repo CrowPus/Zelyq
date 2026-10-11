@@ -11,6 +11,7 @@ import {
   type PipelineShell,
   type PipelineStage,
   type PipelineStep,
+  type PluginManifest,
   parsePipelineFile,
   pipelineTarget,
   pipelineVaultNames,
@@ -104,6 +105,14 @@ export interface EngineDeps {
   /** The local runner's caches, on this server. */
   cacheDir: string;
   deploys: DeployService;
+  /** The plugins a team installed. */
+  plugins?: {
+    find(
+      teamId: string,
+      pluginId: string,
+      version: string,
+    ): Promise<{ manifest: PluginManifest; path: string } | null>;
+  };
 }
 
 type EndReason = "cancelled" | "timed_out";
@@ -1367,12 +1376,12 @@ export class PipelineEngine {
       system: (text) => log.add(row.id, "system", text),
       exec: (command, stdin, options) =>
         this.execInStep({ ...input, command, stdin, quiet: options?.quiet ?? false }),
-      script: (commands, extra = {}) =>
+      script: (commands, extra = {}, use = shell) =>
         this.execInStep({
           ...input,
-          command: shellCommand(shell),
+          command: shellCommand(use),
           stdin: stepScript({
-            shell,
+            shell: use,
             workspace: machine.workspace,
             workingDirectory: step["working-directory"],
             env: { ...env, ...extra },
@@ -1389,6 +1398,8 @@ export class PipelineEngine {
       archive: (projectId) => this.deps.runtime.archive(projectId),
       appId: (app) => this.appId(run, app),
       findArtifact: (from, name) => this.findArtifact(run, from, name),
+      findPlugin: async (pluginId, version) =>
+        (await this.deps.plugins?.find(run.teamId, pluginId, version)) ?? null,
     };
 
     const leftovers = async (read: boolean) =>

@@ -507,6 +507,8 @@ export const auditActionSchema = z.enum([
   "pipeline.trigger_added",
   "pipeline.trigger_removed",
   "pipeline.trigger_changed",
+  "pipeline.plugin_installed",
+  "pipeline.plugin_removed",
   "pipeline.run_approved",
   "pipeline.run_rejected",
   "environment.created",

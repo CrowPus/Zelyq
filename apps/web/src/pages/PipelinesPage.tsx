@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
-import { Plus, Workflow } from "lucide-react";
+import { Plus, Star, Workflow } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { PluginsTab } from "../components/pipelines/PluginsTab";
 import { RunnersTab } from "../components/pipelines/RunnersTab";
 import { StageStrip } from "../components/pipelines/Stages";
 import { Badge, Button, EmptyState, Spinner } from "../components/ui";
@@ -11,17 +12,19 @@ import { api } from "../lib/api";
 import { RUN_STATUS } from "../lib/pipelines";
 import { formatRelative } from "../lib/vault";
 
-type Tab = "pipelines" | "runners";
+type Tab = "pipelines" | "runners" | "plugins";
 
 /**
  * Pipelines — the work after the code is written (test, build, deploy), run
  * the same way every time, on the server or on the team's own machines.
- * Runners is the second tab: the machines, and the key they trust.
+ * Runners is the second tab: the machines, and the key they trust; Plugins
+ * the third: ready-made steps the team installed.
  */
 export function PipelinesPage() {
   const { team } = useActiveTeam();
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get("tab") === "runners" ? "runners" : "pipelines";
+  const asked = params.get("tab");
+  const tab: Tab = asked === "runners" || asked === "plugins" ? asked : "pipelines";
   const canWrite = team ? roleAtLeast(team.role, "editor") : false;
 
   return (
@@ -48,7 +51,7 @@ export function PipelinesPage() {
           </header>
 
           <div role="tablist" className="mb-4 flex gap-1 border-b border-border-default">
-            {(["pipelines", "runners"] as const).map((name) => (
+            {(["pipelines", "runners", "plugins"] as const).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -63,7 +66,7 @@ export function PipelinesPage() {
                     : "border-transparent text-fg-secondary hover:text-fg"
                 }`}
               >
-                {name === "pipelines" ? "Pipelines" : "Runners"}
+                {name === "pipelines" ? "Pipelines" : name === "runners" ? "Runners" : "Plugins"}
               </button>
             ))}
           </div>
@@ -75,6 +78,8 @@ export function PipelinesPage() {
             />
           ) : tab === "runners" ? (
             <RunnersTab team={team} />
+          ) : tab === "plugins" ? (
+            <PluginsTab team={team} />
           ) : (
             <PipelineList teamId={team.id} canWrite={canWrite} />
           )}
@@ -85,14 +90,23 @@ export function PipelinesPage() {
 }
 
 function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean }) {
+  const queryClient = useQueryClient();
   const list = useQuery({
     queryKey: ["pipelines", teamId],
     queryFn: () => api.pipelines.list(teamId),
     refetchInterval: 5000,
   });
+  const star = useMutation({
+    mutationFn: (input: { id: string; favorite: boolean }) =>
+      api.pipelines.setFavorite(teamId, input.id, input.favorite),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["pipelines", teamId] }),
+  });
 
   if (list.isLoading) return <Spinner />;
-  const pipelines = list.data?.pipelines ?? [];
+  // Starred first, each group in the server's order.
+  const pipelines = [...(list.data?.pipelines ?? [])].sort(
+    (a, b) => Number(b.favorite) - Number(a.favorite),
+  );
   if (pipelines.length === 0) {
     return (
       <EmptyState
@@ -115,10 +129,25 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
       {pipelines.map((pipeline) => {
         const status = pipeline.lastRun ? RUN_STATUS[pipeline.lastRun.status] : null;
         return (
-          <li key={pipeline.id}>
+          <li key={pipeline.id} className="flex items-center hover:bg-surface-hover">
+            <button
+              type="button"
+              aria-label={pipeline.favorite ? `Unstar ${pipeline.name}` : `Star ${pipeline.name}`}
+              aria-pressed={pipeline.favorite}
+              title={pipeline.favorite ? "Starred: shown first" : "Star it, to show it first"}
+              disabled={star.isPending}
+              onClick={() => star.mutate({ id: pipeline.id, favorite: !pipeline.favorite })}
+              className="py-2.5 pr-1 pl-3 text-fg-muted hover:text-warning"
+            >
+              <Star
+                size={15}
+                className={pipeline.favorite ? "fill-warning text-warning" : ""}
+                strokeWidth={1.75}
+              />
+            </button>
             <Link
               to={`/pipelines/${pipeline.id}`}
-              className="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover"
+              className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-3 pl-2"
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{pipeline.name}</p>

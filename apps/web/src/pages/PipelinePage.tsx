@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PIPELINE_TEMPLATES,
+  type PipelineRunSummary,
   type PipelineTriggerSummary,
   parsePipelineFile,
   roleAtLeast,
@@ -9,6 +10,7 @@ import {
 import {
   Clock,
   GitBranch,
+  GitPullRequest,
   Link2,
   Pencil,
   Play,
@@ -19,7 +21,7 @@ import {
   Trash2,
   Workflow,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { StageStrip, StatusIcon } from "../components/pipelines/Stages";
@@ -37,7 +39,7 @@ import { api, type PipelineCheck } from "../lib/api";
 import { duration, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
-type Tab = "runs" | "file" | "triggers";
+type Tab = "runs" | "branches" | "file" | "triggers";
 
 /** One pipeline: its runs, its file, and what starts it. `/pipelines/new` is the file alone. */
 export function PipelinePage() {
@@ -103,7 +105,7 @@ export function PipelinePage() {
 
           {!isNew && (
             <div role="tablist" className="mb-4 flex gap-1 border-b border-border-default">
-              {(["runs", "file", "triggers"] as const).map((value) => (
+              {(["runs", "branches", "file", "triggers"] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
@@ -118,7 +120,13 @@ export function PipelinePage() {
                       : "border-transparent text-fg-secondary hover:text-fg"
                   }`}
                 >
-                  {value === "runs" ? "Runs" : value === "file" ? "File" : "Triggers"}
+                  {value === "runs"
+                    ? "Runs"
+                    : value === "branches"
+                      ? "Branches"
+                      : value === "file"
+                        ? "File"
+                        : "Triggers"}
                 </button>
               ))}
             </div>
@@ -155,6 +163,8 @@ export function PipelinePage() {
             />
           ) : tab === "triggers" ? (
             <Triggers teamId={team.id} pipelineId={id} canWrite={canWrite} />
+          ) : tab === "branches" ? (
+            <Branches teamId={team.id} pipelineId={id} />
           ) : (
             <Runs teamId={team.id} pipelineId={id} />
           )}
@@ -188,10 +198,13 @@ function Runs({ teamId, pipelineId }: { teamId: string; pipelineId: string }) {
               <span className="w-10 font-mono text-sm">#{run.number}</span>
               <Badge tone={status.tone}>{status.label}</Badge>
               <StageStrip stages={run.stages} />
-              <span className="min-w-0 flex-1 truncate text-xs text-fg-secondary">
-                {run.triggeredBy ? run.triggeredBy.name : TRIGGER_WORDS[run.trigger]}
-                {run.runner && <> · on {run.runner}</>}
-                {run.error && <> · {run.error}</>}
+              <span className="min-w-0 flex-1 text-xs text-fg-secondary">
+                <span className="block truncate">
+                  {run.triggeredBy ? run.triggeredBy.name : TRIGGER_WORDS[run.trigger]}
+                  {run.runner && <> · on {run.runner}</>}
+                  {run.error && <> · {run.error}</>}
+                </span>
+                <RunSource run={run} />
               </span>
               <span className="text-xs text-fg-muted">
                 {duration(run.startedAt, run.finishedAt)} · {formatRelative(run.createdAt)}
@@ -201,6 +214,135 @@ function Runs({ teamId, pipelineId }: { teamId: string; pipelineId: string }) {
         );
       })}
     </ul>
+  );
+}
+
+/** Where a run's code came from: its pull request or branch, and its commit. */
+function RunSource({ run }: { run: PipelineRunSummary }) {
+  if (!run.pullRequest && !run.branch && !run.commit) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 truncate text-2xs text-fg-muted">
+      {run.pullRequest ? (
+        <>
+          <GitPullRequest size={11} className="shrink-0" />
+          <span className="truncate">
+            #{run.pullRequest.number} {run.pullRequest.title}
+          </span>
+        </>
+      ) : run.branch ? (
+        <>
+          <GitBranch size={11} className="shrink-0" />
+          <span className="font-mono">{run.branch}</span>
+        </>
+      ) : null}
+      {run.commit && <span className="font-mono">{run.commit.slice(0, 7)}</span>}
+      {run.commitMessage && <span className="truncate">{run.commitMessage}</span>}
+    </span>
+  );
+}
+
+/**
+ * Each pull request and branch the pipeline ran for, with its newest run:
+ * what is green and what is red, at a glance.
+ */
+function Branches({ teamId, pipelineId }: { teamId: string; pipelineId: string }) {
+  const runs = useQuery({
+    queryKey: ["pipeline-runs", teamId, pipelineId],
+    queryFn: () => api.pipelines.runs(teamId, pipelineId),
+    refetchInterval: 5000,
+  });
+  if (runs.isLoading) return <Spinner />;
+  const all = runs.data?.runs ?? [];
+  // Runs come newest first, so the first one seen for each is its latest.
+  const requests = new Map<number, PipelineRunSummary>();
+  const branches = new Map<string, PipelineRunSummary>();
+  for (const run of all) {
+    if (run.pullRequest) {
+      if (!requests.has(run.pullRequest.number)) requests.set(run.pullRequest.number, run);
+    } else if (run.branch && !branches.has(run.branch)) {
+      branches.set(run.branch, run);
+    }
+  }
+  if (requests.size === 0 && branches.size === 0) {
+    return (
+      <EmptyState
+        title="No branches yet"
+        description="Runs started by a git push or a pull request show here, one row per branch and pull request, with its latest result."
+      />
+    );
+  }
+  const row = (run: PipelineRunSummary, label: ReactNode) => (
+    <li key={run.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+      <StatusIcon status={run.status} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{label}</span>
+        {run.commitMessage && (
+          <span className="block truncate text-2xs text-fg-muted">
+            {run.commit && <span className="font-mono">{run.commit.slice(0, 7)} </span>}
+            {run.commitMessage}
+          </span>
+        )}
+      </span>
+      <StageStrip stages={run.stages} />
+      <Link
+        to={`/pipelines/${pipelineId}/runs/${run.id}`}
+        className="font-mono text-xs text-primary hover:underline"
+      >
+        #{run.number}
+      </Link>
+      <span className="w-20 text-right text-xs text-fg-muted">{formatRelative(run.createdAt)}</span>
+    </li>
+  );
+  return (
+    <div className="grid gap-4">
+      {requests.size > 0 && (
+        <section>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+            <GitPullRequest size={14} /> Pull requests
+          </h2>
+          <ul className="divide-y divide-border-default rounded-md border border-border-default">
+            {[...requests.values()].map((run) => {
+              const request = run.pullRequest as NonNullable<PipelineRunSummary["pullRequest"]>;
+              return row(
+                run,
+                <>
+                  {request.url ? (
+                    <a
+                      href={request.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium hover:underline"
+                    >
+                      #{request.number} {request.title}
+                    </a>
+                  ) : (
+                    <span className="font-medium">
+                      #{request.number} {request.title}
+                    </span>
+                  )}
+                  <span className="ml-2 font-mono text-2xs text-fg-muted">
+                    {run.branch} → {request.base}
+                  </span>
+                </>,
+              );
+            })}
+          </ul>
+        </section>
+      )}
+      {branches.size > 0 && (
+        <section>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+            <GitBranch size={14} /> Branches
+          </h2>
+          <ul className="divide-y divide-border-default rounded-md border border-border-default">
+            {[...branches.entries()].map(([branch, run]) =>
+              row(run, <span className="font-mono">{branch}</span>),
+            )}
+          </ul>
+        </section>
+      )}
+      <p className="text-2xs text-fg-muted">From the newest 100 runs.</p>
+    </div>
   );
 }
 
@@ -451,6 +593,13 @@ stages:
 
 # Its stages (and env) are copied in when a run starts; the run keeps
 # that copy, so changing the template changes only later runs.`}</pre>
+      <p className="mt-3 font-medium text-fg">Plugins: ready-made steps</p>
+      <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`- id: hello
+  plugin: acme/hello@1.0.0     # installed in Pipelines → Plugins
+  with:
+    who: team
+    token: vault://API_TOKEN   # a secret input comes from Vault
+- run: echo "\${{ steps.hello.outputs.greeting }}"`}</pre>
     </details>
   );
 }

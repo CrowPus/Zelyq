@@ -212,6 +212,15 @@ export class PipelineTriggerService {
         "pull_request",
         request.commit,
         request.branch,
+        {
+          commitMessage: request.message,
+          pullRequest: {
+            number: request.number,
+            title: request.title.slice(0, 300),
+            url: request.url && /^https:\/\//.test(request.url) ? request.url : null,
+            base: request.base,
+          },
+        },
       );
       await this.store.pipelines.triggers.update(row.id, { lastFiredAt: new Date().toISOString() });
       return { status: 201, message: `Started run #${run.number}.` };
@@ -246,6 +255,13 @@ export class PipelineTriggerService {
       "push",
       /^[0-9a-f]{7,64}$/i.test(commit) ? commit : branch,
       branch,
+      {
+        // GitHub names the head commit; GitLab lists the commits, newest last.
+        commitMessage:
+          payload.head_commit?.message ??
+          payload.commits?.find((pushed) => pushed.id === commit)?.message ??
+          null,
+      },
     );
     await this.store.pipelines.triggers.update(row.id, { lastFiredAt: new Date().toISOString() });
     return { status: 201, message: `Started run #${run.number}.` };
@@ -437,10 +453,20 @@ interface WebhookPayload {
   checkout_sha?: string;
   deleted?: boolean;
   total_commits_count?: number;
-  commits?: { added?: string[]; modified?: string[]; removed?: string[] }[];
+  commits?: {
+    id?: string;
+    message?: string;
+    added?: string[];
+    modified?: string[];
+    removed?: string[];
+  }[];
+  head_commit?: { message?: string } | null;
   // GitHub pull_request
   action?: string;
   pull_request?: {
+    number?: number;
+    title?: string;
+    html_url?: string;
     head?: { sha?: string; ref?: string; repo?: { full_name?: string } | null };
     base?: { ref?: string; repo?: { full_name?: string } };
   };
@@ -452,7 +478,10 @@ interface WebhookPayload {
     target_branch?: string;
     source_project_id?: number;
     target_project_id?: number;
-    last_commit?: { id?: string };
+    iid?: number;
+    title?: string;
+    url?: string;
+    last_commit?: { id?: string; message?: string };
   };
 }
 
@@ -460,7 +489,17 @@ interface WebhookPayload {
 function pullRequestOf(
   event: string | undefined,
   payload: WebhookPayload,
-): { commit: string; branch: string; base: string; fork: boolean; ignored?: string } | null {
+): {
+  commit: string;
+  branch: string;
+  base: string;
+  fork: boolean;
+  ignored?: string;
+  number: number;
+  title: string;
+  url: string | null;
+  message: string | null;
+} | null {
   if (event === "pull_request" && payload.pull_request) {
     const pr = payload.pull_request;
     const ignored = ["opened", "synchronize", "reopened"].includes(payload.action ?? "")
@@ -473,6 +512,10 @@ function pullRequestOf(
       // No head repository (deleted fork), or another one: a fork.
       fork: !pr.head?.repo || pr.head.repo.full_name !== pr.base?.repo?.full_name,
       ignored,
+      number: pr.number ?? 0,
+      title: pr.title ?? "",
+      url: pr.html_url ?? null,
+      message: null,
     };
   }
   if (payload.object_kind === "merge_request" && payload.object_attributes) {
@@ -486,6 +529,10 @@ function pullRequestOf(
       base: mr.target_branch ?? "",
       fork: mr.source_project_id !== mr.target_project_id,
       ignored,
+      number: mr.iid ?? 0,
+      title: mr.title ?? "",
+      url: mr.url ?? null,
+      message: mr.last_commit?.message ?? null,
     };
   }
   return null;

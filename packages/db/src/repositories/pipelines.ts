@@ -3,9 +3,11 @@ import type { ZelyqDb } from "../client.js";
 import {
   pipelineApprovals as approvals,
   pipelineArtifacts as artifacts,
+  pipelineFavorites as favorites,
   teamSshKeys as keys,
   pipelineLogs as logs,
   pipelines,
+  pipelinePlugins as plugins,
   runners,
   pipelineRuns as runs,
   pipelineSteps as steps,
@@ -21,6 +23,7 @@ export type PipelineLogRow = typeof logs.$inferSelect;
 export type PipelineArtifactRow = typeof artifacts.$inferSelect;
 export type PipelineTriggerRow = typeof triggers.$inferSelect;
 export type PipelineApprovalRow = typeof approvals.$inferSelect;
+export type PipelinePluginRow = typeof plugins.$inferSelect;
 
 /** See `vault.ts`: one write transaction at a time per handle, because libsql's
  * synchronous BEGIN IMMEDIATE deadlocks a second in-process transaction. */
@@ -416,6 +419,81 @@ export function pipelineRepository(db: ZelyqDb) {
       async remove(id: string): Promise<boolean> {
         return (
           (await db.delete(triggers).where(eq(triggers.id, id)).returning({ id: triggers.id }))
+            .length > 0
+        );
+      },
+    },
+
+    // ------------------------------------------------------------ favorites
+    favorites: {
+      /** The pipelines a person starred. */
+      async listForUser(userId: string): Promise<Set<string>> {
+        const rows = await db
+          .select({ pipelineId: favorites.pipelineId })
+          .from(favorites)
+          .where(eq(favorites.userId, userId));
+        return new Set(rows.map((row) => row.pipelineId));
+      },
+      async set(userId: string, pipelineId: string, on: boolean): Promise<void> {
+        await db
+          .delete(favorites)
+          .where(and(eq(favorites.userId, userId), eq(favorites.pipelineId, pipelineId)));
+        if (on) {
+          await db
+            .insert(favorites)
+            .values({ userId, pipelineId, createdAt: new Date().toISOString() });
+        }
+      },
+    },
+
+    // -------------------------------------------------------------- plugins
+    plugins: {
+      async list(teamId: string): Promise<PipelinePluginRow[]> {
+        return await db
+          .select()
+          .from(plugins)
+          .where(eq(plugins.teamId, teamId))
+          .orderBy(asc(plugins.pluginId), desc(plugins.installedAt));
+      },
+      async find(
+        teamId: string,
+        pluginId: string,
+        version: string,
+      ): Promise<PipelinePluginRow | null> {
+        return (
+          (
+            await db
+              .select()
+              .from(plugins)
+              .where(
+                and(
+                  eq(plugins.teamId, teamId),
+                  eq(plugins.pluginId, pluginId),
+                  eq(plugins.version, version),
+                ),
+              )
+              .limit(1)
+          )[0] ?? null
+        );
+      },
+      async findById(id: string): Promise<PipelinePluginRow | null> {
+        return (await db.select().from(plugins).where(eq(plugins.id, id)).limit(1))[0] ?? null;
+      },
+      /** Every team's copy of a package: its file is removed only when none is left. */
+      async countBySha(sha256: string): Promise<number> {
+        const [row] = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(plugins)
+          .where(eq(plugins.sha256, sha256));
+        return Number(row?.count ?? 0);
+      },
+      async create(row: PipelinePluginRow): Promise<PipelinePluginRow> {
+        await db.insert(plugins).values(row);
+        return row;
+      },
+      async remove(id: string): Promise<boolean> {
+        return (
+          (await db.delete(plugins).where(eq(plugins.id, id)).returning({ id: plugins.id }))
             .length > 0
         );
       },

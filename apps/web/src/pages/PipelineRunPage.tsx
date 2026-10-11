@@ -126,6 +126,9 @@ export function PipelineRunPage() {
     null;
   const selected = picked ?? automatic;
   const [query, setQuery] = useState("");
+  // Where the run went wrong: the first failed step, shown at the top and scrolled to.
+  const failure = steps.find((step) => step.status === "failed" || step.status === "timed_out");
+  const [focus, setFocus] = useState(0);
 
   if (run.isLoading || !detail) {
     return (
@@ -249,6 +252,29 @@ export function PipelineRunPage() {
               />
             ))}
 
+          {failure && (
+            <button
+              type="button"
+              onClick={() => {
+                setPicked(failure.stageIndex);
+                setFocus((count) => count + 1);
+              }}
+              className="mb-3 flex w-full items-center gap-2 rounded-md border border-danger/40 bg-danger-subtle px-3 py-2 text-left text-sm hover:border-danger"
+            >
+              <StatusIcon status={failure.status} />
+              <span className="min-w-0 flex-1 truncate">
+                {failure.status === "timed_out" ? "Timed out at " : "Failed at "}
+                <span className="font-medium">
+                  {failure.stage} › {failure.name}
+                </span>
+                {failure.exitCode !== null && failure.exitCode !== 0 && (
+                  <span className="font-mono text-xs text-danger"> exit {failure.exitCode}</span>
+                )}
+              </span>
+              <span className="text-xs text-fg-secondary">Show the error</span>
+            </button>
+          )}
+
           <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
             <StageGraph
               stages={stages}
@@ -273,6 +299,8 @@ export function PipelineRunPage() {
               ))}
             </section>
           )}
+
+          <RunTests steps={steps} onShow={(stageIndex) => setPicked(stageIndex)} />
 
           <section className="rounded-md border border-border-default">
             <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
@@ -313,6 +341,7 @@ export function PipelineRunPage() {
                 step={step}
                 lines={byStep.get(step.id) ?? []}
                 query={query}
+                focus={step.id === failure?.id && !active ? focus + 1 : 0}
               />
             ))}
             {selected === stages[stages.length - 1]?.index && finishLines.length > 0 && (
@@ -336,20 +365,30 @@ function StepSection({
   step,
   lines,
   query,
+  focus = 0,
 }: {
   step: RunStep;
   lines: RunLogLine[];
   query: string;
+  /** Above 0: this is where the run failed; scroll to it (again, each time it grows). */
+  focus?: number;
 }) {
-  const wantsOpen =
-    step.status === "running" || step.status === "failed" || step.status === "timed_out";
+  const failed = step.status === "failed" || step.status === "timed_out";
+  const wantsOpen = step.status === "running" || failed;
   const [toggled, setToggled] = useState<boolean | null>(null);
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focus > 0) {
+      setToggled(true);
+      row.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [focus]);
   const matches = query ? lines.some((line) => matchLine(line, query)) : false;
   const open = toggled ?? (wantsOpen || matches);
   const canOpen = step.status !== "skipped" && step.status !== "pending";
 
   return (
-    <div className="border-b border-border-default last:border-b-0">
+    <div ref={row} className="scroll-mt-4 border-b border-border-default last:border-b-0">
       <button
         type="button"
         disabled={!canOpen}
@@ -414,13 +453,79 @@ function StepSection({
         </Link>
       )}
       {open && canOpen && (
-        <LogLines lines={lines} query={query} follow={step.status === "running"} />
+        // A failed step's log opens at its end, where the error is.
+        <LogLines lines={lines} query={query} follow={step.status === "running" || failed} />
       )}
     </div>
   );
 }
 
 /** The failing tests of a step's report, each opening onto what it said. */
+/**
+ * Every test report of the run in one place: the totals, and each failed
+ * test with the step it came from. Opens by itself when something failed.
+ */
+function RunTests({ steps, onShow }: { steps: RunStep[]; onShow: (stageIndex: number) => void }) {
+  const reported = steps.filter((step) => step.tests);
+  if (reported.length === 0) return null;
+  const total = (key: "passed" | "failed" | "skipped") =>
+    reported.reduce((sum, step) => sum + (step.tests?.[key] ?? 0), 0);
+  const failed = total("failed");
+  return (
+    <details open={failed > 0} className="mb-4 rounded-md border border-border-default text-xs">
+      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm">
+        <span className="font-semibold">Tests</span>
+        <span className="text-success">{total("passed")} passed</span>
+        {failed > 0 && <span className="text-danger">· {failed} failed</span>}
+        {total("skipped") > 0 && (
+          <span className="text-fg-muted">· {total("skipped")} skipped</span>
+        )}
+        <span className="text-fg-muted">
+          · from {reported.length} step{reported.length === 1 ? "" : "s"}
+        </span>
+      </summary>
+      {failed > 0 && (
+        <ul className="divide-y divide-border-default border-t border-border-default">
+          {reported.flatMap((step) =>
+            (step.tests?.failures ?? []).map((failure, index) => (
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: a report may list the same test twice
+                key={`${step.id}-${failure.suite}-${failure.name}-${index}`}
+                className="px-3 py-1.5"
+              >
+                <details>
+                  <summary className="cursor-pointer">
+                    <span className="font-medium">{failure.name}</span>
+                    {failure.suite && <span className="text-fg-muted"> · {failure.suite}</span>}
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        onShow(step.stageIndex);
+                      }}
+                      className="ml-2 text-info hover:underline"
+                    >
+                      {step.stage} › {step.name}
+                    </button>
+                    {failure.message && (
+                      <span className="block truncate text-danger">{failure.message}</span>
+                    )}
+                  </summary>
+                  {failure.details && (
+                    <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-2xs text-fg-secondary">
+                      {failure.details}
+                    </pre>
+                  )}
+                </details>
+              </li>
+            )),
+          )}
+        </ul>
+      )}
+    </details>
+  );
+}
+
 function TestFailures({ tests }: { tests: TestSummary }) {
   return (
     <div className="mx-10 mb-2 rounded-md border border-border-default">

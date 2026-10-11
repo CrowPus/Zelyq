@@ -8,6 +8,9 @@ import {
   type PipelineShell,
   type PipelineStep,
   type PipelineTool,
+  type PluginManifest,
+  parsePluginRef,
+  pluginInputProblems,
   stepKind,
   vaultReferenceName,
 } from "@zelyq/core";
@@ -84,8 +87,8 @@ export interface StepContext {
     stdin?: string | Buffer | Readable,
     options?: { quiet?: boolean },
   ): Promise<Executed>;
-  /** Runs commands in the step's shell, folder and variables, like a run: step. */
-  script(commands: string, env?: Record<string, string>): Promise<Executed>;
+  /** Runs commands in the step's shell (or `shell`), folder and variables, like a run: step. */
+  script(commands: string, env?: Record<string, string>, shell?: PipelineShell): Promise<Executed>;
   tools: ToolService;
   /** The local runner's caches, on this server. */
   cacheDir: string;
@@ -101,6 +104,11 @@ export interface StepContext {
   ): Promise<{ path: string; label: string } | { error: string }>;
   archive(projectId: string): Promise<Buffer>;
   appId(app: string): Promise<string>;
+  /** A plugin the run's team installed, at that version. */
+  findPlugin(
+    pluginId: string,
+    version: string,
+  ): Promise<{ manifest: PluginManifest; path: string } | null>;
 }
 
 const OK: StepResult = { code: 0, ended: null };
@@ -120,6 +128,8 @@ export async function runStepKind(context: StepContext): Promise<StepResult> {
       return deploy(context);
     case "download":
       return download(context);
+    case "plugin":
+      return plugin(context);
     default:
       return context.script(context.step.run ?? "");
   }
@@ -683,4 +693,86 @@ async function download(context: StepContext): Promise<StepResult> {
   await machine.exec(prepareCommand(machine.os, target));
   context.system(`Unpacking ${found.label}.`);
   return context.exec(unpackCommand(machine.os, target), createReadStream(found.path));
+}
+
+/**
+ * A `plugin:` step: the team's installed copy is unpacked into the run's
+ * folder (`.zelyq/plugins/<publisher>/<name>`), and its steps run one after
+ * another as part of this step. Inputs reach them only as variables,
+ * `ZELYQ_INPUT_<NAME>`, never pasted into a script; a vault:// input is the
+ * secret's value, masked like every secret.
+ */
+async function plugin(context: StepContext): Promise<StepResult> {
+  const ref = parsePluginRef(context.step.plugin ?? "");
+  if (!ref) return FAILED;
+  const found = await context.findPlugin(ref.pluginId, ref.version);
+  if (!found) {
+    context.system(
+      `${ref.pluginId}@${ref.version} is not installed for this team. An admin installs it in Pipelines → Plugins.`,
+    );
+    return FAILED;
+  }
+  const { manifest } = found;
+  const { machine } = context;
+  const systems = manifest["runs-on"]?.os;
+  if (systems && !systems.includes(machine.os)) {
+    context.system(
+      `${manifest.name} runs on ${systems.join(", ")}; this machine is ${machine.os}.`,
+    );
+    return FAILED;
+  }
+  const given = context.step.with ?? {};
+  const problems = pluginInputProblems(manifest, given);
+  if (problems.length > 0) {
+    for (const problem of problems) context.system(problem);
+    return FAILED;
+  }
+
+  const folder = join(machine, machine.workspace, ".zelyq", "plugins", ...ref.pluginId.split("/"));
+  await machine.exec(prepareCommand(machine.os, folder));
+  const unpacked = await context.exec(
+    unpackCommand(machine.os, folder),
+    createReadStream(found.path),
+    {
+      quiet: true,
+    },
+  );
+  if (unpacked.ended) return unpacked;
+  if (unpacked.code !== 0) {
+    context.system(`Could not unpack ${manifest.id} on this machine (it needs tar).`);
+    return FAILED;
+  }
+
+  const env: Record<string, string> = { ZELYQ_PLUGIN_DIR: folder };
+  // A plugin may always write outputs; they are kept only when the step has an id.
+  if (!context.env.ZELYQ_OUTPUT) env.ZELYQ_OUTPUT = join(machine, folder, ".zelyq-output");
+  for (const [name, input] of Object.entries(manifest.inputs)) {
+    const value = given[name] ?? input.default;
+    if (value === undefined) continue;
+    const secret = vaultReferenceName(value);
+    env[`ZELYQ_INPUT_${name.toUpperCase()}`] = secret ? (context.secrets.get(secret) ?? "") : value;
+  }
+  context.system(`${manifest.name} ${manifest.version} (${manifest.id})`);
+  for (const [index, inner] of manifest.steps.entries()) {
+    const label =
+      inner.name ?? (inner.run ? (inner.run.trim().split("\n")[0] ?? "") : `Step ${index + 1}`);
+    context.system(`› ${label}`);
+    const innerEnv = { ...env, ...(inner.env ?? {}) };
+    let result: StepResult;
+    if (inner.run !== undefined) {
+      if (inner.shell && machine.shells && !machine.shells.includes(inner.shell)) {
+        context.system(`${inner.shell} is not installed on this machine.`);
+        return FAILED;
+      }
+      result = await context.script(inner.run, innerEnv, inner.shell);
+    } else {
+      result = await runStepKind({
+        ...context,
+        step: { ...context.step, plugin: undefined, with: undefined, ...inner } as PipelineStep,
+        env: { ...context.env, ...innerEnv },
+      });
+    }
+    if (result.ended || result.code !== 0) return result;
+  }
+  return OK;
 }

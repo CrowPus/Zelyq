@@ -39,6 +39,8 @@ tested, deployed and rolled back. This page is the full reference.
 - [Built-in steps](#built-in-steps): `setup`, `cache`, `docker`, `approval`
 - [Stages at the same time, a machine per stage, matrix](#stages-at-the-same-time-a-machine-per-stage-matrix)
 - [Templates: reuse another pipeline's stages](#templates-reuse-another-pipelines-stages)
+- [Plugins: ready-made steps](#plugins-ready-made-steps), and how to build one in
+  [Pipeline plugins](./pipeline-plugins.md)
 - [Pipelines working together](#pipelines-working-together): inputs, upstream/downstream, one at a
   time, retry, keeping runs
 - [Results, services and test reports](#results-services-and-test-reports): outputs, service
@@ -402,6 +404,22 @@ stages:
 - A template cannot use another template. Saving a pipeline checks that the template exists, that
   every input it needs is given, and that `with:` names only its inputs.
 - A template is an ordinary pipeline, so you can run it on its own to try it.
+
+## Plugins: ready-made steps
+
+A plugin is a step someone packaged, with inputs: install its package in **Pipelines → Plugins**
+(team admins), then use it with an exact version:
+
+```yaml
+- id: notify
+  plugin: acme/chat-notify@1.0.0
+  with:
+    webhook: vault://SLACK_WEBHOOK      # a secret input comes from Vault
+    message: Shop is live
+```
+
+Its steps run on the runner, in this step's folder, and its outputs are read through the step's `id`.
+How to build, pack, version and share one: [Pipeline plugins](./pipeline-plugins.md).
 
 ## Pipelines working together
 
