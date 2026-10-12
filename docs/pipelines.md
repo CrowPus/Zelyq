@@ -183,6 +183,37 @@ under the editor, with their line in the file.
 Some things are only in YAML: inputs, services, artifacts, notifications, `concurrency`, `keep`, a
 step's `retry` and `tests`, and a Docker registry login. The visual editor keeps them as they are.
 
+### The YAML editor
+
+**YAML** is a code editor that knows what goes in a pipeline file:
+
+- **Suggestions where you type.** Keys are offered for the place the cursor is in: the top of the
+  file, a stage, a step, a `docker:` or `deploy:` block. Keys already written there are left out.
+  Once a key is chosen, its values follow: `success()`, `failure()`, `always()`; the shells;
+  `node@22`; your runners and their labels; your apps, environments and pipelines; your installed
+  plugins; and `vault://` with the names in the team's Vault. Inside `${{ }}` you get the file's
+  own `inputs`, step ids, `matrix` and `services` names, and a plugin step's outputs. Where a new
+  step goes, every kind of step is offered written out (`- docker:` with its image, tags and push);
+  in a plugin step's `with:`, the plugin's inputs. **Ctrl+Space** (⌘+Space) asks for suggestions
+  at any time.
+- **Help on hover.** Point at a key to see what it does, an example, and whether it is required.
+  Point at a `vault://NAME` to see whether the secret exists, and at a plugin to see its inputs.
+- **Problems where they are.** Each problem is underlined at the exact key or value, marked in the
+  margin, and listed under the editor with its line. Click one to go there, or press **F8** for
+  the next. A misspelt key or value comes with a fix (**Change to timeout**). Warnings from the
+  server (a secret not in Vault, a runner or app that does not exist) point at the name they are
+  about.
+- **The usual editor keys.** **Ctrl+S** (⌘+S) saves; **Shift+Alt+F** formats the file (two spaces,
+  comments kept, and only when the YAML is valid); **Ctrl+F** finds and replaces; **Ctrl+/**
+  comments lines; **Tab** indents with two spaces (YAML does not allow tabs); folding, several
+  cursors, moving lines, and go to line. The keyboard button lists them all.
+- **Room to work.** Line numbers, indentation guides, numbers, `true`/`false`, `vault://` and
+  `${{ }}` in their own colours, light or dark with the app. Wrap long lines, fold everything, or go
+  **full screen** (Esc comes back). The bottom bar shows the line and column, and the number of
+  errors and warnings.
+
+A file kept in its repository is shown read only.
+
 ## The file
 
 ```yaml

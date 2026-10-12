@@ -61,6 +61,17 @@
   --agent-1: #1b3fa8;
   --agent-2: #1b6fb0;
   --agent-3: #1f9aa8;
+
+  /* Code: keys carry the structure, values stay close to text. Muted, like
+     the rest, and each checked against the surface for contrast. */
+  --syntax-key: #1f5b99;
+  --syntax-string: #2f6b3a;
+  --syntax-number: #9a4d0b;
+  --syntax-keyword: #7a3e9d;
+  --syntax-comment: #8a8a83;
+  --syntax-meta: #a1460f;
+  --editor-selection: #d7e4f4;
+  --editor-match: #f3e2a9;
 }
 
 /* Explicit dark selection wins in both directions, so the toggle always works. */
@@ -102,6 +113,15 @@
   --agent-1: #4b7bff;
   --agent-2: #45a8f0;
   --agent-3: #3fdcd8;
+
+  --syntax-key: #79b8ff;
+  --syntax-string: #a5d6a7;
+  --syntax-number: #f0a868;
+  --syntax-keyword: #d2a8ff;
+  --syntax-comment: #7a7a77;
+  --syntax-meta: #ffab70;
+  --editor-selection: #1f3a5f;
+  --editor-match: #4a3d12;
 }
 
 /* No explicit choice: follow the operating system. */
@@ -144,6 +164,15 @@
     --agent-1: #4b7bff;
     --agent-2: #45a8f0;
     --agent-3: #3fdcd8;
+
+    --syntax-key: #79b8ff;
+    --syntax-string: #a5d6a7;
+    --syntax-number: #f0a868;
+    --syntax-keyword: #d2a8ff;
+    --syntax-comment: #7a7a77;
+    --syntax-meta: #ffab70;
+    --editor-selection: #1f3a5f;
+    --editor-match: #4a3d12;
   }
 }
 

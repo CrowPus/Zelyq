@@ -199,3 +199,27 @@ test("a stage's status comes from its steps", () => {
     ],
   );
 });
+
+test("issues carry where they are in the text, for an editor to underline", () => {
+  const text = `name: A
+runs-on: local
+timout: 3m
+stages:
+  - name: B
+    steps:
+      - run: echo hi
+        shell: fish
+`;
+  const parsed = parsePipelineFile(text);
+  assert.equal(parsed.ok, false);
+  const at = (issue: { from?: number; to?: number }) => text.slice(issue.from, issue.to);
+  const unknown = parsed.issues.find((issue) => issue.path === "timout");
+  assert.ok(unknown, "an unknown key is reported at the key, with its name in the path");
+  assert.equal(unknown.line, 3);
+  assert.equal(at(unknown), "timout");
+  const shell = parsed.issues.find((issue) => issue.path === "stages.0.steps.0.shell");
+  assert.equal(shell && at(shell), "fish");
+
+  const yaml = parsePipelineFile("name: A\n  bad: [\n");
+  assert.ok(yaml.issues.every((issue) => typeof issue.from === "number"));
+});

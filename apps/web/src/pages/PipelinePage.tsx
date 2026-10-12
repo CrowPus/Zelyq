@@ -21,12 +21,16 @@ import {
   Trash2,
   Workflow,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { RepoFileBar } from "../components/pipelines/RepoFile";
 import { StageStrip, StatusIcon } from "../components/pipelines/Stages";
 import { VisualEditor } from "../components/pipelines/VisualEditor";
+
+// The text editor is a large module; it loads only when the YAML view is opened.
+const YamlEditor = lazy(() => import("../components/pipelines/YamlEditor"));
+
 import {
   Badge,
   Button,
@@ -38,6 +42,7 @@ import {
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api, type PipelineCheck } from "../lib/api";
+import { locateWarning } from "../lib/pipeline-yaml";
 import { duration, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
@@ -373,7 +378,8 @@ function FileEditor({
   const canWrite = allowed && !repoPath;
   const [source, setSource] = useState(initial);
   const [error, setError] = useState<string | null>(null);
-  const [check, setCheck] = useState<PipelineCheck | null>(null);
+  // The server's check, with the text it was for: a later edit makes it stale.
+  const [check, setCheck] = useState<(PipelineCheck & { source: string }) | null>(null);
   // Visual or YAML: the same file either way; the last choice is remembered.
   const [mode, setMode] = useState<"visual" | "yaml">(() => {
     try {
@@ -399,7 +405,7 @@ function FileEditor({
     const timer = setTimeout(() => {
       void api.pipelines
         .check(teamId, source)
-        .then(setCheck)
+        .then((result) => setCheck({ ...result, source }))
         .catch(() => setCheck(null));
     }, 600);
     return () => clearTimeout(timer);
@@ -416,6 +422,26 @@ function FileEditor({
     },
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
+  const dirty = isNew ? false : source !== initial;
+  // While typing, the last check stands for what it can still point at; the
+  // rest waits for the next one rather than describing text that is gone.
+  const currentWarnings = useMemo(
+    () =>
+      !check
+        ? []
+        : check.source === source
+          ? check.warnings
+          : check.warnings.filter((warning) => locateWarning(source, warning) !== null),
+    [check, source],
+  );
+  const canSave = canWrite && parsed.ok && !save.isPending && (isNew || dirty);
+  // Leaving with unsaved changes asks first, as any editor does.
+  useEffect(() => {
+    if (!dirty) return;
+    const onLeave = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [dirty]);
   const navigate = useNavigate();
   const remove = useMutation({
     mutationFn: () => api.pipelines.remove(teamId, pipelineId ?? ""),
@@ -483,7 +509,7 @@ function FileEditor({
               size="sm"
               variant="primary"
               icon={<Save size={13} />}
-              disabled={!parsed.ok || save.isPending || (!isNew && source === initial)}
+              disabled={!canSave}
               onClick={() => save.mutate()}
             >
               {isNew ? "Create pipeline" : "Save"}
@@ -500,27 +526,26 @@ function FileEditor({
           canWrite={canWrite}
         />
       ) : (
-        <textarea
-          aria-label="Pipeline file"
-          spellCheck={false}
-          readOnly={!canWrite}
-          value={source}
-          onChange={(event) => setSource(event.target.value)}
-          onKeyDown={(event) => {
-            // Tab indents, as in any editor, instead of leaving the field.
-            if (event.key === "Tab" && !event.shiftKey) {
-              event.preventDefault();
-              const target = event.currentTarget;
-              const at = target.selectionStart;
-              setSource(`${source.slice(0, at)}  ${source.slice(target.selectionEnd)}`);
-              requestAnimationFrame(() => target.setSelectionRange(at + 2, at + 2));
-            }
-          }}
-          rows={Math.min(40, Math.max(16, source.split("\n").length + 2))}
-          className="w-full rounded-md border border-border-default bg-surface p-3 font-mono text-xs leading-5 focus-visible:outline-2 focus-visible:outline-focus"
-        />
+        <Suspense
+          fallback={
+            <div className="flex h-[clamp(360px,62vh,780px)] items-center justify-center rounded-md border border-border-default bg-surface">
+              <Spinner />
+            </div>
+          }
+        >
+          <YamlEditor
+            teamId={teamId}
+            value={source}
+            onChange={setSource}
+            readOnly={!canWrite}
+            issues={parsed.issues}
+            warnings={parsed.ok ? currentWarnings : []}
+            onSave={canSave ? () => save.mutate() : undefined}
+            dirty={dirty}
+          />
+        </Suspense>
       )}
-      {!parsed.ok ? (
+      {mode === "yaml" ? null : !parsed.ok ? (
         <ul className="grid gap-1 rounded-md border border-danger/30 bg-danger-subtle p-2 text-xs text-danger">
           {parsed.issues.map((issue) => (
             <li key={`${issue.path}-${issue.message}`}>
@@ -529,9 +554,9 @@ function FileEditor({
             </li>
           ))}
         </ul>
-      ) : check?.warnings.length ? (
+      ) : currentWarnings.length ? (
         <ul className="grid gap-1 rounded-md border border-warning/30 bg-warning-subtle p-2 text-xs">
-          {check.warnings.map((warning) => (
+          {currentWarnings.map((warning) => (
             <li key={warning}>{warning}</li>
           ))}
         </ul>

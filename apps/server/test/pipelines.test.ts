@@ -147,7 +147,17 @@ test("a file is checked with line numbers; a missing secret is a warning, a type
       "name: x\nruns-on: local\nstages:\n  - name: A\n    steps:\n      - run: echo\n        shel: bash\n",
   });
   assert.equal(bad.json().ok, false);
-  assert.equal(bad.json().issues[0].line, 6);
+  // At the key that does not belong, not at the step it is in.
+  const issue = bad.json().issues[0];
+  assert.equal(issue.line, 7);
+  assert.equal(issue.path, "stages.0.steps.0.shel");
+  assert.equal(
+    "name: x\nruns-on: local\nstages:\n  - name: A\n    steps:\n      - run: echo\n        shel: bash\n".slice(
+      issue.from,
+      issue.to,
+    ),
+    "shel",
+  );
 
   const warned = await call(owner, "POST", team("/pipelines/check"), {
     source:
