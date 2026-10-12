@@ -109,8 +109,9 @@ A **runner** is any machine Zelyq can reach over SSH: a cloud VM, a Mac mini, a 
 A deploy runs the app on your machine in Docker, checks it answers, and puts the previous version back
 by itself if it does not.
 
-1. **Give the app a Dockerfile.** In the app's chat, ask: *"Add a Dockerfile that builds the app and
-   serves it with nginx on port 80."*
+1. **Check how the app starts.** No Dockerfile is needed: Zelyq recognises Node, Python, Go and
+   static sites and builds them. A Node app needs a `start` script in `package.json` (a site that only
+   builds files needs just `build`); see [No Dockerfile needed](./deploy.md#no-dockerfile-needed).
 2. **Create an environment.** Open **Deployments → New environment**: name `staging`, machine
    `web-01`, public address the machine's IP. Leave **Protected** off. Under **Variables**, add
    `SHOP_API_KEY` → `vault://SHOP_API_KEY`.

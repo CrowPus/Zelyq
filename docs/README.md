@@ -60,7 +60,7 @@ and test, build and deploy them on your own machines. These pages follow the sid
 - [Pipeline plugins](./pipeline-plugins.md): build your own ready-made steps, pack them, install them
   in your team and use them with `plugin:`
 - [Deploy](./deploy.md): environments, deploying from a pipeline, protected environments and freeze,
-  automatic and one-click roll back, ports, and [a domain with HTTPS and no downtime](./deploy.md#a-domain-https-and-no-downtime)
+  automatic and one-click roll back, ports, and [a domain with HTTPS and no downtime](./deploy.md#a-domain-https-and-no-downtime), [no Dockerfile needed](./deploy.md#no-dockerfile-needed)
 
 ## How it is built
 

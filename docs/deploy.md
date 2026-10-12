@@ -7,6 +7,7 @@ does not come up, the previous one is put back by itself.
 - [Environments](#environments)
 - [Deploying from a pipeline](#deploying-from-a-pipeline)
 - [What a deploy does](#what-a-deploy-does)
+- [No Dockerfile needed](#no-dockerfile-needed)
 - [A domain, HTTPS, and no downtime](#a-domain-https-and-no-downtime)
 - [Roll back](#roll-back)
 - [Ports and firewalls](#ports-and-firewalls)
@@ -32,8 +33,9 @@ admin unfreezes it. Pipelines that try fail with that reason.
 
 ## Deploying from a pipeline
 
-The app needs a `Dockerfile` that runs it. If it has none, ask the agent: "add a Dockerfile that
-serves the app". Then add a `deploy` step:
+Add a `deploy` step to the app's pipeline. The app needs no Dockerfile: Zelyq recognises the
+common kinds of app and builds them ([No Dockerfile needed](#no-dockerfile-needed)). Its own
+`Dockerfile`, when it has one, is always used instead.
 
 ```yaml
 name: Shop
@@ -66,13 +68,43 @@ stages:
 `app:` names the app on the machine (default: the source app's name). The template **Deploy an app**
 in New pipeline starts from this.
 
+## No Dockerfile needed
+
+When the app has no `Dockerfile`, Zelyq looks at its files, decides what kind of app it is, and writes
+one. The run's log says what it found and shows the whole Dockerfile, so nothing is hidden; to change
+it, save it in the app as `Dockerfile` and edit it.
+
+| The app has | Zelyq builds | It starts with |
+| --- | --- | --- |
+| `package.json` with a `start` script | Node (the version from `engines`, `.nvmrc` or 22), installed with npm, pnpm or yarn (from the lock file), then `build` if there is one | `npm run start` (or `pnpm`/`yarn`) |
+| `package.json`, a `build` script, no `start`, and Vite, Create React App, Angular, Vue CLI, Parcel or Astro | the site's files (`dist`, `build` or `out`), served by Caddy; links of single-page apps work | — |
+| `package.json` without `start` | Node | `node` with `main`, or `server.js`, `index.js`, `app.js` |
+| `requirements.txt` or `pyproject.toml` | Python (the version from `.python-version` or 3.12) | Django: `gunicorn <project>.wsgi`; FastAPI: `uvicorn main:app`; Flask: `gunicorn app:app`; otherwise `python main.py` |
+| `go.mod` | Go (the version from `go.mod`), the main package at the top or in `cmd/<name>` | the built program |
+| `index.html` only | a static site, served by Caddy | — |
+
+**The port.** The image sets `PORT` to the deploy step's `port:`. Node, Python and Go servers that read
+`PORT` (most do) listen there by themselves; the commands above pass it to gunicorn and uvicorn.
+
+**A different start command.** Write `start:` on the deploy step, or a `Procfile` with a `web:` line, as
+on Heroku:
+
+```yaml
+- deploy:
+    to: staging
+    port: 3000
+    start: node dist/server.js
+```
+
+If Zelyq cannot tell, the step fails and says what to add.
+
 ## What a deploy does
 
 1. Checks the environment: it exists and is not frozen. If it is protected, the run shows **Waiting
    for approval** until an admin approves.
 2. Sends the step's folder (the checked-out app, without `node_modules` and `.git`) to the
-   environment's machine over SSH, and builds a Docker image there from the app's `Dockerfile`. No
-   registry is needed.
+   environment's machine over SSH, and builds a Docker image there from the app's `Dockerfile`, or
+   from the one Zelyq writes for it. No registry is needed.
 3. Moves the running version aside, and starts the new one as `zelyq-<app>-<environment>`, with
    `--restart unless-stopped` and the environment's variables. The variables travel through the SSH
    connection's input straight into `docker run`; they are never written to a file and show as `***`

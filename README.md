@@ -168,7 +168,8 @@ See [Pipelines](./docs/pipelines.md).
 - **Environments** such as `staging` and `production`, each on one of your machines, each with its own
   variables — the test key on staging, the live key on production, from Vault.
 - **Deploy from a pipeline**, so an app is tested before it ships. Zelyq builds the image on your
-  machine from the app's `Dockerfile` — no registry needed.
+  machine — from the app's `Dockerfile`, or one Zelyq writes for Node, Python, Go and static sites.
+  No registry needed.
 - **Automatic roll back.** If the new version does not pass its health check, the previous one is put
   back by itself.
 - **One-click roll back** to any of the last three good versions, from the deploy history.

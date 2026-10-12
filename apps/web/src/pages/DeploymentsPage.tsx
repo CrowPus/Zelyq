@@ -783,9 +783,9 @@ function HowTo() {
     <details className="mt-6 rounded-md border border-border-default p-3 text-xs text-fg-secondary">
       <summary className="cursor-pointer font-medium text-fg">How do I deploy an app?</summary>
       <p className="mt-2">
-        The app needs a <code className="font-mono">Dockerfile</code> (ask the agent: "add a
-        Dockerfile that serves the app"). Then add a <code className="font-mono">deploy</code> step
-        to its pipeline:
+        Add a <code className="font-mono">deploy</code> step to the app's pipeline. No Dockerfile is
+        needed: Zelyq recognises Node, Python, Go and static sites and builds them (the app's own{" "}
+        <code className="font-mono">Dockerfile</code> is used when it has one).
       </p>
       <pre className="mt-2 overflow-x-auto rounded bg-surface-subtle p-2 font-mono text-2xs leading-5">{`source:
   app: Shop
