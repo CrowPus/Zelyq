@@ -7,6 +7,7 @@ import {
   type TeamMembership,
 } from "@zelyq/core";
 import {
+  Activity,
   CheckCircle2,
   ExternalLink,
   History,
@@ -36,7 +37,7 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
-const STATUS: Record<
+export const STATUS: Record<
   DeploymentSummary["status"],
   { label: string; tone: "success" | "danger" | "info" | "neutral" | "warning" }
 > = {
@@ -255,22 +256,34 @@ function LiveApp({
   return (
     <li className="px-3 py-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium">{deployment.app}</span>
+        <Link
+          to={`/deployments/${environment.id}/apps/${encodeURIComponent(deployment.app)}`}
+          className="font-medium hover:underline"
+        >
+          {deployment.app}
+        </Link>
         <span className="font-mono text-xs text-fg-secondary">#{deployment.number}</span>
         <Badge tone={STATUS[deployment.status].tone}>{STATUS[deployment.status].label}</Badge>
         <span className="text-xs text-fg-muted">
           {deployment.by ? deployment.by.name : "a pipeline"} ·{" "}
           {formatRelative(deployment.createdAt)}
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="ml-auto"
-          icon={<History size={12} />}
-          onClick={() => setOpen(!open)}
-        >
-          {open ? "Hide history" : "History · roll back"}
-        </Button>
+        <span className="ml-auto flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<History size={12} />}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? "Hide history" : "History"}
+          </Button>
+          <Link
+            to={`/deployments/${environment.id}/apps/${encodeURIComponent(deployment.app)}`}
+            className="inline-flex h-6 items-center gap-1 rounded-md border border-border-default px-2 text-xs font-medium hover:bg-surface-hover"
+          >
+            <Activity size={12} /> Logs · manage
+          </Link>
+        </span>
       </div>
       {deployment.url && (
         <a
@@ -291,7 +304,7 @@ function LiveApp({
 }
 
 /** Why people cannot open a live app yet, with a way to check again once it is fixed. */
-function ReachWarning({
+export function ReachWarning({
   team,
   deployment,
 }: {
@@ -328,7 +341,7 @@ function ReachWarning({
   );
 }
 
-function HistoryList({
+export function HistoryList({
   team,
   environment,
   app,
@@ -386,7 +399,11 @@ function HistoryList({
             <span className="text-fg-secondary">
               {deployment.kind === "rollback"
                 ? `roll back to #${deployment.rolledBackTo}`
-                : "deploy"}
+                : deployment.kind === "promote"
+                  ? deployment.promotedFrom
+                    ? `promoted from ${deployment.promotedFrom.environment} #${deployment.promotedFrom.number}`
+                    : "promoted"
+                  : "deploy"}
               {" · "}
               {deployment.by ? deployment.by.name : "a pipeline"} ·{" "}
               {formatRelative(deployment.createdAt)}
@@ -816,13 +833,18 @@ stages:
 }
 
 /** A roll back as it happens: a spinner and its lines, then ✓ or ✗. */
-function RollBackProgress({
+export function RollBackProgress({
   teamId,
   deploymentId,
   app,
   to,
   onFinished,
   onClose,
+  words = {
+    running: `Rolling back ${app} to #${to}…`,
+    ok: `${app} #${to} is live again.`,
+    failed: "The roll back did not go through.",
+  },
 }: {
   teamId: string;
   deploymentId: string;
@@ -830,6 +852,8 @@ function RollBackProgress({
   to: number;
   onFinished: () => void;
   onClose: () => void;
+  /** What to say while it runs, and after. */
+  words?: { running: string; ok: string; failed: string };
 }) {
   const detail = useQuery({
     queryKey: ["deployment", teamId, deploymentId],
@@ -857,15 +881,15 @@ function RollBackProgress({
       <p className="flex items-center gap-2 font-medium">
         {running ? (
           <>
-            <Spinner /> Rolling back {app} to #{to}…
+            <Spinner /> {words.running}
           </>
         ) : ok ? (
           <>
-            <CheckCircle2 size={14} className="text-success" /> {app} #{to} is live again.
+            <CheckCircle2 size={14} className="text-success" /> {words.ok}
           </>
         ) : (
           <>
-            <XCircle size={14} className="text-danger" /> The roll back did not go through.
+            <XCircle size={14} className="text-danger" /> {words.failed}
           </>
         )}
         {!running && (
@@ -911,7 +935,7 @@ function DeploymentLog({
   return <LogLines lines={lines} />;
 }
 
-function LogLines({ lines }: { lines: { stream: string; text: string }[] }) {
+export function LogLines({ lines }: { lines: { stream: string; text: string }[] }) {
   const box = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow new lines
   useEffect(() => {

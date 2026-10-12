@@ -1,8 +1,10 @@
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
-import type { Readable } from "node:stream";
+import { PassThrough, type Readable } from "node:stream";
 import {
+  type AppAction,
+  type AppStatus,
   appAddress,
   type DeploymentDetail,
   type DeploymentStatus,
@@ -65,6 +67,8 @@ export interface DeployRequest {
   source: Readable | null;
   /** For a roll back: the deploy whose image to start again. */
   reuse: DeploymentRow | null;
+  /** For a promote: the tested deploy (in another environment) whose image to ship, and its machine. */
+  promote?: { from: DeploymentRow; runner: RunnerRow } | null;
   /** Every line of what happened, masked. */
   onLine(stream: "out" | "err" | "system", text: string): void;
   /** Called as soon as the deploy has its number, before the work starts. */
@@ -79,6 +83,11 @@ function sq(value: string): string {
 export class DeployService {
   /** One deploy at a time per environment and app. */
   private readonly locks = new Map<string, Promise<unknown>>();
+  /** A machine's connection, kept for a minute while its app page is open. */
+  private readonly machines = new Map<
+    string,
+    { session: Promise<SshSession>; timer: NodeJS.Timeout | null }
+  >();
 
   constructor(
     private readonly store: Store,
@@ -334,31 +343,24 @@ export class DeployService {
         `#${target.number}'s image is no longer on the machine; only the last ${KEEP_IMAGES} are kept.`,
       );
     }
-    // Starts now and goes on in the background; the page follows its log.
-    let created: (row: DeploymentRow) => void = () => undefined;
-    const started = new Promise<DeploymentRow>((resolve) => {
-      created = resolve;
-    });
-    const done = this.deploy({
-      teamId,
-      environment,
-      app: target.app,
-      port: target.port,
-      hostPort: target.hostPort,
-      healthPath: target.healthPath,
-      healthTimeoutS: DEFAULT_HEALTH_TIMEOUT_S,
-      url: target.url,
-      domain: null,
-      start: null,
-      runId: null,
-      triggeredBy: user.id,
-      source: null,
-      reuse: target,
-      onLine: () => undefined,
-      onCreated: (row) => created(row),
-    });
-    void done
-      .then((result) =>
+    return this.inBackground(
+      {
+        teamId,
+        environment,
+        app: target.app,
+        port: target.port,
+        hostPort: target.hostPort,
+        healthPath: target.healthPath,
+        healthTimeoutS: DEFAULT_HEALTH_TIMEOUT_S,
+        url: target.url,
+        domain: null,
+        start: null,
+        runId: null,
+        triggeredBy: user.id,
+        source: null,
+        reuse: target,
+      },
+      (result) =>
         this.access.recordChange(user, {
           teamId,
           action: "deploy.rolled_back",
@@ -368,11 +370,244 @@ export class DeployService {
             ok: result.ok,
           },
         }),
+    );
+  }
+
+  /**
+   * Ships the image a deploy built and tested (on staging, say) to another
+   * environment, as it is: nothing is built again, so what runs there is what
+   * was tested. Only the environment's own variables differ.
+   */
+  async promote(
+    user: User,
+    teamId: string,
+    deploymentId: string,
+    environmentId: string,
+  ): Promise<DeploymentSummary> {
+    const source = await this.store.deploy.deployments.findById(deploymentId);
+    if (!source || source.teamId !== teamId) throw ZelyqError.notFound("Deployment", deploymentId);
+    const from = await this.find(teamId, source.environmentId);
+    const environment = await this.find(teamId, environmentId);
+    await this.access.requireTeamRole(user, teamId, environment.protected ? "admin" : "editor");
+    if (environment.id === from.id) {
+      throw ZelyqError.badRequest("Choose another environment to promote to.");
+    }
+    if (environment.frozen) {
+      throw new ZelyqError("conflict", `${environment.name} is frozen. Unfreeze it to promote.`);
+    }
+    if (
+      source.status !== "live" &&
+      !(
+        source.status === "replaced" &&
+        (await this.keptImages(from.id, source.app)).has(source.image)
       )
-      .catch(() => undefined);
+    ) {
+      throw ZelyqError.badRequest(
+        `#${source.number}'s image is no longer on ${from.name}'s machine; promote a live or recent deploy.`,
+      );
+    }
+    const runner = from.runnerId
+      ? await this.store.pipelines.runners.findById(from.runnerId)
+      : null;
+    if (!runner) throw ZelyqError.badRequest(`${from.name} has no machine to take the image from.`);
+
+    // The app keeps the address it has there; the first time, it gets the usual one.
+    const there = await this.store.deploy.deployments.listFor(environment.id, source.app, 20);
+    const last = there.find((row) => row.status === "live") ?? there[0] ?? null;
+    let hostPort = 0;
+    let url: string | null = null;
+    let domain: string | null = null;
+    if (environment.domain) {
+      domain = last && last.hostPort === 0 && last.url ? new URL(last.url).hostname : null;
+    } else {
+      hostPort = last && last.hostPort !== 0 ? last.hostPort : source.hostPort;
+      url = last && last.hostPort !== 0 ? last.url : null;
+      if (hostPort === 0) {
+        throw ZelyqError.badRequest(
+          `${environment.name} has no domain and ${source.app} has no port there yet. Give ${environment.name} a domain, or deploy ${source.app} to it once with a pipeline (host-port:).`,
+        );
+      }
+    }
+    return this.inBackground(
+      {
+        teamId,
+        environment,
+        app: source.app,
+        port: source.port,
+        hostPort,
+        healthPath: source.healthPath,
+        healthTimeoutS: DEFAULT_HEALTH_TIMEOUT_S,
+        url,
+        domain,
+        start: null,
+        runId: source.runId,
+        triggeredBy: user.id,
+        source: null,
+        reuse: null,
+        promote: { from: source, runner },
+      },
+      (result) =>
+        this.access.recordChange(user, {
+          teamId,
+          action: "deploy.promoted",
+          detail: {
+            label: `${source.app} to ${environment.name}`,
+            from: `${from.name} #${source.number}`,
+            ok: result.ok,
+          },
+        }),
+    );
+  }
+
+  /** Starts a deploy that goes on in the background; returns once it has its number. */
+  private async inBackground(
+    request: Omit<DeployRequest, "onLine" | "onCreated">,
+    onDone: (result: { ok: boolean }) => Promise<unknown>,
+  ): Promise<DeploymentSummary> {
+    let created: (row: DeploymentRow) => void = () => undefined;
+    const started = new Promise<DeploymentRow>((resolve) => {
+      created = resolve;
+    });
+    const done = this.deploy({
+      ...request,
+      onLine: () => undefined,
+      onCreated: (row) => created(row),
+    });
+    void done.then(onDone).catch(() => undefined);
     const row = await Promise.race([started, done.then((result) => result.deployment)]);
     const [summary] = await this.presentDeployments([row]);
     return summary as DeploymentSummary;
+  }
+
+  // -------------------------------------------------------------- live apps
+
+  /**
+   * What a live app is doing on its machine: running or not, CPU and memory,
+   * and its latest output (only lines after `since`, when given).
+   */
+  async appStatus(
+    user: User,
+    teamId: string,
+    environmentId: string,
+    app: string,
+    since: string | null,
+  ): Promise<AppStatus> {
+    await this.access.requireTeamRole(user, teamId, "viewer");
+    const environment = await this.find(teamId, environmentId);
+    const live = (await this.store.deploy.deployments.live([environment.id])).find(
+      (row) => row.app === app,
+    );
+    const empty: AppStatus = {
+      app,
+      environmentId: environment.id,
+      deployment: null,
+      state: "missing",
+      startedAt: null,
+      restarts: 0,
+      cpuPercent: null,
+      memoryBytes: null,
+      memoryLimitBytes: null,
+      logs: [],
+      cursor: since,
+    };
+    if (!live) return empty;
+    const [deployment] = await this.presentDeployments([live]);
+    const runner = await this.machineOf(environment);
+    if (since !== null && !TIMESTAMP.test(since)) throw ZelyqError.badRequest("since: a time.");
+    const report = await this.onMachine(runner, (session) =>
+      session.capture(shellCommand("sh"), 20_000, statusScript(live.id, since)),
+    );
+    const variables = await this.resolveVariables(environment);
+    const masker = new Masker("values" in variables ? Object.values(variables.values) : []);
+    return {
+      ...empty,
+      deployment: deployment ?? null,
+      ...readStatus(report.stdout, since, masker),
+    };
+  }
+
+  /** Restarts, stops or starts a live app's container; a stopped app stays stopped after a reboot. */
+  async appAction(
+    user: User,
+    teamId: string,
+    environmentId: string,
+    app: string,
+    action: AppAction,
+  ): Promise<AppStatus> {
+    const environment = await this.find(teamId, environmentId);
+    await this.access.requireTeamRole(user, teamId, environment.protected ? "admin" : "editor");
+    const live = (await this.store.deploy.deployments.live([environment.id])).find(
+      (row) => row.app === app,
+    );
+    if (!live) throw ZelyqError.badRequest(`${app} is not live on ${environment.name}.`);
+    const runner = await this.machineOf(environment);
+    const command = {
+      restart: "docker restart -t 10",
+      stop: "docker stop -t 10",
+      start: "docker start",
+    }[action];
+    const result = await this.onMachine(runner, (session) =>
+      session.capture(
+        shellCommand("sh"),
+        60_000,
+        [
+          `c=$(docker ps -aq --filter label=zelyq.deployment=${sq(live.id)} | head -n 1)`,
+          '[ -n "$c" ] || { echo "Its container is gone from the machine. Deploy it again." >&2; exit 3; }',
+          `${command} "$c" >/dev/null`,
+          "",
+        ].join("\n"),
+      ),
+    );
+    if (result.code !== 0) {
+      throw ZelyqError.badRequest(
+        result.stderr.trim().split("\n").pop() || `Could not ${action} ${app} on ${runner.name}.`,
+      );
+    }
+    await this.access.recordChange(user, {
+      teamId,
+      action:
+        action === "restart" ? "app.restarted" : action === "stop" ? "app.stopped" : "app.started",
+      detail: { label: `${app} on ${environment.name}` },
+    });
+    return this.appStatus(user, teamId, environmentId, app, new Date().toISOString());
+  }
+
+  private async machineOf(environment: DeployEnvironmentRow): Promise<RunnerRow> {
+    const runner = environment.runnerId
+      ? await this.store.pipelines.runners.findById(environment.runnerId)
+      : null;
+    if (!runner) throw ZelyqError.badRequest(`${environment.name} has no machine.`);
+    return runner;
+  }
+
+  /** Runs work over the machine's kept connection, opening it when needed. */
+  private async onMachine<T>(
+    runner: RunnerRow,
+    work: (session: SshSession) => Promise<T>,
+  ): Promise<T> {
+    let entry = this.machines.get(runner.id);
+    if (!entry) {
+      entry = {
+        session: this.runners.target(runner).then((target) => SshSession.open(target)),
+        timer: null,
+      };
+      this.machines.set(runner.id, entry);
+    }
+    const kept = entry;
+    const drop = () => {
+      if (kept.timer) clearTimeout(kept.timer);
+      if (this.machines.get(runner.id) === kept) this.machines.delete(runner.id);
+      void kept.session.then((session) => session.close()).catch(() => undefined);
+    };
+    if (kept.timer) clearTimeout(kept.timer);
+    kept.timer = setTimeout(drop, 60_000);
+    kept.timer.unref();
+    try {
+      return await work(await kept.session);
+    } catch (error) {
+      drop();
+      throw error;
+    }
   }
 
   /**
@@ -411,9 +646,10 @@ export class DeployService {
       environmentId: environment.id,
       app,
       status: "deploying",
-      kind: reused ? "rollback" : "deploy",
+      kind: reused ? "rollback" : request.promote ? "promote" : "deploy",
       image: reused?.image ?? "",
       rolledBackTo: reused?.number ?? null,
+      promotedFrom: request.promote?.from.id ?? null,
       runId: request.runId,
       triggeredBy: request.triggeredBy,
       url: host
@@ -506,7 +742,10 @@ export class DeployService {
       );
       if (docker.code !== 0) return fail(`Docker is not usable on ${runner.name}.`);
 
-      if (!reused) {
+      if (request.promote) {
+        const problem = await this.bringImage(request.promote, runner, session, image, request);
+        if (problem) return fail(problem);
+      } else if (!reused) {
         if (!request.source) return fail("Nothing to deploy.");
         request.onLine("system", `Sending the app to ${runner.name}.`);
         const sent = await session.exec(
@@ -795,6 +1034,85 @@ export class DeployService {
     }
   }
 
+  /**
+   * Puts a tested image on this machine under the new deploy's name: a new
+   * tag when it is already there, otherwise copied over from the machine it
+   * was tested on (through Zelyq, compressed, at the pace the machine takes it).
+   */
+  private async bringImage(
+    promote: { from: DeploymentRow; runner: RunnerRow },
+    runner: RunnerRow,
+    session: SshSession,
+    image: string,
+    request: DeployRequest,
+  ): Promise<string | null> {
+    const { from } = promote;
+    const errors = (chunk: Buffer) => {
+      for (const line of chunk.toString("utf8").split("\n")) if (line) request.onLine("err", line);
+    };
+    if (promote.runner.id === runner.id) {
+      request.onLine(
+        "system",
+        `Promoting #${from.number}: the same image, not built again (${from.image}).`,
+      );
+      const tagged = await session.exec(shellCommand("sh"), {
+        stdin: `docker tag ${sq(from.image)} ${sq(image)}\n`,
+        onStderr: errors,
+      });
+      return tagged.code === 0 ? null : `${from.image} is no longer on ${runner.name}.`;
+    }
+    if (!promote.runner.hostKey)
+      return `${promote.runner.name}'s fingerprint has not been confirmed.`;
+    request.onLine(
+      "system",
+      `Promoting #${from.number}: copying its image from ${promote.runner.name} to ${runner.name}, not built again.`,
+    );
+    // A name of its own for the copy, so neither machine's other images are touched.
+    const carrier = `zelyq-promote-${from.id.toLowerCase().replace(/[^a-z0-9]/g, "")}:${Date.now()}`;
+    let source: SshSession;
+    try {
+      source = await SshSession.open(await this.runners.target(promote.runner));
+    } catch (error) {
+      return `Could not reach ${promote.runner.name}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    try {
+      const marked = await source.exec(shellCommand("sh"), {
+        stdin: `docker tag ${sq(from.image)} ${sq(carrier)}\n`,
+        onStderr: errors,
+      });
+      if (marked.code !== 0) return `${from.image} is no longer on ${promote.runner.name}.`;
+      const pipe = new PassThrough({ highWaterMark: 1024 * 1024 });
+      const stop = new AbortController();
+      const [saved, loaded] = await Promise.all([
+        source.exec(`sh -c ${sq(`docker save ${sq(carrier)} | gzip -1`)}`, {
+          stdout: pipe,
+          onStderr: errors,
+          signal: stop.signal,
+        }),
+        session
+          .exec(
+            `sh -c ${sq(`gunzip | docker load -q >/dev/null && docker tag ${sq(carrier)} ${sq(image)}; s=$?; docker rmi ${sq(carrier)} >/dev/null 2>&1; exit $s`)}`,
+            {
+              stdin: pipe,
+              onStderr: errors,
+              signal: request.signal,
+            },
+          )
+          .finally(() => stop.abort()),
+      ]);
+      if (saved.code !== 0 && saved.code !== null)
+        return `Could not read the image on ${promote.runner.name}.`;
+      if (loaded.code !== 0) return `Could not copy the image onto ${runner.name}.`;
+      request.onLine("system", `The image is on ${runner.name}.`);
+      return null;
+    } finally {
+      await source
+        .exec(shellCommand("sh"), { stdin: `docker rmi ${sq(carrier)} >/dev/null 2>&1 || true\n` })
+        .catch(() => undefined);
+      source.close();
+    }
+  }
+
   /** Waits until the app answers (2xx or 3xx) and its container keeps running. */
   private healthScript(name: string, hostPort: number, path: string, timeoutS: number): string {
     const url = `http://127.0.0.1:${hostPort}${path}`;
@@ -838,7 +1156,7 @@ export class DeployService {
     const rows = await this.store.deploy.deployments.listFor(environmentId, app, 200);
     const kept = new Set<string>();
     for (const row of rows) {
-      if (row.kind !== "deploy" || (row.status !== "live" && row.status !== "replaced")) continue;
+      if (row.kind === "rollback" || (row.status !== "live" && row.status !== "replaced")) continue;
       kept.add(row.image);
       if (kept.size >= KEEP_IMAGES) break;
     }
@@ -942,7 +1260,18 @@ export class DeployService {
     const actors = new Map<string, PipelineActor>();
     const runs = new Map<string, DeploymentSummary["run"]>();
     const kept = new Map<string, Set<string>>();
+    const promotedFrom = new Map<string, DeploymentSummary["promotedFrom"]>();
     for (const row of rows) {
+      if (row.promotedFrom && !promotedFrom.has(row.promotedFrom)) {
+        const from = await this.store.deploy.deployments.findById(row.promotedFrom);
+        const where = from
+          ? await this.store.deploy.environments.findById(from.environmentId)
+          : null;
+        promotedFrom.set(
+          row.promotedFrom,
+          from && where ? { environment: where.name, number: from.number } : null,
+        );
+      }
       if (row.triggeredBy && !actors.has(row.triggeredBy)) {
         const user = await this.store.users.findById(row.triggeredBy);
         if (user) actors.set(user.id, { id: user.id, name: user.name });
@@ -963,10 +1292,11 @@ export class DeployService {
       app: row.app,
       number: row.number,
       status: row.status as DeploymentStatus,
-      kind: row.kind === "rollback" ? "rollback" : "deploy",
+      kind: row.kind === "rollback" || row.kind === "promote" ? row.kind : "deploy",
       url: row.url,
       run: row.runId ? (runs.get(row.runId) ?? null) : null,
       rolledBackTo: row.rolledBackTo,
+      promotedFrom: row.promotedFrom ? (promotedFrom.get(row.promotedFrom) ?? null) : null,
       by: row.triggeredBy ? (actors.get(row.triggeredBy) ?? null) : null,
       error: row.error,
       createdAt: row.createdAt,
@@ -1012,6 +1342,110 @@ class DeployLogWriter {
     clearInterval(this.timer);
     await this.flush();
   }
+}
+
+/** Docker's timestamps (RFC 3339, up to nanoseconds, in UTC). */
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/;
+const LOG_LINES = 300;
+
+/**
+ * One look at a live app's container: its state, CPU and memory (sampled
+ * while the log is read), and its output, each line marked O (out) or E (err).
+ */
+export function statusScript(deploymentId: string, since: string | null): string {
+  const window = since ? `--since ${sq(since)} --tail 1000` : `--tail ${LOG_LINES}`;
+  return [
+    `c=$(docker ps -aq --filter label=zelyq.deployment=${sq(deploymentId)} | head -n 1)`,
+    '[ -n "$c" ] || { echo "STATE missing"; exit 0; }',
+    `docker inspect -f 'STATE {{.State.Status}} {{.State.StartedAt}} {{.RestartCount}}' "$c"`,
+    "s=$(mktemp); e=$(mktemp)",
+    `if [ "$(docker inspect -f '{{.State.Running}}' "$c")" = true ]; then docker stats --no-stream --format 'STATS {{.CPUPerc}} {{.MemUsage}}' "$c" > "$s" 2>/dev/null & fi`,
+    `docker logs -t ${window} "$c" 2>"$e" | sed 's/^/O /'`,
+    "sed 's/^/E /' \"$e\"",
+    'wait; cat "$s"; rm -f "$s" "$e"',
+    "",
+  ].join("\n");
+}
+
+/** Nanosecond timestamps compared as text, once their fractions are the same length. */
+function timeKey(at: string): string {
+  const [whole = "", fraction = ""] = at.replace(/Z$/, "").split(".");
+  return `${whole}.${fraction.padEnd(9, "0")}`;
+}
+
+const UNITS: Record<string, number> = {
+  b: 1,
+  kb: 1e3,
+  mb: 1e6,
+  gb: 1e9,
+  tb: 1e12,
+  kib: 1024,
+  mib: 1024 ** 2,
+  gib: 1024 ** 3,
+  tib: 1024 ** 4,
+};
+
+function bytes(text: string | undefined): number | null {
+  const match = /^([\d.]+)\s*([a-z]+)$/i.exec(text?.trim() ?? "");
+  const unit = match ? UNITS[(match[2] ?? "").toLowerCase()] : undefined;
+  return match && unit ? Math.round(Number(match[1]) * unit) : null;
+}
+
+/** Reads what statusScript printed; lines at or before `since` were already seen. */
+export function readStatus(
+  report: string,
+  since: string | null,
+  masker: Masker,
+): Omit<AppStatus, "app" | "environmentId" | "deployment"> {
+  const result: Omit<AppStatus, "app" | "environmentId" | "deployment"> = {
+    state: "missing",
+    startedAt: null,
+    restarts: 0,
+    cpuPercent: null,
+    memoryBytes: null,
+    memoryLimitBytes: null,
+    logs: [],
+    cursor: since,
+  };
+  const after = since ? timeKey(since) : null;
+  for (const line of report.split("\n")) {
+    if (line.startsWith("STATE ")) {
+      const [, state, startedAt, restarts] = line.split(" ");
+      result.state =
+        state === "running" || state === "restarting"
+          ? state
+          : state === "missing"
+            ? "missing"
+            : "stopped";
+      result.startedAt = startedAt && !startedAt.startsWith("0001") ? startedAt : null;
+      result.restarts = Number(restarts) || 0;
+    } else if (line.startsWith("STATS ")) {
+      // "0.05% 12.3MiB / 3.84GiB"
+      const [cpu, ...memory] = line.slice(6).split(" ");
+      const [used, limit] = memory.join(" ").split("/");
+      const percent = Number.parseFloat(cpu ?? "");
+      result.cpuPercent = Number.isFinite(percent) ? percent : null;
+      result.memoryBytes = bytes(used);
+      result.memoryLimitBytes = bytes(limit);
+    } else if (line.startsWith("O ") || line.startsWith("E ")) {
+      const space = line.indexOf(" ", 2);
+      const at = space > 0 ? line.slice(2, space) : "";
+      if (!TIMESTAMP.test(at) || (after && timeKey(at) <= after)) continue;
+      result.logs.push({
+        at,
+        stream: line[0] === "E" ? "err" : "out",
+        text: masker.mask(line.slice(space + 1).slice(0, 4000)),
+      });
+    }
+  }
+  // Out and err come separately; put them back in the order they happened.
+  result.logs.sort((a, b) =>
+    timeKey(a.at) < timeKey(b.at) ? -1 : timeKey(a.at) > timeKey(b.at) ? 1 : 0,
+  );
+  if (result.logs.length > LOG_LINES) result.logs = result.logs.slice(-LOG_LINES);
+  const newest = result.logs.at(-1);
+  if (newest) result.cursor = newest.at;
+  return result;
 }
 
 function httpsOf(value: string): EnvironmentHttps {

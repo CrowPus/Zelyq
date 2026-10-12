@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Readable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import type { RunnerOs } from "@zelyq/core";
 import ssh2, { type ClientChannel } from "ssh2";
 
@@ -45,6 +45,8 @@ export function hostKeyFingerprint(key: Buffer): string {
 export interface ExecOptions {
   stdin?: string | Buffer | Readable;
   onStdout?: (chunk: Buffer) => void;
+  /** Instead of onStdout: the output piped here, at the pace it is read. */
+  stdout?: Writable;
   onStderr?: (chunk: Buffer) => void;
   /** Closes the channel; the caller stops the remote process tree itself. */
   signal?: AbortSignal;
@@ -153,7 +155,8 @@ export class SshSession {
         let signal: string | null = null;
         const onAbort = () => stream.close();
         options.signal?.addEventListener("abort", onAbort, { once: true });
-        stream.on("data", (chunk: Buffer) => options.onStdout?.(chunk));
+        if (options.stdout) stream.pipe(options.stdout);
+        else stream.on("data", (chunk: Buffer) => options.onStdout?.(chunk));
         stream.stderr.on("data", (chunk: Buffer) => options.onStderr?.(chunk));
         stream.on("exit", (exitCode: number | null, exitSignal?: string) => {
           code = exitCode;
@@ -175,6 +178,7 @@ export class SshSession {
   async capture(
     command: string,
     timeoutMs = 20_000,
+    stdin?: string,
   ): Promise<{ code: number | null; stdout: string; stderr: string }> {
     let stdout = "";
     let stderr = "";
@@ -182,6 +186,7 @@ export class SshSession {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const { code } = await this.exec(command, {
+        stdin,
         signal: controller.signal,
         onStdout: (chunk) => {
           stdout += chunk.toString("utf8");

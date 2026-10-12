@@ -1,4 +1,9 @@
-import { environmentInputSchema, environmentUpdateSchema } from "@zelyq/core";
+import {
+  appActionSchema,
+  environmentInputSchema,
+  environmentUpdateSchema,
+  promoteSchema,
+} from "@zelyq/core";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { DeployService } from "../services/deploy.js";
@@ -86,6 +91,42 @@ export function registerDeployRoutes(
         access.requireUser(request),
         request.params.teamId,
         request.params.deploymentId,
+      ),
+    }),
+  );
+  app.post<{ Params: { teamId: string; deploymentId: string } }>(
+    "/api/teams/:teamId/deployments/:deploymentId/promote",
+    async (request) => ({
+      deployment: await deploys.promote(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.deploymentId,
+        promoteSchema.parse(request.body).environmentId,
+      ),
+    }),
+  );
+  type App = { Params: { teamId: string; environmentId: string; app: string } };
+  app.get<App & { Querystring: { since?: string } }>(
+    "/api/teams/:teamId/environments/:environmentId/apps/:app",
+    async (request) => ({
+      status: await deploys.appStatus(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.environmentId,
+        request.params.app,
+        request.query.since ?? null,
+      ),
+    }),
+  );
+  app.post<App>(
+    "/api/teams/:teamId/environments/:environmentId/apps/:app/action",
+    async (request) => ({
+      status: await deploys.appAction(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.environmentId,
+        request.params.app,
+        appActionSchema.parse(request.body).action,
       ),
     }),
   );

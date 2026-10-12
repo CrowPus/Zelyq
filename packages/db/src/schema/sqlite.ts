@@ -593,12 +593,14 @@ export const deployments = sqliteTable(
     number: integer("number").notNull(),
     /** deploying, live, failed, rolled_back, replaced */
     status: text("status").notNull(),
-    /** deploy or rollback */
+    /** deploy, rollback or promote */
     kind: text("kind").notNull(),
     /** The image on the machine: zelyq-<app>:<number> */
     image: text("image").notNull(),
     /** For a roll back: the deploy whose image it used. */
     rolledBackTo: integer("rolled_back_to"),
+    /** For a promote: the deploy in another environment whose image it shipped. */
+    promotedFrom: text("promoted_from"),
     runId: text("run_id").references(() => pipelineRuns.id, { onDelete: "set null" }),
     triggeredBy: text("triggered_by").references(() => users.id, { onDelete: "set null" }),
     url: text("url"),

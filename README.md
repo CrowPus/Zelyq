@@ -173,6 +173,8 @@ See [Pipelines](./docs/pipelines.md).
 - **Automatic roll back.** If the new version does not pass its health check, the previous one is put
   back by itself.
 - **One-click roll back** to any of the last three good versions, from the deploy history.
+- **An app page** with its live logs, CPU and memory, and restart and stop.
+- **Promote** the exact image tested on staging to production, without building it again.
 - **Protected environments** wait for an admin's approval; **freeze** stops all deploys during a
   release.
 
