@@ -601,6 +601,35 @@ test("a domain: apps behind the proxy, HTTPS, new versions without downtime", {
   assert.equal(viaProxy(host, httpsPort)?.version, "10");
 });
 
+test("no Dockerfile: Zelyq writes one for the kind of app, shows it, and deploys", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  await server.runtime.deleteFile(projectId, "Dockerfile");
+  await server.runtime.writeFile(
+    projectId,
+    "package.json",
+    JSON.stringify({ name: "shop", scripts: { start: "node server.js" } }),
+  );
+  await server.runtime.writeFile(
+    projectId,
+    "server.js",
+    'require("http").createServer((q, s) => s.end(JSON.stringify({ version: "20", port: process.env.PORT }))).listen(process.env.PORT);\n',
+  );
+  const id = await pipeline("No Dockerfile", "web");
+  const { run, log } = await runToEnd(id);
+  assert.equal(run.status, "passed", log);
+  assert.match(log, /There is no Dockerfile: this is Node 22 \(npm\), started with npm run start/);
+  assert.match(log, /^FROM node:22-alpine$/m);
+  assert.match(log, /^CMD \["sh","-c","npm run start"\]$/m);
+  const web = (await environments()).find((e) => e.name === "web");
+  const host = new URL(web?.live.find((d) => d.app === app)?.url ?? "https://x").host;
+  const [name, port] = host.split(":");
+  const answer = viaProxy(name ?? "", Number(port)) as { version: string; port?: string } | null;
+  assert.equal(answer?.version, "20");
+  assert.equal(answer?.port, "3000", "PORT is the deploy step's port");
+});
+
 test("when the app changes, its pipelines start by themselves", async () => {
   const id = (
     await call(cookies.owner, "POST", team("/pipelines"), {

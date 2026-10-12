@@ -675,6 +675,7 @@ async function deploy(context: StepContext): Promise<StepResult> {
     healthTimeoutS: spec["health-timeout"] ?? 60,
     url: spec.url ?? null,
     domain: spec.domain ?? null,
+    start: spec.start ?? null,
     runId: run.id,
     triggeredBy: run.triggeredBy,
     source,

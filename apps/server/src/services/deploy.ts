@@ -21,6 +21,7 @@ import {
 } from "@zelyq/core";
 import type { DeployEnvironmentRow, DeploymentRow, RunnerRow, Store } from "@zelyq/db";
 import type { AccessControl } from "./access.js";
+import { inspectScript, planBuild, readInspection } from "./build-detect.js";
 import { Masker } from "./pipelines/mask.js";
 import type { RunnerService } from "./pipelines/runners.js";
 import { shellCommand } from "./pipelines/scripts.js";
@@ -56,6 +57,8 @@ export interface DeployRequest {
   url: string | null;
   /** The app's own name on an environment with a domain, instead of <app>.<domain>. */
   domain: string | null;
+  /** How the app starts, when Zelyq writes its Dockerfile; null: found from its files. */
+  start: string | null;
   runId: string | null;
   triggeredBy: string | null;
   /** The app's files as a gzipped tar; null to reuse an image already on the machine. */
@@ -346,6 +349,7 @@ export class DeployService {
       healthTimeoutS: DEFAULT_HEALTH_TIMEOUT_S,
       url: target.url,
       domain: null,
+      start: null,
       runId: null,
       triggeredBy: user.id,
       source: null,
@@ -514,13 +518,52 @@ export class DeployService {
           },
         );
         if (sent.code !== 0) return fail("Could not copy the app onto the machine.");
+
+        // No Dockerfile: Zelyq writes one from what kind of app it is, and shows it.
+        let report = "";
+        const inspected = await session.exec(shellCommand("sh"), {
+          stdin: `cd ${folder}\n${inspectScript()}`,
+          onStdout: (chunk) => {
+            report += chunk.toString("utf8");
+          },
+          signal: request.signal,
+        });
+        const files = inspected.code === 0 ? readInspection(report) : null;
+        if (files) {
+          const plan = planBuild(files, request.port, request.start);
+          if (!plan.ok) {
+            await sh(`rm -rf ${folder}`);
+            return fail(plan.error);
+          }
+          request.onLine(
+            "system",
+            `There is no Dockerfile: this is ${plan.kind}, started with ${plan.start}. Zelyq wrote this Dockerfile (add your own to change it):`,
+          );
+          for (const line of (plan.files.Dockerfile ?? "").trimEnd().split("\n")) {
+            request.onLine("out", line);
+          }
+          const written = await sh(
+            [
+              `cd ${folder}`,
+              ...Object.entries(plan.files).map(
+                ([name, text]) =>
+                  `printf %s ${sq(Buffer.from(text).toString("base64"))} | base64 -d > ${sq(name)}`,
+              ),
+            ].join("\n"),
+          );
+          if (written.code !== 0) {
+            await sh(`rm -rf ${folder}`);
+            return fail("Could not write the Dockerfile on the machine.");
+          }
+        } else if (request.start) {
+          request.onLine("system", "The app has its own Dockerfile, so start: is not used.");
+        }
+
         request.onLine("system", `Building ${image}.`);
         const built = await sh(
-          [
-            `cd ${folder}`,
-            '[ -f Dockerfile ] || { echo "There is no Dockerfile in the app. Ask the agent to add one (\\"add a Dockerfile that serves the app\\")." >&2; exit 1; }',
-            `docker build -t ${sq(image)} --label zelyq.app=${sq(app)} .`,
-          ].join("\n"),
+          [`cd ${folder}`, `docker build -t ${sq(image)} --label zelyq.app=${sq(app)} .`].join(
+            "\n",
+          ),
         );
         // The source is only needed to build.
         await sh(`rm -rf ${folder}`);

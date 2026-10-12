@@ -309,6 +309,14 @@ const deploySchema = z
     url: z.string().url("Use the full address, like https://shop.example.com.").optional(),
     /** The app's own name on an environment with a domain, instead of <app>.<domain>. */
     domain: domainSchema.optional(),
+    /** How the app starts, when it has no Dockerfile: `node server.js`, `gunicorn app:app`. */
+    start: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .refine((value) => !/[\r\n]/.test(value), "Keep the start command on one line.")
+      .optional(),
   })
   .strict();
 
