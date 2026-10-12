@@ -369,6 +369,12 @@ export const api = {
       ),
     deployment: (teamId: string, deploymentId: string) =>
       request<{ deployment: DeploymentDetail }>(`/teams/${teamId}/deployments/${deploymentId}`),
+    /** Asks the proxy to try for its certificate now, and checks the address again. */
+    checkAgain: (teamId: string, deploymentId: string) =>
+      request<{ deployment: DeploymentSummary }>(
+        `/teams/${teamId}/deployments/${deploymentId}/check`,
+        { method: "POST" },
+      ),
     rollBack: (teamId: string, deploymentId: string) =>
       request<{ deployment: DeploymentSummary }>(
         `/teams/${teamId}/deployments/${deploymentId}/roll-back`,

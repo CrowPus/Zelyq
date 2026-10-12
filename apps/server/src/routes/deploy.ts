@@ -70,6 +70,16 @@ export function registerDeployRoutes(
     }),
   );
   app.post<{ Params: { teamId: string; deploymentId: string } }>(
+    "/api/teams/:teamId/deployments/:deploymentId/check",
+    async (request) => ({
+      deployment: await deploys.checkAgain(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.deploymentId,
+      ),
+    }),
+  );
+  app.post<{ Params: { teamId: string; deploymentId: string } }>(
     "/api/teams/:teamId/deployments/:deploymentId/roll-back",
     async (request) => ({
       deployment: await deploys.rollBack(

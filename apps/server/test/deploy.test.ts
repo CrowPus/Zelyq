@@ -8,6 +8,7 @@ import { after, before, test } from "node:test";
 import { runMigrations } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
+import { reachProblem } from "../src/services/deploy.js";
 import { type DockerSsh, dockerHostAvailable, startDockerSsh } from "./helpers/docker-ssh.js";
 
 /**
@@ -219,11 +220,27 @@ after(async () => {
     }
   }
   try {
-    const images = execFileSync("docker", ["images", "-q", `zelyq-${app}`])
+    for (const id of execFileSync("docker", ["ps", "-aq", "--filter", `label=zelyq.app=${app}`])
       .toString()
       .split(/\s+/)
-      .filter(Boolean);
-    if (images.length) execFileSync("docker", ["rmi", "-f", ...images], { stdio: "ignore" });
+      .filter(Boolean)) {
+      execFileSync("docker", ["rm", "-f", id], { stdio: "ignore" });
+    }
+    execFileSync("docker", ["rm", "-f", "zelyq-proxy"], { stdio: "ignore" });
+    execFileSync(
+      "docker",
+      ["volume", "rm", "-f", "zelyq-proxy-sites", "zelyq-proxy-data", "zelyq-proxy-config"],
+      {
+        stdio: "ignore",
+      },
+    );
+    const images = [app, `${app}x`].flatMap((name) =>
+      execFileSync("docker", ["images", "-q", "--filter", `label=zelyq.app=${name}`])
+        .toString()
+        .split(/\s+/),
+    );
+    const found = images.filter(Boolean);
+    if (found.length) execFileSync("docker", ["rmi", "-f", ...found], { stdio: "ignore" });
   } catch {
     // nothing kept
   }
@@ -428,6 +445,160 @@ stages:
   } finally {
     busy.close();
   }
+});
+
+/** What the app answers at its name, through the proxy (its own certificate, so -k). */
+function viaProxy(host: string, port: number): { version: string } | null {
+  try {
+    return JSON.parse(
+      execFileSync("curl", [
+        "-sk",
+        "--max-time",
+        "3",
+        "--resolve",
+        `${host}:${port}:127.0.0.1`,
+        `https://${host}:${port}/`,
+      ]).toString(),
+    );
+  } catch {
+    return null;
+  }
+}
+
+test("a domain: apps behind the proxy, HTTPS, new versions without downtime", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  const [httpPort, httpsPort] = [await freePort(), await freePort()];
+  const created = await call(cookies.owner, "POST", team("/environments"), {
+    name: "web",
+    runnerId,
+    address: "127.0.0.1",
+    domain: "Apps.Test",
+    https: "internal",
+    httpPort,
+    httpsPort,
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  assert.equal(created.json().environment.domain, "apps.test");
+  // One proxy per machine: another environment there must use the same ports.
+  const clash = await call(cookies.owner, "POST", team("/environments"), {
+    name: "web2",
+    runnerId,
+    domain: "other.test",
+    httpPort: httpPort + 1,
+    httpsPort,
+  });
+  assert.equal(clash.statusCode, 400, clash.body);
+
+  await writeApp("10");
+  const id = await pipeline("Ship to web", "web");
+  const first = await runToEnd(id);
+  assert.equal(first.run.status, "passed", first.log);
+  const host = `${app}.apps.test`;
+  assert.match(first.log, /host-port and url are not used/);
+  // apps.test leads nowhere: the deploy says so instead of claiming people can open it.
+  assert.match(
+    first.log,
+    new RegExp(`is running on deploy-box, but https://${host}:${httpsPort} cannot be opened yet`),
+  );
+  assert.match(first.log, /does not lead to this machine yet/);
+  assert.equal(viaProxy(host, httpsPort)?.version, "10");
+  // The page shows why, and Check again asks once more (the proxy is reloaded first).
+  const live = (await environments()).find((e) => e.name === "web")?.live[0] as unknown as {
+    id: string;
+    error: string | null;
+  };
+  assert.match(live.error ?? "", /does not lead to this machine yet/);
+  const checked = await call(cookies.editor, "POST", team(`/deployments/${live.id}/check`));
+  assert.equal(checked.statusCode, 200, checked.body);
+  assert.match(checked.json().deployment.error ?? "", /does not lead to this machine yet/);
+  assert.equal(viaProxy(host, httpsPort)?.version, "10", "the reload keeps it serving");
+  // Reached by its name on the machine's address, it answers.
+  assert.equal(
+    await reachProblem(host, "127.0.0.1", { https: "internal", httpPort, httpsPort }, "deploy-box"),
+    null,
+  );
+  // A port nobody listens on is said plainly.
+  assert.match(
+    (await reachProblem(
+      host,
+      "127.0.0.1",
+      { https: "off", httpPort: await freePort(), httpsPort },
+      "deploy-box",
+    )) ?? "",
+    /Nothing answers on port \d+ on 127\.0\.0\.1\. Open port/,
+  );
+
+  // A new version, while people keep asking: none of them notices the switch.
+  await writeApp("11");
+  let asked = 0;
+  let failed = 0;
+  let stop = false;
+  const traffic = (async () => {
+    while (!stop) {
+      asked += 1;
+      if (!viaProxy(host, httpsPort)) failed += 1;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  })();
+  const second = await runToEnd(id);
+  stop = true;
+  await traffic;
+  assert.equal(second.run.status, "passed", second.log);
+  assert.match(second.log, /beside the running version/);
+  assert.equal(viaProxy(host, httpsPort)?.version, "11");
+  assert.ok(asked > 20, `only ${asked} requests`);
+  assert.equal(failed, 0, `${failed} of ${asked} requests failed during the deploy`);
+
+  // A broken version never reaches anyone.
+  await writeApp("12", true);
+  const broken = await runToEnd(id);
+  assert.equal(broken.run.status, "failed");
+  assert.match(broken.log, /The running version was not touched/);
+  assert.equal(viaProxy(host, httpsPort)?.version, "11");
+  const running = execFileSync("docker", [
+    "ps",
+    "--format",
+    "{{.Names}}",
+    "--filter",
+    `label=zelyq.app=${app}`,
+    "--filter",
+    "label=zelyq.environment=web",
+  ])
+    .toString()
+    .trim()
+    .split("\n");
+  assert.deepEqual(running, [`zelyq-${app}-web-2`], "only the live version is left");
+
+  // Roll back to the first version: same name, same proxy.
+  const web = (await environments()).find((e) => e.name === "web");
+  const history = (
+    await call(cookies.owner, "GET", team(`/environments/${web?.id}/deployments?app=${app}`))
+  ).json().deployments;
+  const one = history.find((d: { number: number }) => d.number === 1);
+  const rolled = await call(cookies.owner, "POST", team(`/deployments/${one.id}/roll-back`));
+  assert.equal(rolled.statusCode, 200, rolled.body);
+  let detail = rolled.json().deployment;
+  for (let i = 0; i < 120 && detail.status === "deploying"; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    detail = (await call(cookies.owner, "GET", team(`/deployments/${detail.id}`))).json()
+      .deployment;
+  }
+  assert.equal(detail.status, "live", JSON.stringify(detail.log));
+  assert.equal(detail.url, `https://${host}:${httpsPort}`);
+  assert.equal(viaProxy(host, httpsPort)?.version, "10");
+
+  // Another app cannot take a name that is already used.
+  const thief = await call(cookies.owner, "POST", team("/pipelines"), {
+    source: `name: Thief\nruns-on: local\nsource:\n  app: Shop\nstages:\n  - name: Ship\n    steps:\n      - checkout: true\n      - deploy: {to: web, app: ${app}x, port: 3000, domain: ${host}}\n`,
+  });
+  assert.equal(thief.statusCode, 201, thief.body);
+  await writeApp("13");
+  const stolen = await runToEnd(thief.json().pipeline.id);
+  assert.equal(stolen.run.status, "failed");
+  assert.match(stolen.log, /is already used by another app/);
+  assert.equal(viaProxy(host, httpsPort)?.version, "10");
 });
 
 test("when the app changes, its pipelines start by themselves", async () => {

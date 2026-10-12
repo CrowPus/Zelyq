@@ -1183,6 +1183,8 @@ export class PipelineService {
         );
         continue;
       }
+      // Behind the environment's proxy, apps share no port on the machine.
+      if (environment.domain) continue;
       // Another app already answers on that port there: this deploy could not start.
       const app = step.deploy.app ?? appSlug(file.source?.app ?? file.name);
       const hostPort = step.deploy["host-port"] ?? step.deploy.port;

@@ -225,6 +225,13 @@
       "when": 1791752512952,
       "tag": "0031_pipeline_repo_files",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1791754947408,
+      "tag": "0032_deploy_domains",
+      "breakpoints": true
     }
   ]
 }
