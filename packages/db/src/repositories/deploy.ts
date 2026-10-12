@@ -1,9 +1,10 @@
 import { and, desc, eq, inArray, max, ne, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
-import { deployments, deployEnvironments as environments } from "../schema/sqlite.js";
+import { deployApps, deployments, deployEnvironments as environments } from "../schema/sqlite.js";
 
 export type DeployEnvironmentRow = typeof environments.$inferSelect;
 export type DeploymentRow = typeof deployments.$inferSelect;
+export type DeployAppRow = typeof deployApps.$inferSelect;
 
 /** One write transaction at a time per handle — see `pipelines.ts`. */
 const writeQueues = new WeakMap<ZelyqDb, Promise<unknown>>();
@@ -141,6 +142,48 @@ export function deployRepository(db: ZelyqDb) {
       },
       async listByStatus(status: string): Promise<DeploymentRow[]> {
         return await db.select().from(deployments).where(eq(deployments.status, status));
+      },
+    },
+
+    apps: {
+      async find(environmentId: string, app: string): Promise<DeployAppRow | null> {
+        return (
+          (
+            await db
+              .select()
+              .from(deployApps)
+              .where(and(eq(deployApps.environmentId, environmentId), eq(deployApps.app, app)))
+              .limit(1)
+          )[0] ?? null
+        );
+      },
+      /** The apps' own settings in these environments. */
+      async listFor(environmentIds: string[]): Promise<DeployAppRow[]> {
+        if (environmentIds.length === 0) return [];
+        return await db
+          .select()
+          .from(deployApps)
+          .where(inArray(deployApps.environmentId, environmentIds));
+      },
+      async remove(environmentId: string, app: string): Promise<void> {
+        await db
+          .delete(deployApps)
+          .where(and(eq(deployApps.environmentId, environmentId), eq(deployApps.app, app)));
+      },
+      async save(row: DeployAppRow): Promise<DeployAppRow> {
+        await db
+          .insert(deployApps)
+          .values(row)
+          .onConflictDoUpdate({
+            target: [deployApps.environmentId, deployApps.app],
+            set: {
+              domain: row.domain,
+              www: row.www,
+              updatedBy: row.updatedBy,
+              updatedAt: row.updatedAt,
+            },
+          });
+        return (await this.find(row.environmentId, row.app)) as DeployAppRow;
       },
     },
   };

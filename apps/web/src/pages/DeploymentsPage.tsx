@@ -21,7 +21,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import {
@@ -46,6 +46,7 @@ export const STATUS: Record<
   failed: { label: "Failed", tone: "danger" },
   rolled_back: { label: "Rolled back", tone: "warning" },
   replaced: { label: "Replaced", tone: "neutral" },
+  removed: { label: "Removed", tone: "neutral" },
 };
 
 /**
@@ -132,7 +133,8 @@ function EnvironmentCard({
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
   const remove = useMutation({
-    mutationFn: () => api.deploys.removeEnvironment(team.id, environment.id),
+    mutationFn: () =>
+      api.deploys.removeEnvironment(team.id, environment.id, environment.live.length > 0),
     onSuccess: () => void refresh(),
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
@@ -187,7 +189,15 @@ function EnvironmentCard({
               variant="danger"
               label="Remove environment"
               onClick={() => {
-                if (window.confirm(`Remove ${environment.name}?`)) remove.mutate();
+                const apps = environment.live.map((deployment) => deployment.app);
+                if (
+                  window.confirm(
+                    apps.length > 0
+                      ? `Remove ${environment.name} and its ${apps.length === 1 ? "app" : "apps"} (${apps.join(", ")})? Zelyq stops ${apps.length === 1 ? "it" : "them"} and removes ${apps.length === 1 ? "its containers and images" : "their containers and images"} from the machine.`
+                      : `Remove ${environment.name}?`,
+                  )
+                )
+                  remove.mutate();
               }}
             >
               <Trash2 size={13} />
@@ -206,14 +216,17 @@ function EnvironmentCard({
         {environment.domain && (
           <>
             {" "}
-            · apps at <span className="font-mono text-fg">*.{environment.domain}</span>
+            · new apps at <span className="font-mono text-fg">*.{environment.domain}</span>
             {environment.https === "off"
               ? " (HTTP)"
               : environment.https === "internal"
                 ? " (Zelyq's certificate)"
-                : " (HTTPS)"}
+                : environment.https === "external"
+                  ? " (behind your web server)"
+                  : " (HTTPS)"}
           </>
         )}
+        {!environment.domain && environment.https === "external" && <> · behind your web server</>}
         {environment.variables.length > 0 && (
           <>
             {" "}
@@ -560,7 +573,7 @@ function EnvironmentForm({
           <Input
             aria-label="Public address"
             value={address}
-            placeholder="35.202.251.235 or apps.example.com"
+            placeholder="203.0.113.10 or apps.example.com"
             onChange={(event) => setAddress(event.target.value)}
           />
         </div>
@@ -569,7 +582,17 @@ function EnvironmentForm({
         domain={domain}
         onDomain={setDomain}
         https={https}
-        onHttps={setHttps}
+        onHttps={(value) => {
+          setHttps(value);
+          // Behind the machine's own web server, the proxy needs a free private port.
+          if (value === "external" && httpPort === "80") {
+            setHttpPort("8081");
+            setHttpsPort("8444");
+          } else if (value !== "external" && httpPort === "8081" && httpsPort === "8444") {
+            setHttpPort("80");
+            setHttpsPort("443");
+          }
+        }}
         httpPort={httpPort}
         onHttpPort={setHttpPort}
         httpsPort={httpsPort}
@@ -656,14 +679,56 @@ function EnvironmentForm({
 }
 
 const HTTPS_CHOICES: { value: EnvironmentHttps; label: string }[] = [
-  { value: "auto", label: "Automatic: a free certificate from Let's Encrypt (recommended)" },
+  { value: "auto", label: "Automatic: free certificates from Let's Encrypt (recommended)" },
+  {
+    value: "external",
+    label: "My own web server is in front (nginx, Apache): it handles HTTPS",
+  },
   { value: "internal", label: "Zelyq's own certificate: for testing or a private network" },
   { value: "off", label: "Off: plain HTTP" },
 ];
 
+/** The DNS record that leads a name to the machine: A for an IP address, CNAME for a name. */
+export function DnsRecord({
+  name,
+  pointTo,
+  children,
+}: {
+  name: string;
+  pointTo: string | null;
+  children?: ReactNode;
+}) {
+  const record = !pointTo
+    ? { type: "A", value: "the machine's public IP address" }
+    : /^\d{1,3}(\.\d{1,3}){3}$/.test(pointTo)
+      ? { type: "A", value: pointTo }
+      : { type: "CNAME", value: pointTo };
+  return (
+    <div className="min-w-0 rounded-md bg-surface-subtle p-2 text-xs">
+      <p className="mb-1 font-medium">Add this DNS record where your domain is managed:</p>
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-2xs">
+        <dt className="text-fg-muted">Type</dt>
+        <dd>{record.type}</dd>
+        <dt className="text-fg-muted">Name</dt>
+        <dd className="break-all">{name}</dd>
+        <dt className="text-fg-muted">Value</dt>
+        <dd className="break-all">{record.value}</dd>
+      </dl>
+      {record.type === "CNAME" && (
+        <p className="mt-1 text-fg-secondary">
+          Or an A record with the machine's IP address as the value: an A record takes only an IP,
+          and the domain itself (example.com, not a subdomain) needs an A record.
+        </p>
+      )}
+      {children}
+    </div>
+  );
+}
+
 /**
- * An environment's domain: apps get <app>.<domain>, with HTTPS, through a
- * proxy Zelyq runs on the machine. Shows the one DNS record to add.
+ * How apps here are reached by name: HTTPS, the proxy's ports, and an
+ * optional domain under which every app gets its own subdomain. Each app's
+ * exact address (example.com) is set on its own page.
  */
 function WebAddresses({
   domain,
@@ -687,110 +752,114 @@ function WebAddresses({
   pointTo: string | null;
 }) {
   const name = domain.trim().toLowerCase();
-  // An A record takes an IP address; a name (test.example.com) needs a CNAME.
-  const record = !pointTo
-    ? { type: "A", value: "the machine's public IP address" }
-    : /^\d{1,3}(\.\d{1,3}){3}$/.test(pointTo)
-      ? { type: "A", value: pointTo }
-      : { type: "CNAME", value: pointTo };
+  const behind = https === "external";
+  const usual = httpPort === "80" && httpsPort === "443";
   return (
     <fieldset className="grid min-w-0 gap-2 rounded-md border border-border-default p-3">
       <legend className="px-1">
         <FieldLabel>Web addresses</FieldLabel>
       </legend>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="grid gap-1">
-          <label className="text-xs" htmlFor="environment-domain">
-            Domain
-          </label>
+      <p className="text-2xs text-fg-muted">
+        Give each app its exact address (example.com, www.example.com, shop.example.com) on its own
+        page: Deployments → <span className="font-medium">Logs · manage</span> →{" "}
+        <span className="font-medium">Address</span>.
+      </p>
+      <div className="grid gap-1">
+        <label className="text-xs" htmlFor="environment-https">
+          HTTPS
+        </label>
+        <select
+          id="environment-https"
+          className="h-[30px] w-full min-w-0 rounded-md border border-border-default bg-surface px-2 text-sm"
+          value={https}
+          onChange={(event) => onHttps(event.target.value as EnvironmentHttps)}
+        >
+          {HTTPS_CHOICES.map((choice) => (
+            <option key={choice.value} value={choice.value}>
+              {choice.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-2xs text-fg-muted">
+          {behind
+            ? "For a machine whose web server already serves other sites on ports 80 and 443. Zelyq's proxy listens on a private port; each app's page shows the few lines to add to your web server."
+            : https === "auto"
+              ? `Ports ${httpPort} and ${httpsPort} must be open on the machine; certificates then come by themselves.`
+              : `Open port ${https === "off" ? httpPort : httpsPort} on the machine.`}
+        </p>
+      </div>
+      {behind ? (
+        <div className="grid gap-1 text-xs">
+          <label htmlFor="proxy-httpport">Zelyq's proxy port (on 127.0.0.1 only)</label>
           <Input
-            id="environment-domain"
-            value={domain}
-            placeholder="staging.example.com"
-            spellCheck={false}
-            onChange={(event) => onDomain(event.target.value)}
+            id="proxy-httpport"
+            className="w-24"
+            inputMode="numeric"
+            value={httpPort}
+            onChange={(event) => onHttpPort(event.target.value)}
           />
           <p className="text-2xs text-fg-muted">
-            {name
-              ? `Each app gets its own address: shop.${name}`
-              : "Empty: apps are reached at the public address and a port."}
+            Your web server sends each app's name here. Any free port; it is not opened to the
+            internet.
           </p>
         </div>
-        {name && (
-          <div className="grid gap-1">
-            <label className="text-xs" htmlFor="environment-https">
-              HTTPS
-            </label>
-            <select
-              id="environment-https"
-              className="h-[30px] w-full min-w-0 rounded-md border border-border-default bg-surface px-2 text-sm"
-              value={https}
-              onChange={(event) => onHttps(event.target.value as EnvironmentHttps)}
-            >
-              {HTTPS_CHOICES.map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-      {name && (
-        <>
-          <div className="rounded-md bg-surface-subtle p-2 text-xs">
-            <p className="mb-1 font-medium">Add one DNS record where your domain is managed:</p>
-            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-2xs">
-              <dt className="text-fg-muted">Type</dt>
-              <dd>{record.type}</dd>
-              <dt className="text-fg-muted">Name</dt>
-              <dd className="break-all">*.{name}</dd>
-              <dt className="text-fg-muted">Value</dt>
-              <dd className="break-all">{record.value}</dd>
-            </dl>
-            {record.type === "CNAME" && (
-              <p className="mt-1 text-fg-secondary">
-                Or an A record with the machine's IP address as the value: an A record takes only an
-                IP.
-              </p>
-            )}
-            <p className="mt-1 text-fg-secondary">
-              {https === "auto"
-                ? "Ports 80 and 443 must be open on the machine; certificates then come by themselves."
-                : "Open the proxy ports below on the machine."}
-            </p>
-          </div>
-          <details className="text-xs">
-            <summary className="cursor-pointer text-fg-secondary">Proxy ports (advanced)</summary>
-            <div className="mt-2 flex flex-wrap gap-3">
-              <div className="grid gap-1">
-                <label htmlFor="proxy-httpport">HTTP</label>
-                <Input
-                  id="proxy-httpport"
-                  className="w-24"
-                  inputMode="numeric"
-                  value={httpPort}
-                  onChange={(event) => onHttpPort(event.target.value)}
-                />
-              </div>
-              <div className="grid gap-1">
-                <label htmlFor="proxy-httpsport">HTTPS</label>
-                <Input
-                  id="proxy-httpsport"
-                  className="w-24"
-                  inputMode="numeric"
-                  value={httpsPort}
-                  onChange={(event) => onHttpsPort(event.target.value)}
-                />
-              </div>
+      ) : (
+        <details className="text-xs" open={!usual}>
+          <summary className="cursor-pointer text-fg-secondary">Proxy ports (advanced)</summary>
+          <div className="mt-2 flex flex-wrap gap-3">
+            <div className="grid gap-1">
+              <label htmlFor="proxy-httpport">HTTP</label>
+              <Input
+                id="proxy-httpport"
+                className="w-24"
+                inputMode="numeric"
+                value={httpPort}
+                onChange={(event) => onHttpPort(event.target.value)}
+              />
             </div>
-            <p className="mt-1 text-fg-muted">
-              Change them only if another web server already uses 80 and 443 on the machine.
-              Automatic certificates need 80 and 443.
+            <div className="grid gap-1">
+              <label htmlFor="proxy-httpsport">HTTPS</label>
+              <Input
+                id="proxy-httpsport"
+                className="w-24"
+                inputMode="numeric"
+                value={httpsPort}
+                onChange={(event) => onHttpsPort(event.target.value)}
+              />
+            </div>
+          </div>
+          {https === "auto" && !usual ? (
+            <p className="mt-1 text-warning">
+              Let's Encrypt only checks ports 80 and 443, so with these ports certificates will not
+              come, and addresses carry the port. If another web server uses 80 and 443, choose "My
+              own web server is in front" above instead.
             </p>
-          </details>
-        </>
+          ) : (
+            <p className="mt-1 text-fg-muted">
+              Change them only if something else must keep 80 and 443; addresses then carry the
+              port.
+            </p>
+          )}
+        </details>
       )}
+      <div className="grid gap-1">
+        <label className="text-xs" htmlFor="environment-domain">
+          A subdomain for every app (optional)
+        </label>
+        <Input
+          id="environment-domain"
+          value={domain}
+          placeholder="apps.example.com"
+          spellCheck={false}
+          onChange={(event) => onDomain(event.target.value)}
+        />
+        <p className="text-2xs text-fg-muted">
+          {name
+            ? `Apps without an address of their own get <app>.${name}, such as shop.${name}.`
+            : "Empty: an app without an address of its own is reached at the machine's address and a port."}
+        </p>
+      </div>
+      {name && <DnsRecord name={`*.${name}`} pointTo={pointTo} />}
     </fieldset>
   );
 }
@@ -818,9 +887,9 @@ stages:
           port: 3000          # what the app listens on inside its container
           health: /           # checked after starting; default /`}</pre>
       <p className="mt-2">
-        With a domain on the environment, the app is at{" "}
-        <code className="font-mono">https://&lt;app&gt;.&lt;domain&gt;</code>, and a new version
-        replaces the old one without downtime. Without one, add{" "}
+        Then give the app its exact address, such as <code className="font-mono">example.com</code>,
+        on its page (<span className="font-medium">Logs · manage</span> → Address): it gets HTTPS,
+        and a new version replaces the old one without downtime. Until then, add{" "}
         <code className="font-mono">host-port: 8080</code> and it is at the public address and that
         port.
       </p>

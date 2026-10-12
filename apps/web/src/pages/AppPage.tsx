@@ -9,22 +9,26 @@ import {
 import {
   Activity,
   ArrowUpRight,
+  Copy,
   Cpu,
   ExternalLink,
+  Globe,
   MemoryStick,
   Play,
   RotateCw,
   Square,
   Timer,
+  Trash2,
+  Wand2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, EmptyState, Spinner, StatTile } from "../components/ui";
+import { Badge, Button, EmptyState, Input, Spinner, StatTile } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
-import { HistoryList, ReachWarning, RollBackProgress } from "./DeploymentsPage";
+import { DnsRecord, HistoryList, ReachWarning, RollBackProgress } from "./DeploymentsPage";
 
 const STATE: Record<
   AppStatus["state"],
@@ -169,6 +173,16 @@ function LiveAppView({
     },
   });
 
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const remove = useMutation({
+    mutationFn: (forget: boolean) => api.deploys.removeApp(team.id, environment.id, app, forget),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["environments", team.id] });
+      navigate("/deployments");
+    },
+  });
+
   const deployment = status?.deployment ?? null;
   if (!status) {
     return problem ? (
@@ -242,18 +256,20 @@ function LiveAppView({
         )}
       </header>
 
-      {mayManage && status.state !== "missing" && (
+      {mayManage && (
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            icon={
-              act.isPending && act.variables === "restart" ? <Spinner /> : <RotateCw size={13} />
-            }
-            disabled={act.isPending}
-            onClick={() => act.mutate("restart")}
-          >
-            Restart
-          </Button>
-          {status.state === "stopped" ? (
+          {status.state !== "missing" && (
+            <Button
+              icon={
+                act.isPending && act.variables === "restart" ? <Spinner /> : <RotateCw size={13} />
+              }
+              disabled={act.isPending}
+              onClick={() => act.mutate("restart")}
+            >
+              Restart
+            </Button>
+          )}
+          {status.state === "missing" ? null : status.state === "stopped" ? (
             <Button
               icon={act.isPending ? <Spinner /> : <Play size={13} />}
               disabled={act.isPending}
@@ -278,9 +294,61 @@ function LiveAppView({
               Stop
             </Button>
           )}
+          <Button
+            variant="danger"
+            className="ml-auto"
+            icon={remove.isPending ? <Spinner /> : <Trash2 size={13} />}
+            disabled={remove.isPending}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Remove ${app} from ${environment.name}? Zelyq stops it and removes its containers, its address on the proxy and its images from the machine. Its history stays.`,
+                )
+              )
+                remove.mutate(false);
+            }}
+          >
+            Remove app
+          </Button>
           {act.error && <span className="text-xs text-danger">{vaultErrorMessage(act.error)}</span>}
         </div>
       )}
+      {remove.error && (
+        <div className="grid gap-1 text-xs">
+          <p className="text-danger">{vaultErrorMessage(remove.error)}</p>
+          <p className="text-fg-secondary">
+            If the machine is gone for good,{" "}
+            <button
+              type="button"
+              className="text-info hover:underline"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Forget ${app} on ${environment.name}, without touching the machine?`,
+                  )
+                )
+                  remove.mutate(true);
+              }}
+            >
+              forget the app in Zelyq only
+            </button>
+            .
+          </p>
+        </div>
+      )}
+
+      <AppAddress
+        team={team}
+        app={app}
+        environment={environment}
+        status={status}
+        mayManage={mayManage}
+        onSaved={(deployment) =>
+          setStatus((before) =>
+            before ? { ...before, deployment: deployment ?? before.deployment } : before,
+          )
+        }
+      />
 
       <section className="grid grid-cols-2 gap-4 rounded-md border border-border-default p-3 md:grid-cols-4">
         <StatTile
@@ -345,6 +413,259 @@ function LiveAppView({
         <h2 className="text-sm font-semibold">History · roll back</h2>
         <HistoryList team={team} environment={environment} app={app} />
       </section>
+    </div>
+  );
+}
+
+/**
+ * The exact name people use for the app: example.com, www.example.com,
+ * shop.example.com. Saved, it takes effect at once when the app is reached
+ * by name, and the page shows the DNS record (and, behind the machine's own
+ * web server, the lines to add to it).
+ */
+function AppAddress({
+  team,
+  app,
+  environment,
+  status,
+  mayManage,
+  onSaved,
+}: {
+  team: TeamMembership;
+  app: string;
+  environment: EnvironmentSummary;
+  status: AppStatus;
+  mayManage: boolean;
+  onSaved: (deployment: AppStatus["deployment"]) => void;
+}) {
+  const queryClient = useQueryClient();
+  const saved = status.address;
+  const [domain, setDomain] = useState(saved.domain ?? "");
+  const [www, setWww] = useState(saved.www);
+  const [note, setNote] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (input: { domain: string | null; www: boolean }) =>
+      api.deploys.setAddress(team.id, environment.id, app, input),
+    onSuccess: ({ applied, deployment }, input) => {
+      onSaved(deployment);
+      void queryClient.invalidateQueries({ queryKey: ["environments", team.id] });
+      setNote(
+        applied
+          ? input.domain
+            ? `Saved: people are sent to ${input.domain} now.`
+            : "Saved: it is back at its usual address."
+          : "Saved. It is used from the next deploy.",
+      );
+    },
+    onError: () => setNote(null),
+  });
+  const name = domain.trim().toLowerCase();
+  const changed = name !== (saved.domain ?? "") || (Boolean(name) && www !== saved.www);
+  // The name the app answers to now, for the DNS record and the web server's lines.
+  const url = status.deployment?.url ? new URL(status.deployment.url) : null;
+  const current =
+    saved.domain ?? (url && !/^\d{1,3}(\.\d{1,3}){3}$/.test(url.hostname) ? url.hostname : null);
+  const pointTo = environment.address ?? environment.runner?.host ?? null;
+  return (
+    <section className="grid min-w-0 gap-2 rounded-md border border-border-default p-3">
+      <h2 className="flex items-center gap-2 text-sm font-semibold">
+        <Globe size={15} /> Address
+      </h2>
+      {mayManage ? (
+        <form
+          className="grid gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setNote(null);
+            save.mutate({ domain: name || null, www: Boolean(name) && www });
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              aria-label="Address"
+              className="w-72 max-w-full"
+              value={domain}
+              placeholder="example.com"
+              spellCheck={false}
+              onChange={(event) => setDomain(event.target.value)}
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!changed || save.isPending}
+              icon={save.isPending ? <Spinner /> : undefined}
+            >
+              Save
+            </Button>
+            {saved.domain && (
+              <Button
+                variant="ghost"
+                disabled={save.isPending}
+                onClick={() => {
+                  setDomain("");
+                  setNote(null);
+                  save.mutate({ domain: null, www: false });
+                }}
+              >
+                Use the usual one
+              </Button>
+            )}
+          </div>
+          {name && !name.startsWith("www.") && (
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={www}
+                onChange={(event) => setWww(event.target.checked)}
+              />
+              Also www.{name}, sending people on to {name}
+            </label>
+          )}
+          <p className="text-2xs text-fg-muted">
+            The exact name people type: the domain itself (example.com) or any name under it.
+            {environment.domain
+              ? ` Empty: ${app}.${environment.domain}.`
+              : " Empty: the machine's address and a port."}
+          </p>
+        </form>
+      ) : (
+        <p className="text-xs">{saved.domain ?? "The usual one."}</p>
+      )}
+      {save.error && <p className="text-xs text-danger">{vaultErrorMessage(save.error)}</p>}
+      {note && <p className="text-xs text-success">{note}</p>}
+      {current && (
+        <DnsRecord name={current} pointTo={pointTo}>
+          {saved.domain && saved.www && (
+            <p className="mt-1 text-fg-secondary">And the same record for www.{saved.domain}.</p>
+          )}
+          <p className="mt-1 text-fg-secondary">
+            For the domain itself, the name is often written @ at your DNS provider.
+          </p>
+        </DnsRecord>
+      )}
+      {current && environment.https === "external" && (
+        <WebServerLines
+          names={[current, ...(saved.domain === current && saved.www ? [`www.${current}`] : [])]}
+          port={environment.httpPort}
+          machine={environment.runner?.name ?? "the machine"}
+          setUp={
+            mayManage && status.deployment
+              ? () => api.deploys.setUpWebServer(team.id, environment.id, app)
+              : null
+          }
+          onSetUp={(deployment) => {
+            onSaved(deployment);
+            void queryClient.invalidateQueries({ queryKey: ["environments", team.id] });
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+/** What to paste on a machine whose own nginx is in front of Zelyq's proxy. */
+function WebServerLines({
+  names,
+  port,
+  machine,
+  setUp,
+  onSetUp,
+}: {
+  names: string[];
+  port: number;
+  machine: string;
+  /** Zelyq does it over SSH, when the person may. */
+  setUp: (() => Promise<{ log: string[]; deployment: AppStatus["deployment"] }>) | null;
+  onSetUp: (deployment: AppStatus["deployment"]) => void;
+}) {
+  const run = useMutation({
+    mutationFn: () => (setUp ? setUp() : Promise.reject(new Error("Not allowed."))),
+    onSuccess: ({ deployment }) => onSetUp(deployment),
+  });
+  const [first] = names;
+  const file = `/etc/nginx/sites-available/${first}`;
+  const lines = [
+    `sudo tee ${file} >/dev/null <<'EOF'`,
+    "server {",
+    "    listen 80;",
+    `    server_name ${names.join(" ")};`,
+    "    location / {",
+    `        proxy_pass http://127.0.0.1:${port};`,
+    "        proxy_set_header Host $host;",
+    "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+    "        proxy_set_header X-Forwarded-Proto $scheme;",
+    "        proxy_http_version 1.1;",
+    "        proxy_set_header Upgrade $http_upgrade;",
+    "        proxy_set_header Connection $http_connection;",
+    "    }",
+    "}",
+    "EOF",
+    `sudo ln -sf ${file} /etc/nginx/sites-enabled/`,
+    "sudo nginx -t && sudo systemctl reload nginx",
+    `sudo certbot --nginx ${names.map((name) => `-d ${name}`).join(" ")}`,
+  ].join("\n");
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="grid min-w-0 gap-1 text-xs">
+      {setUp && (
+        <div className="grid gap-1.5 rounded-md border border-border-default p-2">
+          <p>
+            Your nginx on {machine} must send {names.join(" and ")} to Zelyq. Zelyq can do it for
+            you: it adds a site of its own (your other sites are not touched), checks it, reloads
+            nginx and gets the HTTPS certificate.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              icon={run.isPending ? <Spinner /> : <Wand2 size={13} />}
+              disabled={run.isPending}
+              onClick={() => run.mutate()}
+            >
+              {run.isPending ? "Setting up (up to a few minutes)…" : "Set it up for me"}
+            </Button>
+          </div>
+          {run.data && (
+            <div className="grid gap-1">
+              <p className={run.data.deployment?.error ? "text-warning" : "text-success"}>
+                {run.data.deployment?.error ?? `Done: ${names[0]} opens with HTTPS.`}
+              </p>
+              {run.data.log.length > 0 && (
+                <pre className="overflow-x-auto rounded bg-surface-subtle p-2 font-mono text-2xs">
+                  {run.data.log.join("\n")}
+                </pre>
+              )}
+            </div>
+          )}
+          {run.error && (
+            <p className="whitespace-pre-wrap text-danger">{vaultErrorMessage(run.error)}</p>
+          )}
+        </div>
+      )}
+      <p className="font-medium">
+        {setUp ? "Or do it yourself: paste" : "Paste"} this in a terminal on {machine}:
+      </p>
+      <div className="relative min-w-0">
+        <pre className="overflow-x-auto rounded-md bg-surface-subtle p-2 pr-16 font-mono text-2xs leading-[1.6]">
+          {lines}
+        </pre>
+        <Button
+          size="sm"
+          className="absolute top-1.5 right-1.5"
+          icon={<Copy size={12} />}
+          onClick={() => {
+            void navigator.clipboard?.writeText(lines).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            });
+          }}
+        >
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      <p className="text-fg-muted">
+        The last line gets the HTTPS certificate. Apache instead: ProxyPreserveHost On and ProxyPass
+        / http://127.0.0.1:{port}/ in the site's VirtualHost.
+      </p>
     </div>
   );
 }

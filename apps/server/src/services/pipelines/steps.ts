@@ -636,16 +636,6 @@ async function deploy(context: StepContext): Promise<StepResult> {
     return FAILED;
   }
   const app = spec.app ?? appSlug(file.source?.app ?? file.name);
-  if (environment.domain && (spec["host-port"] || spec.url)) {
-    context.system(
-      `${environment.name} has a domain: apps there are reached through its proxy, so host-port and url are not used.`,
-    );
-  }
-  if (!environment.domain && spec.domain) {
-    context.system(
-      `${environment.name} has no domain, so domain: is not used. An admin gives it one in Deployments.`,
-    );
-  }
 
   // The step's folder, packed where the run is and streamed to the environment's machine.
   const source = new PassThrough();

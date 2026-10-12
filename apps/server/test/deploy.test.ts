@@ -791,6 +791,215 @@ test("the app page: state, CPU and memory, live logs, stop and start, promote th
   assert.match(asAdmin.json().error?.message ?? asAdmin.body, /frozen/);
 });
 
+test("an exact address set on the app's page, www sent on to it; behind the machine's own web server", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  const all = await environments();
+  const web = all.find((e) => e.name === "web") as unknown as { id: string; httpsPort: number };
+  const web2 = all.find((e) => e.name === "web2") as unknown as { id: string };
+  const address = (envId: string, body: unknown, cookie = cookies.editor) =>
+    call(cookie, "PUT", team(`/environments/${envId}/apps/${app}/address`), body);
+
+  // Live by name: people are sent to the new name at once, no deploy needed.
+  const set = await address(web.id, { domain: "Exact.Test", www: true });
+  assert.equal(set.statusCode, 200, set.body);
+  assert.equal(set.json().applied, true);
+  assert.equal(set.json().deployment.url, `https://exact.test:${web.httpsPort}`);
+  assert.equal(viaProxy("exact.test", web.httpsPort)?.version, "21");
+  assert.equal(viaProxy(`${app}.apps.test`, web.httpsPort), null, "the old name is gone");
+  const redirect = execFileSync("curl", [
+    "-sk",
+    "-o",
+    "/dev/null",
+    "-w",
+    "%{http_code} %{redirect_url}",
+    "--resolve",
+    `www.exact.test:${web.httpsPort}:127.0.0.1`,
+    `https://www.exact.test:${web.httpsPort}/shop?x=1`,
+  ]).toString();
+  assert.equal(redirect, `301 https://exact.test:${web.httpsPort}/shop?x=1`);
+  const status = (
+    await call(cookies.editor, "GET", team(`/environments/${web.id}/apps/${app}`))
+  ).json().status;
+  assert.deepEqual(status.address, { domain: "exact.test", www: true });
+  // One name, one app.
+  const taken = await address(web2.id, { domain: "www.exact.test" });
+  assert.equal(taken.statusCode, 409, taken.body);
+  assert.equal((await address(web.id, { domain: "not a name" })).statusCode, 400);
+
+  // The next deploy keeps it, whatever the step says.
+  const pipelines = (await call(cookies.owner, "GET", team("/pipelines"))).json().pipelines;
+  const again = await runToEnd(
+    pipelines.find((p: { name: string }) => p.name === "No Dockerfile").id,
+  );
+  assert.equal(again.run.status, "passed", again.log);
+  assert.match(
+    again.log,
+    new RegExp(
+      `is live on web: https://exact\\.test:${web.httpsPort}|https://exact\\.test:${web.httpsPort} cannot be opened yet`,
+    ),
+  );
+  assert.equal(viaProxy("exact.test", web.httpsPort)?.version, "21");
+
+  // A machine whose own web server keeps 80 and 443: the proxy answers on a private port.
+  const added = await call(cookies.owner, "POST", team("/runners"), {
+    name: "deploy-box-3",
+    host: machine?.host,
+    port: machine?.port,
+    username: machine?.username,
+  });
+  const third = added.json().runner.id;
+  const tested = (await call(cookies.owner, "POST", team(`/runners/${third}/test`))).json();
+  await call(cookies.owner, "POST", team(`/runners/${third}/confirm`), {
+    fingerprint: tested.hostKeyFingerprint,
+  });
+  const privatePort = await freePort();
+  const edge = (
+    await call(cookies.owner, "POST", team("/environments"), {
+      name: "edge",
+      runnerId: third,
+      address: "127.0.0.1",
+      https: "external",
+      httpPort: privatePort,
+      httpsPort: privatePort + 1,
+    })
+  ).json().environment;
+  assert.equal(edge.domain, null);
+  // Set before the first deploy: used by it.
+  const early = await address(edge.id, { domain: "edge.test" });
+  assert.equal(early.json().applied, false);
+  const shipped = await runToEnd(await pipeline("Ship to edge", "edge"));
+  assert.equal(shipped.run.status, "passed", shipped.log);
+  assert.match(shipped.log, /host-port and url are not used/);
+  const live = (await environments()).find((e) => e.name === "edge")?.live[0] as unknown as {
+    url: string;
+    error: string | null;
+  };
+  assert.equal(live.url, "https://edge.test");
+  // Nothing in front here says so, instead of claiming people can open it.
+  assert.ok(live.error, "a problem is reported");
+  const answer = execFileSync("curl", [
+    "-s",
+    "-i",
+    "--max-time",
+    "3",
+    "-H",
+    "Host: edge.test",
+    `http://127.0.0.1:${privatePort}/`,
+  ]).toString();
+  assert.match(answer, /x-zelyq-proxy: 1/i);
+  assert.match(answer, /"version":"21"/);
+  const published = execFileSync("docker", ["port", "zelyq-proxy"]).toString().trim();
+  assert.equal(published, `${privatePort}/tcp -> 127.0.0.1:${privatePort}`);
+
+  // A taken proxy port is found before building, and said plainly.
+  const busy = net.createServer().listen(0, "0.0.0.0");
+  await new Promise((resolve) => busy.once("listening", resolve));
+  try {
+    const port = (busy.address() as net.AddressInfo).port;
+    await call(cookies.owner, "PATCH", team(`/environments/${edge.id}`), {
+      httpPort: port,
+      httpsPort: port + 1,
+    });
+    const refused = await runToEnd(
+      (await call(cookies.owner, "GET", team("/pipelines")))
+        .json()
+        .pipelines.find((p: { name: string }) => p.name === "Ship to edge").id,
+    );
+    assert.equal(refused.run.status, "failed");
+    assert.match(refused.log, new RegExp(`Port ${port} on deploy-box-3 is used by something else`));
+    assert.doesNotMatch(refused.log, /Building /);
+  } finally {
+    busy.close();
+  }
+
+  // New proxy settings apply to the live app at once, no deploy needed.
+  const moved = await freePort();
+  const patched = await call(cookies.owner, "PATCH", team(`/environments/${edge.id}`), {
+    httpPort: moved,
+    httpsPort: moved + 1,
+  });
+  assert.equal(patched.statusCode, 200, patched.body);
+  const after = execFileSync("curl", [
+    "-s",
+    "--max-time",
+    "3",
+    "-H",
+    "Host: edge.test",
+    `http://127.0.0.1:${moved}/`,
+  ]).toString();
+  assert.match(after, /"version":"21"/);
+
+  // Setting up the machine's nginx says plainly why it cannot here.
+  const setUp = await call(
+    cookies.editor,
+    "POST",
+    team(`/environments/${edge.id}/apps/${app}/web-server`),
+  );
+  assert.equal(setUp.statusCode, 400, setUp.body);
+  assert.match(setUp.json().error.message, /sudo without a password|no nginx/);
+
+  // Remove the app: off the machine, out of the proxy; then the environment goes.
+  assert.equal(
+    (await call(cookies.owner, "DELETE", team(`/environments/${edge.id}`))).statusCode,
+    409,
+  );
+  const removed = await call(
+    cookies.editor,
+    "DELETE",
+    team(`/environments/${edge.id}/apps/${app}`),
+  );
+  assert.equal(removed.statusCode, 204, removed.body);
+  const left = execFileSync("docker", [
+    "ps",
+    "-aq",
+    "--filter",
+    `label=zelyq.app=${app}`,
+    "--filter",
+    "label=zelyq.environment=edge",
+  ])
+    .toString()
+    .trim();
+  assert.equal(left, "");
+  assert.throws(() =>
+    execFileSync("docker", [
+      "exec",
+      "zelyq-proxy",
+      "test",
+      "-f",
+      `/etc/caddy/sites/edge--${app}.caddy`,
+    ]),
+  );
+  assert.equal(
+    execFileSync("docker", ["images", "-q", `zelyq-${app}-edge`])
+      .toString()
+      .trim(),
+    "",
+  );
+  assert.equal((await environments()).find((e) => e.name === "edge")?.live.length, 0);
+  assert.equal(
+    (await call(cookies.owner, "DELETE", team(`/environments/${edge.id}`))).statusCode,
+    204,
+  );
+
+  // An environment can go with its apps.
+  const web2Live = (await environments()).find((e) => e.name === "web2");
+  assert.ok((web2Live?.live.length ?? 0) > 0);
+  const gone = await call(
+    cookies.owner,
+    "DELETE",
+    team(`/environments/${web2Live?.id}?apps=remove`),
+  );
+  assert.equal(gone.statusCode, 204, gone.body);
+  assert.equal(
+    execFileSync("docker", ["ps", "-aq", "--filter", "label=zelyq.environment=web2"])
+      .toString()
+      .trim(),
+    "",
+  );
+});
+
 test("when the app changes, its pipelines start by themselves", async () => {
   const id = (
     await call(cookies.owner, "POST", team("/pipelines"), {

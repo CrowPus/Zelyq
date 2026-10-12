@@ -1,5 +1,6 @@
 import {
   appActionSchema,
+  appAddressSchema,
   environmentInputSchema,
   environmentUpdateSchema,
   promoteSchema,
@@ -42,13 +43,14 @@ export function registerDeployRoutes(
       ),
     };
   });
-  app.delete<Environment>(
+  app.delete<Environment & { Querystring: { apps?: string } }>(
     "/api/teams/:teamId/environments/:environmentId",
     async (request, reply) => {
       await deploys.remove(
         access.requireUser(request),
         request.params.teamId,
         request.params.environmentId,
+        request.query.apps === "remove",
       );
       reply.code(204);
     },
@@ -117,6 +119,40 @@ export function registerDeployRoutes(
         request.query.since ?? null,
       ),
     }),
+  );
+  app.put<App>(
+    "/api/teams/:teamId/environments/:environmentId/apps/:app/address",
+    async (request) =>
+      deploys.setAddress(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.environmentId,
+        request.params.app,
+        appAddressSchema.parse(request.body),
+      ),
+  );
+  app.delete<App & { Querystring: { forget?: string } }>(
+    "/api/teams/:teamId/environments/:environmentId/apps/:app",
+    async (request, reply) => {
+      await deploys.removeApp(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.environmentId,
+        request.params.app,
+        request.query.forget === "true",
+      );
+      reply.code(204);
+    },
+  );
+  app.post<App>(
+    "/api/teams/:teamId/environments/:environmentId/apps/:app/web-server",
+    async (request) =>
+      deploys.setUpWebServer(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.environmentId,
+        request.params.app,
+      ),
   );
   app.post<App>(
     "/api/teams/:teamId/environments/:environmentId/apps/:app/action",

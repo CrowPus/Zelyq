@@ -103,4 +103,4 @@ export function createStore(url: string): Store {
   };
 }
 
-export type { DeployEnvironmentRow, DeploymentRow } from "./repositories/deploy.js";
+export type { DeployAppRow, DeployEnvironmentRow, DeploymentRow } from "./repositories/deploy.js";

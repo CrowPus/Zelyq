@@ -4,8 +4,10 @@ import { request as httpsRequest } from "node:https";
 import { PassThrough, type Readable } from "node:stream";
 import {
   type AppAction,
+  type AppAddressInput,
   type AppStatus,
   appAddress,
+  appAddressSchema,
   type DeploymentDetail,
   type DeploymentStatus,
   type DeploymentSummary,
@@ -73,6 +75,8 @@ export interface DeployRequest {
   onLine(stream: "out" | "err" | "system", text: string): void;
   /** Called as soon as the deploy has its number, before the work starts. */
   onCreated?(deployment: DeploymentRow): void;
+  /** Writes out the log so far; set by the deploy itself, so its last lines are saved before it ends. */
+  flushLog?(): Promise<void>;
   signal?: AbortSignal;
 }
 
@@ -133,7 +137,7 @@ export class DeployService {
     await this.checkRunner(teamId, input.runnerId);
     await this.checkProxyPorts(teamId, null, {
       runnerId: input.runnerId,
-      domain: input.domain ?? null,
+      https: input.https ?? "auto",
       httpPort: input.httpPort ?? 80,
       httpsPort: input.httpsPort ?? 443,
     });
@@ -184,7 +188,7 @@ export class DeployService {
     if (input.runnerId) await this.checkRunner(teamId, input.runnerId);
     await this.checkProxyPorts(teamId, row.id, {
       runnerId: input.runnerId ?? row.runnerId,
-      domain: input.domain === undefined ? row.domain : input.domain,
+      https: input.https ?? httpsOf(row.https),
       httpPort: input.httpPort ?? row.httpPort,
       httpsPort: input.httpsPort ?? row.httpsPort,
     });
@@ -218,18 +222,91 @@ export class DeployService {
       action: "environment.updated",
       detail: { label: updated.name, fields: Object.keys(input) },
     });
+    // The proxy's settings changed: apps live by name there follow at once.
+    if (
+      updated.https !== row.https ||
+      updated.httpPort !== row.httpPort ||
+      updated.httpsPort !== row.httpsPort
+    ) {
+      await this.reapply(updated);
+    }
     const live = await this.store.deploy.deployments.live([row.id]);
     return this.present(updated, live);
   }
 
-  async remove(user: User, teamId: string, environmentId: string): Promise<void> {
+  /**
+   * Starts the proxy with the environment's settings and points its live
+   * apps at it again; what still stops people from opening each is kept on
+   * its deploy, as after a deploy.
+   */
+  private async reapply(environment: DeployEnvironmentRow): Promise<void> {
+    const live = (await this.store.deploy.deployments.live([environment.id])).filter(
+      (row) => row.hostPort === 0 && row.url,
+    );
+    if (live.length === 0 || !environment.runnerId) return;
+    const runner = await this.store.pipelines.runners.findById(environment.runnerId);
+    if (!runner) return;
+    const settings = proxiedOf(environment);
+    let session: SshSession;
+    try {
+      session = await SshSession.open(await this.runners.target(runner));
+    } catch (error) {
+      const why = `Could not reach ${runner.name} to apply the new settings: ${error instanceof Error ? error.message : String(error)}. Deploy again once it is reachable.`;
+      for (const row of live) await this.store.deploy.deployments.update(row.id, { error: why });
+      return;
+    }
+    try {
+      const sh = (script: string) => session.capture(shellCommand("sh"), 60_000, script);
+      const proxy = await this.startProxy(environment, runner, sh);
+      for (const row of live) {
+        const host = new URL(row.url as string).hostname;
+        const own = await this.store.deploy.apps.find(environment.id, row.app);
+        const www = Boolean(own?.www && own.domain === host);
+        let problem = proxy;
+        if (!problem) {
+          const switched = await sh(
+            siteScript(
+              `${environment.name}--${row.app}.caddy`,
+              { host, www, url: appAddress(settings, host) },
+              settings.https,
+              `zelyq-${row.app}-${environment.name}-${row.number}`,
+              row.port,
+            ),
+          );
+          problem =
+            switched.code === 0
+              ? ((await dnsHint(host, environment)) ??
+                (await reachProblem(
+                  host,
+                  environment.address ?? runner.host,
+                  settings,
+                  runner.name,
+                )))
+              : `The proxy did not accept ${host} with the new settings. Deploy again.`;
+        }
+        await this.store.deploy.deployments.update(row.id, {
+          url: appAddress(settings, host),
+          error: problem,
+        });
+      }
+    } finally {
+      session.close();
+    }
+  }
+
+  /** Removes an environment; with `withApps`, its live apps are removed from the machine first. */
+  async remove(user: User, teamId: string, environmentId: string, withApps = false): Promise<void> {
     await this.access.requireTeamRole(user, teamId, "admin");
     const row = await this.find(teamId, environmentId);
-    if ((await this.store.deploy.deployments.live([row.id])).length > 0) {
+    const live = await this.store.deploy.deployments.live([row.id]);
+    if (live.length > 0 && !withApps) {
       throw new ZelyqError(
         "conflict",
-        `Apps are still deployed to ${row.name}. Their containers keep running on the machine; remove them there first, then the environment.`,
+        `Apps are still deployed to ${row.name} (${live.map((d) => d.app).join(", ")}). Remove them with it, or one by one on their pages.`,
       );
+    }
+    for (const app of new Set(live.map((d) => d.app))) {
+      await this.removeApp(user, teamId, row.id, app);
     }
     await this.store.deploy.environments.remove(row.id);
     await this.access.recordChange(user, {
@@ -298,8 +375,8 @@ export class DeployService {
     const row = await this.store.deploy.deployments.findById(deploymentId);
     if (!row || row.teamId !== teamId) throw ZelyqError.notFound("Deployment", deploymentId);
     const environment = await this.find(teamId, row.environmentId);
-    if (row.status !== "live" || row.hostPort !== 0 || !row.url || !environment.domain) {
-      throw ZelyqError.badRequest("Only a live app behind an environment's domain is checked.");
+    if (row.status !== "live" || row.hostPort !== 0 || !row.url) {
+      throw ZelyqError.badRequest("Only a live app reached by its name is checked.");
     }
     const runner = environment.runnerId
       ? await this.store.pipelines.runners.findById(environment.runnerId)
@@ -497,10 +574,12 @@ export class DeployService {
     const live = (await this.store.deploy.deployments.live([environment.id])).find(
       (row) => row.app === app,
     );
+    const own = await this.store.deploy.apps.find(environment.id, app);
     const empty: AppStatus = {
       app,
       environmentId: environment.id,
       deployment: null,
+      address: { domain: own?.domain ?? null, www: own?.www ?? false },
       state: "missing",
       startedAt: null,
       restarts: 0,
@@ -615,14 +694,7 @@ export class DeployService {
    * and puts the previous container back if it does not.
    */
   async deploy(request: DeployRequest): Promise<{ ok: boolean; deployment: DeploymentRow }> {
-    const key = `${request.environment.id}/${request.app}`;
-    const previous = this.locks.get(key) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(() => this.deployNow(request));
-    this.locks.set(
-      key,
-      run.catch(() => undefined),
-    );
-    return run;
+    return this.locked(`${request.environment.id}/${request.app}`, () => this.deployNow(request));
   }
 
   private async deployNow(
@@ -633,13 +705,16 @@ export class DeployService {
       ? await this.store.pipelines.runners.findById(environment.runnerId)
       : null;
     const reused = request.reuse;
-    const proxied = environment.domain !== null;
-    // Behind the proxy: the app's own name, the one it had (a roll back), or <app>.<domain>.
-    const host = proxied
-      ? (request.domain ??
-        (reused && reused.hostPort === 0 && reused.url ? new URL(reused.url).hostname : null) ??
-        `${app}.${environment.domain}`)
-      : null;
+    // Behind the proxy, by name: the address set on the app's page, the step's
+    // domain:, the one it had (a roll back), or <app>.<the environment's domain>.
+    // None of them: at the machine's address and a port.
+    const own = await this.store.deploy.apps.find(environment.id, app);
+    const host =
+      own?.domain ??
+      request.domain ??
+      (reused && reused.hostPort === 0 && reused.url ? new URL(reused.url).hostname : null) ??
+      (environment.domain ? `${app}.${environment.domain}` : null);
+    const proxied = host !== null;
     const deployment = await this.store.deploy.deployments.create({
       id: newId("deployment"),
       teamId: request.teamId,
@@ -653,7 +728,7 @@ export class DeployService {
       runId: request.runId,
       triggeredBy: request.triggeredBy,
       url: host
-        ? appAddress(proxiedOf(environment), app, host)
+        ? appAddress(proxiedOf(environment), host)
         : (request.url ??
           (environment.address ? `http://${environment.address}:${request.hostPort}` : null)),
       port: request.port,
@@ -676,10 +751,29 @@ export class DeployService {
         shown(stream, text);
         writer.add(stream, text);
       },
+      flushLog: () => writer.flush(),
     };
     request.onCreated?.({ ...deployment, image });
     try {
-      return await this.deployWork(logged, deployment, image, runner, reused, host);
+      if (own?.domain && request.domain && request.domain !== own.domain) {
+        logged.onLine(
+          "system",
+          `${app}'s page sets its address to ${own.domain}, so the step's domain: ${request.domain} is not used.`,
+        );
+      }
+      if (
+        host &&
+        !reused &&
+        !request.promote &&
+        (request.url || request.hostPort !== request.port)
+      ) {
+        logged.onLine(
+          "system",
+          `${app} is reached by its name through the machine's proxy, so host-port and url are not used.`,
+        );
+      }
+      const www = Boolean(own?.www && own.domain && host === own.domain);
+      return await this.deployWork(logged, deployment, image, runner, reused, host, www);
     } finally {
       await writer.close();
     }
@@ -692,11 +786,13 @@ export class DeployService {
     runner: RunnerRow | null,
     reused: DeploymentRow | null,
     host: string | null,
+    www: boolean,
   ): Promise<{ ok: boolean; deployment: DeploymentRow }> {
     const { environment, app } = request;
 
     const fail = async (error: string) => {
       request.onLine("system", error);
+      await request.flushLog?.();
       const row = await this.store.deploy.deployments.update(deployment.id, {
         status: "failed",
         error,
@@ -741,6 +837,12 @@ export class DeployService {
           'docker info >/dev/null 2>&1 || { echo "This user cannot use Docker: add it to the docker group (run the machine setup command again)." >&2; exit 1; }\n',
       );
       if (docker.code !== 0) return fail(`Docker is not usable on ${runner.name}.`);
+
+      // The proxy first: a port taken by another web server is found before a long build.
+      if (host) {
+        const problem = await this.startProxy(environment, runner, sh);
+        if (problem) return fail(problem);
+      }
 
       if (request.promote) {
         const problem = await this.bringImage(request.promote, runner, session, image, request);
@@ -812,7 +914,16 @@ export class DeployService {
       }
 
       if (host) {
-        return await this.switchOver(request, deployment, image, host, sh, variables.values, fail);
+        return await this.switchOver(
+          request,
+          deployment,
+          image,
+          host,
+          www,
+          sh,
+          variables.values,
+          fail,
+        );
       }
 
       // Swap: the running container steps aside, the new one starts with the variables.
@@ -875,16 +986,17 @@ export class DeployService {
       }
 
       await sh(`docker rm -f ${sq(`${name}-previous`)} >/dev/null 2>&1 || true`);
+      request.onLine(
+        "system",
+        `${app} #${deployment.number} is live on ${environment.name}${deployment.url ? `: ${deployment.url}` : "."}`,
+      );
+      await request.flushLog?.();
       const row = (await this.store.deploy.deployments.update(deployment.id, {
         status: "live",
         finishedAt: new Date().toISOString(),
       })) as DeploymentRow;
       await this.store.deploy.deployments.replaceOthers(environment.id, app, deployment.id);
       await this.pruneImages(environment.id, app, sh);
-      request.onLine(
-        "system",
-        `${app} #${deployment.number} is live on ${environment.name}${row.url ? `: ${row.url}` : "."}`,
-      );
       return { ok: true, deployment: row };
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
@@ -904,6 +1016,7 @@ export class DeployService {
     deployment: DeploymentRow,
     image: string,
     host: string,
+    www: boolean,
     sh: (script: string) => Promise<{ code: number | null }>,
     values: Record<string, string>,
     fail: (error: string) => Promise<{ ok: boolean; deployment: DeploymentRow }>,
@@ -914,14 +1027,6 @@ export class DeployService {
       ? await this.store.pipelines.runners.findById(environment.runnerId)
       : null;
     const runnerName = machine?.name ?? "the machine";
-
-    const proxy = await sh(proxyScript(settings));
-    if (proxy.code === 5) {
-      return fail(
-        `Ports ${settings.httpPort} and ${settings.httpsPort} on ${runnerName} are used by something else (another web server, such as nginx). Free them, or give ${environment.name} other proxy ports in Deployments.`,
-      );
-    }
-    if (proxy.code !== 0) return fail(`The proxy could not be started on ${runnerName}.`);
 
     const container = `zelyq-${app}-${environment.name}-${deployment.number}`;
     const site = `${environment.name}--${app}.caddy`;
@@ -967,11 +1072,19 @@ export class DeployService {
 
     // People go to the new version: the proxy reloads without dropping a connection.
     request.onLine("system", `Sending ${host} to the new version.`);
-    const switched = await sh(siteScript(site, host, settings.https, container, request.port));
+    const switched = await sh(
+      siteScript(
+        site,
+        { host, www, url: appAddress(settings, host) },
+        settings.https,
+        container,
+        request.port,
+      ),
+    );
     if (switched.code === 7) {
       await removeNew();
       return fail(
-        `${host} is already used by another app on ${runnerName}. Give this one its own domain: in the deploy step.`,
+        `${host} is already used by another app on ${runnerName}. Give this one another address on its page.`,
       );
     }
     if (switched.code !== 0) {
@@ -1000,32 +1113,346 @@ export class DeployService {
     const problem =
       (await dnsHint(host, environment)) ??
       (address ? await reachProblem(host, address, settings, runnerName) : null);
+    request.onLine(
+      "system",
+      problem
+        ? `${app} #${deployment.number} is running on ${runnerName}, but ${deployment.url} cannot be opened yet. ${problem}`
+        : `${app} #${deployment.number} is live on ${environment.name}: ${deployment.url}`,
+    );
+    await request.flushLog?.();
     const row = (await this.store.deploy.deployments.update(deployment.id, {
       status: "live",
       error: problem,
       finishedAt: new Date().toISOString(),
     })) as DeploymentRow;
-    request.onLine(
-      "system",
-      problem
-        ? `${app} #${deployment.number} is running on ${runnerName}, but ${row.url} cannot be opened yet. ${problem}`
-        : `${app} #${deployment.number} is live on ${environment.name}: ${row.url}`,
-    );
     return { ok: true, deployment: row };
+  }
+
+  /**
+   * Takes an app off its machine: its containers, its name on the proxy and
+   * its images. Its history stays. With `forget`, only Zelyq forgets it (for
+   * a machine that is gone).
+   */
+  async removeApp(
+    user: User,
+    teamId: string,
+    environmentId: string,
+    app: string,
+    forget = false,
+  ): Promise<void> {
+    const environment = await this.find(teamId, environmentId);
+    await this.access.requireTeamRole(user, teamId, environment.protected ? "admin" : "editor");
+    const rows = await this.store.deploy.deployments.listFor(environment.id, app, 1);
+    if (rows.length === 0) throw ZelyqError.notFound("App", app);
+    await this.locked(`${environment.id}/${app}`, async () => {
+      if (!forget) {
+        const runner = await this.machineOf(environment);
+        const session = await SshSession.open(await this.runners.target(runner));
+        try {
+          const removed = await session.capture(
+            shellCommand("sh"),
+            120_000,
+            removeAppScript(app, environment.name),
+          );
+          if (removed.code !== 0) {
+            throw ZelyqError.badRequest(
+              `Could not remove ${app} from ${runner.name}: ${removed.stderr.trim().split("\n").pop() ?? ""}`,
+            );
+          }
+        } finally {
+          session.close();
+        }
+      }
+      for (const row of await this.store.deploy.deployments.live([environment.id])) {
+        if (row.app === app) {
+          await this.store.deploy.deployments.update(row.id, {
+            status: "removed",
+            error: null,
+          });
+        }
+      }
+      await this.store.deploy.apps.remove(environment.id, app);
+    });
+    await this.access.recordChange(user, {
+      teamId,
+      action: "app.removed",
+      detail: { label: `${app} on ${environment.name}`, ...(forget ? { forget: true } : {}) },
+    });
+  }
+
+  /**
+   * Behind the machine's own nginx: writes the app's site there (its own
+   * file, never another), checks and reloads nginx, and gets the HTTPS
+   * certificate with certbot. Needs sudo without a password for the
+   * machine's user; otherwise says so, and the page shows the lines to paste.
+   */
+  async setUpWebServer(
+    user: User,
+    teamId: string,
+    environmentId: string,
+    app: string,
+  ): Promise<{ log: string[]; deployment: DeploymentSummary }> {
+    const environment = await this.find(teamId, environmentId);
+    await this.access.requireTeamRole(user, teamId, environment.protected ? "admin" : "editor");
+    if (httpsOf(environment.https) !== "external") {
+      throw ZelyqError.badRequest(
+        `${environment.name}'s HTTPS is not "My own web server is in front"; Zelyq's proxy answers people itself there.`,
+      );
+    }
+    const live = (await this.store.deploy.deployments.live([environment.id])).find(
+      (row) => row.app === app,
+    );
+    if (!live || live.hostPort !== 0 || !live.url) {
+      throw ZelyqError.badRequest(`${app} is not live by its name on ${environment.name}.`);
+    }
+    const host = new URL(live.url).hostname;
+    const own = await this.store.deploy.apps.find(environment.id, app);
+    const names = [host, ...(own?.www && own.domain === host ? [`www.${host}`] : [])];
+    const runner = await this.machineOf(environment);
+    // A certificate is only given once the names lead to the machine.
+    const dns = await dnsHint(host, environment);
+    const session = await SshSession.open(await this.runners.target(runner));
+    let result: { code: number | null; stdout: string; stderr: string };
+    try {
+      result = await session.capture(
+        shellCommand("sh"),
+        600_000,
+        webServerScript(names, environment.httpPort, dns === null),
+      );
+    } finally {
+      session.close();
+    }
+    const log = `${result.stdout}\n${result.stderr}`
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .slice(-60);
+    const why: Record<number, string> = {
+      3: `${runner.name}'s user cannot use sudo without a password, so Zelyq cannot change its web server. Paste the lines shown below on ${runner.name} instead.`,
+      4: `There is no nginx on ${runner.name}. For Apache, paste the lines shown below into the site's settings.`,
+      5: `nginx did not accept the new site, so it was taken out again and nothing changed. Its message is in the log.`,
+      6: "The site is set up, but certbot could not be installed for the certificate. Its message is in the log.",
+      7: "The site is set up, but certbot did not get the certificate. Its message is in the log.",
+      8: `${host} is already set up in another nginx site on ${runner.name}. Zelyq leaves it alone: point that site at http://127.0.0.1:${environment.httpPort} yourself, or remove it.`,
+    };
+    if (result.code !== 0 && result.code !== 6 && result.code !== 7) {
+      throw ZelyqError.badRequest(
+        `${why[result.code ?? -1] ?? `Setting up the web server on ${runner.name} did not work.`}${log.length ? `\n${log.slice(-8).join("\n")}` : ""}`,
+      );
+    }
+    await this.access.recordChange(user, {
+      teamId,
+      action: "app.web_server_set_up",
+      detail: { label: `${app} on ${environment.name}`, names },
+    });
+    const problem =
+      dns ??
+      (result.code === 6 || result.code === 7
+        ? (why[result.code] as string)
+        : await reachProblem(
+            host,
+            environment.address ?? runner.host,
+            proxiedOf(environment),
+            runner.name,
+          ));
+    const updated = (await this.store.deploy.deployments.update(live.id, {
+      error: problem,
+    })) as DeploymentRow;
+    return { log, deployment: await this.summary(updated) };
+  }
+
+  /** Whether apps of an environment are reached by name, through its machine's proxy. */
+  private async usesProxy(environment: DeployEnvironmentRow): Promise<boolean> {
+    if (environment.domain) return true;
+    if ((await this.store.deploy.apps.listFor([environment.id])).some((row) => row.domain)) {
+      return true;
+    }
+    return (await this.store.deploy.deployments.live([environment.id])).some(
+      (row) => row.hostPort === 0,
+    );
+  }
+
+  /** Starts the machine's proxy if needed; why it cannot, or null. */
+  private async startProxy(
+    environment: DeployEnvironmentRow,
+    runner: RunnerRow,
+    sh: (script: string) => Promise<{ code: number | null }>,
+  ): Promise<string | null> {
+    const settings = proxiedOf(environment);
+    const proxy = await sh(proxyScript(settings));
+    if (proxy.code === 5) {
+      return settings.https === "external"
+        ? `Port ${settings.httpPort} on ${runner.name} is used by something else. Give ${environment.name} another proxy port in Deployments.`
+        : `Ports ${settings.httpPort} and ${settings.httpsPort} on ${runner.name} are used by something else (what, is in the lines above). If that is your own web server (nginx, Apache) with other sites, edit ${environment.name} in Deployments and choose HTTPS: "My own web server in front". Otherwise stop it, or give ${environment.name} other proxy ports.`;
+    }
+    return proxy.code === 0 ? null : `The proxy could not be started on ${runner.name}.`;
+  }
+
+  /**
+   * Sets the exact address an app is reached at. When it is live behind the
+   * proxy, people are sent to the new address right away; otherwise it is
+   * used from the next deploy.
+   */
+  async setAddress(
+    user: User,
+    teamId: string,
+    environmentId: string,
+    app: string,
+    raw: AppAddressInput,
+  ): Promise<{ applied: boolean; deployment: DeploymentSummary | null }> {
+    const environment = await this.find(teamId, environmentId);
+    await this.access.requireTeamRole(user, teamId, environment.protected ? "admin" : "editor");
+    const input = appAddressSchema.parse(raw);
+    const domain = input.domain;
+    const www = Boolean(domain && input.www);
+    if (domain) await this.checkAddressFree(teamId, environment.id, app, domain, www);
+    const before = await this.store.deploy.apps.find(environment.id, app);
+    await this.store.deploy.apps.save({
+      id: before?.id ?? newId("deployApp"),
+      environmentId: environment.id,
+      app,
+      domain,
+      www,
+      updatedBy: user.id,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.access.recordChange(user, {
+      teamId,
+      action: "app.address_set",
+      detail: { label: `${app} on ${environment.name}`, address: domain ?? "(the usual one)" },
+    });
+
+    const live = (await this.store.deploy.deployments.live([environment.id])).find(
+      (row) => row.app === app,
+    );
+    // Without an address of its own: <app>.<domain>, if the environment has one.
+    const host = domain ?? (environment.domain ? `${app}.${environment.domain}` : null);
+    if (!live || live.hostPort !== 0 || !host) {
+      return { applied: false, deployment: live ? await this.summary(live) : null };
+    }
+    const runner = await this.machineOf(environment);
+    const updated = await this.locked(`${environment.id}/${app}`, async () => {
+      const session = await SshSession.open(await this.runners.target(runner));
+      try {
+        const sh = (script: string) => session.capture(shellCommand("sh"), 60_000, script);
+        const proxy = await this.startProxy(environment, runner, sh);
+        if (proxy) throw ZelyqError.badRequest(proxy);
+        const switched = await sh(
+          siteScript(
+            `${environment.name}--${app}.caddy`,
+            { host, www, url: appAddress(proxiedOf(environment), host) },
+            httpsOf(environment.https),
+            `zelyq-${app}-${environment.name}-${live.number}`,
+            live.port,
+          ),
+        );
+        if (switched.code === 7) {
+          throw new ZelyqError(
+            "conflict",
+            `${host} is already used by another app on ${runner.name}.`,
+          );
+        }
+        if (switched.code !== 0) {
+          throw ZelyqError.badRequest(
+            `The proxy did not accept ${host}: ${switched.stderr.trim().split("\n").pop() ?? ""}`,
+          );
+        }
+      } finally {
+        session.close();
+      }
+      const problem =
+        (await dnsHint(host, environment)) ??
+        (await reachProblem(
+          host,
+          environment.address ?? runner.host,
+          proxiedOf(environment),
+          runner.name,
+        ));
+      return (await this.store.deploy.deployments.update(live.id, {
+        url: appAddress(proxiedOf(environment), host),
+        error: problem,
+      })) as DeploymentRow;
+    });
+    return { applied: true, deployment: await this.summary(updated) };
+  }
+
+  /** One name, one app: across the team's environments. */
+  private async checkAddressFree(
+    teamId: string,
+    environmentId: string,
+    app: string,
+    domain: string,
+    www: boolean,
+  ): Promise<void> {
+    const wanted = new Set([domain, ...(www ? [`www.${domain}`] : [])]);
+    const environments = await this.store.deploy.environments.listForTeam(teamId);
+    const names = new Map(environments.map((env) => [env.id, env.name]));
+    for (const other of await this.store.deploy.apps.listFor([...names.keys()])) {
+      if (other.environmentId === environmentId && other.app === app) continue;
+      if (!other.domain) continue;
+      const taken = [other.domain, ...(other.www ? [`www.${other.domain}`] : [])];
+      const clash = taken.find((name) => wanted.has(name));
+      if (clash) {
+        throw new ZelyqError(
+          "conflict",
+          `${clash} is already ${other.app}'s address on ${names.get(other.environmentId)}.`,
+        );
+      }
+    }
+    for (const live of await this.store.deploy.deployments.live([...names.keys()])) {
+      if (live.environmentId === environmentId && live.app === app) continue;
+      const host = live.url && live.hostPort === 0 ? new URL(live.url).hostname : null;
+      if (host && wanted.has(host)) {
+        throw new ZelyqError(
+          "conflict",
+          `${host} is already where ${live.app} runs on ${names.get(live.environmentId)}.`,
+        );
+      }
+    }
+  }
+
+  /** Runs work after any deploy of the same app and environment, and before the next. */
+  private locked<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.locks.get(key) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(work);
+    this.locks.set(
+      key,
+      run.catch(() => undefined),
+    );
+    return run;
+  }
+
+  private async summary(row: DeploymentRow): Promise<DeploymentSummary> {
+    const [summary] = await this.presentDeployments([row]);
+    return summary as DeploymentSummary;
   }
 
   /** Environments on one machine share its proxy, so they listen on the same ports. */
   private async checkProxyPorts(
     teamId: string,
     self: string | null,
-    wanted: { runnerId: string | null; domain: string | null; httpPort: number; httpsPort: number },
+    wanted: {
+      runnerId: string | null;
+      https: EnvironmentHttps;
+      httpPort: number;
+      httpsPort: number;
+    },
   ): Promise<void> {
-    if (!wanted.domain || !wanted.runnerId) return;
+    if (!wanted.runnerId) return;
     if (wanted.httpPort === wanted.httpsPort) {
       throw ZelyqError.badRequest("The proxy's HTTP and HTTPS ports must differ.");
     }
+    const behind = (https: string) => https === "external";
     for (const other of await this.store.deploy.environments.listForTeam(teamId)) {
-      if (other.id === self || !other.domain || other.runnerId !== wanted.runnerId) continue;
+      if (other.id === self || other.runnerId !== wanted.runnerId) continue;
+      if (!(await this.usesProxy(other))) continue;
+      if (behind(other.https) !== behind(wanted.https)) {
+        throw ZelyqError.badRequest(
+          behind(wanted.https)
+            ? `${other.name} uses the same machine with Zelyq's proxy answering people itself; one proxy serves both, so choose the same HTTPS setting.`
+            : `${other.name} uses the same machine behind its own web server; one proxy serves both, so choose "My own web server in front" here too.`,
+        );
+      }
       if (other.httpPort !== wanted.httpPort || other.httpsPort !== wanted.httpsPort) {
         throw ZelyqError.badRequest(
           `${other.name} uses the same machine with proxy ports ${other.httpPort} and ${other.httpsPort}; one proxy serves both, so use the same ports.`,
@@ -1396,8 +1823,8 @@ export function readStatus(
   report: string,
   since: string | null,
   masker: Masker,
-): Omit<AppStatus, "app" | "environmentId" | "deployment"> {
-  const result: Omit<AppStatus, "app" | "environmentId" | "deployment"> = {
+): Omit<AppStatus, "app" | "environmentId" | "deployment" | "address"> {
+  const result: Omit<AppStatus, "app" | "environmentId" | "deployment" | "address"> = {
     state: "missing",
     startedAt: null,
     restarts: 0,
@@ -1448,8 +1875,97 @@ export function readStatus(
   return result;
 }
 
+/** Removes an app's containers, its file on the proxy, and its images from the machine. */
+export function removeAppScript(app: string, environment: string): string {
+  const site = `/etc/caddy/sites/${environment}--${app}.caddy`;
+  return [
+    `for id in $(docker ps -aq --filter label=zelyq.app=${sq(app)} --filter label=zelyq.environment=${sq(environment)}); do docker rm -f "$id" >/dev/null; done`,
+    // Started before the proxy, by name, on a port of its own.
+    `docker rm -f ${sq(`zelyq-${app}-${environment}`)} ${sq(`zelyq-${app}-${environment}-previous`)} >/dev/null 2>&1 || true`,
+    `if docker container inspect ${PROXY} >/dev/null 2>&1 && docker exec ${PROXY} test -f ${sq(site)}; then`,
+    `  docker exec ${PROXY} rm -f ${sq(site)}`,
+    `  docker exec ${PROXY} caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true`,
+    "fi",
+    `images=$(docker images -q ${sq(`zelyq-${app}-${environment}`)} | sort -u)`,
+    '[ -z "$images" ] || docker rmi -f $images >/dev/null 2>&1 || true',
+    "",
+  ].join("\n");
+}
+
+/**
+ * Sets up the machine's own nginx in front of Zelyq's proxy for some names:
+ * a site file of its own (zelyq-<name>.conf), checked with nginx -t (taken
+ * out again if refused), reloaded, then a certificate from certbot when the
+ * names lead to the machine. Exit 3: no sudo without a password; 4: no
+ * nginx; 5: nginx refused it; 6: certbot could not be installed; 7: certbot
+ * failed; 8: another site already has the name.
+ */
+export function webServerScript(names: string[], port: number, certificate: boolean): string {
+  const first = names[0] ?? "";
+  const site = [
+    "# Written by Zelyq: sends these names on to Zelyq's proxy.",
+    "server {",
+    "    listen 80;",
+    `    server_name ${names.join(" ")};`,
+    "    location / {",
+    `        proxy_pass http://127.0.0.1:${port};`,
+    "        proxy_set_header Host $host;",
+    "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+    "        proxy_set_header X-Forwarded-Proto $scheme;",
+    "        proxy_http_version 1.1;",
+    "        proxy_set_header Upgrade $http_upgrade;",
+    "        proxy_set_header Connection $http_connection;",
+    "    }",
+    "}",
+  ].join("\n");
+  const domains = names.map((name) => `-d ${sq(name)}`).join(" ");
+  return [
+    'sudo -n true 2>/dev/null || { echo "sudo needs a password here." >&2; exit 3; }',
+    'command -v nginx >/dev/null 2>&1 || [ -x /usr/sbin/nginx ] || { echo "nginx is not installed." >&2; exit 4; }',
+    "if [ -d /etc/nginx/sites-available ]; then",
+    `  f=/etc/nginx/sites-available/zelyq-${first}.conf; link=/etc/nginx/sites-enabled/zelyq-${first}.conf`,
+    "else",
+    `  f=/etc/nginx/conf.d/zelyq-${first}.conf; link=""`,
+    "fi",
+    // Another site already answering for one of the names is left alone.
+    ...names.map(
+      (name) =>
+        `other=$(sudo grep -rlE ${sq(`server_name[^;]*[[:space:]]${name.replaceAll(".", "\\.")}([[:space:]]|;)`)} /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | grep -v "zelyq-${first}.conf" | head -n 1)` +
+        `\nif [ -n "$other" ]; then echo "${name} is already in $other." >&2; exit 8; fi`,
+    ),
+    'had=""; if sudo test -f "$f"; then had=1; sudo cp "$f" "$f.zelyq-before"; fi',
+    `printf '%s\\n' ${sq(site)} | sudo tee "$f" >/dev/null`,
+    '[ -z "$link" ] || sudo ln -sf "$f" "$link"',
+    "if ! sudo nginx -t 2>&1; then",
+    '  if [ -n "$had" ]; then sudo mv "$f.zelyq-before" "$f"; else sudo rm -f "$f"; [ -z "$link" ] || sudo rm -f "$link"; fi',
+    "  exit 5",
+    "fi",
+    'sudo rm -f "$f.zelyq-before"',
+    "sudo systemctl reload nginx 2>/dev/null || sudo nginx -s reload",
+    `echo "nginx sends ${names.join(" and ")} to Zelyq."`,
+    ...(certificate
+      ? [
+          "if ! command -v certbot >/dev/null 2>&1; then",
+          "  if command -v apt-get >/dev/null 2>&1; then",
+          '    echo "Installing certbot."',
+          "    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q certbot python3-certbot-nginx >/dev/null 2>&1 || { sudo apt-get update -q >/dev/null 2>&1; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q certbot python3-certbot-nginx 2>&1 | tail -n 3; }",
+          "  fi",
+          '  command -v certbot >/dev/null 2>&1 || { echo "certbot could not be installed." >&2; exit 6; }',
+          "fi",
+          `sudo certbot --nginx --non-interactive --agree-tos --register-unsafely-without-email --reinstall --expand --redirect ${domains} 2>&1 | tail -n 5`,
+          // Whether a certificate now covers the name (certbot's own exit is lost in the pipe).
+          `sudo certbot certificates 2>/dev/null | grep -qE ${sq(`Domains:.*[[:space:]]${first.replaceAll(".", "\\.")}([[:space:]]|$)`)} || exit 7`,
+          'echo "HTTPS certificate in place."',
+        ]
+      : [
+          `echo "No certificate yet: ${first} does not lead to this machine. Add its DNS record, then set up again."`,
+        ]),
+    "",
+  ].join("\n");
+}
+
 function httpsOf(value: string): EnvironmentHttps {
-  return value === "internal" || value === "off" ? value : "auto";
+  return value === "internal" || value === "off" || value === "external" ? value : "auto";
 }
 
 function proxiedOf(environment: DeployEnvironmentRow) {
@@ -1465,12 +1981,23 @@ function proxiedOf(environment: DeployEnvironmentRow) {
  * The machine's proxy: one Caddy container on the `zelyq` network, listening
  * on the environment's ports, with a file per app in its own volume
  * (/etc/caddy/sites). Nothing is read from the machine's folders, so it works
- * the same wherever Docker runs. Started once, and again only when its ports
- * change. Exit 5: a port is taken.
+ * the same wherever Docker runs. Started once, and again only when its
+ * settings change. Behind the machine's own web server it answers plain HTTP
+ * on one port, on 127.0.0.1 only. Exit 5: a port is taken (and what takes it
+ * is said, when it can be seen).
  */
-export function proxyScript(settings: { httpPort: number; httpsPort: number }): string {
-  const label = `${PROXY_IMAGE} ${settings.httpPort} ${settings.httpsPort}`;
-  const caddyfile = `{\n\thttp_port ${settings.httpPort}\n\thttps_port ${settings.httpsPort}\n}\nimport sites/*.caddy`;
+export function proxyScript(settings: {
+  https: EnvironmentHttps;
+  httpPort: number;
+  httpsPort: number;
+}): string {
+  const behind = settings.https === "external";
+  const label = `${PROXY_IMAGE} ${settings.httpPort} ${settings.httpsPort}${behind ? " behind" : ""}`;
+  const caddyfile = `{\n\thttp_port ${settings.httpPort}\n\thttps_port ${settings.httpsPort}${behind ? "\n\tauto_https off" : ""}\n}\nimport sites/*.caddy`;
+  const published = behind
+    ? `-p 127.0.0.1:${settings.httpPort}:${settings.httpPort}`
+    : `-p ${settings.httpPort}:${settings.httpPort} -p ${settings.httpsPort}:${settings.httpsPort}`;
+  const ports = behind ? `${settings.httpPort}` : `${settings.httpPort} ${settings.httpsPort}`;
   return [
     "set -e",
     `docker network inspect ${NETWORK} >/dev/null 2>&1 || docker network create ${NETWORK} >/dev/null`,
@@ -1481,7 +2008,7 @@ export function proxyScript(settings: { httpPort: number; httpsPort: number }): 
     `  export ZELYQ_CADDYFILE=${sq(caddyfile)}`,
     [
       `  if ! out=$(docker run -d --name ${PROXY} --restart unless-stopped --network ${NETWORK}`,
-      `-p ${settings.httpPort}:${settings.httpPort} -p ${settings.httpsPort}:${settings.httpsPort}`,
+      published,
       '--label zelyq.proxy="$want" -e ZELYQ_CADDYFILE',
       "-v zelyq-proxy-sites:/etc/caddy/sites -v zelyq-proxy-data:/data -v zelyq-proxy-config:/config",
       PROXY_IMAGE,
@@ -1493,7 +2020,16 @@ export function proxyScript(settings: { httpPort: number; httpsPort: number }): 
     ].join(" "),
     '    echo "$out" >&2',
     `    docker rm -f ${PROXY} >/dev/null 2>&1 || true`,
-    '    case "$out" in *"port is already allocated"*|*"address already in use"*) exit 5;; esac',
+    '    case "$out" in *"port is already allocated"*|*"address already in use"*)',
+    `      for p in ${ports}; do`,
+    `        who=$(docker ps --filter "publish=$p" --format '{{.Names}}' 2>/dev/null | head -n 1)`,
+    '        if [ -n "$who" ]; then echo "Port $p is used by the container $who." >&2; continue; fi',
+    `        who=$(ss -ltnpH "sport = :$p" 2>/dev/null | sed -n 's/.*users:(("\\([^"]*\\)".*/\\1/p' | head -n 1)`,
+    '        if [ -n "$who" ]; then echo "Port $p is used by $who." >&2; continue; fi',
+    '        if ss -ltnH "sport = :$p" 2>/dev/null | grep -q .; then echo "Port $p is used by a program this user cannot see; on the machine, sudo ss -ltnp shows which." >&2; fi',
+    "      done",
+    "      exit 5;;",
+    "    esac",
     "    exit 1",
     "  fi",
     `elif [ "$(docker inspect -f '{{.State.Running}}' ${PROXY})" != true ]; then`,
@@ -1509,31 +2045,42 @@ export function proxyScript(settings: { httpPort: number; httpsPort: number }): 
 }
 
 /**
- * Points the app's name at a container and reloads the proxy, inside the
- * proxy itself; the old file comes back if Caddy refuses the new one.
- * Exit 7: the name is another app's.
+ * Points the app's name (and www.<name>, sent on to it) at a container and
+ * reloads the proxy, inside the proxy itself; the old file comes back if
+ * Caddy refuses the new one. Exit 7: a name is another app's.
  */
 export function siteScript(
   site: string,
-  host: string,
+  names: { host: string; www: boolean; url: string },
   https: EnvironmentHttps,
   container: string,
   port: number,
 ): string {
-  const address = https === "off" ? `http://${host}` : host;
+  // Plain HTTP when it is off, or when the machine's own web server handles HTTPS.
+  const at = (name: string) => (https === "off" || https === "external" ? `http://${name}` : name);
+  const tls = https === "internal" ? ["\ttls internal"] : [];
+  const addresses = [at(names.host), ...(names.www ? [at(`www.${names.host}`)] : [])];
   const inside = [
     "d=/etc/caddy/sites",
     `f="$d/"${sq(site)}`,
     'for other in "$d"/*.caddy; do',
     '  [ -e "$other" ] && [ "$other" != "$f" ] || continue',
-    `  if grep -qxF ${sq(`${address} {`)} "$other"; then echo "Used by $(basename "$other" .caddy)." >&2; exit 7; fi`,
+    ...addresses.map(
+      (address) =>
+        `  if grep -qxF ${sq(`${address} {`)} "$other"; then echo "${address.replace(/^http:\/\//, "")} is used by $(basename "$other" .caddy)." >&2; exit 7; fi`,
+    ),
     "done",
     'if [ -f "$f" ]; then cp "$f" "$f.bak"; else rm -f "$f.bak"; fi',
     "cat > \"$f\" <<'ZELYQ'",
-    `${address} {`,
-    ...(https === "internal" ? ["\ttls internal"] : []),
+    `${at(names.host)} {`,
+    ...tls,
+    // How the machine's own web server, and a check from outside, know it reached Zelyq.
+    "\theader X-Zelyq-Proxy 1",
     `\treverse_proxy ${container}:${port}`,
     "}",
+    ...(names.www
+      ? [`${at(`www.${names.host}`)} {`, ...tls, `\tredir ${names.url}{uri} permanent`, "}"]
+      : []),
     "ZELYQ",
     "if ! caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1; then",
     '  if [ -f "$f.bak" ]; then mv "$f.bak" "$f"; else rm -f "$f"; fi',
@@ -1590,7 +2137,8 @@ async function dnsHint(host: string, environment: DeployEnvironmentRow): Promise
   return `${host} does not lead to this machine yet. Add a DNS record: ${record} → ${[...machine][0]} (an A record).`;
 }
 
-type Attempt = "ok" | "refused" | "blocked" | "certificate" | "other";
+/** elsewhere: something answered, but not through Zelyq's proxy. */
+type Attempt = "ok" | "elsewhere" | "refused" | "blocked" | "certificate" | "other";
 
 /** One visit to the app's address on the machine, by its name, the way a browser makes it. */
 function visit(
@@ -1599,6 +2147,7 @@ function visit(
   port: number,
   secure: boolean,
   checkCertificate: boolean,
+  throughZelyq = false,
 ): Promise<Attempt> {
   return new Promise((resolve) => {
     const options = {
@@ -1612,7 +2161,7 @@ function visit(
     };
     const call = (secure ? httpsRequest : httpRequest)(options, (response) => {
       response.resume();
-      resolve("ok");
+      resolve(throughZelyq && !response.headers["x-zelyq-proxy"] ? "elsewhere" : "ok");
     });
     call.on("timeout", () => {
       call.destroy();
@@ -1644,6 +2193,7 @@ export async function reachProblem(
   settings: { https: EnvironmentHttps; httpPort: number; httpsPort: number },
   machine: string,
 ): Promise<string | null> {
+  if (settings.https === "external") return behindProblem(host, address, machine);
   const secure = settings.https !== "off";
   const port = secure ? settings.httpsPort : settings.httpPort;
   const ports =
@@ -1661,8 +2211,35 @@ export async function reachProblem(
   if (last === "blocked")
     return `Port ${port} on ${address} does not answer: a firewall blocks it. ${firewall}`;
   if (last === "refused") return `Nothing answers on port ${port} on ${address}. ${firewall}`;
+  if (last === "certificate" && (settings.httpPort !== 80 || settings.httpsPort !== 443)) {
+    return `Automatic certificates need ports 80 and 443, and this environment's proxy uses ${settings.httpPort} and ${settings.httpsPort}, so none can come. If another web server keeps 80 and 443 on ${machine}, edit the environment and choose HTTPS: "My own web server is in front"; Zelyq then sets that web server up for the app.`;
+  }
   if (last === "certificate") {
     return `The HTTPS certificate is not ready. It comes by itself once ${host} leads to the machine and ports ${settings.httpPort} and ${settings.httpsPort} are open to the internet.`;
   }
   return `It did not answer from outside the machine.`;
+}
+
+/** Behind the machine's own web server: why people cannot open the app there yet, or null. */
+async function behindProblem(
+  host: string,
+  address: string,
+  machine: string,
+): Promise<string | null> {
+  const forward = `Your web server answers for ${host} but does not send it on to Zelyq yet: add the server block shown on the app's page to it, and reload it.`;
+  const secure = await visit(host, address, 443, true, true, true);
+  if (secure === "ok") return null;
+  if (secure === "elsewhere") return forward;
+  if (secure === "certificate") {
+    return `${host} reaches Zelyq, but your web server has no valid certificate for it yet. On ${machine}: sudo certbot --nginx -d ${host}`;
+  }
+  const plain = await visit(host, address, 80, false, false, true);
+  if (plain === "ok") {
+    return `${host} reaches Zelyq over HTTP. For HTTPS, on ${machine}: sudo certbot --nginx -d ${host}`;
+  }
+  if (plain === "elsewhere") return forward;
+  if (plain === "blocked" || secure === "blocked") {
+    return `Ports 80 and 443 on ${address} do not answer: a firewall blocks them. Open them on ${machine}, in its own firewall and the cloud's.`;
+  }
+  return `Nothing answers on ports 80 and 443 on ${address}. Is your web server (nginx, Apache) running on ${machine}?`;
 }

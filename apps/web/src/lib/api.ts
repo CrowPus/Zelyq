@@ -1,6 +1,7 @@
 import type {
   AddMemberInput,
   AppAction,
+  AppAddressInput,
   AppStatus,
   AttachmentRef,
   AuditLogEntry,
@@ -363,8 +364,11 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
-    removeEnvironment: (teamId: string, id: string) =>
-      request<void>(`/teams/${teamId}/environments/${id}`, { method: "DELETE" }),
+    /** With `withApps`, its live apps are removed from the machine first. */
+    removeEnvironment: (teamId: string, id: string, withApps = false) =>
+      request<void>(`/teams/${teamId}/environments/${id}${withApps ? "?apps=remove" : ""}`, {
+        method: "DELETE",
+      }),
     history: (teamId: string, environmentId: string, app: string) =>
       request<{ deployments: DeploymentSummary[] }>(
         `/teams/${teamId}/environments/${environmentId}/deployments?app=${encodeURIComponent(app)}`,
@@ -388,6 +392,24 @@ export const api = {
         `/teams/${teamId}/environments/${environmentId}/apps/${encodeURIComponent(app)}${
           since ? `?since=${encodeURIComponent(since)}` : ""
         }`,
+      ),
+    /** The exact address the app is reached at; applied right away when it is live by name. */
+    setAddress: (teamId: string, environmentId: string, app: string, input: AppAddressInput) =>
+      request<{ applied: boolean; deployment: DeploymentSummary | null }>(
+        `/teams/${teamId}/environments/${environmentId}/apps/${encodeURIComponent(app)}/address`,
+        { method: "PUT", body: JSON.stringify(input) },
+      ),
+    /** Takes the app off its machine (or, with `forget`, only out of Zelyq). */
+    removeApp: (teamId: string, environmentId: string, app: string, forget = false) =>
+      request<void>(
+        `/teams/${teamId}/environments/${environmentId}/apps/${encodeURIComponent(app)}${forget ? "?forget=true" : ""}`,
+        { method: "DELETE" },
+      ),
+    /** Sets up the machine's own nginx for the app, with its certificate. */
+    setUpWebServer: (teamId: string, environmentId: string, app: string) =>
+      request<{ log: string[]; deployment: DeploymentSummary }>(
+        `/teams/${teamId}/environments/${environmentId}/apps/${encodeURIComponent(app)}/web-server`,
+        { method: "POST" },
       ),
     appAction: (teamId: string, environmentId: string, app: string, action: AppAction) =>
       request<{ status: AppStatus }>(
