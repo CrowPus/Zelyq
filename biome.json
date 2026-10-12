@@ -47,5 +47,20 @@
     "parser": {
       "tailwindDirectives": true
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "apps/web/src/lib/pipeline-yaml.ts",
+        "apps/web/src/components/pipelines/yaml-editor/**"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noTemplateCurlyInString": "off"
+          }
+        }
+      }
+    }
+  ]
 }

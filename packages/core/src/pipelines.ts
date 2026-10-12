@@ -1,4 +1,4 @@
-import { parseDocument, stringify } from "yaml";
+import { isMap, parseDocument, stringify } from "yaml";
 import { z } from "zod";
 
 /**
@@ -922,6 +922,9 @@ export interface PipelineFileIssue {
   path: string;
   /** 1-based line in the file, when it can be found. */
   line: number | null;
+  /** Where in the text, as character offsets, when it can be found: what an editor underlines. */
+  from?: number;
+  to?: number;
   message: string;
 }
 
@@ -953,6 +956,8 @@ export function parsePipelineFile(
       issues: document.errors.map((error) => ({
         path: "",
         line: error.linePos?.[0]?.line ?? lineOf(text.split("\n"), error.pos[0]),
+        from: error.pos[0],
+        to: Math.max(error.pos[1], error.pos[0]),
         message: `Not valid YAML: ${error.message.split("\n")[0]}`,
       })),
     };
@@ -978,11 +983,11 @@ export function parsePipelineFile(
       ok: false,
       file: null,
       issues: expanded.issues.map((issue) => {
-        const node = document.getIn(issue.path, true);
-        const offset = (node as { range?: [number, number] } | null)?.range?.[0];
+        const range = rangeAt(document, text, issue.path);
         return {
           path: issue.path.join("."),
-          line: offset === undefined ? null : lineOf(text.split("\n"), offset),
+          line: range ? lineOf(text.split("\n"), range[0]) : null,
+          ...(range ? { from: range[0], to: range[1] } : {}),
           message: issue.message,
         };
       }),
@@ -1000,15 +1005,61 @@ export function parsePipelineFile(
         issue.path[1] = expanded.origin[issue.path[1]] ?? issue.path[1];
       }
       const path = issue.path.map(String);
-      const node = path.length > 0 ? document.getIn(issue.path as (string | number)[], true) : null;
-      const offset = (node as { range?: [number, number] } | null)?.range?.[0];
+      // A key that does not belong is shown at the key itself, not at the whole block.
+      const unknownKey = issue.code === "unrecognized_keys" ? issue.keys[0] : undefined;
+      const range =
+        unknownKey !== undefined
+          ? keyRangeAt(document, issue.path as (string | number)[], unknownKey)
+          : path.length > 0
+            ? rangeAt(document, text, issue.path as (string | number)[])
+            : null;
       return {
-        path: path.join("."),
-        line: offset === undefined ? null : lineOf(lineCounter, offset),
+        path: unknownKey !== undefined ? [...path, unknownKey].join(".") : path.join("."),
+        line: range ? lineOf(lineCounter, range[0]) : null,
+        ...(range ? { from: range[0], to: range[1] } : {}),
         message: issue.message,
       };
     }),
   };
+}
+
+type Ranged = { range?: [number, number, number] | null } | null | undefined;
+
+/** Where a value is in the text: its first line only, so a whole stage is not underlined. */
+function rangeAt(
+  document: ReturnType<typeof parseDocument>,
+  text: string,
+  path: (string | number)[],
+): [number, number] | null {
+  const node = document.getIn(path, true) as Ranged;
+  if (node?.range) return firstLine(text, node.range[0], node.range[1]);
+  // A key with no value (`name:`) has no node; show the key instead.
+  const key = path[path.length - 1];
+  return key === undefined ? null : keyRangeAt(document, path.slice(0, -1), key);
+}
+
+/** Where a key of the map at `path` is written. */
+function keyRangeAt(
+  document: ReturnType<typeof parseDocument>,
+  path: (string | number)[],
+  key: string | number,
+): [number, number] | null {
+  const parent = (path.length > 0 ? document.getIn(path, true) : document.contents) as unknown;
+  if (!isMap(parent)) return null;
+  for (const pair of parent.items) {
+    const keyNode = pair.key as Ranged & { value?: unknown };
+    if (keyNode?.range && String(keyNode.value) === String(key)) {
+      return [keyNode.range[0], keyNode.range[1]];
+    }
+  }
+  return null;
+}
+
+/** A range cut at the end of its first line: a whole stage is not underlined, its start is. */
+function firstLine(text: string, from: number, to: number): [number, number] {
+  const end = text.indexOf("\n", from);
+  const cut = end === -1 ? to : Math.min(to, end);
+  return [from, Math.max(from, text.slice(from, cut).trimEnd().length + from)];
 }
 
 function lineOf(lines: string[], offset: number): number {
