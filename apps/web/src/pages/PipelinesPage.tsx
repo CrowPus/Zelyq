@@ -1,8 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { PipelineSummary } from "@zelyq/core";
 import { roleAtLeast } from "@zelyq/core";
 import { GitBranch, Plus, Star, Workflow } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import {
+  FilterSelect,
+  FilterToggle,
+  ListToolbar,
+  matches,
+  NothingMatches,
+  Pager,
+  pageOf,
+  SearchBox,
+  useListParams,
+} from "../components/ListControls";
 import { OverviewTab } from "../components/pipelines/OverviewTab";
 import { PluginsTab } from "../components/pipelines/PluginsTab";
 import { RunnersTab } from "../components/pipelines/RunnersTab";
@@ -60,6 +72,7 @@ export function PipelinesPage() {
                 role="tab"
                 aria-selected={tab === name}
                 onClick={() =>
+                  // Each tab starts without the list's search and filters.
                   setParams(name === "pipelines" ? {} : { tab: name }, { replace: true })
                 }
                 className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${
@@ -99,6 +112,28 @@ export function PipelinesPage() {
   );
 }
 
+/** How a pipeline's last run went, in the few groups people filter by. */
+const OUTCOMES = [
+  { value: "failed", label: "Last run failed", statuses: ["failed", "timed_out"] },
+  { value: "passed", label: "Last run passed", statuses: ["passed"] },
+  { value: "running", label: "Running now", statuses: ["queued", "pending", "running"] },
+  { value: "waiting", label: "Waiting for approval", statuses: ["waiting"] },
+  { value: "cancelled", label: "Last run cancelled", statuses: ["cancelled"] },
+  { value: "never", label: "Never run", statuses: [] },
+] as const;
+
+const SORTS = [
+  { value: "", label: "Recent activity" },
+  { value: "name", label: "Name A–Z" },
+  { value: "changed", label: "Recently changed" },
+];
+
+/** When something last happened: its last run, or its last change. */
+function activity(pipeline: PipelineSummary): string {
+  const run = pipeline.lastRun?.createdAt ?? "";
+  return run > pipeline.updatedAt ? run : pipeline.updatedAt;
+}
+
 function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean }) {
   const queryClient = useQueryClient();
   const list = useQuery({
@@ -111,13 +146,16 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
       api.pipelines.setFavorite(teamId, input.id, input.favorite),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["pipelines", teamId] }),
   });
+  const filters = useListParams(`pipelines.${teamId}`, ["q", "last", "on", "starred", "sort"]);
+  const q = filters.get("q");
+  const last = filters.get("last");
+  const on = filters.get("on");
+  const starred = filters.get("starred") === "1";
+  const sort = filters.get("sort");
 
   if (list.isLoading) return <Spinner />;
-  // Starred first, each group in the server's order.
-  const pipelines = [...(list.data?.pipelines ?? [])].sort(
-    (a, b) => Number(b.favorite) - Number(a.favorite),
-  );
-  if (pipelines.length === 0) {
+  const all = list.data?.pipelines ?? [];
+  if (all.length === 0) {
     return (
       <EmptyState
         title="No pipelines yet"
@@ -134,62 +172,142 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
       />
     );
   }
+  const outcome = OUTCOMES.find((choice) => choice.value === last);
+  const machines = [...new Set(all.map((pipeline) => pipeline.runsOn))].sort();
+  const shown = all
+    .filter(
+      (pipeline) =>
+        matches(q, pipeline.name, pipeline.runsOn, pipeline.repoPath, pipeline.updatedBy?.name) &&
+        (!on || pipeline.runsOn === on) &&
+        (!starred || pipeline.favorite) &&
+        (!outcome ||
+          (outcome.value === "never"
+            ? !pipeline.lastRun
+            : (outcome.statuses as readonly string[]).includes(pipeline.lastRun?.status ?? ""))),
+    )
+    .sort((a, b) => {
+      // Starred first, then the chosen order.
+      if (a.favorite !== b.favorite) return Number(b.favorite) - Number(a.favorite);
+      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "changed") return b.updatedAt.localeCompare(a.updatedAt);
+      return activity(b).localeCompare(activity(a));
+    });
+  const { rows, page } = pageOf(shown, filters.page);
+  const count = (statuses: readonly string[], never: boolean) =>
+    all.filter((pipeline) =>
+      never ? !pipeline.lastRun : statuses.includes(pipeline.lastRun?.status ?? ""),
+    ).length;
+
   return (
-    <ul className="divide-y divide-border-default rounded-md border border-border-default">
-      {pipelines.map((pipeline) => {
-        const status = pipeline.lastRun ? RUN_STATUS[pipeline.lastRun.status] : null;
-        return (
-          <li key={pipeline.id} className="flex items-center hover:bg-surface-hover">
-            <button
-              type="button"
-              aria-label={pipeline.favorite ? `Unstar ${pipeline.name}` : `Star ${pipeline.name}`}
-              aria-pressed={pipeline.favorite}
-              title={pipeline.favorite ? "Starred: shown first" : "Star it, to show it first"}
-              disabled={star.isPending}
-              onClick={() => star.mutate({ id: pipeline.id, favorite: !pipeline.favorite })}
-              className="py-2.5 pr-1 pl-3 text-fg-muted hover:text-warning"
-            >
-              <Star
-                size={15}
-                className={pipeline.favorite ? "fill-warning text-warning" : ""}
-                strokeWidth={1.75}
-              />
-            </button>
-            <Link
-              to={`/pipelines/${pipeline.id}`}
-              className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-3 pl-2"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
-                  <span className="truncate">{pipeline.name}</span>
-                  {pipeline.repoPath && (
-                    <GitBranch
-                      size={12}
-                      className="shrink-0 text-fg-muted"
-                      aria-label={`File kept in the repository at ${pipeline.repoPath}`}
-                    >
-                      <title>{`Kept in the repository at ${pipeline.repoPath}`}</title>
-                    </GitBranch>
+    <>
+      <ListToolbar>
+        <SearchBox
+          value={q}
+          onChange={(value) => filters.set({ q: value })}
+          placeholder="Search pipelines"
+        />
+        <FilterSelect
+          label="Last run"
+          value={last}
+          onChange={(value) => filters.set({ last: value })}
+          options={[
+            { value: "", label: "Any last run" },
+            ...OUTCOMES.map((choice) => ({
+              value: choice.value,
+              label: `${choice.label} (${count(choice.statuses, choice.value === "never")})`,
+            })),
+          ]}
+        />
+        {machines.length > 1 && (
+          <FilterSelect
+            label="Runs on"
+            value={on}
+            onChange={(value) => filters.set({ on: value })}
+            options={[
+              { value: "", label: "Any machine" },
+              ...machines.map((machine) => ({ value: machine, label: `On ${machine}` })),
+            ]}
+          />
+        )}
+        <FilterToggle on={starred} onChange={(value) => filters.set({ starred: value ? "1" : "" })}>
+          <Star size={13} className={starred ? "fill-warning text-warning" : ""} /> Starred
+        </FilterToggle>
+        <FilterSelect
+          label="Order"
+          value={sort}
+          onChange={(value) => filters.set({ sort: value })}
+          options={SORTS}
+        />
+      </ListToolbar>
+      {shown.length === 0 ? (
+        <NothingMatches onClear={filters.clear} />
+      ) : (
+        <ul className="divide-y divide-border-default rounded-md border border-border-default">
+          {rows.map((pipeline) => {
+            const status = pipeline.lastRun ? RUN_STATUS[pipeline.lastRun.status] : null;
+            return (
+              <li key={pipeline.id} className="flex items-center hover:bg-surface-hover">
+                <button
+                  type="button"
+                  aria-label={
+                    pipeline.favorite ? `Unstar ${pipeline.name}` : `Star ${pipeline.name}`
+                  }
+                  aria-pressed={pipeline.favorite}
+                  title={pipeline.favorite ? "Starred: shown first" : "Star it, to show it first"}
+                  disabled={star.isPending}
+                  onClick={() => star.mutate({ id: pipeline.id, favorite: !pipeline.favorite })}
+                  className="py-2.5 pr-1 pl-3 text-fg-muted hover:text-warning"
+                >
+                  <Star
+                    size={15}
+                    className={pipeline.favorite ? "fill-warning text-warning" : ""}
+                    strokeWidth={1.75}
+                  />
+                </button>
+                <Link
+                  to={`/pipelines/${pipeline.id}`}
+                  className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-3 pl-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                      <span className="truncate">{pipeline.name}</span>
+                      {pipeline.repoPath && (
+                        <GitBranch
+                          size={12}
+                          className="shrink-0 text-fg-muted"
+                          aria-label={`File kept in the repository at ${pipeline.repoPath}`}
+                        >
+                          <title>{`Kept in the repository at ${pipeline.repoPath}`}</title>
+                        </GitBranch>
+                      )}
+                    </p>
+                    <p className="text-xs text-fg-secondary">
+                      runs on <span className="font-mono">{pipeline.runsOn}</span>
+                      {pipeline.updatedBy && <> · changed by {pipeline.updatedBy.name}</>} ·{" "}
+                      {formatRelative(pipeline.updatedAt)}
+                    </p>
+                  </div>
+                  {pipeline.lastRun && status ? (
+                    <span className="flex items-center gap-2 text-xs text-fg-secondary">
+                      <StageStrip stages={pipeline.lastRun.stages} />#{pipeline.lastRun.number}
+                      <Badge tone={status.tone}>{status.label}</Badge>
+                    </span>
+                  ) : (
+                    <span className="text-xs text-fg-muted">never run</span>
                   )}
-                </p>
-                <p className="text-xs text-fg-secondary">
-                  runs on <span className="font-mono">{pipeline.runsOn}</span>
-                  {pipeline.updatedBy && <> · changed by {pipeline.updatedBy.name}</>} ·{" "}
-                  {formatRelative(pipeline.updatedAt)}
-                </p>
-              </div>
-              {pipeline.lastRun && status ? (
-                <span className="flex items-center gap-2 text-xs text-fg-secondary">
-                  <StageStrip stages={pipeline.lastRun.stages} />#{pipeline.lastRun.number}
-                  <Badge tone={status.tone}>{status.label}</Badge>
-                </span>
-              ) : (
-                <span className="text-xs text-fg-muted">never run</span>
-              )}
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <Pager
+        page={page}
+        total={shown.length}
+        noun="pipelines"
+        all={all.length}
+        onPage={(n) => filters.set({ page: String(n) })}
+      />
+    </>
   );
 }
