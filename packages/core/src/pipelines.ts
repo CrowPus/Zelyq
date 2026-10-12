@@ -1816,7 +1816,7 @@ const environmentFields = z.object({
     .optional(),
   /** Apps are reached at <app>.<domain> through the machine's Zelyq proxy. */
   domain: domainSchema.nullable().optional(),
-  https: z.enum(["auto", "internal", "off"]),
+  https: z.enum(["auto", "internal", "off", "external"]),
   httpPort: z.number().int().min(1).max(65535),
   httpsPort: z.number().int().min(1).max(65535),
   protected: z.boolean(),
@@ -1851,6 +1851,7 @@ export const DEPLOYMENT_STATUSES = [
   "failed",
   "rolled_back",
   "replaced",
+  "removed",
 ] as const;
 export type DeploymentStatus = (typeof DEPLOYMENT_STATUSES)[number];
 
@@ -1887,6 +1888,8 @@ export interface AppStatus {
   environmentId: string;
   /** The deploy that is live; null when nothing is. */
   deployment: DeploymentSummary | null;
+  /** The address set on the app's page, if any. */
+  address: { domain: string | null; www: boolean };
   /** running, stopped, restarting, or missing (the container is gone from the machine). */
   state: "running" | "stopped" | "restarting" | "missing";
   startedAt: string | null;
@@ -1906,35 +1909,44 @@ export type AppAction = (typeof APP_ACTIONS)[number];
 export const appActionSchema = z.object({ action: z.enum(APP_ACTIONS) }).strict();
 export const promoteSchema = z.object({ environmentId: z.string().min(1).max(100) }).strict();
 
-export type EnvironmentHttps = "auto" | "internal" | "off";
+/**
+ * auto: Let's Encrypt; internal: the proxy's own certificate; off: plain HTTP;
+ * external: the machine's own web server (nginx, Apache) is in front and
+ * handles HTTPS, and sends the app's name on to Zelyq's proxy.
+ */
+export type EnvironmentHttps = "auto" | "internal" | "off" | "external";
 
-/** Where an app is reached on an environment with a domain. */
+/** Where people open an app reached by its name through the machine's proxy. */
 export function appAddress(
-  environment: {
-    domain: string | null;
-    https: EnvironmentHttps;
-    httpPort: number;
-    httpsPort: number;
-  },
-  app: string,
-  own?: string | null,
-): string | null {
-  if (!environment.domain) return null;
-  const host = own ?? `${app}.${environment.domain}`;
+  environment: { https: EnvironmentHttps; httpPort: number; httpsPort: number },
+  host: string,
+): string {
+  // Behind the machine's own web server, people use its usual ports.
+  if (environment.https === "external") return `https://${host}`;
   if (environment.https === "off") {
     return `http://${host}${environment.httpPort === 80 ? "" : `:${environment.httpPort}`}`;
   }
   return `https://${host}${environment.httpsPort === 443 ? "" : `:${environment.httpsPort}`}`;
 }
 
+/** An app's own address in an environment, set on its page. */
+export const appAddressSchema = z
+  .object({
+    /** The exact name: example.com, www.example.com, shop.example.com. null: the usual one. */
+    domain: domainSchema.nullable(),
+    /** Also answer at www.<domain>, sending people to <domain>. */
+    www: z.boolean().default(false),
+  })
+  .strict();
+export type AppAddressInput = z.input<typeof appAddressSchema>;
+
 export interface EnvironmentSummary {
   id: string;
   name: string;
   runner: { id: string; name: string; host: string } | null;
   address: string | null;
-  /** Apps are reached at <app>.<domain>; null: at the address and a port. */
+  /** Apps without an address of their own are reached at <app>.<domain>; null: at a port. */
   domain: string | null;
-  /** auto: Let's Encrypt; internal: the proxy's own certificate; off: plain HTTP. */
   https: EnvironmentHttps;
   httpPort: number;
   httpsPort: number;

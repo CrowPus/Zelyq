@@ -611,6 +611,27 @@ export const deployments = pgTable(
   }),
 );
 
+/** An app's own settings in an environment, such as the exact address people use. */
+export const deployApps = pgTable(
+  "deploy_apps",
+  {
+    id: text("id").primaryKey(),
+    environmentId: text("environment_id")
+      .notNull()
+      .references(() => deployEnvironments.id, { onDelete: "cascade" }),
+    app: text("app").notNull(),
+    /** The exact name it is reached at (example.com, shop.example.com); null: the usual one. */
+    domain: text("domain"),
+    /** www.<domain> sends people to <domain>. */
+    www: boolean("www").notNull().default(false),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    appIdx: uniqueIndex("deploy_apps_env_app_idx").on(table.environmentId, table.app),
+  }),
+);
+
 /** A run waiting for a person, kept in the database so a restart does not lose it. */
 export const pipelineApprovals = pgTable(
   "pipeline_approvals",
@@ -1022,6 +1043,7 @@ export const schema = {
   pipelineTriggers,
   deployEnvironments,
   deployments,
+  deployApps,
   settings,
   auditLog,
   providerConnections,

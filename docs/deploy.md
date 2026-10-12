@@ -8,7 +8,7 @@ does not come up, the previous one is put back by itself.
 - [Deploying from a pipeline](#deploying-from-a-pipeline)
 - [What a deploy does](#what-a-deploy-does)
 - [No Dockerfile needed](#no-dockerfile-needed)
-- [A domain, HTTPS, and no downtime](#a-domain-https-and-no-downtime)
+- [Your own address, HTTPS, and no downtime](#your-own-address-https-and-no-downtime)
 - [Roll back](#roll-back)
 - [Ports and firewalls](#ports-and-firewalls)
 - [Deploy every change the agent makes](#deploy-every-change-the-agent-makes)
@@ -23,8 +23,8 @@ An environment is a named place apps run, such as `staging` or `production`. A t
 | --- | --- |
 | Name | `staging`, `production` (lower-case letters, digits, `-`) |
 | Machine | One of the team's [SSH runners](./pipelines.md#adding-a-machine-ssh-runner), Linux or macOS, with Docker. The runner's user must be able to use Docker (the machine setup command adds it to the `docker` group). |
-| Public address | The machine's address as people reach it (`35.202.251.235`), used to show each app's link and the DNS record to add |
-| Domain | Optional. Each app gets its own address, `<app>.<domain>`, with HTTPS and no downtime. See [below](#a-domain-https-and-no-downtime). |
+| Public address | The machine's address as people reach it (`203.0.113.10`), used to show each app's link and the DNS record to add |
+| A subdomain for every app | Optional. Apps without an address of their own get `<app>.<domain>`. Each app's exact address is set on its page. See [below](#your-own-address-https-and-no-downtime). |
 | Protected | Every deploy waits for an admin's **Approve** first. Use it for production. |
 | Variables | What apps get in this environment: a typed value, or `vault://NAME` from the team's Vault. The same app gets a test key on staging and the live key on production, without the pipeline knowing either. Values are never shown again; leave one empty when editing to keep it. |
 
@@ -116,27 +116,37 @@ If Zelyq cannot tell, the step fails and says what to add.
    **It does not**: the new container's last lines go into the log, it is removed, and the previous
    version is started again. The step fails with "Rolled back automatically".
 
-Without a domain, a deploy takes a few seconds of downtime while the containers swap. With one, there is none: see [A domain, HTTPS, and no downtime](#a-domain-https-and-no-downtime).
+Without an address, a deploy takes a few seconds of downtime while the containers swap. With one, there is none: see [Your own address, HTTPS, and no downtime](#your-own-address-https-and-no-downtime).
 
-## A domain, HTTPS, and no downtime
+## Your own address, HTTPS, and no downtime
 
-Give an environment a **domain**, such as `staging.example.com`, and every app deployed there gets its
-own address with HTTPS: `https://shop.staging.example.com`. No ports to choose, no nginx to set up.
+Give an app the exact address people type, such as `example.com`, `www.example.com` or
+`shop.example.com`. It gets HTTPS, and new versions without downtime.
 
-**Once, for each environment:**
+**For each app:**
 
-1. In **Deployments**, edit the environment and type the domain under **Web addresses**.
-2. Add the one DNS record it shows, where your domain is managed: type **A**, name
-   `*.staging.example.com`, value the machine's public IP.
-3. Open ports **80** and **443** on the machine (and in the cloud's firewall).
+1. Deploy it once (with a pipeline), then on Deployments press **Logs · manage** on it.
+2. Under **Address**, type the name and press **Save**. Tick **Also www.example.com** to send that
+   name on to the main one.
+3. Add the DNS record the page shows, where your domain is managed: type **A**, the name (written `@`
+   for the domain itself at most providers), value the machine's public IP.
+4. Open ports **80** and **443** on the machine (and in the cloud's firewall).
 
-That's all. The deploy step needs only `to:` and `port:`; `host-port` and `url` are not used:
+A live app moves to its new address at once; no new deploy is needed. Every later deploy keeps it.
+One name belongs to one app.
+
+**Or a subdomain for every app.** Give the environment a domain (**A subdomain for every app**, such
+as `apps.example.com`) and each app without an address of its own gets `<app>.apps.example.com`.
+One DNS record covers them all: `*.apps.example.com`. A deploy step can also name the app's address
+with `domain: shop.example.com`; an address set on the app's page comes first.
 
 ```yaml
 - deploy:
     to: staging
     port: 3000
 ```
+
+With an address, `host-port` and `url` are not used.
 
 **What happens.** Zelyq runs a small proxy ([Caddy](https://caddyserver.com)) on the machine, as the
 container `zelyq-proxy`. It takes free certificates from Let's Encrypt and renews them by itself. On
@@ -151,23 +161,37 @@ each deploy:
 If the new version does not come up, nobody notices: the running version was never touched. The
 step fails with "The running version was not touched".
 
-**Your own name for an app.** `domain: shop.example.com` on the deploy step uses that name instead of
-`shop.<domain>`. Point that name at the machine too. Two apps cannot share a name.
-
-**HTTPS choices:**
+**HTTPS choices** (the environment's **HTTPS** setting):
 
 | Choice | When |
 | --- | --- |
-| Automatic (recommended) | The machine is on the internet with ports 80 and 443 open. |
+| Automatic (recommended) | The machine is on the internet with ports 80 and 443 free and open. |
+| My own web server is in front | nginx or Apache already serves other sites on the machine. See below. |
 | Zelyq's own certificate | Testing, or a private network. Browsers warn until they trust it. |
 | Off | Plain HTTP, for example behind a load balancer that already does HTTPS. |
 
-**Another web server already uses 80 and 443** (nginx on the same machine): under **Proxy ports
-(advanced)**, choose others (such as 8080 and 8443) and let that server forward to them. Automatic
-certificates need 80 and 443, so use the other choices there. Environments on one machine share its
-proxy, so they use the same ports.
+### When nginx (or Apache) already uses 80 and 443
 
-If the name does not lead to the machine yet, the deploy says so and shows the DNS record to add.
+Keep your web server; Zelyq goes behind it.
+
+1. Edit the environment and choose HTTPS: **My own web server is in front**. Zelyq's proxy then
+   listens on a private port (8081 unless you choose another) on `127.0.0.1` only.
+2. Set the app's address on its page, and press **Set it up for me**. Zelyq connects to the machine,
+   adds an nginx site of its own for the name (`zelyq-example.com.conf`; your other sites are not
+   touched, and a name another site already serves is left alone), checks it with `nginx -t`, reloads
+   nginx, and gets the certificate with `certbot` (installing it if needed). This needs the machine's
+   user to have `sudo` without a password, as cloud machines usually do; otherwise the page shows the
+   lines to paste yourself.
+3. The address shown is `https://example.com`, with no port.
+
+Changing an environment's HTTPS setting or proxy ports applies at once to the apps live there; no new
+deploy is needed.
+
+Zelyq then opens the address the way a visitor would, and says plainly what is missing: the DNS
+record, the nginx lines, or the certificate.
+
+If a deploy says the proxy's ports are used by something else, it now says by what (a container, or
+a program such as nginx) before building anything.
 
 ## The app page: logs, restart and stop
 
@@ -182,6 +206,10 @@ On a card, **Logs · manage** opens the app's own page:
 - **Restart**, **Stop** and **Start**. A stopped app stays stopped after the machine restarts, until
   you start it again or deploy a new version.
 
+- **Remove app** takes it off the machine: its containers, its address on the proxy and its images.
+  Its history stays. If the machine is gone for good, the app can be forgotten in Zelyq only.
+- Removing an environment that still has apps offers to remove them with it.
+
 ## Promote: ship what you tested
 
 On the app page, **Promote** sends the exact image running in this environment to another one, such
@@ -190,11 +218,11 @@ only that environment's own variables differ.
 
 - On the same machine, the image is only given a new name. On another machine, Zelyq copies it over
   SSH, compressed (no registry needed).
-- It is a deploy like any other: the same health check, no downtime behind a domain, the previous
+- It is a deploy like any other: the same health check, no downtime for an app with an address, the previous
   version put back if it does not come up, and it appears in the history as *promoted from staging
   #7*. It can be rolled back.
-- The app keeps its address in the target environment. Without a domain there, it needs a
-  `host-port` it already used there (deploy it there once with a pipeline), or the domain.
+- The app keeps its address in the target environment. Without an address there, it needs a
+  `host-port` it already used there (deploy it there once with a pipeline), or an address.
 - Protected environments need an admin to promote to them; frozen ones take nothing.
 
 ## Roll back
@@ -244,11 +272,11 @@ the latest version.
 | Deploy (run a pipeline with `deploy`) | | ✓ | ✓ |
 | Deploy to a protected environment | | asks an admin | approves |
 | See an app's logs, CPU and memory | ✓ | ✓ | ✓ |
-| Roll back, promote, restart, stop, start | | ✓ (not protected) | ✓ |
+| Roll back, promote, restart, stop, start, set an app's address | | ✓ (not protected) | ✓ |
 | Add, change, freeze, remove environments | | | ✓ |
 
 Every environment change, deploy, roll back, promote, restart, stop and start is in the team's
 Activity.
 
-Without a domain, a deploy takes a few seconds of downtime while the containers swap; with one,
+Without an address, a deploy takes a few seconds of downtime while the containers swap; with one,
 none. Not yet: Kubernetes and several machines per environment. See [the plan](./deploy-plan.md).

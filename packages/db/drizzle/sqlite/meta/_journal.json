@@ -239,6 +239,13 @@
       "when": 1791795265963,
       "tag": "0033_deploy_promote",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1791806634897,
+      "tag": "0034_deploy_apps",
+      "breakpoints": true
     }
   ]
 }
