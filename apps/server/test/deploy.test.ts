@@ -407,6 +407,9 @@ test("protected and frozen environments", { skip: !available && "no Docker" }, a
     frozenReason: "release freeze",
   });
   assert.equal(frozen.statusCode, 200, frozen.body);
+  // Freezing changes nothing else: still protected, its variables kept.
+  assert.equal(frozen.json().environment.protected, true);
+  assert.deepEqual(frozen.json().environment.variables, [{ name: "GREETING", fromVault: false }]);
   const refused = await runToEnd(id);
   assert.equal(refused.run.status, "failed");
   assert.match(refused.log, /production is frozen: release freeze/);
@@ -628,6 +631,164 @@ test("no Dockerfile: Zelyq writes one for the kind of app, shows it, and deploys
   const answer = viaProxy(name ?? "", Number(port)) as { version: string; port?: string } | null;
   assert.equal(answer?.version, "20");
   assert.equal(answer?.port, "3000", "PORT is the deploy step's port");
+});
+
+test("the app page: state, CPU and memory, live logs, stop and start, promote the same image", {
+  skip: !available && "no Docker",
+}, async (t) => {
+  if (ready()) return t.skip(String(ready()));
+  const all = await environments();
+  const web = all.find((e) => e.name === "web") as unknown as {
+    id: string;
+    httpPort: number;
+    httpsPort: number;
+  };
+  // The app writes to its output, one line with a secret in it.
+  await call(cookies.owner, "PATCH", team(`/environments/${web.id}`), {
+    variables: { API_KEY: "vault://SHOP_API_KEY" },
+  });
+  await server.runtime.writeFile(
+    projectId,
+    "server.js",
+    'console.log("started v21 with " + process.env.API_KEY); console.error("a warning");\nrequire("http").createServer((q, s) => { console.log("asked for " + q.url); s.end(JSON.stringify({ version: "21" })); }).listen(process.env.PORT);\n',
+  );
+  const pipelines = (await call(cookies.owner, "GET", team("/pipelines"))).json().pipelines;
+  const shipped = await runToEnd(
+    pipelines.find((p: { name: string }) => p.name === "No Dockerfile").id,
+  );
+  assert.equal(shipped.run.status, "passed", shipped.log);
+  const host = `${app}.apps.test`;
+  assert.equal(viaProxy(host, web.httpsPort)?.version, "21");
+
+  const page = team(`/environments/${web.id}/apps/${app}`);
+  const first = await call(cookies.editor, "GET", page);
+  assert.equal(first.statusCode, 200, first.body);
+  const status = first.json().status;
+  assert.equal(status.state, "running");
+  assert.equal(status.deployment.app, app);
+  assert.equal(typeof status.cpuPercent, "number");
+  assert.ok(status.memoryBytes > 0 && status.memoryLimitBytes >= status.memoryBytes);
+  assert.ok(status.startedAt);
+  const text = status.logs.map((l: { stream: string; text: string }) => `${l.stream} ${l.text}`);
+  assert.ok(text.includes("out started v21 with ***"), text.join("\n"));
+  assert.ok(text.includes("err a warning"), text.join("\n"));
+  assert.ok(text.some((l: string) => l.startsWith("out asked for /")));
+  assert.ok(!first.body.includes(SECRET), "the secret appeared in the logs");
+  // Only newer lines come back after the cursor.
+  const since = encodeURIComponent(status.cursor);
+  assert.deepEqual(
+    (await call(cookies.editor, "GET", `${page}?since=${since}`)).json().status.logs,
+    [],
+  );
+  viaProxy(host, web.httpsPort);
+  const newer = (await call(cookies.editor, "GET", `${page}?since=${since}`)).json().status.logs;
+  assert.deepEqual(
+    newer.map((l: { text: string }) => l.text),
+    ["asked for /"],
+  );
+  assert.equal((await call(cookies.editor, "GET", `${page}?since=$(id)`)).statusCode, 400);
+
+  // Stop, start, restart.
+  const action = (what: string, cookie = cookies.editor) =>
+    call(cookie, "POST", `${page}/action`, { action: what });
+  const stopped = await action("stop");
+  assert.equal(stopped.statusCode, 200, stopped.body);
+  assert.equal(stopped.json().status.state, "stopped");
+  assert.equal(viaProxy(host, web.httpsPort), null);
+  assert.equal((await action("start")).json().status.state, "running");
+  let back = null;
+  for (let i = 0; i < 20 && !back; i++) {
+    back = viaProxy(host, web.httpsPort);
+    if (!back) await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  assert.equal(back?.version, "21");
+  assert.equal((await action("restart")).json().status.state, "running");
+  assert.equal((await action("delete")).statusCode, 400);
+
+  // Promote to another machine: the image is copied over, not built again.
+  const added = await call(cookies.owner, "POST", team("/runners"), {
+    name: "deploy-box-2",
+    host: machine?.host,
+    port: machine?.port,
+    username: machine?.username,
+  });
+  const second = added.json().runner.id;
+  const tested = (await call(cookies.owner, "POST", team(`/runners/${second}/test`))).json();
+  await call(cookies.owner, "POST", team(`/runners/${second}/confirm`), {
+    fingerprint: tested.hostKeyFingerprint,
+  });
+  const web2 = (
+    await call(cookies.owner, "POST", team("/environments"), {
+      name: "web2",
+      runnerId: second,
+      address: "127.0.0.1",
+      domain: "apps2.test",
+      https: "internal",
+      httpPort: web.httpPort,
+      httpsPort: web.httpsPort,
+    })
+  ).json().environment;
+  const live = status.deployment.id;
+  const follow = async (response: Awaited<ReturnType<typeof call>>) => {
+    assert.equal(response.statusCode, 200, response.body);
+    let detail = response.json().deployment;
+    assert.equal(detail.kind, "promote");
+    for (let i = 0; i < 600 && detail.status === "deploying"; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      detail = (await call(cookies.editor, "GET", team(`/deployments/${detail.id}`))).json()
+        .deployment;
+    }
+    return {
+      detail,
+      log: detail.log.map((line: { text: string }) => line.text).join("\n") as string,
+    };
+  };
+  const promoted = await follow(
+    await call(cookies.editor, "POST", team(`/deployments/${live}/promote`), {
+      environmentId: web2.id,
+    }),
+  );
+  assert.equal(promoted.detail.status, "live", promoted.log);
+  assert.match(promoted.log, /copying its image from deploy-box to deploy-box-2, not built again/);
+  assert.doesNotMatch(promoted.log, /Building /);
+  assert.deepEqual(promoted.detail.promotedFrom, {
+    environment: "web",
+    number: status.deployment.number,
+  });
+  assert.equal(viaProxy(`${app}.apps2.test`, web.httpsPort)?.version, "21");
+  const carriers = execFileSync("docker", ["images", "-q", "--filter", "reference=zelyq-promote-*"])
+    .toString()
+    .trim();
+  assert.equal(carriers, "", "the copy's own name is cleaned up");
+
+  // On the same machine it is only named again.
+  const staging = all.find((e) => e.name === "staging") as unknown as { id: string };
+  const same = await follow(
+    await call(cookies.editor, "POST", team(`/deployments/${live}/promote`), {
+      environmentId: staging.id,
+    }),
+  );
+  assert.equal(same.detail.status, "live", same.log);
+  assert.match(same.log, /the same image, not built again/);
+  const stagingUrl = (await environments())
+    .find((e) => e.name === "staging")
+    ?.live.find((d) => d.app === app)?.url;
+  const answer = await fetch(stagingUrl ?? "", { signal: AbortSignal.timeout(3000) }).then((r) =>
+    r.json(),
+  );
+  assert.equal(answer.version, "21");
+
+  // A protected environment needs an admin; a frozen one takes nothing.
+  const production = all.find((e) => e.name === "production") as unknown as { id: string };
+  const asEditor = await call(cookies.editor, "POST", team(`/deployments/${live}/promote`), {
+    environmentId: production.id,
+  });
+  assert.equal(asEditor.statusCode, 403);
+  const asAdmin = await call(cookies.admin, "POST", team(`/deployments/${live}/promote`), {
+    environmentId: production.id,
+  });
+  assert.equal(asAdmin.statusCode, 409);
+  assert.match(asAdmin.json().error?.message ?? asAdmin.body, /frozen/);
 });
 
 test("when the app changes, its pipelines start by themselves", async () => {

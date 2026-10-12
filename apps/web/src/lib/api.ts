@@ -1,5 +1,7 @@
 import type {
   AddMemberInput,
+  AppAction,
+  AppStatus,
   AttachmentRef,
   AuditLogEntry,
   AvailableProviders,
@@ -374,6 +376,23 @@ export const api = {
       request<{ deployment: DeploymentSummary }>(
         `/teams/${teamId}/deployments/${deploymentId}/check`,
         { method: "POST" },
+      ),
+    promote: (teamId: string, deploymentId: string, environmentId: string) =>
+      request<{ deployment: DeploymentSummary }>(
+        `/teams/${teamId}/deployments/${deploymentId}/promote`,
+        { method: "POST", body: JSON.stringify({ environmentId }) },
+      ),
+    /** The app's container right now: state, CPU and memory, and output after `since`. */
+    app: (teamId: string, environmentId: string, app: string, since: string | null) =>
+      request<{ status: AppStatus }>(
+        `/teams/${teamId}/environments/${environmentId}/apps/${encodeURIComponent(app)}${
+          since ? `?since=${encodeURIComponent(since)}` : ""
+        }`,
+      ),
+    appAction: (teamId: string, environmentId: string, app: string, action: AppAction) =>
+      request<{ status: AppStatus }>(
+        `/teams/${teamId}/environments/${environmentId}/apps/${encodeURIComponent(app)}/action`,
+        { method: "POST", body: JSON.stringify({ action }) },
       ),
     rollBack: (teamId: string, deploymentId: string) =>
       request<{ deployment: DeploymentSummary }>(

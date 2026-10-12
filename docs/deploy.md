@@ -169,9 +169,37 @@ proxy, so they use the same ports.
 
 If the name does not lead to the machine yet, the deploy says so and shows the DNS record to add.
 
+## The app page: logs, restart and stop
+
+On a card, **Logs · manage** opens the app's own page:
+
+- **State**: running, stopped, restarting, or gone from the machine.
+- **CPU and memory** right now (100% CPU is one full core), when it started, and how many times
+  Docker started it again after it crashed.
+- **Logs**: the app's own output, live. New lines appear every few seconds; scroll up to read and it
+  stops following. Lines on standard error are shown in amber. The environment's variable values are
+  masked, as in deploy logs.
+- **Restart**, **Stop** and **Start**. A stopped app stays stopped after the machine restarts, until
+  you start it again or deploy a new version.
+
+## Promote: ship what you tested
+
+On the app page, **Promote** sends the exact image running in this environment to another one, such
+as staging to production. Nothing is built again, so production runs the bytes you tested on staging;
+only that environment's own variables differ.
+
+- On the same machine, the image is only given a new name. On another machine, Zelyq copies it over
+  SSH, compressed (no registry needed).
+- It is a deploy like any other: the same health check, no downtime behind a domain, the previous
+  version put back if it does not come up, and it appears in the history as *promoted from staging
+  #7*. It can be rolled back.
+- The app keeps its address in the target environment. Without a domain there, it needs a
+  `host-port` it already used there (deploy it there once with a pipeline), or the domain.
+- Protected environments need an admin to promote to them; frozen ones take nothing.
+
 ## Roll back
 
-On a card, **History · roll back** lists every deploy of that app. **Roll back to this** puts an
+On a card, **History** (or the app page) lists every deploy of that app. **Roll back to this** puts an
 earlier version back, with the same health check. The last three good versions can be rolled back to;
 older images are removed from the machine.
 
@@ -215,10 +243,12 @@ the latest version.
 | See environments, what is live, history | ✓ | ✓ | ✓ |
 | Deploy (run a pipeline with `deploy`) | | ✓ | ✓ |
 | Deploy to a protected environment | | asks an admin | approves |
-| Roll back | | ✓ (not protected) | ✓ |
+| See an app's logs, CPU and memory | ✓ | ✓ | ✓ |
+| Roll back, promote, restart, stop, start | | ✓ (not protected) | ✓ |
 | Add, change, freeze, remove environments | | | ✓ |
 
-Every environment change, deploy and roll back is in the team's Activity.
+Every environment change, deploy, roll back, promote, restart, stop and start is in the team's
+Activity.
 
 Without a domain, a deploy takes a few seconds of downtime while the containers swap; with one,
 none. Not yet: Kubernetes and several machines per environment. See [the plan](./deploy-plan.md).

@@ -1804,32 +1804,39 @@ const variableValueSchema = z
     message: "A Vault reference is vault://NAME, with the secret's name.",
   });
 
-export const environmentInputSchema = z
-  .object({
-    name: environmentNameSchema,
-    runnerId: z.string().min(1),
-    address: z
-      .string()
-      .trim()
-      .regex(/^[A-Za-z0-9.:[\]-]{1,253}$/, "Use the machine's address: an IP or a host name.")
-      .nullable()
-      .optional(),
-    /** Apps are reached at <app>.<domain> through the machine's Zelyq proxy. */
-    domain: domainSchema.nullable().optional(),
-    https: z.enum(["auto", "internal", "off"]).default("auto"),
-    httpPort: z.number().int().min(1).max(65535).default(80),
-    httpsPort: z.number().int().min(1).max(65535).default(443),
-    protected: z.boolean().default(false),
-    variables: z
-      .record(
-        z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/, "Use letters, digits and underscores."),
-        variableValueSchema,
-      )
-      .default({}),
+/** An environment's fields, without defaults: an update changes only what it names. */
+const environmentFields = z.object({
+  name: environmentNameSchema,
+  runnerId: z.string().min(1),
+  address: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9.:[\]-]{1,253}$/, "Use the machine's address: an IP or a host name.")
+    .nullable()
+    .optional(),
+  /** Apps are reached at <app>.<domain> through the machine's Zelyq proxy. */
+  domain: domainSchema.nullable().optional(),
+  https: z.enum(["auto", "internal", "off"]),
+  httpPort: z.number().int().min(1).max(65535),
+  httpsPort: z.number().int().min(1).max(65535),
+  protected: z.boolean(),
+  variables: z.record(
+    z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/, "Use letters, digits and underscores."),
+    variableValueSchema,
+  ),
+});
+
+export const environmentInputSchema = environmentFields
+  .extend({
+    https: environmentFields.shape.https.default("auto"),
+    httpPort: environmentFields.shape.httpPort.default(80),
+    httpsPort: environmentFields.shape.httpsPort.default(443),
+    protected: environmentFields.shape.protected.default(false),
+    variables: environmentFields.shape.variables.default({}),
   })
   .strict();
 export type EnvironmentInput = z.input<typeof environmentInputSchema>;
-export const environmentUpdateSchema = environmentInputSchema
+export const environmentUpdateSchema = environmentFields
   .partial()
   .extend({
     frozen: z.boolean().optional(),
@@ -1853,12 +1860,14 @@ export interface DeploymentSummary {
   app: string;
   number: number;
   status: DeploymentStatus;
-  kind: "deploy" | "rollback";
+  kind: "deploy" | "rollback" | "promote";
   url: string | null;
   /** The pipeline run it came from, if any. */
   run: { id: string; pipelineId: string; number: number; ref: string | null } | null;
   /** For a roll back: the deploy it went back to. */
   rolledBackTo: number | null;
+  /** For a promote: the tested deploy whose image it shipped. */
+  promotedFrom: { environment: string; number: number } | null;
   by: PipelineActor | null;
   error: string | null;
   createdAt: string;
@@ -1871,6 +1880,31 @@ export interface DeploymentSummary {
 export interface DeploymentDetail extends DeploymentSummary {
   log: { stream: "out" | "err" | "system"; text: string }[];
 }
+
+/** What a live app's container is doing on its machine right now. */
+export interface AppStatus {
+  app: string;
+  environmentId: string;
+  /** The deploy that is live; null when nothing is. */
+  deployment: DeploymentSummary | null;
+  /** running, stopped, restarting, or missing (the container is gone from the machine). */
+  state: "running" | "stopped" | "restarting" | "missing";
+  startedAt: string | null;
+  /** Times Docker started it again after it stopped by itself. */
+  restarts: number;
+  cpuPercent: number | null;
+  memoryBytes: number | null;
+  memoryLimitBytes: number | null;
+  /** The app's own output, oldest first, its variables' values masked. */
+  logs: { at: string; stream: "out" | "err"; text: string }[];
+  /** Passed back as `since` to get only newer lines. */
+  cursor: string | null;
+}
+
+export const APP_ACTIONS = ["restart", "stop", "start"] as const;
+export type AppAction = (typeof APP_ACTIONS)[number];
+export const appActionSchema = z.object({ action: z.enum(APP_ACTIONS) }).strict();
+export const promoteSchema = z.object({ environmentId: z.string().min(1).max(100) }).strict();
 
 export type EnvironmentHttps = "auto" | "internal" | "off";
 

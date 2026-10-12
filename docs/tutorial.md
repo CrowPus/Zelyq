@@ -133,8 +133,11 @@ by itself if it does not.
 When the run passes, **Deployments** shows `Shop` as **LIVE** under `staging`, with a link:
 `http://<machine IP>:8080`.
 
+**Watch it.** On the app's card press **Logs · manage**: its output appears live, with its CPU and
+memory, and **Restart** and **Stop**.
+
 **Roll back by hand.** Change something in the app, run the pipeline again, then on the app's card
-press **History · roll back** and **Roll back to this** on the earlier deploy. The earlier version is
+press **History** and **Roll back to this** on the earlier deploy. The earlier version is
 back in a few seconds.
 
 **Roll back by itself.** Add `health: /does-not-exist` to the deploy step and run again. The new

@@ -232,6 +232,13 @@
       "when": 1791754948692,
       "tag": "0032_deploy_domains",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791795266786,
+      "tag": "0033_deploy_promote",
+      "breakpoints": true
     }
   ]
 }
