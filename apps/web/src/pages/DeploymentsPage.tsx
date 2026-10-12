@@ -573,7 +573,7 @@ function EnvironmentForm({
           <Input
             aria-label="Public address"
             value={address}
-            placeholder="35.202.251.235 or apps.example.com"
+            placeholder="203.0.113.10 or apps.example.com"
             onChange={(event) => setAddress(event.target.value)}
           />
         </div>

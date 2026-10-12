@@ -13,10 +13,10 @@ with one click.
 
 ```
  ┌ staging ───────────────────────┐   ┌ production  🔒 needs approval ────┐
- │ on app-builder (35.202.251.235) │   │ on app-builder                     │
+ │ on app-builder (203.0.113.10)   │   │ on app-builder                     │
  │                                 │   │                                    │
  │ Shop     #4 ● live   2h ago     │   │ Shop     #2 ● live   yesterday     │
- │   http://35.202.251.235:8080    │   │   https://shop.example.com         │
+ │   http://203.0.113.10:8080      │   │   https://shop.example.com         │
  │   [History] [Roll back]         │   │   [History] [Roll back]            │
  └─────────────────────────────────┘   └────────────────────────────────────┘
 ```
@@ -58,7 +58,7 @@ managed by the team's admins.
 | --- | --- |
 | Name | `staging`, `production` (letters, digits, `-`) |
 | Machine | One of the team's SSH runners with Docker (Linux or macOS) |
-| Address | The machine's public address (`35.202.251.235` or `apps.example.com`), to show where an app is reachable |
+| Address | The machine's public address (`203.0.113.10` or `apps.example.com`), to show where an app is reachable |
 | Protected | Every deploy needs an admin's approval first (the `approval` step's machinery) |
 | Frozen | No deploys at all, with a reason ("release freeze until Monday") |
 | Variables | What apps get in this environment: typed, or `vault://NAME` from the team's Vault |
