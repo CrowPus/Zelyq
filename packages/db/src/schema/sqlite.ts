@@ -558,6 +558,13 @@ export const deployEnvironments = sqliteTable(
     name: text("name").notNull(),
     runnerId: text("runner_id").references(() => runners.id, { onDelete: "set null" }),
     address: text("address"),
+    /** Apps here are reached at <app>.<domain>, through the machine's Zelyq proxy; null: by port. */
+    domain: text("domain"),
+    /** auto (Let's Encrypt), internal (the proxy's own certificate) or off (plain HTTP). */
+    https: text("https").notNull().default("auto"),
+    /** Where the proxy listens on the machine. */
+    httpPort: integer("http_port").notNull().default(80),
+    httpsPort: integer("https_port").notNull().default(443),
     protected: integer("protected", { mode: "boolean" }).notNull().default(false),
     frozen: integer("frozen", { mode: "boolean" }).notNull().default(false),
     frozenReason: text("frozen_reason"),

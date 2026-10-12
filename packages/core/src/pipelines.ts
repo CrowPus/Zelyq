@@ -263,6 +263,32 @@ export const environmentNameSchema = z
   .trim()
   .regex(/^[a-z][a-z0-9-]{0,39}$/, "Use lower-case letters, digits and '-' (staging, production).");
 
+/**
+ * A host name people type in a browser: shop.example.com. Lower-case letters,
+ * digits, '-' and dots, at least two parts; checked part by part, never by a
+ * pattern that could run slow, and safe to write into the proxy's config.
+ */
+export const domainSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(253, "Keep the name under 253 characters.")
+  .refine((name) => {
+    const parts = name.split(".");
+    return (
+      parts.length >= 2 &&
+      parts.every(
+        (part) =>
+          part.length >= 1 &&
+          part.length <= 63 &&
+          /^[a-z0-9-]+$/.test(part) &&
+          !part.startsWith("-") &&
+          !part.endsWith("-"),
+      ) &&
+      /^[a-z]/.test(parts[parts.length - 1] ?? "")
+    );
+  }, "Use a name like shop.example.com.");
+
 /** `deploy: {to: production, port: 3000, …}` — see docs/deploy-plan.md. */
 const deploySchema = z
   .object({
@@ -281,6 +307,8 @@ const deploySchema = z
       .default("/"),
     "health-timeout": durationSchema.optional(),
     url: z.string().url("Use the full address, like https://shop.example.com.").optional(),
+    /** The app's own name on an environment with a domain, instead of <app>.<domain>. */
+    domain: domainSchema.optional(),
   })
   .strict();
 
@@ -1778,6 +1806,11 @@ export const environmentInputSchema = z
       .regex(/^[A-Za-z0-9.:[\]-]{1,253}$/, "Use the machine's address: an IP or a host name.")
       .nullable()
       .optional(),
+    /** Apps are reached at <app>.<domain> through the machine's Zelyq proxy. */
+    domain: domainSchema.nullable().optional(),
+    https: z.enum(["auto", "internal", "off"]).default("auto"),
+    httpPort: z.number().int().min(1).max(65535).default(80),
+    httpsPort: z.number().int().min(1).max(65535).default(443),
     protected: z.boolean().default(false),
     variables: z
       .record(
@@ -1831,11 +1864,38 @@ export interface DeploymentDetail extends DeploymentSummary {
   log: { stream: "out" | "err" | "system"; text: string }[];
 }
 
+export type EnvironmentHttps = "auto" | "internal" | "off";
+
+/** Where an app is reached on an environment with a domain. */
+export function appAddress(
+  environment: {
+    domain: string | null;
+    https: EnvironmentHttps;
+    httpPort: number;
+    httpsPort: number;
+  },
+  app: string,
+  own?: string | null,
+): string | null {
+  if (!environment.domain) return null;
+  const host = own ?? `${app}.${environment.domain}`;
+  if (environment.https === "off") {
+    return `http://${host}${environment.httpPort === 80 ? "" : `:${environment.httpPort}`}`;
+  }
+  return `https://${host}${environment.httpsPort === 443 ? "" : `:${environment.httpsPort}`}`;
+}
+
 export interface EnvironmentSummary {
   id: string;
   name: string;
   runner: { id: string; name: string; host: string } | null;
   address: string | null;
+  /** Apps are reached at <app>.<domain>; null: at the address and a port. */
+  domain: string | null;
+  /** auto: Let's Encrypt; internal: the proxy's own certificate; off: plain HTTP. */
+  https: EnvironmentHttps;
+  httpPort: number;
+  httpsPort: number;
   protected: boolean;
   frozen: boolean;
   frozenReason: string | null;

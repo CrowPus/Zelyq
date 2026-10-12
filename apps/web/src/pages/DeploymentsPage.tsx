@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type DeploymentSummary,
+  type EnvironmentHttps,
   type EnvironmentSummary,
   roleAtLeast,
   type TeamMembership,
@@ -12,6 +13,7 @@ import {
   Lock,
   Pencil,
   Plus,
+  RefreshCw,
   Rocket,
   RotateCcw,
   Snowflake,
@@ -200,6 +202,17 @@ function EnvironmentCard({
           "no machine"
         )}
         {environment.address && <> ({environment.address})</>}
+        {environment.domain && (
+          <>
+            {" "}
+            · apps at <span className="font-mono text-fg">*.{environment.domain}</span>
+            {environment.https === "off"
+              ? " (HTTP)"
+              : environment.https === "internal"
+                ? " (Zelyq's certificate)"
+                : " (HTTPS)"}
+          </>
+        )}
         {environment.variables.length > 0 && (
           <>
             {" "}
@@ -269,8 +282,49 @@ function LiveApp({
           {deployment.url} <ExternalLink size={11} />
         </a>
       )}
+      {deployment.error && deployment.status === "live" && (
+        <ReachWarning team={team} deployment={deployment} />
+      )}
       {open && <HistoryList team={team} environment={environment} app={deployment.app} />}
     </li>
+  );
+}
+
+/** Why people cannot open a live app yet, with a way to check again once it is fixed. */
+function ReachWarning({
+  team,
+  deployment,
+}: {
+  team: TeamMembership;
+  deployment: DeploymentSummary;
+}) {
+  const queryClient = useQueryClient();
+  const [result, setResult] = useState<string | null>(null);
+  const check = useMutation({
+    mutationFn: () => api.deploys.checkAgain(team.id, deployment.id),
+    onSuccess: ({ deployment: checked }) => {
+      setResult(checked.error ? "Still not reachable." : null);
+      void queryClient.invalidateQueries({ queryKey: ["environments", team.id] });
+    },
+    onError: (caught) => setResult(vaultErrorMessage(caught)),
+  });
+  return (
+    <div className="mt-1 grid gap-1.5 rounded-md border border-warning/30 bg-warning-subtle p-2 text-xs">
+      <p>{deployment.error}</p>
+      {roleAtLeast(team.role, "editor") && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            icon={check.isPending ? <Spinner /> : <RefreshCw size={12} />}
+            disabled={check.isPending}
+            onClick={() => check.mutate()}
+          >
+            {check.isPending ? "Checking (up to half a minute)…" : "Check again"}
+          </Button>
+          {result && !check.isPending && <span className="text-fg-secondary">{result}</span>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -368,7 +422,13 @@ function HistoryList({
                 Roll back to this
               </Button>
             )}
-            {deployment.error && <p className="w-full pl-10 text-danger">{deployment.error}</p>}
+            {deployment.error && (
+              <p
+                className={`w-full pl-10 ${deployment.status === "failed" ? "text-danger" : "text-warning"}`}
+              >
+                {deployment.error}
+              </p>
+            )}
             {openLog === deployment.id && (
               <div className="w-full">
                 <DeploymentLog teamId={team.id} deploymentId={deployment.id} live={false} />
@@ -401,6 +461,10 @@ function EnvironmentForm({
   const [name, setName] = useState(environment?.name ?? "");
   const [runnerId, setRunnerId] = useState(environment?.runner?.id ?? "");
   const [address, setAddress] = useState(environment?.address ?? "");
+  const [domain, setDomain] = useState(environment?.domain ?? "");
+  const [https, setHttps] = useState<EnvironmentHttps>(environment?.https ?? "auto");
+  const [httpPort, setHttpPort] = useState(String(environment?.httpPort ?? 80));
+  const [httpsPort, setHttpsPort] = useState(String(environment?.httpsPort ?? 443));
   const [protectedEnv, setProtected] = useState(environment?.protected ?? false);
   // Each row keeps its own id, so typing a name does not re-create the row.
   const [variables, setVariables] = useState<{ id: number; name: string; value: string }[]>(
@@ -417,6 +481,10 @@ function EnvironmentForm({
         name: name.trim(),
         runnerId,
         address: address.trim() || null,
+        domain: domain.trim() || null,
+        https,
+        httpPort: Number(httpPort) || 80,
+        httpsPort: Number(httpsPort) || 443,
         protected: protectedEnv,
         variables: Object.fromEntries(
           variables
@@ -438,7 +506,7 @@ function EnvironmentForm({
 
   return (
     <form
-      className="mb-4 grid gap-3 rounded-md border border-border-default p-3"
+      className="mb-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 rounded-md border border-border-default p-3"
       onSubmit={(event) => {
         event.preventDefault();
         save.mutate();
@@ -458,7 +526,7 @@ function EnvironmentForm({
           <FieldLabel>Machine (with Docker)</FieldLabel>
           <select
             aria-label="Machine"
-            className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
+            className="h-[30px] w-full min-w-0 rounded-md border border-border-default bg-surface px-2 text-sm"
             value={runnerId}
             onChange={(event) => setRunnerId(event.target.value)}
           >
@@ -480,6 +548,17 @@ function EnvironmentForm({
           />
         </div>
       </div>
+      <WebAddresses
+        domain={domain}
+        onDomain={setDomain}
+        https={https}
+        onHttps={setHttps}
+        httpPort={httpPort}
+        onHttpPort={setHttpPort}
+        httpsPort={httpsPort}
+        onHttpsPort={setHttpsPort}
+        pointTo={address.trim() || machines.find((runner) => runner.id === runnerId)?.host || null}
+      />
       <label className="flex items-center gap-2 text-xs">
         <input
           type="checkbox"
@@ -495,10 +574,10 @@ function EnvironmentForm({
           {environment && " Leave a value empty to keep the one saved."}
         </p>
         {variables.map((variable, index) => (
-          <div key={variable.id} className="flex gap-2">
+          <div key={variable.id} className="flex min-w-0 gap-2">
             <Input
               aria-label="Variable name"
-              className="w-56 font-mono"
+              className="w-32 shrink-0 font-mono sm:w-56"
               placeholder="STRIPE_KEY"
               value={variable.name}
               onChange={(event) =>
@@ -509,7 +588,7 @@ function EnvironmentForm({
             />
             <Input
               aria-label="Variable value"
-              className="font-mono"
+              className="min-w-0 font-mono"
               placeholder={environment ? "(unchanged)" : "value or vault://NAME"}
               value={variable.value}
               onChange={(event) =>
@@ -559,6 +638,146 @@ function EnvironmentForm({
   );
 }
 
+const HTTPS_CHOICES: { value: EnvironmentHttps; label: string }[] = [
+  { value: "auto", label: "Automatic: a free certificate from Let's Encrypt (recommended)" },
+  { value: "internal", label: "Zelyq's own certificate: for testing or a private network" },
+  { value: "off", label: "Off: plain HTTP" },
+];
+
+/**
+ * An environment's domain: apps get <app>.<domain>, with HTTPS, through a
+ * proxy Zelyq runs on the machine. Shows the one DNS record to add.
+ */
+function WebAddresses({
+  domain,
+  onDomain,
+  https,
+  onHttps,
+  httpPort,
+  onHttpPort,
+  httpsPort,
+  onHttpsPort,
+  pointTo,
+}: {
+  domain: string;
+  onDomain: (value: string) => void;
+  https: EnvironmentHttps;
+  onHttps: (value: EnvironmentHttps) => void;
+  httpPort: string;
+  onHttpPort: (value: string) => void;
+  httpsPort: string;
+  onHttpsPort: (value: string) => void;
+  pointTo: string | null;
+}) {
+  const name = domain.trim().toLowerCase();
+  // An A record takes an IP address; a name (test.example.com) needs a CNAME.
+  const record = !pointTo
+    ? { type: "A", value: "the machine's public IP address" }
+    : /^\d{1,3}(\.\d{1,3}){3}$/.test(pointTo)
+      ? { type: "A", value: pointTo }
+      : { type: "CNAME", value: pointTo };
+  return (
+    <fieldset className="grid min-w-0 gap-2 rounded-md border border-border-default p-3">
+      <legend className="px-1">
+        <FieldLabel>Web addresses</FieldLabel>
+      </legend>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-1">
+          <label className="text-xs" htmlFor="environment-domain">
+            Domain
+          </label>
+          <Input
+            id="environment-domain"
+            value={domain}
+            placeholder="staging.example.com"
+            spellCheck={false}
+            onChange={(event) => onDomain(event.target.value)}
+          />
+          <p className="text-2xs text-fg-muted">
+            {name
+              ? `Each app gets its own address: shop.${name}`
+              : "Empty: apps are reached at the public address and a port."}
+          </p>
+        </div>
+        {name && (
+          <div className="grid gap-1">
+            <label className="text-xs" htmlFor="environment-https">
+              HTTPS
+            </label>
+            <select
+              id="environment-https"
+              className="h-[30px] w-full min-w-0 rounded-md border border-border-default bg-surface px-2 text-sm"
+              value={https}
+              onChange={(event) => onHttps(event.target.value as EnvironmentHttps)}
+            >
+              {HTTPS_CHOICES.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+      {name && (
+        <>
+          <div className="rounded-md bg-surface-subtle p-2 text-xs">
+            <p className="mb-1 font-medium">Add one DNS record where your domain is managed:</p>
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-2xs">
+              <dt className="text-fg-muted">Type</dt>
+              <dd>{record.type}</dd>
+              <dt className="text-fg-muted">Name</dt>
+              <dd className="break-all">*.{name}</dd>
+              <dt className="text-fg-muted">Value</dt>
+              <dd className="break-all">{record.value}</dd>
+            </dl>
+            {record.type === "CNAME" && (
+              <p className="mt-1 text-fg-secondary">
+                Or an A record with the machine's IP address as the value: an A record takes only an
+                IP.
+              </p>
+            )}
+            <p className="mt-1 text-fg-secondary">
+              {https === "auto"
+                ? "Ports 80 and 443 must be open on the machine; certificates then come by themselves."
+                : "Open the proxy ports below on the machine."}
+            </p>
+          </div>
+          <details className="text-xs">
+            <summary className="cursor-pointer text-fg-secondary">Proxy ports (advanced)</summary>
+            <div className="mt-2 flex flex-wrap gap-3">
+              <div className="grid gap-1">
+                <label htmlFor="proxy-httpport">HTTP</label>
+                <Input
+                  id="proxy-httpport"
+                  className="w-24"
+                  inputMode="numeric"
+                  value={httpPort}
+                  onChange={(event) => onHttpPort(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-1">
+                <label htmlFor="proxy-httpsport">HTTPS</label>
+                <Input
+                  id="proxy-httpsport"
+                  className="w-24"
+                  inputMode="numeric"
+                  value={httpsPort}
+                  onChange={(event) => onHttpsPort(event.target.value)}
+                />
+              </div>
+            </div>
+            <p className="mt-1 text-fg-muted">
+              Change them only if another web server already uses 80 and 443 on the machine.
+              Automatic certificates need 80 and 443.
+            </p>
+          </details>
+        </>
+      )}
+    </fieldset>
+  );
+}
+
 function HowTo() {
   return (
     <details className="mt-6 rounded-md border border-border-default p-3 text-xs text-fg-secondary">
@@ -580,8 +799,14 @@ stages:
       - deploy:
           to: staging
           port: 3000          # what the app listens on inside its container
-          host-port: 8080     # on the machine (default: the same)
           health: /           # checked after starting; default /`}</pre>
+      <p className="mt-2">
+        With a domain on the environment, the app is at{" "}
+        <code className="font-mono">https://&lt;app&gt;.&lt;domain&gt;</code>, and a new version
+        replaces the old one without downtime. Without one, add{" "}
+        <code className="font-mono">host-port: 8080</code> and it is at the public address and that
+        port.
+      </p>
       <p className="mt-2">
         To deploy every change the agent makes, add the trigger{" "}
         <span className="font-medium">When the app changes</span> on the pipeline's Triggers tab.
