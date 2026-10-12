@@ -25,6 +25,14 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import {
+  FilterSelect,
+  ListToolbar,
+  matches,
+  NothingMatches,
+  SearchBox,
+  useListParams,
+} from "../components/ListControls";
+import {
   Badge,
   Button,
   EmptyState,
@@ -99,11 +107,7 @@ export function DeploymentsPage() {
                   />
                 )
               ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {environments.data?.environments.map((environment) => (
-                    <EnvironmentCard key={environment.id} team={team} environment={environment} />
-                  ))}
-                </div>
+                <EnvironmentList team={team} environments={environments.data?.environments ?? []} />
               )}
               <HowTo />
             </>
@@ -114,13 +118,87 @@ export function DeploymentsPage() {
   );
 }
 
+/** The environments, with a search over their apps once there are more than a few. */
+function EnvironmentList({
+  team,
+  environments,
+}: {
+  team: TeamMembership;
+  environments: EnvironmentSummary[];
+}) {
+  const filters = useListParams(`deployments.${team.id}`, ["q", "env"]);
+  const q = filters.get("q");
+  const only = filters.get("env");
+  const apps = environments.reduce((sum, environment) => sum + environment.live.length, 0);
+  const shown = environments.filter(
+    (environment) =>
+      (!only || environment.id === only) &&
+      (!q ||
+        matches(q, environment.name, environment.runner?.name) ||
+        environment.live.some((deployment) => matches(q, deployment.app, deployment.url))),
+  );
+  return (
+    <>
+      {(apps > 5 || environments.length > 2) && (
+        <ListToolbar>
+          <SearchBox
+            value={q}
+            onChange={(value) => filters.set({ q: value })}
+            placeholder="Search apps and environments"
+          />
+          {environments.length > 1 && (
+            <FilterSelect
+              label="Environment"
+              value={only}
+              onChange={(value) => filters.set({ env: value })}
+              options={[
+                { value: "", label: "All environments" },
+                ...environments.map((environment) => ({
+                  value: environment.id,
+                  label: `${environment.name} (${environment.live.length})`,
+                })),
+              ]}
+            />
+          )}
+        </ListToolbar>
+      )}
+      {shown.length === 0 ? (
+        <NothingMatches onClear={filters.clear} />
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {shown.map((environment) => (
+            <EnvironmentCard
+              key={environment.id}
+              team={team}
+              environment={environment}
+              // An environment found by its own name shows all its apps.
+              query={matches(q, environment.name, environment.runner?.name) ? "" : q}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Apps shown on a card before "Show all". */
+const CARD_APPS = 8;
+
 function EnvironmentCard({
   team,
   environment,
+  query = "",
 }: {
   team: TeamMembership;
   environment: EnvironmentSummary;
+  /** Only the apps matching it are listed. */
+  query?: string;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const apps = environment.live.filter((deployment) =>
+    matches(query, deployment.app, deployment.url),
+  );
+  const listed = showAll || query ? apps : apps.slice(0, CARD_APPS);
   const queryClient = useQueryClient();
   const isAdmin = roleAtLeast(team.role, "admin");
   const [editing, setEditing] = useState(false);
@@ -241,7 +319,7 @@ function EnvironmentCard({
         <p className="px-3 pb-3 text-xs text-fg-muted">Nothing deployed here yet.</p>
       ) : (
         <ul className="divide-y divide-border-default border-t border-border-default">
-          {environment.live.map((deployment) => (
+          {listed.map((deployment) => (
             <LiveApp
               key={deployment.id}
               team={team}
@@ -249,6 +327,17 @@ function EnvironmentCard({
               deployment={deployment}
             />
           ))}
+          {listed.length < apps.length && (
+            <li className="px-3 py-2">
+              <button
+                type="button"
+                className="text-xs text-info hover:underline"
+                onClick={() => setShowAll(true)}
+              >
+                Show all {apps.length} apps
+              </button>
+            </li>
+          )}
         </ul>
       )}
       {error && <p className="px-3 pb-2 text-xs text-danger">{error}</p>}

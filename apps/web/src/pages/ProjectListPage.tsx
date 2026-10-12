@@ -5,6 +5,16 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import {
+  FilterSelect,
+  ListToolbar,
+  matches,
+  NothingMatches,
+  Pager,
+  pageOf,
+  SearchBox,
+  useListParams,
+} from "../components/ListControls";
+import {
   Badge,
   Button,
   EmptyState,
@@ -104,9 +114,34 @@ export function ProjectListPage() {
     });
   }
 
-  const list = (projects.data?.projects ?? []).filter(
+  const filters = useListParams(`apps.${team?.id ?? "all"}`, ["q", "status", "stack", "sort"]);
+  const q = filters.get("q");
+  const statusFilter = filters.get("status");
+  const stack = filters.get("stack");
+  const sort = filters.get("sort");
+  const all = (projects.data?.projects ?? []).filter(
     (project) => !team || project.teamId === team.id,
   );
+  const stackTitles = new Map(
+    (templates.data?.templates ?? []).map((option) => [option.name, option.title]),
+  );
+  const statuses = [...new Set(all.map((project) => project.status))].sort();
+  const stacks = [...new Set(all.map((project) => project.template))].sort();
+  const shown = all
+    .filter(
+      (project) =>
+        matches(q, project.name, project.description, project.template) &&
+        (!statusFilter || project.status === statusFilter) &&
+        (!stack || project.template === stack),
+    )
+    .sort((a, b) =>
+      sort === "name"
+        ? a.name.localeCompare(b.name)
+        : sort === "oldest"
+          ? a.updatedAt.localeCompare(b.updatedAt)
+          : b.updatedAt.localeCompare(a.updatedAt),
+    );
+  const { rows: list, page } = pageOf(shown, filters.page);
   const agent = health.data?.agent;
   const roleByTeam = new Map((teams.data?.teams ?? []).map((team) => [team.id, team.role]));
   const canDelete = (teamId: string): boolean => {
@@ -115,7 +150,7 @@ export function ProjectListPage() {
   };
   // Reserve the actions column for the whole table or none of it, so the header
   // labels and the rows stay on the same grid.
-  const showActions = list.some((project) => canDelete(project.teamId));
+  const showActions = all.some((project) => canDelete(project.teamId));
 
   return (
     <AppShell
@@ -278,140 +313,203 @@ export function ProjectListPage() {
             </p>
           )}
 
-          <div className="mt-6 overflow-hidden rounded-lg border border-border-default bg-surface">
-            {projects.isLoading && (
-              <div className="flex items-center gap-2 px-4 py-8 text-xs text-fg-muted">
-                <Spinner /> Loading apps…
-              </div>
-            )}
+          {all.length > 0 && (
+            <div className="mt-6">
+              <ListToolbar>
+                <SearchBox
+                  value={q}
+                  onChange={(value) => filters.set({ q: value })}
+                  placeholder="Search apps"
+                />
+                {statuses.length > 1 && (
+                  <FilterSelect
+                    label="Status"
+                    value={statusFilter}
+                    onChange={(value) => filters.set({ status: value })}
+                    options={[
+                      { value: "", label: "Any status" },
+                      ...statuses.map((value) => ({
+                        value,
+                        label: `${value[0]?.toUpperCase()}${value.slice(1)} (${all.filter((project) => project.status === value).length})`,
+                      })),
+                    ]}
+                  />
+                )}
+                {stacks.length > 1 && (
+                  <FilterSelect
+                    label="Stack"
+                    value={stack}
+                    onChange={(value) => filters.set({ stack: value })}
+                    options={[
+                      { value: "", label: "Any stack" },
+                      ...stacks.map((value) => ({
+                        value,
+                        label: `${stackTitles.get(value) ?? value} (${all.filter((project) => project.template === value).length})`,
+                      })),
+                    ]}
+                  />
+                )}
+                <FilterSelect
+                  label="Order"
+                  value={sort}
+                  onChange={(value) => filters.set({ sort: value })}
+                  options={[
+                    { value: "", label: "Recently updated" },
+                    { value: "name", label: "Name A–Z" },
+                    { value: "oldest", label: "Least recently updated" },
+                  ]}
+                />
+              </ListToolbar>
+            </div>
+          )}
 
-            {!projects.isLoading && list.length === 0 && (
-              <EmptyState
-                title={team ? `No apps in ${team.name} yet` : "No apps yet"}
-                description="Create one and describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read."
-                action={
-                  <Button
-                    variant="primary"
-                    icon={<Plus size={13} strokeWidth={2} />}
-                    onClick={() => setComposing(true)}
-                  >
-                    New app
-                  </Button>
-                }
-              />
-            )}
-
-            {list.length > 0 && (
-              <>
-                <div
-                  className={`grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 border-b border-border-default bg-surface-subtle py-2 pl-4 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4 ${
-                    showActions ? "pr-12" : "pr-4"
-                  }`}
-                >
-                  <span>Name</span>
-                  <span>Status</span>
-                  <span className="hidden text-right sm:block">Last updated</span>
+          {all.length > 0 && shown.length === 0 ? (
+            <NothingMatches onClear={filters.clear} />
+          ) : (
+            <div
+              className={`overflow-hidden rounded-lg border border-border-default bg-surface ${all.length > 0 ? "" : "mt-6"}`}
+            >
+              {projects.isLoading && (
+                <div className="flex items-center gap-2 px-4 py-8 text-xs text-fg-muted">
+                  <Spinner /> Loading apps…
                 </div>
-                <ul>
-                  {list.map((project) => (
-                    <li
-                      key={project.id}
-                      className="flex items-center border-b border-border-default last:border-b-0"
+              )}
+
+              {!projects.isLoading && all.length === 0 && (
+                <EmptyState
+                  title={team ? `No apps in ${team.name} yet` : "No apps yet"}
+                  description="Create one and describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read."
+                  action={
+                    <Button
+                      variant="primary"
+                      icon={<Plus size={13} strokeWidth={2} />}
+                      onClick={() => setComposing(true)}
                     >
-                      {confirming === project.id ? (
-                        <div className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2.5 pr-3 pl-4">
-                          <span className="min-w-0 truncate text-xs text-fg-secondary">
-                            Delete <span className="text-fg">{project.name}</span> and its files?
-                            This cannot be undone.
-                          </span>
-                          <span className="flex shrink-0 items-center gap-1.5">
-                            <Button
-                              size="sm"
-                              variant="danger"
-                              disabled={deleteProject.isPending}
-                              onClick={() => deleteProject.mutate(project.id)}
+                      New app
+                    </Button>
+                  }
+                />
+              )}
+
+              {list.length > 0 && (
+                <>
+                  <div
+                    className={`grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 border-b border-border-default bg-surface-subtle py-2 pl-4 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4 ${
+                      showActions ? "pr-12" : "pr-4"
+                    }`}
+                  >
+                    <span>Name</span>
+                    <span>Status</span>
+                    <span className="hidden text-right sm:block">Last updated</span>
+                  </div>
+                  <ul>
+                    {list.map((project) => (
+                      <li
+                        key={project.id}
+                        className="flex items-center border-b border-border-default last:border-b-0"
+                      >
+                        {confirming === project.id ? (
+                          <div className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2.5 pr-3 pl-4">
+                            <span className="min-w-0 truncate text-xs text-fg-secondary">
+                              Delete <span className="text-fg">{project.name}</span> and its files?
+                              This cannot be undone.
+                            </span>
+                            <span className="flex shrink-0 items-center gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                disabled={deleteProject.isPending}
+                                onClick={() => deleteProject.mutate(project.id)}
+                              >
+                                {deleteProject.isPending ? "Deleting…" : "Delete"}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
+                                Cancel
+                              </Button>
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            <Link
+                              to={`/projects/${project.id}`}
+                              className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_92px] items-center gap-3 py-2.5 pl-4 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
                             >
-                              {deleteProject.isPending ? "Deleting…" : "Delete"}
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
-                              Cancel
-                            </Button>
-                          </span>
-                        </div>
-                      ) : (
-                        <>
-                          <Link
-                            to={`/projects/${project.id}`}
-                            className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_92px] items-center gap-3 py-2.5 pl-4 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
-                          >
-                            <span className="flex min-w-0 items-center gap-2.5">
-                              {/* The stack's own mark, so a list of projects is
+                              <span className="flex min-w-0 items-center gap-2.5">
+                                {/* The stack's own mark, so a list of projects is
                                   scannable by what each one is. Falls back to
                                   the generic box for a cloned repository, or a
                                   stack this runtime no longer offers. */}
-                              {templateIcons.get(project.template) ? (
-                                <img
-                                  src={`/${templateIcons.get(project.template)}`}
-                                  alt=""
-                                  width={18}
-                                  height={18}
-                                  loading="lazy"
-                                  decoding="async"
-                                  className="size-[18px] shrink-0 object-contain"
-                                />
-                              ) : (
-                                <Box
-                                  size={15}
-                                  strokeWidth={1.75}
-                                  className="shrink-0 text-fg-muted"
-                                />
-                              )}
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm text-fg">
-                                  {project.name}
-                                </span>
-                                <span className="block truncate font-mono text-2xs text-fg-muted">
-                                  {project.description ?? project.template}
+                                {templateIcons.get(project.template) ? (
+                                  <img
+                                    src={`/${templateIcons.get(project.template)}`}
+                                    alt=""
+                                    width={18}
+                                    height={18}
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="size-[18px] shrink-0 object-contain"
+                                  />
+                                ) : (
+                                  <Box
+                                    size={15}
+                                    strokeWidth={1.75}
+                                    className="shrink-0 text-fg-muted"
+                                  />
+                                )}
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm text-fg">
+                                    {project.name}
+                                  </span>
+                                  <span className="block truncate font-mono text-2xs text-fg-muted">
+                                    {project.description ?? project.template}
+                                  </span>
                                 </span>
                               </span>
-                            </span>
-                            <span>
-                              <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
-                                {project.status}
-                              </Badge>
-                            </span>
-                            <time
-                              dateTime={project.updatedAt}
-                              className="hidden text-right text-xs text-fg-muted tabular-nums sm:block"
-                            >
-                              {formatRelative(project.updatedAt)}
-                            </time>
-                          </Link>
+                              <span>
+                                <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
+                                  {project.status}
+                                </Badge>
+                              </span>
+                              <time
+                                dateTime={project.updatedAt}
+                                className="hidden text-right text-xs text-fg-muted tabular-nums sm:block"
+                              >
+                                {formatRelative(project.updatedAt)}
+                              </time>
+                            </Link>
 
-                          {/* A real column, not an overlay: nothing can sit on
+                            {/* A real column, not an overlay: nothing can sit on
                               top of the timestamp this way. */}
-                          {showActions && (
-                            <span className="flex w-12 shrink-0 justify-center">
-                              {canDelete(project.teamId) && (
-                                <IconButton
-                                  size="sm"
-                                  variant="danger"
-                                  label={`Delete ${project.name}`}
-                                  onClick={() => setConfirming(project.id)}
-                                >
-                                  <Trash2 size={13} strokeWidth={1.75} />
-                                </IconButton>
-                              )}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
+                            {showActions && (
+                              <span className="flex w-12 shrink-0 justify-center">
+                                {canDelete(project.teamId) && (
+                                  <IconButton
+                                    size="sm"
+                                    variant="danger"
+                                    label={`Delete ${project.name}`}
+                                    onClick={() => setConfirming(project.id)}
+                                  >
+                                    <Trash2 size={13} strokeWidth={1.75} />
+                                  </IconButton>
+                                )}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+          <Pager
+            page={page}
+            total={shown.length}
+            noun="apps"
+            all={all.length}
+            onPage={(n) => filters.set({ page: String(n) })}
+          />
         </div>
       </div>
     </AppShell>
