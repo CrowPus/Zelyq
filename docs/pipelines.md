@@ -73,6 +73,44 @@ everything that user can reach.
 
 A local container has no Docker inside it. To build Docker images, use an SSH runner that has Docker.
 
+### "Docker is not available", but `docker ps` works
+
+A run fails at once with *The local runner needs Docker on the Zelyq server, and Docker is not
+available*, yet `docker ps` works in your terminal.
+
+Zelyq checks Docker from inside the **server process**, with the permissions that process started
+with — not your terminal's. The usual cause on a fresh machine: the user Zelyq runs as was added to
+the `docker` group (`sudo usermod -aG docker zelyq`) **after** Zelyq was started. A running process
+never picks up a new group, so the server still cannot use Docker while your newer login shell can.
+
+Check it — as the user Zelyq runs as:
+
+```bash
+for p in $(pgrep -f "src/index.ts"); do echo "$p $(grep Groups /proc/$p/status)"; done
+getent group docker        # the third field is the docker group's number
+id -G                      # your shell's groups
+```
+
+If the docker group's number is in `id -G` but missing from a server process's `Groups`, that is
+the cause. Stop **every** Zelyq process, then start it once from a fresh login:
+
+```bash
+pkill -f "pnpm dev"; pkill -f "src/index.ts"; pkill -f "vite"; pkill -f "apps/agent"
+sleep 2
+pgrep -af "src/index.ts|vite"     # must print nothing — an old server still holding
+                                  # the port keeps answering without the docker group
+su - zelyq                        # a fresh login picks up the new group
+cd ~/Zelyq && id -G               # must now include the docker group's number
+pnpm dev
+```
+
+Then **Run again**. Zelyq re-checks Docker at most once a minute, so if the first retry still fails,
+wait a minute. If Zelyq runs as a systemd service, `sudo systemctl restart` it instead — a service
+gets its groups when it starts.
+
+Starting Zelyq again without stopping the old one is not enough: the new server cannot take the port
+the old one still holds, and the browser keeps talking to the old server.
+
 ## Adding a machine (SSH runner)
 
 Any machine with an SSH server can be a runner: a cloud VM, a Mac mini, a Windows build box. Open

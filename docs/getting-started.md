@@ -150,6 +150,11 @@ starts under the new setting (in `ZELYQ_RUNTIME=container`, Docker bakes a conta
 in when it's created, so an existing container needs to be removed, not just restarted). This is the
 most common thing that looks like a broken deployment on a VM but is actually just this one setting.
 
+**A pipeline fails with "Docker is not available", but `docker ps` works** — Zelyq was started
+before its user was added to the `docker` group, and a running process keeps the groups it started
+with. Stop every Zelyq process and start it again from a fresh login. Steps to check and fix it:
+[Pipelines → "Docker is not available"](./pipelines.md#docker-is-not-available-but-docker-ps-works).
+
 **Port already in use** — another Zelyq or dev server is holding it. Change `ZELYQ_SERVER_PORT`,
 `ZELYQ_AGENT_PORT`, or the `ZELYQ_PREVIEW_PORT_*` range in `.env`.
 
