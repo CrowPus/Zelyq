@@ -7,6 +7,7 @@ import {
   isImageJobActive,
   maxImageReferenceBytes,
   maxImageReferences,
+  randomUUID,
 } from "@zelyq/core";
 import {
   ArrowDownToLine,
@@ -94,7 +95,7 @@ async function referenceFromFile(file: File): Promise<UploadedReference> {
     reader.readAsDataURL(file);
   });
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     name: file.name,
     mimeType: file.type as UploadedReference["mimeType"],
     data: dataUrl.split(",", 2)[1] ?? "",
@@ -191,7 +192,7 @@ export function ImageStudioPage() {
             size,
             quality: effectiveQuality,
             references: references.map(({ mimeType, data }) => ({ mimeType, data })),
-            idempotencyKey: crypto.randomUUID(),
+            idempotencyKey: randomUUID(),
           };
     submission.current = input;
     generate.mutate(input);

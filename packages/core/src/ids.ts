@@ -2,9 +2,20 @@
  * Web Crypto rather than `node:crypto`: this module is imported by the browser
  * as well as the server, and a `node:` specifier cannot be bundled.
  * `globalThis.crypto` is standard in Node 19+ and every current browser.
+ *
+ * Browsers only expose `crypto.randomUUID` in a secure context (HTTPS or
+ * localhost). A fresh self-hosted server opened at `http://<ip>:<port>` is not
+ * one, so fall back to `getRandomValues`, which is available everywhere, and
+ * build the same RFC 4122 version 4 UUID from it.
  */
-function randomUUID(): string {
-  return globalThis.crypto.randomUUID();
+export function randomUUID(): string {
+  const crypto = globalThis.crypto;
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**
