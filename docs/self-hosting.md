@@ -178,12 +178,40 @@ database must also share that directory.
 
 ## Upgrading
 
+An upgrade never touches your data. `data/` (database, generated images and videos, the encryption
+key), `workspace/` (every app's files) and `.env` are ignored by Git, and migrations run on the server's boot — they only add to the
+schema you already have.
+
 ```bash
+cd ~/Zelyq                                   # wherever you cloned it
+# 1. Stop BOTH the server and the agent
+
+# 2. Back up first. With Zelyq stopped, copying the folder is consistent;
+#    while it runs, use `pnpm db:backup` for the database instead (see Backups).
+cp -a data ~/zelyq-data-backup-$(date +%F)
+cp -a workspace ~/zelyq-workspace-backup-$(date +%F) 2>/dev/null
+cp .env ~/zelyq-env-backup-$(date +%F) 2>/dev/null
+
+# 3. Get the new version and rebuild
 git pull
 pnpm install
 pnpm build
-# restart BOTH the server and the agent; migrations run on the server's boot
+
+# 4. Start BOTH the server and the agent again
 ```
+
+If you moved `ZELYQ_WORKSPACE_DIR`, `ZELYQ_IMAGE_ASSETS_DIR` or `ZELYQ_VIDEO_ASSETS_DIR` elsewhere,
+back those folders up instead. On PostgreSQL, take a `pg_dump` instead of copying `data/`.
+
+**Run Git as the user who owns the folder.** Git refuses to work in a repository owned by another
+user and stops with `fatal: detected dubious ownership` — typically when the clone belongs to a
+service user and you are `root`. Switch to that user (`su - zelyq`) rather than adding the
+`safe.directory` exception it suggests: as root, the pull and build would leave root-owned files
+that the service user can no longer change.
+
+**Docker:** `git pull`, then `docker compose -f docker/docker-compose.yml up -d --build`. Data lives
+in the `zelyq-data` volume and survives a rebuild. Never run `docker compose down -v` — `-v` deletes
+the volume, and the database with it.
 
 Restart **both processes**. They are separate, neither watches the filesystem, and the agent is the
 one that owns the tools — so a server-only restart leaves the agent running whatever code it started
