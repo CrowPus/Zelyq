@@ -12,6 +12,7 @@ import {
   maxVideoReferenceBytes,
   minFrameCount,
   minFrameWidth,
+  randomUUID,
   type VideoFrameSet,
   type VideoGeneration,
   type VideoGenerationInput,
@@ -156,10 +157,10 @@ export function VideoStudioPage() {
       const previous = submission.current;
       const next = {
         ...candidate,
-        idempotencyKey: previous?.idempotencyKey ?? crypto.randomUUID(),
+        idempotencyKey: previous?.idempotencyKey ?? randomUUID(),
       };
       if (previous && JSON.stringify(next) !== JSON.stringify(previous))
-        next.idempotencyKey = crypto.randomUUID();
+        next.idempotencyKey = randomUUID();
       submission.current = next;
       return api.generateVideo(next);
     },

@@ -42,7 +42,12 @@ export class OpenAIImageProvider implements ImageProvider {
           });
       // Never reflect provider error bodies, which can contain prompts or credentials.
       if (!response.ok) {
-        await response.body?.cancel();
+        const code = response.status === 429 ? await errorCode(response) : null;
+        await response.body?.cancel().catch(() => undefined);
+        if (code === "insufficient_quota" || code === "credit_balance_exhausted")
+          throw new ImageProviderError(
+            "The OpenAI account behind the Image Studio key has run out of credit. Add credit at platform.openai.com, or switch to another image provider.",
+          );
         if (response.status === 401 || response.status === 403)
           throw new ImageProviderError(
             "Image generation is not authorized. Ask an administrator to check the Image Studio API key and model access.",
@@ -124,5 +129,20 @@ export class OpenAIImageProvider implements ImageProvider {
       body: form,
       signal,
     });
+  }
+}
+
+/** Only the machine-readable error code is read — never the message, which can
+ * echo prompts or credentials back. A 429 is either a rate limit (wait) or an
+ * empty account (no amount of waiting helps), and the user needs to know which. */
+async function errorCode(response: Response): Promise<string | null> {
+  try {
+    const body = JSON.parse(await boundedBody(response)) as {
+      error?: { code?: unknown; type?: unknown };
+    };
+    const code = body.error?.code ?? body.error?.type;
+    return typeof code === "string" ? code : null;
+  } catch {
+    return null;
   }
 }
