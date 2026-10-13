@@ -188,19 +188,67 @@ See [Deploy](./docs/deploy.md).
 # Requires Node >= 20.12 and pnpm >= 9
 git clone https://github.com/CrowPus/Zelyq.git
 cd Zelyq
+cp .env.example .env    # your configuration — edit it before the first start (below)
 pnpm install
 pnpm dev                # web :5173 · server :8787 · agent :8788
 ```
 
-Open <http://localhost:5173> and create the first account — it administers the instance. Add your
-model's key in **Settings → Model**, open **Apps**, create an app and describe what you want.
+**Edit `.env` before you start.** Its defaults assume you open Zelyq on the same computer it runs
+on, at `localhost`. On a VM or any remote server, change these — replace `203.0.113.10` with your
+machine's address or domain:
 
-**No `.env` needed.** Keys and passwords are entered in **Settings** or kept in **Vault**, never in a
-file. A `.env` is only for running Zelyq on a server — its address, ports, database and public URL —
-see [Self-hosting](./docs/self-hosting.md) and [Configuration](./docs/configuration.md).
+| Setting | On a VM / server | Why |
+| --- | --- | --- |
+| `ZELYQ_WEB_HOST` | `0.0.0.0` | Otherwise the web UI only answers on the VM itself |
+| `ZELYQ_PREVIEW_HOST` | `203.0.113.10` | Otherwise every app preview refuses your browser |
+| `ZELYQ_CORS_ORIGIN` | `http://203.0.113.10:5173` | The address you open Zelyq at |
+| `ZELYQ_PUBLIC_URL` | `http://203.0.113.10:5173` | Used in webhook and sign-in callback links |
+| `ZELYQ_ALLOW_REGISTRATION` | `false`, once your account exists | Otherwise anyone who finds the address can sign up |
+
+Open the preview ports (`ZELYQ_PREVIEW_PORT_MIN`–`MAX`, 4300–4399 by default) and 5173 in the VM's
+firewall. On a machine reachable from the internet, put Zelyq behind HTTPS — see
+[Self-hosting](./docs/self-hosting.md). Every other setting is explained in `.env.example` itself
+and in [Configuration](./docs/configuration.md).
+
+Open <http://localhost:5173> (or your VM's address) and create the first account — it administers
+the instance. Add your model's key in `.env` or in **Settings → Model**, open **Apps**, create an
+app and describe what you want.
 
 Prefer containers? `docker compose -f docker/docker-compose.yml up` — see
 [Self-hosting](./docs/self-hosting.md).
+
+### Updating
+
+Your data stays where it is. The database, generated images and videos, and the encryption key
+live in `data/`, your apps in `workspace/`, and your settings in `.env` — Git ignores all three, so
+pulling a new version never touches them, and the server applies any database changes itself when
+it starts.
+
+```bash
+cd ~/Zelyq                                   # wherever you cloned it
+# 1. Stop Zelyq (Ctrl+C if it runs as `pnpm dev` in a terminal)
+
+# 2. Back up first, just in case
+cp -a data ~/zelyq-data-backup-$(date +%F)
+cp -a workspace ~/zelyq-workspace-backup-$(date +%F) 2>/dev/null
+cp .env ~/zelyq-env-backup-$(date +%F) 2>/dev/null
+
+# 3. Get the new version and rebuild
+git pull
+pnpm install
+pnpm build
+
+# 4. Start Zelyq again, the same way as before — e.g. `pnpm dev`
+```
+
+Run these as the user who cloned Zelyq. If Git stops with `detected dubious ownership`, you are
+someone else (often `root`): switch with `su - <that user>` rather than adding the `safe.directory`
+exception, which would leave root-owned files in the folder.
+
+With Docker, `git pull` then `docker compose -f docker/docker-compose.yml up -d --build`. Your data
+is in the `zelyq-data` volume — **never** run `docker compose down -v`, which deletes it.
+
+More detail, including PostgreSQL: [Self-hosting → Upgrading](./docs/self-hosting.md#upgrading).
 
 **Next:** the [tutorial](./docs/tutorial.md) takes an app from Zelyq to production, step by step —
 Vault, a pipeline, your own machine, a deploy with roll back, and GitHub pushes and pull requests.
