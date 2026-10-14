@@ -10,7 +10,7 @@ import type {
   BackendConfigurationInput,
   ChangePasswordInput,
   CreateProjectInput,
-  CreatePullRequestInput,
+  CreatePullRequestRequest,
   DeploymentDetail,
   DeploymentSummary,
   EnvironmentInput,
@@ -871,7 +871,7 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
-  createPullRequest: (id: string, input: CreatePullRequestInput) =>
+  createPullRequest: (id: string, input: CreatePullRequestRequest) =>
     request<{ pullRequest: PullRequestResult; status: GitStatus }>(
       `/projects/${id}/git/pull-request`,
       { method: "POST", body: JSON.stringify(input) },

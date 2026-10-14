@@ -415,6 +415,51 @@ test("a host refusing a push is reported in its own words, not as something to p
 });
 
 /**
+ * The refusal this product causes for itself.
+ *
+ * The agent is told to set a project up properly, which includes CI, so it
+ * writes `.github/workflows/ci.yml` — and a token without the workflow scope is
+ * refused the moment that file moves. Passing git's sentence through is honest
+ * but leaves the answer buried in it, which is how someone ends up asking what
+ * "remote rejected" means.
+ */
+test("a push refused for the workflow scope says which scope and where to set it", () => {
+  const outputs = [
+    " ! [remote rejected] main -> main (refusing to allow a Personal Access Token to create or " +
+      "update workflow `.github/workflows/ci.yml` without `workflow` scope)\n" +
+      "error: failed to push some refs to 'https://github.com/CrowPus/Rolelyq.git'",
+    " ! [remote rejected] main -> main (refusing to allow an OAuth App to create or update " +
+      "workflow `.github/workflows/deploy.yml` without `workflow` scope)",
+    " ! [remote rejected] main -> main (refusing to allow a GitHub App to create or update " +
+      "workflow `.github/workflows/test.yml` without `workflows` permission)",
+  ];
+
+  for (const output of outputs) {
+    assert.equal(isNonFastForward(output), false, "this is not the remote having moved on");
+    const { message } = remoteFailure(output, 1, "push to", "ghp_token", "write access");
+
+    // Echoing git would satisfy "mentions workflow" and "mentions scope",
+    // because git's own sentence contains both — so neither is evidence of
+    // anything. What is new is the instruction, which git never gives.
+    assert.match(message, /Read and write/i, `must say where to set it: ${message}`);
+    assert.doesNotMatch(
+      message,
+      /The repository host refused this push/,
+      "this refusal has an answer, so it must not fall through to the generic wording",
+    );
+    assert.doesNotMatch(message, /pull/i, "there is nothing to pull");
+  }
+
+  // The file is named when git names it, so the person knows what to look at.
+  assert.match(remoteFailure(outputs[0], 1, "push to").message, /\.github\/workflows\/ci\.yml/);
+
+  // And an ordinary refusal is still reported in git's own words.
+  const other = " ! [remote rejected] main -> main (pre-receive hook declined)";
+  assert.match(remoteFailure(other, 1, "push to").message, /The repository host refused this push/);
+  assert.doesNotMatch(remoteFailure(other, 1, "push to").message, /Read and write/i);
+});
+
+/**
  * The gap that let a project's real state sit on disk while its remote kept a
  * stale skeleton. Every test above commits with `commitTurn` before pushing,
  * so none of them ever exercised a push with work still in the working tree —
@@ -472,4 +517,114 @@ test("committing for a push still obeys .gitignore, so secrets stay out of the r
   });
   assert.match(files, /index\.html/);
   assert.doesNotMatch(files, /^\.env$/m, ".env must never reach the remote");
+});
+
+/**
+ * GitHub, as met in the field: a push past git's 1 MiB default buffer is
+ * streamed with `Transfer-Encoding: chunked`, and the host answers it with a
+ * bare 400. Git then reports "RPC failed; HTTP 400 … unexpected disconnect
+ * while reading sideband packet". The same push sent with a Content-Length
+ * is accepted — which is what a larger `http.postBuffer` makes git do.
+ */
+function refusingChunkedUploads(
+  inner: (request: http.IncomingMessage, response: http.ServerResponse) => void,
+  refuseEvery = false,
+) {
+  return (request: http.IncomingMessage, response: http.ServerResponse) => {
+    const upload = request.method === "POST" && (request.url ?? "").includes("git-receive-pack");
+    const chunked = request.headers["transfer-encoding"] === "chunked";
+    const large = Number(request.headers["content-length"] ?? 0) > 1024 * 1024;
+    if (upload && (chunked || (refuseEvery && large))) {
+      request.resume();
+      response.writeHead(400).end();
+      return;
+    }
+    inner(request, response);
+  };
+}
+
+async function withServer(
+  handler: (request: http.IncomingMessage, response: http.ServerResponse) => void,
+  run: (base: string) => Promise<void>,
+) {
+  const server = http.createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await run(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+async function projectWithLargeCommit(id: string): Promise<void> {
+  await driver.ensureProject(id);
+  // Random bytes do not compress, so the pack really is past the 1 MiB buffer.
+  const noise = Buffer.from(Array.from({ length: 3 * 1024 * 1024 }, () => Math.random() * 256));
+  await driver.scaffold(id, [
+    { path: "index.html", content: "<html></html>" },
+    { path: "public/noise.txt", content: noise.toString("base64") },
+  ]);
+  await projects.ensureGitRepo(id);
+  await projects.commitTurn(id, "large first turn");
+}
+
+test("a push the host refuses as a chunked stream is sent again in one piece, and lands", async () => {
+  const name = `chunked-${++freshRepoCounter}.git`;
+  initBareRepo(path.join(reposRoot, name));
+  await projectWithLargeCommit("prj_chunked_push");
+
+  await withServer(
+    refusingChunkedUploads(gitHttpBackend(reposRoot, () => false, TOKEN)),
+    async (base) => {
+      await projects.pushToRemote("prj_chunked_push", `${base}/${name}`);
+    },
+  );
+
+  const remoteLog = execFileSync("git", ["log", "--oneline", "--all"], {
+    cwd: path.join(reposRoot, name),
+    encoding: "utf8",
+  });
+  assert.match(remoteLog, /large first turn/);
+  const config = fs.readFileSync(
+    path.join(workspaceDir, "prj_chunked_push", ".git", "config"),
+    "utf8",
+  );
+  assert.doesNotMatch(config, /postBuffer/i, "the retry must not change the project's git config");
+});
+
+test("an upload refused even in one piece says the push is too large, not 'up-to-date'", async () => {
+  const name = `refused-${++freshRepoCounter}.git`;
+  initBareRepo(path.join(reposRoot, name));
+  await projectWithLargeCommit("prj_refused_push");
+
+  await withServer(
+    refusingChunkedUploads(
+      gitHttpBackend(reposRoot, () => false, TOKEN),
+      true,
+    ),
+    async (base) => {
+      await assert.rejects(
+        projects.pushToRemote("prj_refused_push", `${base}/${name}`),
+        (error) => {
+          const message = (error as Error).message;
+          assert.match(message, /cut the upload off \(HTTP 400\)/);
+          assert.match(message, /too large/);
+          assert.doesNotMatch(message, /up-to-date/i);
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("git's closing 'Everything up-to-date' never ends up as the reason a push failed", () => {
+  const message = remoteFailure(
+    "error: something went wrong on the host\nfatal: the remote end hung up unexpectedly\nEverything up-to-date\n",
+    128,
+    "push to",
+    TOKEN,
+    "write access",
+  ).message;
+  assert.doesNotMatch(message, /up-to-date/i);
+  assert.match(message, /something went wrong on the host/);
 });

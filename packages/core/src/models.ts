@@ -61,6 +61,14 @@ const gitUrlSchema = z
  */
 const gitTokenSchema = z.string().min(1).max(500);
 
+/**
+ * The other way to give a git command a token: the name of a secret in the
+ * project's team Vault. The server reads it after the same check a project
+ * variable gets, so the value never reaches the browser and nobody pastes it
+ * twice. Wins over `gitToken` when both are sent.
+ */
+const gitTokenVaultSchema = z.string().min(1).max(200);
+
 export const createProjectSchema = z.object({
   /** Omitted means the caller's default team. */
   teamId: z.string().optional(),
@@ -84,6 +92,7 @@ export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export const pushToRemoteSchema = z.object({
   gitUrl: gitUrlSchema.optional(),
   gitToken: gitTokenSchema.optional(),
+  gitTokenVault: gitTokenVaultSchema.optional(),
 });
 export type PushToRemoteInput = z.infer<typeof pushToRemoteSchema>;
 
@@ -143,6 +152,7 @@ export type SetGitRemoteInput = z.infer<typeof setGitRemoteSchema>;
 
 export const gitFetchSchema = z.object({
   gitToken: gitTokenSchema.optional(),
+  gitTokenVault: gitTokenVaultSchema.optional(),
 });
 export type GitFetchInput = z.infer<typeof gitFetchSchema>;
 
@@ -160,6 +170,7 @@ export type GitFetchInput = z.infer<typeof gitFetchSchema>;
  */
 export const gitPullSchema = z.object({
   gitToken: gitTokenSchema.optional(),
+  gitTokenVault: gitTokenVaultSchema.optional(),
   strategy: z.enum(["ff-only", "rebase", "merge"]).default("ff-only"),
   onConflict: z.enum(["abort", "keep"]).default("abort"),
 });
@@ -192,6 +203,19 @@ export const createPullRequestSchema = z.object({
   gitToken: gitTokenSchema,
 });
 export type CreatePullRequestInput = z.infer<typeof createPullRequestSchema>;
+
+/** What the browser sends to open one: the same, with the token either pasted
+ * or named from Vault. The route resolves it into `CreatePullRequestInput`. */
+export const createPullRequestRequestSchema = createPullRequestSchema
+  .extend({
+    gitToken: gitTokenSchema.optional(),
+    gitTokenVault: gitTokenVaultSchema.optional(),
+  })
+  .refine((input) => input.gitToken || input.gitTokenVault, {
+    message: "Opening a pull request needs a token: paste one, or choose one from Vault.",
+    path: ["gitToken"],
+  });
+export type CreatePullRequestRequest = z.infer<typeof createPullRequestRequestSchema>;
 
 /** What opening one produced — a real PR, or the next best thing. */
 export const pullRequestResultSchema = z.object({

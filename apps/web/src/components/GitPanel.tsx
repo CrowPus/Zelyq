@@ -10,6 +10,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { Link } from "react-router-dom";
 import { ApiError, api } from "../lib/api";
 import { Badge, Button, Input, Spinner } from "./ui";
 
@@ -26,10 +27,11 @@ import { Badge, Button, Input, Spinner } from "./ui";
  * to the wrong repository, or a pull that silently swallows a collaborator's
  * work.
  *
- * Tokens are typed here, used for one request, and never stored — the same
- * promise the server keeps.
+ * A token is either typed here, used for one request and never stored — the
+ * same promise the server keeps — or named from the team's Vault, which the
+ * server reads itself, so the value never reaches this page at all.
  */
-export function GitPanel({ projectId }: { projectId: string }) {
+export function GitPanel({ projectId, teamId }: { projectId: string; teamId: string }) {
   const [open, setOpen] = useState(false);
 
   const status = useQuery({
@@ -92,7 +94,7 @@ export function GitPanel({ projectId }: { projectId: string }) {
                   : "Could not read this app's git."}
               </Message>
             )}
-            {state && <GitBody projectId={projectId} state={state} />}
+            {state && <GitBody projectId={projectId} teamId={teamId} state={state} />}
           </div>
         </>
       )}
@@ -100,9 +102,35 @@ export function GitPanel({ projectId }: { projectId: string }) {
   );
 }
 
-function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) {
+function GitBody({
+  projectId,
+  teamId,
+  state,
+}: {
+  projectId: string;
+  teamId: string;
+  state: GitStatus;
+}) {
   const queryClient = useQueryClient();
   const [token, setToken] = useState("");
+  // Only the secret's name is remembered, per app, so the next push needs no
+  // choosing. The name is not the credential; the value stays on the server.
+  const [vaultName, setVaultNameState] = useState(() => readVaultChoice(projectId));
+  const [source, setSource] = useState<"paste" | "vault">(vaultName ? "vault" : "paste");
+  const setVaultName = (name: string) => {
+    setVaultNameState(name);
+    writeVaultChoice(projectId, name);
+  };
+  /** What every git request carries: a pasted token, a Vault name, or nothing. */
+  const credential = (): { gitToken?: string; gitTokenVault?: string } =>
+    source === "vault"
+      ? vaultName
+        ? { gitTokenVault: vaultName }
+        : {}
+      : token.trim()
+        ? { gitToken: token.trim() }
+        : {};
+  const hasCredential = source === "vault" ? Boolean(vaultName) : Boolean(token.trim());
   const [remoteUrl, setRemoteUrl] = useState("");
   const [prTitle, setPrTitle] = useState("");
   const [pane, setPane] = useState<"main" | "remote" | "pr">("main");
@@ -123,7 +151,7 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
   };
 
   const fetchRemote = useMutation({
-    mutationFn: () => api.gitFetch(projectId, token.trim() ? { gitToken: token.trim() } : {}),
+    mutationFn: () => api.gitFetch(projectId, credential()),
     onSuccess: ({ status }) => {
       refresh(status);
       setNote({
@@ -142,7 +170,7 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
       api.gitPull(projectId, {
         strategy,
         onConflict: "abort",
-        ...(token.trim() ? { gitToken: token.trim() } : {}),
+        ...credential(),
       }),
     onSuccess: ({ status }) => {
       refresh(status);
@@ -167,7 +195,7 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
     mutationFn: () =>
       api.pushToRemote(projectId, {
         ...(remoteUrl.trim() ? { gitUrl: remoteUrl.trim() } : {}),
-        ...(token.trim() ? { gitToken: token.trim() } : {}),
+        ...credential(),
       }),
     onSuccess: ({ status, branch, committed, commits, pulled }) => {
       refresh(status);
@@ -216,8 +244,7 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
   });
 
   const pullRequest = useMutation({
-    mutationFn: () =>
-      api.createPullRequest(projectId, { title: prTitle.trim(), gitToken: token.trim() }),
+    mutationFn: () => api.createPullRequest(projectId, { title: prTitle.trim(), ...credential() }),
     onSuccess: ({ pullRequest: result, status }) => {
       refresh(status);
       setPrTitle("");
@@ -268,7 +295,15 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
 
       {pane === "main" && (
         <>
-          <TokenField value={token} onChange={setToken} />
+          <TokenField
+            value={token}
+            onChange={setToken}
+            teamId={teamId}
+            source={source}
+            onSource={setSource}
+            vaultName={vaultName}
+            onVaultName={setVaultName}
+          />
 
           <div className="flex flex-wrap gap-1.5">
             <Button
@@ -446,7 +481,16 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
             placeholder="What does this change?"
             aria-label="Pull request title"
           />
-          <TokenField value={token} onChange={setToken} required />
+          <TokenField
+            value={token}
+            onChange={setToken}
+            teamId={teamId}
+            source={source}
+            onSource={setSource}
+            vaultName={vaultName}
+            onVaultName={setVaultName}
+            required
+          />
           <div className="flex justify-end gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setPane("main")} type="button">
               Back
@@ -456,7 +500,7 @@ function GitBody({ projectId, state }: { projectId: string; state: GitStatus }) 
               variant="primary"
               type="submit"
               icon={<GitPullRequest size={12} strokeWidth={1.75} />}
-              disabled={busy || !prTitle.trim() || !token.trim()}
+              disabled={busy || !prTitle.trim() || !hasCredential}
             >
               {pullRequest.isPending ? "Opening…" : "Open"}
             </Button>
@@ -528,26 +572,117 @@ function RemoteField({
 function TokenField({
   value,
   onChange,
+  teamId,
+  source,
+  onSource,
+  vaultName,
+  onVaultName,
   required,
 }: {
   value: string;
   onChange: (next: string) => void;
+  teamId: string;
+  source: "paste" | "vault";
+  onSource: (next: "paste" | "vault") => void;
+  vaultName: string;
+  onVaultName: (next: string) => void;
   required?: boolean;
 }) {
+  const choices = useQuery({
+    queryKey: ["vault-choices", teamId],
+    queryFn: () => api.vault.choices({ kind: "team", teamId }).then((r) => r.choices),
+    enabled: source === "vault",
+  });
+  const usable = choices.data?.filter((choice) => choice.selectable) ?? [];
   return (
-    <Input
-      type="password"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder={
-        required
-          ? "Access token — needed to open a pull request"
-          : "Access token — if it is private"
-      }
-      aria-label="Repository access token"
-      autoComplete="new-password"
-    />
+    <div className="flex flex-col gap-1.5">
+      <div className="flex gap-1 rounded-md bg-canvas p-0.5 text-2xs">
+        {(
+          [
+            ["paste", "Paste token"],
+            ["vault", "From Vault"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={source === value}
+            onClick={() => onSource(value)}
+            className={`flex-1 rounded px-2 py-1 font-medium ${
+              source === value ? "bg-surface text-fg shadow-sm" : "text-fg-muted hover:text-fg"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {source === "paste" ? (
+        <Input
+          type="password"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={
+            required
+              ? "Access token — needed to open a pull request"
+              : "Access token — if it is private"
+          }
+          aria-label="Repository access token"
+          autoComplete="new-password"
+        />
+      ) : choices.isPending ? (
+        <p className="flex items-center gap-1.5 text-2xs text-fg-secondary">
+          <Spinner className="size-3" /> Reading your team's Vault…
+        </p>
+      ) : choices.isError ? (
+        <Message tone="danger">
+          {choices.error instanceof ApiError
+            ? choices.error.message
+            : "Could not read your team's Vault."}
+        </Message>
+      ) : usable.length === 0 ? (
+        <p className="text-2xs leading-relaxed text-fg-secondary">
+          Your team's Vault has no secret you can use here yet.{" "}
+          <Link to={`/vault?scope=${teamId}`} className="underline underline-offset-2">
+            Add your git token to Vault
+          </Link>
+          , then choose it here.
+        </p>
+      ) : (
+        <select
+          aria-label="Repository access token from Vault"
+          value={usable.some((choice) => choice.name === vaultName) ? vaultName : ""}
+          onChange={(event) => onVaultName(event.target.value)}
+          className="h-8 w-full rounded-md border border-border-default bg-canvas px-2 text-xs text-fg"
+        >
+          <option value="">Choose the secret holding your token…</option>
+          {usable.map((choice) => (
+            <option key={choice.name} value={choice.name}>
+              {choice.name}
+              {choice.protected ? " · Protected" : ""}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
+}
+
+/** The Vault secret this app last pushed with — its name only, in this browser. */
+function readVaultChoice(projectId: string): string {
+  try {
+    return localStorage.getItem(`zelyq.git.vault.${projectId}`) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeVaultChoice(projectId: string, name: string): void {
+  try {
+    if (name) localStorage.setItem(`zelyq.git.vault.${projectId}`, name);
+    else localStorage.removeItem(`zelyq.git.vault.${projectId}`);
+  } catch {
+    /* Remembering is a convenience; private browsing simply asks again. */
+  }
 }
 
 type Tone = "danger" | "warning" | "success";
