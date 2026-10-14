@@ -246,7 +246,7 @@ export function ProjectEditorPage() {
           </Button>
           {/* Same role the route itself already requires — editing and
               pushing are the same trust level. */}
-          {canEdit && <GitPanel projectId={id} />}
+          {canEdit && <GitPanel projectId={id} teamId={current.teamId} />}
           {canEdit && hasBackend && <BackendPanel projectId={id} />}
           {/* Every member sees the variables — viewers read names and history;
               the panel itself hides what only an editor may do. */}

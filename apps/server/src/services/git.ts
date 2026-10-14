@@ -649,9 +649,25 @@ export class GitService {
       pulled = true;
     }
 
-    const send = () => this.network(projectId, `push -u origin ${sq(branch)}`, token, 5 * 60_000);
+    let inOnePiece = false;
+    const send = () =>
+      this.network(
+        projectId,
+        `${inOnePiece ? `-c http.postBuffer=${PUSH_POST_BUFFER} ` : ""}push -u origin ${sq(branch)}`,
+        token,
+        5 * 60_000,
+      );
 
     let result = await send();
+    // Past git's 1 MiB default buffer, a push over HTTPS is streamed in chunks,
+    // and GitHub can refuse that with a bare 400 — git then says only "unexpected
+    // disconnect while reading sideband packet". Found pushing a 9 MB first
+    // commit of an agent-built site. A buffer big enough to hold the pack makes
+    // git send it as one request; set here, for this command only.
+    if (result.exitCode !== 0 && isChunkedUploadRefused(result.stderr || result.stdout)) {
+      inOnePiece = true;
+      result = await send();
+    }
     // A stale `behind` is the ordinary case: nothing fetches on every render, so
     // the remote can have moved since the last one. Git says so here, and that
     // answer is current — rebase onto it and send again, once.
@@ -1084,8 +1100,30 @@ export function redactCredentials(url: string | null): string | null {
 }
 
 /** Trailing lines of git's own output, for a message a person has to read. */
+/** Git's upload buffer for the retry: room for the whole pack, so the push is
+ * one request with a length instead of a chunked stream. The value GitHub's own
+ * help suggests; git sizes the request to the pack, not to this. */
+const PUSH_POST_BUFFER = 524_288_000;
+
+/** An HTTPS push the host cut off mid-upload, rather than refused for a reason. */
+export function isChunkedUploadRefused(output: string): boolean {
+  return /RPC failed; HTTP (400|411|413)\b|unexpected disconnect while reading sideband packet/i.test(
+    output,
+  );
+}
+
 export function lastLines(output: string, count: number): string {
-  return output.trim().split("\n").slice(-count).join(" ").trim();
+  return (
+    output
+      .trim()
+      .split("\n")
+      // Git prints this after a push that failed outright — it means "no ref was
+      // updated", and read as the last word on a failure it says the opposite.
+      .filter((line) => line.trim() !== "Everything up-to-date")
+      .slice(-count)
+      .join(" ")
+      .trim()
+  );
 }
 
 /**
@@ -1214,6 +1252,21 @@ export function remoteFailure(
         "Pull, then push again.",
     );
   }
+  // The one refusal worth naming, because this product causes it. The agent is
+  // told to set a project up properly, which includes CI, so it writes
+  // `.github/workflows/*.yml` — and a token without the workflow scope is
+  // refused the moment that file moves. Git's own sentence contains the answer
+  // but buries it, so the person reads "remote rejected" and comes away with
+  // nothing to do.
+  if (/refusing to allow .{0,40}to create or update workflow/i.test(output)) {
+    const file = /workflow `([^`]+)`/i.exec(output)?.[1];
+    return ZelyqError.badRequest(
+      `GitHub will not let this token change GitHub Actions workflow files${file ? ` (${file})` : ""}. ` +
+        "Give the token the `workflow` scope — on a fine-grained token that is Workflows: Read and " +
+        "write — then push again. Removing the workflow file from the project also works, but you " +
+        "lose the CI it sets up.",
+    );
+  }
   // A host can refuse a push it is perfectly able to accept: a branch rule, a
   // pre-receive hook, a file over the size limit, secret scanning, a locked
   // account. Every one of those prints "rejected", which is why guessing from
@@ -1224,6 +1277,17 @@ export function remoteFailure(
   ) {
     return ZelyqError.badRequest(
       `The repository host refused this push. ${lastLines(output, 3) || `git exited with code ${exitCode}`}`,
+    );
+  }
+  // Reached only after `push` already retried in one piece, so the size of the
+  // upload is the likely problem — a pack past the buffer, or a proxy limit.
+  if (isChunkedUploadRefused(output)) {
+    const status = /RPC failed; HTTP (\d{3})/i.exec(output)?.[1];
+    return ZelyqError.badRequest(
+      `The repository host cut the upload off${status ? ` (HTTP ${status})` : ""}, even sent in one ` +
+        "piece. The push is probably too large: check for big files the project does not need " +
+        "to keep — videos, archives, build output — and for a proxy between this machine and the " +
+        "host that limits request size.",
     );
   }
   if (/could not resolve host|connection refused|timed out|network is unreachable/i.test(output)) {

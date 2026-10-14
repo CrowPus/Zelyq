@@ -338,7 +338,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerTeamRoutes(app, { store, access });
-  registerProjectRoutes(app, { projects, access, templatesDir: config.templatesDir, runtime });
+  registerProjectRoutes(app, {
+    projects,
+    access,
+    templatesDir: config.templatesDir,
+    runtime,
+    vault,
+  });
   registerFileRoutes(app, { projects, runtime, access });
   registerPreviewRoutes(app, {
     projects,

@@ -1,18 +1,22 @@
 import {
   createProjectSchema,
-  createPullRequestSchema,
+  createPullRequestRequestSchema,
   gitBranchSchema,
   gitFetchSchema,
   gitPullSchema,
+  type Project,
   pushToRemoteSchema,
   setGitRemoteSchema,
+  type User,
   updateProjectSchema,
+  ZelyqError,
 } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { ProjectService } from "../services/projects.js";
 import { listTemplates } from "../services/templates.js";
+import type { VaultService } from "../services/vault.js";
 
 export function registerProjectRoutes(
   app: FastifyInstance,
@@ -21,9 +25,29 @@ export function registerProjectRoutes(
     access: AccessControl;
     templatesDir: string;
     runtime: RuntimeDriver;
+    vault: VaultService;
   },
 ): void {
   const { access } = deps;
+
+  /**
+   * The token a git command runs with: pasted, or a secret named from the
+   * project's team Vault. A Vault one gets the same check as a project
+   * variable pointing at it — editor, admin for a Protected one — and is read
+   * here, so its value never travels to the browser and back.
+   */
+  async function gitToken(
+    user: User,
+    project: Project,
+    input: { gitToken?: string; gitTokenVault?: string },
+  ): Promise<string | undefined> {
+    const name = input.gitTokenVault;
+    if (!name) return input.gitToken;
+    await deps.vault.requireUse(user, { kind: "team", teamId: project.teamId }, name);
+    const value = (await deps.vault.resolve(project.teamId, [name])).get(name);
+    if (!value) throw ZelyqError.badRequest(`${name} could not be read from Vault.`);
+    return value;
+  }
 
   app.get("/api/templates", async (request) => {
     access.requireUser(request);
@@ -120,7 +144,10 @@ export function registerProjectRoutes(
     const user = access.requireUser(request);
     const { project } = await access.requireProject(user, request.params.id, "editor");
     const input = gitFetchSchema.parse(request.body ?? {});
-    const status = await deps.projects.git.fetch(request.params.id, input.gitToken);
+    const status = await deps.projects.git.fetch(
+      request.params.id,
+      await gitToken(user, project, input),
+    );
     await access.recordChange(user, {
       teamId: project.teamId,
       projectId: project.id,
@@ -143,7 +170,10 @@ export function registerProjectRoutes(
       .snapshot(request.params.id, "Before pulling from the remote")
       .catch(() => undefined);
 
-    const status = await deps.projects.git.pull(request.params.id, input);
+    const status = await deps.projects.git.pull(request.params.id, {
+      ...input,
+      gitToken: await gitToken(user, project, input),
+    });
     await access.recordChange(user, {
       teamId: project.teamId,
       projectId: project.id,
@@ -161,7 +191,7 @@ export function registerProjectRoutes(
     const result = await deps.projects.pushToRemote(
       request.params.id,
       input.gitUrl,
-      input.gitToken,
+      await gitToken(user, project, input),
     );
     await access.recordChange(user, {
       teamId: project.teamId,
@@ -193,8 +223,12 @@ export function registerProjectRoutes(
   app.post<{ Params: { id: string } }>("/api/projects/:id/git/pull-request", async (request) => {
     const user = access.requireUser(request);
     const { project } = await access.requireProject(user, request.params.id, "editor");
-    const input = createPullRequestSchema.parse(request.body);
-    const result = await deps.projects.git.createPullRequest(request.params.id, input);
+    const { gitTokenVault, ...input } = createPullRequestRequestSchema.parse(request.body);
+    const token = await gitToken(user, project, { gitToken: input.gitToken, gitTokenVault });
+    const result = await deps.projects.git.createPullRequest(request.params.id, {
+      ...input,
+      gitToken: token ?? "",
+    });
     await access.recordChange(user, {
       teamId: project.teamId,
       projectId: project.id,
