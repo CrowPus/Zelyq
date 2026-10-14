@@ -289,7 +289,16 @@ test("preview operations for one project are serialised across drivers", async (
     order.push("second in");
   });
   await Promise.all([slow, fast]);
-  assert.deepEqual(order, ["first in", "first out", "second in"]);
+  // The lock is a directory whoever creates it first holds — it promises the
+  // two never overlap, not that the one called first wins. Asserting call
+  // order made this fail whenever the second `mkdir` landed first (seen in CI).
+  assert.ok(
+    [
+      ["first in", "first out", "second in"],
+      ["second in", "first in", "first out"],
+    ].some((serial) => JSON.stringify(serial) === JSON.stringify(order)),
+    `the two operations overlapped: ${JSON.stringify(order)}`,
+  );
 });
 
 test("a different project is not blocked by a busy one", async () => {
