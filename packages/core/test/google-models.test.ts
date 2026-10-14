@@ -3,7 +3,9 @@ import { test } from "node:test";
 import {
   availableGoogleModels,
   chooseGoogleAutoModel,
+  GOOGLE_DEFAULT_MODEL,
   GOOGLE_MODELS,
+  googleModel,
   googleThinkingConfig,
   withGoogleAuto,
 } from "../src/google-models.js";
@@ -84,4 +86,25 @@ test("no image, TTS, transcribe or embedding model is in the catalog", () => {
     assert.ok(model.value.startsWith("gemini-"), `${model.value} id`);
     if (model.thinking === "budget") assert.ok(model.budgetRange, `${model.value} needs a range`);
   }
+});
+
+test("Gemini 4 Argon is offered, takes a level, and does not take over the default", () => {
+  const argon = googleModel("gemini-4-argon");
+  assert.ok(argon, "listed in the catalog the chat picker and Settings read");
+  assert.equal(argon.group, "recommended");
+  assert.equal(argon.maxOutputTokens, 32_768, "Google reports half the usual output limit");
+  assert.equal(googleThinkingConfig("gemini-4-argon", "high").thinkingLevel, "HIGH");
+  assert.equal(googleThinkingConfig("gemini-4-argon", "high").thinkingBudget, undefined);
+  // Discovery keeps it when the key can see it.
+  assert.deepEqual(
+    availableGoogleModels(["gemini-4-argon", "gemini-pro-latest"]).map((m) => m.value),
+    ["gemini-pro-latest", "gemini-4-argon"],
+  );
+  // The agent routes `strong` child tasks to the first strong model in the
+  // catalog; adding Argon must not silently move them.
+  assert.equal(GOOGLE_MODELS.find((m) => m.tier === "strong")?.value, GOOGLE_DEFAULT_MODEL);
+  assert.equal(
+    chooseGoogleAutoModel(availableGoogleModels(["gemini-4-argon", "gemini-pro-latest"])),
+    GOOGLE_DEFAULT_MODEL,
+  );
 });

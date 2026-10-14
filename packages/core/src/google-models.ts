@@ -50,6 +50,20 @@ export const GOOGLE_MODELS: GoogleModel[] = [
     contextWindow: ONE_M,
     maxOutputTokens: OUT,
   },
+  // Probed live on 2026-10-14: accepts `thinkingLevel` and calls tools. Its
+  // output limit is half the others'. Placed after Gemini Pro (latest) on
+  // purpose — `modelForTier` takes the first model of a tier, so putting this
+  // first would silently move every `strong` builder task onto it.
+  {
+    value: "gemini-4-argon",
+    label: "Gemini 4 Argon",
+    description: "Newest · Gemini 4",
+    group: "recommended",
+    tier: "strong",
+    thinking: "level",
+    contextWindow: ONE_M,
+    maxOutputTokens: 32_768,
+  },
   {
     value: "gemini-3.8-flash",
     label: "Gemini 3.8 Flash",
