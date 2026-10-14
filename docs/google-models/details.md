@@ -27,6 +27,7 @@ model failed on every turn. `gemini-2.5-flash` was in the picker too.
 | `gemini-pro-latest`, `gemini-flash-latest`, `gemini-flash-lite-latest` | OK | any |
 | `gemini-3-flash-preview`, `3.1-flash-lite`, `3.1-pro-preview` | OK | any |
 | `gemini-3.5-flash`, `3.5-flash-lite`, `3.6-flash`, `3.7-flash`, `3.8-flash` | OK | any |
+| `gemini-4-argon` | OK | not probed |
 
 The budget ranges genuinely differ per model, so one shared constant would be
 wrong. `googleThinkingConfig()` scales the requested effort into whichever
@@ -38,7 +39,14 @@ budget range.
 
 `packages/core/src/google-models.ts`, from a live `/v1beta/models` listing
 filtered to `generateContent`. Recommended: **Gemini Pro (latest)** (default),
-**3.8 Flash**, **Flash (latest)**, **Flash Lite (latest)**. The 3.x line sits
+**Gemini 4 Argon**, **3.8 Flash**, **Flash (latest)**, **Flash Lite (latest)**.
+
+**Gemini 4 Argon** (`gemini-4-argon`, added 2026-10-14) was checked live before it was listed: it
+accepts `thinkingLevel`, thinks at `HIGH`, and makes tool calls. Google reports a 1,048,576-token
+input and a **32,768-token output** limit — half the other models'. It sits second, not first:
+the agent sends a `strong` child task to the first `strong` model in the catalog, so listing it
+first would have moved those tasks onto it silently. The default and Auto stay on Gemini Pro
+(latest). The 3.x line sits
 under *More models*; the 2.5 line is grouped as legacy.
 
 The default moves from `gemini-2.5-pro` to `gemini-pro-latest`. That is not a
