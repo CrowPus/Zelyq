@@ -461,6 +461,29 @@ export type WriteFileInput = z.infer<typeof writeFileSchema>;
  */
 export const maxProjectUploadBytes = 200 * 1024 * 1024;
 
+/**
+ * Copying something from the person's own Studio library into a project — a
+ * server-side copy, so nothing travels through the browser and no upload limit
+ * applies. Images are stored as PNG and videos as MP4, so the path keeps that
+ * extension: a renamed extension would only make the file lie about itself.
+ */
+export const placeStudioMediaSchema = z
+  .object({
+    kind: z.enum(["image", "video"]),
+    id: z.string().regex(/^(img|vid)_[a-f0-9]{32}$/),
+    path: z.string().min(1).max(500),
+  })
+  .strict()
+  .refine((input) => (input.kind === "image" ? /^img_/ : /^vid_/).test(input.id), {
+    message: "That id is not this kind of Studio item.",
+    path: ["id"],
+  })
+  .refine((input) => (input.kind === "image" ? /\.png$/i : /\.mp4$/i).test(input.path), {
+    message: "Keep the file's own extension: .png for an image, .mp4 for a video.",
+    path: ["path"],
+  });
+export type PlaceStudioMediaInput = z.infer<typeof placeStudioMediaSchema>;
+
 // ---------------------------------------------------------------------------
 // Preview
 // ---------------------------------------------------------------------------

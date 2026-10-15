@@ -272,7 +272,10 @@ export const listGeneratedImagesTool = defineTool({
     }>;
     const usable = items.filter((item) => item.status === "succeeded");
     if (usable.length === 0)
-      return { output: "The image library is empty. Use generate_image to create one." };
+      return {
+        output:
+          "The image library is empty. Use generate_image to create one if you have it; otherwise ask the user to make one in Image Studio.",
+      };
     const lines = usable.map((item) => {
       const origin =
         item.source === "agent"

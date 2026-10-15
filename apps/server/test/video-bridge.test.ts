@@ -127,3 +127,15 @@ test("turning the permission off also retires the session's existing token", asy
   assert.equal(await bridge.mint("ses_v_off2", on.projectId, on.userId), null);
   assert.equal(bridge.resolve(token), null);
 });
+
+test("with video generation off, a library token reads the library and never generates", async () => {
+  const bridge = new VideoBridge(store, unconfigured);
+  const off = await project("v-library", {});
+  assert.equal(await bridge.mint("ses_v_lib", off.projectId, off.userId), null);
+  const token = await bridge.mintLibrary("ses_v_lib", off.projectId, off.userId);
+  assert.ok(token, "every project gets a library token");
+  assert.equal(bridge.resolveLibrary(token)?.projectId, off.projectId);
+  assert.equal(bridge.resolve(token), null, "a library token is not a generation token");
+  bridge.revokeSession("ses_v_lib");
+  assert.equal(bridge.resolveLibrary(token), null);
+});

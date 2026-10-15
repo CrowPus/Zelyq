@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Store } from "@zelyq/db";
+import { type LibraryGrant, LibraryGrants } from "./library-grants.js";
 
 /**
  * The capability channel that lets the build agent generate images **without
@@ -32,6 +33,8 @@ interface Grant {
 
 export class ImageBridge {
   private readonly grants = new Map<string, Grant>();
+  /** Read-only grants: list and place what is already in the library. */
+  private readonly library = new LibraryGrants();
 
   constructor(
     private readonly store: Store,
@@ -89,8 +92,29 @@ export class ImageBridge {
     return { projectId, projectName, userId, sessionId };
   }
 
+  /**
+   * A token that reads the person's image library and copies from it, and
+   * never generates — for every session with a project and a user, whatever
+   * the generation switch says, because reusing what already exists is free.
+   */
+  async mintLibrary(sessionId: string, projectId: string, userId: string): Promise<string | null> {
+    const project = await this.store.projects.findById(projectId);
+    if (!project) return null;
+    return this.library.mint({ projectId, projectName: project.name, userId, sessionId });
+  }
+
+  /** Who may read the library with this token: a generation token can, and so
+   *  can a library-only one. */
+  resolveLibrary(token: string): LibraryGrant | null {
+    return this.resolve(token) ?? this.library.resolve(token);
+  }
+
+  /** Generation switched off or unconfigured: its tokens stop working at once.
+   *  The library grant stays — it never could spend anything. */
   private revokeAndDecline(sessionId: string): null {
-    this.revokeSession(sessionId);
+    for (const [token, grant] of this.grants) {
+      if (grant.sessionId === sessionId) this.grants.delete(token);
+    }
     return null;
   }
 
@@ -99,5 +123,6 @@ export class ImageBridge {
     for (const [token, grant] of this.grants) {
       if (grant.sessionId === sessionId) this.grants.delete(token);
     }
+    this.library.revokeSession(sessionId);
   }
 }

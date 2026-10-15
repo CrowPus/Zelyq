@@ -40,6 +40,23 @@ export function registerImageBridgeRoutes(
   async function context(request: { headers: Record<string, unknown> }) {
     const token = request.headers["x-zelyq-image-bridge"];
     const grant = typeof token === "string" ? bridge.resolve(token) : null;
+    if (!grant && typeof token === "string" && bridge.resolveLibrary(token))
+      throw new ZelyqError(
+        "forbidden",
+        "Generating images is switched off for this project, or no image provider is configured. " +
+          "Reuse what is already in the library instead — listing and placing cost nothing.",
+      );
+    if (!grant) throw new ZelyqError("unauthorized", "Invalid or expired image bridge token.");
+    const user = await store.users.findById(grant.userId);
+    if (!user) throw new ZelyqError("unauthorized", "The bridge's user no longer exists.");
+    return grant;
+  }
+
+  /** Reading the person's library — status, bytes, the list, frames — needs
+   *  only a library token. Nothing reached through this calls a provider. */
+  async function libraryContext(request: { headers: Record<string, unknown> }) {
+    const token = request.headers["x-zelyq-image-bridge"];
+    const grant = typeof token === "string" ? bridge.resolveLibrary(token) : null;
     if (!grant) throw new ZelyqError("unauthorized", "Invalid or expired image bridge token.");
     const user = await store.users.findById(grant.userId);
     if (!user) throw new ZelyqError("unauthorized", "The bridge's user no longer exists.");
@@ -63,7 +80,7 @@ export function registerImageBridgeRoutes(
   );
 
   app.get<{ Params: { id: string } }>("/api/internal/images/generations/:id", async (request) => {
-    const grant = await context(request);
+    const grant = await libraryContext(request);
     const id = idSchema.parse(request.params.id);
     return { generation: await images.get(grant.userId, id) };
   });
@@ -77,7 +94,7 @@ export function registerImageBridgeRoutes(
   app.get<{ Params: { id: string } }>(
     "/api/internal/images/generations/:id/bytes",
     async (request) => {
-      const grant = await context(request);
+      const grant = await libraryContext(request);
       const id = idSchema.parse(request.params.id);
       const generation = await images.get(grant.userId, id);
       if (generation.status !== "succeeded" || !generation.asset)
@@ -96,7 +113,7 @@ export function registerImageBridgeRoutes(
   /** Recent library entries, so the agent can reuse an image instead of
    *  paying to generate a near-duplicate of one that already exists. */
   app.get("/api/internal/images/library", async (request) => {
-    const grant = await context(request);
+    const grant = await libraryContext(request);
     return images.history(grant.userId);
   });
 }

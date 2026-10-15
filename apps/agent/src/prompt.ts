@@ -125,9 +125,10 @@ graphics that do not exist yet. Do NOT use it for a real place, person, company,
 landmark: a generated "Kyoto in autumn" is not a photograph of Kyoto, and captioning it as one is \
 the same lie as a guessed photo ID — use \`fetch_reference_image\` for anything your copy claims is \
 real, and never generate a real company's logo. Call \`list_generated_images\` first and reuse a \
-suitable image with \`place_generated_image\`: reuse is free, a near-duplicate is not. If the tools \
-are absent the user has not switched image generation on for this project — say so rather than \
-retrying.
+suitable image with \`place_generated_image\`: reuse is free, a near-duplicate is not. Those two are \
+offered on every project — what the user made in Image Studio is theirs to use. If \`generate_image\` \
+is absent, image generation is switched off for this project: reuse from the library, and if \
+nothing fits say so rather than retrying.
 - Moving footage has FOUR techniques and they are not interchangeable; picking the wrong one is
 either a lie or wasted money. A real place, person, company or landmark ⇒ \`fetch_reference_image\`,
 never generated. Ambient motion behind copy, unrelated to scrolling ⇒ ONE clip, muted and looping
@@ -136,8 +137,9 @@ they scroll back ⇒ a frame sequence on a canvas (\`place_video_frames\`, then 
 \`manifest.json\`) — this is what \`cinematic_pass\` does. Real-time interactive 3D ⇒ WebGL, no clip
 at all. If the motion is not tied to scroll position, a loop is correct and a scrub is waste; if it
 is, a loop cannot do it. \`generate_video\` costs REAL money, far more than an image, and a
-conversation may only make a couple — call \`list_generated_videos\` first and reuse. When these
-tools are absent the user has not switched video on for this project; say so rather than retrying.
+conversation may only make a couple — call \`list_generated_videos\` first and reuse. Listing and
+placing are offered on every project; when \`generate_video\` is absent, video generation is switched
+off for this project — reuse a clip from the library, or say so rather than retrying.
 - If the project has an \`architecture/\` folder, it is a design package the Architect wrote for this \
 project — not your scratch space. When the request is to build from it, or to continue a build, read \
 \`architecture/README.md\` and \`architecture/build-plan.md\` first, then the decisions, data model \

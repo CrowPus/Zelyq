@@ -1,12 +1,25 @@
-import { maxProjectUploadBytes, writeFileSchema, ZelyqError } from "@zelyq/core";
+import {
+  maxProjectUploadBytes,
+  placeStudioMediaSchema,
+  writeFileSchema,
+  ZelyqError,
+} from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
+import type { ImageGenerationService } from "../services/image-generation.js";
 import type { ProjectService } from "../services/projects.js";
+import type { VideoGenerationService } from "../services/video-generation.js";
 
 export function registerFileRoutes(
   app: FastifyInstance,
-  deps: { projects: ProjectService; runtime: RuntimeDriver; access: AccessControl },
+  deps: {
+    projects: ProjectService;
+    runtime: RuntimeDriver;
+    access: AccessControl;
+    images: Pick<ImageGenerationService, "read">;
+    videos: Pick<VideoGenerationService, "get" | "assets">;
+  },
 ): void {
   const { access } = deps;
   app.get<{ Params: { id: string }; Querystring: { path?: string; depth?: string } }>(
@@ -80,6 +93,34 @@ export function registerFileRoutes(
         return { path: request.params["*"], written: true };
       },
     );
+  });
+
+  /**
+   * Something the person already made in Image or Video Studio, copied into the
+   * project on the server. Only from their own library — `read` and `get` check
+   * ownership — and only into a project they can edit.
+   */
+  app.post<{ Params: { id: string } }>("/api/projects/:id/studio-media", async (request) => {
+    const user = access.requireUser(request);
+    const { project } = await access.requireProject(user, request.params.id, "editor");
+    const input = placeStudioMediaSchema.parse(request.body);
+    let bytes: Buffer;
+    if (input.kind === "image") {
+      bytes = await deps.images.read(user.id, input.id);
+    } else {
+      const generation = await deps.videos.get(user.id, input.id);
+      if (generation.status !== "succeeded" || !generation.asset)
+        throw ZelyqError.badRequest("That video has not finished, so there is nothing to copy.");
+      bytes = await deps.videos.assets.readVideo(user.id, input.id);
+    }
+    await deps.runtime.writeFile(request.params.id, input.path, bytes.toString("base64"), "base64");
+    await access.recordChange(user, {
+      teamId: project.teamId,
+      projectId: project.id,
+      action: "file.written",
+      detail: { path: input.path, bytes: bytes.length, from: input.id },
+    });
+    return { path: input.path, sizeBytes: bytes.length };
   });
 
   app.delete<{ Params: { id: string; "*": string } }>(

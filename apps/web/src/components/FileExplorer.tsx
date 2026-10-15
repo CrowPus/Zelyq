@@ -6,6 +6,7 @@ import {
   FolderClosed,
   FolderOpen,
   FolderPlus,
+  Images,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -29,6 +30,8 @@ interface Props {
   onUpload?(files: DroppedFile[], destDir: string): Promise<void> | void;
   /** True while an upload is in flight, so the tree can say so. */
   uploading?: boolean;
+  /** Editors only. Opens the Studio picker for the folder the person is in. */
+  onAddFromStudio?(destDir: string): void;
 }
 
 interface TreeNode {
@@ -49,6 +52,7 @@ export function FileExplorer({
   onDelete,
   onUpload,
   uploading = false,
+  onAddFromStudio,
 }: Props) {
   // null, or the kind of thing being named in the inline input.
   const [creating, setCreating] = useState<"file" | "dir" | null>(null);
@@ -193,6 +197,15 @@ export function FileExplorer({
               }}
             >
               {uploading ? <Spinner /> : <Upload size={13} strokeWidth={1.75} />}
+            </IconButton>
+          )}
+          {canEdit && onAddFromStudio && (
+            <IconButton
+              size="sm"
+              label={`Add an image or video from Studio into ${uploadDirFor(selected, entries) || "public"}`}
+              onClick={() => onAddFromStudio(uploadDirFor(selected, entries))}
+            >
+              <Images size={13} strokeWidth={1.75} />
             </IconButton>
           )}
           {allDirectories.length > 0 && (

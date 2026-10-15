@@ -22,6 +22,7 @@ import { LiveBrowser } from "../components/LiveBrowser";
 import { PlanPanel } from "../components/PlanPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
 import { ProjectVariablesPanel } from "../components/ProjectVariablesPanel";
+import { StudioMediaPicker } from "../components/StudioMediaPicker";
 import { Badge, Button, IconButton, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
@@ -48,6 +49,8 @@ export function ProjectEditorPage() {
   /** Set when a file was opened from a turn, to show what that turn changed. */
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  /** The folder the Studio picker is open for, or null when it is closed. */
+  const [studioDir, setStudioDir] = useState<string | null>(null);
   const [compareSnapshotId, setCompareSnapshotId] = useState<string | null>(null);
   const [compareAfterSnapshotId, setCompareAfterSnapshotId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -397,6 +400,7 @@ export function ProjectEditorPage() {
                   }
                 }}
                 uploading={uploading}
+                onAddFromStudio={(destDir) => setStudioDir(destDir)}
                 onUpload={async (dropped, destDir) => {
                   const tooBig = dropped.filter((d) => d.file.size > MAX_UPLOAD_BYTES);
                   if (tooBig.length > 0) {
@@ -439,6 +443,20 @@ export function ProjectEditorPage() {
                   }
                 }}
               />
+              {studioDir !== null && (
+                <StudioMediaPicker
+                  projectId={id}
+                  destDir={studioDir}
+                  onClose={() => setStudioDir(null)}
+                  onPlaced={async (path) => {
+                    setStudioDir(null);
+                    await queryClient.invalidateQueries({ queryKey: ["files", id] });
+                    setCompareSnapshotId(null);
+                    setCompareAfterSnapshotId(null);
+                    setSelectedPath(path);
+                  }}
+                />
+              )}
               {uploadError && (
                 <p className="border-t border-border-default px-3 py-2 text-2xs text-danger">
                   {uploadError}{" "}

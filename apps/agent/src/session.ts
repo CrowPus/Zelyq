@@ -351,8 +351,9 @@ export interface SessionOptions {
    */
   supabaseBridge?: { url: string; token: string };
   previewBridge?: { url: string; token: string };
-  imageBridge?: { url: string; token: string };
-  videoBridge?: { url: string; token: string };
+  /** `generate: false` is a library-only token: list and place, never generate. */
+  imageBridge?: { url: string; token: string; generate?: boolean };
+  videoBridge?: { url: string; token: string; generate?: boolean };
   /**
    * The linked project's public Supabase config (URL + publishable key) —
    * merged into the preview env so the built app connects to the real
@@ -1608,6 +1609,11 @@ export class AgentSession {
     // Video is a separate permission and a separate grant: a clip costs far
     // more than a picture, so being allowed one does not allow the other.
     const videosAllowed = Boolean(options.videoBridge);
+    // A library-only token reads what the person already made — free — but
+    // the server refuses it on every route that spends money, so the
+    // generating tool is not offered with it. Reusing stays available.
+    const imagesGenerate = imagesAllowed && options.imageBridge?.generate !== false;
+    const videosGenerate = videosAllowed && options.videoBridge?.generate !== false;
     // A plain default-mode session does not need the connector tools or the
     // task-only inspection families standing by. Architect and Engineer keep the
     // full weave (they hand task tools out per step), and a lean builder is
@@ -1643,6 +1649,8 @@ export class AgentSession {
       .filter((t) => supabaseLinked || !SUPABASE_TOOL_NAMES.has(t.name))
       .filter((t) => imagesAllowed || !IMAGE_TOOL_NAMES.includes(t.name as never))
       .filter((t) => videosAllowed || !VIDEO_TOOL_NAMES.includes(t.name as never))
+      .filter((t) => imagesGenerate || t.name !== "generate_image")
+      .filter((t) => videosGenerate || t.name !== "generate_video")
       // Variables are read through the preview grant; without one there is no way in.
       .filter((t) => t.name !== "list_project_variables" || Boolean(options.previewBridge))
       // One plan, one owner. Architect Mode's plan is `build-plan.md`;

@@ -260,10 +260,11 @@ export const cinematicPassTool = defineTool({
     "a hero that scrubs supplied footage frame by frame as you scroll, a pinned product reveal, a " +
     "horizontal story, a DOM↔canvas hand-off. It writes ONLY client UI files, public/cinematic/**, " +
     "the repo-root cinematic/** staging folder, and CINEMATIC.md — no features, no routes, no " +
-    "backend. Footage: when a clip is not already in cinematic/<slug>/ AND you have the video " +
-    "tools, generate it — list_generated_videos, then generate_video, then place_video_frames to " +
-    "write the sequence into public/cinematic/<slug>/ — and say in the review that the footage is " +
-    "generated, never that it is real. Without those tools it PAUSES instead: it writes SOURCE.md " +
+    "backend. Footage: when a clip is not already in cinematic/<slug>/, reuse one from the video " +
+    "library if it fits (list_generated_videos, then place_video_frames to write the sequence into " +
+    "public/cinematic/<slug>/); otherwise, if generate_video is offered, generate one first — and " +
+    "say in the review that the footage is generated, never that it is real. With neither a " +
+    "fitting clip nor generate_video it PAUSES instead: it writes SOURCE.md " +
     "(a plain-language checklist) + a draft storyboard and returns ASSETS NEEDED; add the file and " +
     "reply 'go' to resume. Use it ONLY when the user asks for scroll-cinema — " +
     '"plays as you scroll", "scroll animation", "scrollytelling", "Apple-style / cinematic ' +

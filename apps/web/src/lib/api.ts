@@ -34,6 +34,7 @@ import type {
   PipelineStats,
   PipelineSummary,
   PipelineTriggerSummary,
+  PlaceStudioMediaInput,
   Preview,
   Project,
   ProjectVariable,
@@ -801,6 +802,14 @@ export const api = {
       method: "PUT",
       body: file,
       headers: { "content-type": "application/octet-stream" },
+    }),
+
+  /** Copy an image or video from the user's own Studio library into the
+   *  project — on the server, so nothing is uploaded from the browser. */
+  placeStudioMedia: (id: string, input: PlaceStudioMediaInput) =>
+    request<{ path: string; sizeBytes: number }>(`/projects/${id}/studio-media`, {
+      method: "POST",
+      body: JSON.stringify(input),
     }),
 
   deleteFile: (id: string, path: string) =>
