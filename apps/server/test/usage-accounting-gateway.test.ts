@@ -181,7 +181,8 @@ before(async () => {
 after(async () => {
   await server?.close();
   await new Promise<void>((resolve) => agent.server.close(() => resolve()));
-  await fs.rm(tmp, { recursive: true, force: true });
+  // A turn commits after `turn.end`; git may still be writing here (see gateway.test.ts).
+  await fs.rm(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   delete process.env.ZELYQ_PROVIDER;
   delete process.env.GEMINI_API_KEY;
 });

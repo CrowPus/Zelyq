@@ -1,4 +1,4 @@
-import { isZelyqError, ZelyqError } from "@zelyq/core";
+import { isZelyqError, maxProjectUploadBytes, ZelyqError } from "@zelyq/core";
 import { createRuntimeDriver, type RuntimeConfig, type RuntimeDriver } from "@zelyq/runtime";
 import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError, z } from "zod";
@@ -168,11 +168,19 @@ export function buildHost(config: HostConfig): RuntimeHost {
     return await runtime.readFile(request.params.id, request.params["*"]);
   });
 
-  app.put<IdPath>("/v1/projects/:id/files/*", async (request, reply) => {
-    const { content, encoding } = writeSchema.parse(request.body);
-    await runtime.writeFile(request.params.id, request.params["*"], content, encoding);
-    reply.status(204);
-  });
+  // A file arrives here as base64 inside JSON — 4 bytes for every 3 — so the
+  // largest upload the server accepts needs a third more room, plus the
+  // wrapper. Fastify's default is 1 MiB, which refused anything bigger than a
+  // small image the moment Zelyq ran with a remote runtime.
+  app.put<IdPath>(
+    "/v1/projects/:id/files/*",
+    { bodyLimit: Math.ceil((maxProjectUploadBytes * 4) / 3) + 1024 * 1024 },
+    async (request, reply) => {
+      const { content, encoding } = writeSchema.parse(request.body);
+      await runtime.writeFile(request.params.id, request.params["*"], content, encoding);
+      reply.status(204);
+    },
+  );
 
   app.delete<IdPath>("/v1/projects/:id/files/*", async (request, reply) => {
     await runtime.deleteFile(request.params.id, request.params["*"]);

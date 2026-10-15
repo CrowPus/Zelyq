@@ -1,4 +1,4 @@
-import { writeFileSchema } from "@zelyq/core";
+import { maxProjectUploadBytes, writeFileSchema, ZelyqError } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
@@ -45,6 +45,41 @@ export function registerFileRoutes(
       detail: { path: request.params["*"] },
     });
     return { path: request.params["*"], written: true };
+  });
+
+  // An uploaded file arrives as the body itself — raw bytes, any type — so it
+  // gets its own scope and parser. Sent as base64 inside JSON instead, a file
+  // is capped by the API's 16 MiB body limit at about 10 MiB, which turned away
+  // every video someone dragged into the code view.
+  void app.register(async (upload) => {
+    upload.removeAllContentTypeParsers();
+    upload.addContentTypeParser(
+      "*",
+      { parseAs: "buffer", bodyLimit: maxProjectUploadBytes },
+      (_request, body, done) => done(null, body),
+    );
+    upload.put<{ Params: { id: string; "*": string } }>(
+      "/api/projects/:id/uploads/*",
+      async (request) => {
+        const user = access.requireUser(request);
+        const { project } = await access.requireProject(user, request.params.id, "editor");
+        if (!Buffer.isBuffer(request.body))
+          throw ZelyqError.badRequest("Send the file itself as the request body.");
+        await deps.runtime.writeFile(
+          request.params.id,
+          request.params["*"],
+          request.body.toString("base64"),
+          "base64",
+        );
+        await access.recordChange(user, {
+          teamId: project.teamId,
+          projectId: project.id,
+          action: "file.written",
+          detail: { path: request.params["*"], bytes: request.body.length },
+        });
+        return { path: request.params["*"], written: true };
+      },
+    );
   });
 
   app.delete<{ Params: { id: string; "*": string } }>(

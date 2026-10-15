@@ -453,6 +453,14 @@ export const writeFileSchema = z.object({
 });
 export type WriteFileInput = z.infer<typeof writeFileSchema>;
 
+/**
+ * Largest single file the code view's upload takes. It travels as the request
+ * body itself, not as base64 inside JSON, so it is bounded by this rather than
+ * by the API's 16 MiB JSON limit — sized to the clips Video Studio makes, so a
+ * hero video can be dropped straight into an app.
+ */
+export const maxProjectUploadBytes = 200 * 1024 * 1024;
+
 // ---------------------------------------------------------------------------
 // Preview
 // ---------------------------------------------------------------------------

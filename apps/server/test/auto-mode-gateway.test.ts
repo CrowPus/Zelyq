@@ -173,7 +173,10 @@ before(async () => {
 after(async () => {
   await server?.close();
   await new Promise<void>((resolve) => agent.close(() => resolve()));
-  await fs.rm(tmp, { recursive: true, force: true });
+  // The turn's own commit runs `git add`/`git commit` after `turn.end` is sent,
+  // so git can still be writing `.git/objects` here — removal then fails with
+  // ENOTEMPTY (seen in CI on #204). Same fix as gateway.test.ts.
+  await fs.rm(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   delete process.env.ZELYQ_PROVIDER;
   delete process.env.GEMINI_API_KEY;
 });

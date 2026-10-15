@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { maxProjectUploadBytes } from "@zelyq/core";
 import {
   buildSkillUploadFiles,
   inlineImageMimeType,
@@ -101,14 +102,11 @@ test("an entry with no usable name is skipped rather than written to the folder 
   assert.equal(uploadTargetPath("", "   "), "");
 });
 
-test("the size cap leaves room for base64 inside the server's body limit", () => {
-  // The server accepts 16 MiB. base64 costs 4 bytes per 3, so the raw ceiling
-  // is ~12 MiB before the JSON wrapper — the cap must sit under that.
-  const serverBodyLimit = 16 * 1024 * 1024;
-  assert.ok(
-    MAX_UPLOAD_BYTES * (4 / 3) < serverBodyLimit,
-    "a file at the cap must fit once encoded",
-  );
+test("the size cap is the upload route's own limit, big enough for a video", () => {
+  // Uploads travel as the request body, not base64 inside the 16 MiB JSON
+  // limit — which is what held them near 10 MiB and turned away videos.
+  assert.equal(MAX_UPLOAD_BYTES, maxProjectUploadBytes);
+  assert.ok(MAX_UPLOAD_BYTES >= 100 * 1024 * 1024, "a hero video must fit");
 });
 
 /**

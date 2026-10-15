@@ -794,6 +794,15 @@ export const api = {
       body: JSON.stringify({ content, encoding }),
     }),
 
+  /** A file from the user's machine, sent as the body itself — not base64 in
+   *  JSON — so it is not capped by the API's JSON limit. */
+  uploadFile: (id: string, path: string, file: Blob) =>
+    request<{ written: boolean }>(`/projects/${id}/uploads/${encodeURI(path)}`, {
+      method: "PUT",
+      body: file,
+      headers: { "content-type": "application/octet-stream" },
+    }),
+
   deleteFile: (id: string, path: string) =>
     request<void>(`/projects/${id}/files/${encodeURI(path)}`, { method: "DELETE" }),
 

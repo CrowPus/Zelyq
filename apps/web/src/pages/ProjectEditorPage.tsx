@@ -25,7 +25,7 @@ import { ProjectVariablesPanel } from "../components/ProjectVariablesPanel";
 import { Badge, Button, IconButton, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
-import { fileToBase64, MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
+import { MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
 import type { SelectedElement } from "../lib/inspector";
 
 /** One value drives both layouts: the right-hand pane on desktop, the only
@@ -422,7 +422,7 @@ export function ProjectEditorPage() {
                     // files. Firing them all at once buys nothing and risks
                     // burying the server under a folder drop.
                     for (const item of queue) {
-                      await api.writeFile(id, item.target, await fileToBase64(item.file), "base64");
+                      await api.uploadFile(id, item.target, item.file);
                     }
                     await queryClient.invalidateQueries({ queryKey: ["files", id] });
                     // Land on the thing just added, so it is obvious it worked.

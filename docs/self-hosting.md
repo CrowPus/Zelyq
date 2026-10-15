@@ -78,6 +78,14 @@ location /ws/ {
 
 The long read timeout matters — the default 60 seconds cuts turns off mid-answer.
 
+Let uploads through, too. The code view takes files up to 200 MB — a video for an app's hero, say —
+and nginx refuses anything over 1 MB by default, with a bare `413` the browser shows as a failed
+upload:
+
+```nginx
+client_max_body_size 210m;   # the 200 MB upload limit, plus room for the request
+```
+
 ### 4. Previews behind the proxy
 
 By default a running preview is advertised at `http://<browser-host>:<port>` — the browser's own
