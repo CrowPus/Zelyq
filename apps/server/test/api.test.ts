@@ -268,3 +268,53 @@ test("validation failures explain which field was wrong", async () => {
   assert.equal(response.statusCode, 400);
   assert.equal(response.json().error.code, "bad_request");
 });
+
+test("a large file uploads as raw bytes, past the JSON body limit, and lands intact", async () => {
+  const created = await server.app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: as(),
+    payload: { name: "Upload Test", template: "vite-react" },
+  });
+  const projectId = created.json().project.id;
+  // 30 MiB: past the 16 MiB JSON limit that capped uploads near 10 MiB, the
+  // size of a short hero video. Random, so nothing could compress it away.
+  const video = Buffer.from(
+    Array.from({ length: 30 * 1024 * 1024 }, () => Math.floor(Math.random() * 256)),
+  );
+  const uploaded = await server.app.inject({
+    method: "PUT",
+    url: `/api/projects/${projectId}/uploads/public/media/hero.mp4`,
+    headers: { ...as(), "content-type": "video/mp4" },
+    payload: video,
+  });
+  assert.equal(uploaded.statusCode, 200, uploaded.body);
+  const onDisk = await fs.readFile(
+    path.join(config.runtime.workspaceDir!, projectId, "public", "media", "hero.mp4"),
+  );
+  assert.ok(onDisk.equals(video), "the file on disk is byte-for-byte what was sent");
+});
+
+test("the upload route is confined to the project like every other write", async () => {
+  const created = await server.app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: as(),
+    payload: { name: "Upload Jail", template: "vite-react" },
+  });
+  const projectId = created.json().project.id;
+  const escaped = await server.app.inject({
+    method: "PUT",
+    url: `/api/projects/${projectId}/uploads/..%2F..%2Fescaped.bin`,
+    headers: { ...as(), "content-type": "application/octet-stream" },
+    payload: Buffer.from("nope"),
+  });
+  assert.equal(escaped.statusCode, 400, escaped.body);
+  const anonymous = await server.app.inject({
+    method: "PUT",
+    url: `/api/projects/${projectId}/uploads/public/x.bin`,
+    headers: { "content-type": "application/octet-stream" },
+    payload: Buffer.from("nope"),
+  });
+  assert.equal(anonymous.statusCode, 401, anonymous.body);
+});

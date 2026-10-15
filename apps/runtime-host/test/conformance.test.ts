@@ -266,3 +266,26 @@ for (const { name, make } of drivers()) {
     });
   });
 }
+
+test("the reference host takes a file as large as the code view uploads", async () => {
+  // Fastify's default 1 MiB body limit refused any file larger than a small
+  // image once Zelyq ran with a remote runtime. 20 MiB stands in for a video.
+  const remote = new RemoteRuntimeDriver({
+    kind: "remote",
+    workspaceDir: "unused",
+    url: hostUrl,
+    token: TOKEN,
+    execTimeoutMs: 20_000,
+    previewPortRange: [4820, 4829],
+    previewHost: "127.0.0.1",
+  });
+  await remote.ensureProject("prj_large_upload");
+  const bytes = Buffer.from(
+    Array.from({ length: 20 * 1024 * 1024 }, () => Math.floor(Math.random() * 256)),
+  );
+  await remote.writeFile("prj_large_upload", "public/hero.mp4", bytes.toString("base64"), "base64");
+  const onDisk = await fs.readFile(
+    path.join(hostWorkspace, "prj_large_upload", "public", "hero.mp4"),
+  );
+  assert.ok(onDisk.equals(bytes), "the file arrives byte-for-byte");
+});

@@ -1,3 +1,5 @@
+import { maxProjectUploadBytes } from "@zelyq/core";
+
 /**
  * A `File`'s bytes as base64 — shared between the chat composer's
  * attachments and the Settings page's skill upload, rather than kept as
@@ -53,16 +55,12 @@ export async function buildSkillUploadFiles(
 }
 
 /**
- * Largest single file an upload will attempt.
- *
- * The server's body limit is 16 MiB (`app.ts`). A file travels as base64
- * inside JSON, which costs about 4 bytes for every 3 — so the raw ceiling is
- * nearer 12 MiB, and that is before the path and the JSON wrapper. 10 MiB
- * leaves room and, more importantly, is a number that can be explained: a
- * rejection here says what the limit is, instead of the request dying at the
- * body parser with nothing useful to show the person who dragged the file in.
+ * Largest single file an upload will attempt — the server's own limit for the
+ * upload route, which takes the file as the request body. Checked here first
+ * so a rejection can say what the limit is, instead of the request dying at
+ * the body parser with nothing useful to show the person who dragged it in.
  */
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = maxProjectUploadBytes;
 
 /**
  * Where a dropped file lands: the destination folder plus the path the file
