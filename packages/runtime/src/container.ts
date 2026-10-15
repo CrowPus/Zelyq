@@ -572,6 +572,10 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   readSnapshotFile(projectId: string, snapshotId: string, path: string): Promise<FileContent> {
     return this.local.readSnapshotFile(projectId, snapshotId, path);
   }
+
+  restoreSnapshotFile(projectId: string, snapshotId: string, path: string): Promise<void> {
+    return this.local.restoreSnapshotFile(projectId, snapshotId, path);
+  }
   archive(projectId: string): Promise<Buffer> {
     return this.local.archive(projectId);
   }

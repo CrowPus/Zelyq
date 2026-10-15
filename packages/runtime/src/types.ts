@@ -56,6 +56,13 @@ export interface RuntimeDriver {
    * which is how a file the turn *created* is recognised.
    */
   readSnapshotFile(projectId: string, snapshotId: string, path: string): Promise<FileContent>;
+  /**
+   * Put one file back exactly as it stood at a snapshot — a copy on the
+   * runtime's own disk, so a 200 MB video comes back as cheaply as a text
+   * file and never travels as base64. Throws `ZelyqError("not_found")` when
+   * the snapshot did not contain it.
+   */
+  restoreSnapshotFile(projectId: string, snapshotId: string, path: string): Promise<void>;
 
   /**
    * The project's files as a gzipped tar — without node_modules, .git or local
