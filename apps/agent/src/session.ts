@@ -27,6 +27,7 @@ import {
   VIDEO_TOOL_NAMES,
   type ZelyqTool,
 } from "@zelyq/tools";
+import { MediaGuard, mediaGuardMessage } from "./media-guard.js";
 import {
   PROGRAMME_FILE,
   parseExecutionTable,
@@ -353,6 +354,9 @@ export interface SessionOptions {
   previewBridge?: { url: string; token: string };
   /** `generate: false` is a library-only token: list and place, never generate. */
   imageBridge?: { url: string; token: string; generate?: boolean };
+  /** A dispatched child shares its parent's request guard — the person's
+   *  request did not change because a builder is now the one working. */
+  mediaGuard?: MediaGuard | null;
   videoBridge?: { url: string; token: string; generate?: boolean };
   /**
    * The linked project's public Supabase config (URL + publishable key) —
@@ -2117,6 +2121,7 @@ export class AgentSession {
       ...(this.options.supabasePreviewEnv
         ? { supabasePreviewEnv: this.options.supabasePreviewEnv }
         : {}),
+      mediaGuard: this.activeMediaGuard,
       runtime: this.options.runtime,
       maxIterations: childTurnCap,
       engineerMode: true,
@@ -3545,6 +3550,17 @@ export class AgentSession {
 
         this.conversation.addToolResults(results);
 
+        // The person's own images and videos are put back the moment a tool
+        // changes one the request did not cover — whatever tool did it, a
+        // shell command included. See media-guard.ts for why this is a guard
+        // and not only a rule.
+        const guard = this.activeMediaGuard;
+        if (guard) {
+          const touched = await guard.check();
+          if (touched.restored.length || touched.lost.length)
+            this.conversation.addUserMessage(mediaGuardMessage(touched));
+        }
+
         // Enter the finish phase once a verification tool has run this turn.
         // From here on, if the checkpoint is (or becomes) reached, the freeze
         // is partial rather than total — see `finishPhase` and
@@ -4095,6 +4111,28 @@ export class AgentSession {
    * at the start of every turn, so a programme that begins mid-session is
    * recognised from its next turn on. */
   private programmeActive = false;
+
+  /** Watches the person's own media for the request in progress. */
+  private mediaGuard: MediaGuard | null = null;
+
+  private get activeMediaGuard(): MediaGuard | null {
+    return this.options.mediaGuard ?? this.mediaGuard;
+  }
+
+  /**
+   * Called once when a person's request arrives — not for Auto Mode's own
+   * passes, which continue the same request. `snapshotId` is the copy the
+   * server took before the turn, which is where a damaged file comes back
+   * from.
+   */
+  async beginRequestGuards(snapshotId: string | null, request: string): Promise<void> {
+    this.mediaGuard = await MediaGuard.start(
+      this.options.runtime,
+      this.projectId,
+      snapshotId,
+      request,
+    ).catch(() => null);
+  }
 
   /** Read a project file, or null if it does not exist / cannot be read. */
   private async readFileOrNull(filePath: string): Promise<string | null> {

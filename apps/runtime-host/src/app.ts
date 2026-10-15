@@ -231,6 +231,15 @@ export function buildHost(config: HostConfig): RuntimeHost {
     },
   );
 
+  app.post<{ Params: { id: string; snapshotId: string } }>(
+    "/v1/projects/:id/snapshots/:snapshotId/restore-file",
+    async (request, reply) => {
+      const { path } = z.object({ path: z.string().min(1).max(1000) }).parse(request.body);
+      await runtime.restoreSnapshotFile(request.params.id, request.params.snapshotId, path);
+      reply.status(204);
+    },
+  );
+
   return {
     app,
     runtime,

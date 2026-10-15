@@ -197,6 +197,8 @@ export class AgentClient {
     agents?: string[],
     /** Minted for whoever sent this prompt — see `promptSchema`. */
     bridgeTokens?: BridgeTokens,
+    /** The copy taken just before this turn; the agent restores from it. */
+    snapshotId?: string,
   ): AsyncGenerator<AgentEvent> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/prompt`, {
       method: "POST",
@@ -208,6 +210,7 @@ export class AgentClient {
         ...(plugins?.length ? { plugins } : {}),
         ...(agents?.length ? { agents } : {}),
         ...(bridgeTokens && Object.keys(bridgeTokens).length > 0 ? { bridgeTokens } : {}),
+        ...(snapshotId ? { snapshotId } : {}),
       }),
       signal,
     });

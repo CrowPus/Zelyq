@@ -447,6 +447,7 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     }
     if (input.bridgeTokens) session.useBridgeTokens(input.bridgeTokens);
     try {
+      await session.beginRequestGuards(input.snapshotId ?? null, input.message);
       await session.run(
         input.message,
         emit,

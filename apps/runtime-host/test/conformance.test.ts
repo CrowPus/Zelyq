@@ -289,3 +289,35 @@ test("the reference host takes a file as large as the code view uploads", async 
   );
   assert.ok(onDisk.equals(bytes), "the file arrives byte-for-byte");
 });
+
+test("one file comes back from a snapshot through the reference host, byte for byte", async () => {
+  // The agent's media guard puts a damaged video back with this; through a
+  // remote runtime it must not travel as base64 or come back truncated.
+  const remote = new RemoteRuntimeDriver({
+    kind: "remote",
+    workspaceDir: "unused",
+    url: hostUrl,
+    token: TOKEN,
+    execTimeoutMs: 20_000,
+    previewPortRange: [4820, 4829],
+    previewHost: "127.0.0.1",
+  });
+  await remote.ensureProject("prj_restore_one");
+  const original = Buffer.from(Array.from({ length: 3 * 1024 * 1024 }, (_, i) => (i * 31) % 256));
+  await remote.writeFile(
+    "prj_restore_one",
+    "public/hero.mp4",
+    original.toString("base64"),
+    "base64",
+  );
+  const snapshot = await remote.createSnapshot("prj_restore_one", "before");
+  await remote.writeFile("prj_restore_one", "public/hero.mp4", "damaged");
+  await remote.restoreSnapshotFile("prj_restore_one", snapshot.id, "public/hero.mp4");
+  const onDisk = await fs.readFile(
+    path.join(hostWorkspace, "prj_restore_one", "public", "hero.mp4"),
+  );
+  assert.ok(onDisk.equals(original));
+  await assert.rejects(
+    remote.restoreSnapshotFile("prj_restore_one", snapshot.id, "public/never.mp4"),
+  );
+});

@@ -357,6 +357,9 @@ export const promptSchema = z.object({
    * editor's prompt on, every preview, Supabase, image and video call was
    * refused. */
   bridgeTokens: bridgeTokensSchema.optional(),
+  /** The snapshot the server took just before this turn. The agent puts a
+   *  file it must not have changed back from here. */
+  snapshotId: z.string().max(100).optional(),
 });
 export type PromptInput = z.infer<typeof promptSchema>;
 
