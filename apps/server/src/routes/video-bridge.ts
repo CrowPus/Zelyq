@@ -39,6 +39,23 @@ export function registerVideoBridgeRoutes(
   async function context(request: { headers: Record<string, unknown> }) {
     const token = request.headers["x-zelyq-video-bridge"];
     const grant = typeof token === "string" ? bridge.resolve(token) : null;
+    if (!grant && typeof token === "string" && bridge.resolveLibrary(token))
+      throw new ZelyqError(
+        "forbidden",
+        "Generating videos is switched off for this project, or no video provider is configured. " +
+          "Reuse what is already in the library instead — listing and placing cost nothing.",
+      );
+    if (!grant) throw new ZelyqError("unauthorized", "Invalid or expired video bridge token.");
+    const user = await store.users.findById(grant.userId);
+    if (!user) throw new ZelyqError("unauthorized", "The bridge's user no longer exists.");
+    return grant;
+  }
+
+  /** Reading the person's library — status, bytes, the list, frames — needs
+   *  only a library token. Nothing reached through this calls a provider. */
+  async function libraryContext(request: { headers: Record<string, unknown> }) {
+    const token = request.headers["x-zelyq-video-bridge"];
+    const grant = typeof token === "string" ? bridge.resolveLibrary(token) : null;
     if (!grant) throw new ZelyqError("unauthorized", "Invalid or expired video bridge token.");
     const user = await store.users.findById(grant.userId);
     if (!user) throw new ZelyqError("unauthorized", "The bridge's user no longer exists.");
@@ -117,14 +134,14 @@ export function registerVideoBridgeRoutes(
   );
 
   app.get<{ Params: { id: string } }>("/api/internal/videos/generations/:id", async (request) => {
-    const grant = await context(request);
+    const grant = await libraryContext(request);
     return { generation: await videos.get(grant.userId, videoIdSchema.parse(request.params.id)) };
   });
 
   /** Recent library entries, so the agent can reuse a clip instead of paying
    *  to generate a near-duplicate of one that already exists. */
   app.get("/api/internal/videos/library", async (request) => {
-    const grant = await context(request);
+    const grant = await libraryContext(request);
     return videos.history(grant.userId);
   });
 
@@ -132,7 +149,7 @@ export function registerVideoBridgeRoutes(
   app.get<{ Params: { id: string } }>(
     "/api/internal/videos/generations/:id/bytes",
     async (request) => {
-      const grant = await context(request);
+      const grant = await libraryContext(request);
       const id = videoIdSchema.parse(request.params.id);
       const generation = await videos.get(grant.userId, id);
       if (generation.status !== "succeeded" || !generation.asset)
@@ -161,7 +178,7 @@ export function registerVideoBridgeRoutes(
   app.post<{ Params: { id: string }; Body: unknown }>(
     "/api/internal/videos/generations/:id/frames",
     async (request) => {
-      const grant = await context(request);
+      const grant = await libraryContext(request);
       const id = videoIdSchema.parse(request.params.id);
       const input = frameExportInputSchema.parse(request.body ?? {});
       const set = await videos.extractFrames(grant.userId, id, input);

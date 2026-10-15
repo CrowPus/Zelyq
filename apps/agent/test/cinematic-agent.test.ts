@@ -100,7 +100,7 @@ async function setup(
   }: {
     seedSource?: boolean;
     provider?: ModelProvider;
-    videoBridge?: { url: string; token: string };
+    videoBridge?: { url: string; token: string; generate?: boolean };
   } = {},
 ) {
   const workspaceDir = path.join(os.tmpdir(), `zelyq-cinematic-${Date.now()}-${Math.random()}`);
@@ -584,6 +584,26 @@ test("without the permission the Cinematic child gets no video tools at all", as
     const childTools = offered[1] ?? [];
     for (const name of ["generate_video", "place_video_frames", "place_video"])
       assert.ok(!childTools.includes(name), `${name} must not be offered without the permission`);
+  } finally {
+    await close();
+  }
+});
+
+test("a library-only video token offers reuse, never generation", async () => {
+  // Reusing a clip someone made in Video Studio is free, so it is offered on
+  // every project; generating is the part behind the project's switch.
+  const offered: string[][] = [];
+  const parent = [say("done")];
+  const { base, close } = await setup([parent], {
+    provider: recordingProvider([parent], offered),
+    videoBridge: { url: "http://server.local", token: "vid_library", generate: false },
+  });
+  try {
+    await turn(base);
+    const tools = offered[0] ?? [];
+    for (const name of ["list_generated_videos", "place_video", "place_video_frames"])
+      assert.ok(tools.includes(name), `${name} should be offered; had: ${tools.join(", ")}`);
+    assert.ok(!tools.includes("generate_video"), "a library token must not offer generate_video");
   } finally {
     await close();
   }

@@ -345,7 +345,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     runtime,
     vault,
   });
-  registerFileRoutes(app, { projects, runtime, access });
+  registerFileRoutes(app, { projects, runtime, access, images, videos });
   registerPreviewRoutes(app, {
     projects,
     runtime,

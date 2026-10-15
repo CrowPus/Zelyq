@@ -81,7 +81,10 @@ export const listGeneratedVideosTool = defineTool({
     }>;
     const usable = items.filter((item) => item.status === "succeeded" && item.asset);
     if (usable.length === 0)
-      return { output: "The video library is empty. Use generate_video to create a clip." };
+      return {
+        output:
+          "The video library is empty. Use generate_video to create a clip if you have it; otherwise ask the user to make one in Video Studio.",
+      };
     const lines = usable.map((item) => {
       const made =
         item.source === "agent"

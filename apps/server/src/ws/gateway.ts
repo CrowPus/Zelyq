@@ -433,16 +433,25 @@ export class ChatGateway {
       // If this project has a linked Supabase resource, hand
       // the agent a session-scoped capability to apply migrations through the
       // server, plus the project's PUBLIC config for its preview. No secret.
-      const [bridgeToken, supabasePreviewEnv, imageToken, videoToken] = await Promise.all([
+      const [bridgeToken, supabasePreviewEnv, imageGenerate, videoGenerate] = await Promise.all([
         this.supabase.bridge.mint(room.sessionId, room.projectId, userId),
         this.supabase.resolvePreviewEnv(room.projectId),
         // Null unless this project has image generation switched on AND the
-        // instance has a provider configured. No token, no tools.
+        // instance has a provider configured.
         this.imageGeneration.bridge.mint(room.sessionId, room.projectId, userId),
         // Null unless this project has video generation switched on AND a
-        // provider is configured. No token, no video tools.
+        // provider is configured. A separate permission from images.
         this.videoGeneration.bridge.mint(room.sessionId, room.projectId, userId),
       ]);
+      // Without a generation grant the agent still gets a library token: it can
+      // list and place what the person already made in Studio, which costs
+      // nothing, but every route that calls a provider refuses it.
+      const imageToken =
+        imageGenerate ??
+        (await this.imageGeneration.bridge.mintLibrary(room.sessionId, room.projectId, userId));
+      const videoToken =
+        videoGenerate ??
+        (await this.videoGeneration.bridge.mintLibrary(room.sessionId, room.projectId, userId));
       const previewToken = this.supabase.backend?.mint(room.sessionId, room.projectId, userId);
       bridgeTokens = {
         ...(bridgeToken ? { supabase: bridgeToken } : {}),
@@ -477,10 +486,22 @@ export class ChatGateway {
           ? { supabaseBridge: { url: this.supabase.serverInternalUrl, token: bridgeToken } }
           : {}),
         ...(imageToken
-          ? { imageBridge: { url: this.imageGeneration.serverInternalUrl, token: imageToken } }
+          ? {
+              imageBridge: {
+                url: this.imageGeneration.serverInternalUrl,
+                token: imageToken,
+                generate: Boolean(imageGenerate),
+              },
+            }
           : {}),
         ...(videoToken
-          ? { videoBridge: { url: this.videoGeneration.serverInternalUrl, token: videoToken } }
+          ? {
+              videoBridge: {
+                url: this.videoGeneration.serverInternalUrl,
+                token: videoToken,
+                generate: Boolean(videoGenerate),
+              },
+            }
           : {}),
         ...(Object.keys(supabasePreviewEnv).length > 0 ? { supabasePreviewEnv } : {}),
         ...(previewToken

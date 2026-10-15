@@ -599,3 +599,22 @@ test("account deletion removes private images and generation metadata", async ()
   assert.equal(await server.store.images.find(id), null);
   await assert.rejects(fs.stat(`${tmp}/images/${other.id}`));
 });
+
+test("a library-only token lists the Studio library but cannot generate", async () => {
+  // Image generation off for this project: the agent gets a library token.
+  const { project } = await agentProject(owner, false);
+  const token = (await server.imageBridge.mintLibrary(newId("session"), project.id, owner.id))!;
+  const library = await bridged(token, "GET", "/api/internal/images/library");
+  assert.equal(library.statusCode, 200, library.body);
+
+  const before = calls;
+  const submit = await bridged(token, "POST", "/api/internal/images/generations", {
+    prompt: "Not allowed",
+    size: "1024x1024",
+    quality: "medium",
+    idempotencyKey: randomUUID(),
+  });
+  assert.equal(submit.statusCode, 403, submit.body);
+  assert.match(submit.json().error.message, /switched off for this project/);
+  assert.equal(calls, before, "no provider was called");
+});

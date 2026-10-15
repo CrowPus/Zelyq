@@ -249,21 +249,37 @@ export const createAgentSessionSchema = z.object({
   supabaseBridge: z.object({ url: z.string(), token: z.string() }).optional(),
   previewBridge: z.object({ url: z.string(), token: z.string() }).optional(),
   /**
-   * Present only when this project has agent image generation switched on and
-   * the instance has an image provider configured. A short-lived capability to
-   * generate and read images *through the server*, which holds the image API
-   * key and records each image against the connecting user — which is what
-   * makes it appear in that person's Image Studio. Absent means the agent gets
-   * no image tools at all.
+   * A short-lived capability to read images *through the server* — the
+   * connecting user's Image Studio library — and, when `generate` is not false,
+   * to generate them: only when this project has agent image generation
+   * switched on and the instance has an image provider configured. The server
+   * holds the image API key and records each image against the connecting
+   * user, which is what makes it appear in that person's Image Studio.
    */
-  imageBridge: z.object({ url: z.string(), token: z.string() }).optional(),
+  imageBridge: z
+    .object({
+      url: z.string(),
+      token: z.string(),
+      /** False for a library-only token: list and place what exists, never
+       *  generate. Absent means a generation token, as before. */
+      generate: z.boolean().optional(),
+    })
+    .optional(),
   /**
-   * Present only when this project has agent video generation switched on and
-   * a provider is configured. A separate grant from `imageBridge`, because a
-   * clip costs far more than a picture and one permission must not imply the
-   * other.
+   * The same for video: always the library, and generation only when this
+   * project has agent video generation switched on and a provider is
+   * configured. A separate grant from `imageBridge`, because a clip costs far
+   * more than a picture and one permission must not imply the other.
    */
-  videoBridge: z.object({ url: z.string(), token: z.string() }).optional(),
+  videoBridge: z
+    .object({
+      url: z.string(),
+      token: z.string(),
+      /** False for a library-only token: list and place what exists, never
+       *  generate. Absent means a generation token, as before. */
+      generate: z.boolean().optional(),
+    })
+    .optional(),
   /**
    * The linked project's public Supabase config — URL + publishable key only.
    * Merged into the preview environment so the app the agent builds connects

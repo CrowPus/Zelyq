@@ -122,3 +122,36 @@ test("turning the permission off stops the next session from getting a token", a
   await store.projects.update(on.projectId, { imageGenerationEnabled: false });
   assert.equal(await bridge.mint("ses_b", on.projectId, on.userId), null);
 });
+
+/**
+ * Reusing the library is free, so it does not hide behind the generation
+ * switch: a project with image generation off can still list and place what
+ * its owner made in Image Studio — but a library token never generates.
+ */
+test("with generation off, a library token reads the library and nothing more", async () => {
+  const bridge = new ImageBridge(store, unconfigured);
+  const off = await project("library", false);
+  assert.equal(await bridge.mint("ses_lib", off.projectId, off.userId), null);
+  const token = await bridge.mintLibrary("ses_lib", off.projectId, off.userId);
+  assert.ok(token, "every project gets a library token");
+  assert.equal(bridge.resolveLibrary(token)?.userId, off.userId);
+  assert.equal(bridge.resolve(token), null, "a library token is not a generation token");
+  // Minted again on the next prompt, it stays the same token.
+  assert.equal(await bridge.mintLibrary("ses_lib", off.projectId, off.userId), token);
+});
+
+test("turning generation off keeps the library token; ending the session drops both", async () => {
+  const bridge = new ImageBridge(store, configured);
+  const on = await project("switch", true);
+  const generation = (await bridge.mint("ses_switch", on.projectId, on.userId))!;
+  const library = (await bridge.mintLibrary("ses_switch", on.projectId, on.userId))!;
+  assert.ok(bridge.resolveLibrary(generation), "a generation token can read the library too");
+
+  await store.projects.update(on.projectId, { imageGenerationEnabled: false });
+  assert.equal(await bridge.mint("ses_switch", on.projectId, on.userId), null);
+  assert.equal(bridge.resolve(generation), null, "switched off: generation stops at once");
+  assert.ok(bridge.resolveLibrary(library), "the library grant never could spend anything");
+
+  bridge.revokeSession("ses_switch");
+  assert.equal(bridge.resolveLibrary(library), null);
+});
