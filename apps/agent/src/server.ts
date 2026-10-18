@@ -9,6 +9,7 @@ import {
   ZelyqError,
 } from "@zelyq/core";
 import { createRuntimeDriver, type RuntimeDriver } from "@zelyq/runtime";
+import { capturePage } from "@zelyq/tools";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { AgentConfig } from "./config.js";
@@ -369,6 +370,25 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     sessions.set(session.id, session);
     reply.status(201);
     return session.state;
+  });
+
+  // The picture on the app's card in the app list. Only the project's own
+  // running preview is ever loaded: the address comes from the runtime, never
+  // from the caller, so this cannot be pointed at anything else. The server
+  // asks; this process is the one that already has a browser.
+  app.post<{ Params: { id: string } }>("/projects/:id/thumbnail", async (request, reply) => {
+    const preview = await runtime.previewStatus(request.params.id);
+    if (preview.status !== "running" || !preview.url) {
+      throw new ZelyqError("conflict", "The preview is not running.");
+    }
+    const image = await capturePage(preview.url, {
+      width: 1280,
+      height: 800,
+      settleMs: 1500,
+      quality: 85,
+    });
+    reply.type("image/jpeg");
+    return image;
   });
 
   app.get<{ Params: { id: string } }>("/sessions/:id/state", async (request) => {

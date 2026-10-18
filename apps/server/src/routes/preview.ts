@@ -5,6 +5,7 @@ import { ensureInspectorScript } from "../services/inspector-script.js";
 import type { PreviewEnvResolver } from "../services/preview-env.js";
 import type { ProjectBackendService } from "../services/project-backend.js";
 import type { ProjectService } from "../services/projects.js";
+import type { ThumbnailStore } from "../services/thumbnails.js";
 
 export function registerPreviewRoutes(
   app: FastifyInstance,
@@ -20,12 +21,18 @@ export function registerPreviewRoutes(
      */
     resolvePreviewEnv: PreviewEnvResolver;
     backend?: ProjectBackendService;
+    thumbnails?: ThumbnailStore;
   },
 ): void {
   const { access } = deps;
   app.get<{ Params: { id: string } }>("/api/projects/:id/preview", async (request) => {
     await access.requireProject(access.requireUser(request), request.params.id, "viewer");
-    return { preview: await deps.runtime.previewStatus(request.params.id) };
+    const preview = await deps.runtime.previewStatus(request.params.id);
+    // An app made before thumbnails, or never previewed until now, gets its
+    // picture the first time someone has it open and running. The editor
+    // polls this, so nothing else has to ask.
+    if (preview.status === "running") void deps.thumbnails?.captureIfMissing(request.params.id);
+    return { preview };
   });
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/preview/start", async (request) => {

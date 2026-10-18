@@ -39,6 +39,7 @@ import { walkPreviewTool } from "./walk-preview.js";
 
 export { IMAGE_TOOL_NAMES } from "./images.js";
 export { PLAN_FILE } from "./plan.js";
+export { capturePage } from "./preview.js";
 export { type Screencast, type ScreencastSink, startScreencast } from "./screencast.js";
 export * from "./types.js";
 export { VIDEO_TOOL_NAMES } from "./videos.js";

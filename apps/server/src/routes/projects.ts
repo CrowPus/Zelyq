@@ -16,6 +16,7 @@ import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { ProjectService } from "../services/projects.js";
 import { listTemplates } from "../services/templates.js";
+import type { ThumbnailStore } from "../services/thumbnails.js";
 import type { VaultService } from "../services/vault.js";
 
 export function registerProjectRoutes(
@@ -26,6 +27,7 @@ export function registerProjectRoutes(
     templatesDir: string;
     runtime: RuntimeDriver;
     vault: VaultService;
+    thumbnails: ThumbnailStore;
   },
 ): void {
   const { access } = deps;
@@ -59,7 +61,30 @@ export function registerProjectRoutes(
   app.get("/api/projects", async (request) => {
     const user = access.requireUser(request);
     // Only projects in teams the caller belongs to. Nothing else is listable.
-    return { projects: await deps.projects.listForUser(user) };
+    return { projects: await deps.thumbnails.stamp(await deps.projects.listForUser(user)) };
+  });
+
+  // The picture on the app's card. `?v=` in the URL (its `thumbnailAt`) is
+  // what changes when a new one is taken, so a browser may keep each one.
+  app.get<{ Params: { id: string } }>("/api/projects/:id/thumbnail", async (request, reply) => {
+    await access.requireProject(access.requireUser(request), request.params.id, "viewer");
+    const image = await deps.thumbnails.read(request.params.id);
+    if (!image) throw new ZelyqError("not_found", "This app has no thumbnail yet.");
+    reply.type("image/webp").header("cache-control", "private, max-age=31536000, immutable");
+    return image;
+  });
+
+  // Take it again now, from the running preview. Waits for the picture.
+  app.post<{ Params: { id: string } }>("/api/projects/:id/thumbnail", async (request) => {
+    await access.requireProject(access.requireUser(request), request.params.id, "editor");
+    const preview = await deps.runtime.previewStatus(request.params.id);
+    if (preview.status !== "running") {
+      throw ZelyqError.badRequest("Start the preview first: the thumbnail is a picture of it.");
+    }
+    await deps.thumbnails.capture(request.params.id);
+    const thumbnailAt = await deps.thumbnails.takenAt(request.params.id);
+    if (!thumbnailAt) throw ZelyqError.badRequest("The preview could not be captured.");
+    return { thumbnailAt };
   });
 
   app.post("/api/projects", async (request, reply) => {
@@ -243,6 +268,7 @@ export function registerProjectRoutes(
     const user = access.requireUser(request);
     const { project } = await access.requireProject(user, request.params.id, "admin");
     await deps.projects.remove(request.params.id);
+    await deps.thumbnails.remove(request.params.id);
     await access.recordChange(user, {
       teamId: project.teamId,
       projectId: project.id,

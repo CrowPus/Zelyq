@@ -35,6 +35,10 @@ const STATUS_TONE = {
   archived: "neutral",
 } as const;
 
+/** Cards sit three to a row on a wide screen and two on a narrower one: 12
+ *  fills whole rows in both, where the usual 10 left one card alone. */
+const APPS_PER_PAGE = 12;
+
 export function ProjectListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -141,16 +145,13 @@ export function ProjectListPage() {
           ? a.updatedAt.localeCompare(b.updatedAt)
           : b.updatedAt.localeCompare(a.updatedAt),
     );
-  const { rows: list, page } = pageOf(shown, filters.page);
+  const { rows: list, page } = pageOf(shown, filters.page, APPS_PER_PAGE);
   const agent = health.data?.agent;
   const roleByTeam = new Map((teams.data?.teams ?? []).map((team) => [team.id, team.role]));
   const canDelete = (teamId: string): boolean => {
     const role = roleByTeam.get(teamId);
     return role !== undefined && roleAtLeast(role, "admin");
   };
-  // Reserve the actions column for the whole table or none of it, so the header
-  // labels and the rows stay on the same grid.
-  const showActions = all.some((project) => canDelete(project.teamId));
 
   return (
     <AppShell
@@ -363,12 +364,10 @@ export function ProjectListPage() {
             </div>
           )}
 
-          {all.length > 0 && shown.length === 0 ? (
-            <NothingMatches onClear={filters.clear} />
-          ) : (
-            <div
-              className={`overflow-hidden rounded-lg border border-border-default bg-surface ${all.length > 0 ? "" : "mt-6"}`}
-            >
+          {all.length > 0 && shown.length === 0 && <NothingMatches onClear={filters.clear} />}
+
+          {all.length === 0 && (
+            <div className="mt-6 overflow-hidden rounded-lg border border-border-default bg-surface">
               {projects.isLoading && (
                 <div className="flex items-center gap-2 px-4 py-8 text-xs text-fg-muted">
                   <Spinner /> Loading apps…
@@ -390,122 +389,140 @@ export function ProjectListPage() {
                   }
                 />
               )}
-
-              {list.length > 0 && (
-                <>
-                  <div
-                    className={`grid grid-cols-[minmax(0,1fr)_92px] items-center gap-3 border-b border-border-default bg-surface-subtle py-2 pl-4 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4 ${
-                      showActions ? "pr-12" : "pr-4"
-                    }`}
-                  >
-                    <span>Name</span>
-                    <span>Status</span>
-                    <span className="hidden text-right sm:block">Last updated</span>
-                  </div>
-                  <ul>
-                    {list.map((project) => (
-                      <li
-                        key={project.id}
-                        className="flex items-center border-b border-border-default last:border-b-0"
-                      >
-                        {confirming === project.id ? (
-                          <div className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2.5 pr-3 pl-4">
-                            <span className="min-w-0 truncate text-xs text-fg-secondary">
-                              Delete <span className="text-fg">{project.name}</span> and its files?
-                              This cannot be undone.
-                            </span>
-                            <span className="flex shrink-0 items-center gap-1.5">
-                              <Button
-                                size="sm"
-                                variant="danger"
-                                disabled={deleteProject.isPending}
-                                onClick={() => deleteProject.mutate(project.id)}
-                              >
-                                {deleteProject.isPending ? "Deleting…" : "Delete"}
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
-                                Cancel
-                              </Button>
-                            </span>
-                          </div>
-                        ) : (
-                          <>
-                            <Link
-                              to={`/projects/${project.id}`}
-                              className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_92px] items-center gap-3 py-2.5 pl-4 transition-colors hover:bg-surface-hover sm:grid-cols-[minmax(0,1fr)_120px_150px] sm:gap-4"
-                            >
-                              <span className="flex min-w-0 items-center gap-2.5">
-                                {/* The stack's own mark, so a list of projects is
-                                  scannable by what each one is. Falls back to
-                                  the generic box for a cloned repository, or a
-                                  stack this runtime no longer offers. */}
-                                {templateIcons.get(project.template) ? (
-                                  <img
-                                    src={`/${templateIcons.get(project.template)}`}
-                                    alt=""
-                                    width={18}
-                                    height={18}
-                                    loading="lazy"
-                                    decoding="async"
-                                    className="size-[18px] shrink-0 object-contain"
-                                  />
-                                ) : (
-                                  <Box
-                                    size={15}
-                                    strokeWidth={1.75}
-                                    className="shrink-0 text-fg-muted"
-                                  />
-                                )}
-                                <span className="min-w-0">
-                                  <span className="block truncate text-sm text-fg">
-                                    {project.name}
-                                  </span>
-                                  <span className="block truncate font-mono text-2xs text-fg-muted">
-                                    {project.description ?? project.template}
-                                  </span>
-                                </span>
-                              </span>
-                              <span>
-                                <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
-                                  {project.status}
-                                </Badge>
-                              </span>
-                              <time
-                                dateTime={project.updatedAt}
-                                className="hidden text-right text-xs text-fg-muted tabular-nums sm:block"
-                              >
-                                {formatRelative(project.updatedAt)}
-                              </time>
-                            </Link>
-
-                            {/* A real column, not an overlay: nothing can sit on
-                              top of the timestamp this way. */}
-                            {showActions && (
-                              <span className="flex w-12 shrink-0 justify-center">
-                                {canDelete(project.teamId) && (
-                                  <IconButton
-                                    size="sm"
-                                    variant="danger"
-                                    label={`Delete ${project.name}`}
-                                    onClick={() => setConfirming(project.id)}
-                                  >
-                                    <Trash2 size={13} strokeWidth={1.75} />
-                                  </IconButton>
-                                )}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
             </div>
+          )}
+
+          {list.length > 0 && (
+            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {list.map((project) => (
+                <li
+                  key={project.id}
+                  className="group relative overflow-hidden rounded-xl border border-border-default bg-surface transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-[var(--shadow-overlay)]"
+                >
+                  <Link to={`/projects/${project.id}`} className="block">
+                    <span className="relative block aspect-[16/10] overflow-hidden border-b border-border-default bg-surface-subtle">
+                      {project.thumbnailAt ? (
+                        <img
+                          src={`/api/projects/${project.id}/thumbnail?v=${encodeURIComponent(project.thumbnailAt)}`}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          className="size-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.03]"
+                        />
+                      ) : (
+                        // No picture yet: it is taken from the running preview,
+                        // the first time the app is opened or after the agent
+                        // changes it.
+                        <span className="flex size-full flex-col items-center justify-center gap-2 bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:14px_14px]">
+                          {templateIcons.get(project.template) ? (
+                            <img
+                              src={`/${templateIcons.get(project.template)}`}
+                              alt=""
+                              width={40}
+                              height={40}
+                              loading="lazy"
+                              decoding="async"
+                              className="size-10 object-contain opacity-80"
+                            />
+                          ) : (
+                            <Box size={32} strokeWidth={1.5} className="text-fg-muted" />
+                          )}
+                          <span className="text-2xs text-fg-muted">Open it to take a preview</span>
+                        </span>
+                      )}
+                      {project.status !== "ready" && (
+                        <span className="absolute top-2 left-2">
+                          <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
+                            {project.status}
+                          </Badge>
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex items-start gap-2.5 px-3.5 py-3">
+                      {/* The stack's own mark, so the cards are scannable by
+                        what each app is. Falls back to the generic box for a
+                        cloned repository, or a stack this runtime no longer
+                        offers. */}
+                      {templateIcons.get(project.template) ? (
+                        <img
+                          src={`/${templateIcons.get(project.template)}`}
+                          alt=""
+                          width={18}
+                          height={18}
+                          loading="lazy"
+                          decoding="async"
+                          className="mt-px size-[18px] shrink-0 object-contain"
+                        />
+                      ) : (
+                        <Box
+                          size={15}
+                          strokeWidth={1.75}
+                          className="mt-0.5 shrink-0 text-fg-muted"
+                        />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-fg">
+                          {project.name}
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-1.5 text-2xs text-fg-muted">
+                          <span className="min-w-0 truncate font-mono">
+                            {project.description ??
+                              stackTitles.get(project.template) ??
+                              project.template}
+                          </span>
+                          <span aria-hidden>·</span>
+                          <time dateTime={project.updatedAt} className="shrink-0 tabular-nums">
+                            {formatRelative(project.updatedAt)}
+                          </time>
+                        </span>
+                      </span>
+                    </span>
+                  </Link>
+
+                  {/* Over the picture's corner, shown on hover or keyboard
+                    focus, so the card stays a clean picture otherwise. */}
+                  {canDelete(project.teamId) && confirming !== project.id && (
+                    <span className="absolute top-2 right-2 rounded-md bg-surface/90 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                      <IconButton
+                        size="sm"
+                        variant="danger"
+                        label={`Delete ${project.name}`}
+                        onClick={() => setConfirming(project.id)}
+                      >
+                        <Trash2 size={13} strokeWidth={1.75} />
+                      </IconButton>
+                    </span>
+                  )}
+
+                  {confirming === project.id && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/95 p-4 text-center backdrop-blur-sm">
+                      <span className="text-xs text-fg-secondary">
+                        Delete <span className="text-fg">{project.name}</span> and its files? This
+                        cannot be undone.
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={deleteProject.isPending}
+                          onClick={() => deleteProject.mutate(project.id)}
+                        >
+                          {deleteProject.isPending ? "Deleting…" : "Delete"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
+                          Cancel
+                        </Button>
+                      </span>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
           <Pager
             page={page}
             total={shown.length}
+            size={APPS_PER_PAGE}
             noun="apps"
             all={all.length}
             onPage={(n) => filters.set({ page: String(n) })}
