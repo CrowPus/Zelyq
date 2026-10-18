@@ -117,16 +117,11 @@ export const viewPreviewTool = defineTool({
       return { output: `Not a valid path: "${input.path}".`, isError: true };
     }
 
-    const browser = await chromium.launch();
     try {
-      // A fixed viewport bounds the screenshot's resolution directly — no
-      // separate resize step needed once JPEG re-encoding already keeps the
-      // bytes themselves small.
-      const page = await browser.newPage({
-        viewport: { width: input.width ?? 1024, height: input.height ?? 768 },
+      const screenshot = await capturePage(target, {
+        width: input.width ?? 1024,
+        height: input.height ?? 768,
       });
-      await page.goto(target, { waitUntil: "load", timeout: 30_000 });
-      const screenshot = await page.screenshot({ type: "jpeg", quality: 70 });
       return {
         output: `Screenshot of the running preview at ${target}.`,
         images: [{ mimeType: "image/jpeg", data: screenshot.toString("base64") }],
@@ -136,8 +131,31 @@ export const viewPreviewTool = defineTool({
         output: `Could not capture the preview: ${error instanceof Error ? error.message : String(error)}`,
         isError: true,
       };
-    } finally {
-      await browser.close().catch(() => undefined);
     }
   },
 });
+
+/**
+ * A JPEG of one page at a fixed viewport. A fixed viewport bounds the
+ * screenshot's resolution directly — no separate resize step needed once JPEG
+ * re-encoding already keeps the bytes themselves small. `settleMs` waits after
+ * `load` for what a person would see a moment later: web fonts, an entrance
+ * animation, data the page fetches on mount. The app list's thumbnails use it;
+ * the agent's own look at the preview does not need to.
+ */
+export async function capturePage(
+  url: string,
+  options: { width: number; height: number; settleMs?: number; quality?: number },
+): Promise<Buffer> {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({
+      viewport: { width: options.width, height: options.height },
+    });
+    await page.goto(url, { waitUntil: "load", timeout: 30_000 });
+    if (options.settleMs) await page.waitForTimeout(options.settleMs);
+    return await page.screenshot({ type: "jpeg", quality: options.quality ?? 70 });
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}

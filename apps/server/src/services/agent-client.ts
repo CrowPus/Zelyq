@@ -171,6 +171,21 @@ export class AgentClient {
     return await this.createSession(input);
   }
 
+  /** A JPEG of the project's running preview, taken by the agent's browser. */
+  async thumbnail(projectId: string): Promise<Buffer> {
+    const response = await fetch(
+      `${this.baseUrl}/projects/${encodeURIComponent(projectId)}/thumbnail`,
+      { method: "POST", signal: AbortSignal.timeout(60_000) },
+    );
+    if (!response.ok) {
+      throw new ZelyqError(
+        "runtime_unavailable",
+        `Could not capture the preview (${response.status})`,
+      );
+    }
+    return Buffer.from(await response.arrayBuffer());
+  }
+
   async destroySession(sessionId: string): Promise<void> {
     await fetch(`${this.baseUrl}/sessions/${sessionId}`, { method: "DELETE" }).catch(
       () => undefined,
