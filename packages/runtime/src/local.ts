@@ -842,6 +842,38 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     };
   }
 
+  async restoreSnapshotFile(
+    projectId: string,
+    snapshotId: string,
+    filePath: string,
+  ): Promise<void> {
+    const snapshotRoot = path.join(this.snapshotDir(projectId), snapshotId);
+    const source = resolveInside(snapshotRoot, filePath);
+    await assertRealPathInside(snapshotRoot, source);
+    const stat = await fs.stat(source).catch(() => null);
+    if (!stat?.isFile()) throw ZelyqError.notFound("File", filePath);
+
+    const root = await this.requireRoot(projectId);
+    const absolute = resolveInside(root, filePath);
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    await assertRealPathInside(root, absolute);
+    const existing = await fs.lstat(absolute).catch(() => null);
+    if (existing?.isSymbolicLink()) {
+      throw ZelyqError.badRequest(`Refusing to write through a symlink: ${filePath}`);
+    }
+    // Copied, never linked: a later snapshot hard-links unchanged files to
+    // this one's copies, so the live file must not share their inode — an
+    // in-place write to it would reach back into every snapshot.
+    const tmp = `${absolute}.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      await fs.copyFile(source, tmp);
+      await fs.rename(tmp, absolute);
+    } catch (error) {
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
   async restoreSnapshot(projectId: string, snapshotId: string): Promise<void> {
     const root = await this.requireRoot(projectId);
     const source = path.join(this.snapshotDir(projectId), snapshotId);

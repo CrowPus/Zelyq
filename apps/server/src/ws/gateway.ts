@@ -630,6 +630,7 @@ export class ChatGateway {
         override.plugins,
         override.agents,
         bridgeTokens,
+        snapshotId ?? undefined,
       )) {
         // The agent builds its own copy of the finished message, and it does not
         // know about the snapshot this server took before the turn. Broadcasting

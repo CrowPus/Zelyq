@@ -28,6 +28,9 @@ export const projectSchema = z.object({
   /** Permission for this project's agent to generate video. Separate from the
    *  image permission: a clip costs far more than a picture. */
   videoGenerationEnabled: z.boolean().default(false),
+  /** When the picture on the app's card was taken; null when there is none
+   *  yet. Only the app list carries it. */
+  thumbnailAt: z.string().datetime().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

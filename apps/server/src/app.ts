@@ -65,6 +65,7 @@ import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
+import { ThumbnailStore } from "./services/thumbnails.js";
 import { VaultService } from "./services/vault.js";
 import { VaultKeyService } from "./services/vault-keys.js";
 import { VideoAssetStore } from "./services/video-assets.js";
@@ -133,6 +134,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const runtime = createRuntimeDriver(config.runtime);
   const agent = new AgentClient(config.agentUrl);
   const projects = new ProjectService(store, runtime, config);
+  const thumbnails = new ThumbnailStore(
+    path.join(path.dirname(config.attachmentsDir), "thumbnails"),
+    (projectId) => agent.thumbnail(projectId),
+    app.log,
+  );
   const secrets = new SecretBox(
     resolveSecretKey({
       envKey: config.secretKey,
@@ -344,6 +350,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     templatesDir: config.templatesDir,
     runtime,
     vault,
+    thumbnails,
   });
   registerFileRoutes(app, { projects, runtime, access, images, videos });
   registerPreviewRoutes(app, {
@@ -353,6 +360,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     templatesDir: config.templatesDir,
     resolvePreviewEnv,
     backend: projectBackend,
+    thumbnails,
   });
   registerSupabaseConnectionRoutes(app, { supabase: supabaseConnections, access, runtime });
   registerFigmaRoutes(app, { figma: figmaConnections, access });
@@ -464,6 +472,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
 
   gateway.appChanged = async (projectId) => {
     const project = await store.projects.findById(projectId);
+    // A new picture for the app list, once hot reload has caught up. Only
+    // while the preview is running: an app is never started just for this.
+    void runtime
+      .previewStatus(projectId)
+      .then(async (preview) => {
+        if (preview.status === "running") await thumbnails.capture(projectId, 4000);
+      })
+      .catch(() => undefined);
     if (project) await pipelineTriggers.appChanged(project);
   };
 

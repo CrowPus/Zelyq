@@ -198,6 +198,16 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
     );
   }
 
+  async restoreSnapshotFile(
+    projectId: string,
+    snapshotId: string,
+    filePath: string,
+  ): Promise<void> {
+    await this.request("POST", `/v1/projects/${projectId}/snapshots/${snapshotId}/restore-file`, {
+      path: filePath,
+    });
+  }
+
   async dispose(): Promise<void> {
     // Nothing is held open locally; the host owns every resource.
   }

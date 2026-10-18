@@ -23,6 +23,11 @@ Test, build and deploy on your own machines — with pipelines, environments and
 
 <br />
 
+<img src="assets/screenshots/apps-grid.png" alt="Zelyq's Apps page: a grid of apps built with the agent, each card showing a live picture of the running app with its name, stack and when it last changed" width="100%" />
+
+<br />
+<br />
+
 <video src="https://github.com/user-attachments/assets/64062944-e922-4407-8a4c-91c85d9a452d" autoplay loop muted playsinline controls width="900"></video>
 
 </div>
