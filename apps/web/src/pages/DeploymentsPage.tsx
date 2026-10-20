@@ -24,6 +24,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { AgentRequests, forDeployments } from "../components/agents/AgentRequests";
 import {
   FilterSelect,
   ListToolbar,
@@ -96,6 +97,12 @@ export function DeploymentsPage() {
 
           {!team ? null : (
             <>
+              <AgentRequests
+                teamId={team.id}
+                canDecide={isAdmin}
+                only={forDeployments}
+                waitingOnly
+              />
               {adding && <EnvironmentForm team={team} onDone={() => setAdding(false)} />}
               {environments.isLoading ? (
                 <Spinner />

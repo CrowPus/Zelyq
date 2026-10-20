@@ -46,6 +46,7 @@ export const ID_PREFIXES = {
   vaultServiceKey: "vsk",
   pipeline: "pip",
   pipelineRun: "run",
+  pipelineVersion: "pvn",
   pipelineStep: "pst",
   pipelineArtifact: "par",
   pipelineTrigger: "ptr",
@@ -56,6 +57,9 @@ export const ID_PREFIXES = {
   deployApp: "dap",
   runner: "rnr",
   teamSshKey: "tsk",
+  agent: "agt",
+  agentProposal: "apr",
+  agentReference: "arf",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

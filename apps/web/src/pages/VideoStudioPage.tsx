@@ -13,6 +13,7 @@ import {
   minFrameCount,
   minFrameWidth,
   randomUUID,
+  roleAtLeast,
   type VideoFrameSet,
   type VideoGeneration,
   type VideoGenerationInput,
@@ -38,8 +39,10 @@ import {
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { AgentRequests, forStudio } from "../components/agents/AgentRequests";
 import { StudioSwitch } from "../components/StudioSwitch";
 import { Button, Spinner } from "../components/ui";
+import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { ApiError, api } from "../lib/api";
 
@@ -82,6 +85,7 @@ const examples = [
 
 export function VideoStudioPage() {
   const { user } = useSession();
+  const { team } = useActiveTeam();
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("video");
@@ -313,6 +317,15 @@ export function VideoStudioPage() {
               <Settings2 size={14} /> Video settings <ArrowUpRight size={13} />
             </Link>
           </header>
+          {/* Videos an agent asked for, approved here where the video is made. */}
+          {team && (
+            <AgentRequests
+              teamId={team.id}
+              canDecide={roleAtLeast(team.role, "admin")}
+              only={forStudio}
+              waitingOnly
+            />
+          )}
           {caps.isError && (
             <p role="alert" className="mb-4 text-sm text-danger">
               {caps.error.message}

@@ -246,6 +246,41 @@
       "when": 1791806634897,
       "tag": "0034_deploy_apps",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1792440854479,
+      "tag": "0035_agents",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1792478333686,
+      "tag": "0036_agent_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1792479299611,
+      "tag": "0037_pipeline_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1792482274143,
+      "tag": "0038_agent_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1792485475785,
+      "tag": "0039_agent_references",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { createDatabase, type DatabaseHandle } from "./client.js";
+import { agentRepository } from "./repositories/agents.js";
 import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { deployRepository } from "./repositories/deploy.js";
@@ -33,6 +34,7 @@ export type {
   PipelineRunRow,
   PipelineStepRow,
   PipelineTriggerRow,
+  PipelineVersionRow,
   RunnerRow,
   TeamSshKeyRow,
 } from "./repositories/pipelines.js";
@@ -73,6 +75,7 @@ export interface Store extends DatabaseHandle {
   vault: ReturnType<typeof vaultRepository>;
   pipelines: ReturnType<typeof pipelineRepository>;
   deploy: ReturnType<typeof deployRepository>;
+  agents: ReturnType<typeof agentRepository>;
 }
 
 /**
@@ -100,7 +103,9 @@ export function createStore(url: string): Store {
     vault: vaultRepository(handle.db),
     pipelines: pipelineRepository(handle.db),
     deploy: deployRepository(handle.db),
+    agents: agentRepository(handle.db),
   };
 }
 
+export type { AgentProposalRow, AgentReferenceRow, AgentRow } from "./repositories/agents.js";
 export type { DeployAppRow, DeployEnvironmentRow, DeploymentRow } from "./repositories/deploy.js";

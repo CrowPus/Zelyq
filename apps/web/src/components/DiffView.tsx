@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { collapseUnchanged, countChanges, diffLines } from "../lib/diff";
+import { collapseUnchanged, countChanges, type DiffLine, diffLines } from "../lib/diff";
 import { Spinner } from "./ui";
 
 /** An absent file is an empty side, not an error: the turn created or deleted it. */
@@ -76,6 +76,36 @@ export function DiffView({ projectId, beforeSnapshotId, afterSnapshotId, path, c
     );
   }
 
+  return <DiffTable lines={lines} added={added} removed={removed} />;
+}
+
+/** Two texts side by side as a line diff: what was removed, what was added. */
+export function TextDiff({
+  before,
+  after,
+  empty = "Nothing changed.",
+}: {
+  before: string;
+  after: string;
+  empty?: string;
+}) {
+  const lines = diffLines(before, after);
+  const { added, removed } = countChanges(lines);
+  if (added === 0 && removed === 0) {
+    return <p className="px-3 py-3 text-xs text-fg-muted">{empty}</p>;
+  }
+  return <DiffTable lines={lines} added={added} removed={removed} />;
+}
+
+function DiffTable({
+  lines,
+  added,
+  removed,
+}: {
+  lines: DiffLine[];
+  added: number;
+  removed: number;
+}) {
   const rows = collapseUnchanged(lines);
 
   return (
