@@ -19,6 +19,8 @@ export function imageRepository(db: ZelyqDb) {
         projectId?: string;
         projectName?: string;
         sessionId?: string;
+        /** An outside agent's Vault secret paying for this image. */
+        keyRef?: { teamId: string; name: string };
       } = {},
     ) {
       const storedInput = {
@@ -39,6 +41,7 @@ export function imageRepository(db: ZelyqDb) {
         projectId: origin.projectId ?? "",
         projectName: origin.projectName ?? "",
         sessionId: origin.sessionId ?? "",
+        keyRef: origin.keyRef ? JSON.stringify(origin.keyRef) : null,
         activeOwner: ownerId,
         createdAt: new Date().toISOString(),
       });

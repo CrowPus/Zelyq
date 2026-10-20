@@ -164,6 +164,14 @@ export class VideoGenerationService {
     const n = await this.settings.numberValue("videoHourlyLimit");
     return Number.isInteger(n) && n > 0 ? Math.min(n, 1000) : 5;
   }
+  /** Reads an outside agent's provider key from Vault; set in app.ts. */
+  keyResolver?: (ref: { teamId: string; name: string }) => Promise<string | null>;
+
+  private async resolveKeyRef(ref: { teamId: string; name: string }): Promise<string | null> {
+    const key = await this.keyResolver?.(ref);
+    return key?.trim() ? key : null;
+  }
+
   async capabilities(): Promise<VideoCapabilities> {
     const chosen = await this.settings.value("videoProvider");
     const providers = await Promise.all(
@@ -319,6 +327,9 @@ export class VideoGenerationService {
       projectId?: string;
       projectName?: string;
       sessionId?: string;
+      /** An outside agent's own key, from the team's Vault: used instead of the
+       * instance's, and never falls back to it. */
+      keyRef?: { teamId: string; name: string };
     } = {},
   ) {
     input = videoGenerationInputSchema.parse(input);
@@ -338,12 +349,18 @@ export class VideoGenerationService {
     const error = videoInputError(input);
     if (error) throw ZelyqError.badRequest(error);
     const cap = (await this.capabilities()).providers.find((p) => p.id === input.provider)!;
-    if (!cap.configured)
+    if (!origin.keyRef && !cap.configured)
       throw ZelyqError.badRequest(
         "Configure this video provider's key and model in Settings first.",
       );
     if (input.referenceId) await this.reference(ownerId, input.referenceId);
-    const key = await this.settings.value(keySetting(input.provider));
+    const key = origin.keyRef
+      ? ((await this.resolveKeyRef(origin.keyRef)) ?? "")
+      : await this.settings.value(keySetting(input.provider));
+    if (origin.keyRef && !key)
+      throw ZelyqError.badRequest(
+        `${origin.keyRef.name} is not in the team's Vault, so this agent has no video key.`,
+      );
     const row = await this.store.videos.create(
       {
         id: newId("videoGeneration"),
@@ -359,6 +376,7 @@ export class VideoGenerationService {
         projectId: origin.projectId ?? "",
         projectName: origin.projectName ?? "",
         sessionId: origin.sessionId ?? "",
+        keyRef: origin.keyRef ? JSON.stringify(origin.keyRef) : null,
         activeOwner: ownerId,
         storageBytes: maxVideoBytes,
         createdAt: iso(),
@@ -492,7 +510,9 @@ export class VideoGenerationService {
     try {
       const input = JSON.parse(row.input) as VideoGenerationInput;
       const provider = this.providers[input.provider];
-      const key = await this.settings.value(keySetting(input.provider));
+      const key = row.keyRef
+        ? ((await this.resolveKeyRef(JSON.parse(row.keyRef))) ?? "")
+        : await this.settings.value(keySetting(input.provider));
       if (!key || digest(key) !== row.credentialDigest) {
         await finish(
           newlyClaimed ? "failed" : "unknown",

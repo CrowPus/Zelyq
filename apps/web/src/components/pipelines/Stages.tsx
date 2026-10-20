@@ -9,6 +9,7 @@ import {
   TimerOff,
   XCircle,
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { duration, RUN_STATUS } from "../../lib/pipelines";
 
 const ICONS: Record<StepStatus | "queued", typeof CheckCircle2> = {
@@ -92,6 +93,31 @@ export function StageGraph({
   selected: number | null;
   onSelect: (index: number) => void;
 }) {
+  // The stage that matters — the one picked, else the one running, else the
+  // last that ran — stays in the strip's frame as the run moves along, so a
+  // long pipeline never needs scrolling by hand to see where it is. Only the
+  // strip scrolls, never the page, and only when that stage changes.
+  const strip = useRef<HTMLDivElement>(null);
+  const focus =
+    selected ??
+    stages.find((stage) => stage.status === "running" || stage.status === "waiting")?.index ??
+    [...stages].reverse().find((stage) => stage.startedAt)?.index ??
+    null;
+  useEffect(() => {
+    const container = strip.current;
+    if (focus === null || !container) return;
+    const box = container.querySelector<HTMLElement>(`[data-stage="${focus}"]`);
+    if (!box) return;
+    const left = box.offsetLeft; // the strip is the positioned parent
+    const right = left + box.offsetWidth;
+    const view = { from: container.scrollLeft, to: container.scrollLeft + container.clientWidth };
+    if (left >= view.from && right <= view.to) return;
+    container.scrollTo({
+      left: Math.max(0, left - (container.clientWidth - box.offsetWidth) / 2),
+      behavior: "smooth",
+    });
+  }, [focus]);
+
   const columns: RunStageSummary[][] = [];
   for (const stage of stages) {
     const group = groups.find((members) => members.includes(stage.index));
@@ -103,7 +129,7 @@ export function StageGraph({
     }
   }
   return (
-    <div className="overflow-x-auto pb-2">
+    <div ref={strip} className="relative overflow-x-auto pb-2">
       <ol className="flex min-w-max items-center">
         {columns.map((column, position) => (
           <li key={column[0]?.index} className="flex items-center">
@@ -151,6 +177,7 @@ function StageBox({
       type="button"
       onClick={() => onSelect(stage.index)}
       aria-pressed={selected}
+      data-stage={stage.index}
       className={`flex w-44 flex-col gap-1 rounded-md border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong ${
         selected ? "border-primary ring-1 ring-primary" : "border-border-default"
       } ${stage.status === "skipped" ? "opacity-60" : ""}`}

@@ -1627,6 +1627,18 @@ export const triggerInputSchema = z.discriminatedUnion("kind", [
 ]);
 export type TriggerInput = z.input<typeof triggerInputSchema>;
 
+/** One saved version of a pipeline's file, for its history. */
+export interface PipelineVersionSummary {
+  version: number;
+  name: string;
+  /** How it came about: "Restored version 3", "By Claude Code (agent)", … */
+  note: string | null;
+  by: { id: string; name: string } | null;
+  createdAt: string;
+  /** The version the pipeline has now. */
+  current: boolean;
+}
+
 export interface PipelineTriggerSummary {
   id: string;
   kind: "push" | "schedule" | "app" | "pipeline";

@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bot,
   Check,
   ChevronRight,
   ChevronsUpDown,
@@ -156,6 +157,12 @@ const SECTIONS: {
         label: "Studio",
         icon: Palette,
         match: (p) => p.startsWith("/studio"),
+      },
+      {
+        to: "/agents",
+        label: "Agents",
+        icon: Bot,
+        match: (p) => p.startsWith("/agents"),
       },
     ],
   },

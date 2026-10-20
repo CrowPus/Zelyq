@@ -107,6 +107,13 @@ export async function downloadVideo(
 }
 
 const googleBase = "https://generativelanguage.googleapis.com/v1beta";
+/** A provider's own words, made safe to show: one line, plain text, bounded. */
+function providerReason(text: unknown): string {
+  if (typeof text !== "string" || !text.trim()) return "";
+  const line = text.replace(/[<>]/g, " ").replace(/\s+/g, " ").trim();
+  return `: ${line.slice(0, 300)}`;
+}
+
 export const videoProviders: Record<VideoProviderId, VideoProvider> = {
   google: {
     async submit(input, reference, key, signal) {
@@ -159,16 +166,25 @@ export const videoProviders: Record<VideoProviderId, VideoProvider> = {
       if (result.error)
         return {
           status: "failed",
-          error:
-            "Google could not generate this clip. Adjust the prompt or check video model access.",
+          error: `Google could not generate this clip${providerReason(result.error?.message)}. Adjust the prompt or check video model access.`,
         };
       if (result.done !== true) return { status: "pending" };
-      const url = result.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
-      if (typeof url !== "string")
+      const generated = result.response?.generateVideoResponse;
+      const url = generated?.generatedSamples?.[0]?.video?.uri;
+      if (typeof url !== "string") {
+        // Google says why it filtered a video; that reason is what lets
+        // someone fix the prompt, so it is passed on rather than guessed at.
+        const reasons: unknown[] = Array.isArray(generated?.raiMediaFilteredReasons)
+          ? generated.raiMediaFilteredReasons
+          : [];
+        const reason = reasons.find((entry): entry is string => typeof entry === "string");
         return {
           status: "failed",
-          error: "Google returned no usable video. The request may have been filtered.",
+          error: reason
+            ? `Google declined this video: ${providerReason(reason).replace(/^: /, "")}`
+            : "Google returned no usable video. The request may have been filtered.",
         };
+      }
       return { status: "done", url };
     },
     download: (url, key, signal) => downloadVideo("google", url, key, signal),

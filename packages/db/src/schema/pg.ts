@@ -902,6 +902,9 @@ export const imageGenerations = pgTable(
     projectId: text("project_id").notNull().default(""),
     projectName: text("project_name").notNull().default(""),
     sessionId: text("session_id").notNull().default(""),
+    /** JSON {"teamId","name"}: the Vault secret this job's provider key comes
+     * from (an outside agent's), instead of the instance's settings. */
+    keyRef: text("key_ref"),
     status: text("status").notNull().default("queued"),
     // One outstanding request per user; NULL releases the slot.
     activeOwner: text("active_owner"),
@@ -993,6 +996,9 @@ export const videoGenerations = pgTable(
     projectId: text("project_id").notNull().default(""),
     projectName: text("project_name").notNull().default(""),
     sessionId: text("session_id").notNull().default(""),
+    /** JSON {"teamId","name"}: the Vault secret this job's provider key comes
+     * from (an outside agent's), instead of the instance's settings. */
+    keyRef: text("key_ref"),
     createdAt: text("created_at").notNull(),
     completedAt: text("completed_at"),
     deletedAt: text("deleted_at"),
@@ -1009,6 +1015,133 @@ export const videoGenerations = pgTable(
     activeIdx: uniqueIndex("video_generations_active_idx").on(table.activeOwner),
     slotIdx: uniqueIndex("video_generations_slot_idx").on(table.workerSlot),
     historyIdx: index("video_generations_history_idx").on(table.ownerId, table.createdAt),
+  }),
+);
+
+/**
+ * Outside AI agents (Claude Code, Codex, any MCP client) working on a team's
+ * apps through `/agent-gateway/mcp`. The key is shown once and stored only as
+ * a SHA-256 hash, like a Vault service key. `projectIds` is a JSON array, or
+ * null for every app in the team; `permissions` is a JSON object of
+ * permission group to "off" | "allow" | "approve".
+ */
+export const agents = pgTable(
+  "agents",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    job: text("job").notNull().default(""),
+    projectIds: text("project_ids"),
+    /** JSON arrays like `projectIds`: the pipelines and the deploy environments it
+     * may see and use; null for every one in the team. */
+    pipelineIds: text("pipeline_ids"),
+    environmentIds: text("environment_ids"),
+    /** JSON: which provider and which Vault secret pay for this agent's
+     * images and video, e.g. {"image":{"provider":"openai","secret":"OPENAI_API_KEY"}}.
+     * Null: none — never the instance's own keys. */
+    media: text("media"),
+    permissions: text("permissions").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull(),
+    revokedAt: text("revoked_at"),
+    lastUsedAt: text("last_used_at"),
+    lastUsedIp: text("last_used_ip"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    hashIdx: uniqueIndex("agents_key_hash_idx").on(table.keyHash),
+    teamIdx: index("agents_team_idx").on(table.teamId),
+  }),
+);
+
+/**
+ * What an agent asked a person to approve: a push, a pipeline run. Nothing
+ * happens until someone with the right role approves it; it is then carried
+ * out as that person, with their permissions.
+ */
+export const agentProposals = pgTable(
+  "agent_proposals",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    projectId: text("project_id"),
+    actionType: text("action_type").notNull(),
+    title: text("title").notNull(),
+    reason: text("reason"),
+    payload: text("payload").notNull(),
+    status: text("status").notNull().default("pending"),
+    result: text("result"),
+    decidedBy: text("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: text("decided_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    teamStatusIdx: index("agent_proposals_team_status_idx").on(table.teamId, table.status),
+  }),
+);
+
+/**
+ * Every saved version of a pipeline's file, so what changed can be seen as a
+ * diff and an earlier version put back. Written by the pipeline repository on
+ * every save — by a person, an agent, or a sync from the repository — so no
+ * path can skip it. `note` says how it came about ("Restored version 3",
+ * "By Claude Code (agent)").
+ */
+export const pipelineVersions = pgTable(
+  "pipeline_versions",
+  {
+    id: text("id").primaryKey(),
+    pipelineId: text("pipeline_id")
+      .notNull()
+      .references(() => pipelines.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    version: integer("version").notNull(),
+    name: text("name").notNull(),
+    source: text("source").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    versionIdx: uniqueIndex("pipeline_versions_pipeline_version_idx").on(
+      table.pipelineId,
+      table.version,
+    ),
+  }),
+);
+
+/**
+ * Images an outside agent was given to work from in Studio — a person's
+ * portrait, a logo — imported by link, by file or from one of its apps. Used
+ * as references for its images and as starting frames for its videos. The
+ * file itself is in the data folder; deleting the agent deletes these.
+ */
+export const agentReferences = pgTable(
+  "agent_references",
+  {
+    id: text("id").primaryKey(),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    name: text("name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    agentIdx: index("agent_references_agent_idx").on(table.agentId),
   }),
 );
 
@@ -1050,4 +1183,8 @@ export const schema = {
   providerResources,
   projectProviderLinks,
   providerOperations,
+  agents,
+  agentProposals,
+  pipelineVersions,
+  agentReferences,
 };

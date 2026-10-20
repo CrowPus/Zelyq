@@ -37,6 +37,7 @@ import {
 } from "./videos.js";
 import { walkPreviewTool } from "./walk-preview.js";
 
+export { CaptureBlockedError, guardedFetch } from "./capture-fetch-guard.js";
 export { IMAGE_TOOL_NAMES } from "./images.js";
 export { PLAN_FILE } from "./plan.js";
 export { capturePage } from "./preview.js";

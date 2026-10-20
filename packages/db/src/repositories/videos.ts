@@ -107,6 +107,15 @@ export function videoRepository(db: ZelyqDb) {
         return (await tx.insert(jobs).values(row).returning())[0]!;
       });
     },
+    /** Whether this person has a video still being made: Studio allows one at a time. */
+    async hasActive(ownerId: string): Promise<boolean> {
+      const [row] = await db
+        .select({ id: jobs.id })
+        .from(jobs)
+        .where(eq(jobs.activeOwner, ownerId))
+        .limit(1);
+      return Boolean(row);
+    },
     async history(ownerId: string, before?: VideoJobRow) {
       return db
         .select()

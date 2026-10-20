@@ -6,12 +6,14 @@ import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import { isZelyqError, toError, type User, ZelyqError } from "@zelyq/core";
+import { resolveFromRepoRoot } from "@zelyq/core/node";
 import { createStore, type Store } from "@zelyq/db";
 import { createRuntimeDriver, type RuntimeDriver } from "@zelyq/runtime";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { ServerConfig } from "./config.js";
 import { registerAccountRoutes } from "./routes/accounts.js";
+import { registerAgentRoutes } from "./routes/agents.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
 import { registerDeployRoutes } from "./routes/deploy.js";
@@ -39,6 +41,9 @@ import { registerVoiceRoutes } from "./routes/voice.js";
 import { AccessControl } from "./services/access.js";
 import { AccountService } from "./services/accounts.js";
 import { AgentClient } from "./services/agent-client.js";
+import { AgentGateway, pipelineGuide } from "./services/agent-gateway.js";
+import { AgentReferenceStore } from "./services/agent-references.js";
+import { AgentService } from "./services/agents.js";
 import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
 import { DeployService } from "./services/deploy.js";
@@ -48,6 +53,7 @@ import { FunctionSecretSync } from "./services/function-secrets.js";
 import { ImageAssetStore } from "./services/image-assets.js";
 import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
+import { ensureInspectorScript } from "./services/inspector-script.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
 import { PipelinePluginService } from "./services/pipelines/plugins.js";
@@ -371,6 +377,56 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   registerSnapshotRoutes(app, { projects, runtime, store, access });
   registerVaultRoutes(app, { vault, access });
+
+  // Outside agents (Claude Code, Codex, any MCP client) working on the team's
+  // apps. The editor hears about their file changes through the chat gateway,
+  // which is built further down: `agentFilesChanged` reaches it once it exists.
+  const agentReferences = new AgentReferenceStore(
+    path.join(path.dirname(config.attachmentsDir), "agent-references"),
+  );
+  const agents = new AgentService(
+    store,
+    access,
+    projects,
+    vault,
+    pipelines,
+    deploys,
+    pipelineTriggers,
+    videos,
+    images,
+    agentReferences,
+  );
+  // An outside agent's images and video are paid with its own key from the
+  // team's Vault — read at the moment the provider is called, never stored.
+  const agentKey = async (ref: { teamId: string; name: string }) =>
+    (await vault.resolve(ref.teamId, [ref.name])).get(ref.name) ?? null;
+  images.keyResolver = agentKey;
+  videos.keyResolver = agentKey;
+  let agentFilesChanged: (projectId: string, paths: string[]) => void = () => undefined;
+  const agentGateway = new AgentGateway({
+    store,
+    references: agentReferences,
+    images,
+    videos,
+    pipelines,
+    deploys,
+    pipelineGuide: readPipelineGuide(),
+    runtime,
+    agents,
+    projects,
+    variables,
+    startPreview: async (projectId, restart) => {
+      await ensureInspectorScript(runtime, config.templatesDir, projectId);
+      const env = await resolvePreviewEnv(projectId);
+      if (restart) await runtime.stopPreview(projectId);
+      return runtime.startPreview(
+        projectId,
+        projectBackend ? await projectBackend.previewOptions(projectId, env) : { env },
+      );
+    },
+    filesChanged: (projectId, paths) => agentFilesChanged(projectId, paths),
+  });
+  registerAgentRoutes(app, { agents, gateway: agentGateway, access });
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
   registerDeployRoutes(app, { access, deploys });
   registerPipelineRoutes(app, {
@@ -463,6 +519,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     { bridge: videoBridge, serverInternalUrl: config.serverInternalUrl },
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
+  agentFilesChanged = (projectId, paths) => gateway.notifyFilesChanged(projectId, paths);
 
   // Pipelines starting other pipelines: a `pipeline` step, and "after another pipeline" triggers.
   pipelineEngine.hooks = {
@@ -549,4 +606,21 @@ function isNavigation(url: string, accept: string | undefined): boolean {
 /** Request-by-request logging is only useful when you asked for the detail. */
 function isVerbose(logLevel: string): boolean {
   return logLevel === "debug" || logLevel === "trace";
+}
+
+/**
+ * What an outside agent reads before writing a pipeline: the relevant parts of
+ * the docs this server ships with. Empty when they are not installed — the
+ * tool then points at the repository instead.
+ */
+function readPipelineGuide(): string {
+  try {
+    const docs = resolveFromRepoRoot("docs");
+    return pipelineGuide(
+      fs.readFileSync(path.join(docs, "pipelines.md"), "utf8"),
+      fs.readFileSync(path.join(docs, "deploy.md"), "utf8"),
+    );
+  } catch {
+    return "";
+  }
 }

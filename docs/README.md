@@ -29,6 +29,11 @@ and test, build and deploy them on your own machines. These pages follow the sid
 - [Video](./Video-gen/README.md), [frame export](./Video-gen/frame-export.md), and
   [using it from an app](./Video-gen/agent-integration.md)
 
+**Agents** — Claude Code, Cursor, ChatGPT or any MCP client working inside Zelyq.
+
+- [Agents](./agents.md): create one, connect it, permissions, approvals, Studio on its own key,
+  pipeline history
+
 ## Secure
 
 - [Vault](./vault.md): add, reveal and version secrets; Protected secrets; using them in apps,

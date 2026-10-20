@@ -152,6 +152,37 @@ export function registerPipelineRoutes(
     );
     reply.code(204);
   });
+  // A pipeline's history: every saved version, one version's file, and putting
+  // an earlier version back (saved as a new version, so it can be undone too).
+  app.get<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/versions", async (request) => ({
+    versions: await pipelines.versions(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.pipelineId,
+    ),
+  }));
+  app.get<{ Params: { teamId: string; pipelineId: string; version: string } }>(
+    "/api/teams/:teamId/pipelines/:pipelineId/versions/:version",
+    async (request) => ({
+      version: await pipelines.version(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.pipelineId,
+        Number.parseInt(request.params.version, 10),
+      ),
+    }),
+  );
+  app.post<{ Params: { teamId: string; pipelineId: string; version: string } }>(
+    "/api/teams/:teamId/pipelines/:pipelineId/versions/:version/restore",
+    async (request) => ({
+      pipeline: await pipelines.restore(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.pipelineId,
+        Number.parseInt(request.params.version, 10),
+      ),
+    }),
+  );
   app.post<Pipe>("/api/teams/:teamId/pipelines/:pipelineId/runs", async (request, reply) => {
     reply.code(201);
     const body = runStartSchema.parse(request.body ?? {});

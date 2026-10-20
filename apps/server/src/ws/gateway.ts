@@ -752,6 +752,16 @@ export class ChatGateway {
     return room;
   }
 
+  /**
+   * Files changed by something other than this room's own turn — an outside
+   * agent through the agent gateway. Anyone with the app open refreshes the
+   * tree and open editors, the same way they do after a turn.
+   */
+  notifyFilesChanged(projectId: string, paths: string[]): void {
+    const room = this.rooms.get(projectId);
+    if (room) this.broadcast(room, { type: "files.changed", sessionId: room.sessionId, paths });
+  }
+
   private broadcast(room: Room, event: AgentEvent): void {
     for (const socket of room.sockets) send(socket, event);
   }

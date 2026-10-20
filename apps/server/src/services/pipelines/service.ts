@@ -10,6 +10,7 @@ import {
   type PipelineRunSummary,
   type PipelineStats,
   type PipelineSummary,
+  type PipelineVersionSummary,
   parsePipelineFile,
   parsePluginRef,
   pipelineTarget,
@@ -256,24 +257,54 @@ export class PipelineService {
     return { ok: true, issues: [], warnings: await this.warnings(teamId, parsed.file) };
   }
 
-  async create(user: User, teamId: string, source: string): Promise<PipelineDetail> {
+  /**
+   * What a pipeline file reaches, as it will run (templates expanded): its
+   * source app's name and the environments its deploy steps go to. Null when
+   * the file is not valid yet.
+   */
+  async targets(
+    user: User,
+    teamId: string,
+    source: string,
+  ): Promise<{ app: string | null; environments: string[] } | null> {
+    await this.access.requireTeamRole(user, teamId, "viewer");
+    const expanded = expandTemplates(source, await this.templates(teamId));
+    if (!expanded.ok) return null;
+    const parsed = parsePipelineFile(expanded.text);
+    if (!parsed.ok) return null;
+    const environments = new Set<string>();
+    for (const stage of parsed.file.stages) {
+      for (const step of stage.steps) if (step.deploy) environments.add(step.deploy.to);
+    }
+    return { app: parsed.file.source?.app ?? null, environments: [...environments] };
+  }
+
+  async create(
+    user: User,
+    teamId: string,
+    source: string,
+    options: { note?: string } = {},
+  ): Promise<PipelineDetail> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const file = await this.validate(user, teamId, source);
     if (await this.store.pipelines.pipelines.findByName(teamId, file.name)) {
       throw new ZelyqError("conflict", `There is already a pipeline called ${file.name}.`);
     }
     const now = new Date().toISOString();
-    const row = await this.store.pipelines.pipelines.create({
-      id: newId("pipeline"),
-      teamId,
-      name: file.name,
-      source,
-      repoPath: null,
-      createdBy: user.id,
-      updatedBy: user.id,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const row = await this.store.pipelines.pipelines.create(
+      {
+        id: newId("pipeline"),
+        teamId,
+        name: file.name,
+        source,
+        repoPath: null,
+        createdBy: user.id,
+        updatedBy: user.id,
+        createdAt: now,
+        updatedAt: now,
+      },
+      { note: options.note ?? null },
+    );
     await this.access.recordChange(user, {
       teamId,
       action: "pipeline.created",
@@ -287,6 +318,7 @@ export class PipelineService {
     teamId: string,
     pipelineId: string,
     source: string,
+    options: { note?: string } = {},
   ): Promise<PipelineDetail> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const row = await this.find(teamId, pipelineId);
@@ -303,18 +335,80 @@ export class PipelineService {
         throw new ZelyqError("conflict", `There is already a pipeline called ${file.name}.`);
     }
     if (source === row.source) return this.get(user, teamId, row.id);
-    await this.store.pipelines.pipelines.update(row.id, {
-      name: file.name,
-      source,
-      updatedBy: user.id,
-      updatedAt: new Date().toISOString(),
-    });
+    await this.store.pipelines.pipelines.update(
+      row.id,
+      { name: file.name, source, updatedBy: user.id, updatedAt: new Date().toISOString() },
+      { note: options.note ?? null },
+    );
     await this.access.recordChange(user, {
       teamId,
       action: "pipeline.updated",
       detail: { label: file.name, ...(file.name !== row.name ? { previous: row.name } : {}) },
     });
     return this.get(user, teamId, row.id);
+  }
+
+  /** Every saved version of a pipeline, newest first: who, when, how. */
+  async versions(
+    user: User,
+    teamId: string,
+    pipelineId: string,
+  ): Promise<PipelineVersionSummary[]> {
+    await this.access.requireTeamRole(user, teamId, "viewer");
+    const row = await this.find(teamId, pipelineId);
+    const versions = await this.store.pipelines.versions.list(row.id);
+    const people = new Map<string, string>();
+    for (const id of new Set(versions.map((v) => v.createdBy).filter(Boolean) as string[])) {
+      const person = await this.store.users.findById(id);
+      if (person) people.set(id, person.name);
+    }
+    const latest = versions[0]?.version ?? 0;
+    return versions.map((version) => ({
+      version: version.version,
+      name: version.name,
+      note: version.note,
+      by: version.createdBy
+        ? { id: version.createdBy, name: people.get(version.createdBy) ?? "Someone" }
+        : null,
+      createdAt: version.createdAt,
+      current: version.version === latest,
+    }));
+  }
+
+  /** One saved version with its file. */
+  async version(
+    user: User,
+    teamId: string,
+    pipelineId: string,
+    version: number,
+  ): Promise<{ version: number; name: string; source: string; createdAt: string }> {
+    await this.access.requireTeamRole(user, teamId, "viewer");
+    const row = await this.find(teamId, pipelineId);
+    const found = await this.store.pipelines.versions.get(row.id, version);
+    if (!found) throw ZelyqError.notFound("Version", String(version));
+    return {
+      version: found.version,
+      name: found.name,
+      source: found.source,
+      createdAt: found.createdAt,
+    };
+  }
+
+  /**
+   * Puts an earlier version back by saving its file as a new version, so the
+   * restore is itself in the history and can be undone the same way.
+   */
+  async restore(
+    user: User,
+    teamId: string,
+    pipelineId: string,
+    version: number,
+    options: { note?: string } = {},
+  ): Promise<PipelineDetail> {
+    const found = await this.version(user, teamId, pipelineId, version);
+    return this.update(user, teamId, pipelineId, found.source, {
+      note: options.note ?? `Restored version ${version}`,
+    });
   }
 
   async remove(user: User, teamId: string, pipelineId: string): Promise<void> {
@@ -420,13 +514,17 @@ export class PipelineService {
         throw new ZelyqError("conflict", `There is already a pipeline called ${file.name}.`);
     }
     if (read.text === row.source && path === row.repoPath) return false;
-    await this.store.pipelines.pipelines.update(row.id, {
-      name: file.name,
-      source: read.text,
-      repoPath: path,
-      updatedBy: user.id,
-      updatedAt: new Date().toISOString(),
-    });
+    await this.store.pipelines.pipelines.update(
+      row.id,
+      {
+        name: file.name,
+        source: read.text,
+        repoPath: path,
+        updatedBy: user.id,
+        updatedAt: new Date().toISOString(),
+      },
+      { note: `From the repository (${path})` },
+    );
     return true;
   }
 
@@ -506,11 +604,15 @@ export class PipelineService {
         pipeline.teamId,
         parsed.file.name,
       );
-      await this.store.pipelines.pipelines.update(pipeline.id, {
-        ...(other && other.id !== pipeline.id ? {} : { name: parsed.file.name }),
-        source: read.text,
-        updatedAt: new Date().toISOString(),
-      });
+      await this.store.pipelines.pipelines.update(
+        pipeline.id,
+        {
+          ...(other && other.id !== pipeline.id ? {} : { name: parsed.file.name }),
+          source: read.text,
+          updatedAt: new Date().toISOString(),
+        },
+        { note: "From the repository's default branch" },
+      );
     }
     return { text: expanded.text, commit: read.commit };
   }

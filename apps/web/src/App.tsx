@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Spinner } from "./components/ui";
 import { useSession } from "./hooks/useSession";
+import { AgentsPage } from "./pages/AgentsPage";
 import { AppPage } from "./pages/AppPage";
 import { DeploymentsPage } from "./pages/DeploymentsPage";
 import { ImageStudioPage } from "./pages/ImageStudioPage";
@@ -86,6 +87,7 @@ function Gate() {
       <Route path="/image-studio" element={<Navigate to="/studio/image" replace />} />
       <Route path="/video-studio" element={<Navigate to="/studio/video" replace />} />
       <Route path="/vault" element={<VaultPage />} />
+      <Route path="/agents" element={<AgentsPage />} />
       <Route path="/pipelines" element={<PipelinesPage />} />
       <Route path="/deployments" element={<DeploymentsPage />} />
       <Route path="/deployments/:environmentId/apps/:app" element={<AppPage />} />

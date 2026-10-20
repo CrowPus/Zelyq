@@ -24,6 +24,8 @@ import {
 import { lazy, type ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { AgentRequests, forPipeline } from "../components/agents/AgentRequests";
+import { HistoryTab } from "../components/pipelines/HistoryTab";
 import { RepoFileBar } from "../components/pipelines/RepoFile";
 import { StageStrip, StatusIcon } from "../components/pipelines/Stages";
 import { VisualEditor } from "../components/pipelines/VisualEditor";
@@ -46,7 +48,7 @@ import { locateWarning } from "../lib/pipeline-yaml";
 import { duration, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
-type Tab = "runs" | "branches" | "file" | "triggers";
+type Tab = "runs" | "branches" | "file" | "triggers" | "history";
 
 /** One pipeline: its runs, its file, and what starts it. `/pipelines/new` is the file alone. */
 export function PipelinePage() {
@@ -110,9 +112,18 @@ export function PipelinePage() {
             />
           )}
 
+          {!isNew && team && (
+            <AgentRequests
+              teamId={team.id}
+              canDecide={roleAtLeast(team.role, "admin")}
+              only={forPipeline(id)}
+              waitingOnly
+            />
+          )}
+
           {!isNew && (
             <div role="tablist" className="mb-4 flex gap-1 border-b border-border-default">
-              {(["runs", "branches", "file", "triggers"] as const).map((value) => (
+              {(["runs", "branches", "file", "triggers", "history"] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
@@ -133,7 +144,9 @@ export function PipelinePage() {
                       ? "Branches"
                       : value === "file"
                         ? "File"
-                        : "Triggers"}
+                        : value === "triggers"
+                          ? "Triggers"
+                          : "History"}
                 </button>
               ))}
             </div>
@@ -168,7 +181,17 @@ export function PipelinePage() {
               canWrite={canWrite}
               onSaved={() => {
                 void queryClient.invalidateQueries({ queryKey: ["pipeline", team.id, id] });
+                void queryClient.invalidateQueries({
+                  queryKey: ["pipeline-versions", team.id, id],
+                });
               }}
+            />
+          ) : tab === "history" ? (
+            <HistoryTab
+              teamId={team.id}
+              pipelineId={id}
+              canWrite={canWrite}
+              inRepository={Boolean(pipeline.data.pipeline.repoPath)}
             />
           ) : tab === "triggers" ? (
             <Triggers teamId={team.id} pipelineId={id} canWrite={canWrite} />

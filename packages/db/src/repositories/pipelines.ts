@@ -1,3 +1,4 @@
+import { newId } from "@zelyq/core";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, max, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import {
@@ -7,6 +8,7 @@ import {
   teamSshKeys as keys,
   pipelineLogs as logs,
   pipelines,
+  pipelineVersions,
   pipelinePlugins as plugins,
   runners,
   pipelineRuns as runs,
@@ -17,6 +19,7 @@ import {
 export type TeamSshKeyRow = typeof keys.$inferSelect;
 export type RunnerRow = typeof runners.$inferSelect;
 export type PipelineRow = typeof pipelines.$inferSelect;
+export type PipelineVersionRow = typeof pipelineVersions.$inferSelect;
 export type PipelineRunRow = typeof runs.$inferSelect;
 export type PipelineStepRow = typeof steps.$inferSelect;
 export type PipelineLogRow = typeof logs.$inferSelect;
@@ -40,6 +43,32 @@ function inTransaction<T>(db: ZelyqDb, work: (tx: ZelyqDb) => Promise<T>): Promi
 }
 
 export function pipelineRepository(db: ZelyqDb) {
+  async function latestVersion(pipelineId: string): Promise<number> {
+    const [row] = await db
+      .select({ version: max(pipelineVersions.version) })
+      .from(pipelineVersions)
+      .where(eq(pipelineVersions.pipelineId, pipelineId));
+    return row?.version ?? 0;
+  }
+
+  async function addVersion(
+    row: Pick<PipelineRow, "id" | "teamId" | "name" | "source">,
+    createdBy: string | null,
+    note: string | null,
+  ): Promise<void> {
+    await db.insert(pipelineVersions).values({
+      id: newId("pipelineVersion"),
+      pipelineId: row.id,
+      teamId: row.teamId,
+      version: (await latestVersion(row.id)) + 1,
+      name: row.name,
+      source: row.source,
+      createdBy,
+      note,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   return {
     // ------------------------------------------------------------- SSH keys
     keys: {
@@ -101,6 +130,45 @@ export function pipelineRepository(db: ZelyqDb) {
       },
     },
 
+    // ----------------------------------------------------- pipeline versions
+    versions: {
+      /** Newest first, without the files themselves. */
+      async list(pipelineId: string, limit = 100): Promise<Omit<PipelineVersionRow, "source">[]> {
+        return await db
+          .select({
+            id: pipelineVersions.id,
+            pipelineId: pipelineVersions.pipelineId,
+            teamId: pipelineVersions.teamId,
+            version: pipelineVersions.version,
+            name: pipelineVersions.name,
+            createdBy: pipelineVersions.createdBy,
+            note: pipelineVersions.note,
+            createdAt: pipelineVersions.createdAt,
+          })
+          .from(pipelineVersions)
+          .where(eq(pipelineVersions.pipelineId, pipelineId))
+          .orderBy(desc(pipelineVersions.version))
+          .limit(limit);
+      },
+      async get(pipelineId: string, version: number): Promise<PipelineVersionRow | null> {
+        return (
+          (
+            await db
+              .select()
+              .from(pipelineVersions)
+              .where(
+                and(
+                  eq(pipelineVersions.pipelineId, pipelineId),
+                  eq(pipelineVersions.version, version),
+                ),
+              )
+              .limit(1)
+          )[0] ?? null
+        );
+      },
+      latest: latestVersion,
+    },
+
     // ------------------------------------------------------------ pipelines
     pipelines: {
       async listAll(): Promise<PipelineRow[]> {
@@ -127,12 +195,33 @@ export function pipelineRepository(db: ZelyqDb) {
           )[0] ?? null
         );
       },
-      async create(row: PipelineRow): Promise<PipelineRow> {
+      /** `note` is kept on the first version: how the pipeline came about. */
+      async create(row: PipelineRow, meta: { note?: string | null } = {}): Promise<PipelineRow> {
         await db.insert(pipelines).values(row);
+        await addVersion(row, row.createdBy, meta.note ?? null);
         return row;
       },
-      async update(id: string, patch: Partial<PipelineRow>): Promise<PipelineRow | null> {
+      /**
+       * A change to `source` is kept as a new version — whoever made it, by
+       * whatever path. A pipeline saved before versions were kept first gets
+       * its file as it stood, so the diff of this save has a "before".
+       */
+      async update(
+        id: string,
+        patch: Partial<PipelineRow>,
+        meta: { note?: string | null } = {},
+      ): Promise<PipelineRow | null> {
+        const before =
+          patch.source !== undefined
+            ? ((await db.select().from(pipelines).where(eq(pipelines.id, id)).limit(1))[0] ?? null)
+            : null;
         const [row] = await db.update(pipelines).set(patch).where(eq(pipelines.id, id)).returning();
+        if (row && before && patch.source !== undefined && patch.source !== before.source) {
+          if ((await latestVersion(id)) === 0) {
+            await addVersion(before, before.updatedBy, "Before history was kept");
+          }
+          await addVersion(row, patch.updatedBy ?? null, meta.note ?? null);
+        }
         return row ?? null;
       },
       async remove(id: string): Promise<boolean> {

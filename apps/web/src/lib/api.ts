@@ -1,5 +1,10 @@
 import type {
   AddMemberInput,
+  Agent,
+  AgentCreate,
+  AgentCreated,
+  AgentProposal,
+  AgentUpdate,
   AppAction,
   AppAddressInput,
   AppStatus,
@@ -34,6 +39,7 @@ import type {
   PipelineStats,
   PipelineSummary,
   PipelineTriggerSummary,
+  PipelineVersionSummary,
   PlaceStudioMediaInput,
   Preview,
   Project,
@@ -191,6 +197,35 @@ export const api = {
     request(`/projects/${id}/backend?environment=${environment}`, { method: "DELETE" }),
 
   /** Vault — a team's, or the instance's. No call returns a value except the reveals. */
+  /** Outside agents (Claude Code, Codex, any MCP client) and what they ask to be approved. */
+  agents: {
+    list: (teamId: string) => request<{ agents: Agent[] }>(`/teams/${teamId}/agents`),
+    create: (teamId: string, input: AgentCreate) =>
+      request<AgentCreated>(`/teams/${teamId}/agents`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (teamId: string, agentId: string, input: AgentUpdate) =>
+      request<{ agent: Agent }>(`/teams/${teamId}/agents/${agentId}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    rotate: (teamId: string, agentId: string) =>
+      request<AgentCreated>(`/teams/${teamId}/agents/${agentId}/rotate`, { method: "POST" }),
+    revoke: (teamId: string, agentId: string) =>
+      request<{ agent: Agent }>(`/teams/${teamId}/agents/${agentId}/revoke`, { method: "POST" }),
+    remove: (teamId: string, agentId: string) =>
+      request<void>(`/teams/${teamId}/agents/${agentId}`, { method: "DELETE" }),
+    requests: (teamId: string, status?: string) =>
+      request<{ requests: AgentProposal[] }>(
+        `/teams/${teamId}/agent-requests${status ? `?status=${status}` : ""}`,
+      ),
+    decide: (teamId: string, requestId: string, decision: "approve" | "decline") =>
+      request<{ request: AgentProposal }>(`/teams/${teamId}/agent-requests/${requestId}`, {
+        method: "POST",
+        body: JSON.stringify({ decision }),
+      }),
+  },
   vault: {
     list: (scope: VaultScope) => request<{ secrets: VaultEntry[] }>(vaultPath(scope)),
     choices: (scope: VaultScope) =>
@@ -264,6 +299,17 @@ export const api = {
       }),
     remove: (teamId: string, id: string) =>
       request<void>(`/teams/${teamId}/pipelines/${id}`, { method: "DELETE" }),
+    versions: (teamId: string, id: string) =>
+      request<{ versions: PipelineVersionSummary[] }>(`/teams/${teamId}/pipelines/${id}/versions`),
+    version: (teamId: string, id: string, version: number) =>
+      request<{ version: { version: number; name: string; source: string; createdAt: string } }>(
+        `/teams/${teamId}/pipelines/${id}/versions/${version}`,
+      ),
+    restore: (teamId: string, id: string, version: number) =>
+      request<{ pipeline: PipelineDetail }>(
+        `/teams/${teamId}/pipelines/${id}/versions/${version}/restore`,
+        { method: "POST" },
+      ),
     runs: (teamId: string, id: string) =>
       request<{ runs: PipelineRunSummary[] }>(`/teams/${teamId}/pipelines/${id}/runs`),
     start: (teamId: string, id: string, inputs?: Record<string, string>) =>

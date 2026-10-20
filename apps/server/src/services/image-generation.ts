@@ -86,6 +86,14 @@ export class ImageGenerationService {
     private readonly reportError: () => void = () => undefined,
   ) {}
 
+  /** Reads an outside agent's provider key from Vault; set in app.ts. */
+  keyResolver?: (ref: { teamId: string; name: string }) => Promise<string | null>;
+
+  private async resolveKeyRef(ref: { teamId: string; name: string }): Promise<string | null> {
+    const key = await this.keyResolver?.(ref);
+    return key?.trim() ? key : null;
+  }
+
   async capabilities(): Promise<ImageCapabilities> {
     const configuredDefault = await this.settings.value("imageProvider");
     const defaultProvider = imageProviderIds.includes(configuredDefault as ImageProviderId)
@@ -190,6 +198,9 @@ export class ImageGenerationService {
       projectId?: string;
       projectName?: string;
       sessionId?: string;
+      /** An outside agent's own key, from the team's Vault: used instead of the
+       * instance's, and never falls back to it. */
+      keyRef?: { teamId: string; name: string };
     } = {},
   ): Promise<ImageGeneration> {
     const existing = await this.store.images.findRequest(ownerId, input.idempotencyKey);
@@ -198,7 +209,19 @@ export class ImageGenerationService {
     const selected = capabilities.providers.find(
       (provider) => provider.id === (input.provider ?? capabilities.provider),
     )!;
-    if (!selected.configured)
+    let model = selected.model;
+    if (origin.keyRef) {
+      if (!(await this.resolveKeyRef(origin.keyRef)))
+        throw new ZelyqError(
+          "model_error",
+          `${origin.keyRef.name} is not in the team's Vault, so this agent has no image key. Add it, or choose another secret in the agent's settings.`,
+        );
+      // The instance's model choice when it made one, else the provider's first.
+      const provider = imageProviders[selected.id];
+      if (!provider.models.some((entry) => entry.value === model)) {
+        model = provider.models[0]?.value ?? model;
+      }
+    } else if (!selected.configured)
       throw new ZelyqError(
         "model_error",
         "This image provider needs an API key and a supported model. Ask an administrator to configure Image Studio in Settings.",
@@ -242,7 +265,7 @@ export class ImageGenerationService {
         id,
         ownerId,
         input,
-        selected.model,
+        model,
         selected.id,
         { count: references.images.length, digest: references.digest },
         origin,
@@ -408,10 +431,14 @@ export class ImageGenerationService {
     try {
       const provider = imageProvider(row.provider);
       if (!provider) throw new ImageProviderError("This image provider is no longer supported.");
-      const key = await this.settings.value(provider.apiKeySetting);
+      const key = row.keyRef
+        ? ((await this.resolveKeyRef(JSON.parse(row.keyRef))) ?? "")
+        : await this.settings.value(provider.apiKeySetting);
       if (!key.trim())
         throw new ImageProviderError(
-          "The Image Studio API key was removed. Ask an administrator to configure it in Settings.",
+          row.keyRef
+            ? "The agent's image key is no longer in Vault."
+            : "The Image Studio API key was removed. Ask an administrator to configure it in Settings.",
         );
       const references = row.referenceCount
         ? (await this.assets.readReferences(row.ownerId, row.id, row.referenceCount)).map(
