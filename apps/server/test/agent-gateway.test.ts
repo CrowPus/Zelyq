@@ -689,7 +689,13 @@ test("an agent uses Studio on its own key, never the server's, and brings its ow
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.includes("generativelanguage.googleapis.com")) {
+    let isGoogleHost = false;
+    try {
+      isGoogleHost = new URL(url).hostname === "generativelanguage.googleapis.com";
+    } catch {
+      isGoogleHost = false;
+    }
+    if (isGoogleHost) {
       keysSeen.push(`google:${new Headers(init?.headers).get("x-goog-api-key")}`);
       return new Response(
         JSON.stringify(
