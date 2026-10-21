@@ -37,6 +37,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      # The same as CI: the tests that render a page (the eval harness, view_preview) need a real browser.
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm typecheck
