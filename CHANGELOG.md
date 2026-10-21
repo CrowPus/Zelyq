@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-21
+
+The first release under the GNU AGPL-3.0 with a commercial licence option — see [LICENSING.md](./LICENSING.md).
+
 ### Added
 
 - **The agent now knows what a programme is, and cannot mark a phase done without evidence.**
@@ -178,5 +182,6 @@ First tagged release. Everything below is new.
 - Project scaffolding from templates, live preview with dev-server management, and snapshots.
 - React single-page app with project list, chat, file explorer, editor, and preview panel.
 
-[Unreleased]: https://github.com/CrowPus/Zelyq/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/CrowPus/Zelyq/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/CrowPus/Zelyq/releases/tag/v0.2.0
 [0.1.0]: https://github.com/CrowPus/Zelyq/releases/tag/v0.1.0
