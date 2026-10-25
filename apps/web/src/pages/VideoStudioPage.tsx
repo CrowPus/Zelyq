@@ -126,6 +126,10 @@ export function VideoStudioPage() {
   });
   const entries = history.data?.pages.flatMap((page) => page.generations) ?? [];
   const current = selectedId ? selected.data?.generation : entries[0];
+  // The clip in the preview — picked from Your films, or the newest one when
+  // none is picked. Frames belong to that clip, not only to a picked one: the
+  // panel shows for the newest clip too, and Extract on it used to send no id.
+  const shownId = current?.id ?? null;
   const outstanding =
     (current && (isVideoActive(current.status) || current.status === "unknown")) ||
     entries.find((entry) => isVideoActive(entry.status) || entry.status === "unknown");
@@ -220,12 +224,12 @@ export function VideoStudioPage() {
   const [frameCount, setFrameCount] = useState(defaultFrameCount);
   const [frameWidth, setFrameWidth] = useState(defaultFrameWidth);
   const frames = useQuery({
-    queryKey: ["video-frames", selectedId],
-    enabled: Boolean(selectedId),
+    queryKey: ["video-frames", shownId],
+    enabled: Boolean(shownId),
     retry: false,
     queryFn: async () => {
       try {
-        return (await api.videoFrames(selectedId as string)).frames;
+        return (await api.videoFrames(shownId as string)).frames;
       } catch (error) {
         // No set yet is the normal state, not a failure to report.
         if (error instanceof ApiError && error.status === 404) return null;
@@ -241,8 +245,8 @@ export function VideoStudioPage() {
         ? `Choose a width between ${minFrameWidth} and ${maxFrameWidth} pixels.`
         : null;
   const extract = useMutation({
-    mutationFn: (input: FrameExportInput) => api.extractVideoFrames(selectedId as string, input),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["video-frames", selectedId] }),
+    mutationFn: (input: FrameExportInput) => api.extractVideoFrames(shownId as string, input),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["video-frames", shownId] }),
     onError: (error) => {
       // The server names the offending fields in `details.issues`; showing only
       // "Request validation failed" tells the user nothing they can act on.
@@ -257,8 +261,8 @@ export function VideoStudioPage() {
     },
   });
   const dropFrames = useMutation({
-    mutationFn: () => api.deleteVideoFrames(selectedId as string),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["video-frames", selectedId] }),
+    mutationFn: () => api.deleteVideoFrames(shownId as string),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["video-frames", shownId] }),
   });
 
   const action = useMutation({
