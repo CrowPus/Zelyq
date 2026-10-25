@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
 import {
-  Camera,
   Code2,
   Columns2,
   Compass,
@@ -22,8 +21,9 @@ import { LiveBrowser } from "../components/LiveBrowser";
 import { PlanPanel } from "../components/PlanPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
 import { ProjectVariablesPanel } from "../components/ProjectVariablesPanel";
+import { SnapshotPanel } from "../components/SnapshotPanel";
 import { StudioMediaPicker } from "../components/StudioMediaPicker";
-import { Badge, Button, IconButton, Spinner } from "../components/ui";
+import { Badge, IconButton, Spinner } from "../components/ui";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
@@ -91,6 +91,13 @@ export function ProjectEditorPage() {
 
   const role = teams.data?.teams.find((team) => team.id === project.data?.project.teamId)?.role;
   const canEdit = role !== undefined && roleAtLeast(role, "editor");
+
+  /** After an undo or a restore: the files on disk moved under everything that reads them. */
+  const afterFilesMoved = () => {
+    queryClient.invalidateQueries({ queryKey: ["files", id] });
+    queryClient.invalidateQueries({ queryKey: ["file", id] });
+    setReloadToken((token) => token + 1);
+  };
   // A Python backend is the one place a project's variables are read today.
   const hasBackend =
     project.data?.project.template === "react-fastapi" ||
@@ -238,15 +245,7 @@ export function ProjectEditorPage() {
               Plan
             </TabButton>
           </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<Camera size={13} strokeWidth={1.75} />}
-            onClick={() => api.createSnapshot(id, "Manual save")}
-            className="max-md:px-1.5"
-          >
-            <span className="max-md:hidden">Snapshot</span>
-          </Button>
+          <SnapshotPanel projectId={id} canEdit={canEdit} onRestored={afterFilesMoved} />
           {/* Same role the route itself already requires — editing and
               pushing are the same trust level. */}
           {canEdit && <GitPanel projectId={id} teamId={current.teamId} />}
@@ -320,12 +319,7 @@ export function ProjectEditorPage() {
                 setCompareAfterSnapshotId(after);
                 setPane("code");
               }}
-              onReverted={() => {
-                // The files on disk moved under everything that reads them.
-                queryClient.invalidateQueries({ queryKey: ["files", id] });
-                queryClient.invalidateQueries({ queryKey: ["file", id] });
-                setReloadToken((token) => token + 1);
-              }}
+              onReverted={afterFilesMoved}
             />
           </div>
 

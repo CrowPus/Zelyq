@@ -13,8 +13,9 @@ test("standalone video settings, both providers, references, refresh, playback, 
   });
   expect(registered.status()).toBe(201);
   await page.goto("/");
-  await page.getByRole("link", { name: "Video Studio", exact: true }).first().click();
-  await expect(page.getByRole("heading", { name: "Video Studio", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Studio", exact: true }).first().click();
+  await page.getByRole("link", { name: "Video", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Video", exact: true })).toBeVisible();
   // AppShell's <main> is overflow-hidden on purpose: a page that forgets its own
   // scroll container renders with everything below the fold clipped and no way
   // to reach it. Shipped exactly that way once — assert the page actually
@@ -63,7 +64,7 @@ test("standalone video settings, both providers, references, refresh, playback, 
   await settings.getByLabel("xAI video API key", { exact: true }).fill("xai-browser-test-key");
   await settings.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(settings.getByRole("status")).toHaveText("Saved");
-  await settings.getByRole("link", { name: "Open Video Studio" }).click();
+  await settings.getByRole("link", { name: "Open Studio — Video" }).click();
   await page.screenshot({ path: "/tmp/zelyq-video-studio-empty.png", fullPage: true });
   const preview = page.getByRole("region", { name: "Video preview" });
   for (const provider of ["google", "xai"] as const) {
@@ -143,6 +144,15 @@ test("standalone video settings, both providers, references, refresh, playback, 
   await expect(frameSection.getByAltText("Frame sample 1")).toBeVisible();
   const set = await (await page.request.get(`/api/videos/generations/${videoId}/frames`)).json();
   expect(set.frames.count).toBeGreaterThan(1);
+  // Opened with no clip picked, the page shows the newest clip — this one —
+  // and its frames are its own there too. Extract used to send no id from here.
+  await page.goto("/studio/video");
+  await expect(
+    page
+      .getByRole("region", { name: "Frame export" })
+      .getByRole("link", { name: "Download frames" }),
+  ).toBeVisible();
+  await page.goto(`/studio/video?video=${videoId}`);
   const manifest = await (
     await page.request.get(`/api/videos/generations/${videoId}/frames/manifest.json`)
   ).json();

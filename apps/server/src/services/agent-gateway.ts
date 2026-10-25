@@ -1245,7 +1245,7 @@ export class AgentGateway {
             name: {
               type: "string",
               maxLength: 120,
-              description: "What it is, e.g. 'Mohamed portrait'.",
+              description: "What it is, e.g. 'Founder portrait'.",
             },
             url: { type: "string", description: "A public https:// link to the image." },
             data_base64: { type: "string", description: "The image itself, base64 (up to 10 MB)." },

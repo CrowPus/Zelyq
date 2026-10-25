@@ -13,7 +13,7 @@ request.
 | --- | --- |
 | 🧭 **Compass** | Architect Mode on/off |
 | 👷 **Hard hat** | Engineer Mode on/off |
-| ∞ **Infinity** | Auto Mode on/off (only with Architect Mode) |
+| ∞ **Infinity** | Auto Mode on/off (with Architect or Engineer Mode; on its own, it turns Engineer Mode on) |
 | ⓘ **Info** | keyboard shortcuts popover |
 | 📎 **Paperclip** | attach files / images to the prompt |
 | **Model** | per-conversation model override (the instance default otherwise) |

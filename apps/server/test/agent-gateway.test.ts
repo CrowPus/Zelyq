@@ -918,7 +918,7 @@ test("an agent brings a portrait and a logo into Studio and builds a flyer from 
     const portrait = await square(200, 160, 120, 1600).jpeg().toBuffer();
     const fromFile = (await client.callTool({
       name: "studio_import_image",
-      arguments: { name: "Mohamed portrait", data_base64: portrait.toString("base64") },
+      arguments: { name: "Founder portrait", data_base64: portrait.toString("base64") },
     })) as { content: Array<{ type: string; text?: string }>; isError?: boolean };
     assert.ok(!fromFile.isError, JSON.stringify(fromFile.content));
     assert.ok(
@@ -956,7 +956,7 @@ test("an agent brings a portrait and a logo into Studio and builds a flyer from 
     const library = JSON.parse((await call(client, "studio_library", { kind: "reference" })).text);
     assert.deepEqual(library.references.map((r: { name: string }) => r.name).sort(), [
       "Dee Empire logo",
-      "Mohamed portrait",
+      "Founder portrait",
     ]);
     // Large photos are fitted to what a provider takes.
     const portraitRow = await store.agents.references.find(portraitId);

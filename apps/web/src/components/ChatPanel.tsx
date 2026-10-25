@@ -1812,7 +1812,13 @@ function TurnFooter({
 
       {confirming && (
         <span className="flex shrink-0 items-center gap-2">
-          <span className="text-warning">Put the files back as they were before this turn?</span>
+          {/* A restore puts back the whole app, so on an older turn it takes
+              every later change with it — say so before, not after. */}
+          <span className="text-warning">
+            {nextSnapshotId
+              ? "Put the whole app back as it was before this turn? Every change made after it is undone too."
+              : "Put the files back as they were before this turn?"}
+          </span>
           <button
             type="button"
             disabled={revert.isPending}

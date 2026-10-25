@@ -108,7 +108,7 @@ export function AgentForm({
             value={name}
             maxLength={80}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Claude Code — Mohamed's laptop"
+            placeholder="Claude Code — my laptop"
             autoFocus
           />
         </label>
