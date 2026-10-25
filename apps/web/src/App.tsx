@@ -5,6 +5,7 @@ import { useSession } from "./hooks/useSession";
 import { AgentsPage } from "./pages/AgentsPage";
 import { AppPage } from "./pages/AppPage";
 import { DeploymentsPage } from "./pages/DeploymentsPage";
+import { DocsPage } from "./pages/DocsPage";
 import { ImageStudioPage } from "./pages/ImageStudioPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { PipelineRunPage } from "./pages/PipelineRunPage";
@@ -93,6 +94,7 @@ function Gate() {
       <Route path="/deployments/:environmentId/apps/:app" element={<AppPage />} />
       <Route path="/pipelines/:id" element={<PipelinePage />} />
       <Route path="/pipelines/:id/runs/:runId" element={<PipelineRunPage />} />
+      <Route path="/docs" element={<DocsPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/account" element={<ProfilePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />

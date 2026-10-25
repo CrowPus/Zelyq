@@ -266,12 +266,7 @@ function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
           open={open}
         />
       )}
-      <RailLink
-        href="https://github.com/CrowPus/Zelyq/tree/main/docs"
-        label="Docs"
-        icon={BookOpen}
-        open={open}
-      />
+      <RailLink to="/docs" label="Docs" icon={BookOpen} active={pathname === "/docs"} open={open} />
       <SettingsLink open={open} />
     </nav>
   );
