@@ -1923,7 +1923,7 @@ function formatBytes(bytes: number): string {
  * A run's log: lines numbered in order and written in small batches, so a
  * chatty build does not become one database write per line.
  */
-class RunLog {
+export class RunLog {
   private pending: Omit<PipelineLogRow, "runId">[] = [];
   private pendingBytes = 0;
   private total = 0;
@@ -1936,7 +1936,10 @@ class RunLog {
     private readonly runId: string,
     private seq: number,
   ) {
-    this.timer = setInterval(() => void this.flush(), 300);
+    this.timer = setInterval(() => void this.flush().catch(() => undefined), 300);
+    // A run left waiting for a person keeps its log; that alone must not keep
+    // the process from exiting.
+    this.timer.unref();
   }
 
   add(stepId: string | null, stream: "out" | "err" | "system", text: string): void {
@@ -1975,9 +1978,12 @@ class RunLog {
     const bytes = this.pendingBytes;
     this.pending = [];
     this.pendingBytes = 0;
-    this.writing = this.writing.then(() =>
-      lines.length > 0 ? this.store.pipelines.logs.append(this.runId, lines, bytes) : undefined,
-    );
+    // One failed write must not fail every write after it.
+    this.writing = this.writing
+      .catch(() => undefined)
+      .then(() =>
+        lines.length > 0 ? this.store.pipelines.logs.append(this.runId, lines, bytes) : undefined,
+      );
     return this.writing;
   }
 

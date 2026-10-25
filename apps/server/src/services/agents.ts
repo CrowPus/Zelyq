@@ -24,6 +24,7 @@ import {
 } from "@zelyq/core";
 import type { AgentProposalRow, AgentRow, Store } from "@zelyq/db";
 import type { AccessControl } from "./access.js";
+import { ACCESS_PREFIX, type AgentOAuthService } from "./agent-oauth.js";
 import type { AgentReferenceStore } from "./agent-references.js";
 import type { DeployService } from "./deploy.js";
 import type { ImageGenerationService } from "./image-generation.js";
@@ -87,6 +88,26 @@ export class AgentService {
     private readonly images: ImageGenerationService,
     private readonly references: AgentReferenceStore,
   ) {}
+
+  /** Connectors signing in as agents with OAuth; set in app.ts. */
+  oauth?: AgentOAuthService;
+
+  /** Connectors signed in as this agent (Claude.ai, ChatGPT). */
+  async connections(user: User, teamId: string, agentId: string) {
+    const row = await this.manage(user, teamId, agentId);
+    return (await this.oauth?.connections(row.id)) ?? [];
+  }
+
+  /** Signs every connector out of this agent; its key keeps working. */
+  async disconnect(user: User, teamId: string, agentId: string): Promise<void> {
+    const row = await this.manage(user, teamId, agentId);
+    await this.oauth?.disconnectAll(row.id);
+    await this.access.recordChange(user, {
+      teamId,
+      action: "agent.updated",
+      detail: { agent: row.name, agentId: row.id, fields: ["connections"] },
+    });
+  }
 
   /** Media settings as given; each secret must be one the team's Vault has. */
   private async media(teamId: string, raw: unknown): Promise<AgentMedia> {
@@ -207,6 +228,8 @@ export class AgentService {
     if (row.revokedAt) throw ZelyqError.badRequest("This agent has been revoked.");
     const { key, prefix, hash } = newKey();
     const updated = await this.store.agents.update(row.id, { keyPrefix: prefix, keyHash: hash });
+    // Connectors signed in with the old key lose it too.
+    await this.oauth?.disconnectAll(row.id);
     await this.access.recordChange(user, {
       teamId,
       action: "agent.key_rotated",
@@ -218,6 +241,7 @@ export class AgentService {
   async revoke(user: User, teamId: string, agentId: string): Promise<Agent> {
     const row = await this.manage(user, teamId, agentId);
     const updated = await this.store.agents.revoke(row.id, new Date().toISOString());
+    await this.oauth?.disconnectAll(row.id);
     await this.access.recordChange(user, {
       teamId,
       action: "agent.revoked",
@@ -248,15 +272,21 @@ export class AgentService {
    */
   async authenticate(header: string | undefined, ip: string): Promise<AgentContext> {
     const token = header?.replace(/^Bearer\s+/i, "").trim();
-    if (!token?.startsWith(KEY_PREFIX)) {
-      throw new ZelyqError(
-        "unauthorized",
-        "Send this agent's key as 'Authorization: Bearer zlq_agent_…'.",
-      );
+    let row: AgentRow | null;
+    if (token?.startsWith(ACCESS_PREFIX) && this.oauth) {
+      // A connector (Claude.ai, ChatGPT) signed in as the agent.
+      row = await this.oauth.agentFor(token);
+    } else {
+      if (!token?.startsWith(KEY_PREFIX)) {
+        throw new ZelyqError(
+          "unauthorized",
+          "Send this agent's key as 'Authorization: Bearer zlq_agent_…', or sign in through a connector.",
+        );
+      }
+      row = await this.store.agents.findByHash(hashKey(token));
+      if (!row) throw new ZelyqError("unauthorized", "That agent key is not valid.");
+      if (row.revokedAt) throw new ZelyqError("unauthorized", "This agent has been revoked.");
     }
-    const row = await this.store.agents.findByHash(hashKey(token));
-    if (!row) throw new ZelyqError("unauthorized", "That agent key is not valid.");
-    if (row.revokedAt) throw new ZelyqError("unauthorized", "This agent has been revoked.");
     await this.store.agents.touch(row.id, new Date().toISOString(), ip);
     return {
       agent: row,

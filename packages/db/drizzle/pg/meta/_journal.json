@@ -281,6 +281,13 @@
       "when": 1792485477010,
       "tag": "0039_agent_references",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792938173914,
+      "tag": "0040_agent_oauth",
+      "breakpoints": true
     }
   ]
 }

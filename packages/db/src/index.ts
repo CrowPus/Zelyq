@@ -107,5 +107,11 @@ export function createStore(url: string): Store {
   };
 }
 
-export type { AgentProposalRow, AgentReferenceRow, AgentRow } from "./repositories/agents.js";
+export type {
+  AgentOauthClientRow,
+  AgentOauthGrantRow,
+  AgentProposalRow,
+  AgentReferenceRow,
+  AgentRow,
+} from "./repositories/agents.js";
 export type { DeployAppRow, DeployEnvironmentRow, DeploymentRow } from "./repositories/deploy.js";

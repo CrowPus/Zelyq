@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1012,4 +1013,129 @@ test("an agent brings a portrait and a logo into Studio and builds a flyer from 
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test("Claude.ai-style connectors sign in with OAuth as the agent, and lose it with its key", async () => {
+  const { agent, key } = await newAgent({ projectIds: [shared] });
+
+  // 1. Refused without a sign-in, and told where to learn how.
+  const refused = await fetch(`${base}/agent-gateway/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(refused.status, 401);
+  assert.match(
+    refused.headers.get("www-authenticate") ?? "",
+    /resource_metadata=".*\/\.well-known\/oauth-protected-resource"/,
+  );
+
+  // 2. Discovery.
+  const resource = await (await fetch(`${base}/.well-known/oauth-protected-resource`)).json();
+  assert.equal(resource.resource, `${base}/agent-gateway/mcp`);
+  const server = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json();
+  assert.deepEqual(server.code_challenge_methods_supported, ["S256"]);
+
+  // 3. The connector registers itself.
+  const badClient = await fetch(server.registration_endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ client_name: "Evil", redirect_uris: ["http://evil.example/cb"] }),
+  });
+  assert.equal(badClient.status, 400);
+  const callback = "https://claude.ai/api/mcp/auth_callback";
+  const client = await (
+    await fetch(server.registration_endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "Claude", redirect_uris: [callback] }),
+    })
+  ).json();
+  assert.match(client.client_id, /^zlq_client_/);
+
+  // 4. A person signs in on Zelyq's page with the agent's key (PKCE S256).
+  const verifier = "a-long-random-verifier-0123456789-abcdefghijklmnop";
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const query = {
+    client_id: client.client_id,
+    redirect_uri: callback,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state: "xyz",
+    response_type: "code",
+  };
+  const pageUrl = `${server.authorization_endpoint}?${new URLSearchParams(query)}`;
+  const signInPage = await fetch(pageUrl);
+  assert.equal(signInPage.status, 200);
+  assert.match(await signInPage.text(), /Connect Claude to Zelyq/);
+  const plain = await fetch(pageUrl.replace("S256", "plain"));
+  assert.equal(plain.status, 400, "PKCE S256 is required");
+
+  const post = (keyValue: string) =>
+    fetch(server.authorization_endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ ...query, key: keyValue }).toString(),
+      redirect: "manual",
+    });
+  const wrongKey = await post("zlq_agent_not-a-real-key");
+  assert.equal(wrongKey.status, 401);
+  assert.match(await wrongKey.text(), /not valid/);
+  const signedIn = await post(key);
+  assert.equal(signedIn.status, 200);
+  const target = new URL((signedIn.headers.get("refresh") ?? "").replace(/^0;url=/, ""));
+  assert.equal(`${target.origin}${target.pathname}`, callback);
+  assert.equal(target.searchParams.get("state"), "xyz");
+  const code = target.searchParams.get("code") ?? "";
+
+  // 5. The code becomes tokens, only with the verifier, and only once.
+  const exchange = (body: Record<string, string>) =>
+    fetch(server.token_endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(body).toString(),
+    });
+  const codeBody = {
+    grant_type: "authorization_code",
+    code,
+    client_id: client.client_id,
+    redirect_uri: callback,
+  };
+  const badVerifier = await exchange({ ...codeBody, code_verifier: "wrong" });
+  assert.equal(badVerifier.status, 400);
+  const tokens = await (await exchange({ ...codeBody, code_verifier: verifier })).json();
+  assert.match(tokens.access_token, /^zlq_oat_/);
+  const again = await exchange({ ...codeBody, code_verifier: verifier });
+  assert.equal(again.status, 400, "a code works once");
+
+  // 6. The connector works as exactly this agent.
+  const asConnector = await connect(tokens.access_token);
+  const apps = JSON.parse((await call(asConnector, "list_apps")).text).apps;
+  assert.deepEqual(
+    apps.map((app: { app_id: string }) => app.app_id),
+    [shared],
+  );
+  await asConnector.close();
+  const listed = await asUser(owner, "GET", `/api/teams/${teamId}/agents/${agent.id}/connections`);
+  assert.equal(listed.json().connections[0]?.name, "Claude");
+
+  // 7. A refresh token is used once.
+  const refreshed = await (
+    await exchange({ grant_type: "refresh_token", refresh_token: tokens.refresh_token })
+  ).json();
+  assert.match(refreshed.access_token, /^zlq_oat_/);
+  const reused = await exchange({
+    grant_type: "refresh_token",
+    refresh_token: tokens.refresh_token,
+  });
+  assert.equal(reused.status, 400);
+
+  // 8. Replacing the agent's key ends the connector's sign-in.
+  await asUser(owner, "POST", `/api/teams/${teamId}/agents/${agent.id}/rotate`);
+  await assert.rejects(connect(refreshed.access_token));
+  const afterRotate = await exchange({
+    grant_type: "refresh_token",
+    refresh_token: refreshed.refresh_token,
+  });
+  assert.equal(afterRotate.status, 400);
 });

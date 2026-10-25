@@ -60,6 +60,7 @@ export const ID_PREFIXES = {
   agent: "agt",
   agentProposal: "apr",
   agentReference: "arf",
+  agentOauthGrant: "aog",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

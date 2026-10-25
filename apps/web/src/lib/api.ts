@@ -214,6 +214,12 @@ export const api = {
       request<AgentCreated>(`/teams/${teamId}/agents/${agentId}/rotate`, { method: "POST" }),
     revoke: (teamId: string, agentId: string) =>
       request<{ agent: Agent }>(`/teams/${teamId}/agents/${agentId}/revoke`, { method: "POST" }),
+    connections: (teamId: string, agentId: string) =>
+      request<{ connections: { name: string; since: string }[] }>(
+        `/teams/${teamId}/agents/${agentId}/connections`,
+      ),
+    disconnect: (teamId: string, agentId: string) =>
+      request<void>(`/teams/${teamId}/agents/${agentId}/connections`, { method: "DELETE" }),
     remove: (teamId: string, agentId: string) =>
       request<void>(`/teams/${teamId}/agents/${agentId}`, { method: "DELETE" }),
     requests: (teamId: string, status?: string) =>
