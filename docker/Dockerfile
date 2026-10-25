@@ -14,6 +14,7 @@ COPY apps/agent/package.json apps/agent/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY apps/runtime-host/package.json apps/runtime-host/
+COPY apps/registry/package.json apps/registry/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
 COPY packages/runtime/package.json packages/runtime/
