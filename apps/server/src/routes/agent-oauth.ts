@@ -56,7 +56,6 @@ function form(client: string, query: AuthorizeQuery, error = ""): string {
   const hidden = QUERY_FIELDS.map(
     (field) => `<input type="hidden" name="${field}" value="${html(query[field])}">`,
   ).join("");
-  const safeError = html(error);
   return `<h1>Connect ${html(client)} to Zelyq</h1>
 <p class="muted">This signs ${html(client)} in as one of your team's agents. Paste the agent's key — it starts with <code>zlq_agent_</code> and is shown once when the agent is created on the Agents page. The connection can do only what that agent is allowed to, and what needs approval still waits for you.</p>
 ${error ? `<p class="err">${html(error)}</p>` : ""}
@@ -190,7 +189,14 @@ export function registerAgentOAuthRoutes(
           return page(
             reply,
             "Connect to Zelyq",
-            form(clientName, query, "Sign-in failed. Check the agent key and try again."),
+            // Fixed text by what went wrong, never the exception's own words.
+            form(
+              clientName,
+              query,
+              error.status === 401
+                ? "That key is not valid, or the agent was revoked."
+                : "Paste the agent's key (it starts with zlq_agent_).",
+            ),
             error.status,
           );
         }
