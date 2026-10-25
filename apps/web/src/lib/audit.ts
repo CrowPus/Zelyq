@@ -66,6 +66,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "agent.committed": "committed changes",
   "agent.pipeline_changed": "changed a pipeline",
   "agent.proposed": "asked for approval",
+  "agent.connector_signed_in": "signed a connector in",
   "agent.proposal_approved": "approved an agent's request",
   "agent.proposal_declined": "declined an agent's request",
   "project.deleted": "deleted the project",

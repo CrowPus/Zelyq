@@ -42,6 +42,21 @@ claude mcp add --transport http zelyq https://<your Zelyq>/agent-gateway/mcp \
 
 Then ask the agent to call `my_job`.
 
+### Claude.ai and ChatGPT connectors
+
+Connectors cannot send a key in a header; they sign in with OAuth instead. Add a custom connector
+with the gateway address and leave the OAuth client ID empty — the connector registers itself. It
+then opens Zelyq's sign-in page: paste the agent's key there once. The connector acts as exactly that
+agent, with its apps, permissions and approvals.
+
+- Access tokens last an hour and the connector renews them for up to 30 days; each renewal token
+  works once. Sign-in requires PKCE, and return addresses must be https.
+- Replacing or revoking the agent's key ends every connector sign-in made with it. **Sign out
+  connectors**, on the agent's row, ends them and leaves the key working.
+- Discovery is at `/.well-known/oauth-protected-resource` and
+  `/.well-known/oauth-authorization-server`; the gateway's 401 points to the first. Behind a proxy,
+  set `ZELYQ_PUBLIC_URL` (or `ZELYQ_TRUST_PROXY=true`) so the addresses are your public https ones.
+
 ## Approvals
 
 Anything set to Needs approval becomes a request, approved where it is used: pipeline changes and runs

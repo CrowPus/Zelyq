@@ -2,10 +2,11 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { Button, IconButton } from "../ui";
 
-type Client = "claude" | "cursor" | "vscode" | "gemini" | "other";
+type Client = "claude" | "connector" | "cursor" | "vscode" | "gemini" | "other";
 
 const CLIENTS: { id: Client; label: string }[] = [
   { id: "claude", label: "Claude Code" },
+  { id: "connector", label: "Claude.ai / ChatGPT" },
   { id: "cursor", label: "Cursor" },
   { id: "vscode", label: "VS Code" },
   { id: "gemini", label: "Gemini CLI" },
@@ -61,6 +62,11 @@ export function ConnectAgent({
         null,
         2,
       ),
+    },
+    connector: {
+      where:
+        "Claude.ai and ChatGPT sign in instead of sending a key. Add a custom connector with this address; when it opens Zelyq's sign-in page, paste the key above.",
+      text: url,
     },
     other: {
       where: "Any client that speaks MCP over HTTP (Streamable HTTP) and can send a header:",

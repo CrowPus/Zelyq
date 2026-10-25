@@ -10,7 +10,12 @@ type OneAgent = { Params: { teamId: string; agentId: string } };
 
 export function registerAgentRoutes(
   app: FastifyInstance,
-  deps: { agents: AgentService; gateway: AgentGateway; access: AccessControl },
+  deps: {
+    agents: AgentService;
+    gateway: AgentGateway;
+    access: AccessControl;
+    publicUrl?: string;
+  },
 ): void {
   const { access, agents } = deps;
 
@@ -37,6 +42,23 @@ export function registerAgentRoutes(
   app.post<OneAgent>("/api/teams/:teamId/agents/:agentId/rotate", async (request) =>
     agents.rotate(access.requireUser(request), request.params.teamId, request.params.agentId),
   );
+
+  // Connectors (Claude.ai, ChatGPT) signed in as an agent, and signing them out.
+  app.get<OneAgent>("/api/teams/:teamId/agents/:agentId/connections", async (request) => ({
+    connections: await agents.connections(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.agentId,
+    ),
+  }));
+  app.delete<OneAgent>("/api/teams/:teamId/agents/:agentId/connections", async (request, reply) => {
+    await agents.disconnect(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.agentId,
+    );
+    reply.code(204);
+  });
 
   app.post<OneAgent>("/api/teams/:teamId/agents/:agentId/revoke", async (request) => ({
     agent: await agents.revoke(
@@ -87,7 +109,21 @@ export function registerAgentRoutes(
     "/agent-gateway/mcp",
     { config: { rateLimit: { max: 600, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const context = await agents.authenticate(request.headers.authorization, request.ip);
+      let context: Awaited<ReturnType<typeof agents.authenticate>>;
+      try {
+        context = await agents.authenticate(request.headers.authorization, request.ip);
+      } catch (error) {
+        // Where a connector learns how to sign in (OAuth discovery).
+        const base = (deps.publicUrl ?? `${request.protocol}://${request.host}`).replace(
+          /\/+$/,
+          "",
+        );
+        reply.header(
+          "www-authenticate",
+          `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+        );
+        throw error;
+      }
       const server = deps.gateway.serverFor(context);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,

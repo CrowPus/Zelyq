@@ -1,10 +1,18 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, count, desc, eq, isNull } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
-import { agentProposals, agentReferences, agents } from "../schema/sqlite.js";
+import {
+  agentOauthClients,
+  agentOauthGrants,
+  agentProposals,
+  agentReferences,
+  agents,
+} from "../schema/sqlite.js";
 
 export type AgentRow = typeof agents.$inferSelect;
 export type AgentProposalRow = typeof agentProposals.$inferSelect;
 export type AgentReferenceRow = typeof agentReferences.$inferSelect;
+export type AgentOauthClientRow = typeof agentOauthClients.$inferSelect;
+export type AgentOauthGrantRow = typeof agentOauthGrants.$inferSelect;
 
 /**
  * Outside agents and what they asked to be approved. Rows only: turning JSON
@@ -72,6 +80,65 @@ export function agentRepository(db: ZelyqDb) {
 
     async remove(id: string): Promise<void> {
       await db.delete(agents).where(eq(agents.id, id));
+    },
+
+    /** Connectors signing in as an agent with OAuth; rules live in the server. */
+    oauth: {
+      async countClients(): Promise<number> {
+        const [row] = await db.select({ n: count() }).from(agentOauthClients);
+        return Number(row?.n ?? 0);
+      },
+      async createClient(row: AgentOauthClientRow): Promise<AgentOauthClientRow> {
+        await db.insert(agentOauthClients).values(row);
+        return row;
+      },
+      async findClient(clientId: string): Promise<AgentOauthClientRow | null> {
+        const rows = await db
+          .select()
+          .from(agentOauthClients)
+          .where(eq(agentOauthClients.clientId, clientId))
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      async createGrant(row: AgentOauthGrantRow): Promise<AgentOauthGrantRow> {
+        await db.insert(agentOauthGrants).values(row);
+        return row;
+      },
+      async findGrant(tokenHash: string, kind: string): Promise<AgentOauthGrantRow | null> {
+        const rows = await db
+          .select()
+          .from(agentOauthGrants)
+          .where(and(eq(agentOauthGrants.tokenHash, tokenHash), eq(agentOauthGrants.kind, kind)))
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      /** Marks a code used exactly once: a second exchange gets false. */
+      async useCode(id: string, now: string): Promise<boolean> {
+        const updated = await db
+          .update(agentOauthGrants)
+          .set({ usedAt: now })
+          .where(and(eq(agentOauthGrants.id, id), isNull(agentOauthGrants.usedAt)))
+          .returning({ id: agentOauthGrants.id });
+        return updated.length > 0;
+      },
+      /** Removes one grant; false when it was already gone (a reused refresh token). */
+      async removeGrant(id: string): Promise<boolean> {
+        const removed = await db
+          .delete(agentOauthGrants)
+          .where(eq(agentOauthGrants.id, id))
+          .returning({ id: agentOauthGrants.id });
+        return removed.length > 0;
+      },
+      async listForAgent(agentId: string): Promise<AgentOauthGrantRow[]> {
+        return await db
+          .select()
+          .from(agentOauthGrants)
+          .where(eq(agentOauthGrants.agentId, agentId))
+          .orderBy(desc(agentOauthGrants.createdAt));
+      },
+      async removeForAgent(agentId: string): Promise<void> {
+        await db.delete(agentOauthGrants).where(eq(agentOauthGrants.agentId, agentId));
+      },
     },
 
     /** Images it was given to work from in Studio; the files are the server's. */

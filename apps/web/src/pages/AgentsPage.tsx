@@ -274,7 +274,18 @@ function AgentRow({
   const asks = Object.entries(agent.permissions)
     .filter(([, level]) => level === "approve")
     .map(([name]) => AGENT_PERMISSIONS[name as AgentPermission]?.label.toLowerCase() ?? name);
-  const error = rotate.error ?? revoke.error ?? remove.error;
+  // Connectors (Claude.ai, ChatGPT) signed in as this agent.
+  const connections = useQuery({
+    queryKey: ["agent-connections", teamId, agent.id],
+    queryFn: () => api.agents.connections(teamId, agent.id),
+    enabled: active,
+  });
+  const disconnect = useMutation({
+    mutationFn: () => api.agents.disconnect(teamId, agent.id),
+    onSuccess: () => connections.refetch(),
+  });
+  const signedIn = connections.data?.connections ?? [];
+  const error = rotate.error ?? revoke.error ?? remove.error ?? disconnect.error;
 
   return (
     <li className={`px-4 py-3 ${active ? "" : "opacity-60"}`}>
@@ -298,6 +309,19 @@ function AgentRow({
               ? `last used ${new Date(agent.lastUsedAt).toLocaleString()} from ${agent.lastUsedIp}`
               : "never used"}
           </p>
+          {signedIn.length > 0 && (
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-2xs text-fg-muted">
+              Signed in through {signedIn.map((connection) => connection.name).join(", ")}
+              <button
+                type="button"
+                className="text-fg-secondary underline underline-offset-2 hover:text-fg"
+                disabled={disconnect.isPending}
+                onClick={() => disconnect.mutate()}
+              >
+                Sign out connectors
+              </button>
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 gap-0.5">
           {active && (

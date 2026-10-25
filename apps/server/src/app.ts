@@ -13,6 +13,7 @@ import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { ServerConfig } from "./config.js";
 import { registerAccountRoutes } from "./routes/accounts.js";
+import { registerAgentOAuthRoutes } from "./routes/agent-oauth.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
@@ -43,6 +44,7 @@ import { AccessControl } from "./services/access.js";
 import { AccountService } from "./services/accounts.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AgentGateway, pipelineGuide } from "./services/agent-gateway.js";
+import { AgentOAuthService } from "./services/agent-oauth.js";
 import { AgentReferenceStore } from "./services/agent-references.js";
 import { AgentService } from "./services/agents.js";
 import { AttachmentService } from "./services/attachments.js";
@@ -427,7 +429,19 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     },
     filesChanged: (projectId, paths) => agentFilesChanged(projectId, paths),
   });
-  registerAgentRoutes(app, { agents, gateway: agentGateway, access });
+  const agentOAuth = new AgentOAuthService(store);
+  agents.oauth = agentOAuth;
+  registerAgentRoutes(app, {
+    agents,
+    gateway: agentGateway,
+    access,
+    ...(config.publicUrl ? { publicUrl: config.publicUrl } : {}),
+  });
+  registerAgentOAuthRoutes(app, {
+    oauth: agentOAuth,
+    store,
+    ...(config.publicUrl ? { publicUrl: config.publicUrl } : {}),
+  });
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
   registerDeployRoutes(app, { access, deploys });
   registerPipelineRoutes(app, {

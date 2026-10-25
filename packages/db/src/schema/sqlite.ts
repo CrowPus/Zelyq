@@ -1156,6 +1156,48 @@ export const agentReferences = sqliteTable(
   }),
 );
 
+/**
+ * Connectors (Claude.ai, ChatGPT) that registered themselves to sign an
+ * agent in with OAuth 2.1 — they cannot send an agent's key in a header.
+ * Registration is open by the standard, so the count is capped.
+ */
+export const agentOauthClients = sqliteTable("agent_oauth_clients", {
+  clientId: text("client_id").primaryKey(),
+  name: text("name").notNull(),
+  /** JSON array of the exact addresses a sign-in may return to. */
+  redirectUris: text("redirect_uris").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+/**
+ * One step of a connector's sign-in as an agent: the one-time code, then
+ * access and refresh tokens. Only SHA-256 fingerprints are stored. `keyHash`
+ * is the agent's key when someone signed in with it: replacing or revoking
+ * the key ends every connection made with it.
+ */
+export const agentOauthGrants = sqliteTable(
+  "agent_oauth_grants",
+  {
+    id: text("id").primaryKey(),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    clientId: text("client_id").notNull(),
+    kind: text("kind").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    keyHash: text("key_hash").notNull(),
+    redirectUri: text("redirect_uri"),
+    codeChallenge: text("code_challenge"),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    tokenIdx: uniqueIndex("agent_oauth_grants_token_idx").on(table.tokenHash),
+    agentIdx: index("agent_oauth_grants_agent_idx").on(table.agentId),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1198,4 +1240,6 @@ export const schema = {
   agentProposals,
   pipelineVersions,
   agentReferences,
+  agentOauthClients,
+  agentOauthGrants,
 };

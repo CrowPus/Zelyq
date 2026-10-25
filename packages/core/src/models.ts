@@ -599,6 +599,7 @@ export const auditActionSchema = z.enum([
   "agent.committed",
   "agent.pipeline_changed",
   "agent.proposed",
+  "agent.connector_signed_in",
   "agent.proposal_approved",
   "agent.proposal_declined",
   "project.deleted",
