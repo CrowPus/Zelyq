@@ -28,6 +28,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: ReactNode;
 }
 
+/** A button's look, for a link that has to act as one (a download, a new tab). */
+export function buttonClass(variant: Variant = "secondary", size: Size = "md"): string {
+  return `inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap transition-colors duration-75 disabled:pointer-events-none disabled:opacity-40 ${SIZES[size]} ${VARIANTS[variant]}`;
+}
+
 export function Button({
   variant = "secondary",
   size = "md",
@@ -37,11 +42,7 @@ export function Button({
   ...props
 }: ButtonProps) {
   return (
-    <button
-      type="button"
-      className={`inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap transition-colors duration-75 disabled:pointer-events-none disabled:opacity-40 ${SIZES[size]} ${VARIANTS[variant]} ${className}`}
-      {...props}
-    >
+    <button type="button" className={`${buttonClass(variant, size)} ${className}`} {...props}>
       {icon}
       {children}
     </button>

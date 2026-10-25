@@ -19,6 +19,7 @@ import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
 import { registerDeployRoutes } from "./routes/deploy.js";
 import { registerFigmaRoutes } from "./routes/figma.js";
 import { registerFileRoutes } from "./routes/files.js";
+import { registerGuideRoutes } from "./routes/guide.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
 import { registerPipelineRoutes } from "./routes/pipelines.js";
@@ -457,6 +458,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   registerAttachmentRoutes(app, { attachments, access });
   registerVoiceRoutes(app, { speech, settings, access });
+  registerGuideRoutes(app, { access });
   registerImageRoutes(app, { images, access });
   await registerVideoRoutes(app, { videos, images, access });
   registerImageBridgeRoutes(app, { bridge: imageBridge, images, assets: imageAssets, store });
