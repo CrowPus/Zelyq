@@ -1,0 +1,36 @@
+id: zelyq/compose-deploy
+version: 1.0.0
+name: Docker Compose deploy
+description: Copy a docker-compose file to a server over SSH and start it with docker compose.
+category: deploy
+runs-on:
+  os: [linux, macos]
+  needs: [ssh, scp]
+inputs:
+  host:
+    description: The server's address
+    required: true
+  user:
+    description: The user to log in as (it must be allowed to run docker)
+    required: true
+  key:
+    description: The private SSH key to log in with
+    required: true
+    secret: true
+  compose_file:
+    description: The compose file in the run's folder
+    default: docker-compose.yml
+  directory:
+    description: The folder on the server to deploy into
+    required: true
+  project:
+    description: The compose project name (default the folder's name)
+  port:
+    description: The SSH port
+    default: "22"
+  known_hosts:
+    description: The server's known_hosts line; without it, the first key the server shows is trusted
+steps:
+  - name: Deploy with Docker Compose
+    shell: bash
+    run: bash "$ZELYQ_PLUGIN_DIR/scripts/deploy.sh"

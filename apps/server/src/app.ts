@@ -24,6 +24,7 @@ import { registerGuideRoutes } from "./routes/guide.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
 import { registerPipelineRoutes } from "./routes/pipelines.js";
+import { registerPluginRegistryRoutes } from "./routes/plugin-registry.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectBackendRoutes } from "./routes/project-backend.js";
 import { registerProjectVariableRoutes } from "./routes/project-variables.js";
@@ -60,6 +61,7 @@ import { ensureInspectorScript } from "./services/inspector-script.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
 import { PipelinePluginService } from "./services/pipelines/plugins.js";
+import { PluginRegistryClient, ZELYQ_REGISTRY_KEYS } from "./services/pipelines/registry.js";
 import { RunnerService } from "./services/pipelines/runners.js";
 import { PipelineService } from "./services/pipelines/service.js";
 import { ToolService } from "./services/pipelines/tools.js";
@@ -444,6 +446,16 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
   registerDeployRoutes(app, { access, deploys });
+  // Zelyq's own plugins, signed: installed only if the signature verifies.
+  const pluginRegistry = new PluginRegistryClient(store, settings, access, pipelinePlugins, {
+    trustedKeys: process.env.ZELYQ_PLUGIN_REGISTRY_KEYS
+      ? process.env.ZELYQ_PLUGIN_REGISTRY_KEYS.split(",")
+          .map((key) => key.trim())
+          .filter(Boolean)
+      : ZELYQ_REGISTRY_KEYS,
+    zelyqVersion: process.env.npm_package_version ?? "0.1.0",
+  });
+  registerPluginRegistryRoutes(app, { registry: pluginRegistry, access });
   registerPipelineRoutes(app, {
     access,
     pipelines,

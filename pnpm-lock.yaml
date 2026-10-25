@@ -101,6 +101,37 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  apps/registry:
+    dependencies:
+      '@fastify/cookie':
+        specifier: ^11.1.2
+        version: 11.1.2
+      '@fastify/multipart':
+        specifier: ^10.1.1
+        version: 10.1.1
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
+      '@libsql/client':
+        specifier: ^0.18.0
+        version: 0.18.0
+      '@zelyq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      fastify:
+        specifier: ^5.12.6
+        version: 5.12.7
+    devDependencies:
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   apps/runtime-host:
     dependencies:
       '@zelyq/core':

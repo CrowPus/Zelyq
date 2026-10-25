@@ -1,0 +1,39 @@
+id: zelyq/s3-upload
+version: 1.0.0
+name: Upload to S3
+description: Upload a file or folder to Amazon S3 or an S3-compatible store (R2, MinIO, Spaces).
+category: cloud
+runs-on:
+  os: [linux, macos]
+  needs: [aws]
+inputs:
+  source:
+    description: What to upload, relative to the run's folder
+    default: dist
+  bucket:
+    description: The bucket
+    required: true
+  prefix:
+    description: The folder inside the bucket
+    default: ""
+  region:
+    description: The bucket's region
+    default: us-east-1
+  access_key_id:
+    description: The access key id
+    required: true
+    secret: true
+  secret_access_key:
+    description: The secret access key
+    required: true
+    secret: true
+  endpoint:
+    description: For an S3-compatible store, its address (e.g. https://<account>.r2.cloudflarestorage.com)
+    default: ""
+  delete:
+    description: true to remove files in the bucket that are not in the source
+    default: "false"
+steps:
+  - name: Upload to S3
+    shell: bash
+    run: bash "$ZELYQ_PLUGIN_DIR/scripts/upload.sh"

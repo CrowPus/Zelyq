@@ -48,6 +48,8 @@ import type {
   ProjectVariableUpdate,
   PullRequestResult,
   PushToRemoteInput,
+  RegistryPluginDetail,
+  RegistryPluginSummary,
   Role,
   RunLogLine,
   RunnerDisk,
@@ -402,6 +404,20 @@ export const api = {
       }),
     removePlugin: (teamId: string, id: string) =>
       request<void>(`/teams/${teamId}/pipeline-plugins/${id}`, { method: "DELETE" }),
+    /** Zelyq's plugin registry: whether it is on, what it has, installing from it. */
+    registryStatus: () => request<{ enabled: boolean }>("/plugin-registry"),
+    registryPlugins: (teamId: string, q?: string) =>
+      request<{
+        plugins: RegistryPluginSummary[];
+        yanked: { id: string; version: string; reason: string }[];
+      }>(`/teams/${teamId}/plugin-registry/plugins${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+    registryPlugin: (teamId: string, id: string) =>
+      request<{ plugin: RegistryPluginDetail }>(`/teams/${teamId}/plugin-registry/plugins/${id}`),
+    registryInstall: (teamId: string, id: string, version: string) =>
+      request<{ plugin: PipelinePluginSummary }>(`/teams/${teamId}/plugin-registry/install`, {
+        method: "POST",
+        body: JSON.stringify({ id, version }),
+      }),
   },
 
   deploys: {

@@ -11,6 +11,7 @@ export * from "./openai-models.js";
 export * from "./pipelines.js";
 export * from "./project-runtime.js";
 export * from "./protocol.js";
+export * from "./registry.js";
 export * from "./settings.js";
 export * from "./skill-file.js";
 export * from "./tools.js";
