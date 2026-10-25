@@ -190,7 +190,7 @@ export function registerAgentOAuthRoutes(
           return page(
             reply,
             "Connect to Zelyq",
-            form(clientName, query, error.message),
+            form(clientName, query, "Sign-in failed. Check the agent key and try again."),
             error.status,
           );
         }
