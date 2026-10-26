@@ -16,6 +16,7 @@ import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
 import { Button, EmptyState, Input, Spinner } from "../ui";
+import { RegistrySection } from "./RegistrySection";
 
 const OS_LABEL: Record<string, string> = { linux: "Linux", macos: "macOS", windows: "Windows" };
 
@@ -92,6 +93,8 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
           </>
         )}
       </div>
+
+      <RegistrySection team={team} installed={plugins.data?.plugins ?? []} isAdmin={isAdmin} />
 
       {error && <p className="text-xs text-danger">{error}</p>}
       {installed && (

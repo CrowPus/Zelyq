@@ -1,0 +1,22 @@
+id: zelyq/slack-notify
+version: 1.0.0
+name: Slack notify
+description: Post a message to a Slack channel through an incoming webhook.
+category: notifications
+runs-on:
+  os: [linux, macos]
+  needs: [curl]
+inputs:
+  webhook:
+    description: The Slack incoming-webhook address
+    required: true
+    secret: true
+  message:
+    description: What to post
+    default: "Run ${ZELYQ_RUN_NUMBER} of ${ZELYQ_PIPELINE} finished"
+outputs:
+  status: The HTTP status Slack answered with
+steps:
+  - name: Post to Slack
+    shell: bash
+    run: bash "$ZELYQ_PLUGIN_DIR/scripts/send.sh"

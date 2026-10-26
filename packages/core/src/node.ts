@@ -7,3 +7,4 @@
  */
 export { loadEnvFile } from "./env.js";
 export { resolveFromRepoRoot } from "./paths.js";
+export { MAX_PLUGIN_PACKAGE_BYTES, readPluginPackage } from "./plugin-package.js";

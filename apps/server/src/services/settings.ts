@@ -5,6 +5,7 @@ import {
   chooseAnthropicAutoModel,
   chooseGoogleAutoModel,
   chooseOpenAIAutoModel,
+  DEFAULT_REGISTRY_URL,
   GOOGLE_DEFAULT_MODEL,
   GOOGLE_MODELS,
   imageProviderCatalog,
@@ -623,6 +624,26 @@ const DEFINITIONS: Definition[] = [
     envVar: "ZELYQ_PIPELINE_LOCAL_CONCURRENCY",
     envOverridable: true,
     fallback: "2",
+  },
+  {
+    key: "pluginRegistry",
+    label: "Plugin registry",
+    description:
+      "Show Zelyq's own pipeline plugins in Pipelines → Plugins, ready to install. Every package is checked against Zelyq's signature before it is installed. Off: only plugins uploaded by hand.",
+    kind: "boolean",
+    group: "Pipelines",
+    envVar: "ZELYQ_PLUGIN_REGISTRY",
+    fallback: "true",
+  },
+  {
+    key: "pluginRegistryUrl",
+    label: "Plugin registry address",
+    description: "Where the plugin registry is. Change it only if you run your own.",
+    kind: "text",
+    group: "Pipelines",
+    envVar: "ZELYQ_PLUGIN_REGISTRY_URL",
+    fallback: DEFAULT_REGISTRY_URL,
+    placeholder: DEFAULT_REGISTRY_URL,
   },
 ];
 

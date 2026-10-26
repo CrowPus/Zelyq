@@ -1,0 +1,34 @@
+id: zelyq/npm-publish
+version: 1.0.0
+name: npm publish
+description: Publish a package to the npm registry (or another one) with a token from Vault.
+category: build
+runs-on:
+  os: [linux, macos]
+  needs: [npm]
+inputs:
+  token:
+    description: An npm access token that may publish this package
+    required: true
+    secret: true
+  directory:
+    description: The package's folder in the run
+    default: "."
+  tag:
+    description: The dist-tag to publish under
+    default: latest
+  access:
+    description: public or restricted (for scoped packages)
+    default: public
+  registry:
+    description: The registry's address
+    default: https://registry.npmjs.org/
+  dry_run:
+    description: true to check everything without publishing
+    default: "false"
+outputs:
+  version: The version published
+steps:
+  - name: Publish to npm
+    shell: bash
+    run: bash "$ZELYQ_PLUGIN_DIR/scripts/publish.sh"

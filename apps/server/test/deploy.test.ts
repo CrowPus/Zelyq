@@ -993,7 +993,14 @@ test("an exact address set on the app's page, www sent on to it; behind the mach
   );
   assert.equal(gone.statusCode, 204, gone.body);
   assert.equal(
-    execFileSync("docker", ["ps", "-aq", "--filter", "label=zelyq.environment=web2"])
+    execFileSync("docker", [
+      "ps",
+      "-aq",
+      "--filter",
+      `label=zelyq.app=${app}`,
+      "--filter",
+      "label=zelyq.environment=web2",
+    ])
       .toString()
       .trim(),
     "",

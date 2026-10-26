@@ -356,5 +356,7 @@ test("Settings shows a Pipelines section with every pipeline setting", async () 
     "pipelineLocalConcurrency",
     "pipelineLocalImage",
     "pipelineLocalRunner",
+    "pluginRegistry",
+    "pluginRegistryUrl",
   ]);
 });

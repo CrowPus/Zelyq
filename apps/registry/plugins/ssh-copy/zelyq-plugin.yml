@@ -1,0 +1,34 @@
+id: zelyq/ssh-copy
+version: 1.0.0
+name: Copy over SSH
+description: Copy files or a folder from the run to a server over SSH.
+category: deploy
+runs-on:
+  os: [linux, macos]
+  needs: [ssh, scp]
+inputs:
+  host:
+    description: The server's address
+    required: true
+  user:
+    description: The user to log in as
+    required: true
+  key:
+    description: The private SSH key to log in with
+    required: true
+    secret: true
+  source:
+    description: What to copy, relative to the run's folder
+    default: dist
+  target:
+    description: Where on the server
+    required: true
+  port:
+    description: The SSH port
+    default: "22"
+  known_hosts:
+    description: The server's known_hosts line; without it, the first key the server shows is trusted
+steps:
+  - name: Copy over SSH
+    shell: bash
+    run: bash "$ZELYQ_PLUGIN_DIR/scripts/copy.sh"
