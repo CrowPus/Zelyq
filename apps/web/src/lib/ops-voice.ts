@@ -3,11 +3,101 @@ import { preferredRecordingMimeType } from "./voice";
 
 /**
  * Talking to Ops (072 §2.11): you speak, it answers in writing and aloud.
- * Listening records the microphone and turns it into text with Zelyq's own
- * voice input; speaking uses the browser's built-in voice, so nothing outside
- * is needed. In hands-free mode, recording stops by itself when you stop
- * talking, and starts again once Ops has finished speaking.
+ * Listening uses the browser's own speech recognition (Chrome, Edge, Safari):
+ * no key, nothing to set up, and the words appear as you say them. Only a
+ * browser without it (Firefox) records and uses Zelyq's voice input instead.
+ * Speaking uses the browser's built-in voice. In hands-free mode, listening
+ * ends by itself when you pause, and starts again once Ops has finished.
  */
+
+/** The browser's speech recognition, where it has one. */
+export interface Recognition {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult:
+    | ((event: {
+        resultIndex: number;
+        results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }>;
+      }) => void)
+    | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+
+function browserRecognition(): (new () => Recognition) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: new () => Recognition;
+    webkitSpeechRecognition?: new () => Recognition;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
+/**
+ * One turn of listening with a speech recognition class: words as they come
+ * (`heard`), and what was said once it ends (`done`, empty after an error).
+ * Press to talk listens until stopped; hands-free ends when you pause.
+ */
+export function listenWith(
+  Kind: new () => Recognition,
+  options: {
+    lang: string;
+    handsFree: boolean;
+    heard: (text: string) => void;
+    failed: (message: string) => void;
+    done: (text: string, rec: Recognition) => void;
+  },
+): Recognition {
+  const rec = new Kind();
+  rec.lang = options.lang;
+  rec.continuous = !options.handsFree;
+  rec.interimResults = true;
+  let final = "";
+  let failed = false;
+  rec.onresult = (event) => {
+    let interim = "";
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const result = event.results[index];
+      const text = result?.[0]?.transcript ?? "";
+      if (result?.isFinal) final += text;
+      else interim += text;
+    }
+    options.heard(`${final}${interim}`.trim());
+  };
+  rec.onerror = (event) => {
+    const message = recognitionError(event.error);
+    if (message) {
+      failed = true;
+      options.failed(message);
+    }
+  };
+  rec.onend = () => options.done(failed ? "" : final.trim(), rec);
+  rec.start();
+  return rec;
+}
+
+/** Whether this browser can listen by itself, with no service behind Zelyq. */
+export function canListenInBrowser(): boolean {
+  return browserRecognition() !== null;
+}
+
+/** A recognition error, in words a person can act on; null when there is nothing to say. */
+export function recognitionError(code: string): string | null {
+  if (code === "no-speech" || code === "aborted") return null;
+  if (code === "not-allowed" || code === "service-not-allowed") {
+    return "Microphone access was refused. Allow it in the browser's site settings and try again.";
+  }
+  if (code === "audio-capture") return "No microphone was found.";
+  if (code === "network") {
+    return "The browser could not reach its speech service. Check the connection and try again, or type.";
+  }
+  if (code === "language-not-supported") return "The browser cannot listen in this language.";
+  return "The browser could not listen just now. Try again, or type.";
+}
 
 const MAX_RECORDING_MS = 60_000;
 /** How long a quiet stretch ends what you said, once you have said something. */
@@ -33,6 +123,9 @@ export function useListening(
 ) {
   const [state, setState] = useState<ListenState>("idle");
   const [error, setError] = useState<string | null>(null);
+  /** What the browser has heard so far, shown while you speak. */
+  const [heard, setHeard] = useState("");
+  const recognition = useRef<Recognition | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const timers = useRef<number[]>([]);
@@ -58,14 +151,56 @@ export function useListening(
   }, [release]);
 
   const stop = useCallback(() => {
+    if (recognition.current) recognition.current.stop();
     if (recorder.current?.state === "recording") recorder.current.stop();
   }, []);
+
+  useEffect(
+    () => () => {
+      recognition.current?.abort();
+      recognition.current = null;
+    },
+    [],
+  );
+
+  /** Listening with the browser's own recognition: what you said arrives as text. */
+  const listenInBrowser = useCallback(
+    (Kind: new () => Recognition, handsFree: boolean) => {
+      try {
+        recognition.current = listenWith(Kind, {
+          lang: navigator.language || "en-US",
+          handsFree,
+          heard: (text) => mounted.current && setHeard(text),
+          failed: (message) => mounted.current && setError(message),
+          done: (text, rec) => {
+            if (recognition.current === rec) recognition.current = null;
+            if (!mounted.current) return;
+            setState("idle");
+            setHeard("");
+            if (text) onText(text);
+          },
+        });
+        setState("recording");
+      } catch {
+        recognition.current = null;
+        setState("idle");
+        setError("The browser could not start listening. Try again, or type.");
+      }
+    },
+    [onText],
+  );
 
   const start = useCallback(
     async (handsFree = false) => {
       setError(null);
       if (!window.isSecureContext) {
         setError("Talking needs a secure connection (https). Open Zelyq over https and try again.");
+        return;
+      }
+      setHeard("");
+      const Kind = browserRecognition();
+      if (Kind) {
+        listenInBrowser(Kind, handsFree);
         return;
       }
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
@@ -154,10 +289,10 @@ export function useListening(
         );
       }
     },
-    [onText, release, stop, transcribe],
+    [onText, release, stop, transcribe, listenInBrowser],
   );
 
-  return { state, error, start, stop };
+  return { state, error, heard, start, stop };
 }
 
 /**

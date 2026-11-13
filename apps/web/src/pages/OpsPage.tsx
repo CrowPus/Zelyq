@@ -323,12 +323,19 @@ function TalkTab({
             <p className="mb-2 text-xs text-danger">{error ?? listening.error}</p>
           )}
           {listening.state === "recording" && (
-            <p className="mb-2 flex items-center gap-1.5 text-xs text-danger">
-              <span className="size-2 animate-pulse rounded-full bg-danger" /> Listening
-              {handsFree
-                ? " — stop talking and it sends by itself"
-                : " — press the microphone again to send"}
-            </p>
+            <div className="mb-2 grid gap-1">
+              <p className="flex items-center gap-1.5 text-xs text-danger">
+                <span className="size-2 animate-pulse rounded-full bg-danger" /> Listening
+                {handsFree
+                  ? " — pause and it sends by itself"
+                  : " — press the microphone again to send"}
+              </p>
+              {listening.heard && (
+                <p className="rounded-md bg-surface-subtle px-2.5 py-1.5 text-sm text-fg">
+                  {listening.heard}
+                </p>
+              )}
+            </div>
           )}
           {listening.state === "transcribing" && (
             <p className="mb-2 flex items-center gap-1.5 text-xs text-fg-secondary">
