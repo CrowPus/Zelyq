@@ -369,11 +369,6 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(input),
       }),
-    transcribe: (teamId: string, input: { mimeType: string; data: string }) =>
-      request<{ text: string }>(`/teams/${teamId}/voice/transcriptions`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
   },
   pipelines: {
     list: (teamId: string) =>

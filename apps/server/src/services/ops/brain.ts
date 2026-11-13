@@ -13,6 +13,8 @@ const LIMITS = { rounds: 40, tokens: 1_500_000, minutes: 45 };
 
 /** How long a bridge token lives: one turn, with room for a long pipeline run. */
 const TOKEN_MS = 70 * 60_000;
+/** The longest one live conversation lasts. */
+const VOICE_MS = 2 * 60 * 60_000;
 
 /** A person who keeps talking while Ops works gets answered after, up to this many times in a row. */
 const FOLLOW_UPS = 3;
@@ -186,7 +188,9 @@ export class OpsBrain {
 
   /** The provider of Settings → Model; the model of Settings → Ops, or the provider's default. */
   private async modelConfig() {
-    const provider = await this.settings.value("provider");
+    // Ops may think with its own provider; empty means the same as Settings → Model.
+    const provider =
+      (await this.settings.value("opsProvider")).trim() || (await this.settings.value("provider"));
     const chosen = (await this.settings.value("opsModel")).trim();
     const requested = chosen || (await this.settings.modelFor(provider));
     const model =
@@ -306,6 +310,41 @@ ${steps}`;
       },
       ...list,
     ];
+  }
+
+  // ------------------------------------------------------------- talking live
+
+  /** A live voice conversation's pass to the tools, for one job, until it is closed. */
+  openVoice(teamId: string, jobId: string): string {
+    const token = randomBytes(32).toString("hex");
+    this.tokens.set(token, { teamId, jobId, expires: Date.now() + VOICE_MS });
+    this.working.add(jobId);
+    this.activity.set(jobId, this.activity.get(jobId) ?? []);
+    return token;
+  }
+
+  closeVoice(token: string): void {
+    const grant = this.tokens.get(token);
+    this.tokens.delete(token);
+    if (grant) this.working.delete(grant.jobId);
+  }
+
+  /** The tools a live conversation may use: the same as typed, through the same gate. */
+  voiceTools() {
+    return this.tools();
+  }
+
+  /** What Ops reads before talking: the same brief as typed, and how to speak. */
+  async voicePrompt(teamId: string, jobId: string): Promise<string> {
+    const view = await this.ops.engineerView(jobId);
+    return `${await this.systemPrompt(teamId, view)}
+
+You are talking aloud now, live:
+- Speak like a calm senior engineer on a call: short sentences, one idea at a time, plain words. Never read out ids, hashes, JSON or long lists; say "I've put the details on screen".
+- Before a tool that takes a while, say what you are doing ("Let me look at your machines").
+- The person can see the Ops page: plans, steps and checks appear there as you work.
+- You cannot approve anything and their voice does not approve: when a plan waits, say "It's on screen; press Approve when you've read it", then wait for them to say they did.
+- Answer in the language they speak.`;
   }
 
   /** Whether a bridge token belongs to a turn still going. */

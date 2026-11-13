@@ -15,22 +15,24 @@ import {
   Hand,
   Loader2,
   Mic,
+  MicOff,
   Pause,
+  PhoneOff,
   Play,
   Plus,
   Send,
-  Square,
   Volume2,
   VolumeX,
   XCircle,
 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { Markdown } from "../components/Markdown";
 import { Badge, Button, EmptyState, Input, Spinner, Textarea } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
-import { speak, spokenPart, stopSpeaking, useListening } from "../lib/ops-voice";
+import { useLiveTalk } from "../lib/ops-live";
+import { speak, spokenPart, stopSpeaking } from "../lib/ops-voice";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
 type Tab = "talk" | "memory" | "settings";
@@ -198,7 +200,6 @@ function TalkTab({
   const current = job.data?.job ?? null;
 
   const [speakAloud, setSpeakAloud] = useState(() => readFlag("zelyq.ops.speak", true));
-  const [handsFree, setHandsFree] = useState(() => readFlag("zelyq.ops.handsFree", false));
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -215,20 +216,21 @@ function TalkTab({
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
 
-  const transcribe = useCallback(
-    (input: { mimeType: string; data: string }) => api.ops.transcribe(teamId, input),
-    [teamId],
-  );
-  const onHeard = useCallback(
-    (text: string) => {
-      if (talk.isPending) return;
-      talk.mutate({ text, spoken: true });
+  // Talking live: Ops hears you directly and answers in its own voice (Gemini Live, through
+  // Zelyq's server); the job on screen follows the conversation.
+  const live = useLiveTalk(teamId, {
+    onJob: (id) => {
+      setJobId(id);
+      void queryClient.invalidateQueries({ queryKey: ["ops-jobs", teamId] });
     },
-    [talk],
-  );
-  const listening = useListening(transcribe, onHeard);
+    onChanged: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ops-job", teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["ops-jobs", teamId] });
+    },
+  });
+  const talking = live.status !== "idle";
 
-  // Ops's new replies are read aloud; in hands-free mode, listening starts again after.
+  // A typed conversation's new replies are read aloud (a live one speaks for itself).
   const heard = useRef<Set<string>>(new Set());
   const primed = useRef<string | null>(null);
   useEffect(() => {
@@ -242,27 +244,27 @@ function TalkTab({
     const fresh = current.messages.filter((message) => !heard.current.has(message.id));
     for (const message of fresh) heard.current.add(message.id);
     const reply = [...fresh].reverse().find((message) => message.role === "ops");
-    if (!reply) return;
-    const again = () => {
-      if (handsFree && listening.state === "idle" && current.stage !== "approve") {
-        void listening.start(true);
-      }
-    };
-    if (speakAloud) speak(spokenPart(reply.text), again);
-    else again();
-  }, [current, speakAloud, handsFree, listening]);
+    if (reply && speakAloud && !talking) speak(spokenPart(reply.text));
+  }, [current, speakAloud, talking]);
 
   useEffect(() => () => stopSpeaking(), []);
 
   const send = (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
-    if (!text || talk.isPending) return;
+    if (!text) return;
+    // While talking live, typed words join the conversation and Ops answers by voice.
+    if (talking && live.say(text)) {
+      setDraft("");
+      return;
+    }
+    if (talk.isPending) return;
     talk.mutate({ text });
   };
 
   const newConversation = () => {
     stopSpeaking();
+    if (talking) live.stop();
     setJobId(null);
     setDraft("");
   };
@@ -308,7 +310,7 @@ function TalkTab({
             <p className="max-w-md text-xs">
               For example: “Put my shop online at myshop.com”, “Is everything OK?”, “Ship the latest
               version”, “Why was the site down last night?”. Type it, or press the microphone and
-              say it.
+              just talk: Ops answers aloud.
             </p>
           </div>
         )}
@@ -319,28 +321,43 @@ function TalkTab({
               Ops is paused. An admin resumes it in Settings.
             </p>
           )}
-          {(error || listening.error) && (
-            <p className="mb-2 text-xs text-danger">{error ?? listening.error}</p>
+          {(error || live.error) && (
+            <p className="mb-2 text-xs text-danger">{error ?? live.error}</p>
           )}
-          {listening.state === "recording" && (
-            <div className="mb-2 grid gap-1">
-              <p className="flex items-center gap-1.5 text-xs text-danger">
-                <span className="size-2 animate-pulse rounded-full bg-danger" /> Listening
-                {handsFree
-                  ? " — pause and it sends by itself"
-                  : " — press the microphone again to send"}
-              </p>
-              {listening.heard && (
-                <p className="rounded-md bg-surface-subtle px-2.5 py-1.5 text-sm text-fg">
-                  {listening.heard}
+          {talking && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-surface-subtle px-3 py-2">
+              <span
+                className={`size-2.5 rounded-full ${live.speaking ? "animate-pulse bg-primary" : live.status === "live" ? "bg-success" : "animate-pulse bg-fg-muted"}`}
+              />
+              <span className="text-xs font-medium text-fg">
+                {live.status === "connecting"
+                  ? "Connecting…"
+                  : live.speaking
+                    ? "Ops is talking — just speak to interrupt"
+                    : live.working
+                      ? "Ops is working…"
+                      : live.muted
+                        ? "Muted — Ops cannot hear you"
+                        : "Listening — just talk"}
+              </span>
+              <span className="ml-auto flex gap-1">
+                <Button size="sm" variant="secondary" onClick={live.toggleMute}>
+                  {live.muted ? <MicOff size={13} /> : <Mic size={13} />}
+                  {live.muted ? "Unmute" : "Mute"}
+                </Button>
+                <Button size="sm" variant="danger" onClick={live.stop}>
+                  <PhoneOff size={13} /> End
+                </Button>
+              </span>
+              {live.caption && (
+                <p className="w-full text-sm text-fg-secondary">
+                  <span className="font-medium text-fg">
+                    {live.caption.role === "ops" ? "Ops: " : "You: "}
+                  </span>
+                  {live.caption.text}
                 </p>
               )}
             </div>
-          )}
-          {listening.state === "transcribing" && (
-            <p className="mb-2 flex items-center gap-1.5 text-xs text-fg-secondary">
-              <Loader2 size={12} className="animate-spin" /> Turning what you said into text…
-            </p>
           )}
           <div className="flex items-end gap-2">
             <Textarea
@@ -360,25 +377,25 @@ function TalkTab({
             />
             <div className="flex flex-col gap-1">
               <Button
-                variant={listening.state === "recording" ? "danger" : "secondary"}
-                aria-label={listening.state === "recording" ? "Stop and send" : "Talk to Ops"}
-                title={listening.state === "recording" ? "Stop and send" : "Talk to Ops"}
-                disabled={
-                  !canTalk || paused || listening.state === "transcribing" || talk.isPending
+                variant={talking ? "danger" : "secondary"}
+                aria-label={talking ? "End the conversation" : "Talk to Ops"}
+                title={
+                  talking ? "End the conversation" : "Talk to Ops: it listens and answers aloud"
                 }
+                disabled={!canTalk || paused}
                 onClick={() => {
                   stopSpeaking();
-                  if (listening.state === "recording") listening.stop();
-                  else void listening.start(handsFree);
+                  if (talking) live.stop();
+                  else live.start(jobId);
                 }}
               >
-                {listening.state === "recording" ? <Square size={14} /> : <Mic size={14} />}
+                {talking ? <PhoneOff size={14} /> : <Mic size={14} />}
               </Button>
               <Button
                 type="submit"
                 variant="primary"
                 aria-label="Send"
-                disabled={!canTalk || paused || !draft.trim() || talk.isPending}
+                disabled={!canTalk || paused || !draft.trim() || (!talking && talk.isPending)}
               >
                 {talk.isPending ? (
                   <Loader2 size={14} className="animate-spin" />
@@ -400,17 +417,6 @@ function TalkTab({
                 }}
               />
               {speakAloud ? <Volume2 size={12} /> : <VolumeX size={12} />} Read replies aloud
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={handsFree}
-                onChange={(event) => {
-                  setHandsFree(event.target.checked);
-                  writeFlag("zelyq.ops.handsFree", event.target.checked);
-                }}
-              />
-              Hands-free conversation
             </label>
             <span className="text-fg-muted">
               Approving always takes a button, never your voice.

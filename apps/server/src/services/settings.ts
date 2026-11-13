@@ -643,6 +643,47 @@ const DEFINITIONS: Definition[] = [
     fallback: "",
   },
   {
+    key: "opsProvider",
+    label: "Ops provider",
+    description:
+      "Who Ops thinks with when you type to it. Empty: the same as Settings → Model. Choosing one here changes Ops only, not the model Zelyq builds apps with.",
+    kind: "select",
+    group: "Ops",
+    envVar: "ZELYQ_OPS_PROVIDER",
+    envOverridable: true,
+    fallback: "",
+    options: [
+      { value: "", label: "Same as Settings → Model" },
+      { value: "google", label: "Google Gemini" },
+      { value: "anthropic", label: "Anthropic Claude" },
+      { value: "openai", label: "OpenAI" },
+    ],
+  },
+  {
+    key: "opsVoiceModel",
+    label: "Ops voice model",
+    description:
+      "The Gemini Live model Ops talks with (it hears and speaks directly; no transcription). Uses the Google AI key in Settings → Model.",
+    kind: "text",
+    group: "Ops",
+    envVar: "ZELYQ_OPS_VOICE_MODEL",
+    envOverridable: true,
+    fallback: "gemini-3.8-live",
+  },
+  {
+    key: "opsVoice",
+    label: "Ops voice",
+    description: "The voice Ops speaks with when you talk to it live.",
+    kind: "select",
+    group: "Ops",
+    envVar: "ZELYQ_OPS_VOICE",
+    envOverridable: true,
+    fallback: "Kore",
+    options: ["Kore", "Puck", "Charon", "Aoede", "Fenrir", "Leda", "Orus", "Zephyr"].map(
+      (value) => ({ value, label: value }),
+    ),
+  },
+  {
     key: "mailHost",
     label: "Mail server",
     description:

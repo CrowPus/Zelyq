@@ -177,6 +177,8 @@ export class OpsService {
     teamId: string,
     raw: unknown,
     source: "page" | "mcp" | "channel" = "page",
+    /** False when the person's words arrive later (talking live): the request is not a message yet. */
+    recordRequest = true,
   ): Promise<OpsJobDetail> {
     await this.access.requireTeamRole(user, teamId, "editor");
     await this.requirePerson(user);
@@ -210,7 +212,7 @@ export class OpsService {
       finishedAt: null,
     };
     await this.store.ops.jobs.create(job);
-    await this.message(job.id, "person", user.id, input.request);
+    if (recordRequest) await this.message(job.id, "person", user.id, input.request);
     await this.access.recordChange(user, {
       teamId,
       action: "ops.job_started",
@@ -860,6 +862,14 @@ export class OpsService {
     const job = await this.store.ops.jobs.findById(jobId);
     if (!job) throw ZelyqError.notFound("Job", jobId);
     return this.detail(null, job);
+  }
+
+  /** A job started by talking is named by the person's first words. */
+  async renameRequest(jobId: string, request: string): Promise<void> {
+    await this.store.ops.jobs.update(jobId, {
+      request: request.slice(0, 4000),
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   /** A person says more in a job that is still going. */

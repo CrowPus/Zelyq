@@ -65,6 +65,7 @@ import { OpsBrain } from "./services/ops/brain.js";
 import { OPS_ACTIONS } from "./services/ops/catalogue.js";
 import { OpsMailer } from "./services/ops/mailer.js";
 import { OpsService } from "./services/ops/service.js";
+import { OpsVoice } from "./services/ops/voice.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
 import { PipelinePluginService } from "./services/pipelines/plugins.js";
@@ -104,6 +105,8 @@ export interface ZelyqServer {
   runtime: RuntimeDriver;
   /** Ops, the team's DevOps engineer: exposed so tests can act as the engineer does. */
   ops: OpsService;
+  /** Talking to Ops live: exposed so tests can drive a conversation. */
+  opsVoice: OpsVoice;
   /** The agent's image capability channel. Exposed so tests can mint a grant
    *  the way the websocket gateway does. */
   imageBridge: ImageBridge;
@@ -471,6 +474,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
   registerDeployRoutes(app, { access, deploys });
   const opsBrain = new OpsBrain(ops, settings, agent, config.serverInternalUrl);
+  const opsVoice = new OpsVoice(ops, opsBrain, settings);
   registerOpsRoutes(app, { access, ops, brain: opsBrain });
   // Zelyq's own plugins, signed: installed only if the signature verifies.
   const pluginRegistry = new PluginRegistryClient(store, settings, access, pipelinePlugins, {
@@ -596,6 +600,44 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     if (project) await pipelineTriggers.appChanged(project);
   };
 
+  // Talking to Ops live: the microphone streams here and on to Gemini Live (services/ops/voice.ts).
+  app.get<{ Params: { teamId: string }; Querystring: { job?: string } }>(
+    "/ws/ops/:teamId",
+    { websocket: true },
+    (socket, request) => {
+      const user = request.zelyqUser;
+      if (!user) {
+        socket.close(4401, "Not signed in");
+        return;
+      }
+      // Only Zelyq's own page may open this with the person's session, never another site.
+      const origin = request.headers.origin;
+      let sameSite = false;
+      try {
+        sameSite = Boolean(origin) && new URL(origin as string).host === request.headers.host;
+      } catch {
+        sameSite = false;
+      }
+      if (!sameSite) {
+        socket.close(4403, "Not from Zelyq");
+        return;
+      }
+      const { teamId } = request.params;
+      void (async () => {
+        await access.requireTeamRole(user, teamId, "editor");
+        if (await store.users.isService(user.id)) throw new Error("Ops does not talk to itself.");
+        await opsVoice.relay(socket as never, user, teamId, request.query.job ?? null);
+      })().catch((error) => {
+        try {
+          socket.send(JSON.stringify({ type: "error", message: (error as Error).message }));
+        } catch {
+          // closed already
+        }
+        socket.close(1011, "error");
+      });
+    },
+  );
+
   app.get<{ Params: { id: string } }>(
     "/ws/projects/:id",
     { websocket: true },
@@ -635,6 +677,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     pipelineEngine,
     pipelines,
     ops,
+    opsVoice,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */
