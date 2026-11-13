@@ -60,6 +60,25 @@ export function registerOpsRoutes(
     ),
   }));
 
+  /** How much Ops may do alone on each environment. */
+  app.get<Team>("/api/teams/:teamId/ops/environments", async (request) => ({
+    environments: await ops.engineers.environments(
+      access.requireUser(request),
+      request.params.teamId,
+    ),
+  }));
+  app.patch<{ Params: { teamId: string; environmentId: string } }>(
+    "/api/teams/:teamId/ops/environments/:environmentId",
+    async (request) => ({
+      environments: await ops.engineers.setTrust(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.environmentId,
+        request.body,
+      ),
+    }),
+  );
+
   app.get<Team>("/api/teams/:teamId/ops/jobs", async (request) => ({
     jobs: await ops.listJobs(access.requireUser(request), request.params.teamId),
   }));

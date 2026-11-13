@@ -62,7 +62,9 @@ export function refusedAddress(address: string, level: GuardLevel): string | nul
   if (family === 0) return `${address} is not an address.`;
   const kind = family === 6 ? "ipv6" : "ipv4";
   if (level === "deployment") {
-    return METADATA.check(ip, kind) ? `${address} is a link-local or cloud metadata address.` : null;
+    return METADATA.check(ip, kind)
+      ? `${address} is a link-local or cloud metadata address.`
+      : null;
   }
   if (ALWAYS.check(ip, kind) || ownAddresses().has(ip)) {
     return `${address} is this server, or a link-local or cloud metadata address.`;
