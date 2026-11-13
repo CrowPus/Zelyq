@@ -1,18 +1,18 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import {
   opsAttempts,
   opsEngineers,
   opsGuards,
-  opsLessons,
-  opsPreferences,
-  opsSheets,
-  opsSheetVersions,
   opsJobs,
+  opsLessons,
   opsMessages,
   opsPlanSteps,
+  opsPreferences,
   opsProofs,
   opsRunGrants,
+  opsSheets,
+  opsSheetVersions,
 } from "../schema/sqlite.js";
 
 export type OpsEngineerRow = typeof opsEngineers.$inferSelect;
@@ -82,10 +82,27 @@ export function opsRepository(db: ZelyqDb) {
     },
 
     steps: {
-      /** Replaces a job's plan: only while it is not approved (the service checks). */
-      async replaceForJob(jobId: string, rows: OpsPlanStepRow[]): Promise<void> {
-        await db.delete(opsPlanSteps).where(eq(opsPlanSteps.jobId, jobId));
+      /**
+       * Replaces the steps of a job's plan that have not run. Steps that ran
+       * (and their proofs) stay: planning again never rewrites what happened.
+       */
+      async replacePlanned(jobId: string, rows: OpsPlanStepRow[]): Promise<void> {
+        await db
+          .delete(opsPlanSteps)
+          .where(and(eq(opsPlanSteps.jobId, jobId), eq(opsPlanSteps.status, "planned")));
         if (rows.length > 0) await db.insert(opsPlanSteps).values(rows);
+      },
+      /** A later plan takes the place of what failed or was not proven: it stays on record as replaced. */
+      async markReplaced(jobId: string): Promise<void> {
+        await db
+          .update(opsPlanSteps)
+          .set({ status: "replaced" })
+          .where(
+            and(
+              eq(opsPlanSteps.jobId, jobId),
+              inArray(opsPlanSteps.status, ["failed", "not_verified"]),
+            ),
+          );
       },
       async listForJob(jobId: string): Promise<OpsPlanStepRow[]> {
         return await db
@@ -147,6 +164,10 @@ export function opsRepository(db: ZelyqDb) {
           )
           .limit(1);
         return rows[0] ?? null;
+      },
+      /** Tries an attempt again, once something has changed since it failed. */
+      async retry(id: string, at: string): Promise<void> {
+        await db.update(opsAttempts).set({ ok: null, detail: null, createdAt: at }).where(eq(opsAttempts.id, id));
       },
       async settle(id: string, ok: boolean, detail: string | null): Promise<void> {
         await db.update(opsAttempts).set({ ok, detail }).where(eq(opsAttempts.id, id));
@@ -255,7 +276,11 @@ export function opsRepository(db: ZelyqDb) {
         return row;
       },
       async findById(id: string): Promise<OpsPreferenceRow | null> {
-        const rows = await db.select().from(opsPreferences).where(eq(opsPreferences.id, id)).limit(1);
+        const rows = await db
+          .select()
+          .from(opsPreferences)
+          .where(eq(opsPreferences.id, id))
+          .limit(1);
         return rows[0] ?? null;
       },
       async listForTeam(teamId: string): Promise<OpsPreferenceRow[]> {
@@ -295,7 +320,11 @@ export function opsRepository(db: ZelyqDb) {
           .orderBy(desc(opsLessons.createdAt));
       },
       async update(id: string, patch: Partial<OpsLessonRow>): Promise<OpsLessonRow | null> {
-        const [row] = await db.update(opsLessons).set(patch).where(eq(opsLessons.id, id)).returning();
+        const [row] = await db
+          .update(opsLessons)
+          .set(patch)
+          .where(eq(opsLessons.id, id))
+          .returning();
         return row ?? null;
       },
       async remove(id: string): Promise<void> {

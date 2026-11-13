@@ -2,6 +2,7 @@ import { connect } from "node:net";
 import { automaticConcurrency } from "@zelyq/core";
 import { z } from "zod";
 import { refusedAddress } from "../../net-guard.js";
+import { SshSession } from "../../pipelines/ssh.js";
 import { environmentByName, environmentRef, type OpsAction } from "../actions.js";
 import { environmentRow, machineByName, nameField } from "./shared.js";
 
@@ -55,6 +56,53 @@ const machineStatus: OpsAction<z.infer<typeof machineInput>> = {
   },
 };
 
+/** The ports a machine listens on: one fixed, read-only command, never a shell for Ops. */
+const PORTS_COMMAND =
+  "sh -c 'ss -ltnH 2>/dev/null || netstat -ltn 2>/dev/null || cat /proc/net/tcp /proc/net/tcp6 2>/dev/null'";
+
+export function listeningPorts(output: string): number[] {
+  const ports = new Set<number>();
+  for (const line of output.split("\n")) {
+    // ss / netstat: "LISTEN 0 4096 0.0.0.0:8080 …" or "tcp 0 0 0.0.0.0:8080 … LISTEN"
+    const address = /\s(\S+):(\d+)\s+\S+:[*\d]+/.exec(line);
+    if (address?.[2] && (/LISTEN/.test(line) || /^LISTEN/.test(line.trim())))
+      ports.add(Number(address[2]));
+    // /proc/net/tcp: local address in hex, state 0A = listening
+    const proc = /^\s*\d+:\s+[0-9A-F]+:([0-9A-F]{4})\s+[0-9A-F]+:[0-9A-F]{4}\s+0A\b/.exec(line);
+    if (proc?.[1]) ports.add(Number.parseInt(proc[1], 16));
+  }
+  return [...ports].sort((a, b) => a - b);
+}
+
+const portsInMachine = z.object({ machine: nameField("machine") }).strict();
+const machinePorts: OpsAction<z.infer<typeof portsInMachine>> = {
+  name: "machine_ports",
+  description:
+    "The ports already in use on a machine, and free ones to choose. Look before choosing a host-port: two things cannot listen on one port.",
+  input: portsInMachine,
+  risk: "read",
+  words: (inputs) => `Look at which ports are in use on ${inputs.machine}`,
+  async run(ctx, inputs) {
+    const runner = await machineByName(ctx, inputs.machine);
+    const session = await SshSession.open(await ctx.services.runners.target(runner));
+    try {
+      const result = await session.capture(PORTS_COMMAND, 20_000);
+      const inUse = listeningPorts(result.stdout);
+      const free: number[] = [];
+      for (let port = 3000; free.length < 5 && port < 10_000; port += 1) {
+        if (!inUse.includes(port)) free.push(port);
+      }
+      return {
+        ok: true,
+        summary: `${runner.name}: ${inUse.length} ports in use; free from 3000: ${free.join(", ")}.`,
+        data: { inUse, free },
+      };
+    } finally {
+      session.close();
+    }
+  },
+};
+
 /** Whether a TCP port answers, from this server. */
 function portOpen(host: string, port: number, timeoutMs = 4000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -104,7 +152,17 @@ const createInput = z
       .regex(/^[a-z][a-z0-9-]{0,39}$/, "Use lower-case letters, digits and '-' (staging)."),
     machine: nameField("machine"),
     /** Where people reach the machine; default the machine's own address. */
-    address: z.string().trim().min(1).max(253).optional(),
+    address: z
+      .string()
+      .trim()
+      .min(1)
+      .max(253)
+      .refine(
+        (value) => !/^[^:[\]]+:\d+$/.test(value) && !/^\[.*\]:\d+$/.test(value),
+        "The machine's address only, without a port: ports belong to each app (host-port in its deploy step).",
+      )
+      .refine((value) => /^[A-Za-z0-9.:[\]-]+$/.test(value), "An IP address or a host name.")
+      .optional(),
     /** Every app gets <app>.<domain>, with HTTPS. */
     domain: z.string().trim().min(3).max(253).optional(),
     https: z.enum(["auto", "internal", "off", "external"]).optional(),
@@ -275,6 +333,7 @@ const listEnvironments: OpsAction<Record<string, never>> = {
 export const ENVIRONMENT_ACTIONS = [
   listMachines,
   machineStatus,
+  machinePorts,
   checkPorts,
   listEnvironments,
   createEnvironment,

@@ -468,3 +468,24 @@ test("an outside agent works as the DevOps engineer: it looks freely, and every 
   assert.ok(await store.deploy.environments.findByName(teamId, "qa"));
   await client.close();
 });
+
+test("machine_ports reads ports in use from ss, netstat or /proc/net/tcp", async () => {
+  const { listeningPorts } = await import("../src/services/ops/catalogue/environments.js");
+  assert.deepEqual(
+    listeningPorts(
+      "LISTEN 0      4096         0.0.0.0:8081       0.0.0.0:*\nLISTEN 0      511        127.0.0.1:8090       0.0.0.0:*\n",
+    ),
+    [8081, 8090],
+  );
+  assert.deepEqual(
+    listeningPorts("tcp        0      0 0.0.0.0:8080            0.0.0.0:*               LISTEN\n"),
+    [8080],
+  );
+  // 0x1F91 = 8081, state 0A = listening; state 01 (established) is not counted.
+  assert.deepEqual(
+    listeningPorts(
+      "  sl  local_address rem_address   st\n   0: 00000000:1F91 00000000:0000 0A 00000000:00000000\n   1: 0100007F:1F92 0100007F:A1B2 01 00000000:00000000\n",
+    ),
+    [8081],
+  );
+});

@@ -39,7 +39,10 @@ const STEP_FINAL: ReadonlySet<OpsStepStatus> = new Set([
   "failed",
   "skipped",
   "not_verified",
+  "replaced",
 ]);
+/** What a finished job owes nothing for: proven, skipped, or replaced by a later plan. */
+const SETTLED: ReadonlySet<string> = new Set(["done", "skipped", "replaced"]);
 
 export interface PerformResult {
   verdict: Verdict;
@@ -255,7 +258,13 @@ export class OpsService {
     const issues: PlanResult["issues"] = [];
     const rows: OpsPlanStepRow[] = [];
     let needsApproval = false;
-    for (const [position, step] of input.steps.entries()) {
+    // Steps that already ran stay, with their proofs; the new steps come after them.
+    const kept = (await this.store.ops.steps.listForJob(job.id)).filter(
+      (step) => step.status !== "planned",
+    );
+    const first = kept.reduce((next, step) => Math.max(next, step.position + 1), 0);
+    for (const [index, step] of input.steps.entries()) {
+      const position = first + index;
       const action = this.actions.get(step.action);
       if (!action) {
         issues.push({ position, action: step.action, reason: "There is no such action." });
@@ -308,7 +317,8 @@ export class OpsService {
       });
     }
     if (issues.length > 0) return { ok: false, issues, job: null };
-    await this.store.ops.steps.replaceForJob(job.id, rows);
+    await this.store.ops.steps.markReplaced(job.id);
+    await this.store.ops.steps.replacePlanned(job.id, rows);
     const planHash = createHash("sha256")
       .update(rows.map((row) => `${row.action}:${row.inputsHash}`).join("\n"))
       .digest("hex")
@@ -371,13 +381,26 @@ export class OpsService {
           candidate.status === "planned",
       ) ?? null;
     const environment = action.environment ? await action.environment(ctx, inputs) : null;
+    // The same attempt again is refused, unless it failed and something else in this job has
+    // succeeded since: then the world it failed in has changed, and trying again is reasonable.
+    const previous =
+      risk === "read" ? null : await this.store.ops.attempts.find(job.id, action.name, hash);
+    let alreadyTried = false;
+    if (previous) {
+      const changedSince = (await this.store.ops.attempts.listForJob(job.id)).some(
+        (attempt) =>
+          attempt.id !== previous.id &&
+          attempt.ok === true &&
+          attempt.createdAt > previous.createdAt,
+      );
+      alreadyTried = previous.ok !== false || !changedSince;
+    }
     const verdict = decide({
       actor: "ops",
       paused: engineer.paused,
       risk,
       environment,
-      alreadyTried:
-        risk !== "read" && (await this.store.ops.attempts.find(job.id, action.name, hash)) !== null,
+      alreadyTried,
       inApprovedPlan: step !== null && job.planApprovedAt !== null,
       confirmed: step?.confirmedAt !== null && step?.confirmedAt !== undefined,
       freeUse: action.freeUse === true,
@@ -411,7 +434,10 @@ export class OpsService {
 
     const now = () => new Date().toISOString();
     let attemptId: string | null = null;
-    if (risk !== "read") {
+    if (risk !== "read" && previous) {
+      attemptId = previous.id;
+      await this.store.ops.attempts.retry(previous.id, now());
+    } else if (risk !== "read") {
       attemptId = newId("opsAttempt");
       const first = await this.store.ops.attempts.record({
         id: attemptId,
@@ -493,7 +519,7 @@ export class OpsService {
     if (
       after.length > 0 &&
       after.every((row) => STEP_FINAL.has(row.status as OpsStepStatus)) &&
-      after.every((row) => row.status === "done" || row.status === "skipped")
+      after.every((row) => SETTLED.has(row.status))
     ) {
       await this.store.ops.jobs.update(job.id, { stage: "record", updatedAt: now() });
     }
@@ -511,7 +537,7 @@ export class OpsService {
     const steps = await this.store.ops.steps.listForJob(job.id);
     const now = new Date().toISOString();
     if (!input.failed) {
-      const unproven = steps.filter((step) => step.status !== "done" && step.status !== "skipped");
+      const unproven = steps.filter((step) => !SETTLED.has(step.status));
       if (unproven.length > 0) {
         throw ZelyqError.badRequest(
           `Not done: these steps are not proven yet — ${unproven.map((step) => `${step.position + 1}. ${step.words} (${step.status})`).join("; ")}. Finish them, or finish as failed and say what is left.`,
@@ -532,6 +558,22 @@ export class OpsService {
       detail: { jobId: job.id, failed: input.failed === true },
     });
     return this.detail(null, (await this.store.ops.jobs.findById(job.id)) as OpsJobRow);
+  }
+
+  /** How many lessons were learned from this job. */
+  async lessonsFromJob(jobId: string): Promise<number> {
+    const job = await this.store.ops.jobs.findById(jobId);
+    if (!job) return 0;
+    return (await this.store.ops.lessons.listForTeam(job.teamId)).filter(
+      (lesson) => lesson.evidenceJobId === jobId,
+    ).length;
+  }
+
+  /** A planned step's exact inputs, as approved: what run_step carries out. */
+  async stepInputs(stepId: string): Promise<Record<string, unknown>> {
+    const step = await this.store.ops.steps.findById(stepId);
+    if (!step) throw ZelyqError.notFound("Step", stepId);
+    return JSON.parse(step.inputs) as Record<string, unknown>;
   }
 
   /** The team a job belongs to. */

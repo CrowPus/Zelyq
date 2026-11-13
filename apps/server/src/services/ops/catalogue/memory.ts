@@ -124,8 +124,9 @@ const lessonInput = z
     why: z.string().trim().min(1).max(1000),
     rule: z.string().trim().min(1).max(1000),
     scope: z.string().trim().default("team"),
+    /** The failed step's number (as job_state shows it), or the messageId of what a person said. */
     evidence: z
-      .object({ stepId: z.string().optional(), messageId: z.string().optional() })
+      .object({ step: z.number().int().min(1).optional(), messageId: z.string().optional() })
       .strict(),
     guard: z
       .object({ kind: z.enum(guardKinds), params: z.record(z.string(), z.unknown()).default({}) })
@@ -135,7 +136,7 @@ const lessonInput = z
   .strict();
 const learnLesson: OpsAction<z.infer<typeof lessonInput>> = {
   name: "learn_lesson",
-  description: `Write down what you learned so it does not happen again: what happened, why, and the rule from now on, with the evidence (a step of this job that failed or was not proven, or what a person said). To make sure it cannot repeat, switch on a check Zelyq runs before such steps: ${guardKinds.join(", ")}. Only a person can switch a check off.`,
+  description: `Write down what you learned so it does not happen again: what happened, why, and the rule from now on, with the evidence (the number of a step of this job that failed or was not proven, or what a person said). To make sure it cannot repeat, switch on a check Zelyq runs before such steps: ${guardKinds.join(", ")}. Only a person can switch a check off.`,
   input: lessonInput,
   risk: "change",
   freeUse: true,

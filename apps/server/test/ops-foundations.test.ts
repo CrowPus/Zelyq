@@ -506,3 +506,39 @@ test("the Ops page API: a person starts, reads and stops a job", async () => {
   });
   assert.equal(anonymous.statusCode, 401);
 });
+
+test("a failed attempt may go again once something has changed; replaced steps do not keep a job from done", async () => {
+  const job = await ops.startJob(editor, teamId, { request: "Try, fix, retry" });
+  await ops.proposePlan(job.id, {
+    steps: [
+      { action: "broken", inputs: { environment: "staging", tag: "x" } },
+      { action: "change", inputs: { environment: "staging", tag: "fix" } },
+    ],
+  });
+  // Fails.
+  assert.equal(
+    (await ops.perform(job.id, "broken", { environment: "staging", tag: "x" })).step?.status,
+    "failed",
+  );
+  // Nothing has changed: the same again is refused.
+  const same = await ops.perform(job.id, "broken", { environment: "staging", tag: "x" });
+  assert.equal(same.verdict.rule, 6);
+  // Something succeeds in between: now it may go again.
+  assert.equal(
+    (await ops.perform(job.id, "change", { environment: "staging", tag: "fix" })).step?.status,
+    "done",
+  );
+  const again = await ops.perform(job.id, "broken", { environment: "staging", tag: "x" });
+  assert.equal(again.verdict.verdict, "run");
+  // A new plan takes the failed step's place; the job can then be done, and the record keeps it.
+  await ops.proposePlan(job.id, {
+    steps: [{ action: "change", inputs: { environment: "staging", tag: "other way" } }],
+  });
+  await ops.perform(job.id, "change", { environment: "staging", tag: "other way" });
+  const finished = await ops.finish(job.id, { outcome: "Done another way." });
+  assert.equal(finished.stage, "done");
+  assert.deepEqual(
+    finished.steps.map((step) => step.status),
+    ["replaced", "done", "done"],
+  );
+});

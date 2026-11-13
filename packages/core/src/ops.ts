@@ -67,7 +67,15 @@ export type OpsJobKind = (typeof OPS_JOB_KINDS)[number];
  */
 export type OpsRisk = "read" | "change" | "always-ask" | "own-limits";
 
-export type OpsStepStatus = "planned" | "running" | "done" | "failed" | "skipped" | "not_verified";
+export type OpsStepStatus =
+  | "planned"
+  | "running"
+  | "done"
+  | "failed"
+  | "skipped"
+  | "not_verified"
+  /** Failed or unproven, then a later plan took its place: kept in the record, no longer owed. */
+  | "replaced";
 
 export interface OpsEngineer {
   teamId: string;

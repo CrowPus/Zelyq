@@ -79,7 +79,7 @@ export function decide(facts: GateFacts): Verdict {
       verdict: "refuse",
       rule: 6,
       reason:
-        "Exactly this was already tried in this job. Find out why it did not work and try something different, or stop and say what you found.",
+        "Exactly this was already tried in this job, and nothing has succeeded since that would make it go differently. Find out why it did not work and change something first, or stop and say what you found.",
     };
   }
   if (facts.actor === "agent") {

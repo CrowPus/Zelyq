@@ -252,7 +252,7 @@ test("paused, or over the month's limit: no turn runs, and the job says why", as
 });
 
 test("the page talks through the API", async () => {
-  script.push(async () => answer("You have one environment: production."));
+  // The route uses the server's own brain (no stand-in model here): only the conversation is checked.
   const response = await server.app.inject({
     method: "POST",
     url: `/api/teams/${teamId}/ops/talk`,
@@ -262,4 +262,98 @@ test("the page talks through the API", async () => {
   assert.equal(response.statusCode, 200, response.body);
   const job = response.json().job as OpsJobDetail;
   assert.equal(job.messages[0]?.text, "What do we have?");
+});
+
+test("run_step carries out exactly what was approved; planning again keeps what already ran", async () => {
+  script.push(async (request) => {
+    await tool(request, "propose_plan", {
+      steps: [
+        { action: "create_environment", inputs: { name: "qa", machine: "box" } },
+        { action: "create_environment", inputs: { name: "uat", machine: "box", protected: true } },
+      ],
+    });
+    return answer("Two steps; the second waits for approval.");
+  });
+  const job = await brain.talk(owner, teamId, { text: "Make qa and uat." });
+  const waiting = await idle(job.id);
+  assert.equal(waiting.stage, "approve", JSON.stringify(waiting.messages.map((m) => m.text)));
+  await server.ops.decidePlan(owner, teamId, job.id, {
+    decision: "approve",
+    planHash: waiting.planHash as string,
+  });
+
+  script.push(async (request) => {
+    // Runs step 1 by number: no inputs retyped.
+    const first = await tool(request, "run_step", { step: 1 });
+    assert.equal(first.isError, false, first.output);
+    // Running it again is refused: it already ran.
+    assert.match((await tool(request, "run_step", { step: 1 })).output, /already run/);
+    // Plan again: the finished step and its proof stay; the new step comes after it.
+    const again = await tool(request, "propose_plan", {
+      steps: [
+        { action: "write_sheet", inputs: { subject: "environment:qa", body: "qa: on box." } },
+      ],
+    });
+    assert.equal(again.isError, false, again.output);
+    assert.match(again.output, /"position": 2/);
+    const second = await tool(request, "run_step", { step: 2 });
+    assert.equal(second.isError, false, second.output);
+    await tool(request, "finish_job", { outcome: "qa exists, written down." });
+    return answer("Done: qa exists on box and is written down; both checked.");
+  });
+  await brain.talk(owner, teamId, { text: "Go on.", jobId: job.id });
+  const done = await idle(job.id);
+  assert.equal(done.stage, "done");
+  assert.deepEqual(
+    done.steps.map((step) => [step.position, step.status, step.proof?.ok]),
+    [
+      [0, "done", true],
+      [1, "done", true],
+    ],
+  );
+  assert.ok(await store.deploy.environments.findByName(teamId, "qa"));
+  // The step that was replaced never ran.
+  assert.equal(await store.deploy.environments.findByName(teamId, "uat"), null);
+});
+
+test("a job with failures is not closed until Ops learns from them, or says why none applies", async () => {
+  script.push(async (request) => {
+    await tool(request, "propose_plan", {
+      steps: [
+        {
+          action: "set_environment_variables",
+          inputs: { environment: "qa", set: { KEY: "sk_live_0123456789abcdefghijk" } },
+        },
+      ],
+    });
+    const failed = await tool(request, "run_step", { step: 1 });
+    assert.equal(failed.isError, true);
+    // Plan again: the failure is replaced, and a note needs no approval.
+    await tool(request, "propose_plan", {
+      steps: [
+        {
+          action: "write_sheet",
+          inputs: { subject: "environment:qa", body: "qa: KEY comes from Vault." },
+        },
+      ],
+    });
+    await tool(request, "run_step", { step: 2 });
+    const refused = await tool(request, "finish_job", { outcome: "qa is set." });
+    assert.equal(refused.isError, true);
+    assert.match(refused.output, /no lesson was recorded/);
+    const learned = await tool(request, "learn_lesson", {
+      what: "Put a secret value in a variable.",
+      why: "Secrets belong in Vault.",
+      rule: "Give secrets as vault://NAME, never as a value.",
+      evidence: { step: 1 },
+    });
+    assert.equal(learned.isError, false, learned.output);
+    const closed = await tool(request, "finish_job", { outcome: "qa is set." });
+    assert.equal(closed.isError, false, closed.output);
+    return answer("Done; I learned not to put secret values in variables.");
+  });
+  const job = await brain.talk(owner, teamId, { text: "Set a KEY on qa." });
+  const done = await idle(job.id);
+  assert.equal(done.stage, "done");
+  assert.equal(await server.ops.lessonsFromJob(job.id), 1);
 });

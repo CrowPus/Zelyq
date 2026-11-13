@@ -6,7 +6,7 @@
  */
 export const PLAYBOOKS = `## Survey (before any plan)
 1. survey_app for the app: kind, start command, port, variables it reads, database, migrations, workers, scripts.
-2. list_machines; machine_status for the machine you would use (disk, size).
+2. list_machines; machine_status (disk, size) and machine_ports (ports in use) for the machine you would use.
 3. list_environments; app_status and deployment_history for anything already live.
 4. read_sheet for the app and the environments; recall the app's name and anything that looks familiar; journal.
 5. Say in two or three sentences what you found, before proposing anything.
@@ -17,8 +17,8 @@ export const PLAYBOOKS = `## Survey (before any plan)
 3. Plan, in this order, exact inputs:
    a. create_environment staging (not protected) and production (protected: true) on the chosen machine, if they do not exist. With a domain the person owns, give production and staging that domain (apps then get <app>.<domain>), or set an exact address later.
    b. set_environment_variables on each: the app's secrets as vault://NAME; plain settings as values.
-   c. create_pipeline from blocks (pipeline_blocks): test → deploy to staging → deploy to production. Use database: postgres when the app uses Postgres and migrate: with the app's own migrate script; volumes: for uploads; processes: for workers.
-   d. run_pipeline once the person approved.
+   c. create_pipeline from blocks (pipeline_blocks): test → deploy to staging → deploy to production. Use database: postgres when the app uses Postgres; migrate: npm run <the migrate script survey_app found> (never a script file that does not exist); volumes: for uploads; processes: for workers. Without a domain, give each environment its own host-port, chosen from machine_ports' free ones (never guess a port: two things cannot listen on one).
+   d. run_pipeline once the person approved (with run_step, like every planned step).
    e. set_app_address for the person's domain, after it is live.
    f. write_sheet for the app.
 4. After the run: check_deployment on staging and production. With a domain: check_dns (environment: production) and check_certificate.

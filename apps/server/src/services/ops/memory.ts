@@ -104,11 +104,18 @@ const lessonInput = z
     scope: SCOPE.default("team"),
     /** What it was learned from: a step of this job that failed, or what a person said in it. */
     evidence: z
-      .object({ stepId: z.string().optional(), messageId: z.string().optional() })
+      .object({
+        /** The plan step's number, as run_step and job_state show it. */
+        step: z.number().int().min(1).optional(),
+        stepId: z.string().optional(),
+        messageId: z.string().optional(),
+      })
       .strict()
       .refine(
-        (value) => Boolean(value.stepId) !== Boolean(value.messageId),
-        "Give a stepId or a messageId.",
+        (value) =>
+          [value.step, value.stepId, value.messageId].filter((part) => part !== undefined)
+            .length === 1,
+        "Give the step's number (or a messageId).",
       ),
     /** A check to switch on so it cannot happen again, from the catalogue. */
     guard: z
@@ -413,9 +420,20 @@ export class OpsMemory {
     const job = await this.store.ops.jobs.findById(jobId);
     if (!job) throw ZelyqError.notFound("Job", jobId);
     let evidence: string;
-    if (input.evidence.stepId) {
-      const step = await this.store.ops.steps.findById(input.evidence.stepId);
-      if (!step || step.jobId !== job.id || !["failed", "not_verified"].includes(step.status)) {
+    const stepId =
+      input.evidence.stepId ??
+      (input.evidence.step !== undefined
+        ? (await this.store.ops.steps.listForJob(job.id)).find(
+            (candidate) => candidate.position + 1 === input.evidence.step,
+          )?.id
+        : undefined);
+    if (input.evidence.step !== undefined || input.evidence.stepId) {
+      const step = stepId ? await this.store.ops.steps.findById(stepId) : null;
+      if (
+        !step ||
+        step.jobId !== job.id ||
+        !["failed", "not_verified", "replaced"].includes(step.status)
+      ) {
         throw ZelyqError.badRequest(
           "A lesson comes from a step of this job that failed or was not proven.",
         );
@@ -446,7 +464,7 @@ export class OpsMemory {
           ? "block"
           : "precheck"
         : "reminder",
-      source: input.evidence.stepId ? "review" : "person",
+      source: input.evidence.messageId ? "person" : "review",
       evidenceJobId: job.id,
       evidence,
       status: "active",

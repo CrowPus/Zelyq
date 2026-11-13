@@ -567,6 +567,7 @@ const STEP_ICON: Record<OpsPlanStep["status"], typeof CheckCircle2> = {
   failed: XCircle,
   skipped: Ban,
   not_verified: Hand,
+  replaced: Ban,
 };
 
 function PlanCard({
@@ -617,6 +618,11 @@ function PlanCard({
                   >
                     Checked by Zelyq: {step.proof.ok ? "it worked" : "it did not work"}
                     {step.proof.detail ? ` — ${step.proof.detail}` : ""}
+                  </p>
+                )}
+                {step.status === "replaced" && (
+                  <p className="mt-0.5 text-2xs text-fg-muted">
+                    Did not work{step.result ? ` (${step.result})` : ""}; a later plan took its place.
                   </p>
                 )}
                 {step.status === "not_verified" && (

@@ -43,7 +43,7 @@ export class AgentClient {
     const body = (await response.json().catch(() => ({}))) as OpsTurnResult & {
       error?: string | { message?: string };
     };
-    if (!response.ok) {
+    if (!response.ok || body.error) {
       const message = typeof body.error === "string" ? body.error : body.error?.message;
       throw ZelyqError.badRequest(message ?? `The agent answered ${response.status}.`);
     }

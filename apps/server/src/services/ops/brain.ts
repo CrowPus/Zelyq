@@ -28,8 +28,14 @@ const planToolInput = z
       .max(40),
   })
   .strict();
+const runStepInput = z.object({ step: z.number().int().min(1) }).strict();
 const finishInput = z
-  .object({ outcome: z.string().trim().min(1).max(4000), failed: z.boolean().optional() })
+  .object({
+    outcome: z.string().trim().min(1).max(4000),
+    failed: z.boolean().optional(),
+    /** When steps failed but no lesson fits: why. */
+    noLessonBecause: z.string().trim().min(1).max(500).optional(),
+  })
   .strict();
 
 /**
@@ -200,11 +206,17 @@ How you talk:
 - When a plan waits for approval, say so and ask them to press Approve after reading it. You cannot approve anything, and voice cannot approve.
 
 How you work here:
-- Your tools are the actions (each goes through Zelyq's gate and its own checks), plus propose_plan, job_state and finish_job.
-- Looking is free. Every change must be a step of a plan you propose with propose_plan (exact action names and inputs). A step that needs a person shows "waits for approval": stop and tell the person; continue when they come back.
-- Run the plan's steps with exactly the inputs you planned. If a step is refused, read why: do not try the same thing again.
+- Your tools are the actions (each goes through Zelyq's gate and its own checks), plus propose_plan, run_step, job_state and finish_job.
+- Looking is free: call the looking actions directly. Every change must be a step of a plan you propose with propose_plan (exact action names and inputs). A step that needs a person shows "waits for approval": stop and tell the person; continue when they come back.
+- Carry out a planned step with run_step and its number — never by calling the action again and retyping its inputs. run_step runs exactly what was approved.
+- Plan everything you will need in one plan where you can. Proposing a plan again replaces only the steps that have not run, and needs approval again: do it only when the plan must change, and say why.
+- If a step is refused or fails, read why from the evidence (the run's last lines, deployment_history, app_status, machine_ports): do not try the same thing again, and do not guess a cause you have not seen. Say "I don't know yet" rather than a guess.
+- Your own notes are not plan steps: call write_sheet, learn_lesson and note_wish directly when you need them. They need no approval, and a plan step for them would only be replaced.
 - A question needs no plan: answer it and finish_job with the answer.
-- When the work is over, finish_job: done (only if every step is checked) or failed, with what is live, what was proven, and what is left for the person.
+- Before you finish a job that changed anything, record it, in this order (these are your own notes: they need no approval):
+  1. write_sheet for every app and environment you set up or changed: what it is, where it runs, its address and port, its variables by name, its database, the pipeline that ships it, how to roll it back.
+  2. For every step that failed because of your own mistake (wrong inputs, a wrong assumption), learn_lesson with that step as evidence, and switch on a check if one fits. One lesson per mistake, said as a rule for next time.
+- Then finish_job: done (only if every step is checked or was replaced by a later plan) or failed, with what is live, what was proven, and what is left for the person.
 
 ${PLAYBOOKS}
 
@@ -240,6 +252,12 @@ ${steps}`;
         input_schema: z.toJSONSchema(planToolInput, { io: "input" }) as Record<string, unknown>,
       },
       {
+        name: "run_step",
+        description:
+          "Carry out one step of the plan, by its number, exactly as it was planned and approved. This is how every change is made.",
+        input_schema: z.toJSONSchema(runStepInput, { io: "input" }) as Record<string, unknown>,
+      },
+      {
         name: "job_state",
         description:
           "This job as it stands: stage, the plan's steps with their status and checks, the conversation.",
@@ -255,12 +273,20 @@ ${steps}`;
     ];
   }
 
+  /** Whether a bridge token belongs to a turn still going. */
+  validToken(token: string | undefined): boolean {
+    const grant = token ? this.tokens.get(token) : undefined;
+    return Boolean(grant && grant.expires >= Date.now());
+  }
+
   /** A tool call from the agent, by its turn's token. Returns what the model reads. */
   async bridge(
     token: string | undefined,
-    tool: string,
-    input: unknown,
+    requested: string,
+    requestedInput: unknown,
   ): Promise<{ output: string; isError: boolean }> {
+    let tool = requested;
+    let input = requestedInput;
     const grant = token ? this.tokens.get(token) : undefined;
     if (!grant || grant.expires < Date.now()) {
       throw new ZelyqError("unauthorized", "This Ops turn has ended.");
@@ -296,10 +322,26 @@ ${steps}`;
               : "The plan stands: run its steps in order.",
         });
       }
+      if (tool === "run_step") {
+        const { step: number } = runStepInput.parse(input);
+        const view = await this.ops.engineerView(grant.jobId);
+        const step = view.steps.find((candidate) => candidate.position + 1 === number);
+        if (!step) return out(`There is no step ${number} in the plan.`, true);
+        if (step.status !== "planned") {
+          return out(`Step ${number} has already run (${step.status}). Look at job_state.`, true);
+        }
+        // Exactly the planned inputs, read from the plan itself.
+        tool = step.action;
+        input = await this.ops.stepInputs(step.id);
+      }
       if (tool === "job_state") {
         const view = await this.ops.engineerView(grant.jobId);
         return out({
           stage: view.stage,
+          said: view.messages
+            .filter((message) => message.role === "person")
+            .slice(-10)
+            .map((message) => ({ messageId: message.id, text: message.text.slice(0, 300) })),
           steps: view.steps.map((step) => ({
             position: step.position + 1,
             action: step.action,
@@ -312,8 +354,27 @@ ${steps}`;
       }
       if (tool === "finish_job") {
         const parsed = finishInput.parse(input);
+        // Its own mistakes are learned from before the job closes, or it says why none applies.
+        const before = await this.ops.engineerView(grant.jobId);
+        const failedSteps = before.steps.filter(
+          (step) => step.status === "replaced" || step.status === "failed",
+        );
+        const lessons = await this.ops.lessonsFromJob(grant.jobId);
+        if (failedSteps.length > 0 && lessons === 0 && !parsed.noLessonBecause) {
+          return out(
+            `Not finished yet: ${failedSteps.length} step${failedSteps.length === 1 ? "" : "s"} failed in this job (${failedSteps.map((step) => `${step.position + 1}. ${step.words}`).join("; ")}) and no lesson was recorded. For each failure that was your own mistake, learn_lesson with that step as evidence; then finish_job again. If none was your mistake, finish_job with noLessonBecause saying why.`,
+            true,
+          );
+        }
         note(parsed.failed ? "Finished: could not complete it" : "Finished");
-        const view = await this.ops.finish(grant.jobId, parsed, { announce: false });
+        const { noLessonBecause, ...finish } = parsed;
+        const view = await this.ops.finish(
+          grant.jobId,
+          noLessonBecause
+            ? { ...finish, outcome: `${finish.outcome}\n\n(No lesson: ${noLessonBecause})` }
+            : finish,
+          { announce: false },
+        );
         return out({ stage: view.stage });
       }
       const action = this.ops.actionList.get(tool);

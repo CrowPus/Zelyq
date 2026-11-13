@@ -20,6 +20,8 @@ const PROVIDED = new Set([
 const SURVEY_SCRIPT = [
   'grep -rhoE "process\\.env\\.[A-Z_][A-Z0-9_]*|process\\.env\\[.[A-Z_][A-Z0-9_]*|import\\.meta\\.env\\.[A-Z_][A-Z0-9_]*|os\\.environ(\\.get)?[\\[(].[A-Z_][A-Z0-9_]*|os\\.getenv\\(.[A-Z_][A-Z0-9_]*|ENV\\[.[A-Z_][A-Z0-9_]*" . --include=*.js --include=*.mjs --include=*.cjs --include=*.ts --include=*.tsx --include=*.jsx --include=*.py --include=*.rb --include=*.go --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=.next 2>/dev/null | grep -oE "[A-Z_][A-Z0-9_]*$" | sort -u | sed "s/^/ENV /"',
   'for d in prisma/migrations migrations alembic drizzle db/migrate supabase/migrations; do [ -d "$d" ] && echo "MIGRATIONS $d"; done',
+  // Read whatever builds it: an app with its own Dockerfile still has its scripts and dependencies.
+  'for f in package.json requirements.txt; do [ -f "$f" ] && printf "FILE %s %s\\n" "$f" "$(head -c 200000 "$f" | base64 | tr -d \'\\n\')"; done',
   'for f in worker.js worker.ts worker.py jobs queue Procfile; do [ -e "$f" ] && echo "WORKER $f"; done',
   'grep -rhoE "listen\\(\\s*[0-9]{2,5}|PORT\\s*(\\|\\||or|:?=)\\s*[0-9]{2,5}" . --include=*.js --include=*.ts --include=*.mjs --include=*.py --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null | grep -oE "[0-9]{2,5}$" | sort -u | head -3 | sed "s/^/PORT /"',
   "",
@@ -67,10 +69,16 @@ async function survey(ctx: ActionContext, name: string): Promise<Survey> {
       .filter((line) => line.startsWith(`${tag} `))
       .map((line) => line.slice(tag.length + 1).trim());
   const plan = files ? planBuild(files, 3000, null) : null;
+  // The app's own files, read whatever builds it.
+  const own: Record<string, string> = {};
+  for (const line of tagged("FILE")) {
+    const [name, data] = line.split(" ");
+    if (name && data) own[name] = Buffer.from(data, "base64").toString("utf8");
+  }
   let scripts: Record<string, string> = {};
   let dependencies: string[] = [];
   try {
-    const pkg = JSON.parse(files?.contents["package.json"] ?? "{}") as {
+    const pkg = JSON.parse(own["package.json"] ?? files?.contents["package.json"] ?? "{}") as {
       scripts?: Record<string, string>;
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
@@ -80,7 +88,7 @@ async function survey(ctx: ActionContext, name: string): Promise<Survey> {
   } catch {
     // not a Node app
   }
-  const requirements = files?.contents["requirements.txt"] ?? "";
+  const requirements = own["requirements.txt"] ?? files?.contents["requirements.txt"] ?? "";
   const usesPostgres =
     dependencies.some((dependency) =>
       [

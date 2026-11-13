@@ -1,3 +1,4 @@
+import { ZelyqError } from "@zelyq/core";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { OpsBrain } from "../services/ops/brain.js";
@@ -29,13 +30,30 @@ export function registerOpsRoutes(
    */
   app.post<{ Body: { tool?: string; input?: unknown } }>(
     "/api/ops-bridge/call",
-    async (request) => {
-      const token = request.headers["x-zelyq-ops-bridge"];
-      return brain.bridge(
-        typeof token === "string" ? token : undefined,
-        String(request.body?.tool ?? ""),
-        request.body?.input,
-      );
+    async (request, reply) => {
+      const header = request.headers["x-zelyq-ops-bridge"];
+      const token = typeof header === "string" ? header : undefined;
+      // Refused at once, before anything waits: only a live turn's token.
+      if (!brain.validToken(token)) {
+        throw new ZelyqError("unauthorized", "This Ops turn has ended.");
+      }
+      // A tool call can wait for a pipeline run (up to 30 minutes): answer at once, keep the
+      // connection alive with a space every 20 seconds, and send the result at the end.
+      reply.hijack();
+      reply.raw.writeHead(200, { "content-type": "application/json" });
+      const alive = setInterval(() => reply.raw.write(" "), 20_000);
+      try {
+        const result = await brain.bridge(
+          token,
+          String(request.body?.tool ?? ""),
+          request.body?.input,
+        );
+        reply.raw.end(JSON.stringify(result));
+      } catch (error) {
+        reply.raw.end(JSON.stringify({ output: (error as Error).message, isError: true }));
+      } finally {
+        clearInterval(alive);
+      }
     },
   );
 
