@@ -82,6 +82,17 @@ const answer = (text: string, tokens = 100): OpsTurnResult => ({
   model: "stand-in",
 });
 
+/** A person puts a secret in the team's Vault. */
+async function addSecret(name: string) {
+  const response = await server.app.inject({
+    method: "POST",
+    url: `/api/teams/${teamId}/vault`,
+    headers: { cookie },
+    payload: { name, value: `a value for ${name}` },
+  });
+  assert.ok(response.statusCode < 300, response.body);
+}
+
 async function idle(jobId: string): Promise<OpsJobDetail> {
   for (let i = 0; i < 200; i += 1) {
     const view = await server.ops.engineerView(jobId);
@@ -322,22 +333,23 @@ test("a job with failures is not closed until Ops learns from them, or says why 
       steps: [
         {
           action: "set_environment_variables",
-          inputs: { environment: "qa", set: { KEY: "sk_live_0123456789abcdefghijk" } },
+          inputs: { environment: "qa", set: { KEY: "vault://MISSING_KEY" } },
         },
       ],
     });
     const failed = await tool(request, "run_step", { step: 1 });
     assert.equal(failed.isError, true);
-    // Plan again: the failure is replaced, and a note needs no approval.
+    // Plan again, the right way: the same change on the same environment, by Vault name.
     await tool(request, "propose_plan", {
       steps: [
         {
-          action: "write_sheet",
-          inputs: { subject: "environment:qa", body: "qa: KEY comes from Vault." },
+          action: "set_environment_variables",
+          inputs: { environment: "qa", set: { KEY: "vault://KEY" } },
         },
       ],
     });
-    await tool(request, "run_step", { step: 2 });
+    const redone = await tool(request, "run_step", { step: 2 });
+    assert.equal(redone.isError, false, redone.output);
     const refused = await tool(request, "finish_job", { outcome: "qa is set." });
     assert.equal(refused.isError, true);
     assert.match(refused.output, /no lesson was recorded/);
@@ -352,6 +364,7 @@ test("a job with failures is not closed until Ops learns from them, or says why 
     assert.equal(closed.isError, false, closed.output);
     return answer("Done; I learned not to put secret values in variables.");
   });
+  await addSecret("KEY");
   const job = await brain.talk(owner, teamId, { text: "Set a KEY on qa." });
   const done = await idle(job.id);
   assert.equal(done.stage, "done");
@@ -364,13 +377,18 @@ test("the after-job review keeps only what passes the server's checks", async ()
       steps: [
         {
           action: "set_environment_variables",
-          inputs: { environment: "qa", set: { TOKEN: "sk_live_9876543210abcdefghijk" } },
+          inputs: { environment: "qa", set: { TOKEN: "vault://MISSING_TOKEN" } },
         },
       ],
     });
     await tool(request, "run_step", { step: 1 });
     await tool(request, "propose_plan", {
-      steps: [{ action: "write_sheet", inputs: { subject: "environment:qa", body: "qa: TOKEN." } }],
+      steps: [
+        {
+          action: "set_environment_variables",
+          inputs: { environment: "qa", set: { TOKEN: "vault://TOKEN" } },
+        },
+      ],
     });
     await tool(request, "run_step", { step: 2 });
     const closed = await tool(request, "finish_job", {
@@ -403,7 +421,7 @@ test("the after-job review keeps only what passes the server's checks", async ()
           {
             what: "Copied from the output.",
             why: "The output said so.",
-            rule: "Ask the person to put it in Vault, then use it.",
+            rule: "Remember that MISSING_TOKEN is not in Vault.",
             step: 1,
           },
         ],
@@ -414,6 +432,7 @@ test("the after-job review keeps only what passes the server's checks", async ()
       })}`,
     );
   });
+  await addSecret("TOKEN");
   const job = await brain.talk(owner, teamId, {
     text: "Set a TOKEN on qa. And from now on, never deploy on Friday afternoons.",
   });

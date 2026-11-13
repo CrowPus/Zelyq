@@ -241,7 +241,7 @@ test("survey, missing secrets and asking for one: Ops looks before it plans", as
   );
 });
 
-test("variables: names and Vault references only; a secret-looking value is refused", async () => {
+test("variables: names and Vault references only; a secret value is refused with the plan", async () => {
   const { job } = await approvedJob("Wire Shop's variables", [
     {
       action: "set_environment_variables",
@@ -250,23 +250,23 @@ test("variables: names and Vault references only; a secret-looking value is refu
         set: { STRIPE_KEY: "vault://STRIPE_KEY", GREETING: "hello" },
       },
     },
-    {
-      action: "set_environment_variables",
-      inputs: { environment: "staging", set: { LEAKED: "sk_live_0123456789abcdefghij" } },
-    },
   ]);
   const ok = await ops.perform(job.id, "set_environment_variables", {
     environment: "staging",
     set: { STRIPE_KEY: "vault://STRIPE_KEY", GREETING: "hello" },
   });
   assert.equal(ok.step?.status, "done", JSON.stringify(ok));
-  const refused = await ops.perform(job.id, "set_environment_variables", {
-    environment: "staging",
-    set: { LEAKED: "sk_live_0123456789abcdefghij" },
-  });
-  assert.equal(refused.outcome?.ok, false);
-  assert.match(refused.outcome?.summary ?? "", /looks like a secret/);
-  // The earlier ones kept their values; a later change keeps them too.
+  // A value that looks like a key, or any plain value for a secret's name: never planned,
+  // so never shown to anyone to approve, and never emailed.
+  for (const set of [{ LEAKED: "sk_live_0123456789abcdefghij" }, { DB_PASSWORD: "hunter2" }]) {
+    const plan = await ops.proposePlan(job.id, {
+      steps: [{ action: "set_environment_variables", inputs: { environment: "staging", set } }],
+    });
+    assert.equal(plan.ok, false);
+    assert.match(JSON.stringify(plan.issues), /is a secret/);
+    assert.doesNotMatch(JSON.stringify(plan.issues), /hunter2|sk_live/);
+  }
+  // The earlier ones kept their values.
   const environment = (await store.deploy.environments.findByName(teamId, "staging"))!;
   assert.deepEqual(Object.keys(JSON.parse(environment.variables)).sort(), [
     "GREETING",
@@ -554,11 +554,7 @@ test("update_environment may protect, never unprotect; list_databases shows each
 });
 
 test("three failures of the same kind of change: Ops must stop and ask, not try a fourth", async () => {
-  const values = [
-    "sk_live_aaaaaaaaaaaaaaaaaaaaa1",
-    "sk_live_aaaaaaaaaaaaaaaaaaaaa2",
-    "sk_live_aaaaaaaaaaaaaaaaaaaaa3",
-  ];
+  const values = ["vault://MISSING_1", "vault://MISSING_2", "vault://MISSING_3"];
   const { job } = await approvedJob(
     "Set a key on review",
     values.map((value) => ({
@@ -577,7 +573,7 @@ test("three failures of the same kind of change: Ops must stop and ask, not try 
     steps: [
       {
         action: "set_environment_variables",
-        inputs: { environment: "review", set: { KEY: "sk_live_aaaaaaaaaaaaaaaaaaaaa4" } },
+        inputs: { environment: "review", set: { KEY: "vault://MISSING_KEY4" } },
       },
     ],
   });
@@ -610,4 +606,55 @@ test("an invalid pipeline is refused when the plan is checked, before anyone app
   });
   assert.equal(plan.ok, false);
   assert.match(JSON.stringify(plan.issues), /Not a valid pipeline/);
+});
+
+test("an outside agent kept to some environments sees only those in a look across them", async () => {
+  const { onlyEnvironments } = await import("../src/services/agent-gateway.js");
+  const scope = { environments: new Set(["staging"]), machines: new Set(["box"]) };
+  assert.deepEqual(
+    onlyEnvironments(
+      [
+        { environment: "staging", app: "shop" },
+        { environment: "production", app: "shop" },
+        { name: "production", protected: true },
+        { name: "staging", protected: false },
+        { name: "box", cpus: 4 },
+        { name: "big-box", cpus: 32 },
+        { kind: "sheet environment:production", text: "address, ports" },
+        { kind: "sheet app:shop", text: "Node" },
+      ],
+      scope,
+    ),
+    [
+      { environment: "staging", app: "shop" },
+      { name: "staging", protected: false },
+      { name: "box", cpus: 4 },
+      { kind: "sheet app:shop", text: "Node" },
+    ],
+  );
+});
+
+test("secret names are whole words: a password is one, a bypass switch is not", async () => {
+  const { isSecretName } = await import("../src/services/ops/catalogue/environments.js");
+  for (const name of [
+    "DB_PASSWORD",
+    "API_TOKEN",
+    "STRIPE_SECRET_KEY",
+    "KEY",
+    "SENTRY_DSN",
+    "DATABASE_URL",
+    "PRIVATE_KEY",
+  ]) {
+    assert.equal(isSecretName(name), true, name);
+  }
+  for (const name of [
+    "BYPASS_CACHE",
+    "PASSENGER_COUNT",
+    "PUBLIC_KEY",
+    "STRIPE_PUBLISHABLE_KEY",
+    "PORT",
+    "KEYBOARD_LAYOUT",
+  ]) {
+    assert.equal(isSecretName(name), false, name);
+  }
 });

@@ -1324,6 +1324,8 @@ export const opsAttempts = pgTable(
     action: text("action").notNull(),
     inputsHash: text("inputs_hash").notNull(),
     ok: boolean("ok"),
+    /** How many times this attempt failed: a retry reuses the row, the count keeps going. */
+    failures: integer("failures").notNull().default(0),
     detail: text("detail"),
     createdAt: text("created_at").notNull(),
   },

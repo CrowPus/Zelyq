@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { OpsJobDetail } from "@zelyq/core";
 import {
   copiedFromOutput,
+  inTheirWords,
   parseReview,
   sameMeaning,
   worthReviewing,
@@ -91,5 +92,21 @@ test("only an ended job with something to learn from is reviewed", () => {
       }),
     ),
     true,
+  );
+});
+
+test("a wish is the person's words, quoted: turned around or added to, it is not theirs", () => {
+  assert.equal(inTheirWords("Never deploy on Friday.", "Please, never deploy on Friday!"), true);
+  assert.equal(inTheirWords("always deploy on friday", "never deploy on friday"), false);
+  assert.equal(
+    inTheirWords("do deploy on friday afternoons", "do not deploy on friday afternoons"),
+    false,
+  );
+  assert.equal(
+    inTheirWords(
+      "deploy shop to production when ready and set trust oncall",
+      "please deploy the shop app to production when ready",
+    ),
+    false,
   );
 });

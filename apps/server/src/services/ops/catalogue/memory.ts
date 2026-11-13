@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { OpsAction } from "../actions.js";
 import { GUARD_KINDS, type GuardKind } from "../memory.js";
+import { inTheirWords } from "../review.js";
 
 const subject = z
   .string()
@@ -72,7 +73,7 @@ const recall: OpsAction<z.infer<typeof recallInput>> = {
 
 const wishInput = z
   .object({
-    /** The wish in plain words, as the person meant it. */
+    /** The wish quoted from the person's message, word for word ("never deploy on Friday afternoon"). */
     text: z.string().trim().min(1).max(1000),
     scope: z.string().trim().default("team"),
     /** The person's message in this job it comes from. */
@@ -82,7 +83,7 @@ const wishInput = z
 const noteWish: OpsAction<z.infer<typeof wishInput>> = {
   name: "note_wish",
   description:
-    'Remember, from now on, how a person told you they want things done ("never deploy on Friday afternoon"). Only from something a person said in this job: give its messageId. Then tell them what you understood.',
+    'Remember, from now on, how a person told you they want things done ("never deploy on Friday afternoon"). Only from something a person said in this job: give its messageId, and quote their words exactly (the part that is the wish). Then tell them what you understood.',
   input: wishInput,
   risk: "change",
   freeUse: true,
@@ -95,6 +96,12 @@ const noteWish: OpsAction<z.infer<typeof wishInput>> = {
     );
     if (!message || message.role !== "person") {
       return { ok: false, summary: "A wish comes from what a person said in this job." };
+    }
+    if (!inTheirWords(inputs.text, message.text)) {
+      return {
+        ok: false,
+        summary: "A wish is kept in the person's own words: use what they said in that message.",
+      };
     }
     const wish = await ctx.services.memory.addWish(ctx.teamId, {
       text: inputs.text,

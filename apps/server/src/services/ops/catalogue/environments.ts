@@ -1,7 +1,7 @@
 import { connect } from "node:net";
 import { automaticConcurrency } from "@zelyq/core";
 import { z } from "zod";
-import { refusedAddress } from "../../net-guard.js";
+import { guardedLookup, refusedHost } from "../../net-guard.js";
 import { SshSession } from "../../pipelines/ssh.js";
 import { environmentByName, environmentRef, type OpsAction } from "../actions.js";
 import { environmentRow, machineByName, nameField } from "./shared.js";
@@ -106,7 +106,8 @@ const machinePorts: OpsAction<z.infer<typeof portsInMachine>> = {
 /** Whether a TCP port answers, from this server. */
 function portOpen(host: string, port: number, timeoutMs = 4000): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = connect({ host, port });
+    // Through the guard: a name that leads to a metadata address is never connected to.
+    const socket = connect({ host, port, lookup: guardedLookup("deployment") as never });
     const done = (open: boolean) => {
       socket.destroy();
       resolve(open);
@@ -132,6 +133,8 @@ const checkPorts: OpsAction<z.infer<typeof portsInput>> = {
       : null;
     const host = environment.address ?? runner?.host;
     if (!host) return { ok: false, summary: `${environment.name} has no address to check.` };
+    const refused = await refusedHost(host, "deployment");
+    if (refused) return { ok: false, summary: refused };
     const ports = {
       80: await portOpen(host, environment.httpPort),
       443: await portOpen(host, environment.httpsPort),
@@ -194,9 +197,7 @@ const createEnvironment: OpsAction<z.infer<typeof createInput>> = {
   async run(ctx, inputs) {
     const runner = await machineByName(ctx, inputs.machine);
     const address = inputs.address ?? runner.host;
-    const refused = /^[0-9.:[\]a-f]+$/i.test(address)
-      ? refusedAddress(address, "deployment")
-      : null;
+    const refused = await refusedHost(address, "deployment");
     if (refused) return { ok: false, summary: refused };
     await ctx.services.deploys.create(ctx.user, ctx.teamId, {
       name: inputs.name,
@@ -233,13 +234,59 @@ const createEnvironment: OpsAction<z.infer<typeof createInput>> = {
   },
 };
 
+/**
+ * A name that says its value is a secret: it comes from Vault, whatever the
+ * value looks like. Whole parts of the name only (BYPASS_CACHE is not a
+ * password), and a public key is not a secret.
+ */
+const SECRET_PARTS = new Set([
+  "PASSWORD",
+  "PASSWD",
+  "PASS",
+  "PWD",
+  "SECRET",
+  "SECRETS",
+  "TOKEN",
+  "TOKENS",
+  "CREDENTIAL",
+  "CREDENTIALS",
+  "APIKEY",
+  "DSN",
+  "PRIVATE",
+]);
+export function isSecretName(name: string): boolean {
+  if (/(^|_)(PUBLIC|PUBLISHABLE)_KEY$/i.test(name)) return false;
+  const parts = name
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+  return (
+    parts.some((part) => SECRET_PARTS.has(part)) ||
+    parts.at(-1) === "KEY" ||
+    /^(DATABASE|DB|REDIS|MONGO(DB)?)_URL$/i.test(name)
+  );
+}
+
 const variablesInput = z
   .object({
     environment: nameField("environment"),
     /** NAME: value. A secret is always vault://NAME, never its value. */
     set: z
       .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/), z.string().max(1000))
-      .default({}),
+      .default({})
+      // Checked with the plan, so a secret's value is never shown, approved or emailed.
+      .superRefine((set, ctx) => {
+        for (const [name, value] of Object.entries(set)) {
+          if (value.startsWith("vault://")) continue;
+          if (isSecretName(name) || looksSecret(value)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [name],
+              message: `${name} is a secret: ask the person to put it in Vault (request_secret), then use vault://${name}. Never its value.`,
+            });
+          }
+        }
+      }),
     remove: z.array(z.string()).default([]),
   })
   .strict();
@@ -342,9 +389,7 @@ const updateEnvironment: OpsAction<z.infer<typeof updateInput>> = {
   async run(ctx, inputs) {
     const environment = await environmentRow(ctx, inputs.environment);
     if (inputs.address) {
-      const refused = /^[0-9.:[\]a-f]+$/i.test(inputs.address)
-        ? refusedAddress(inputs.address, "deployment")
-        : null;
+      const refused = await refusedHost(inputs.address, "deployment");
       if (refused) return { ok: false, summary: refused };
     }
     const change = {

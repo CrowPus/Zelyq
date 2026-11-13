@@ -30,34 +30,53 @@ export class OpsEngineers {
 
   /** The team's engineer; set up the first time an admin opens Ops. */
   async ensure(user: User, teamId: string): Promise<OpsEngineerRow> {
+    // Who may set Ops up is checked first: an existing engineer is no one else's to see.
+    await this.access.requireTeamRole(user, teamId, "admin");
     const existing = await this.store.ops.engineers.findByTeam(teamId);
     if (existing) return existing;
-    await this.access.requireTeamRole(user, teamId, "admin");
     const now = new Date().toISOString();
-    const account = await this.store.users.create({
-      id: newId("user"),
-      email: `ops+${teamId}@service.invalid`,
-      name: OPS_NAME,
-      passwordHash: NO_PASSWORD,
-      kind: "service",
-    });
-    await this.store.teams.addMember(teamId, account.id, "admin");
-    const row: OpsEngineerRow = {
-      id: newId("opsEngineer"),
-      teamId,
-      serviceUserId: account.id,
-      paused: false,
-      pausedBy: null,
-      pausedAt: null,
-      monthlyTokenCap: null,
-      timeZone: "UTC",
-      createdBy: user.id,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.store.ops.engineers.create(row);
+    const email = `ops+${teamId}@service.invalid`;
+    let account: { id: string };
+    try {
+      // A set-up cut short earlier left the account behind: it is this team's, so use it.
+      const left = await this.store.users.findByEmail(email);
+      account =
+        left && (await this.store.users.isService(left.id))
+          ? left
+          : await this.store.users.create({
+              id: newId("user"),
+              email,
+              name: OPS_NAME,
+              passwordHash: NO_PASSWORD,
+              kind: "service",
+            });
+      if (!(await this.store.teams.roleOf(teamId, account.id))) {
+        await this.store.teams.addMember(teamId, account.id, "admin");
+      }
+      await this.store.ops.engineers.create({
+        id: newId("opsEngineer"),
+        teamId,
+        serviceUserId: account.id,
+        paused: false,
+        pausedBy: null,
+        pausedAt: null,
+        monthlyTokenCap: null,
+        timeZone: "UTC",
+        createdBy: user.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (error) {
+      // Two admins set Ops up at the same moment: the other one's engineer stands.
+      for (let wait = 0; wait < 20; wait += 1) {
+        const winner = await this.store.ops.engineers.findByTeam(teamId);
+        if (winner) return winner;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw error;
+    }
     await this.access.recordChange(user, { teamId, action: "ops.set_up", detail: {} });
-    return row;
+    return (await this.store.ops.engineers.findByTeam(teamId)) as OpsEngineerRow;
   }
 
   async find(teamId: string): Promise<OpsEngineerRow | null> {

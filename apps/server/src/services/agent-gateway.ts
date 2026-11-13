@@ -1683,6 +1683,27 @@ export class AgentGateway {
               return failure(`${environment.name} is not one of this agent's environments.`);
             }
           }
+          // An agent kept to some environments sees and names only those, in every action.
+          const scope = context.environmentIds
+            ? await this.agentScope(context.agent.teamId, context.environmentIds)
+            : null;
+          if (scope) {
+            const subject = typeof inputs.subject === "string" ? inputs.subject : "";
+            const named = [
+              inputs.environment,
+              inputs.environments,
+              inputs.from,
+              inputs.to,
+              subject.startsWith("environment:") ? subject.slice("environment:".length) : null,
+            ]
+              .flat()
+              .filter((value): value is string => typeof value === "string");
+            const outside = named.find((name) => !scope.environments.has(name));
+            if (outside) return failure(`${outside} is not one of this agent's environments.`);
+            if (typeof inputs.machine === "string" && !scope.machines.has(inputs.machine)) {
+              return failure(`${inputs.machine} is not a machine of this agent's environments.`);
+            }
+          }
           if (risk === "read") {
             const { outcome } = await this.deps.ops.performFor(
               user,
@@ -1691,9 +1712,11 @@ export class AgentGateway {
               inputs,
               { changesAllowed: false },
             );
-            return outcome.ok
-              ? json({ summary: outcome.summary, data: outcome.data ?? null })
-              : failure(outcome.summary);
+            if (!outcome.ok) return failure(outcome.summary);
+            return json({
+              summary: outcome.summary,
+              data: scope ? onlyEnvironments(outcome.data ?? null, scope) : (outcome.data ?? null),
+            });
           }
           return this.ask(context, {
             actionType: "ops.action",
@@ -1706,6 +1729,23 @@ export class AgentGateway {
       };
     });
     return [guide, ...tools];
+  }
+
+  /** The environments an agent is kept to, by name, and the machines they run on. */
+  private async agentScope(
+    teamId: string,
+    environmentIds: string[],
+  ): Promise<{ environments: Set<string>; machines: Set<string> }> {
+    const rows = (await this.deps.store.deploy.environments.listForTeam(teamId)).filter((row) =>
+      environmentIds.includes(row.id),
+    );
+    const machines = new Set<string>();
+    for (const row of rows) {
+      if (!row.runnerId) continue;
+      const runner = await this.deps.store.pipelines.runners.findById(row.runnerId);
+      if (runner) machines.add(runner.name);
+    }
+    return { environments: new Set(rows.map((row) => row.name)), machines };
   }
 
   /** Checks a file before asking anyone to approve it; the problem, or null. */
@@ -1824,4 +1864,30 @@ function toMcp(result: ToolResult): CallToolResult {
     ],
     ...(result.isError ? { isError: true } : {}),
   };
+}
+
+/**
+ * A look across environments, cut to what an agent is kept to: entries that
+ * name another environment (`environment`, an environment's own `name`, a
+ * sheet about one) or another machine are left out.
+ */
+export function onlyEnvironments(
+  data: unknown,
+  scope: { environments: ReadonlySet<string>; machines: ReadonlySet<string> },
+): unknown {
+  if (!Array.isArray(data)) return data;
+  return data.filter((entry) => {
+    if (!entry || typeof entry !== "object") return true;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.environment === "string") return scope.environments.has(record.environment);
+    if (typeof record.name === "string" && "protected" in record) {
+      return scope.environments.has(record.name);
+    }
+    if (typeof record.name === "string" && "cpus" in record) return scope.machines.has(record.name);
+    for (const field of [record.kind, record.subject]) {
+      const about = typeof field === "string" ? /environment:([a-z0-9-]+)/i.exec(field) : null;
+      if (about?.[1]) return scope.environments.has(about[1]);
+    }
+    return true;
+  });
 }

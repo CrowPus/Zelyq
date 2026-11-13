@@ -1,4 +1,4 @@
-import type { DeployEnvironmentRow, RunnerRow } from "@zelyq/db";
+import type { DeployEnvironmentRow, RunnerRow, Store } from "@zelyq/db";
 import { z } from "zod";
 import { guardedRequest } from "../../net-guard.js";
 import type { ActionContext, ProofResult } from "../actions.js";
@@ -106,4 +106,26 @@ export async function waitUntil<T>(
     if (Date.now() > deadline) return null;
     await sleep(everyMs);
   }
+}
+
+/**
+ * Whether an approval Ops carries still stands: the job is still acting on
+ * the plan it was given under, and Ops is not paused. Pausing Ops, stopping
+ * the job or replacing its plan withdraws it at once, even for a run already
+ * started.
+ */
+export async function approvalStands(
+  store: Store,
+  jobId: string | null,
+  /** When the approval was put to use (the run started): a plan approved later is another plan. */
+  usedAt: string,
+): Promise<boolean> {
+  if (!jobId) return false;
+  const job = await store.ops.jobs.findById(jobId);
+  // The plan it came from is still the approved one: replacing the plan withdraws it.
+  if (!job || job.stage !== "act" || !job.planApprovedAt || job.planApprovedAt > usedAt) {
+    return false;
+  }
+  const engineer = await store.ops.engineers.findByTeam(job.teamId);
+  return Boolean(engineer && !engineer.paused);
 }

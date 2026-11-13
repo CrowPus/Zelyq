@@ -458,6 +458,13 @@ test("changes outside any environment need a plan unless they are free to use; p
 
 test("a run granted by an approved plan is not asked about twice; any other run still is", async () => {
   const job = await ops.startJob(editor, teamId, { request: "Deploy" });
+  const plan = await ops.proposePlan(job.id, {
+    steps: [{ action: "change", inputs: { environment: "production", tag: "deploy" } }],
+  });
+  await ops.decidePlan(owner, teamId, job.id, {
+    decision: "approve",
+    planHash: plan.job?.planHash as string,
+  });
   const env = (await store.deploy.environments.findByName(teamId, "production"))!;
   const pipeline = await as(ownerCookie, "POST", `/api/teams/${teamId}/pipelines`, {
     source:
@@ -483,6 +490,25 @@ test("a run granted by an approved plan is not asked about twice; any other run 
   // Only for that environment.
   const staging = (await store.deploy.environments.findByName(teamId, "staging"))!;
   assert.equal(await ops.preApproved(runRow, staging.id), false);
+  // Pausing Ops withdraws it at once, even for a run already going; resuming gives it back.
+  await as(ownerCookie, "PATCH", `/api/teams/${teamId}/ops`, { paused: true });
+  assert.equal(await ops.preApproved(runRow, env.id), false);
+  await as(ownerCookie, "PATCH", `/api/teams/${teamId}/ops`, { paused: false });
+  assert.equal(await ops.preApproved(runRow, env.id), true);
+  // Replacing the plan withdraws it, even once the new plan is approved: that is another plan.
+  const next = await ops.proposePlan(job.id, {
+    steps: [{ action: "change", inputs: { environment: "production", tag: "other" } }],
+  });
+  assert.equal(await ops.preApproved(runRow, env.id), false);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await ops.decidePlan(owner, teamId, job.id, {
+    decision: "approve",
+    planHash: next.job?.planHash as string,
+  });
+  assert.equal(await ops.preApproved(runRow, env.id), false);
+  // Stopping the job withdraws it for good.
+  await as(editorCookie, "POST", `/api/teams/${teamId}/ops/jobs/${job.id}/stop`);
+  assert.equal(await ops.preApproved(runRow, env.id), false);
 });
 
 test("the Ops page API: a person starts, reads and stops a job", async () => {
@@ -507,7 +533,7 @@ test("the Ops page API: a person starts, reads and stops a job", async () => {
   assert.equal(anonymous.statusCode, 401);
 });
 
-test("a failed attempt may go again once something has changed; replaced steps do not keep a job from done", async () => {
+test("a failed attempt may go again once something has changed; a failure planned around is not made good by something else", async () => {
   const job = await ops.startJob(editor, teamId, { request: "Try, fix, retry" });
   await ops.proposePlan(job.id, {
     steps: [
@@ -523,6 +549,10 @@ test("a failed attempt may go again once something has changed; replaced steps d
   // Nothing has changed: the same again is refused.
   const same = await ops.perform(job.id, "broken", { environment: "staging", tag: "x" });
   assert.equal(same.verdict.rule, 6);
+  // A note of its own changes nothing out there: still refused.
+  await ops.perform(job.id, "note", { tag: "thinking" });
+  const afterNote = await ops.perform(job.id, "broken", { environment: "staging", tag: "x" });
+  assert.equal(afterNote.verdict.rule, 6);
   // Something succeeds in between: now it may go again.
   assert.equal(
     (await ops.perform(job.id, "change", { environment: "staging", tag: "fix" })).step?.status,
@@ -530,15 +560,142 @@ test("a failed attempt may go again once something has changed; replaced steps d
   );
   const again = await ops.perform(job.id, "broken", { environment: "staging", tag: "x" });
   assert.equal(again.verdict.verdict, "run");
-  // A new plan takes the failed step's place; the job can then be done, and the record keeps it.
+  // A new plan that does something else instead does not make the failure good: not "done".
   await ops.proposePlan(job.id, {
     steps: [{ action: "change", inputs: { environment: "staging", tag: "other way" } }],
   });
   await ops.perform(job.id, "change", { environment: "staging", tag: "other way" });
-  const finished = await ops.finish(job.id, { outcome: "Done another way." });
-  assert.equal(finished.stage, "done");
+  await assert.rejects(
+    ops.finish(job.id, { outcome: "Done another way." }),
+    /nothing later did it/,
+  );
+  const finished = await ops.finish(job.id, { outcome: "broken never worked.", failed: true });
+  assert.equal(finished.stage, "failed");
   assert.deepEqual(
     finished.steps.map((step) => step.status),
     ["replaced", "done", "done"],
   );
+});
+
+test("only the same action on the same target makes a failure good: another action on that environment does not", async () => {
+  const job = await ops.startJob(editor, teamId, { request: "Retry the right way" });
+  await ops.proposePlan(job.id, {
+    steps: [{ action: "broken", inputs: { environment: "staging", tag: "first" } }],
+  });
+  await ops.perform(job.id, "broken", { environment: "staging", tag: "first" });
+  await ops.proposePlan(job.id, {
+    steps: [{ action: "change", inputs: { environment: "staging", tag: "second" } }],
+  });
+  await ops.perform(job.id, "change", { environment: "staging", tag: "second" });
+  await assert.rejects(ops.finish(job.id, { outcome: "ok" }), /nothing later did it/);
+});
+
+test("three failures stop an action for good in the job, counting retries of one attempt", async () => {
+  const job = await ops.startJob(editor, teamId, { request: "Keep failing" });
+  const inputs = { environment: "staging", tag: "again" };
+  await ops.proposePlan(job.id, { steps: [{ action: "broken", inputs }] });
+  for (let round = 0; round < 3; round += 1) {
+    const result = await ops.perform(job.id, "broken", inputs);
+    assert.equal(
+      result.step?.status ?? result.outcome?.ok,
+      "failed",
+      JSON.stringify(result.verdict),
+    );
+    // A real change in between lets the same attempt go again (the reviewer's bypass used a note).
+    await ops.perform(job.id, "change", { environment: "staging", tag: `between ${round}` });
+    await ops.proposePlan(job.id, { steps: [{ action: "broken", inputs }] }).catch(() => undefined);
+  }
+  const fourth = await ops.perform(job.id, "broken", inputs);
+  assert.equal(fourth.verdict.verdict, "refuse");
+  assert.match(fourth.verdict.reason, /already failed 3 times/);
+  const plan = await ops.proposePlan(job.id, { steps: [{ action: "broken", inputs }] });
+  assert.equal(plan.ok, false);
+});
+
+test("an approval cannot land on a plan that changed while it was being decided", async () => {
+  const job = await ops.startJob(owner, teamId, { request: "A small change" });
+  const a = await ops.proposePlan(job.id, {
+    steps: [{ action: "change", inputs: { environment: "production", tag: "a" } }],
+  });
+  const hashA = a.job?.planHash as string;
+  // While the approval is being decided, Ops proposes a production change (the reviewer's race).
+  const steps = store.ops.steps;
+  const original = steps.listForJob.bind(steps);
+  let raced = false;
+  steps.listForJob = async (jobId: string) => {
+    if (!raced && jobId === job.id) {
+      raced = true;
+      await ops.proposePlan(job.id, {
+        steps: [{ action: "change", inputs: { environment: "production", tag: "b" } }],
+      });
+    }
+    return original(jobId);
+  };
+  try {
+    await assert.rejects(
+      ops.decidePlan(owner, teamId, job.id, { decision: "approve", planHash: hashA }),
+      /not the plan you read/,
+    );
+  } finally {
+    steps.listForJob = original;
+  }
+  const after = await ops.getJob(owner, teamId, job.id);
+  assert.equal(after.stage, "approve");
+  assert.equal(after.planApprovedAt ?? null, null);
+  const production = await ops.perform(job.id, "change", { environment: "production", tag: "b" });
+  assert.notEqual(production.verdict.verdict, "run");
+});
+
+test("Ops's account cannot be deleted as a user, and a stranger cannot read a team's Ops", async () => {
+  const engineer = (await store.ops.engineers.findByTeam(teamId))!;
+  const deleted = await server.app.inject({
+    method: "DELETE",
+    url: `/api/users/${engineer.serviceUserId}`,
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(deleted.statusCode, 409, deleted.body);
+  assert.ok(await store.teams.findById(teamId), "the team is still there");
+
+  const strangerCookie = await register("stranger@example.com", "Stranger");
+  const peeked = await server.app.inject({
+    method: "POST",
+    url: `/api/teams/${teamId}/ops`,
+    headers: { cookie: strangerCookie },
+  });
+  assert.ok([403, 404].includes(peeked.statusCode), `${peeked.statusCode} ${peeked.body}`);
+  assert.doesNotMatch(peeked.body, /monthlyTokenCap|paused/);
+});
+
+test("a step of a newer plan never runs on the approval of the plan it replaced", async () => {
+  const job = await ops.startJob(owner, teamId, { request: "Two plans" });
+  const a = await ops.proposePlan(job.id, {
+    steps: [{ action: "change", inputs: { environment: "production", tag: "first" } }],
+  });
+  await ops.decidePlan(owner, teamId, job.id, {
+    decision: "approve",
+    planHash: a.job?.planHash as string,
+  });
+  // While Ops starts a step, a new plan with another production change comes in (probe P5).
+  const steps = store.ops.steps;
+  const original = steps.listForJob.bind(steps);
+  let raced = false;
+  steps.listForJob = async (jobId: string) => {
+    if (!raced && jobId === job.id) {
+      raced = true;
+      await ops.proposePlan(job.id, {
+        steps: [{ action: "change", inputs: { environment: "production", tag: "second" } }],
+      });
+    }
+    return original(jobId);
+  };
+  let result: Awaited<ReturnType<typeof ops.perform>>;
+  try {
+    result = await ops.perform(job.id, "change", { environment: "production", tag: "second" });
+  } finally {
+    steps.listForJob = original;
+  }
+  assert.notEqual(result.verdict.verdict, "run");
+  const after = await ops.getJob(owner, teamId, job.id);
+  assert.equal(after.stage, "approve");
+  assert.ok(after.steps.every((step) => step.status !== "done" && step.status !== "running"));
 });

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import {
   opsAttempts,
@@ -79,6 +79,28 @@ export function opsRepository(db: ZelyqDb) {
         const [row] = await db.update(opsJobs).set(patch).where(eq(opsJobs.id, id)).returning();
         return row ?? null;
       },
+      /**
+       * Changes the job only if it is still at this stage with this plan, in
+       * one write: a decision can never land on a plan that changed meanwhile.
+       */
+      async updateIf(
+        id: string,
+        expected: { stage: string; planHash: string },
+        patch: Partial<OpsJobRow>,
+      ): Promise<boolean> {
+        const rows = await db
+          .update(opsJobs)
+          .set(patch)
+          .where(
+            and(
+              eq(opsJobs.id, id),
+              eq(opsJobs.stage, expected.stage),
+              eq(opsJobs.planHash, expected.planHash),
+            ),
+          )
+          .returning({ id: opsJobs.id });
+        return rows.length === 1;
+      },
     },
 
     steps: {
@@ -114,6 +136,15 @@ export function opsRepository(db: ZelyqDb) {
       async findById(id: string): Promise<OpsPlanStepRow | null> {
         const rows = await db.select().from(opsPlanSteps).where(eq(opsPlanSteps.id, id)).limit(1);
         return rows[0] ?? null;
+      },
+      /** Takes a planned step to run, in one write: false when it is no longer planned. */
+      async claim(id: string, at: string): Promise<boolean> {
+        const rows = await db
+          .update(opsPlanSteps)
+          .set({ status: "running", startedAt: at })
+          .where(and(eq(opsPlanSteps.id, id), eq(opsPlanSteps.status, "planned")))
+          .returning({ id: opsPlanSteps.id });
+        return rows.length === 1;
       },
       async update(id: string, patch: Partial<OpsPlanStepRow>): Promise<OpsPlanStepRow | null> {
         const [row] = await db
@@ -173,7 +204,14 @@ export function opsRepository(db: ZelyqDb) {
           .where(eq(opsAttempts.id, id));
       },
       async settle(id: string, ok: boolean, detail: string | null): Promise<void> {
-        await db.update(opsAttempts).set({ ok, detail }).where(eq(opsAttempts.id, id));
+        await db
+          .update(opsAttempts)
+          .set({
+            ok,
+            detail,
+            ...(ok ? {} : { failures: sql`${opsAttempts.failures} + 1` }),
+          })
+          .where(eq(opsAttempts.id, id));
       },
       async listForJob(jobId: string): Promise<OpsAttemptRow[]> {
         return await db

@@ -29,10 +29,11 @@ import {
   type ProofResult,
   riskOf,
 } from "./actions.js";
+import { approvalStands } from "./catalogue/shared.js";
 import { OpsEngineers } from "./engineer.js";
 import { decide, type Verdict } from "./gate.js";
 import { OpsMemory } from "./memory.js";
-import { copiedFromOutput, type ReviewOutput, sameMeaning } from "./review.js";
+import { copiedFromOutput, inTheirWords, type ReviewOutput, sameMeaning } from "./review.js";
 
 const FINAL: ReadonlySet<OpsStage> = new Set(["done", "failed", "stopped"]);
 const STEP_FINAL: ReadonlySet<OpsStepStatus> = new Set([
@@ -43,7 +44,64 @@ const STEP_FINAL: ReadonlySet<OpsStepStatus> = new Set([
   "replaced",
 ]);
 /** What a finished job owes nothing for: proven, skipped, or replaced by a later plan. */
-const SETTLED: ReadonlySet<string> = new Set(["done", "skipped", "replaced"]);
+const SETTLED: ReadonlySet<string> = new Set(["done", "skipped"]);
+
+/**
+ * What a step acts on, so a retry can be matched to what it replaced: every
+ * field that names a thing (the environment, the pipeline, the app, the
+ * process, the variables set), not the details a retry is meant to change.
+ */
+function targetOf(step: OpsPlanStepRow): string {
+  const inputs = JSON.parse(step.inputs) as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const field of [
+    "environment",
+    "pipeline",
+    "name",
+    "app",
+    "subject",
+    "machine",
+    "process",
+    "from",
+    "to",
+    "url",
+  ]) {
+    if (typeof inputs[field] === "string")
+      parts.push(`${field}=${(inputs[field] as string).toLowerCase()}`);
+  }
+  if (typeof inputs.source === "string") {
+    const name = /^name:\s*(.+)$/m.exec(inputs.source)?.[1]?.trim().toLowerCase();
+    parts.push(`file=${name ?? "?"}`);
+  }
+  for (const field of ["set", "remove"]) {
+    const value = inputs[field];
+    const names = Array.isArray(value)
+      ? value
+      : value && typeof value === "object"
+        ? Object.keys(value)
+        : [];
+    if (names.length) parts.push(`${field}=${[...names].map(String).sort().join(",")}`);
+  }
+  return parts.join(";");
+}
+
+/**
+ * Steps that are not settled: anything unproven, and a failure that was planned
+ * around but never made good (the same action on the same target succeeding later).
+ */
+function unsettled(steps: OpsPlanStepRow[]): OpsPlanStepRow[] {
+  return steps.filter((step) => {
+    if (SETTLED.has(step.status)) return false;
+    if (step.status !== "replaced") return true;
+    return !steps.some(
+      (later) =>
+        later.position > step.position &&
+        later.action === step.action &&
+        later.status === "done" &&
+        targetOf(later) === targetOf(step),
+    );
+  });
+}
 
 export interface PerformResult {
   verdict: Verdict;
@@ -67,8 +125,20 @@ export interface PlanResult {
  * recorded as an attempt (so it is never tried twice the same way), and a
  * change counts as done only with a proof the server took itself.
  */
+/** What an approval is bound to: each planned step's action and exact inputs, in order. */
+function planHashOf(steps: { action: string; inputsHash: string }[]): string {
+  return createHash("sha256")
+    .update(steps.map((step) => `${step.action}:${step.inputsHash}`).join("\n"))
+    .digest("hex")
+    .slice(0, 32);
+}
+
 /** Failures of one action in one job before Ops must stop and ask. */
 const MAX_FAILURES = 3;
+
+function tooManyFailures(action: string, failed: { count: number; last: string }): string {
+  return `${action} has already failed ${failed.count} times in this job (last: ${failed.last.slice(0, 300) || "no detail"}). Do not try it again: finish the job as failed, saying what you found and what the person can do, or ask the person.`;
+}
 
 export type OpsEvent =
   | { kind: "plan_waiting"; jobId: string; planHash: string; approver: Role }
@@ -95,6 +165,7 @@ export class OpsService {
   ) {
     this.engineers = new OpsEngineers(store, access);
     this.memory = new OpsMemory(store, access);
+    this.memory.printedFor = (jobId) => this.printed.get(jobId) ?? [];
     this.services = { ...services, memory: this.memory };
   }
 
@@ -162,6 +233,8 @@ export class OpsService {
   /** A person approves or rejects the plan they were shown, and only that plan. */
   async decidePlan(user: User, teamId: string, jobId: string, raw: unknown): Promise<OpsJobDetail> {
     await this.requirePerson(user);
+    // Who may decide at all comes first: nothing about the job is told to anyone else.
+    await this.access.requireTeamRole(user, teamId, "editor");
     const input = opsPlanDecisionSchema.parse(raw);
     const job = await this.jobOf(teamId, jobId);
     if (job.stage !== "approve") {
@@ -174,17 +247,29 @@ export class OpsService {
     }
     const steps = await this.store.ops.steps.listForJob(job.id);
     await this.access.requireTeamRole(user, teamId, await this.approverRole(job, steps));
+    // The steps on record are the plan the person read, not only its hash at the start.
+    const planned = steps.filter((step) => step.status === "planned");
+    const changed = () =>
+      ZelyqError.badRequest(
+        "The plan changed after you opened it, so this is not the plan you read. Look at it again.",
+      );
+    if (planHashOf(planned) !== input.planHash) throw changed();
     const now = new Date().toISOString();
+    const expected = { stage: "approve", planHash: input.planHash };
     if (input.decision === "approve") {
-      await this.store.ops.jobs.update(job.id, {
+      const approved = await this.store.ops.jobs.updateIf(job.id, expected, {
         stage: "act",
         planApprovedBy: user.id,
         planApprovedAt: now,
         updatedAt: now,
       });
+      if (!approved) throw changed();
       await this.message(job.id, "system", user.id, `${user.name} approved the plan.`);
     } else {
-      await this.store.ops.jobs.update(job.id, { stage: "plan", updatedAt: now });
+      if (
+        !(await this.store.ops.jobs.updateIf(job.id, expected, { stage: "plan", updatedAt: now }))
+      )
+        throw changed();
       await this.message(
         job.id,
         "person",
@@ -275,11 +360,7 @@ export class OpsService {
     );
     const first = kept.reduce((next, step) => Math.max(next, step.position + 1), 0);
     // Three failures of one kind of change in a job is a pattern, not bad luck: stop and ask.
-    const failures = new Map<string, string[]>();
-    for (const attempt of await this.store.ops.attempts.listForJob(job.id)) {
-      if (attempt.ok !== false) continue;
-      failures.set(attempt.action, [...(failures.get(attempt.action) ?? []), attempt.detail ?? ""]);
-    }
+    const failures = await this.failuresIn(job.id);
     for (const [index, step] of input.steps.entries()) {
       const position = first + index;
       const action = this.actions.get(step.action);
@@ -287,12 +368,12 @@ export class OpsService {
         issues.push({ position, action: step.action, reason: "There is no such action." });
         continue;
       }
-      const failed = failures.get(step.action) ?? [];
-      if (failed.length >= MAX_FAILURES) {
+      const failed = failures.get(step.action);
+      if (failed && failed.count >= MAX_FAILURES) {
         issues.push({
           position,
           action: step.action,
-          reason: `${step.action} has already failed ${failed.length} times in this job (last: ${failed.at(-1)?.slice(0, 300) || "no detail"}). Do not try it again: finish the job as failed, saying what you found and what the person can do, or ask the person.`,
+          reason: tooManyFailures(step.action, failed),
         });
         continue;
       }
@@ -343,12 +424,18 @@ export class OpsService {
       });
     }
     if (issues.length > 0) return { ok: false, issues, job: null };
+    // Any approval is withdrawn before a single step changes: nothing can run, or be
+    // approved, on the strength of the plan this one replaces.
+    await this.store.ops.jobs.update(job.id, {
+      stage: "plan",
+      planHash: null,
+      planApprovedBy: null,
+      planApprovedAt: null,
+      updatedAt: new Date().toISOString(),
+    });
     await this.store.ops.steps.markReplaced(job.id);
     await this.store.ops.steps.replacePlanned(job.id, rows);
-    const planHash = createHash("sha256")
-      .update(rows.map((row) => `${row.action}:${row.inputsHash}`).join("\n"))
-      .digest("hex")
-      .slice(0, 32);
+    const planHash = planHashOf(rows);
     const now = new Date().toISOString();
     await this.store.ops.jobs.update(job.id, {
       stage: needsApproval ? "approve" : "act",
@@ -421,13 +508,21 @@ export class OpsService {
       risk === "read" ? null : await this.store.ops.attempts.find(job.id, action.name, hash);
     let alreadyTried = false;
     if (previous) {
+      // Ops's own notes (sheets, wishes, lessons) change nothing out there: they do not count.
       const changedSince = (await this.store.ops.attempts.listForJob(job.id)).some(
         (attempt) =>
           attempt.id !== previous.id &&
           attempt.ok === true &&
-          attempt.createdAt > previous.createdAt,
+          attempt.createdAt > previous.createdAt &&
+          this.actions.get(attempt.action)?.freeUse !== true,
       );
       alreadyTried = previous.ok !== false || !changedSince;
+    }
+    if (risk !== "read" && action.freeUse !== true) {
+      const failed = (await this.failuresIn(job.id)).get(action.name);
+      if (failed && failed.count >= MAX_FAILURES) {
+        return refused(6, tooManyFailures(action.name, failed));
+      }
     }
     const verdict = decide({
       actor: "ops",
@@ -466,6 +561,23 @@ export class OpsService {
       });
     }
 
+    if (step) {
+      // The step is taken in one write, then the approval it runs under is read again: a step
+      // of a newer plan can never run on the approval of the plan it replaced.
+      const claimed = await this.store.ops.steps.claim(step.id, new Date().toISOString());
+      const current = claimed ? await this.store.ops.jobs.findById(job.id) : null;
+      const sameApproval =
+        current !== null &&
+        current.stage === "act" &&
+        current.planHash === job.planHash &&
+        current.planApprovedAt === job.planApprovedAt;
+      if (!claimed || !sameApproval) {
+        if (claimed)
+          await this.store.ops.steps.update(step.id, { status: "planned", startedAt: null });
+        return refused(9, "The plan changed while this step was starting. Read the job again.");
+      }
+    }
+
     const now = () => new Date().toISOString();
     let attemptId: string | null = null;
     if (risk !== "read" && previous) {
@@ -479,12 +591,16 @@ export class OpsService {
         action: action.name,
         inputsHash: hash,
         ok: null,
+        failures: 0,
         detail: null,
         createdAt: now(),
       });
-      if (!first) return refused(6, "Exactly this was already tried in this job.");
+      if (!first) {
+        if (step)
+          await this.store.ops.steps.update(step.id, { status: "planned", startedAt: null });
+        return refused(6, "Exactly this was already tried in this job.");
+      }
     }
-    if (step) await this.store.ops.steps.update(step.id, { status: "running", startedAt: now() });
 
     let outcome: ActionOutcome;
     try {
@@ -492,6 +608,7 @@ export class OpsService {
     } catch (error) {
       outcome = { ok: false, summary: (error as Error).message };
     }
+    this.remember(job.id, outcome);
     let proof: ProofResult | null = null;
     if (risk !== "read" && outcome.ok && action.prove) {
       try {
@@ -553,7 +670,7 @@ export class OpsService {
     if (
       after.length > 0 &&
       after.every((row) => STEP_FINAL.has(row.status as OpsStepStatus)) &&
-      after.every((row) => SETTLED.has(row.status))
+      unsettled(after).length === 0
     ) {
       await this.store.ops.jobs.update(job.id, { stage: "record", updatedAt: now() });
     }
@@ -578,10 +695,10 @@ export class OpsService {
     const steps = await this.store.ops.steps.listForJob(job.id);
     const now = new Date().toISOString();
     if (!input.failed) {
-      const unproven = steps.filter((step) => !SETTLED.has(step.status));
+      const unproven = unsettled(steps);
       if (unproven.length > 0) {
         throw ZelyqError.badRequest(
-          `Not done: these steps are not proven yet — ${unproven.map((step) => `${step.position + 1}. ${step.words} (${step.status})`).join("; ")}. Finish them, or finish as failed and say what is left.`,
+          `Not done: these steps are not proven yet — ${unproven.map((step) => `${step.position + 1}. ${step.words} (${step.status === "replaced" ? "failed, and nothing later did it" : step.status})`).join("; ")}. Finish them, or finish as failed and say what is left.`,
         );
       }
     }
@@ -609,6 +726,32 @@ export class OpsService {
     return (await this.store.ops.lessons.listForTeam(job.teamId)).filter(
       (lesson) => lesson.evidenceJobId === jobId,
     ).length;
+  }
+
+  /** What actions showed in each live job, kept so none of it can be turned into a lesson. */
+  private readonly printed = new Map<string, string[]>();
+
+  private remember(jobId: string, outcome: ActionOutcome): void {
+    const seen = this.printed.get(jobId) ?? [];
+    const text = `${outcome.summary}\n${outcome.data === undefined ? "" : JSON.stringify(outcome.data)}`;
+    seen.push(text.slice(0, 50_000));
+    // The latest 200 outputs of a job; jobs past the latest 200 are forgotten.
+    this.printed.set(jobId, seen.slice(-200));
+    if (this.printed.size > 200) this.printed.delete(this.printed.keys().next().value as string);
+  }
+
+  /** How often each action has failed in a job, counting every retry. */
+  private async failuresIn(jobId: string): Promise<Map<string, { count: number; last: string }>> {
+    const failures = new Map<string, { count: number; last: string }>();
+    for (const attempt of await this.store.ops.attempts.listForJob(jobId)) {
+      if (attempt.failures === 0) continue;
+      const seen = failures.get(attempt.action);
+      failures.set(attempt.action, {
+        count: (seen?.count ?? 0) + attempt.failures,
+        last: attempt.ok === false ? (attempt.detail ?? "") : (seen?.last ?? attempt.detail ?? ""),
+      });
+    }
+    return failures;
   }
 
   /** What the team already knows: the after-job review does not say it twice. */
@@ -662,6 +805,10 @@ export class OpsService {
       const message = messages.find((row) => row.id === wish.messageId);
       if (!message || message.role !== "person") {
         kept.dropped.push(`not from a person in this job: ${wish.text}`);
+        continue;
+      }
+      if (!inTheirWords(wish.text, message.text)) {
+        kept.dropped.push(`not in the person's words: ${wish.text}`);
         continue;
       }
       if ([...known.wishes, ...kept.wishes].some((text) => sameMeaning(text, wish.text))) {
@@ -791,6 +938,16 @@ export class OpsService {
     if (environment?.frozen && risk !== "read") {
       throw ZelyqError.badRequest(`${environment.name} is frozen; nothing changes there now.`);
     }
+    // The checks lessons switched on hold for every engineer, Zelyq's or an outside one. A
+    // person approved this change, which answers a check that asks; a block still stops it.
+    if (risk !== "read") {
+      const check = await this.memory.preCheck(ctx, action, inputs, environment);
+      if (!check.ok && check.verdict !== "ask") {
+        throw ZelyqError.badRequest(
+          `A check from what Ops learned stopped this: ${check.reasons.join(" ")}`,
+        );
+      }
+    }
     const outcome = await action.run(ctx, inputs);
     let proof: ProofResult | null = null;
     if (risk !== "read" && outcome.ok && action.prove) {
@@ -831,7 +988,8 @@ export class OpsService {
   /** The engine's question before asking an admin about a protected deploy. */
   async preApproved(run: PipelineRunRow, environmentId: string): Promise<boolean> {
     const grant = await this.store.ops.grants.findByRun(run.id);
-    return grant !== null && grant.environmentId === environmentId;
+    if (grant === null || grant.environmentId !== environmentId) return false;
+    return approvalStands(this.store, grant.jobId, grant.createdAt);
   }
 
   // ----------------------------------------------------------------- helpers

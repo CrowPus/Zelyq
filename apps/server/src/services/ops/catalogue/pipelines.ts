@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { ActionContext, OpsAction, OpsEnvironmentRef } from "../actions.js";
 import { environmentByName } from "../actions.js";
 import { BLOCKS_GUIDE, checkBlocks } from "../blocks.js";
-import { nameField, waitUntil } from "./shared.js";
+import { approvalStands, nameField, waitUntil } from "./shared.js";
 
 const none = z.object({}).strict() as unknown as z.ZodType<Record<string, never>>;
 
@@ -179,7 +179,10 @@ const updatePipeline: OpsAction<z.infer<typeof updateInput>> = {
   input: updateInput,
   risk: (inputs) => pipelineRisk(inputs.source),
   environment: (ctx, inputs) => strictestTarget(ctx, inputs.source),
-  words: (inputs) => `Change the pipeline ${inputs.pipeline}${freeWords(inputs.source)}`,
+  words: (inputs) => {
+    const { deploysTo } = checkBlocks(inputs.source);
+    return `Change the pipeline ${inputs.pipeline}${deploysTo.length ? `, which then deploys to ${deploysTo.join(" and ")}` : ""}${freeWords(inputs.source)}`;
+  },
   undo: (inputs) => `Restore ${inputs.pipeline}'s previous version from its History`,
   async run(ctx, inputs) {
     const row = await pipelineByName(ctx, inputs.pipeline);
@@ -249,6 +252,7 @@ const runPipeline: OpsAction<z.infer<typeof runInput>> = {
         if (environment?.protected) granted.push({ id: environment.id, name: environment.name });
       }
     }
+    const startedAt = new Date().toISOString();
     const started = await ctx.services.pipelines.startRun(ctx.user, ctx.teamId, row.id, {
       ...(inputs.inputs ? { inputs: inputs.inputs } : {}),
     });
@@ -258,6 +262,8 @@ const runPipeline: OpsAction<z.infer<typeof runInput>> = {
       async () => {
         const detail = await ctx.services.pipelines.getRun(ctx.user, ctx.teamId, started.id);
         if (detail.status === "waiting") {
+          // Paused or stopped meanwhile: the question waits for a person.
+          if (!(await approvalStands(ctx.services.store, ctx.jobId, startedAt))) return null;
           // The engine may have asked before the grant was saved: answer only its own deploy question.
           for (const approval of detail.approvals) {
             const step = detail.steps.find((candidate) => candidate.id === approval.stepId);

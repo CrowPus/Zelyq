@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { guardedRequest, refusedAddress } from "../src/services/net-guard.js";
+import { guardedRequest, refusedAddress, refusedHost } from "../src/services/net-guard.js";
 import { sendNotification } from "../src/services/pipelines/notify.js";
 
 /**
@@ -83,4 +83,35 @@ test("a notification to this server is refused with the same words as before", a
     }),
     /not allowed/,
   );
+});
+
+test("an IPv4 address carried inside IPv6 is checked as that address; multicast and site-local are refused", () => {
+  for (const address of [
+    "64:ff9b::7f00:1",
+    "2002:7f00:1::",
+    "::127.0.0.1",
+    "::a9fe:a9fe",
+    "::ffff:0:7f00:1",
+    "fec0::1",
+    "224.0.0.1",
+    "255.255.255.255",
+    "ff02::1",
+    "64:ff9b:1::7f00:1",
+    "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+  ]) {
+    assert.ok(refusedAddress(address, "strict"), address);
+  }
+  // Metadata, however it is written, is refused even for a deployment's own address.
+  assert.ok(refusedAddress("::a9fe:a9fe", "deployment"));
+  assert.ok(refusedAddress("64:ff9b::a9fe:a9fe", "deployment"));
+  // Real public addresses still pass.
+  for (const address of ["1.1.1.1", "2606:4700::1111", "2002:0101:0101::"]) {
+    assert.equal(refusedAddress(address, "strict"), null, address);
+  }
+});
+
+test("a machine's host name is checked by where it leads", async () => {
+  assert.match((await refusedHost("localhost", "strict")) ?? "", /leads to/);
+  assert.equal(await refusedHost("localhost", "deployment"), null);
+  assert.ok(await refusedHost("169.254.169.254", "deployment"));
 });

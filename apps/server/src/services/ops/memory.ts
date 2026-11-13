@@ -5,6 +5,7 @@ import type { AccessControl } from "../access.js";
 import { appSlug } from "../pipelines/steps.js";
 import type { ActionContext, OpsAction, OpsEnvironmentRef } from "./actions.js";
 import { proveDeployment } from "./catalogue/shared.js";
+import { copiedFrom } from "./review.js";
 
 /**
  * Ops's memory (072 §2.12). A model does not learn by itself, so Ops's
@@ -130,6 +131,8 @@ const lessonInput = z
 export type LessonInput = z.input<typeof lessonInput>;
 
 export class OpsMemory {
+  /** Everything actions showed in a job (logs, outputs), for the check above lessons. */
+  printedFor?: (jobId: string) => string[];
   constructor(
     private readonly store: Store,
     private readonly access: AccessControl,
@@ -449,6 +452,23 @@ export class OpsMemory {
         );
       }
       evidence = `A person said: "${message.text.slice(0, 500)}"`;
+    }
+    // What machines printed (logs, results) never becomes a rule, however it is worded in.
+    const steps = await this.store.ops.steps.listForJob(job.id);
+    const proofs = await this.store.ops.proofs.listForJob(job.id);
+    const said = (await this.store.ops.messages.listForJob(job.id))
+      .filter((message) => message.role === "person")
+      .map((message) => message.text);
+    const printed = [
+      ...steps.map((step) => step.result ?? ""),
+      ...proofs.map((proof) => proof.detail ?? ""),
+      // What actions showed the engineer and the server did not keep (a run's last lines).
+      ...(this.printedFor?.(job.id) ?? []),
+    ];
+    if ([input.rule, input.what, input.why].some((text) => copiedFrom(text, printed, said))) {
+      throw ZelyqError.badRequest(
+        "That lesson repeats what a machine printed. A lesson is your own conclusion from the evidence, in your words.",
+      );
     }
     let guardRow: OpsGuardRow | null = null;
     const now = new Date().toISOString();
