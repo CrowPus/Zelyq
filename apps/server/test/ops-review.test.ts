@@ -95,6 +95,38 @@ test("only an ended job with something to learn from is reviewed", () => {
   );
 });
 
+test("a wish quoted without the 'not' before it, or the 'unless' after it, is not theirs", () => {
+  assert.equal(
+    inTheirWords("deploy on friday afternoons", "do not deploy on friday afternoons"),
+    false,
+  );
+  assert.equal(
+    inTheirWords("restart production at night", "never restart production at night"),
+    false,
+  );
+  assert.equal(
+    inTheirWords("deploy to production", "do not deploy to production unless I say so"),
+    false,
+  );
+  assert.equal(inTheirWords("deploy to production", "deploy to production unless I say so"), false);
+  assert.equal(
+    inTheirWords("deploy on friday", "please refrain from trying to deploy on friday"),
+    false,
+  );
+  assert.equal(
+    inTheirWords("deploy to production", "deploy to production after the review"),
+    false,
+  );
+  assert.equal(inTheirWords("don't deploy on fridays", "Please: don't deploy on fridays."), true);
+  assert.equal(
+    inTheirWords(
+      "never deploy on friday afternoon",
+      "From now on, never deploy on Friday afternoon.",
+    ),
+    true,
+  );
+});
+
 test("a wish is the person's words, quoted: turned around or added to, it is not theirs", () => {
   assert.equal(inTheirWords("Never deploy on Friday.", "Please, never deploy on Friday!"), true);
   assert.equal(inTheirWords("always deploy on friday", "never deploy on friday"), false);

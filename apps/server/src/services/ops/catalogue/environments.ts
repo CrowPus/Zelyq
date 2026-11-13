@@ -262,6 +262,8 @@ export function isSecretName(name: string): boolean {
     .filter(Boolean);
   return (
     parts.some((part) => SECRET_PARTS.has(part)) ||
+    // Joined words (PGPASSWORD, JWTSECRET, dbPassword, SECRETKEY): the unmistakable ones only.
+    /PASSWORD|PASSWD|SECRET|TOKEN|CREDENTIAL|APIKEY|PRIVATEKEY/i.test(name) ||
     parts.at(-1) === "KEY" ||
     /^(DATABASE|DB|REDIS|MONGO(DB)?)_URL$/i.test(name)
   );

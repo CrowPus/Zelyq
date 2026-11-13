@@ -644,6 +644,10 @@ test("secret names are whole words: a password is one, a bypass switch is not", 
     "SENTRY_DSN",
     "DATABASE_URL",
     "PRIVATE_KEY",
+    "PGPASSWORD",
+    "JWTSECRET",
+    "dbPassword",
+    "SECRETKEY",
   ]) {
     assert.equal(isSecretName(name), true, name);
   }

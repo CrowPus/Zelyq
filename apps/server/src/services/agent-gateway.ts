@@ -1700,8 +1700,29 @@ export class AgentGateway {
               .filter((value): value is string => typeof value === "string");
             const outside = named.find((name) => !scope.environments.has(name));
             if (outside) return failure(`${outside} is not one of this agent's environments.`);
-            if (typeof inputs.machine === "string" && !scope.machines.has(inputs.machine)) {
-              return failure(`${inputs.machine} is not a machine of this agent's environments.`);
+            const machine =
+              typeof inputs.machine === "string"
+                ? inputs.machine
+                : subject.startsWith("machine:")
+                  ? subject.slice("machine:".length)
+                  : null;
+            if (machine !== null && !scope.machines.has(machine)) {
+              return failure(`${machine} is not a machine of this agent's environments.`);
+            }
+            // What Ops remembers spans every environment: a kept agent reads only notes about its own.
+            if (["recall", "journal"].includes(action.name)) {
+              return failure(
+                "This agent is kept to some environments; Ops's memory and journal cover all of them.",
+              );
+            }
+            if (
+              action.name === "read_sheet" &&
+              !subject.startsWith("environment:") &&
+              !subject.startsWith("machine:")
+            ) {
+              return failure(
+                "This agent is kept to some environments: it reads only the notes about those environments and their machines.",
+              );
             }
           }
           if (risk === "read") {

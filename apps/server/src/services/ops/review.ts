@@ -159,7 +159,47 @@ export function inTheirWords(wish: string, said: string): boolean {
   const theirs = words(said);
   if (quoted.length < 2) return false;
   for (let start = 0; start + quoted.length <= theirs.length; start += 1) {
-    if (quoted.every((word, index) => theirs[start + index] === word)) return true;
+    if (!quoted.every((word, index) => theirs[start + index] === word)) continue;
+    // Cut from in front of a "not", or from before an "unless": the meaning is not theirs.
+    const before = theirs.slice(Math.max(0, start - 4), start);
+    const after = theirs[start + quoted.length];
+    if (before.some((word) => NEGATIONS.has(word))) continue;
+    if (after && CONDITIONS.has(after)) continue;
+    return true;
   }
   return false;
 }
+
+/** Words that turn what follows around ("don't" reads as "don", "t"). */
+const NEGATIONS = new Set([
+  "not",
+  "never",
+  "no",
+  "nor",
+  "don",
+  "dont",
+  "doesn",
+  "didn",
+  "won",
+  "wont",
+  "cannot",
+  "t",
+  "avoid",
+  "stop",
+  "without",
+  "refrain",
+]);
+/** Words after which the wish only holds with a condition the quote left out. */
+const CONDITIONS = new Set([
+  "unless",
+  "except",
+  "until",
+  "only",
+  "if",
+  "when",
+  "but",
+  "after",
+  "before",
+  "once",
+  "while",
+]);

@@ -576,6 +576,12 @@ export class OpsService {
           await this.store.ops.steps.update(step.id, { status: "planned", startedAt: null });
         return refused(9, "The plan changed while this step was starting. Read the job again.");
       }
+    } else if (risk !== "read" && !action.freeUse) {
+      // A change outside the plan's steps also runs only while the plan still stands as read.
+      const current = await this.store.ops.jobs.findById(job.id);
+      if (!current || current.stage !== "act" || current.planHash !== job.planHash) {
+        return refused(9, "The plan changed while this was starting. Read the job again.");
+      }
     }
 
     const now = () => new Date().toISOString();
