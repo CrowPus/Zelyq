@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { ActionContext, OpsAction, OpsEnvironmentRef } from "../actions.js";
 import { environmentByName } from "../actions.js";
 import { BLOCKS_GUIDE, checkBlocks } from "../blocks.js";
-import { approvalStands, nameField, waitUntil } from "./shared.js";
+import { approvalStands, nameField, proveDeployment, waitUntil } from "./shared.js";
 
 const none = z.object({}).strict() as unknown as z.ZodType<Record<string, never>>;
 
@@ -323,11 +323,33 @@ const runPipeline: OpsAction<z.infer<typeof runInput>> = {
     if (!runId)
       return { kind: "pipeline_run", target: inputs.pipeline, ok: false, detail: "No run." };
     const run = await ctx.services.store.pipelines.runs.findById(runId);
+    const target = `${inputs.pipeline} #${run?.number ?? "?"}`;
+    if (run?.status !== "passed") {
+      return {
+        kind: "pipeline_run",
+        target,
+        ok: false,
+        detail: run ? `The run ${run.status}.` : "Run not found.",
+      };
+    }
+    // A run that deployed is proven by what it put live answering, not only by the run passing.
+    const environments = await ctx.services.store.deploy.environments.listForTeam(ctx.teamId);
+    const live = (
+      await ctx.services.store.deploy.deployments.live(environments.map((row) => row.id))
+    ).filter((deployment) => deployment.runId === runId);
+    const checks = [];
+    for (const deployment of live) {
+      const environment = environments.find((row) => row.id === deployment.environmentId);
+      if (environment) checks.push(await proveDeployment(ctx, environment.name, deployment.app));
+    }
     return {
-      kind: "pipeline_run",
-      target: `${inputs.pipeline} #${run?.number ?? "?"}`,
-      ok: run?.status === "passed",
-      detail: run ? `The run ${run.status}.` : "Run not found.",
+      kind: checks.length ? "deployed_and_answers" : "pipeline_run",
+      target,
+      ok: checks.every((check) => check.ok),
+      detail: [
+        "The run passed.",
+        ...checks.map((check) => `${check.target}: ${check.ok ? "" : "NOT OK — "}${check.detail}`),
+      ].join(" "),
     };
   },
 };

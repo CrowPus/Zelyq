@@ -5,6 +5,7 @@ import type { AccessControl } from "../access.js";
 import { appSlug } from "../pipelines/steps.js";
 import type { ActionContext, OpsAction, OpsEnvironmentRef } from "./actions.js";
 import { proveDeployment } from "./catalogue/shared.js";
+import { FACTS_AUTHOR, refreshFacts } from "./facts.js";
 import { copiedFrom } from "./review.js";
 
 /**
@@ -569,6 +570,8 @@ export class OpsMemory {
 
   async list(user: User, teamId: string) {
     await this.access.requireTeamRole(user, teamId, "viewer");
+    // What Zelyq knows about the team's environments, apps and machines is always on the tab.
+    await refreshFacts(this.store, this, teamId).catch(() => 0);
     const [sheets, wishes, lessons, guards] = await Promise.all([
       this.store.ops.sheets.listForTeam(teamId),
       this.store.ops.preferences.listForTeam(teamId),
@@ -581,7 +584,12 @@ export class OpsMemory {
         subject: sheet.subject,
         body: sheet.body,
         version: sheet.version,
-        updatedBy: sheet.updatedBy === "ops" ? "Ops" : "a person",
+        updatedBy:
+          sheet.updatedBy === "ops"
+            ? "Ops"
+            : sheet.updatedBy === FACTS_AUTHOR
+              ? "Zelyq's records"
+              : "a person",
         updatedAt: sheet.updatedAt,
       })),
       wishes: wishes.map((wish) => ({

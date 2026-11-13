@@ -78,6 +78,49 @@ export class OpsVoice {
     private readonly connect: LiveConnect = geminiLive,
   ) {}
 
+  /**
+   * The end of a conversation: the job is recorded, unless work is still in
+   * hand (a plan waiting for approval, a step not run): that stays open on
+   * the page. Then the after-job review looks back at it.
+   */
+  async closeJob(
+    jobId: string,
+    closing: { outcome: string; failed: boolean } | null,
+  ): Promise<void> {
+    const view = await this.ops.engineerView(jobId);
+    if (["done", "failed", "stopped"].includes(view.stage)) return;
+    if (
+      view.stage === "approve" ||
+      view.steps.some((step) => ["planned", "running"].includes(step.status))
+    ) {
+      return;
+    }
+    const said = view.messages.filter((message) => message.role === "person").length;
+    const outcome =
+      closing?.outcome ||
+      (view.steps.length
+        ? "Talked with Ops; the steps above were carried out and checked."
+        : `Talked with Ops: ${said} question${said === 1 ? "" : "s"} answered.`);
+    try {
+      await this.ops.finish(
+        jobId,
+        { outcome, failed: closing?.failed === true },
+        { announce: false },
+      );
+    } catch {
+      // Something is not proven: it is recorded as not finished, never as done.
+      await this.ops.finish(
+        jobId,
+        {
+          outcome: `${outcome}\n\nNot everything was proven, so this is not marked done.`,
+          failed: true,
+        },
+        { announce: false },
+      );
+    }
+    await this.brain.reviewEnded(jobId);
+  }
+
   /** One live conversation, from the first frame to the socket closing. */
   async relay(
     socket: VoiceSocket,
@@ -121,6 +164,8 @@ export class OpsVoice {
 
     let said = "";
     let answered = "";
+    /** What Ops said the job came to, kept for when the conversation ends. */
+    let closing: { outcome: string; failed: boolean } | null = null;
     let session: Awaited<ReturnType<LiveConnect>> | null = null;
     let ended = false;
 
@@ -138,6 +183,7 @@ export class OpsVoice {
       );
       current = next.id;
       named = false;
+      closing = null;
       token = this.brain.openVoice(teamId, current);
       emit({ type: "job", jobId: current });
     };
@@ -195,13 +241,15 @@ export class OpsVoice {
         for (const call of calls.slice(0, 6)) {
           emit({ type: "working", tool: call.name });
           let output: string;
-          if (
-            call.name === "finish_job" &&
-            (await this.ops.engineerView(current)).steps.length === 0
-          ) {
-            // Questions do not end a conversation: it stays one job until there is work to close.
+          if (call.name === "finish_job") {
+            // One live conversation is one job: its summary is kept, and the job closes at End.
+            const args = (call.args ?? {}) as { outcome?: unknown; failed?: unknown };
+            closing = {
+              outcome: String(args.outcome ?? "").slice(0, 4000),
+              failed: args.failed === true,
+            };
             output =
-              "Not finished: this conversation has only questions so far. Keep talking; a job ends once a change you planned is done or failed.";
+              "Noted. The job stays open while you talk; it is recorded with this summary when the person ends the conversation.";
             responses.push({ id: call.id, name: call.name, response: { output } });
             continue;
           }
@@ -313,13 +361,16 @@ export class OpsVoice {
     });
     socket.on("close", () => {
       ended = true;
-      void queue.then(() => keepTurn()).catch(() => undefined);
       try {
         session?.close();
       } catch {
         // already closed
       }
       this.brain.closeVoice(token);
+      void queue
+        .then(() => keepTurn())
+        .then(() => this.closeJob(current, closing))
+        .catch(() => undefined);
     });
   }
 }

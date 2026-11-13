@@ -110,6 +110,14 @@ export class OpsBrain {
    * The after-job review: one short call with no tools and a fixed answer
    * shape; the server keeps only what passes its own checks.
    */
+  /** The after-job review for a job that ended outside a typed turn (a live conversation). */
+  async reviewEnded(jobId: string): Promise<void> {
+    const ended = await this.ops.engineerView(jobId);
+    if (!worthReviewing(ended) || this.reviewed.has(jobId)) return;
+    this.reviewed.add(jobId);
+    await this.review(jobId, ended).catch(() => undefined);
+  }
+
   private async review(jobId: string, view: OpsJobDetail): Promise<void> {
     const teamId = (await this.ops.teamOf(jobId)) as string;
     this.activity.get(jobId)?.push("Looked back at the job");
@@ -345,9 +353,10 @@ You are talking aloud now, live:
 - One answer per question: do every lookup you need first, quietly, then answer once. Do not announce each lookup, and do not end every answer with an offer or a question ("Let me know…"): answer, then wait.
 - Never read out ids, hashes, JSON or long lists. When details matter (a status, log lines, a list of apps, a plan), call show_on_screen with them, then say in one sentence what is there.
 - Never say something is on screen unless you just called show_on_screen for it, or it is a plan you proposed (plans and their steps appear on screen by themselves). There is no dashboard and no other section: only this conversation and its plan.
+- Never say a site works, is fine, secure or set up correctly unless you checked it with a tool in this conversation (check_deployment, check_url, check_dns, check_certificate, app_status); say what you checked. Without a check, say "I haven't checked that yet" and offer to.
 - If you did not catch what they said, say so and ask them to repeat it. Do not guess.
 - You cannot approve anything and their voice does not approve: when a plan waits, say "It's on screen; press Approve when you've read it", then wait for them to say they did.
-- Answering questions does not end anything: call finish_job only when a change you planned is complete and checked, or has failed.
+- The conversation is one job until the person ends it: finish_job only records your summary for then. Never say the job is closed.
 - Answer in the language they speak.`;
   }
 
@@ -373,6 +382,8 @@ You are talking aloud now, live:
       const list = this.activity.get(grant.jobId) ?? [];
       list.push(text);
       this.activity.set(grant.jobId, list.slice(-30));
+      // Kept with the job, so what Ops looked at can be read back later.
+      void this.ops.recordActivity(grant.jobId, text).catch(() => undefined);
     };
     const out = (value: unknown, isError = false) => ({
       output: (typeof value === "string" ? value : JSON.stringify(value, null, 1)).slice(0, 16_000),

@@ -80,7 +80,7 @@ const as = (
 
 async function environment(
   name: string,
-  extra: { protected?: boolean; frozen?: boolean; opsTrust?: string } = {},
+  extra: { protected?: boolean; frozen?: boolean; opsTrust?: string; domain?: string } = {},
 ) {
   const now = new Date().toISOString();
   await store.deploy.environments.create({
@@ -89,7 +89,7 @@ async function environment(
     name,
     runnerId: null,
     address: null,
-    domain: null,
+    domain: extra.domain ?? null,
     https: "auto",
     httpPort: 80,
     httpsPort: 443,
@@ -161,6 +161,7 @@ before(async () => {
   await environment("frozen", { frozen: true });
   await environment("advice", { opsTrust: "advise" });
   await environment("trusted", { protected: true, opsTrust: "trusted" });
+  await environment("livesite", { domain: "shop.example.com" });
   ops = new OpsService(
     store,
     new AccessControl(store),
@@ -698,4 +699,27 @@ test("a step of a newer plan never runs on the approval of the plan it replaced"
   const after = await ops.getJob(owner, teamId, job.id);
   assert.equal(after.stage, "approve");
   assert.ok(after.steps.every((step) => step.status !== "done" && step.status !== "running"));
+});
+
+test("an environment serving a live site asks first, even when nobody marked it protected", async () => {
+  const job = await ops.startJob(editor, teamId, { request: "Change the live site" });
+  const plan = await ops.proposePlan(job.id, {
+    steps: [{ action: "change", inputs: { environment: "livesite", tag: "x" } }],
+  });
+  assert.equal(plan.job?.stage, "approve");
+  const step = plan.job?.steps[0];
+  assert.equal(step?.needsApproval, true);
+  // Like a protected environment, an admin approves it.
+  await assert.rejects(
+    ops.decidePlan(editor, teamId, job.id, {
+      decision: "approve",
+      planHash: plan.job?.planHash as string,
+    }),
+  );
+  // A test environment (no domain, not protected) is still Ops's to change alone.
+  const other = await ops.startJob(editor, teamId, { request: "Change staging" });
+  const quiet = await ops.proposePlan(other.id, {
+    steps: [{ action: "change", inputs: { environment: "staging", tag: "y" } }],
+  });
+  assert.equal(quiet.job?.stage, "act");
 });

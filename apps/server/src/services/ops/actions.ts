@@ -27,6 +27,8 @@ export interface OpsEnvironmentRef {
   frozen: boolean;
   frozenReason: string | null;
   protected: boolean;
+  /** It serves a real address people use (it has a domain): a live site, whatever its flag says. */
+  public: boolean;
   trust: OpsTrust;
 }
 
@@ -137,6 +139,7 @@ export function environmentRef(row: {
   frozenReason: string | null;
   protected: boolean;
   opsTrust: string;
+  domain?: string | null;
 }): OpsEnvironmentRef {
   return {
     id: row.id,
@@ -144,6 +147,7 @@ export function environmentRef(row: {
     frozen: row.frozen,
     frozenReason: row.frozenReason,
     protected: row.protected,
+    public: Boolean(row.domain),
     trust: (["advise", "ask", "trusted", "oncall"].includes(row.opsTrust)
       ? row.opsTrust
       : "ask") as OpsTrust,

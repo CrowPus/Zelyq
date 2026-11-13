@@ -432,3 +432,30 @@ test("what machines print cannot become a lesson, and a wish must be in the pers
   });
   assert.equal(theirs.outcome?.ok, true, theirs.outcome?.summary);
 });
+
+test("Memory starts with Zelyq's own records; Ops's notes are kept below them", async () => {
+  const first = (await as(ownerCookie, "GET", `/api/teams/${teamId}/ops/memory`)).json();
+  const staging = first.sheets.find(
+    (sheet: { subject: string }) => sheet.subject === "environment:staging",
+  );
+  assert.ok(
+    staging,
+    JSON.stringify(first.sheets.map((sheet: { subject: string }) => sheet.subject)),
+  );
+  assert.equal(staging.updatedBy, "Zelyq's records");
+  assert.match(staging.body, /## From Zelyq's records/);
+  assert.match(staging.body, /Variables \(names only\): .*PAYMENTS_KEY/);
+  assert.match(staging.body, /A live site \(has a domain\): no/);
+
+  // Ops adds a note; the next refresh keeps it, under Notes.
+  const { refreshFacts, withFacts } = await import("../src/services/ops/facts.js");
+  await ops.memory.writeSheet(teamId, "environment:staging", "Staging resets every night.", "ops");
+  await refreshFacts(store, ops.memory, teamId);
+  const sheet = (await store.ops.sheets.find(teamId, "environment:staging"))!;
+  assert.match(sheet.body, /## From Zelyq's records[\s\S]*## Notes\s+Staging resets every night\./);
+  // Nothing changed: no new version.
+  const version = sheet.version;
+  assert.equal(await refreshFacts(store, ops.memory, teamId), 0);
+  assert.equal((await store.ops.sheets.find(teamId, "environment:staging"))!.version, version);
+  assert.equal(withFacts(null, "F"), "F\n\n## Notes\n\n(none yet)");
+});

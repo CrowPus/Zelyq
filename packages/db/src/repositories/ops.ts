@@ -79,6 +79,26 @@ export function opsRepository(db: ZelyqDb) {
         const [row] = await db.update(opsJobs).set(patch).where(eq(opsJobs.id, id)).returning();
         return row ?? null;
       },
+      /** Adds a line to what Ops looked at and did in the job (the latest 300 are kept). */
+      async appendActivity(id: string, line: string): Promise<void> {
+        const [row] = await db
+          .select({ activity: opsJobs.activity })
+          .from(opsJobs)
+          .where(eq(opsJobs.id, id))
+          .limit(1);
+        if (!row) return;
+        let list: string[] = [];
+        try {
+          list = JSON.parse(row.activity) as string[];
+        } catch {
+          list = [];
+        }
+        list.push(line.slice(0, 300));
+        await db
+          .update(opsJobs)
+          .set({ activity: JSON.stringify(list.slice(-300)) })
+          .where(eq(opsJobs.id, id));
+      },
       /**
        * Changes the job only if it is still at this stage with this plan, in
        * one write: a decision can never land on a plan that changed meanwhile.

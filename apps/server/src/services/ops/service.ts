@@ -31,6 +31,7 @@ import {
 } from "./actions.js";
 import { approvalStands } from "./catalogue/shared.js";
 import { OpsEngineers } from "./engineer.js";
+import { refreshFacts } from "./facts.js";
 import { decide, type Verdict } from "./gate.js";
 import { OpsMemory } from "./memory.js";
 import { copiedFromOutput, inTheirWords, type ReviewOutput, sameMeaning } from "./review.js";
@@ -133,6 +134,15 @@ function planHashOf(steps: { action: string; inputsHash: string }[]): string {
     .slice(0, 32);
 }
 
+function activityOf(stored: string): string[] {
+  try {
+    const list = JSON.parse(stored) as unknown;
+    return Array.isArray(list) ? list.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Failures of one action in one job before Ops must stop and ask. */
 const MAX_FAILURES = 3;
 
@@ -207,11 +217,14 @@ export class OpsService {
       planApprovedAt: null,
       tokensIn: 0,
       tokensOut: 0,
+      activity: "[]",
       createdAt: now,
       updatedAt: now,
       finishedAt: null,
     };
     await this.store.ops.jobs.create(job);
+    // Ops starts every job knowing the team's setup as Zelyq records it.
+    await refreshFacts(this.store, this.memory, teamId).catch(() => 0);
     if (recordRequest) await this.message(job.id, "person", user.id, input.request);
     await this.access.recordChange(user, {
       teamId,
@@ -864,6 +877,11 @@ export class OpsService {
     return this.detail(null, job);
   }
 
+  /** One line of what Ops looked at or did, kept with the job. */
+  async recordActivity(jobId: string, line: string): Promise<void> {
+    await this.store.ops.jobs.appendActivity(jobId, line);
+  }
+
   /** A job started by talking is named by the person's first words. */
   async renameRequest(jobId: string, request: string): Promise<void> {
     await this.store.ops.jobs.update(jobId, {
@@ -1075,7 +1093,8 @@ export class OpsService {
       const environment = action?.environment
         ? await action.environment(ctx, JSON.parse(step.inputs) as Record<string, unknown>)
         : null;
-      if (environment?.protected) return "admin";
+      // A live site is approved by an admin, like a protected environment.
+      if (environment?.protected || environment?.public) return "admin";
     }
     return "editor";
   }
@@ -1195,7 +1214,9 @@ export class OpsService {
       planApprovedAt: row.planApprovedAt,
       canApprove,
       approveBlockedBy,
-      ...this.liveState(row.id),
+      working: this.liveState(row.id).working,
+      // What Ops looked at and did, kept with the job: any answer can be traced to what it saw.
+      activity: activityOf(row.activity),
       messages: messages.map((message) => ({
         id: message.id,
         role: message.role as OpsMessage["role"],

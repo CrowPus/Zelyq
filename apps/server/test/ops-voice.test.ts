@@ -321,7 +321,7 @@ test("'on screen' is true: show_on_screen puts the details in the conversation; 
     toolCall: { functionCalls: [{ id: "f1", name: "finish_job", args: { outcome: "Answered." } }] },
   });
   await settle();
-  assert.match(String(live.toolResponses.at(-1)?.response?.output), /only questions/);
+  assert.match(String(live.toolResponses.at(-1)?.response?.output), /stays open/);
   assert.equal((await server.ops.engineerView(first)).stage !== "done", true);
 
   // The job ends; what is said next is not lost: it starts a new job, named by those words.
@@ -335,5 +335,11 @@ test("'on screen' is true: show_on_screen puts the details in the conversation; 
   const view = await server.ops.engineerView(next);
   assert.equal(view.request, "Now restart it please.");
   assert.equal(view.messages[0]?.text, "🎙 Now restart it please.");
+
+  // Pressing End records the conversation's job; a plan still waiting would keep it open.
   socket.close();
+  await settle(300);
+  const closed = await server.ops.engineerView(next);
+  assert.equal(closed.stage, "done");
+  assert.match(String(closed.outcome), /question/);
 });

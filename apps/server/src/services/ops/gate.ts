@@ -17,7 +17,7 @@ import type { OpsEnvironmentRef } from "./actions.js";
  *  8. the environment is "advise only"                → refuse (Ops tells the person what to do)
  *  9. an approved, unchanged plan lists exactly this  → run
  * 10. it touches no environment                       → run if the action is free to use, else ask
- * 11. the environment's trust level                   → ask first: run unless protected; trusted, on call: run
+ * 11. the environment's trust level                   → ask first: run unless protected or serving a live site (it has a domain); trusted, on call: run
  * 12. (after the gate, in the service) every check a lesson switched on → refuse, or ask for a block
  */
 
@@ -106,11 +106,13 @@ export function decide(facts: GateFacts): Verdict {
           reason: "This needs to be a step in a plan that a person approves.",
         };
   }
-  if (env.trust === "ask" && env.protected) {
+  if (env.trust === "ask" && (env.protected || env.public)) {
     return {
       verdict: "ask",
       rule: 11,
-      reason: `${env.name} is protected and set to "ask first": put this in a plan for a person to approve.`,
+      reason: env.protected
+        ? `${env.name} is protected and set to "ask first": put this in a plan for a person to approve.`
+        : `${env.name} serves a live site and is set to "ask first": put this in a plan for a person to approve.`,
     };
   }
   return { verdict: "run", rule: 11 };

@@ -476,3 +476,19 @@ test("a question is answered with the finished job's outcome, not a bare sign-of
     "Shop runs on staging (port 3000) and production (port 3001); a change goes through the pipeline Shop deploy.",
   ]);
 });
+
+test("what Ops looked at is kept with the job, so an answer can be traced afterwards", async () => {
+  script.push(async (request) => {
+    await tool(request, "list_machines");
+    await tool(request, "list_environments");
+    await tool(request, "finish_job", { outcome: "One machine, box; environments listed." });
+    return answer("One machine.");
+  });
+  const job = await brain.talk(owner, teamId, { text: "What do we have?" });
+  await idle(job.id);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const view = await server.ops.engineerView(job.id);
+  assert.equal(view.working, false);
+  assert.ok(view.activity.includes("Look at the team's machines"), JSON.stringify(view.activity));
+  assert.ok(view.activity.includes("Look at the team's environments"));
+});

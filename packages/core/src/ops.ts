@@ -18,7 +18,8 @@ export const OPS_TRUST_WORDS: Record<OpsTrust, { label: string; description: str
   },
   ask: {
     label: "Ask first",
-    description: "Ops works alone on unprotected environments and asks before protected ones.",
+    description:
+      "Ops works alone only on test environments; it asks before changing anything protected or serving a live site (one with a domain).",
   },
   trusted: {
     label: "Trusted",

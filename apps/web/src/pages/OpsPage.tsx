@@ -591,6 +591,19 @@ function Conversation({
             </div>
           </div>
         )}
+        {!job.working && job.activity.length > 0 && (
+          <details className="text-xs text-fg-secondary">
+            <summary className="cursor-pointer select-none">
+              What Ops looked at and did ({job.activity.length})
+            </summary>
+            <ol className="mt-1 list-decimal pl-5 text-fg-muted">
+              {job.activity.map((line, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a fixed record, in order
+                <li key={index}>{line}</li>
+              ))}
+            </ol>
+          </details>
+        )}
         {error && <p className="text-xs text-danger">{error}</p>}
       </div>
     </>

@@ -1253,6 +1253,8 @@ export const opsJobs = pgTable(
     planApprovedAt: text("plan_approved_at"),
     tokensIn: integer("tokens_in").notNull().default(0),
     tokensOut: integer("tokens_out").notNull().default(0),
+    /** What Ops looked at and did in this job, in order (JSON list of short lines). */
+    activity: text("activity").notNull().default("[]"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     finishedAt: text("finished_at"),

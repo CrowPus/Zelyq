@@ -323,6 +323,13 @@
       "when": 1794593391861,
       "tag": "0045_attempt_failures",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794611082780,
+      "tag": "0046_job_activity",
+      "breakpoints": true
     }
   ]
 }
