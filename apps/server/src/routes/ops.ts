@@ -74,6 +74,76 @@ export function registerOpsRoutes(
     ),
   }));
 
+  // ------------------------------------------------- the Memory tab (people)
+
+  type Item = { Params: { teamId: string; id: string } };
+  app.get<Team>("/api/teams/:teamId/ops/memory", async (request) =>
+    ops.memory.list(access.requireUser(request), request.params.teamId),
+  );
+  app.post<Team>("/api/teams/:teamId/ops/memory/wishes", async (request, reply) => {
+    await ops.memory.personAddWish(
+      access.requireUser(request),
+      request.params.teamId,
+      request.body,
+    );
+    reply.code(201);
+    return ops.memory.list(access.requireUser(request), request.params.teamId);
+  });
+  app.patch<Item>("/api/teams/:teamId/ops/memory/wishes/:id", async (request) => {
+    await ops.memory.personEditWish(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.id,
+      request.body,
+    );
+    return ops.memory.list(access.requireUser(request), request.params.teamId);
+  });
+  app.delete<Item>("/api/teams/:teamId/ops/memory/wishes/:id", async (request) => {
+    await ops.memory.personRemoveWish(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.id,
+    );
+    return ops.memory.list(access.requireUser(request), request.params.teamId);
+  });
+  app.patch<Item>("/api/teams/:teamId/ops/memory/lessons/:id", async (request) => {
+    await ops.memory.personEditLesson(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.id,
+      request.body,
+    );
+    return ops.memory.list(access.requireUser(request), request.params.teamId);
+  });
+  app.delete<Item>("/api/teams/:teamId/ops/memory/lessons/:id", async (request) => {
+    await ops.memory.personRemoveLesson(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.id,
+    );
+    return ops.memory.list(access.requireUser(request), request.params.teamId);
+  });
+  app.patch<Item & { Body: { active?: boolean } }>(
+    "/api/teams/:teamId/ops/memory/checks/:id",
+    async (request) => {
+      await ops.memory.personSwitchGuard(
+        access.requireUser(request),
+        request.params.teamId,
+        request.params.id,
+        request.body?.active === true,
+      );
+      return ops.memory.list(access.requireUser(request), request.params.teamId);
+    },
+  );
+  app.put<Team>("/api/teams/:teamId/ops/memory/sheets", async (request) => {
+    await ops.memory.personWriteSheet(
+      access.requireUser(request),
+      request.params.teamId,
+      request.body,
+    );
+    return ops.memory.list(access.requireUser(request), request.params.teamId);
+  });
+
   app.post<Job>("/api/teams/:teamId/ops/jobs/:jobId/stop", async (request) => ({
     job: await ops.stopJob(
       access.requireUser(request),

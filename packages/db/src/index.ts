@@ -28,12 +28,17 @@ export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
 export type {
   OpsAttemptRow,
   OpsEngineerRow,
+  OpsGuardRow,
   OpsJobRow,
+  OpsLessonRow,
   OpsMessageRow,
   OpsPlanStepRow,
+  OpsPreferenceRow,
   OpsProofRow,
   OpsRepository,
   OpsRunGrantRow,
+  OpsSheetRow,
+  OpsSheetVersionRow,
 } from "./repositories/ops.js";
 export type {
   PipelineApprovalRow,

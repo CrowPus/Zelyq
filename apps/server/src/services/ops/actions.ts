@@ -8,6 +8,7 @@ import type { RunnerService } from "../pipelines/runners.js";
 import type { PipelineService } from "../pipelines/service.js";
 import type { PipelineTriggerService } from "../pipelines/triggers.js";
 import type { VaultService } from "../vault.js";
+import type { OpsMemory } from "./memory.js";
 
 /**
  * The one set of hands (072 §2.1). Every thing Ops can do is an action here:
@@ -38,6 +39,7 @@ export interface OpsServices {
   runners: RunnerService;
   vault: VaultService;
   runtime: RuntimeDriver;
+  memory: OpsMemory;
 }
 
 export interface ActionContext {

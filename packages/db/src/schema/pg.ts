@@ -1365,6 +1365,124 @@ export const opsRunGrants = pgTable("ops_run_grants", {
   createdAt: text("created_at").notNull(),
 });
 
+/** What Ops knows about one thing — an app, an environment, a machine — kept true by it. */
+export const opsSheets = pgTable(
+  "ops_sheets",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** "app:shop", "environment:production", "machine:box" */
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    version: integer("version").notNull().default(1),
+    /** "ops", or the person who last edited it. */
+    updatedBy: text("updated_by").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    subjectIdx: uniqueIndex("ops_sheets_subject_idx").on(table.teamId, table.subject),
+  }),
+);
+
+export const opsSheetVersions = pgTable(
+  "ops_sheet_versions",
+  {
+    id: text("id").primaryKey(),
+    sheetId: text("sheet_id")
+      .notNull()
+      .references(() => opsSheets.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    body: text("body").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    sheetIdx: index("ops_sheet_versions_sheet_idx").on(table.sheetId, table.version),
+  }),
+);
+
+/** What the team told Ops about how they want things done. A person's word beats Ops's own. */
+export const opsPreferences = pgTable(
+  "ops_preferences",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    /** "team", "app:shop", "environment:production" */
+    scope: text("scope").notNull().default("team"),
+    /** person (added on the Memory tab), correction (a rejected plan, a message in a job) */
+    source: text("source").notNull(),
+    jobId: text("job_id"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    active: boolean("active").notNull().default(true),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("ops_preferences_team_idx").on(table.teamId),
+  }),
+);
+
+/** What went wrong or right, why, and the rule that follows; with the evidence. */
+export const opsLessons = pgTable(
+  "ops_lessons",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    what: text("what").notNull(),
+    why: text("why").notNull(),
+    rule: text("rule").notNull(),
+    scope: text("scope").notNull().default("team"),
+    /** reminder, precheck, block */
+    strength: text("strength").notNull().default("reminder"),
+    /** review, person, repeat */
+    source: text("source").notNull(),
+    /** The job, and the failed step or the person's message, it was learned from. */
+    evidenceJobId: text("evidence_job_id"),
+    evidence: text("evidence"),
+    /** active, retired */
+    status: text("status").notNull().default("active"),
+    retiredReason: text("retired_reason"),
+    lastMatchedAt: text("last_matched_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("ops_lessons_team_idx").on(table.teamId, table.status),
+  }),
+);
+
+/** A check the server runs before a kind of step, from a fixed catalogue. Only a person switches one off. */
+export const opsGuards = pgTable(
+  "ops_guards",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    lessonId: text("lesson_id").references(() => opsLessons.id, { onDelete: "set null" }),
+    /** secrets_present, disk_space, staging_first, allowed_time, block_action */
+    kind: text("kind").notNull(),
+    /** JSON, checked against the kind. */
+    params: text("params").notNull().default("{}"),
+    scope: text("scope").notNull().default("team"),
+    active: boolean("active").notNull().default(true),
+    createdBy: text("created_by").notNull(),
+    switchedOffBy: text("switched_off_by"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("ops_guards_team_idx").on(table.teamId, table.active),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1416,4 +1534,9 @@ export const schema = {
   opsAttempts,
   opsMessages,
   opsRunGrants,
+  opsSheets,
+  opsSheetVersions,
+  opsPreferences,
+  opsLessons,
+  opsGuards,
 };

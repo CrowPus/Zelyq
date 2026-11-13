@@ -309,6 +309,13 @@
       "when": 1794580257667,
       "tag": "0043_deploy_options",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794585441888,
+      "tag": "0044_ops_memory",
+      "breakpoints": true
     }
   ]
 }

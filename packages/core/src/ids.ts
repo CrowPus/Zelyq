@@ -65,6 +65,11 @@ export const ID_PREFIXES = {
   opsProof: "opp",
   opsAttempt: "opa",
   opsMessage: "opm",
+  opsLesson: "opl",
+  opsGuard: "opg",
+  opsWish: "opw",
+  opsSheet: "osh",
+  opsSheetVersion: "osv",
   agentReference: "arf",
   agentOauthGrant: "aog",
 } as const;

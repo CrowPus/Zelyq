@@ -3,6 +3,11 @@ import type { ZelyqDb } from "../client.js";
 import {
   opsAttempts,
   opsEngineers,
+  opsGuards,
+  opsLessons,
+  opsPreferences,
+  opsSheets,
+  opsSheetVersions,
   opsJobs,
   opsMessages,
   opsPlanSteps,
@@ -17,6 +22,11 @@ export type OpsProofRow = typeof opsProofs.$inferSelect;
 export type OpsAttemptRow = typeof opsAttempts.$inferSelect;
 export type OpsMessageRow = typeof opsMessages.$inferSelect;
 export type OpsRunGrantRow = typeof opsRunGrants.$inferSelect;
+export type OpsSheetRow = typeof opsSheets.$inferSelect;
+export type OpsSheetVersionRow = typeof opsSheetVersions.$inferSelect;
+export type OpsPreferenceRow = typeof opsPreferences.$inferSelect;
+export type OpsLessonRow = typeof opsLessons.$inferSelect;
+export type OpsGuardRow = typeof opsGuards.$inferSelect;
 
 /**
  * The team's DevOps engineer (Ops): its jobs, plans, proofs and what it has
@@ -161,6 +171,160 @@ export function opsRepository(db: ZelyqDb) {
           .from(opsMessages)
           .where(eq(opsMessages.jobId, jobId))
           .orderBy(asc(opsMessages.createdAt));
+      },
+    },
+
+    sheets: {
+      async find(teamId: string, subject: string): Promise<OpsSheetRow | null> {
+        const rows = await db
+          .select()
+          .from(opsSheets)
+          .where(and(eq(opsSheets.teamId, teamId), eq(opsSheets.subject, subject)))
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      async listForTeam(teamId: string): Promise<OpsSheetRow[]> {
+        return await db
+          .select()
+          .from(opsSheets)
+          .where(eq(opsSheets.teamId, teamId))
+          .orderBy(asc(opsSheets.subject));
+      },
+      /** Writes a sheet, keeping the version before it. */
+      async save(
+        teamId: string,
+        subject: string,
+        body: string,
+        by: string,
+        ids: { sheet: string; version: string },
+      ): Promise<OpsSheetRow> {
+        const now = new Date().toISOString();
+        const existing = await this.find(teamId, subject);
+        if (!existing) {
+          const row: OpsSheetRow = {
+            id: ids.sheet,
+            teamId,
+            subject,
+            body,
+            version: 1,
+            updatedBy: by,
+            updatedAt: now,
+          };
+          await db.insert(opsSheets).values(row);
+          await db.insert(opsSheetVersions).values({
+            id: ids.version,
+            sheetId: row.id,
+            version: 1,
+            body,
+            updatedBy: by,
+            createdAt: now,
+          });
+          return row;
+        }
+        const version = existing.version + 1;
+        const [row] = await db
+          .update(opsSheets)
+          .set({ body, version, updatedBy: by, updatedAt: now })
+          .where(eq(opsSheets.id, existing.id))
+          .returning();
+        await db.insert(opsSheetVersions).values({
+          id: ids.version,
+          sheetId: existing.id,
+          version,
+          body,
+          updatedBy: by,
+          createdAt: now,
+        });
+        return row as OpsSheetRow;
+      },
+      async versions(sheetId: string): Promise<OpsSheetVersionRow[]> {
+        return await db
+          .select()
+          .from(opsSheetVersions)
+          .where(eq(opsSheetVersions.sheetId, sheetId))
+          .orderBy(desc(opsSheetVersions.version));
+      },
+      async remove(id: string): Promise<void> {
+        await db.delete(opsSheets).where(eq(opsSheets.id, id));
+      },
+    },
+
+    preferences: {
+      async create(row: OpsPreferenceRow): Promise<OpsPreferenceRow> {
+        await db.insert(opsPreferences).values(row);
+        return row;
+      },
+      async findById(id: string): Promise<OpsPreferenceRow | null> {
+        const rows = await db.select().from(opsPreferences).where(eq(opsPreferences.id, id)).limit(1);
+        return rows[0] ?? null;
+      },
+      async listForTeam(teamId: string): Promise<OpsPreferenceRow[]> {
+        return await db
+          .select()
+          .from(opsPreferences)
+          .where(eq(opsPreferences.teamId, teamId))
+          .orderBy(desc(opsPreferences.createdAt));
+      },
+      async update(id: string, patch: Partial<OpsPreferenceRow>): Promise<OpsPreferenceRow | null> {
+        const [row] = await db
+          .update(opsPreferences)
+          .set(patch)
+          .where(eq(opsPreferences.id, id))
+          .returning();
+        return row ?? null;
+      },
+      async remove(id: string): Promise<void> {
+        await db.delete(opsPreferences).where(eq(opsPreferences.id, id));
+      },
+    },
+
+    lessons: {
+      async create(row: OpsLessonRow): Promise<OpsLessonRow> {
+        await db.insert(opsLessons).values(row);
+        return row;
+      },
+      async findById(id: string): Promise<OpsLessonRow | null> {
+        const rows = await db.select().from(opsLessons).where(eq(opsLessons.id, id)).limit(1);
+        return rows[0] ?? null;
+      },
+      async listForTeam(teamId: string): Promise<OpsLessonRow[]> {
+        return await db
+          .select()
+          .from(opsLessons)
+          .where(eq(opsLessons.teamId, teamId))
+          .orderBy(desc(opsLessons.createdAt));
+      },
+      async update(id: string, patch: Partial<OpsLessonRow>): Promise<OpsLessonRow | null> {
+        const [row] = await db.update(opsLessons).set(patch).where(eq(opsLessons.id, id)).returning();
+        return row ?? null;
+      },
+      async remove(id: string): Promise<void> {
+        await db.delete(opsLessons).where(eq(opsLessons.id, id));
+      },
+    },
+
+    guards: {
+      async create(row: OpsGuardRow): Promise<OpsGuardRow> {
+        await db.insert(opsGuards).values(row);
+        return row;
+      },
+      async findById(id: string): Promise<OpsGuardRow | null> {
+        const rows = await db.select().from(opsGuards).where(eq(opsGuards.id, id)).limit(1);
+        return rows[0] ?? null;
+      },
+      async listForTeam(teamId: string): Promise<OpsGuardRow[]> {
+        return await db
+          .select()
+          .from(opsGuards)
+          .where(eq(opsGuards.teamId, teamId))
+          .orderBy(desc(opsGuards.createdAt));
+      },
+      async update(id: string, patch: Partial<OpsGuardRow>): Promise<OpsGuardRow | null> {
+        const [row] = await db.update(opsGuards).set(patch).where(eq(opsGuards.id, id)).returning();
+        return row ?? null;
+      },
+      async remove(id: string): Promise<void> {
+        await db.delete(opsGuards).where(eq(opsGuards.id, id));
       },
     },
 

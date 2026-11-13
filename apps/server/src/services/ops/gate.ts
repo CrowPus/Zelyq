@@ -18,6 +18,7 @@ import type { OpsEnvironmentRef } from "./actions.js";
  *  9. an approved, unchanged plan lists exactly this  → run
  * 10. it touches no environment                       → run if the action is free to use, else ask
  * 11. the environment's trust level                   → ask first: run unless protected; trusted, on call: run
+ * 12. (after the gate, in the service) every check a lesson switched on → refuse, or ask for a block
  */
 
 export type Verdict =

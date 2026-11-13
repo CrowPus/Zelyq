@@ -31,6 +31,7 @@ import {
 } from "./actions.js";
 import { OpsEngineers } from "./engineer.js";
 import { decide, type Verdict } from "./gate.js";
+import { OpsMemory } from "./memory.js";
 
 const FINAL: ReadonlySet<OpsStage> = new Set(["done", "failed", "stopped"]);
 const STEP_FINAL: ReadonlySet<OpsStepStatus> = new Set([
@@ -64,14 +65,18 @@ export interface PlanResult {
  */
 export class OpsService {
   readonly engineers: OpsEngineers;
+  readonly memory: OpsMemory;
+  private readonly services: Omit<OpsServices, "store">;
 
   constructor(
     private readonly store: Store,
     private readonly access: AccessControl,
     private readonly actions: ActionList,
-    private readonly services: Omit<OpsServices, "store">,
+    services: Omit<OpsServices, "store" | "memory">,
   ) {
     this.engineers = new OpsEngineers(store, access);
+    this.memory = new OpsMemory(store, access);
+    this.services = { ...services, memory: this.memory };
   }
 
   // ---------------------------------------------------------------- people
@@ -167,6 +172,15 @@ export class OpsService {
         user.id,
         `Plan rejected${input.comment ? `: ${input.comment}` : "."}`,
       );
+      // A person's correction is the strongest signal there is: kept from now on, not only here.
+      if (input.comment) {
+        await this.memory.addWish(job.teamId, {
+          text: input.comment,
+          source: "correction",
+          jobId: job.id,
+          createdBy: user.id,
+        });
+      }
     }
     await this.access.recordChange(user, {
       teamId,
@@ -332,7 +346,9 @@ export class OpsService {
     let ctx = await this.context(engineer, job.id);
     const risk = riskOf(action, inputs);
     // The habits: look first, plan, then act. Changes happen only once the plan stands.
-    if (risk !== "read" && job.stage !== "act") {
+    // Ops's own notes (sheets, wishes, lessons) touch nothing outside it: written at any stage,
+    // above all while recording what happened.
+    if (risk !== "read" && job.stage !== "act" && !action.freeUse) {
       return refused(
         0,
         job.stage === "approve"
@@ -363,6 +379,22 @@ export class OpsService {
     });
     if (verdict.verdict !== "run") {
       return { verdict, outcome: null, proof: null, step: null };
+    }
+    // What lessons switched on runs now, before the step starts, whether Ops remembers them or not.
+    if (risk !== "read") {
+      const check = await this.memory.preCheck(ctx, action, inputs, environment);
+      if (!check.ok) {
+        const reason = `A check from what Ops learned stopped this step: ${check.reasons.join(" ")}`;
+        return {
+          verdict:
+            check.verdict === "ask"
+              ? { verdict: "ask", rule: 12, reason }
+              : { verdict: "refuse", rule: 12, reason },
+          outcome: null,
+          proof: null,
+          step: null,
+        };
+      }
     }
     // Run as the approved step: what it starts carries the approval with it (and only then).
     if (step && job.planApprovedAt !== null) {
