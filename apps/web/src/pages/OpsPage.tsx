@@ -8,6 +8,7 @@ import {
   roleAtLeast,
 } from "@zelyq/core";
 import {
+  ArrowLeft,
   Ban,
   Check,
   CheckCircle2,
@@ -271,7 +272,9 @@ function TalkTab({
 
   return (
     <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-      <aside className="flex flex-col gap-2">
+      <aside
+        className={`${jobId ? "hidden lg:flex" : "flex"} flex-col gap-2 lg:h-[calc(100dvh-14rem)] lg:min-h-[420px] lg:overflow-y-auto`}
+      >
         <Button icon={<Plus size={13} />} onClick={newConversation} disabled={!canTalk}>
           New conversation
         </Button>
@@ -301,9 +304,9 @@ function TalkTab({
         </ul>
       </aside>
 
-      <section className="flex min-h-[60vh] flex-col rounded-md border border-border-default bg-surface">
+      <section className="flex h-[calc(100dvh-14rem)] min-h-[420px] flex-col overflow-hidden rounded-md border border-border-default bg-surface">
         {current ? (
-          <Conversation teamId={teamId} job={current} />
+          <Conversation teamId={teamId} job={current} onBack={() => setJobId(null)} />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-fg-secondary">
             <p className="font-medium text-fg">What do you need?</p>
@@ -428,9 +431,18 @@ function TalkTab({
   );
 }
 
-function Conversation({ teamId, job }: { teamId: string; job: OpsJobDetail }) {
+function Conversation({
+  teamId,
+  job,
+  onBack,
+}: {
+  teamId: string;
+  job: OpsJobDetail;
+  /** On a phone, back to the list of conversations. */
+  onBack: () => void;
+}) {
   const queryClient = useQueryClient();
-  const bottom = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const [comment, setComment] = useState("");
   const [error, setError] = useState<string | null>(null);
   const refresh = () =>
@@ -459,7 +471,9 @@ function Conversation({ teamId, job }: { teamId: string; job: OpsJobDetail }) {
   const count = job.messages.length + job.activity.length;
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when something new arrives
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
+    // Only the conversation scrolls; the message box stays where it is.
+    const element = list.current;
+    if (element) element.scrollTop = element.scrollHeight;
   }, [count]);
 
   const stage = STAGE_WORDS[job.stage] ?? { label: job.stage, tone: "neutral" as const };
@@ -467,6 +481,14 @@ function Conversation({ teamId, job }: { teamId: string; job: OpsJobDetail }) {
   return (
     <>
       <header className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="All conversations"
+          className="-ml-1 rounded p-1 text-fg-secondary hover:bg-surface-subtle lg:hidden"
+        >
+          <ArrowLeft size={16} />
+        </button>
         <p className="min-w-0 flex-1 truncate text-sm font-medium" title={job.request}>
           {job.request}
         </p>
@@ -481,7 +503,7 @@ function Conversation({ teamId, job }: { teamId: string; job: OpsJobDetail }) {
         )}
       </header>
 
-      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
+      <div ref={list} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
         {job.messages.map((message) =>
           message.role === "system" ? (
             <p key={message.id} className="text-center text-2xs text-fg-muted">
@@ -570,7 +592,6 @@ function Conversation({ teamId, job }: { teamId: string; job: OpsJobDetail }) {
           </div>
         )}
         {error && <p className="text-xs text-danger">{error}</p>}
-        <div ref={bottom} />
       </div>
     </>
   );

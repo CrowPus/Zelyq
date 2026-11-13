@@ -19,6 +19,24 @@ export const OPS_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir", "Leda", 
 const FRAME_LIMIT = 6400;
 const PLACEHOLDER = "Talking with Ops";
 
+/** Talking cannot show a table: this puts details in the conversation on screen. */
+const SHOW = {
+  name: "show_on_screen",
+  description:
+    "Put details on the person's screen, in the conversation (status, a list of apps, log lines, a plan's steps): a short title and the details in Markdown (a small table or list). Then say in one sentence what it shows. The only way anything appears on screen.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: {
+      title: {
+        type: "string",
+        description: "A few words, such as 'crowpus: status and last log lines'.",
+      },
+      details: { type: "string", description: "Markdown: short lines, a small list or table." },
+    },
+    required: ["title", "details"],
+  },
+};
+
 /** The part of a WebSocket this relay uses (ws, as @fastify/websocket gives it). */
 export interface VoiceSocket {
   readyState: number;
@@ -107,19 +125,19 @@ export class OpsVoice {
     let ended = false;
 
     /** A finished job does not take more work: the next request starts a new one. */
-    const liveJob = async () => {
+    const liveJob = async (words = said.trim()) => {
       const view = await this.ops.engineerView(current);
       if (!["done", "failed", "stopped"].includes(view.stage)) return;
       this.brain.closeVoice(token);
       const next = await this.ops.startJob(
         user,
         teamId,
-        { request: said.trim() || PLACEHOLDER },
+        { request: words || PLACEHOLDER },
         "page",
         false,
       );
       current = next.id;
-      named = said.trim() !== "";
+      named = false;
       token = this.brain.openVoice(teamId, current);
       emit({ type: "job", jobId: current });
     };
@@ -130,6 +148,8 @@ export class OpsVoice {
       const reply = answered.trim();
       said = "";
       answered = "";
+      // A finished job does not swallow what is said next: it goes into a new one.
+      if (person || reply) await liveJob(person);
       if (person) {
         if (!named) {
           await this.ops.renameRequest(current, person);
@@ -175,6 +195,32 @@ export class OpsVoice {
         for (const call of calls.slice(0, 6)) {
           emit({ type: "working", tool: call.name });
           let output: string;
+          if (
+            call.name === "finish_job" &&
+            (await this.ops.engineerView(current)).steps.length === 0
+          ) {
+            // Questions do not end a conversation: it stays one job until there is work to close.
+            output =
+              "Not finished: this conversation has only questions so far. Keep talking; a job ends once a change you planned is done or failed.";
+            responses.push({ id: call.id, name: call.name, response: { output } });
+            continue;
+          }
+          if (call.name === SHOW.name) {
+            // What Ops shows lands in the conversation, so "it's on screen" is true.
+            const args = (call.args ?? {}) as { title?: unknown; details?: unknown };
+            const title = String(args.title ?? "")
+              .trim()
+              .slice(0, 200);
+            const details = String(args.details ?? "")
+              .trim()
+              .slice(0, 6000);
+            if (details) {
+              await this.ops.say(current, title ? `**${title}**\n\n${details}` : details);
+              output = "It is on the person's screen now, in the conversation.";
+            } else output = "Nothing to show: give the details.";
+            responses.push({ id: call.id, name: call.name, response: { output } });
+            continue;
+          }
           try {
             output = (await this.brain.bridge(token, call.name ?? "", call.args ?? {})).output;
           } catch (error) {
@@ -203,11 +249,14 @@ export class OpsVoice {
           systemInstruction: await this.brain.voicePrompt(teamId, current),
           tools: [
             {
-              functionDeclarations: this.brain.voiceTools().map((tool) => ({
-                name: tool.name,
-                description: tool.description,
-                parametersJsonSchema: tool.input_schema,
-              })),
+              functionDeclarations: [
+                ...this.brain.voiceTools().map((tool) => ({
+                  name: tool.name,
+                  description: tool.description,
+                  parametersJsonSchema: tool.input_schema,
+                })),
+                SHOW,
+              ],
             },
           ],
           inputAudioTranscription: {},

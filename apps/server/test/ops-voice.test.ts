@@ -276,3 +276,64 @@ test("the live route refuses another site and a stranger", async () => {
   assert.equal(await closeCode({ cookie, origin: "https://evil.example" }), 4403);
   assert.equal(await closeCode({ origin: address }), 4401);
 });
+
+test("'on screen' is true: show_on_screen puts the details in the conversation; after a finished job, talk goes to a new one", async () => {
+  const { live, connect } = fakeLive();
+  const voice = new OpsVoice(server.ops, brain, server.settings, connect);
+  const socket = fakeSocket();
+  await voice.relay(socket as never, owner, teamId, null);
+  const given = live.config as { tools: { functionDeclarations: { name: string }[] }[] };
+  assert.ok(given.tools[0]?.functionDeclarations.some((tool) => tool.name === "show_on_screen"));
+  const first = socket.events.find((event) => event.type === "job")?.jobId as string;
+
+  live.emit({ serverContent: { inputTranscription: { text: "What is going on with crowpus?" } } });
+  live.emit({
+    toolCall: {
+      functionCalls: [
+        {
+          id: "s1",
+          name: "show_on_screen",
+          args: {
+            title: "crowpus: status",
+            details: "- version 3, live\n- no errors in the last hour",
+          },
+        },
+      ],
+    },
+  });
+  live.emit({
+    serverContent: { outputTranscription: { text: "It's running; the details are on screen." } },
+  });
+  live.emit({ serverContent: { turnComplete: true } });
+  await settle();
+  assert.match(String(live.toolResponses.at(-1)?.response?.output), /on the person's screen/);
+  const shown = await server.ops.engineerView(first);
+  assert.ok(
+    shown.messages.some(
+      (message) =>
+        message.role === "ops" && /\*\*crowpus: status\*\*[\s\S]*version 3/.test(message.text),
+    ),
+    JSON.stringify(shown.messages),
+  );
+
+  // Questions alone do not end it, whatever the model tries.
+  live.emit({
+    toolCall: { functionCalls: [{ id: "f1", name: "finish_job", args: { outcome: "Answered." } }] },
+  });
+  await settle();
+  assert.match(String(live.toolResponses.at(-1)?.response?.output), /only questions/);
+  assert.equal((await server.ops.engineerView(first)).stage !== "done", true);
+
+  // The job ends; what is said next is not lost: it starts a new job, named by those words.
+  await server.ops.finish(first, { outcome: "Answered." });
+  live.emit({ serverContent: { inputTranscription: { text: "Now restart it please." } } });
+  live.emit({ serverContent: { outputTranscription: { text: "I'll plan that." } } });
+  live.emit({ serverContent: { turnComplete: true } });
+  await settle();
+  const next = socket.events.filter((event) => event.type === "job").at(-1)?.jobId as string;
+  assert.notEqual(next, first);
+  const view = await server.ops.engineerView(next);
+  assert.equal(view.request, "Now restart it please.");
+  assert.equal(view.messages[0]?.text, "🎙 Now restart it please.");
+  socket.close();
+});

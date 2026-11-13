@@ -112,42 +112,40 @@ const ready = await until(
 );
 console.log("ready:", ready, events.find((e) => e.type === "error") ?? "");
 if (events.some((e) => e.type === "ready")) {
-  say(
-    "Which machines does this team have? Look it up with your tools, then tell me in one sentence.",
-  );
-  await until(
-    () => events.filter((e) => e.type === "turn_complete").length >= 1 && audioBytes > 0,
-    90_000,
-  );
-  await new Promise((r) => setTimeout(r, 3000));
-  const jobId = events.find((e) => e.type === "job")?.jobId as string;
+  const turn = async (text: string) => {
+    const before = events.length;
+    const doneBefore = events.filter((e) => e.type === "turn_complete").length;
+    say(text);
+    await until(() => events.filter((e) => e.type === "turn_complete").length > doneBefore, 90_000);
+    // Let a turn that used tools finish its spoken answer.
+    await new Promise((r) => setTimeout(r, 6000));
+    const mine = events.slice(before);
+    console.log(`\n>>> ${text}`);
+    console.log(
+      "    tools:",
+      mine
+        .filter((e) => e.type === "working")
+        .map((e) => e.tool)
+        .join(", ") || "none",
+    );
+    console.log(
+      "    Ops said:",
+      mine
+        .filter((e) => e.type === "transcript" && e.role === "ops")
+        .map((e) => e.text)
+        .join(""),
+    );
+  };
+  await turn("Hey, dear.");
+  await turn("What environments and apps do we have? Show me the details.");
+  const jobId = events.filter((e) => e.type === "job").at(-1)?.jobId as string;
   const view = await server.ops.engineerView(jobId);
-  const heard = events
-    .filter((e) => e.type === "transcript" && e.role === "ops")
-    .map((e) => e.text)
-    .join("");
   console.log("\nRESULT");
-  console.log(
-    "tools used:",
-    events
-      .filter((e) => e.type === "working")
-      .map((e) => e.tool)
-      .join(", ") || "none",
-  );
-  console.log(
-    "audio received:",
-    audioBytes,
-    "bytes (",
-    (audioBytes / 48000).toFixed(1),
-    "s at 24 kHz )",
-  );
-  console.log("Ops said:", heard.slice(0, 300));
-  console.log("job request:", view.request);
-  console.log(
-    "job messages:",
-    view.messages.map((m) => `${m.role}: ${m.text.slice(0, 120)}`).join(" | "),
-  );
-  console.log("tokens counted:", view.tokens);
+  console.log("audio received:", (audioBytes / 48000).toFixed(1), "s");
+  console.log("job messages:");
+  for (const m of view.messages)
+    console.log(`  ${m.role}: ${m.text.slice(0, 160).replace(/\n/g, " / ")}`);
+  console.log("stage:", view.stage, "tokens:", view.tokens);
   for (const listener of listeners.message ?? [])
     listener(Buffer.from(JSON.stringify({ type: "end" })), false);
 }
