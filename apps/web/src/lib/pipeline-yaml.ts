@@ -138,8 +138,13 @@ const STAGE: KeyDoc[] = [
     values: "runner",
   },
   {
+    key: "needs",
+    doc: "The stages above it that this one waits for, by name. Once any stage has needs:, every stage starts as soon as the ones it names are done; one that names none starts at once.",
+    example: "needs: [Build, Lint]",
+  },
+  {
     key: "parallel",
-    doc: "Run at the same time as the stage above it.",
+    doc: "Run at the same time as the stage above it (in a file without needs:).",
     values: BOOLEAN,
   },
   {

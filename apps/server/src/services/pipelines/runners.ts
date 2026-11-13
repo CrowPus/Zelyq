@@ -1,4 +1,5 @@
 import {
+  automaticConcurrency,
   newId,
   RUNNER_OS,
   type RunnerDisk,
@@ -74,7 +75,9 @@ export class RunnerService {
       labels: JSON.stringify(uniqueLabels(input.labels ?? [])),
       description: input.description ?? null,
       enabled: true,
-      maxConcurrent: input.maxConcurrent ?? 1,
+      maxConcurrent: input.maxConcurrent ?? 0,
+      cpus: null,
+      memoryMb: null,
       os: null,
       shells: "[]",
       tools: "[]",
@@ -128,7 +131,14 @@ export class RunnerService {
     if (input.port !== undefined) patch.port = input.port;
     // A different address may be a different machine: confirm it again.
     if (moved)
-      Object.assign(patch, { hostKey: null, hostKeyFingerprint: null, os: null, lastTestOk: null });
+      Object.assign(patch, {
+        hostKey: null,
+        hostKeyFingerprint: null,
+        os: null,
+        cpus: null,
+        memoryMb: null,
+        lastTestOk: null,
+      });
     // The last test was of the old address or user; it says nothing now.
     if (moved || (input.username !== undefined && input.username !== row.username)) {
       Object.assign(patch, {
@@ -206,6 +216,8 @@ export class RunnerService {
         os: facts.os,
         shells: JSON.stringify(facts.shells),
         tools: JSON.stringify(facts.tools),
+        cpus: facts.cpus,
+        memoryMb: facts.memoryMb,
         acceptedKeyFingerprint: session.acceptedKeyFingerprint,
         lastTestAt: new Date().toISOString(),
         lastTestOk: result.ok,
@@ -273,6 +285,8 @@ export class RunnerService {
       os: facts.os,
       shells: JSON.stringify(facts.shells),
       tools: JSON.stringify(facts.tools),
+      cpus: facts.cpus,
+      memoryMb: facts.memoryMb,
       acceptedKeyFingerprint: session.acceptedKeyFingerprint,
       lastTestAt: new Date().toISOString(),
       lastTestOk: true,
@@ -397,6 +411,9 @@ export class RunnerService {
       description: row.description,
       enabled: row.enabled,
       maxConcurrent: row.maxConcurrent,
+      concurrency: runnerConcurrency(row),
+      cpus: row.cpus,
+      memoryMb: row.memoryMb,
       os: (RUNNER_OS as readonly string[]).includes(row.os ?? "") ? (row.os as RunnerOs) : null,
       shells: parseList(row.shells),
       tools: parseList(row.tools),
@@ -425,6 +442,13 @@ export function parseList(json: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** How many runs a runner takes at once: the number set, or the automatic one. */
+export function runnerConcurrency(
+  row: Pick<RunnerRow, "maxConcurrent" | "cpus" | "memoryMb">,
+): number {
+  return row.maxConcurrent > 0 ? row.maxConcurrent : automaticConcurrency(row.cpus, row.memoryMb);
 }
 
 function uniqueLabels(labels: string[]): string[] {

@@ -335,6 +335,7 @@ export function registerPipelineRoutes(
 
   app.get<Team>("/api/teams/:teamId/runners", async (request) => ({
     runners: await runners.list(access.requireUser(request), request.params.teamId),
+    local: await pipelines.localRunner(access.requireUser(request), request.params.teamId),
   }));
   app.post<Team>("/api/teams/:teamId/runners", async (request, reply) => {
     reply.code(201);

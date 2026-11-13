@@ -24,6 +24,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { QueueNotice } from "../components/pipelines/QueueNotice";
 import { StageGraph, StatusIcon } from "../components/pipelines/Stages";
 import { Badge, Button, EmptyState, Input, Spinner } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
@@ -229,6 +230,8 @@ export function PipelineRunPage() {
             </div>
           </header>
 
+          {detail.status === "queued" && <QueueNotice queue={detail.queue} />}
+
           {detail.error && (
             <p className="mb-3 rounded-md border border-danger/30 bg-danger-subtle p-2 text-xs text-danger">
               {detail.error}
@@ -281,6 +284,7 @@ export function PipelineRunPage() {
               <StageGraph
                 stages={stages}
                 groups={detail?.stageGroups}
+                needs={detail?.stageNeeds ?? null}
                 selected={selected}
                 onSelect={setPicked}
               />

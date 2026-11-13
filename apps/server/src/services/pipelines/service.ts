@@ -1,6 +1,7 @@
 import {
   type Approvers,
   expandTemplates,
+  type LocalRunnerStatus,
   newId,
   type PipelineActor,
   type PipelineDetail,
@@ -29,7 +30,7 @@ import {
   roleAtLeast,
   type StepKind,
   type StepStatus,
-  stageGroups,
+  stagePlan,
   stepKind,
   stepLabel,
   summariseStages,
@@ -838,6 +839,12 @@ export class PipelineService {
     );
   }
 
+  /** The built-in local runner, for the Runners page. */
+  async localRunner(user: User, teamId: string): Promise<LocalRunnerStatus> {
+    await this.access.requireTeamRole(user, teamId, "viewer");
+    return this.engine.localStatus();
+  }
+
   async getRun(user: User, teamId: string, runId: string): Promise<PipelineRunDetail> {
     await this.access.requireTeamRole(user, teamId, "viewer");
     const run = await this.findRun(teamId, runId);
@@ -862,12 +869,14 @@ export class PipelineService {
     return {
       ...this.runSummary(run, pipeline?.name ?? "", steps, actors, await this.upstreamsOf([run])),
       source: run.source,
-      stageGroups: (() => {
+      ...(() => {
         const parsed = parsePipelineFile(
           run.source,
           JSON.parse(run.inputs) as Record<string, string>,
         );
-        return parsed.ok ? stageGroups(parsed.file) : [];
+        if (!parsed.ok) return { stageGroups: [], stageNeeds: null };
+        const plan = stagePlan(parsed.file);
+        return { stageGroups: plan.levels, stageNeeds: plan.graph ? plan.needs : null };
       })(),
       steps: steps.map((step) => ({
         id: step.id,
@@ -1090,9 +1099,28 @@ export class PipelineService {
         `The pipeline file is not valid with these inputs: ${parsed.issues[0]?.message ?? ""}`,
       );
     // newest-wins: what is still queued or running gives way to this run.
+    const replaced: PipelineRunRow[] = [];
     if (parsed.file.concurrency === "newest-wins") {
       for (const older of await this.store.pipelines.runs.listActiveForPipeline(pipeline.id)) {
         await this.engine.cancel(older);
+      }
+    } else if (
+      parsed.file.concurrency === undefined &&
+      (input.trigger === "push" || input.trigger === "pull_request") &&
+      input.branch
+    ) {
+      // A later push to a branch makes the runs for its earlier pushes that
+      // have not started yet pointless: they give way. A run already going is
+      // left to finish — it may be deploying — even one that starts just now.
+      for (const older of await this.store.pipelines.runs.listActiveForPipeline(pipeline.id)) {
+        if (
+          older.status === "queued" &&
+          older.branch === input.branch &&
+          older.trigger === input.trigger &&
+          (await this.engine.cancelQueued(older))
+        ) {
+          replaced.push(older);
+        }
       }
     }
     const run = await this.store.pipelines.runs.create(
@@ -1138,6 +1166,12 @@ export class PipelineService {
         })),
       ),
     );
+    // The runs it replaced say so, and by which run.
+    for (const older of replaced) {
+      await this.store.pipelines.runs.update(older.id, {
+        error: `Replaced by run #${run.number}, for a later push to ${input.branch}.`,
+      });
+    }
     this.engine.wake();
     const actors = await this.actors([input.triggeredBy]);
     return this.runSummary(
@@ -1397,6 +1431,7 @@ export class PipelineService {
       commit: row.ref && /^[0-9a-f]{40}$/i.test(row.ref) ? row.ref : null,
       commitMessage: row.commitMessage,
       pullRequest: row.pullRequest ? (JSON.parse(row.pullRequest) as RunPullRequest) : null,
+      queue: row.status === "queued" ? this.engine.queueInfo(row.id) : null,
     };
   }
 }

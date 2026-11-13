@@ -668,6 +668,16 @@ const stageSchema = z
     "runs-on": runsOnSchema.optional(),
     /** Runs at the same time as the stage above it. */
     parallel: z.boolean().optional(),
+    /**
+     * The stages above it this one waits for, by name. Once any stage says
+     * what it waits for, every stage starts as soon as its own are done.
+     */
+    needs: z
+      .union([
+        z.string().trim().min(1).max(100),
+        z.array(z.string().trim().min(1).max(100)).max(50),
+      ])
+      .optional(),
     /** One copy's values, once a `matrix:` stage is split into copies. */
     matrix: z.record(z.string(), z.string()).optional(),
     steps: z.array(stepSchema).min(1, "A stage needs at least one step.").max(100),
@@ -833,8 +843,32 @@ export const pipelineFileSchema = z
         ids.set(step.id, family ?? "");
       }
     }
+    const plan = stagePlan(file);
     file.stages.forEach((stage, index) => {
-      if (stage.parallel && index === 0) {
+      if (plan.graph) {
+        if (stage.parallel) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["stages", index, "parallel"],
+            message:
+              "This pipeline uses needs:, so say what the stage waits for with needs: instead of parallel:.",
+          });
+        }
+        for (const name of needsOf(stage)) {
+          const found = findStages(file.stages, name, file.stages.length);
+          const above = found.filter((other) => other < index);
+          if (above.length === 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["stages", index, "needs"],
+              message: found.some((other) => other >= index)
+                ? `${name} is not above ${stage.name}; a stage can only wait for stages above it.`
+                : `${stage.name} waits for ${name}, but no stage above it is called that.`,
+            });
+          }
+        }
+      }
+      if (stage.parallel && index === 0 && !plan.graph) {
         ctx.addIssue({
           code: "custom",
           path: ["stages", 0, "parallel"],
@@ -842,30 +876,25 @@ export const pipelineFileSchema = z
         });
       }
       // A stage on a machine of its own cannot stop and wait for a person or another run.
-      if (!onOwnMachine(file, index)) return;
+      if (!plan.own[index]) return;
       stage.steps.forEach((step, stepIndex) => {
         if (step.approval || step.pipeline?.wait) {
           ctx.addIssue({
             code: "custom",
             path: ["stages", index, "steps", stepIndex],
             message: step.approval
-              ? "An approval needs a stage on the run's own machine (no runs-on, not parallel)."
+              ? "An approval needs a stage on the run's own machine (no runs-on, and not at the same time as another stage)."
               : "A pipeline step that waits needs a stage on the run's own machine; add wait: false.",
           });
         }
       });
     });
-    let group = 0;
-    for (const stage of file.stages) {
-      group = stage.parallel ? group + 1 : 1;
-      if (group > MAX_PARALLEL) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["stages"],
-          message: `At most ${MAX_PARALLEL} stages run at the same time.`,
-        });
-        break;
-      }
+    if (plan.levels.some((level) => level.length > MAX_PARALLEL)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["stages"],
+        message: `At most ${MAX_PARALLEL} stages run at the same time.`,
+      });
     }
     const checkouts = file.stages.flatMap((stage) => stage.steps).filter((step) => step.checkout);
     if (checkouts.length > 0 && !file.source) {
@@ -887,32 +916,124 @@ function matrixFamily(name: string): string {
   return name.replace(/ \([^()]*\)$/, "");
 }
 
-/**
- * Whether a stage runs on a machine of its own: it names one, or it runs at
- * the same time as another stage. Every other stage shares the run's machine.
- */
-export function onOwnMachine(
-  file: { stages: { "runs-on"?: unknown; parallel?: boolean }[] },
-  index: number,
-): boolean {
-  const stage = file.stages[index];
-  if (!stage) return false;
-  return (
-    stage["runs-on"] !== undefined ||
-    stage.parallel === true ||
-    file.stages[index + 1]?.parallel === true
-  );
+/** What a stage plan needs to know of each stage. */
+interface PlanStage {
+  name: string;
+  "runs-on"?: unknown;
+  parallel?: boolean;
+  needs?: string | string[];
+  matrix?: unknown;
 }
 
-/** Consecutive stages that run at the same time: [[0], [1, 2, 3], [4]]. */
-export function stageGroups(file: { stages: { parallel?: boolean }[] }): number[][] {
-  const groups: number[][] = [];
-  file.stages.forEach((stage, index) => {
-    const last = groups[groups.length - 1];
-    if (stage.parallel && last) last.push(index);
-    else groups.push([index]);
+/** How a run's stages follow each other. */
+export interface StagePlan {
+  /** The file says what each stage waits for (needs:), rather than going top to bottom. */
+  graph: boolean;
+  /** Per stage, the stages it waits for directly, by index (always above it). */
+  needs: number[][];
+  /** Columns for the picture: a stage stands one column after the last it waits for. */
+  levels: number[][];
+  /** Per stage: on a machine of its own (it names one, or may run beside another stage). */
+  own: boolean[];
+}
+
+/** The names a stage waits for, as a list. */
+export function needsOf(stage: { needs?: string | string[] }): string[] {
+  if (stage.needs === undefined) return [];
+  return (Array.isArray(stage.needs) ? stage.needs : [stage.needs]).map((name) => name.trim());
+}
+
+/**
+ * The stages a name in needs: means, among the first `before`: the stage of
+ * that name, every copy of a matrix stage, or every stage a uses: stage of
+ * that name copied in ("Checks" → "Checks › Lint", "Checks › Test").
+ */
+function findStages(stages: PlanStage[], name: string, before: number): number[] {
+  const found: number[] = [];
+  for (let index = 0; index < before; index += 1) {
+    const stage = stages[index] as PlanStage;
+    if (
+      stage.name === name ||
+      (stage.matrix !== undefined && matrixFamily(stage.name) === name) ||
+      stage.name.startsWith(`${name} › `)
+    ) {
+      found.push(index);
+    }
+  }
+  return found;
+}
+
+/**
+ * Works out which stage waits for which, which may run together, and which
+ * need a machine of their own. Without needs: the stages go top to bottom,
+ * a `parallel: true` stage beside the one above it. With needs: a stage
+ * starts once the stages it names are done; one without needs: starts at once.
+ */
+export function stagePlan(file: { stages: PlanStage[] }): StagePlan {
+  const stages = file.stages;
+  const graph = stages.some((stage) => stage.needs !== undefined);
+  const needs: number[][] = [];
+  if (graph) {
+    stages.forEach((stage, index) => {
+      const direct = new Set<number>();
+      for (const name of needsOf(stage)) {
+        for (const other of findStages(stages, name, index)) direct.add(other);
+      }
+      needs.push([...direct].sort((a, b) => a - b));
+    });
+  } else {
+    let previous: number[] = [];
+    let current: number[] = [];
+    stages.forEach((stage, index) => {
+      if (!(stage.parallel && current.length > 0)) {
+        previous = current;
+        current = [];
+      }
+      current.push(index);
+      needs.push([...previous]);
+    });
+  }
+  // Everything a stage waits for, directly or not.
+  const before: Set<number>[] = [];
+  const level: number[] = [];
+  for (const direct of needs) {
+    const all = new Set<number>();
+    let depth = 0;
+    for (const other of direct) {
+      all.add(other);
+      for (const further of before[other] ?? []) all.add(further);
+      depth = Math.max(depth, (level[other] ?? 0) + 1);
+    }
+    before.push(all);
+    level.push(depth);
+  }
+  const levels: number[][] = [];
+  level.forEach((depth, index) => {
+    while (levels.length <= depth) levels.push([]);
+    levels[depth]?.push(index);
   });
-  return groups;
+  // Two stages may run at the same time when neither waits, however
+  // indirectly, for the other; each of those needs a machine of its own.
+  const own = stages.map((stage, index) => {
+    if (stage["runs-on"] !== undefined) return true;
+    return stages.some(
+      (_, other) => other !== index && !before[index]?.has(other) && !before[other]?.has(index),
+    );
+  });
+  return { graph, needs, levels: levels.filter((column) => column.length > 0), own };
+}
+
+/**
+ * Whether a stage runs on a machine of its own: it names one, or it may run
+ * at the same time as another stage. Every other stage shares the run's machine.
+ */
+export function onOwnMachine(file: { stages: PlanStage[] }, index: number): boolean {
+  return stagePlan(file).own[index] === true;
+}
+
+/** Stages that run at the same time, as columns: [[0], [1, 2, 3], [4]]. */
+export function stageGroups(file: { stages: PlanStage[] }): number[][] {
+  return stagePlan(file).levels;
 }
 export type PipelineStage = PipelineFile["stages"][number];
 export type PipelineStep = PipelineStage["steps"][number];
@@ -1374,6 +1495,27 @@ export interface PipelineRunSummary {
   commitMessage: string | null;
   /** The pull or merge request it is for. */
   pullRequest: RunPullRequest | null;
+  /** While it is queued: why it has not started, and roughly when it will. */
+  queue: RunQueueInfo | null;
+}
+
+/** Why a queued run has not started yet. */
+export interface RunQueueInfo {
+  /**
+   * "machine": every place on the machine it runs on is taken.
+   * "earlier": the pipeline runs one at a time, and an earlier run goes first.
+   */
+  reason: "machine" | "earlier";
+  /** The machine it waits for: "the local runner" or a runner's name. */
+  machine: string | null;
+  /** How many runs that machine takes at once. */
+  places: number | null;
+  /** Its place in line for that machine (or that pipeline): 1 is next. */
+  position: number;
+  /** The runs holding what it waits for. */
+  blockers: { id: string; pipelineId: string; pipelineName: string; number: number }[];
+  /** Roughly when it starts, from how long those runs usually take; null when nobody can tell. */
+  startsAt: string | null;
 }
 
 export interface RunPullRequest {
@@ -1455,8 +1597,10 @@ export interface PipelineRunDetail extends PipelineRunSummary {
   steps: RunStep[];
   /** The pipeline file exactly as it was when this run started. */
   source: string;
-  /** Stages that ran at the same time, by index: [[0], [1, 2], [3]]. */
+  /** The stages as columns: a stage stands one column after the last it waits for. [[0], [1, 2], [3]] */
   stageGroups: number[][];
+  /** Per stage, the stages it waits for by index, when the file says so with needs:; else null. */
+  stageNeeds: number[][] | null;
   artifacts: { id: string; name: string; sizeBytes: number }[];
   approvals: RunApproval[];
 }
@@ -1518,14 +1662,30 @@ export const sshRunnerInputSchema = z
       .regex(/^[A-Za-z0-9._\\-]{1,64}$/, "Use the SSH user name on that machine."),
     labels: z.array(labelSchema).max(20).default([]),
     description: z.string().trim().max(500).nullable().optional(),
-    maxConcurrent: z.number().int().min(1).max(20).default(1),
+    /** Runs at the same time; 0 lets Zelyq choose from the machine's processors and memory. */
+    maxConcurrent: z.number().int().min(0).max(20).default(0),
   })
   .strict();
 export type SshRunnerInput = z.input<typeof sshRunnerInputSchema>;
 
-export const sshRunnerUpdateSchema = sshRunnerInputSchema
-  .partial()
-  .extend({ enabled: z.boolean().optional() })
+// Only what is sent changes: no defaults here, or turning a runner off would
+// also put its port, labels and runs at once back to their defaults.
+export const sshRunnerUpdateSchema = z
+  .object({
+    ...Object.fromEntries(
+      Object.entries(sshRunnerInputSchema.shape).map(([key, schema]) => [
+        key,
+        (schema instanceof z.ZodDefault ? schema.unwrap() : schema).optional(),
+      ]),
+    ),
+    enabled: z.boolean().optional(),
+  } as {
+    [K in keyof typeof sshRunnerInputSchema.shape]: z.ZodOptional<
+      (typeof sshRunnerInputSchema.shape)[K] extends z.ZodDefault<infer Inner>
+        ? Inner
+        : (typeof sshRunnerInputSchema.shape)[K]
+    >;
+  } & { enabled: z.ZodOptional<z.ZodBoolean> })
   .strict();
 export type SshRunnerUpdate = z.input<typeof sshRunnerUpdateSchema>;
 
@@ -1540,7 +1700,13 @@ export interface RunnerSummary {
   labels: string[];
   description: string | null;
   enabled: boolean;
+  /** As set: 0 is automatic. */
   maxConcurrent: number;
+  /** What is used: the number set, or the automatic one. */
+  concurrency: number;
+  /** What its last test found; null until it is tested. */
+  cpus: number | null;
+  memoryMb: number | null;
   os: RunnerOs | null;
   shells: string[];
   tools: string[];
@@ -1551,6 +1717,29 @@ export interface RunnerSummary {
   acceptedKeyFingerprint: string | null;
   busyRuns: number;
   createdAt: string;
+}
+
+/**
+ * How many runs a machine takes at once when nobody has said: one per two
+ * processors, with at least 2 GB of memory each, between 1 and 8. A machine
+ * Zelyq knows nothing about yet takes one.
+ */
+export function automaticConcurrency(cpus: number | null, memoryMb: number | null): number {
+  if (!cpus || cpus < 1) return 1;
+  const byCpu = Math.ceil(cpus / 2);
+  const byMemory = memoryMb && memoryMb > 0 ? Math.floor(memoryMb / 2048) : byCpu;
+  return Math.max(1, Math.min(8, byCpu, byMemory));
+}
+
+/** The built-in local runner, as the Runners page shows it. */
+export interface LocalRunnerStatus {
+  /** Turned off on this instance (Settings → Pipelines). */
+  off: boolean;
+  /** Runs it takes at once, and whether Zelyq chose that from the server's size. */
+  places: number;
+  automatic: boolean;
+  /** Runs (and stages of their own) on it now. */
+  busy: number;
 }
 
 export interface RunnerTestResult {
@@ -2027,10 +2216,15 @@ export interface EnvironmentSummary {
 // Inputs: ${{ inputs.NAME }}
 // ---------------------------------------------------------------------------
 
-const USES_KEYS = new Set(["uses", "with", "name", "if", "runs-on", "parallel"]);
+const USES_KEYS = new Set(["uses", "with", "name", "if", "runs-on", "parallel", "needs"]);
 
 function isUses(stage: unknown): stage is Record<string, unknown> & { uses: unknown } {
   return Boolean(stage && typeof stage === "object" && "uses" in stage);
+}
+
+/** Whether a file's raw stages say what they wait for (needs:). */
+function usesNeeds(stages: unknown[]): boolean {
+  return stages.some((stage) => Boolean(stage && typeof stage === "object" && "needs" in stage));
 }
 
 /**
@@ -2064,6 +2258,7 @@ export function expandTemplates(
     Object.entries(templates).map(([name, source]) => [name.toLowerCase(), source]),
   );
   const stages: unknown[] = [];
+  const graph = usesNeeds(raw.stages);
   raw.stages.forEach((stage: unknown, index) => {
     if (!isUses(stage)) {
       stages.push(stage);
@@ -2074,7 +2269,7 @@ export function expandTemplates(
     if (extra.length > 0) {
       issue(
         [...at, extra[0] ?? ""],
-        "A uses: stage takes only name, with, if, runs-on and parallel.",
+        "A uses: stage takes only name, with, if, runs-on, parallel and needs.",
       );
       return;
     }
@@ -2098,6 +2293,13 @@ export function expandTemplates(
     }
     if (template.stages.some(isUses)) {
       issue([...at, "uses"], `${name} uses another pipeline itself; templates go one level deep.`);
+      return;
+    }
+    if (usesNeeds(template.stages)) {
+      issue(
+        [...at, "uses"],
+        `${name} uses needs:; a template's stages go top to bottom, with parallel: where they run together.`,
+      );
       return;
     }
     const given =
@@ -2127,6 +2329,30 @@ export function expandTemplates(
       template.env && typeof template.env === "object"
         ? (template.env as Record<string, unknown>)
         : {};
+    // In a file with needs:, the template's top-to-bottom order is said with
+    // needs: too: each copied stage waits for the group above it, the first
+    // group for what the uses: stage waits for.
+    const finalName = (copy: Record<string, unknown>) =>
+      typeof stage.name === "string" && stage.name.trim()
+        ? `${stage.name.trim()} › ${String(copy.name ?? "")}`.slice(0, 100)
+        : copy.name;
+    const groupNeeds: unknown[] = [];
+    if (graph) {
+      let previous: unknown[] | undefined = Array.isArray(stage.needs)
+        ? stage.needs
+        : stage.needs === undefined
+          ? undefined
+          : [stage.needs];
+      let current: unknown[] = [];
+      copied.forEach((copy) => {
+        if (!(copy.parallel === true && current.length > 0)) {
+          if (current.length > 0) previous = current;
+          current = [];
+        }
+        current.push(finalName(copy));
+        groupNeeds.push(previous);
+      });
+    }
     copied.forEach((copy, position) => {
       const steps = Array.isArray(copy.steps)
         ? copy.steps.map((step: unknown) =>
@@ -2138,17 +2364,17 @@ export function expandTemplates(
               : step,
           )
         : copy.steps;
+      const { parallel: _parallel, ...rest } = copy;
+      const needs = groupNeeds[position];
       stages.push({
-        ...copy,
-        name:
-          typeof stage.name === "string" && stage.name.trim()
-            ? `${stage.name.trim()} › ${String(copy.name ?? "")}`.slice(0, 100)
-            : copy.name,
+        ...(graph ? rest : copy),
+        name: finalName(copy),
         ...(stage.if !== undefined && copy.if === undefined ? { if: stage.if } : {}),
         ...(stage["runs-on"] !== undefined && copy["runs-on"] === undefined
           ? { "runs-on": stage["runs-on"] }
           : {}),
         ...(position === 0 && stage.parallel === true ? { parallel: true } : {}),
+        ...(graph && needs !== undefined ? { needs } : {}),
         steps,
       });
     });
@@ -2174,6 +2400,8 @@ function expandMatrix(
   const issues: { path: (string | number)[]; message: string }[] = [];
   const out: unknown[] = [];
   const origin: number[] = [];
+  // With needs:, copies run together because nothing makes them wait for each other.
+  const graph = usesNeeds(stages);
   stages.forEach((stage: unknown, index) => {
     // A `uses:` stage not copied in yet (only the server can): one stand-in
     // step, so the rest of the file can still be read and checked.
@@ -2184,6 +2412,7 @@ function expandMatrix(
         ...(stage.if !== undefined ? { if: stage.if } : {}),
         ...(stage["runs-on"] !== undefined ? { "runs-on": stage["runs-on"] } : {}),
         ...(stage.parallel !== undefined ? { parallel: stage.parallel } : {}),
+        ...(stage.needs !== undefined ? { needs: stage.needs } : {}),
         steps: [{ name: `Stages of ${name}`, run: "true" }],
       });
       origin.push(index);
@@ -2261,7 +2490,7 @@ function expandMatrix(
         name: `${base.slice(0, Math.max(1, 100 - label.length))}${label}`,
         matrix: values,
         // Every copy runs beside the others; the first keeps the stage's own choice.
-        ...(copy > 0 ? { parallel: true } : {}),
+        ...(copy > 0 && !graph ? { parallel: true } : {}),
       });
       origin.push(index);
     });

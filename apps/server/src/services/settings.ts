@@ -29,6 +29,7 @@ import {
 } from "./cli-sessions.js";
 import { GoogleModelDiscovery, type GoogleModelList } from "./google-models.js";
 import { OpenAIModelDiscovery, type OpenAIModelList } from "./openai-models.js";
+import { automaticLocalConcurrency } from "./pipelines/capacity.js";
 import type { SecretBox } from "./secrets.js";
 import { maskSecret } from "./secrets.js";
 
@@ -618,12 +619,12 @@ const DEFINITIONS: Definition[] = [
   {
     key: "pipelineLocalConcurrency",
     label: "Local runs at once",
-    description: "How many local runs may run at the same time; the rest wait in the queue.",
+    description: `How many local runs may run at the same time; the rest wait in line. 0 lets Zelyq choose from this server's processors and memory (${automaticLocalConcurrency()} here).`,
     kind: "number",
     group: "Pipelines",
     envVar: "ZELYQ_PIPELINE_LOCAL_CONCURRENCY",
     envOverridable: true,
-    fallback: "2",
+    fallback: "0",
   },
   {
     key: "pluginRegistry",

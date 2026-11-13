@@ -8,6 +8,7 @@ import {
   STEP_KINDS,
   type StepKind,
   type StepStatus,
+  stagePlan,
 } from "@zelyq/core";
 import {
   ArrowDown,
@@ -45,6 +46,7 @@ import {
   removeIn,
   replaceStep,
   setIn,
+  setListIn,
 } from "../../lib/pipeline-doc";
 import { duration, RUN_STATUS } from "../../lib/pipelines";
 import { formatRelative } from "../../lib/vault";
@@ -167,15 +169,98 @@ function stepLabel(step: Raw): string {
   }
 }
 
-/** Consecutive stages that run together: [[0], [1, 2], [3]]. */
-function columnsOf(stages: Raw[]): number[][] {
-  const columns: number[][] = [];
-  stages.forEach((stage, index) => {
-    const last = columns[columns.length - 1];
-    if (stage.parallel === true && last) last.push(index);
-    else columns.push([index]);
+/** The names a stage, as written, waits for. */
+function rawNeeds(stage: Raw): string[] {
+  const needs = stage.needs;
+  const list = Array.isArray(needs) ? needs : needs === undefined || needs === null ? [] : [needs];
+  return list.filter((name): name is string => typeof name === "string");
+}
+
+/** Which stage waits for which, from the file as written (as a run will do it). */
+function planOf(stages: Raw[]) {
+  return stagePlan({
+    stages: stages.map((stage) => ({
+      name: text(stage.name),
+      ...(stage["runs-on"] !== undefined ? { "runs-on": stage["runs-on"] } : {}),
+      ...(stage.parallel === true ? { parallel: true } : {}),
+      ...(stage.needs !== undefined ? { needs: rawNeeds(stage) } : {}),
+      ...(stage.matrix !== undefined ? { matrix: stage.matrix } : {}),
+    })),
   });
-  return columns;
+}
+
+/** Whether moving stage `from` to place `to` keeps every stage below what it waits for. */
+function canMove(stages: Raw[], from: number, to: number): boolean {
+  if (!stages.some((stage) => stage.needs !== undefined)) return true;
+  const order = stages.map((_, index) => index);
+  order.splice(from, 1);
+  order.splice(to, 0, from);
+  const place = new Map(order.map((stage, at) => [stage, at]));
+  return planOf(stages).needs.every((waits, index) =>
+    waits.every((other) => (place.get(other) ?? 0) < (place.get(index) ?? 0)),
+  );
+}
+
+/** A stage renamed: every needs: that named it follows. */
+function renameNeeds(source: string, stages: Raw[], from: string, to: string): string {
+  let next = source;
+  stages.forEach((stage, index) => {
+    if (stage.needs === undefined) return;
+    const list = rawNeeds(stage);
+    if (!list.includes(from)) return;
+    next = setListIn(
+      next,
+      ["stages", index, "needs"],
+      list.map((name) => (name === from ? to : name)),
+    );
+  });
+  return next;
+}
+
+/** A stage removed: the stages that waited for it wait for what it waited for instead. */
+function removeStage(source: string, stages: Raw[], index: number): string {
+  let next = source;
+  if (stages.some((stage) => stage.needs !== undefined)) {
+    const name = text(stages[index]?.name);
+    const inherited = rawNeeds(stages[index] ?? {});
+    stages.forEach((stage, other) => {
+      if (other === index || stage.needs === undefined) return;
+      const list = rawNeeds(stage);
+      if (!list.includes(name)) return;
+      next = setListIn(
+        next,
+        ["stages", other, "needs"],
+        [...new Set(list.flatMap((item) => (item === name ? inherited : [item])))],
+      );
+    });
+  }
+  return removeIn(next, ["stages", index]);
+}
+
+/** Stages that can run together, as columns: [[0], [1, 2], [3]]. */
+function columnsOf(stages: Raw[]): number[][] {
+  return planOf(stages).levels;
+}
+
+/**
+ * The same order said with needs: — each stage names what it waits for, and
+ * parallel: goes — so one stage's choice can change without moving the rest.
+ */
+function withNeeds(source: string, stages: Raw[]): string {
+  const plan = planOf(stages);
+  let next = source;
+  plan.needs.forEach((waits, index) => {
+    if (stages[index]?.parallel !== undefined)
+      next = setIn(next, ["stages", index, "parallel"], undefined);
+    if (index > 0) {
+      next = setIn(
+        next,
+        ["stages", index, "needs"],
+        waits.map((other) => text(stages[other]?.name)).filter(Boolean),
+      );
+    }
+  });
+  return next;
 }
 
 export function VisualEditor({
@@ -256,16 +341,21 @@ export function VisualEditor({
         ? { kind: "pipeline" }
         : selection;
 
-  const addStage = (at: number, parallel = false) => {
+  const graph = stages.some((stage) => stage.needs !== undefined);
+  /** A new stage at `at`; with needs:, it waits for `after` (or what `beside` waits for). */
+  const addStage = (at: number, parallel = false, after?: string[]) => {
     edit(
       insertIn(source, ["stages"], at, {
         name: `Stage ${stages.length + 1}`,
-        ...(parallel ? { parallel: true } : {}),
+        ...(parallel && !graph ? { parallel: true } : {}),
+        ...(graph && after !== undefined ? { needs: after } : {}),
         steps: [{ run: 'echo "Hello"' }],
       }),
     );
     setSelection({ kind: "stage", stage: at });
   };
+  const namesOf = (indexes: number[] | undefined) =>
+    (indexes ?? []).map((index) => text(stages[index]?.name)).filter(Boolean);
   const addStep = (stage: number, kind: StepKind) => {
     const steps = (stages[stage]?.steps as unknown[] | undefined) ?? [];
     edit(insertIn(source, ["stages", stage, "steps"], steps.length, newStep(kind, pluginRef)));
@@ -288,7 +378,7 @@ export function VisualEditor({
   };
   const moveStage = (from: number, before: number) => {
     const to = from < before ? before - 1 : before;
-    if (to === from) return;
+    if (to === from || !canMove(stages, from, to)) return;
     edit(moveIn(source, ["stages"], from, to));
     setSelection({ kind: "stage", stage: to });
   };
@@ -343,7 +433,19 @@ export function VisualEditor({
               <Fragment key={column[0]}>
                 {position > 0 && (
                   <Connector
-                    onAdd={canWrite ? () => addStage(column[0] ?? 0) : null}
+                    onAdd={
+                      canWrite
+                        ? () =>
+                            // With needs:, below everything it waits for.
+                            addStage(
+                              graph
+                                ? Math.max(...(columns[position - 1] ?? [0])) + 1
+                                : (column[0] ?? 0),
+                              false,
+                              namesOf(columns[position - 1]),
+                            )
+                        : null
+                    }
                     title="Add a stage here"
                   />
                 )}
@@ -386,7 +488,9 @@ export function VisualEditor({
                   {canWrite && (
                     <button
                       type="button"
-                      onClick={() => addStage(last + 1, true)}
+                      onClick={() =>
+                        addStage(last + 1, true, rawNeeds(stages[column[0] ?? 0] ?? {}))
+                      }
                       title="Add a stage that runs at the same time"
                       aria-label="Add a stage that runs at the same time"
                       className="mx-auto flex size-6 items-center justify-center rounded-full border border-dashed border-border-strong bg-surface text-fg-muted opacity-0 transition-opacity group-hover/column:opacity-100 hover:border-primary hover:text-fg focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
@@ -404,7 +508,11 @@ export function VisualEditor({
                 Add the first stage
               </Button>
             ) : (
-              <Connector onAdd={() => addStage(stages.length)} title="Add a stage at the end" end />
+              <Connector
+                onAdd={() => addStage(stages.length, false, namesOf(columns[columns.length - 1]))}
+                title="Add a stage at the end"
+                end
+              />
             ))}
         </StageRow>
       </div>
@@ -448,7 +556,12 @@ export function VisualEditor({
             onSelect={setSelection}
             onAddStage={(parallel) => {
               const column = columns.find((members) => members.includes(current.stage)) ?? [];
-              addStage((column[column.length - 1] ?? current.stage) + 1, parallel);
+              const here = stages[current.stage] ?? {};
+              addStage(
+                (column[column.length - 1] ?? current.stage) + 1,
+                parallel,
+                parallel ? rawNeeds(here) : [text(here.name)],
+              );
             }}
           />
         ) : (
@@ -1140,6 +1253,91 @@ function Select({
   );
 }
 
+/**
+ * What a stage waits for, as a tick per stage above it. In a file that goes
+ * top to bottom, the first change writes the whole order out with needs:,
+ * so only this stage's choice changes.
+ */
+function WaitsFor({
+  stages,
+  index,
+  source,
+  edit,
+  disabled,
+}: {
+  stages: Raw[];
+  index: number;
+  source: string;
+  edit: (next: string) => void;
+  disabled: boolean;
+}) {
+  const graph = stages.some((stage) => stage.needs !== undefined);
+  const plan = planOf(stages);
+  const current = graph
+    ? rawNeeds(stages[index] ?? {})
+    : (plan.needs[index] ?? []).map((other) => text(stages[other]?.name));
+  return (
+    <Field
+      label="Waits for"
+      hint={
+        graph
+          ? "It starts as soon as these are done. Stages that wait for nothing start at once."
+          : "Now: the stage before it. Tick exactly what it needs, and stages that don't need each other run at the same time."
+      }
+    >
+      <div className="grid gap-1">
+        {stages.slice(0, index).map((other, position) => {
+          const name = text(other.name);
+          return (
+            <Check
+              // biome-ignore lint/suspicious/noArrayIndexKey: stages are known by place
+              key={position}
+              checked={current.includes(name)}
+              disabled={disabled || !name}
+              label={name || `Stage ${position + 1}`}
+              onChange={(on) => {
+                const next = on
+                  ? [...current.filter((item) => item !== name), name]
+                  : current.filter((item) => item !== name);
+                // Every stage's list, as it will be written.
+                const lists = stages.map((one, at) =>
+                  graph
+                    ? rawNeeds(one)
+                    : (plan.needs[at] ?? []).map((other) => text(stages[other]?.name)),
+                );
+                lists[index] = next;
+                let base = graph ? source : withNeeds(source, stages);
+                // An empty list, not none: "waits for nothing" keeps the file on needs:.
+                base = setListIn(base, ["stages", index, "needs"], next);
+                if (!on) {
+                  // Stages that waited for this one still wait for what it no
+                  // longer does: only this stage moves.
+                  const own = text(stages[index]?.name);
+                  const reaches = (from: number, target: string, seen: Set<number>): boolean =>
+                    (lists[from] ?? []).some((item) => {
+                      if (item === target) return true;
+                      const at = stages.findIndex((one) => text(one.name) === item);
+                      if (at < 0 || seen.has(at)) return false;
+                      seen.add(at);
+                      return reaches(at, target, seen);
+                    });
+                  for (let later = index + 1; later < stages.length; later += 1) {
+                    const waits = lists[later] ?? [];
+                    if (!waits.includes(own) || reaches(later, name, new Set())) continue;
+                    lists[later] = [...waits, name];
+                    base = setIn(base, ["stages", later, "needs"], lists[later]);
+                  }
+                }
+                edit(base);
+              }}
+            />
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
 function Check({
   checked,
   onChange,
@@ -1523,7 +1721,9 @@ function StageForm({
         <TextInput
           value={text(stage.name)}
           disabled={off}
-          onChange={(v) => edit(setIn(source, [...at, "name"], v))}
+          onChange={(v) =>
+            edit(renameNeeds(setIn(source, [...at, "name"], v), stages, text(stage.name), v))
+          }
         />
       </Field>
       <Field
@@ -1541,12 +1741,17 @@ function StageForm({
           onChange={(v) => edit(setIn(source, [...at, "if"], v === "success()" ? undefined : v))}
         />
       </Field>
-      <Check
-        checked={stage.parallel === true}
-        disabled={off || index === 0}
-        label="At the same time as the stage before it"
-        onChange={(on) => edit(setIn(source, [...at, "parallel"], on || undefined))}
-      />
+      {index > 0 && (
+        <WaitsFor stages={stages} index={index} source={source} edit={edit} disabled={off} />
+      )}
+      {!stages.some((other) => other.needs !== undefined) && (
+        <Check
+          checked={stage.parallel === true}
+          disabled={off || index === 0}
+          label="At the same time as the stage before it"
+          onChange={(on) => edit(setIn(source, [...at, "parallel"], on || undefined))}
+        />
+      )}
       <Field
         label="Its own machine"
         hint="A stage on a machine of its own starts in an empty folder: check out again there."
@@ -1635,7 +1840,7 @@ function StageForm({
           <IconButton
             size="sm"
             label="Move left"
-            disabled={index === 0}
+            disabled={index === 0 || !canMove(stages, index, index - 1)}
             onClick={() => {
               edit(moveIn(source, ["stages"], index, index - 1));
               onSelect({ kind: "stage", stage: index - 1 });
@@ -1646,7 +1851,7 @@ function StageForm({
           <IconButton
             size="sm"
             label="Move right"
-            disabled={index >= stages.length - 1}
+            disabled={index >= stages.length - 1 || !canMove(stages, index, index + 1)}
             onClick={() => {
               edit(moveIn(source, ["stages"], index, index + 1));
               onSelect({ kind: "stage", stage: index + 1 });
@@ -1661,7 +1866,7 @@ function StageForm({
             className="ml-auto"
             disabled={stages.length <= 1}
             onClick={() => {
-              edit(removeIn(source, at));
+              edit(removeStage(source, stages, index));
               onSelect({ kind: "pipeline" });
             }}
           >

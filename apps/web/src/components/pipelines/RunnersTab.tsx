@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  type LocalRunnerStatus,
   RUNNER_USER,
   type RunnerOs,
   type RunnerSummary,
@@ -43,7 +44,7 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
 
   return (
     <div className="grid gap-6">
-      <LocalRunnerNote />
+      <LocalRunnerNote status={runners.data?.local ?? null} />
       {isAdmin ? (
         <TeamKey teamId={team.id} />
       ) : (
@@ -83,16 +84,32 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
   );
 }
 
-function LocalRunnerNote() {
+function LocalRunnerNote({ status }: { status: LocalRunnerStatus | null }) {
   return (
     <div className="flex gap-3 rounded-md border border-border-default bg-surface-subtle p-3 text-xs text-fg-secondary">
       <Server size={16} className="mt-0.5 shrink-0" />
-      <p>
-        <span className="font-medium text-fg">Local runner</span> — always here. A pipeline with{" "}
-        <code className="font-mono">runs-on: local</code> runs on this Zelyq server, in a fresh
-        container that is thrown away afterwards. An instance admin can change this in Settings →
-        Pipelines.
-      </p>
+      <div className="grid gap-1">
+        <p>
+          <span className="font-medium text-fg">Local runner</span> — always here. A pipeline with{" "}
+          <code className="font-mono">runs-on: local</code> runs on this Zelyq server, in a fresh
+          container that is thrown away afterwards. An instance admin can change this in Settings →
+          Pipelines.
+        </p>
+        {status && !status.off && (
+          <p className="flex flex-wrap items-center gap-2">
+            <Badge
+              tone={status.busy >= status.places ? "warning" : status.busy > 0 ? "info" : "success"}
+            >
+              {status.busy > 0 ? `Running ${status.busy} of ${status.places}` : "Ready"}
+            </Badge>
+            Takes {status.places === 1 ? "1 run" : `${status.places} runs`} at once
+            {status.automatic
+              ? ": automatic, from this server's processors and memory."
+              : " (set by hand)."}
+          </p>
+        )}
+        {status?.off && <p>Turned off on this instance.</p>}
+      </div>
     </div>
   );
 }
@@ -254,6 +271,17 @@ function TeamKey({ teamId }: { teamId: string }) {
 }
 
 /** Adds a runner, or — given one — changes it. */
+/** "Takes 4 runs at once — automatic, from 8 processors and 31 GB of memory." */
+function capacityWords(runner: RunnerSummary): string {
+  const runs = runner.concurrency === 1 ? "1 run" : `${runner.concurrency} runs`;
+  if (runner.maxConcurrent > 0) return `Takes ${runs} at once (set by hand).`;
+  if (!runner.cpus) {
+    return `Takes ${runs} at once for now; Test connection lets Zelyq size it from its processors and memory.`;
+  }
+  const memory = runner.memoryMb ? ` and ${Math.round(runner.memoryMb / 1024)} GB of memory` : "";
+  return `Takes ${runs} at once: automatic, from ${runner.cpus} processors${memory}.`;
+}
+
 function RunnerForm({
   teamId,
   runner,
@@ -270,7 +298,8 @@ function RunnerForm({
     port: String(runner?.port ?? 22),
     username: runner?.username ?? "zelyq",
     labels: runner?.labels.join(", ") ?? "",
-    maxConcurrent: String(runner?.maxConcurrent ?? 1),
+    // Empty is automatic: from the machine's processors and memory.
+    maxConcurrent: runner && runner.maxConcurrent > 0 ? String(runner.maxConcurrent) : "",
   });
   const [error, setError] = useState<string | null>(null);
   const create = useMutation({
@@ -284,7 +313,7 @@ function RunnerForm({
           .split(",")
           .map((label) => label.trim().toLowerCase())
           .filter(Boolean),
-        maxConcurrent: Number(form.maxConcurrent) || 1,
+        maxConcurrent: Math.max(0, Math.floor(Number(form.maxConcurrent) || 0)),
       };
       return runner
         ? api.runners.update(teamId, runner.id, input)
@@ -326,7 +355,7 @@ function RunnerForm({
         {field("port", "Port", "22")}
         {field("username", "SSH user", "deploy")}
         {field("labels", "Labels", "docker, gpu", "col-span-1 sm:col-span-2")}
-        {field("maxConcurrent", "Runs at once", "1")}
+        {field("maxConcurrent", "Runs at once", "Automatic")}
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}
       <div className="flex gap-2">
@@ -395,7 +424,12 @@ function RunnerRow({
       : runner.lastTest && !runner.lastTest.ok
         ? { tone: "danger" as const, label: "Unreachable" }
         : runner.busyRuns > 0
-          ? { tone: "info" as const, label: `Running ${runner.busyRuns}` }
+          ? {
+              tone: (runner.busyRuns >= runner.concurrency ? "warning" : "info") as
+                | "warning"
+                | "info",
+              label: `Running ${runner.busyRuns} of ${runner.concurrency}`,
+            }
           : { tone: "success" as const, label: "Ready" };
 
   if (editing) {
@@ -465,6 +499,7 @@ function RunnerRow({
           <span className="font-sans"> · has {[...runner.shells, ...runner.tools].join(", ")}</span>
         )}
       </p>
+      <p className="mt-1 text-xs text-fg-secondary">{capacityWords(runner)}</p>
       {runner.lastTest && (
         <p className={`mt-1 text-xs ${runner.lastTest.ok ? "text-fg-secondary" : "text-danger"}`}>
           {runner.lastTest.message} ({formatRelative(runner.lastTest.at)})

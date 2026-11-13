@@ -212,6 +212,15 @@ export interface MachineFacts {
   shells: string[];
   tools: string[];
   latencyMs: number;
+  /** Processors and memory, for how many runs it takes at once; null when it would not say. */
+  cpus: number | null;
+  memoryMb: number | null;
+}
+
+/** A positive whole number from a probe's answer, or null. */
+function count(text: string | undefined): number | null {
+  const value = Number.parseInt((text ?? "").trim(), 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 /**
@@ -234,12 +243,26 @@ export async function probeMachine(session: SshSession): Promise<MachineFacts> {
     ).stdout
       .split(/\s+/)
       .filter(Boolean);
+    // Linux: processors, then "MemTotal: N kB". macOS: processors, then bytes.
+    const size = (
+      await session.capture(
+        os === "macos"
+          ? `sh -c 'sysctl -n hw.ncpu hw.memsize 2>/dev/null'`
+          : `sh -c 'getconf _NPROCESSORS_ONLN 2>/dev/null; grep MemTotal /proc/meminfo 2>/dev/null'`,
+      )
+    ).stdout.split(/\r?\n/);
+    const memory =
+      os === "macos"
+        ? Math.floor(Number(size[1]?.trim() ?? "") / 1024 / 1024)
+        : Math.floor(Number(/(\d+)/.exec(size[1] ?? "")?.[1] ?? "") / 1024);
     return {
       os,
       home,
       shells: found.filter((name) => ["bash", "sh", "zsh", "pwsh"].includes(name)),
       tools: found.filter((name) => ["git", "docker", "tar"].includes(name)),
       latencyMs,
+      cpus: count(size[0]),
+      memoryMb: Number.isFinite(memory) && memory > 0 ? memory : null,
     };
   }
   // Only Windows' cmd.exe answers this with Windows_NT; every other shell
@@ -284,5 +307,7 @@ export async function probeMachine(session: SshSession): Promise<MachineFacts> {
     shells: ["pwsh", "powershell"].filter((name) => found.has(name)),
     tools: ["git", "docker", "tar"].filter((name) => found.has(name)),
     latencyMs,
+    cpus: count((await session.capture("echo %NUMBER_OF_PROCESSORS%")).stdout),
+    memoryMb: null,
   };
 }

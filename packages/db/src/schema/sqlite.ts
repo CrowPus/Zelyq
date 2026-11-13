@@ -405,7 +405,11 @@ export const runners = sqliteTable(
     labels: text("labels").notNull().default("[]"),
     description: text("description"),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    /** Runs at the same time; 0 is automatic, from its processors and memory. */
     maxConcurrent: integer("max_concurrent").notNull().default(1),
+    /** What the machine's last test found. */
+    cpus: integer("cpus"),
+    memoryMb: integer("memory_mb"),
     os: text("os"),
     shells: text("shells").notNull().default("[]"),
     tools: text("tools").notNull().default("[]"),

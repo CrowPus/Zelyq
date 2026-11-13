@@ -9,7 +9,7 @@ import {
   TimerOff,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { duration, RUN_STATUS } from "../../lib/pipelines";
 
 const ICONS: Record<StepStatus | "queued", typeof CheckCircle2> = {
@@ -79,17 +79,21 @@ export function StageStrip({ stages }: { stages: RunStageSummary[] }) {
 
 /**
  * The run as a picture: a box per stage, left to right, joined by arrows.
- * Stages that ran at the same time stand in one column. Clicking a box
+ * Stages that ran at the same time stand in one column. With needs: each
+ * stage is joined by a line to every stage it waits for. Clicking a box
  * shows that stage's steps.
  */
 export function StageGraph({
   stages,
   groups = [],
+  needs = null,
   selected,
   onSelect,
 }: {
   stages: RunStageSummary[];
   groups?: number[][];
+  /** Per stage, the stages it waits for; null for a file that goes top to bottom. */
+  needs?: number[][] | null;
   selected: number | null;
   onSelect: (index: number) => void;
 }) {
@@ -117,6 +121,20 @@ export function StageGraph({
       behavior: "smooth",
     });
   }, [focus]);
+
+  if (needs) {
+    return (
+      <div ref={strip} className="relative overflow-x-auto pb-2">
+        <NeedsGraph
+          stages={stages}
+          columns={groups}
+          needs={needs}
+          selected={selected}
+          onSelect={onSelect}
+        />
+      </div>
+    );
+  }
 
   const columns: RunStageSummary[][] = [];
   for (const stage of stages) {
@@ -162,6 +180,111 @@ export function StageGraph({
   );
 }
 
+/**
+ * Stages in columns by how long their chain of waiting is, each joined by a
+ * line to the stages it waits for: the lines are drawn once the boxes are
+ * laid out, and again when the picture changes size.
+ */
+function NeedsGraph({
+  stages,
+  columns,
+  needs,
+  selected,
+  onSelect,
+}: {
+  stages: RunStageSummary[];
+  columns: number[][];
+  needs: number[][];
+  selected: number | null;
+  onSelect: (index: number) => void;
+}) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [lines, setLines] = useState<{ key: string; d: string; from: number; to: number }[]>([]);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const byIndex = new Map(stages.map((stage) => [stage.index, stage]));
+
+  useLayoutEffect(() => {
+    const container = frame.current;
+    if (!container) return;
+    const draw = () => {
+      const box = (index: number) =>
+        container.querySelector<HTMLElement>(`[data-stage="${index}"]`);
+      const next: { key: string; d: string; from: number; to: number }[] = [];
+      needs.forEach((waitsFor, to) => {
+        const target = box(to);
+        if (!target) return;
+        for (const from of waitsFor) {
+          const source = box(from);
+          if (!source) continue;
+          const x1 = source.offsetLeft + source.offsetWidth;
+          const y1 = source.offsetTop + source.offsetHeight / 2;
+          const x2 = target.offsetLeft;
+          const y2 = target.offsetTop + target.offsetHeight / 2;
+          const bend = Math.max(16, (x2 - x1) / 2);
+          next.push({
+            key: `${from}-${to}`,
+            d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
+            from,
+            to,
+          });
+        }
+      });
+      setLines(next);
+      setSize({ width: container.scrollWidth, height: container.scrollHeight });
+    };
+    draw();
+    const watcher = new ResizeObserver(draw);
+    watcher.observe(container);
+    return () => watcher.disconnect();
+  }, [needs]);
+
+  return (
+    <div ref={frame} className="relative flex min-w-max items-center gap-12">
+      <svg
+        aria-hidden
+        className="pointer-events-none absolute top-0 left-0"
+        width={size.width}
+        height={size.height}
+      >
+        {lines.map((line) => {
+          const lit = selected !== null && (line.from === selected || line.to === selected);
+          const status = byIndex.get(line.from)?.status;
+          return (
+            <path
+              key={line.key}
+              d={line.d}
+              fill="none"
+              strokeWidth={lit ? 2 : 1.25}
+              className={
+                lit
+                  ? "stroke-primary"
+                  : status === "passed"
+                    ? "stroke-success/60"
+                    : "stroke-border-strong"
+              }
+            />
+          );
+        })}
+      </svg>
+      {columns.map((column) => (
+        <div key={column[0]} className="flex flex-col gap-3">
+          {column.map((index) => {
+            const stage = byIndex.get(index);
+            return stage ? (
+              <StageBox
+                key={index}
+                stage={stage}
+                selected={selected === index}
+                onSelect={onSelect}
+              />
+            ) : null;
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function StageBox({
   stage,
   selected,
@@ -178,7 +301,7 @@ function StageBox({
       onClick={() => onSelect(stage.index)}
       aria-pressed={selected}
       data-stage={stage.index}
-      className={`flex w-44 flex-col gap-1 rounded-md border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong ${
+      className={`relative flex w-44 flex-col gap-1 rounded-md border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong ${
         selected ? "border-primary ring-1 ring-primary" : "border-border-default"
       } ${stage.status === "skipped" ? "opacity-60" : ""}`}
     >

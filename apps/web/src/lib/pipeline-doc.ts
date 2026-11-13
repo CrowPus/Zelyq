@@ -61,6 +61,14 @@ export function setIn(source: string, path: DocPath, value: unknown): string {
   return write(doc);
 }
 
+/** Writes a list at `path`, an empty one too (`needs: []` means "waits for nothing"). */
+export function setListIn(source: string, path: DocPath, list: unknown[]): string {
+  const doc = open(source);
+  if (!doc) return source;
+  doc.setIn(path, doc.createNode(list));
+  return write(doc);
+}
+
 /** Inserts an item into the list at `path`, at `index` (the end when past it). */
 export function insertIn(source: string, path: DocPath, index: number, value: unknown): string {
   const doc = open(source);

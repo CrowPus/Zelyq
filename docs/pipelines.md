@@ -522,10 +522,47 @@ one, gets a **machine of its own**:
   (`~/zelyq/runs/<id>-s<stage>`). Its [services](#service-containers) are its own, too.
 - It cannot wait for a person: no `approval` step, no `pipeline` step with `wait: true`, and a
   `deploy` to a protected environment fails. Put those in a stage on the run's own machine.
-- It counts against its runner like a run does. With the local runner, **Settings → Pipelines →
-  Local runs at once** (2 by default) limits how many stages run at the same time; the rest wait
-  their turn.
+- It counts against its runner like a run does. See [how many runs at once](#how-many-runs-at-once).
 - `artifacts:` are kept from the run's own machine only.
+
+### Say what each stage waits for: `needs`
+
+Top to bottom is simple, but slow: a lint that needs nothing waits for the build anyway. With
+`needs:`, each stage names the stages above it that it waits for, and **starts as soon as those are
+done**. Stages that don't depend on each other run at the same time, without saying `parallel`.
+
+```yaml
+stages:
+  - name: Build
+    steps: [{checkout: true}, {run: npm ci && npm run build}]
+  - name: Lint
+    needs: []                    # waits for nothing: starts at once, beside Build
+    steps: [{checkout: true}, {run: npm ci && npm run lint}]
+  - name: Unit tests
+    needs: Build                 # starts the moment Build is done
+    steps: [{checkout: true}, {run: npm ci && npm test}]
+  - name: Node
+    needs: Build
+    matrix: {node: [20, 22]}
+    steps: [{checkout: true}, {setup: "node@${{ matrix.node }}"}, {run: npm test}]
+  - name: Ship
+    needs: [Lint, Unit tests, Node]   # "Node" means every copy of it
+    steps: [{run: echo ready}]
+```
+
+- **Once any stage has `needs:`, the whole file works this way.** A stage without `needs:` starts
+  when the run starts. Write `needs: []` to say so plainly.
+- A stage can only wait for stages **above** it, so a pipeline can never wait in a circle. Naming a
+  matrix stage waits for all its copies; naming a `uses:` stage waits for every stage it copied in.
+- Use `needs:` instead of `parallel:`; the two do not mix.
+- If a stage fails, the stages that wait for it, directly or not, follow their `if:` as after a
+  failure (by default they are skipped). Stages that don't wait for it carry on. The run fails.
+- Which stages get a [machine of their own](#stages-at-the-same-time-a-machine-per-stage-matrix) is
+  worked out the same way: a stage that may run beside another gets one; a stage that never runs
+  beside another (like **Build** first and **Ship** last) shares the run's machine and its files.
+- The run page draws each stage joined by a line to the stages it waits for. In the visual editor,
+  pick them under **Waits for** on a stage: the first tick writes the existing order out as
+  `needs:`, so nothing else changes.
 
 ## Templates: reuse another pipeline's stages
 
@@ -563,8 +600,10 @@ stages:
 - The stages of **Node checks** are copied in where `uses:` stands, named **Checks › Lint** and
   **Checks › Unit tests**. Its `env:` is given to each of its steps. Its `source`, `services`,
   `artifacts` and triggers are not copied: the pipeline that uses it decides those.
-- A `uses:` stage takes only `name`, `with`, `if`, `runs-on` (for every copied stage that has none)
-  and `parallel`.
+- A `uses:` stage takes only `name`, `with`, `if`, `runs-on` (for every copied stage that has none),
+  `parallel` and `needs`. In a file with `needs:`, the copied stages keep their own order and the
+  first of them waits for what the `uses:` stage names. A template itself goes top to bottom: it
+  cannot use `needs:` yet.
 - The copy is made when a run starts, and the run keeps it: **Run again** does exactly the same,
   even if the template has changed since. A change to the template applies to the next new runs.
 - A template cannot use another template. Saving a pipeline checks that the template exists, that
@@ -643,7 +682,25 @@ concurrency: one-at-a-time          # a new run waits for the one running
 # concurrency: newest-wins          # a new run cancels the older one
 ```
 
-Without it, runs of a pipeline can run side by side.
+Without it, runs of a pipeline can run side by side. A run for a push or a pull request that has
+not started yet **gives way to a later push to the same branch**: it is cancelled, and says
+*Replaced by run #N*. A run that has already started is left to finish, because it may be deploying.
+`newest-wins` goes further and stops that one too.
+
+### How many runs at once
+
+Each machine takes a number of runs at the same time; the rest **wait in line**.
+
+- **The local runner** decides from the Zelyq server's size: one run per two processors, with at
+  least 2 GB of memory each, between 2 and 8. An instance admin can set a number instead in
+  **Settings → Pipelines → Local runs at once** (0 is automatic).
+- **An SSH runner** does the same from what **Test connection** found on it. Leave **Runs at once**
+  empty for that, or type a number. The Runners page shows each machine as *Running 2 of 4*.
+- A stage on a machine of its own takes a place like a run does.
+
+A run waiting in line says why at the top of its page: its place in line, the runs it waits for
+(linked), and roughly when it should start, going by how long those pipelines usually take. The run
+list shows the short version: *2nd in line · starts in about 3 min*.
 
 ### Retry
 
