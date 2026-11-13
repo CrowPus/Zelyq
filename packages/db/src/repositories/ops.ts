@@ -167,7 +167,10 @@ export function opsRepository(db: ZelyqDb) {
       },
       /** Tries an attempt again, once something has changed since it failed. */
       async retry(id: string, at: string): Promise<void> {
-        await db.update(opsAttempts).set({ ok: null, detail: null, createdAt: at }).where(eq(opsAttempts.id, id));
+        await db
+          .update(opsAttempts)
+          .set({ ok: null, detail: null, createdAt: at })
+          .where(eq(opsAttempts.id, id));
       },
       async settle(id: string, ok: boolean, detail: string | null): Promise<void> {
         await db.update(opsAttempts).set({ ok, detail }).where(eq(opsAttempts.id, id));

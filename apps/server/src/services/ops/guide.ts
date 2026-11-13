@@ -1,6 +1,7 @@
 import type { ActionList } from "./actions.js";
 import { riskOf } from "./actions.js";
 import { BLOCKS_GUIDE } from "./blocks.js";
+import { PLAYBOOKS } from "./playbooks.js";
 
 /**
  * How Ops works: the habits of a senior DevOps engineer, as rules. The same
@@ -44,6 +45,9 @@ Through this gateway, looking is free; every change you ask for becomes a reques
 
 The actions:
 ${lines}
+
+How each kind of job is done (Ops follows exactly these; so do you, with the ops_ names above):
+${PLAYBOOKS}
 
 ${BLOCKS_GUIDE}`;
 }

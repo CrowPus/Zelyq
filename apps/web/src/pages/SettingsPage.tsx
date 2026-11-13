@@ -9,11 +9,13 @@ import {
   Image as ImageIcon,
   Lock,
   LockKeyhole,
+  Mail,
   Mic,
   Monitor,
   Puzzle,
   RotateCw,
   Server,
+  ServerCog,
   ShieldCheck,
   Trash2,
   Users,
@@ -68,6 +70,8 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
     blurb: "The local runner, and how long runs are kept",
   },
   preview: { label: "Preview", icon: Monitor, blurb: "How app previews are reached" },
+  ops: { label: "Ops", icon: ServerCog, blurb: "The model the DevOps engineer thinks with" },
+  email: { label: "Email", icon: Mail, blurb: "The mail server Zelyq sends through" },
   integrations: {
     label: "Integrations",
     icon: Puzzle,
@@ -347,6 +351,8 @@ export function SettingsPage() {
                 .filter((g) => !["Image Studio", "Video Studio"].includes(g.name))
                 .filter((g) => sectionId(g.name) === active)
                 .map(renderGroup)}
+
+              {active === "email" && <MailTest />}
 
               {active === "integrations" && (
                 <>
@@ -840,6 +846,26 @@ function CredentialInput({
         <p role="alert" className="text-2xs text-danger">
           {point.error instanceof Error ? point.error.message : "Could not change it."}
         </p>
+      )}
+    </div>
+  );
+}
+
+/** Settings → Email: proves the saved settings work by sending the admin a message. */
+function MailTest() {
+  const test = useMutation({ mutationFn: () => api.testMail() });
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+      <Button variant="secondary" onClick={() => test.mutate()} disabled={test.isPending}>
+        {test.isPending ? <Spinner /> : <Mail size={14} strokeWidth={1.75} />}
+        Send a test email
+      </Button>
+      {test.isSuccess && (
+        <span className="text-success">Sent to {test.data.to}. Check that it arrived.</span>
+      )}
+      {test.isError && <span className="text-danger">{(test.error as Error).message}</span>}
+      {!test.isSuccess && !test.isError && (
+        <span className="text-fg-muted">Save the settings first, then send yourself a test.</span>
       )}
     </div>
   );

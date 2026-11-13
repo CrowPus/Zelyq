@@ -113,6 +113,37 @@ export const AGENT_PERMISSIONS = {
 } as const;
 
 export type AgentPermission = keyof typeof AGENT_PERMISSIONS;
+
+/**
+ * The "DevOps engineer" preset (072 Phase 1): an outside agent (Claude Code,
+ * Cursor) that works like Ops through MCP. It reads everything it needs, and
+ * every change it makes waits for a person, with Ops's own playbooks
+ * (devops_guide) to work by. It writes no app code.
+ */
+export const DEVOPS_AGENT_PRESET: {
+  name: string;
+  job: string;
+  permissions: Record<AgentPermission, AgentPermissionLevel>;
+} = {
+  name: "DevOps engineer",
+  job: "You are this team's DevOps engineer. Read devops_guide first and follow its playbooks: survey before planning, build pipelines from its blocks, prove every change, and say plainly what is live where. Never change app code.",
+  permissions: {
+    "code.read": "allow",
+    "code.write": "off",
+    commands: "off",
+    preview: "off",
+    "git.commit": "off",
+    "git.push": "off",
+    "pipelines.write": "approve",
+    "pipelines.run": "approve",
+    "deploy.manage": "approve",
+    "media.image": "off",
+    "media.video": "off",
+    "media.files": "off",
+    "vault.names": "allow",
+    ops: "approve",
+  },
+};
 export const agentPermissionNames = Object.keys(AGENT_PERMISSIONS) as AgentPermission[];
 
 export const agentPermissionLevelSchema = z.enum(["off", "allow", "approve"]);

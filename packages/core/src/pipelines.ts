@@ -371,21 +371,31 @@ const deploySchema = z
       .max(500)
       .refine((value) => !/[\r\n]/.test(value), "Keep the start command on one line.")
       .optional(),
-    /** Folders kept across versions: `[{name: uploads, path: /app/uploads}]`. */
+    /** Folders kept across versions: `[{name: uploads, path: /app/uploads}]`, or `[uploads:/app/uploads]`. */
     volumes: z
       .array(
-        z
-          .object({
-            name: deployNameSchema,
-            path: z
-              .string()
-              .trim()
-              .regex(
-                /^\/[A-Za-z0-9._/-]*$/,
-                "Use the folder's full path in the app, like /app/uploads.",
-              ),
-          })
-          .strict(),
+        z.preprocess(
+          // The short form people know from Docker: name:/path.
+          (value) => {
+            if (typeof value !== "string") return value;
+            const colon = value.indexOf(":");
+            return colon > 0
+              ? { name: value.slice(0, colon).trim(), path: value.slice(colon + 1).trim() }
+              : { name: value.trim(), path: "" };
+          },
+          z
+            .object({
+              name: deployNameSchema,
+              path: z
+                .string()
+                .trim()
+                .regex(
+                  /^\/[A-Za-z0-9._/-]*$/,
+                  "Use the folder's full path in the app, like /app/uploads (uploads:/app/uploads).",
+                ),
+            })
+            .strict(),
+        ),
       )
       .max(10)
       .optional(),

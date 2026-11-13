@@ -32,6 +32,7 @@ import {
 import { OpsEngineers } from "./engineer.js";
 import { decide, type Verdict } from "./gate.js";
 import { OpsMemory } from "./memory.js";
+import { copiedFromOutput, type ReviewOutput, sameMeaning } from "./review.js";
 
 const FINAL: ReadonlySet<OpsStage> = new Set(["done", "failed", "stopped"]);
 const STEP_FINAL: ReadonlySet<OpsStepStatus> = new Set([
@@ -66,9 +67,19 @@ export interface PlanResult {
  * recorded as an attempt (so it is never tried twice the same way), and a
  * change counts as done only with a proof the server took itself.
  */
+/** Failures of one action in one job before Ops must stop and ask. */
+const MAX_FAILURES = 3;
+
+export type OpsEvent =
+  | { kind: "plan_waiting"; jobId: string; planHash: string; approver: Role }
+  | { kind: "secret_requested"; jobId: string; name: string }
+  | { kind: "finished"; jobId: string };
+
 export class OpsService {
   readonly engineers: OpsEngineers;
   readonly memory: OpsMemory;
+  /** What happened that a person away from the page should hear about (the mailer listens). */
+  events?: (event: OpsEvent) => void;
   /** Whether the engineer is working on a job now, and what it has been doing; set by the brain. */
   liveState: (jobId: string) => { working: boolean; activity: string[] } = () => ({
     working: false,
@@ -263,11 +274,26 @@ export class OpsService {
       (step) => step.status !== "planned",
     );
     const first = kept.reduce((next, step) => Math.max(next, step.position + 1), 0);
+    // Three failures of one kind of change in a job is a pattern, not bad luck: stop and ask.
+    const failures = new Map<string, string[]>();
+    for (const attempt of await this.store.ops.attempts.listForJob(job.id)) {
+      if (attempt.ok !== false) continue;
+      failures.set(attempt.action, [...(failures.get(attempt.action) ?? []), attempt.detail ?? ""]);
+    }
     for (const [index, step] of input.steps.entries()) {
       const position = first + index;
       const action = this.actions.get(step.action);
       if (!action) {
         issues.push({ position, action: step.action, reason: "There is no such action." });
+        continue;
+      }
+      const failed = failures.get(step.action) ?? [];
+      if (failed.length >= MAX_FAILURES) {
+        issues.push({
+          position,
+          action: step.action,
+          reason: `${step.action} has already failed ${failed.length} times in this job (last: ${failed.at(-1)?.slice(0, 300) || "no detail"}). Do not try it again: finish the job as failed, saying what you found and what the person can do, or ask the person.`,
+        });
         continue;
       }
       const parsed = action.input.safeParse(step.inputs);
@@ -339,6 +365,14 @@ export class OpsService {
       `Plan proposed: ${rows.length} step${rows.length === 1 ? "" : "s"}.${waiting}`,
     );
     const updated = (await this.store.ops.jobs.findById(job.id)) as OpsJobRow;
+    if (needsApproval) {
+      this.events?.({
+        kind: "plan_waiting",
+        jobId: job.id,
+        planHash,
+        approver: await this.approverRole(updated, rows),
+      });
+    }
     return { ok: true, issues: [], job: await this.detail(null, updated) };
   }
 
@@ -523,6 +557,13 @@ export class OpsService {
     ) {
       await this.store.ops.jobs.update(job.id, { stage: "record", updatedAt: now() });
     }
+    if (name === "request_secret" && outcome.ok) {
+      this.events?.({
+        kind: "secret_requested",
+        jobId: job.id,
+        name: String((inputs as { name?: unknown }).name ?? ""),
+      });
+    }
     return { verdict, outcome, proof, step: step ? { id: step.id, status } : null };
   }
 
@@ -557,6 +598,7 @@ export class OpsService {
       action: "ops.job_finished",
       detail: { jobId: job.id, failed: input.failed === true },
     });
+    this.events?.({ kind: "finished", jobId: job.id });
     return this.detail(null, (await this.store.ops.jobs.findById(job.id)) as OpsJobRow);
   }
 
@@ -567,6 +609,85 @@ export class OpsService {
     return (await this.store.ops.lessons.listForTeam(job.teamId)).filter(
       (lesson) => lesson.evidenceJobId === jobId,
     ).length;
+  }
+
+  /** What the team already knows: the after-job review does not say it twice. */
+  async knownMemory(teamId: string): Promise<{ lessons: string[]; wishes: string[] }> {
+    const lessons = await this.store.ops.lessons.listForTeam(teamId);
+    const wishes = await this.store.ops.preferences.listForTeam(teamId);
+    return {
+      lessons: lessons.filter((row) => row.status === "active").map((row) => row.rule),
+      wishes: wishes.filter((row) => row.active).map((row) => row.text),
+    };
+  }
+
+  /**
+   * Saves what the after-job review found, after the same checks as ever:
+   * evidence the server recorded, nothing the team already knows, nothing
+   * copied from what machines printed. Says what was kept and what was not.
+   */
+  async applyReview(
+    jobId: string,
+    output: ReviewOutput,
+  ): Promise<{ lessons: string[]; wishes: string[]; dropped: string[] }> {
+    const job = await this.store.ops.jobs.findById(jobId);
+    if (!job) throw ZelyqError.notFound("Job", jobId);
+    const view = await this.engineerView(jobId);
+    const known = await this.knownMemory(job.teamId);
+    const messages = await this.store.ops.messages.listForJob(jobId);
+    const kept = { lessons: [] as string[], wishes: [] as string[], dropped: [] as string[] };
+    for (const lesson of output.lessons) {
+      if ([...known.lessons, ...kept.lessons].some((rule) => sameMeaning(rule, lesson.rule))) {
+        kept.dropped.push(`already known: ${lesson.rule}`);
+        continue;
+      }
+      if (copiedFromOutput(lesson.rule, view)) {
+        kept.dropped.push(`copied from a machine's output: ${lesson.rule}`);
+        continue;
+      }
+      try {
+        await this.memory.learn(jobId, {
+          what: lesson.what,
+          why: lesson.why,
+          rule: lesson.rule,
+          ...(lesson.scope ? { scope: lesson.scope } : {}),
+          evidence: lesson.messageId ? { messageId: lesson.messageId } : { step: lesson.step },
+        });
+        kept.lessons.push(lesson.rule);
+      } catch (error) {
+        kept.dropped.push(`${(error as Error).message} (${lesson.rule})`);
+      }
+    }
+    for (const wish of output.wishes) {
+      const message = messages.find((row) => row.id === wish.messageId);
+      if (!message || message.role !== "person") {
+        kept.dropped.push(`not from a person in this job: ${wish.text}`);
+        continue;
+      }
+      if ([...known.wishes, ...kept.wishes].some((text) => sameMeaning(text, wish.text))) {
+        kept.dropped.push(`already known: ${wish.text}`);
+        continue;
+      }
+      await this.memory.addWish(job.teamId, {
+        text: wish.text,
+        source: "correction",
+        jobId,
+        createdBy: message.userId,
+      });
+      kept.wishes.push(wish.text);
+    }
+    if (kept.lessons.length || kept.wishes.length) {
+      await this.systemNote(
+        jobId,
+        [
+          "Looked back at this job.",
+          ...kept.lessons.map((rule) => `Learned: ${rule}`),
+          ...kept.wishes.map((text) => `Will remember: ${text}`),
+          "You can change or remove these on the Memory tab.",
+        ].join("\n"),
+      );
+    }
+    return kept;
   }
 
   /** A planned step's exact inputs, as approved: what run_step carries out. */

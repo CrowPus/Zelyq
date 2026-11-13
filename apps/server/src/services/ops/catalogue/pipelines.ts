@@ -112,7 +112,21 @@ const getPipeline: OpsAction<z.infer<typeof getInput>> = {
   },
 };
 
-const createInput = z.object({ source: z.string().min(1).max(100_000) }).strict();
+/**
+ * A pipeline file that Zelyq accepts, checked when the plan is checked: a
+ * person is never asked to approve a pipeline that cannot be saved.
+ */
+const pipelineSource = z
+  .string()
+  .min(1)
+  .max(100_000)
+  .superRefine((source, ctx) => {
+    const check = checkBlocks(source);
+    if (!check.ok)
+      ctx.addIssue({ code: "custom", message: `Not a valid pipeline: ${check.error}` });
+  });
+
+const createInput = z.object({ source: pipelineSource }).strict();
 const createPipeline: OpsAction<z.infer<typeof createInput>> = {
   name: "create_pipeline",
   description:
@@ -153,7 +167,7 @@ const createPipeline: OpsAction<z.infer<typeof createInput>> = {
 const updateInput = z
   .object({
     pipeline: nameField("pipeline"),
-    source: z.string().min(1).max(100_000),
+    source: pipelineSource,
     /** get_pipeline's base: the change is refused if the file changed since. */
     base: z.string().min(1),
   })

@@ -766,6 +766,9 @@ export const api = {
   updateSettings: (changes: UpdateSettingsInput) =>
     request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),
 
+  /** Settings → Email: signs in to the mail server and sends the admin a test message. */
+  testMail: () => request<{ ok: true; to: string }>("/settings/mail/test", { method: "POST" }),
+
   /** Instance administrator only. Takes effect on the agent's next restart. */
   uploadSkill: (input: UploadSkillInput) =>
     request<{ skill: { name: string; description: string; fileCount: number } }>("/skills", {

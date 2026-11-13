@@ -5,6 +5,7 @@ import type { AgentClient } from "../agent-client.js";
 import type { SettingsService } from "../settings.js";
 import { OPS_WAY } from "./guide.js";
 import { PLAYBOOKS } from "./playbooks.js";
+import { parseReview, REVIEW_BRIEF, reviewMessage, worthReviewing } from "./review.js";
 import type { OpsService } from "./service.js";
 
 /** One turn's ceilings: Ops never runs open-ended (072 §2.3). */
@@ -49,6 +50,7 @@ export class OpsBrain {
   private readonly tokens = new Map<string, { teamId: string; jobId: string; expires: number }>();
   private readonly working = new Set<string>();
   private readonly activity = new Map<string, string[]>();
+  private readonly reviewed = new Set<string>();
 
   constructor(
     private readonly ops: OpsService,
@@ -92,9 +94,39 @@ export class OpsBrain {
         if (!last || last.role !== "person" || ["done", "failed", "stopped"].includes(view.stage))
           break;
       }
+      const ended = await this.ops.engineerView(jobId);
+      if (worthReviewing(ended) && !this.reviewed.has(jobId)) {
+        this.reviewed.add(jobId);
+        await this.review(jobId, ended).catch(() => undefined);
+      }
     } finally {
       this.working.delete(jobId);
     }
+  }
+
+  /**
+   * The after-job review: one short call with no tools and a fixed answer
+   * shape; the server keeps only what passes its own checks.
+   */
+  private async review(jobId: string, view: OpsJobDetail): Promise<void> {
+    const teamId = (await this.ops.teamOf(jobId)) as string;
+    this.activity.get(jobId)?.push("Looked back at the job");
+    const result = await this.agent.opsTurn({
+      ...(await this.modelConfig()),
+      systemPrompt: REVIEW_BRIEF,
+      history: [],
+      message: reviewMessage(view, await this.ops.knownMemory(teamId)),
+      tools: [],
+      // No tools: this token opens nothing.
+      bridge: {
+        url: `${this.serverUrl.replace(/\/$/, "")}/api/ops-bridge`,
+        token: randomBytes(32).toString("hex"),
+      },
+      limits: { rounds: 1, tokens: 120_000, minutes: 3 },
+    });
+    await this.ops.addTokens(jobId, result.usage.inputTokens, result.usage.outputTokens);
+    const output = parseReview(result.text);
+    if (output) await this.ops.applyReview(jobId, output);
   }
 
   private async turn(jobId: string): Promise<void> {
@@ -137,9 +169,12 @@ export class OpsBrain {
         limits: LIMITS,
       });
       await this.ops.addTokens(jobId, result.usage.inputTokens, result.usage.outputTokens);
-      // Its own last words are the answer; a job it finished without any still says how it ended.
+      // A job it finished in this turn is answered with its outcome (the real answer, as
+      // recorded); last words such as "The job is complete!" say nothing. Otherwise its
+      // own last words are the reply.
       const after = await this.ops.engineerView(jobId);
-      const reply = result.text.trim() || (after.outcome && after.finishedAt ? after.outcome : "");
+      const finishedNow = Boolean(after.finishedAt && after.outcome && !view.finishedAt);
+      const reply = finishedNow ? (after.outcome as string) : result.text.trim();
       if (reply) await this.ops.say(jobId, reply);
       if (result.stopped) await this.ops.systemNote(jobId, result.stopped);
     } catch (error) {

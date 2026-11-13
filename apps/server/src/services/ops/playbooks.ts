@@ -15,7 +15,7 @@ export const PLAYBOOKS = `## Survey (before any plan)
 1. Survey.
 2. needed_secrets for each environment. For every missing secret: request_secret, then wait (secret_present) — never continue without it.
 3. Plan, in this order, exact inputs:
-   a. create_environment staging (not protected) and production (protected: true) on the chosen machine, if they do not exist. With a domain the person owns, give production and staging that domain (apps then get <app>.<domain>), or set an exact address later.
+   a. create_environment staging (not protected) and production (protected: true) on the chosen machine, if they do not exist. Only with a domain the person owns, give production and staging that domain (apps then get <app>.<domain>). Without one, leave domain out: never put an IP address there.
    b. set_environment_variables on each: the app's secrets as vault://NAME; plain settings as values.
    c. create_pipeline from blocks (pipeline_blocks): test → deploy to staging → deploy to production. Use database: postgres when the app uses Postgres; migrate: npm run <the migrate script survey_app found> (never a script file that does not exist); volumes: for uploads; processes: for workers. Without a domain, give each environment its own host-port, chosen from machine_ports' free ones (never guess a port: two things cannot listen on one).
    d. run_pipeline once the person approved (with run_step, like every planned step).
@@ -26,14 +26,26 @@ export const PLAYBOOKS = `## Survey (before any plan)
 6. Finish with what is live where, what was proven, and anything the person still has to do.
 
 ## Ship (a change goes out)
-1. get_pipeline and deployment_history for the app; read_sheet.
-2. If a version changed the database before, note it. Plan: run_pipeline (it deploys to staging first, then production after its approval).
-3. After: check_deployment on each environment. If production fails its health check, Zelyq already put the previous version back: say so, find out why from the run's last lines and app_status, and plan the fix. Do not run the same thing again unchanged.
+1. read_sheet for the app; get_pipeline; deployment_history on staging and production; app_status.
+2. Look at what is new: if the app has a migrate step, this version may change the database. Say so before planning. Zelyq does not take automatic backups yet: when production has real data and the change touches the database, tell the person before they approve.
+3. Plan: run_pipeline, one step. It deploys to staging, and to production only after staging is healthy; a protected production waits for the approval of this plan (it is not asked twice).
+4. After: check_deployment on staging, then on production. If production failed its health check, Zelyq already put the previous version back: say so, read why (the run's last lines, app_status), and plan the fix. Never run the same thing again unchanged.
+5. write_sheet if anything about how the app runs changed. Finish with the version now live in each place.
+
+## Database and storage
+1. survey_app says whether the app uses a database (Postgres) and has uploads.
+2. list_databases and the environment's variables. If the person has their own database (Supabase, a managed Postgres): request_secret DATABASE_URL, then set_environment_variables DATABASE_URL=vault://DATABASE_URL on that environment; Zelyq then starts none.
+3. Otherwise give the deploy step database: postgres. Each environment gets its own database beside the app, kept across new versions in a named volume; staging never shares production's.
+4. Uploaded files: volumes: [{name: <name>, path: <the folder the app writes to>}], one per folder; they survive new versions. Never a folder the image itself ships.
+5. Database updates: migrate: npm run <the script survey_app found>. It runs in the new version before it takes traffic; if it fails, nothing is swapped.
+6. Prove it: check_deployment after the deploy; after a second version, the data is still there (the app's own health answer or a page that reads it).
 
 ## Domain and HTTPS
 1. check_dns for the domain (environment: the one it should lead to).
 2. If it does not lead there: tell the person the exact record. Never change their DNS yourself.
-3. set_app_address once the app is live; then check_certificate. A certificate can take a minute after DNS is right.
+3. If the environment has no domain yet, update_environment with the domain (apps then answer at <app>.<domain>), or set_app_address for one exact name (shop.com), once the app is live.
+4. check_ports (80 and 443 must answer from outside; a closed port is usually the cloud's firewall: tell the person exactly which to open).
+5. check_certificate. A certificate can take a minute after DNS is right; check again before calling it done.
 
 ## Secrets
 1. needed_secrets. 2. request_secret for each missing one, with why. 3. secret_present until it is there. 4. set_environment_variables with vault://NAME. Never put a value in a plan, a message or a variable.

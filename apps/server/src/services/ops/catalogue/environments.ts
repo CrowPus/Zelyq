@@ -144,6 +144,18 @@ const checkPorts: OpsAction<z.infer<typeof portsInput>> = {
   },
 };
 
+/** A domain the person owns: a name with a real ending, never an IP address. */
+const domainField = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3)
+  .max(253)
+  .refine(
+    (value) => /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(value),
+    "A domain the person owns (shop.com), never an IP address. Without one, leave domain out and give each app a host-port.",
+  );
+
 const createInput = z
   .object({
     name: z
@@ -164,7 +176,7 @@ const createInput = z
       .refine((value) => /^[A-Za-z0-9.:[\]-]+$/.test(value), "An IP address or a host name.")
       .optional(),
     /** Every app gets <app>.<domain>, with HTTPS. */
-    domain: z.string().trim().min(3).max(253).optional(),
+    domain: domainField.optional(),
     https: z.enum(["auto", "internal", "off", "external"]).optional(),
     /** Production: every deploy needs a person. Ops may make an environment protected, never unprotected. */
     protected: z.boolean().optional(),
@@ -296,6 +308,111 @@ const setVariables: OpsAction<z.infer<typeof variablesInput>> = {
   },
 };
 
+const updateInput = z
+  .object({
+    environment: nameField("environment"),
+    /** The machine's address people reach (no port). */
+    address: createInput.shape.address,
+    /** Every app gets <app>.<domain>, with HTTPS; null takes the domain away. */
+    domain: domainField.nullable().optional(),
+    https: z.enum(["auto", "internal", "off", "external"]).optional(),
+    /** Ops may protect an environment; only a person takes protection away. */
+    protected: z.literal(true).optional(),
+  })
+  .strict();
+const updateEnvironment: OpsAction<z.infer<typeof updateInput>> = {
+  name: "update_environment",
+  description:
+    "Change an environment's address, domain or HTTPS, or make it protected. Taking protection away, freezing and unfreezing are a person's decision and are not here.",
+  input: updateInput,
+  risk: "change",
+  environment: (ctx, inputs) => environmentByName(ctx, inputs.environment),
+  words: (inputs) => {
+    const changes = [
+      ...(inputs.address ? [`address ${inputs.address}`] : []),
+      ...(inputs.domain !== undefined
+        ? [inputs.domain ? `apps at <app>.${inputs.domain}` : "no domain"]
+        : []),
+      ...(inputs.https ? [`HTTPS ${inputs.https}`] : []),
+      ...(inputs.protected ? ["protected"] : []),
+    ];
+    return `Change ${inputs.environment}: ${changes.join(", ") || "nothing"}`;
+  },
+  undo: () => "Set the environment back as it was",
+  async run(ctx, inputs) {
+    const environment = await environmentRow(ctx, inputs.environment);
+    if (inputs.address) {
+      const refused = /^[0-9.:[\]a-f]+$/i.test(inputs.address)
+        ? refusedAddress(inputs.address, "deployment")
+        : null;
+      if (refused) return { ok: false, summary: refused };
+    }
+    const change = {
+      ...(inputs.address ? { address: inputs.address } : {}),
+      ...(inputs.domain !== undefined ? { domain: inputs.domain } : {}),
+      ...(inputs.https ? { https: inputs.https } : {}),
+      ...(inputs.protected ? { protected: true } : {}),
+    };
+    if (Object.keys(change).length === 0) return { ok: false, summary: "Nothing to change." };
+    await ctx.services.deploys.update(ctx.user, ctx.teamId, environment.id, change);
+    return { ok: true, summary: `Changed ${environment.name}.` };
+  },
+  async prove(ctx, inputs) {
+    const row = await environmentRow(ctx, inputs.environment);
+    const ok =
+      (!inputs.address || row.address === inputs.address) &&
+      (inputs.domain === undefined || (row.domain ?? null) === inputs.domain) &&
+      (!inputs.https || row.https === inputs.https) &&
+      (!inputs.protected || row.protected);
+    return {
+      kind: "environment_exists",
+      target: row.name,
+      ok,
+      detail: `Address ${row.address ?? "none"}, domain ${row.domain ?? "none"}, HTTPS ${row.https}, ${row.protected ? "protected" : "not protected"}.`,
+    };
+  },
+};
+
+const listDatabases: OpsAction<Record<string, never>> = {
+  name: "list_databases",
+  description:
+    "The databases the team's apps use: a Postgres started beside the app by Zelyq (its data kept in a named volume across deploys), or one of the person's own given as DATABASE_URL in the environment's variables (such as Supabase).",
+  input: none,
+  risk: "read",
+  words: () => "Look at the apps' databases",
+  async run(ctx) {
+    const environments = await ctx.services.store.deploy.environments.listForTeam(ctx.teamId);
+    const apps = await ctx.services.store.deploy.apps.listFor(environments.map((row) => row.id));
+    const databases: Array<Record<string, unknown>> = [];
+    for (const environment of environments) {
+      const names = Object.keys(JSON.parse(environment.variables) as Record<string, unknown>);
+      if (names.includes("DATABASE_URL")) {
+        databases.push({
+          environment: environment.name,
+          kind: "the person's own, from DATABASE_URL",
+          apps: "every app in this environment that asks for a database",
+        });
+      }
+      for (const app of apps.filter((row) => row.environmentId === environment.id)) {
+        if (!app.database) continue;
+        const container = `zelyq-db-${environment.name}-${app.app}`;
+        databases.push({
+          environment: environment.name,
+          app: app.app,
+          kind: "postgres beside the app",
+          container,
+          keptIn: `${container}-data`,
+        });
+      }
+    }
+    return {
+      ok: true,
+      summary: `${databases.length} database${databases.length === 1 ? "" : "s"}.`,
+      data: databases,
+    };
+  },
+};
+
 const listEnvironments: OpsAction<Record<string, never>> = {
   name: "list_environments",
   description:
@@ -337,5 +454,7 @@ export const ENVIRONMENT_ACTIONS = [
   checkPorts,
   listEnvironments,
   createEnvironment,
+  updateEnvironment,
   setVariables,
+  listDatabases,
 ] as unknown as OpsAction[];

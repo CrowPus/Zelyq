@@ -330,7 +330,7 @@ stages:
 
   // A change written against an older file is refused.
   const read = await ops.perform(job.id, "get_pipeline", { pipeline: "Shop tests" });
-  const base = (read.outcome?.data as { base: string }).base;
+  const base = (read.outcome?.data as { base: string } | undefined)?.base as string;
   const { job: change } = await approvedJob("Change it", [
     {
       action: "update_pipeline",
@@ -397,7 +397,9 @@ test("checks: model-chosen addresses are public only; the journal remembers", as
   const internal = await ops.perform(job.id, "check_url", { url: "http://10.1.2.3/" });
   assert.match(internal.outcome?.summary ?? "", /private network/);
   const journal = await ops.perform(job.id, "journal", {});
-  const requests = (journal.outcome?.data as { request: string }[]).map((entry) => entry.request);
+  const requests = ((journal.outcome?.data ?? []) as { request: string }[]).map(
+    (entry) => entry.request,
+  );
   assert.ok(requests.includes("Make staging"));
   assert.ok(requests.includes("Run the tests"));
 });
@@ -488,4 +490,124 @@ test("machine_ports reads ports in use from ss, netstat or /proc/net/tcp", async
     ),
     [8081],
   );
+});
+
+test("update_environment may protect, never unprotect; list_databases shows each app's database", async () => {
+  const { job } = await approvedJob("Make a review environment, then protect it", [
+    { action: "create_environment", inputs: { name: "review", machine: "box" } },
+    {
+      action: "update_environment",
+      inputs: { environment: "review", domain: "review.example.com", protected: true },
+    },
+  ]);
+  const created = await ops.perform(job.id, "create_environment", {
+    name: "review",
+    machine: "box",
+  });
+  assert.equal(created.step?.status, "done", JSON.stringify(created));
+  const changed = await ops.perform(job.id, "update_environment", {
+    environment: "review",
+    domain: "review.example.com",
+    protected: true,
+  });
+  assert.equal(changed.step?.status, "done", JSON.stringify(changed));
+  const row = (await store.deploy.environments.findByName(teamId, "review"))!;
+  assert.equal(row.protected, true);
+  assert.equal(row.domain, "review.example.com");
+
+  // Taking protection away is not something Ops can even propose.
+  const other = await ops.startJob(owner, teamId, { request: "Unprotect review" });
+  const refused = await ops.proposePlan(other.id, {
+    steps: [{ action: "update_environment", inputs: { environment: "review", protected: false } }],
+  });
+  assert.equal(refused.ok, false);
+  // An IP address is not a domain.
+  const ip = await ops.proposePlan(other.id, {
+    steps: [
+      {
+        action: "create_environment",
+        inputs: { name: "lab", machine: "box", domain: "127.0.0.1" },
+      },
+    ],
+  });
+  assert.equal(ip.ok, false);
+  assert.match(JSON.stringify(ip.issues), /never an IP address/);
+
+  // A database Zelyq started beside an app, and the person's own one.
+  await store.deploy.apps.save({
+    id: "dap_test_shop",
+    environmentId: row.id,
+    app: "shop",
+    domain: null,
+    www: false,
+    database: null,
+    updatedBy: null,
+    updatedAt: new Date().toISOString(),
+  });
+  await store.deploy.apps.setDatabase(row.id, "shop", "encrypted");
+  const listed = await ops.perform(job.id, "list_databases", {});
+  const data = listed.outcome?.data as Array<Record<string, unknown>>;
+  assert.ok(
+    data.some((entry) => entry.app === "shop" && entry.keptIn === "zelyq-db-review-shop-data"),
+    JSON.stringify(data),
+  );
+});
+
+test("three failures of the same kind of change: Ops must stop and ask, not try a fourth", async () => {
+  const values = [
+    "sk_live_aaaaaaaaaaaaaaaaaaaaa1",
+    "sk_live_aaaaaaaaaaaaaaaaaaaaa2",
+    "sk_live_aaaaaaaaaaaaaaaaaaaaa3",
+  ];
+  const { job } = await approvedJob(
+    "Set a key on review",
+    values.map((value) => ({
+      action: "set_environment_variables",
+      inputs: { environment: "review", set: { KEY: value } },
+    })),
+  );
+  for (const value of values) {
+    const result = await ops.perform(job.id, "set_environment_variables", {
+      environment: "review",
+      set: { KEY: value },
+    });
+    assert.equal(result.outcome?.ok, false);
+  }
+  const fourth = await ops.proposePlan(job.id, {
+    steps: [
+      {
+        action: "set_environment_variables",
+        inputs: { environment: "review", set: { KEY: "sk_live_aaaaaaaaaaaaaaaaaaaaa4" } },
+      },
+    ],
+  });
+  assert.equal(fourth.ok, false);
+  assert.match(JSON.stringify(fourth.issues), /already failed 3 times/);
+  // A different kind of step is still fine: writing down what happened.
+  const note = await ops.proposePlan(job.id, {
+    steps: [
+      {
+        action: "write_sheet",
+        inputs: { subject: "environment:review", body: "KEY needs Vault." },
+      },
+    ],
+  });
+  assert.equal(note.ok, true, JSON.stringify(note.issues));
+});
+
+test("an invalid pipeline is refused when the plan is checked, before anyone approves it", async () => {
+  const job = await ops.startJob(owner, teamId, { request: "Save a broken pipeline" });
+  const plan = await ops.proposePlan(job.id, {
+    steps: [
+      {
+        action: "create_pipeline",
+        inputs: {
+          source:
+            "name: Broken\nruns-on: box\nsource: {app: Shop}\nstages:\n  - name: S\n    steps:\n      - deploy: {to: staging, port: 3000, volumes: [uploads]}\n",
+        },
+      },
+    ],
+  });
+  assert.equal(plan.ok, false);
+  assert.match(JSON.stringify(plan.issues), /Not a valid pipeline/);
 });

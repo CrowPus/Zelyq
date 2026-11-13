@@ -186,7 +186,9 @@ test("a lesson needs evidence: a planted line cannot become one", async () => {
   assert.equal(read.outcome?.data, "Shop: Node, port 3000.");
   const recalled = await ops.perform(job.id, "recall", { about: "port 3000 shop" });
   assert.ok(
-    (recalled.outcome?.data as { kind: string }[]).some((entry) => entry.kind === "sheet app:shop"),
+    ((recalled.outcome?.data ?? []) as { kind: string }[]).some(
+      (entry) => entry.kind === "sheet app:shop",
+    ),
   );
 });
 

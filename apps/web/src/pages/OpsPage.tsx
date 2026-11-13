@@ -175,7 +175,10 @@ function TalkTab({
   paused: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [jobId, setJobId] = useState<string | null>(null);
+  // A link from an email opens its job (?job=…); it only shows it: approving is still a button.
+  const [jobId, setJobId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("job"),
+  );
   const jobs = useQuery({
     queryKey: ["ops-jobs", teamId],
     queryFn: () => api.ops.jobs(teamId),
@@ -622,7 +625,8 @@ function PlanCard({
                 )}
                 {step.status === "replaced" && (
                   <p className="mt-0.5 text-2xs text-fg-muted">
-                    Did not work{step.result ? ` (${step.result})` : ""}; a later plan took its place.
+                    Did not work{step.result ? ` (${step.result})` : ""}; a later plan took its
+                    place.
                   </p>
                 )}
                 {step.status === "not_verified" && (
@@ -1024,9 +1028,10 @@ function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) 
               });
             }}
           >
-            <label className="grid gap-1 text-2xs text-fg-secondary">
+            <label htmlFor="ops-month-cap" className="grid gap-1 text-2xs text-fg-secondary">
               Monthly limit (tokens)
               <Input
+                id="ops-month-cap"
                 aria-label="Monthly limit in tokens"
                 placeholder="No limit"
                 value={cap}
@@ -1034,9 +1039,10 @@ function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) 
                 className="w-40"
               />
             </label>
-            <label className="grid gap-1 text-2xs text-fg-secondary">
+            <label htmlFor="ops-time-zone" className="grid gap-1 text-2xs text-fg-secondary">
               Time zone
               <Input
+                id="ops-time-zone"
                 aria-label="Time zone"
                 placeholder="Europe/London"
                 value={zone}

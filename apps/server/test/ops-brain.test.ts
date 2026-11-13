@@ -357,3 +357,103 @@ test("a job with failures is not closed until Ops learns from them, or says why 
   assert.equal(done.stage, "done");
   assert.equal(await server.ops.lessonsFromJob(job.id), 1);
 });
+
+test("the after-job review keeps only what passes the server's checks", async () => {
+  script.push(async (request) => {
+    await tool(request, "propose_plan", {
+      steps: [
+        {
+          action: "set_environment_variables",
+          inputs: { environment: "qa", set: { TOKEN: "sk_live_9876543210abcdefghijk" } },
+        },
+      ],
+    });
+    await tool(request, "run_step", { step: 1 });
+    await tool(request, "propose_plan", {
+      steps: [{ action: "write_sheet", inputs: { subject: "environment:qa", body: "qa: TOKEN." } }],
+    });
+    await tool(request, "run_step", { step: 2 });
+    const closed = await tool(request, "finish_job", {
+      outcome: "qa has no TOKEN yet.",
+      noLessonBecause: "The review will look at it.",
+    });
+    assert.equal(closed.isError, false, closed.output);
+    return answer("qa has no TOKEN yet.");
+  });
+  let reviewed: OpsTurnRequest | undefined;
+  script.push(async (request) => {
+    reviewed = request;
+    const facts = JSON.parse(request.message) as { people: { messageId: string }[] };
+    const said = facts.people[0]?.messageId as string;
+    return answer(
+      `Here is the review.\n${JSON.stringify({
+        lessons: [
+          {
+            what: "Tried to set a token's value as a variable.",
+            why: "Values that look like keys belong in Vault.",
+            rule: "Ask for tokens in Vault first and reference them as vault://NAME.",
+            step: 1,
+          },
+          {
+            what: "Same again.",
+            why: "Same.",
+            rule: "Ask for tokens in Vault first, and reference them as vault://NAME!",
+            step: 1,
+          },
+          {
+            what: "Copied from the output.",
+            why: "The output said so.",
+            rule: "Ask the person to put it in Vault, then use it.",
+            step: 1,
+          },
+        ],
+        wishes: [
+          { text: "Never deploy on Friday afternoons.", messageId: said },
+          { text: "Made up.", messageId: "opm_not_real" },
+        ],
+      })}`,
+    );
+  });
+  const job = await brain.talk(owner, teamId, {
+    text: "Set a TOKEN on qa. And from now on, never deploy on Friday afternoons.",
+  });
+  const done = await idle(job.id);
+  assert.equal(done.stage, "done");
+  assert.ok(reviewed, "the review ran");
+  assert.equal(reviewed.tools.length, 0, "the review has no tools");
+  assert.equal(reviewed.limits.rounds, 1);
+
+  const lessons = (await store.ops.lessons.listForTeam(teamId)).filter(
+    (lesson) => lesson.evidenceJobId === job.id,
+  );
+  assert.deepEqual(
+    lessons.map((lesson) => lesson.rule),
+    ["Ask for tokens in Vault first and reference them as vault://NAME."],
+  );
+  const wishes = (await store.ops.preferences.listForTeam(teamId)).filter(
+    (wish) => wish.jobId === job.id,
+  );
+  assert.deepEqual(
+    wishes.map((wish) => wish.text),
+    ["Never deploy on Friday afternoons."],
+  );
+  assert.ok(done.messages.some((message) => /Looked back at this job/.test(message.text)));
+});
+
+test("a question is answered with the finished job's outcome, not a bare sign-off", async () => {
+  script.push(async (request) => {
+    await tool(request, "list_environments");
+    const closed = await tool(request, "finish_job", {
+      outcome:
+        "Shop runs on staging (port 3000) and production (port 3001); a change goes through the pipeline Shop deploy.",
+    });
+    assert.equal(closed.isError, false, closed.output);
+    return answer("The job is complete!");
+  });
+  const job = await brain.talk(owner, teamId, { text: "What runs where?" });
+  const done = await idle(job.id);
+  const said = done.messages.filter((message) => message.role === "ops").map((m) => m.text);
+  assert.deepEqual(said, [
+    "Shop runs on staging (port 3000) and production (port 3001); a change goes through the pipeline Shop deploy.",
+  ]);
+});

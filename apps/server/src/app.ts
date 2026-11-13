@@ -59,9 +59,11 @@ import { ImageAssetStore } from "./services/image-assets.js";
 import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
+import { MailService } from "./services/mail.js";
 import { ActionList } from "./services/ops/actions.js";
 import { OpsBrain } from "./services/ops/brain.js";
 import { OPS_ACTIONS } from "./services/ops/catalogue.js";
+import { OpsMailer } from "./services/ops/mailer.js";
 import { OpsService } from "./services/ops/service.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
@@ -234,6 +236,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     vault,
     runtime,
   });
+  // Email (Settings → Email) and the messages Ops sends a person who walked away.
+  const mail = new MailService(settings);
+  const opsMailer = new OpsMailer(store, mail, config.publicUrl);
+  ops.events = (event) => opsMailer.handle(event);
   // Settings credentials may point at the instance Vault or a team's, and each
   // Vault shows which Settings fields use its secrets.
   settings.vaultLookup = async ({ name, scope }) =>
@@ -367,7 +373,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
 
   registerAuthRoutes(app, { auth, sessionTtlDays: () => settings.numberValue("sessionTtlDays") });
   registerAccountRoutes(app, { accounts, auth, access });
-  registerSettingsRoutes(app, { settings, access, store });
+  registerSettingsRoutes(app, { settings, access, store, mail });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerTeamRoutes(app, { store, access });
@@ -540,6 +546,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     pipelineTriggers.start();
   });
   app.addHook("onClose", async () => {
+    opsMailer.close();
     await images.close();
     await videos.close();
     pipelineTriggers.stop();

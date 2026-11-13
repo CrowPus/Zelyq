@@ -113,20 +113,34 @@ export const BLOCKS_GUIDE = `Pipelines you write are built from blocks. Use only
 - A file of the app: node <file>.js, python <file>.py, python -m <module>, gunicorn/uvicorn <module:app>.
 Anything else is a command you wrote yourself: a person reads it word for word and confirms it on its own. Prefer a script in the app over a command of your own.
 
-A launch pipeline, as a starting point:
+The deploy step, every field (exact names; nothing else is accepted):
+  to: <environment>            (required)
+  port: <the port the app listens on inside>   (required, a number)
+  host-port: <the machine's port>   (only without a domain; a free one from machine_ports; differs per environment on one machine)
+  health: /                    (a path the app answers on)
+  database: postgres           (a database beside the app; DATABASE_URL given to it; data kept)
+  migrate: npm run <script>    (runs in the new version before it takes traffic)
+  volumes: [{name: uploads, path: /app/uploads}]   (folders kept across versions; uploads:/app/uploads also works)
+  processes: {worker: node worker.js}   (other processes from the same image)
+  memory: 512m
+  start: <command>             (only when the app has no Dockerfile)
+
+A launch pipeline, as a starting point (use npm install when the app has no package-lock.json; npm ci needs one):
 name: <App> deploy
 runs-on: <machine>
 source: {app: <App>}
 stages:
   - name: Test
-    steps: [{checkout: true}, {setup: node@22}, {run: npm ci}, {run: npm test}]
+    steps: [{checkout: true}, {setup: node@22}, {run: npm install}, {run: npm test}]
   - name: Staging
     needs: Test
     steps:
       - checkout: true
-      - deploy: {to: staging, port: 3000, health: /, database: postgres, migrate: npm run migrate}
+      - deploy: {to: staging, port: 3000, host-port: 3000, health: /, database: postgres, migrate: npm run migrate, volumes: [{name: uploads, path: /app/uploads}]}
   - name: Production
     needs: Staging
     steps:
       - checkout: true
-      - deploy: {to: production, port: 3000, health: /, database: postgres, migrate: npm run migrate}`;
+      - deploy: {to: production, port: 3000, host-port: 3001, health: /, database: postgres, migrate: npm run migrate, volumes: [{name: uploads, path: /app/uploads}]}
+
+When the plan is checked, a pipeline Zelyq cannot save is refused with the exact line and reason: fix that line, nothing else.`;
