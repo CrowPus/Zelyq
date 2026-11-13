@@ -302,6 +302,13 @@
       "when": 1794579046466,
       "tag": "0042_ops_foundations",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794580257667,
+      "tag": "0043_deploy_options",
+      "breakpoints": true
     }
   ]
 }

@@ -185,6 +185,17 @@ export function deployRepository(db: ZelyqDb) {
           });
         return (await this.find(row.environmentId, row.app)) as DeployAppRow;
       },
+      /** The app's own database credentials (already encrypted); untouched by save. */
+      async setDatabase(
+        environmentId: string,
+        app: string,
+        database: string | null,
+      ): Promise<void> {
+        await db
+          .update(deployApps)
+          .set({ database })
+          .where(and(eq(deployApps.environmentId, environmentId), eq(deployApps.app, app)));
+      },
     },
   };
 }

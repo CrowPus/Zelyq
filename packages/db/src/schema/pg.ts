@@ -604,6 +604,10 @@ export const deployments = pgTable(
     port: integer("port").notNull(),
     hostPort: integer("host_port").notNull(),
     healthPath: text("health_path").notNull(),
+    /** JSON: kept folders, other processes, database update, memory, database (DeployOptions). */
+    options: text("options").notNull().default("{}"),
+    /** This version ran a database update: rolling back past it may not be safe. */
+    changedDatabase: boolean("changed_database").notNull().default(false),
     error: text("error"),
     /** What happened, one JSON line per log line ({"s": stream, "t": text}). */
     log: text("log").notNull().default(""),
@@ -630,6 +634,8 @@ export const deployApps = pgTable(
     app: text("app").notNull(),
     /** The exact name it is reached at (example.com, shop.example.com); null: the usual one. */
     domain: text("domain"),
+    /** The app's own database, encrypted: {"kind":"postgres","password":…}; null when it has none. */
+    database: text("database"),
     /** www.<domain> sends people to <domain>. */
     www: boolean("www").notNull().default(false),
     updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
