@@ -295,6 +295,13 @@
       "when": 1794571133267,
       "tag": "0041_runner_capacity",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794579046466,
+      "tag": "0042_ops_foundations",
+      "breakpoints": true
     }
   ]
 }

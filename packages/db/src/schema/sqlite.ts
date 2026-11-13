@@ -24,6 +24,8 @@ export const users = sqliteTable(
      * settings. The first account to register gets it.
      */
     instanceRole: text("instance_role").notNull().default("member"),
+    /** "person", or "service" for a team's Ops engineer: never able to sign in. */
+    kind: text("kind").notNull().default("person"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -572,6 +574,8 @@ export const deployEnvironments = sqliteTable(
     protected: integer("protected", { mode: "boolean" }).notNull().default(false),
     frozen: integer("frozen", { mode: "boolean" }).notNull().default(false),
     frozenReason: text("frozen_reason"),
+    /** How much Ops may do here alone: advise, ask, trusted, oncall. */
+    opsTrust: text("ops_trust").notNull().default("ask"),
     /** JSON: name → typed value (SecretBox ciphertext) or vault://NAME */
     variables: text("variables").notNull().default("{}"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -1202,6 +1206,170 @@ export const agentOauthGrants = sqliteTable(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// Ops: the team's DevOps engineer (docs: co-founders 072/073)
+// ---------------------------------------------------------------------------
+
+/** One per team: the engineer, its service user, and the limits a person sets. */
+export const opsEngineers = sqliteTable(
+  "ops_engineers",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** The users row Ops acts as: kind "service", never able to sign in. */
+    serviceUserId: text("service_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    paused: integer("paused", { mode: "boolean" }).notNull().default(false),
+    pausedBy: text("paused_by"),
+    pausedAt: text("paused_at"),
+    /** Tokens a month; null: no cap. */
+    monthlyTokenCap: integer("monthly_token_cap"),
+    timeZone: text("time_zone").notNull().default("UTC"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: uniqueIndex("ops_engineers_team_idx").on(table.teamId),
+  }),
+);
+
+/** A piece of work: a request, its plan, its steps, its proofs. */
+export const opsJobs = sqliteTable(
+  "ops_jobs",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    request: text("request").notNull(),
+    /** survey, plan, approve, act, prove, record, done, failed, stopped */
+    stage: text("stage").notNull().default("survey"),
+    /** Where it came from: page, mcp, alert, channel. */
+    source: text("source").notNull().default("page"),
+    askedBy: text("asked_by").references(() => users.id, { onDelete: "set null" }),
+    outcome: text("outcome"),
+    planHash: text("plan_hash"),
+    planApprovedBy: text("plan_approved_by").references(() => users.id, { onDelete: "set null" }),
+    planApprovedAt: text("plan_approved_at"),
+    tokensIn: integer("tokens_in").notNull().default(0),
+    tokensOut: integer("tokens_out").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    finishedAt: text("finished_at"),
+  },
+  (table) => ({
+    teamIdx: index("ops_jobs_team_idx").on(table.teamId, table.createdAt),
+  }),
+);
+
+/** One step of a job's plan: the exact action and inputs a person approves. */
+export const opsPlanSteps = sqliteTable(
+  "ops_plan_steps",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => opsJobs.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    action: text("action").notNull(),
+    /** JSON, exactly as it will run. */
+    inputs: text("inputs").notNull(),
+    inputsHash: text("inputs_hash").notNull(),
+    /** What a person reads, rendered by the server from action + inputs. */
+    words: text("words").notNull(),
+    risk: text("risk").notNull(),
+    undo: text("undo"),
+    /** For an always-ask step: the person who confirmed this one step, beyond the plan. */
+    confirmedBy: text("confirmed_by").references(() => users.id, { onDelete: "set null" }),
+    confirmedAt: text("confirmed_at"),
+    /** planned, running, done, failed, skipped, not_verified */
+    status: text("status").notNull().default("planned"),
+    result: text("result"),
+    startedAt: text("started_at"),
+    finishedAt: text("finished_at"),
+  },
+  (table) => ({
+    jobIdx: index("ops_plan_steps_job_idx").on(table.jobId, table.position),
+  }),
+);
+
+/** What the server itself checked to show a step worked. */
+export const opsProofs = sqliteTable(
+  "ops_proofs",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => opsJobs.id, { onDelete: "cascade" }),
+    stepId: text("step_id").references(() => opsPlanSteps.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    target: text("target").notNull(),
+    ok: integer("ok", { mode: "boolean" }).notNull(),
+    detail: text("detail"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    jobIdx: index("ops_proofs_job_idx").on(table.jobId),
+  }),
+);
+
+/** Every action tried in a job: the same one with the same inputs is not tried twice. */
+export const opsAttempts = sqliteTable(
+  "ops_attempts",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => opsJobs.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    inputsHash: text("inputs_hash").notNull(),
+    ok: integer("ok", { mode: "boolean" }),
+    detail: text("detail"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    triedIdx: uniqueIndex("ops_attempts_tried_idx").on(table.jobId, table.action, table.inputsHash),
+  }),
+);
+
+/** The conversation of a job. */
+export const opsMessages = sqliteTable(
+  "ops_messages",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => opsJobs.id, { onDelete: "cascade" }),
+    /** person, ops, system */
+    role: text("role").notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    text: text("text").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    jobIdx: index("ops_messages_job_idx").on(table.jobId, table.createdAt),
+  }),
+);
+
+/** A pipeline run started under an approved plan step: its protected deploy is not asked twice. */
+export const opsRunGrants = sqliteTable("ops_run_grants", {
+  runId: text("run_id")
+    .primaryKey()
+    .references(() => pipelineRuns.id, { onDelete: "cascade" }),
+  jobId: text("job_id")
+    .notNull()
+    .references(() => opsJobs.id, { onDelete: "cascade" }),
+  stepId: text("step_id"),
+  environmentId: text("environment_id").notNull(),
+  approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: text("created_at").notNull(),
+});
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1246,4 +1414,11 @@ export const schema = {
   agentReferences,
   agentOauthClients,
   agentOauthGrants,
+  opsEngineers,
+  opsJobs,
+  opsPlanSteps,
+  opsProofs,
+  opsAttempts,
+  opsMessages,
+  opsRunGrants,
 };

@@ -155,6 +155,7 @@ export class DeployService {
       protected: input.protected ?? false,
       frozen: false,
       frozenReason: null,
+      opsTrust: "ask",
       variables: JSON.stringify(await this.storeVariables(user, teamId, input.variables ?? {}, {})),
       createdBy: user.id,
       updatedBy: user.id,

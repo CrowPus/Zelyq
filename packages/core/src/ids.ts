@@ -59,6 +59,12 @@ export const ID_PREFIXES = {
   teamSshKey: "tsk",
   agent: "agt",
   agentProposal: "apr",
+  opsEngineer: "ops",
+  opsJob: "opj",
+  opsStep: "ost",
+  opsProof: "opp",
+  opsAttempt: "opa",
+  opsMessage: "opm",
   agentReference: "arf",
   agentOauthGrant: "aog",
 } as const;

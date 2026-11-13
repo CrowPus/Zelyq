@@ -133,6 +133,7 @@ function environment(name: string) {
     protected: false,
     frozen: false,
     frozenReason: null,
+    opsTrust: "ask",
     variables: "{}",
     createdBy: null,
     updatedBy: null,

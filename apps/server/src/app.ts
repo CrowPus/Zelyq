@@ -23,6 +23,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerGuideRoutes } from "./routes/guide.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
+import { registerOpsRoutes } from "./routes/ops.js";
 import { registerPipelineRoutes } from "./routes/pipelines.js";
 import { registerPluginRegistryRoutes } from "./routes/plugin-registry.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
@@ -58,6 +59,9 @@ import { ImageAssetStore } from "./services/image-assets.js";
 import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
+import { ActionList } from "./services/ops/actions.js";
+import { OPS_ACTIONS } from "./services/ops/catalogue.js";
+import { OpsService } from "./services/ops/service.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
 import { PipelinePluginService } from "./services/pipelines/plugins.js";
@@ -207,6 +211,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     plugins: pipelinePlugins,
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
+  // Ops, the team's DevOps engineer: one list of actions, one gate in front of it.
+  const ops = new OpsService(store, access, new ActionList(OPS_ACTIONS), { deploys });
   pipelines.plugins = pipelinePlugins;
   const pipelineTriggers = new PipelineTriggerService(
     store,
@@ -446,6 +452,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
   registerDeployRoutes(app, { access, deploys });
+  registerOpsRoutes(app, { access, ops });
   // Zelyq's own plugins, signed: installed only if the signature verifies.
   const pluginRegistry = new PluginRegistryClient(store, settings, access, pipelinePlugins, {
     trustedKeys: process.env.ZELYQ_PLUGIN_REGISTRY_KEYS
@@ -553,6 +560,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   pipelineEngine.hooks = {
     startChild: (parent, name, inputs) => pipelines.startChild(parent, name, inputs),
     runFinished: (run) => pipelineTriggers.runFinished(run),
+    preApproved: (run, environmentId) => ops.preApproved(run, environmentId),
   };
 
   gateway.appChanged = async (projectId) => {

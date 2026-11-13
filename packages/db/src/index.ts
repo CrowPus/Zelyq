@@ -6,6 +6,7 @@ import { deployRepository } from "./repositories/deploy.js";
 import { imageRepository } from "./repositories/images.js";
 import { messageRepository } from "./repositories/messages.js";
 import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
+import { opsRepository } from "./repositories/ops.js";
 import { pipelineRepository } from "./repositories/pipelines.js";
 import { projectRepository } from "./repositories/projects.js";
 import { providerConnectionRepository } from "./repositories/provider-connections.js";
@@ -24,6 +25,16 @@ export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
 export type { ImageJobRow } from "./repositories/images.js";
 export type { MessageRepository } from "./repositories/messages.js";
 export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
+export type {
+  OpsAttemptRow,
+  OpsEngineerRow,
+  OpsJobRow,
+  OpsMessageRow,
+  OpsPlanStepRow,
+  OpsProofRow,
+  OpsRepository,
+  OpsRunGrantRow,
+} from "./repositories/ops.js";
 export type {
   PipelineApprovalRow,
   PipelineArtifactRow,
@@ -76,6 +87,7 @@ export interface Store extends DatabaseHandle {
   pipelines: ReturnType<typeof pipelineRepository>;
   deploy: ReturnType<typeof deployRepository>;
   agents: ReturnType<typeof agentRepository>;
+  ops: ReturnType<typeof opsRepository>;
 }
 
 /**
@@ -104,6 +116,7 @@ export function createStore(url: string): Store {
     pipelines: pipelineRepository(handle.db),
     deploy: deployRepository(handle.db),
     agents: agentRepository(handle.db),
+    ops: opsRepository(handle.db),
   };
 }
 
