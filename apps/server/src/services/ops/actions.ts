@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
 import type { OpsRisk, OpsTrust, User } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
+import type { RuntimeDriver } from "@zelyq/runtime";
 import type { z } from "zod";
 import type { DeployService } from "../deploy.js";
+import type { RunnerService } from "../pipelines/runners.js";
+import type { PipelineService } from "../pipelines/service.js";
+import type { PipelineTriggerService } from "../pipelines/triggers.js";
+import type { VaultService } from "../vault.js";
 
 /**
  * The one set of hands (072 §2.1). Every thing Ops can do is an action here:
@@ -28,6 +33,11 @@ export interface OpsEnvironmentRef {
 export interface OpsServices {
   store: Store;
   deploys: DeployService;
+  pipelines: PipelineService;
+  triggers: PipelineTriggerService;
+  runners: RunnerService;
+  vault: VaultService;
+  runtime: RuntimeDriver;
 }
 
 export interface ActionContext {
@@ -36,6 +46,12 @@ export interface ActionContext {
   user: User;
   jobId: string | null;
   services: OpsServices;
+  /** When this runs as a step of a plan a person approved: that step, and who approved it. */
+  approval: { stepId: string; approvedBy: string | null } | null;
+  /** Records that a pipeline run belongs to the approved step, so its protected deploy is not asked twice. */
+  grantRun(runId: string, environmentId: string): Promise<void>;
+  /** Tells the person in this job something (a secret to add, a DNS record to make). */
+  say(text: string): Promise<void>;
 }
 
 export interface ActionOutcome {

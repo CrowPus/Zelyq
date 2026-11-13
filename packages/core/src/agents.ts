@@ -103,6 +103,13 @@ export const AGENT_PERMISSIONS = {
     levels: ["off", "allow"],
     default: "allow",
   },
+  ops: {
+    label: "DevOps (Ops's actions)",
+    description:
+      "Work as the team's DevOps engineer: look at machines, environments, apps and pipelines freely; every change (an environment, a pipeline, a deploy, a roll back) waits for a person.",
+    levels: ["off", "approve"],
+    default: "off",
+  },
 } as const;
 
 export type AgentPermission = keyof typeof AGENT_PERMISSIONS;
@@ -153,6 +160,7 @@ export const agentActionTypeSchema = z.enum([
   "deploy.rollback",
   "deploy.promote",
   "media.video",
+  "ops.action",
 ]);
 export type AgentActionType = z.infer<typeof agentActionTypeSchema>;
 
@@ -169,6 +177,7 @@ export const AGENT_ACTION_PERMISSION: Record<AgentActionType, AgentPermission> =
   "deploy.rollback": "deploy.manage",
   "deploy.promote": "deploy.manage",
   "media.video": "media.video",
+  "ops.action": "ops",
 };
 
 /**

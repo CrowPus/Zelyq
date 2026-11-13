@@ -45,10 +45,14 @@ import {
   type ZelyqTool,
 } from "@zelyq/tools";
 import sharp from "sharp";
+import { z } from "zod";
 import type { AgentReferenceStore } from "./agent-references.js";
 import type { AgentContext, AgentService } from "./agents.js";
 import type { DeployService } from "./deploy.js";
 import type { ImageGenerationService } from "./image-generation.js";
+import { riskOf } from "./ops/actions.js";
+import { devopsGuide } from "./ops/guide.js";
+import type { OpsService } from "./ops/service.js";
 import type { PipelineService } from "./pipelines/service.js";
 import type { ProjectVariableService } from "./project-variables.js";
 import type { ProjectService } from "./projects.js";
@@ -118,6 +122,8 @@ export interface AgentGatewayDeps {
   variables: ProjectVariableService;
   /** Starts the preview the way the editor does: inspector script, Vault variables, backend. */
   startPreview(projectId: string, restart: boolean): Promise<Preview>;
+  /** Ops's actions and gate: outside agents working as the DevOps engineer. */
+  ops: OpsService;
   /** Tells anyone with the app open that files changed, so their editor refreshes. */
   filesChanged(projectId: string, paths: string[]): void;
 }
@@ -136,7 +142,7 @@ export class AgentGateway {
   private readonly lastUndoPoint = new Map<string, number>();
 
   constructor(private readonly deps: AgentGatewayDeps) {
-    this.tools = [...this.ownTools(), ...this.lentTools()];
+    this.tools = [...this.ownTools(), ...this.lentTools(), ...this.opsTools()];
   }
 
   /** An MCP server for this one request, showing this agent's tools only. */
@@ -1603,6 +1609,103 @@ export class AgentGateway {
         },
       },
     ];
+  }
+
+  // ------------------------------------------------------------ Ops's actions
+
+  /**
+   * Ops's actions as tools (ops_<name>), so an outside agent can work as the
+   * team's DevOps engineer with the same hands. Looking runs at once, as the
+   * person the agent works for; every change becomes a request a person
+   * approves; Ops's own limits are never offered. Environments outside the
+   * agent's list are refused.
+   */
+  private opsTools(): GatewayTool[] {
+    const actions = this.deps.ops.actionList;
+    const guide: GatewayTool = {
+      name: "devops_guide",
+      description:
+        "How to work as the team's DevOps engineer here: the steps every job follows, the habits, every ops_ action, and how to write pipelines from blocks. Read it first.",
+      permission: "ops",
+      inputSchema: obj({}, []),
+      run: async () => ({ content: [{ type: "text", text: devopsGuide(actions) }] }),
+    };
+    const tools = actions.all().map((action): GatewayTool => {
+      const schema = z.toJSONSchema(action.input as z.ZodType, { io: "input" }) as Record<
+        string,
+        unknown
+      >;
+      const properties = (schema.properties as Record<string, unknown> | undefined) ?? {};
+      return {
+        name: `ops_${action.name}`,
+        description: action.description,
+        permission: "ops",
+        inputSchema: {
+          type: "object",
+          properties: {
+            ...properties,
+            reason: {
+              type: "string",
+              description: "For a change: why, for the person approving it.",
+            },
+          },
+          required: (schema.required as string[] | undefined) ?? [],
+        },
+        run: async (context, args) => {
+          this.deps.agents.requirePermission(context, "ops");
+          const { reason, ...rawInputs } = args;
+          const parsed = action.input.safeParse(rawInputs);
+          if (!parsed.success) {
+            return failure(
+              `Inputs: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "(inputs)"} ${issue.message}`).join("; ")}`,
+            );
+          }
+          const inputs = parsed.data as Record<string, unknown>;
+          const risk = riskOf(action, inputs);
+          if (risk === "own-limits") {
+            return failure("Only a person changes Ops's own limits, on the Ops page.");
+          }
+          const user = await this.deps.agents.actingUser(context);
+          if (action.environment && context.environmentIds) {
+            const environment = await action.environment(
+              {
+                teamId: context.agent.teamId,
+                user,
+                jobId: null,
+                services: { store: this.deps.store } as never,
+                approval: null,
+                grantRun: async () => undefined,
+                say: async () => undefined,
+              },
+              inputs,
+            );
+            if (environment && !context.environmentIds.includes(environment.id)) {
+              return failure(`${environment.name} is not one of this agent's environments.`);
+            }
+          }
+          if (risk === "read") {
+            const { outcome } = await this.deps.ops.performFor(
+              user,
+              context.agent.teamId,
+              action.name,
+              inputs,
+              { changesAllowed: false },
+            );
+            return outcome.ok
+              ? json({ summary: outcome.summary, data: outcome.data ?? null })
+              : failure(outcome.summary);
+          }
+          return this.ask(context, {
+            actionType: "ops.action",
+            projectId: null,
+            title: action.words(inputs),
+            reason,
+            payload: { action: action.name, inputs },
+          });
+        },
+      };
+    });
+    return [guide, ...tools];
   }
 
   /** Checks a file before asking anyone to approve it; the problem, or null. */

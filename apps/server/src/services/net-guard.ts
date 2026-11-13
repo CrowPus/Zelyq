@@ -13,11 +13,14 @@ import os from "node:os";
  * - "normal": an address a person set up (a webhook to the team's own chat
  *   server on the office network is legitimate). Refuses this server,
  *   link-local and cloud metadata addresses only.
+ * - "deployment": the address of an app Zelyq deployed, worked out from the
+ *   deployment itself (it may run on this very machine). Refuses link-local
+ *   and cloud metadata addresses only; callers return a status, never a body.
  *
  * The check happens when the connection is made, on the exact address it is
  * made to: a name cannot pass the check and then resolve somewhere else.
  */
-export type GuardLevel = "strict" | "normal";
+export type GuardLevel = "strict" | "normal" | "deployment";
 
 const ALWAYS = new BlockList();
 ALWAYS.addSubnet("127.0.0.0", 8, "ipv4");
@@ -27,6 +30,11 @@ ALWAYS.addAddress("::1", "ipv6");
 ALWAYS.addAddress("::", "ipv6");
 ALWAYS.addSubnet("fe80::", 10, "ipv6");
 ALWAYS.addAddress("fd00:ec2::254", "ipv6");
+
+const METADATA = new BlockList();
+METADATA.addSubnet("169.254.0.0", 16, "ipv4");
+METADATA.addSubnet("fe80::", 10, "ipv6");
+METADATA.addAddress("fd00:ec2::254", "ipv6");
 
 const PRIVATE = new BlockList();
 PRIVATE.addSubnet("10.0.0.0", 8, "ipv4");
@@ -53,6 +61,9 @@ export function refusedAddress(address: string, level: GuardLevel): string | nul
   const family = isIP(ip);
   if (family === 0) return `${address} is not an address.`;
   const kind = family === 6 ? "ipv6" : "ipv4";
+  if (level === "deployment") {
+    return METADATA.check(ip, kind) ? `${address} is a link-local or cloud metadata address.` : null;
+  }
   if (ALWAYS.check(ip, kind) || ownAddresses().has(ip)) {
     return `${address} is this server, or a link-local or cloud metadata address.`;
   }

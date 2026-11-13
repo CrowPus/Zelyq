@@ -99,6 +99,8 @@ export interface ZelyqServer {
   app: FastifyInstance;
   store: Store;
   runtime: RuntimeDriver;
+  /** Ops, the team's DevOps engineer: exposed so tests can act as the engineer does. */
+  ops: OpsService;
   /** The agent's image capability channel. Exposed so tests can mint a grant
    *  the way the websocket gateway does. */
   imageBridge: ImageBridge;
@@ -211,8 +213,6 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     plugins: pipelinePlugins,
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
-  // Ops, the team's DevOps engineer: one list of actions, one gate in front of it.
-  const ops = new OpsService(store, access, new ActionList(OPS_ACTIONS), { deploys });
   pipelines.plugins = pipelinePlugins;
   const pipelineTriggers = new PipelineTriggerService(
     store,
@@ -224,6 +224,15 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       error: (object, message) => app.log.error(object, message),
     },
   );
+  // Ops, the team's DevOps engineer: one list of actions, one gate in front of it.
+  const ops = new OpsService(store, access, new ActionList(OPS_ACTIONS), {
+    deploys,
+    pipelines,
+    triggers: pipelineTriggers,
+    runners,
+    vault,
+    runtime,
+  });
   // Settings credentials may point at the instance Vault or a team's, and each
   // Vault shows which Settings fields use its secrets.
   settings.vaultLookup = async ({ name, scope }) =>
@@ -424,6 +433,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     pipelineGuide: readPipelineGuide(),
     runtime,
     agents,
+    ops,
     projects,
     variables,
     startPreview: async (projectId, restart) => {
@@ -439,6 +449,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   const agentOAuth = new AgentOAuthService(store);
   agents.oauth = agentOAuth;
+  agents.ops = ops;
   registerAgentRoutes(app, {
     agents,
     gateway: agentGateway,
@@ -614,6 +625,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     pipelineTriggers,
     pipelineEngine,
     pipelines,
+    ops,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

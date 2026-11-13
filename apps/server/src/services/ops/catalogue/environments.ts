@@ -1,0 +1,282 @@
+import { connect } from "node:net";
+import { automaticConcurrency } from "@zelyq/core";
+import { z } from "zod";
+import { refusedAddress } from "../../net-guard.js";
+import { environmentByName, environmentRef, type OpsAction } from "../actions.js";
+import { environmentRow, machineByName, nameField } from "./shared.js";
+
+const none = z.object({}).strict() as unknown as z.ZodType<Record<string, never>>;
+
+const listMachines: OpsAction<Record<string, never>> = {
+  name: "list_machines",
+  description:
+    "The team's machines (SSH runners): operating system, processors, memory, how many runs each takes at once, whether its last test passed.",
+  input: none,
+  risk: "read",
+  words: () => "Look at the team's machines",
+  async run(ctx) {
+    const rows = await ctx.services.store.pipelines.runners.listForTeam(ctx.teamId);
+    const machines = rows.map((row) => ({
+      name: row.name,
+      host: row.host,
+      os: row.os,
+      cpus: row.cpus,
+      memoryMb: row.memoryMb,
+      runsAtOnce:
+        row.maxConcurrent > 0 ? row.maxConcurrent : automaticConcurrency(row.cpus, row.memoryMb),
+      tools: JSON.parse(row.tools) as string[],
+      enabled: row.enabled,
+      confirmed: Boolean(row.hostKey),
+      lastTestOk: row.lastTestOk,
+    }));
+    return {
+      ok: true,
+      summary: `${machines.length} machine${machines.length === 1 ? "" : "s"}.`,
+      data: machines,
+    };
+  },
+};
+
+const machineInput = z.object({ machine: nameField("machine") }).strict();
+const machineStatus: OpsAction<z.infer<typeof machineInput>> = {
+  name: "machine_status",
+  description: "A machine's free disk space, as measured now, and its size.",
+  input: machineInput,
+  risk: "read",
+  words: (inputs) => `Look at ${inputs.machine}'s disk and size`,
+  async run(ctx, inputs) {
+    const runner = await machineByName(ctx, inputs.machine);
+    const disk = await ctx.services.runners.disk(ctx.user, ctx.teamId, runner.id);
+    return {
+      ok: true,
+      summary: `${runner.name}: ${JSON.stringify(disk).slice(0, 300)}`,
+      data: { disk, cpus: runner.cpus, memoryMb: runner.memoryMb, os: runner.os },
+    };
+  },
+};
+
+/** Whether a TCP port answers, from this server. */
+function portOpen(host: string, port: number, timeoutMs = 4000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host, port });
+    const done = (open: boolean) => {
+      socket.destroy();
+      resolve(open);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
+
+const portsInput = z.object({ environment: nameField("environment") }).strict();
+const checkPorts: OpsAction<z.infer<typeof portsInput>> = {
+  name: "check_ports",
+  description:
+    "Whether the web ports (80 and 443) of an environment's machine answer from outside it. Closed ports usually mean a firewall in front of the machine.",
+  input: portsInput,
+  risk: "read",
+  words: (inputs) => `Check that ${inputs.environment}'s machine answers on ports 80 and 443`,
+  async run(ctx, inputs) {
+    const environment = await environmentRow(ctx, inputs.environment);
+    const runner = environment.runnerId
+      ? await ctx.services.store.pipelines.runners.findById(environment.runnerId)
+      : null;
+    const host = environment.address ?? runner?.host;
+    if (!host) return { ok: false, summary: `${environment.name} has no address to check.` };
+    const ports = {
+      80: await portOpen(host, environment.httpPort),
+      443: await portOpen(host, environment.httpsPort),
+    };
+    return {
+      ok: true,
+      summary: `${host}: port ${environment.httpPort} ${ports[80] ? "open" : "closed"}, port ${environment.httpsPort} ${ports[443] ? "open" : "closed"}.`,
+      data: { host, ports },
+    };
+  },
+};
+
+const createInput = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .regex(/^[a-z][a-z0-9-]{0,39}$/, "Use lower-case letters, digits and '-' (staging)."),
+    machine: nameField("machine"),
+    /** Where people reach the machine; default the machine's own address. */
+    address: z.string().trim().min(1).max(253).optional(),
+    /** Every app gets <app>.<domain>, with HTTPS. */
+    domain: z.string().trim().min(3).max(253).optional(),
+    https: z.enum(["auto", "internal", "off", "external"]).optional(),
+    /** Production: every deploy needs a person. Ops may make an environment protected, never unprotected. */
+    protected: z.boolean().optional(),
+  })
+  .strict();
+const createEnvironment: OpsAction<z.infer<typeof createInput>> = {
+  name: "create_environment",
+  description:
+    "Create an environment (staging, production) on one of the team's machines. Production should be protected: every deploy to it then waits for a person.",
+  input: createInput,
+  risk: "change",
+  words: (inputs) =>
+    `Create the ${inputs.protected ? "protected " : ""}environment ${inputs.name} on ${inputs.machine}${inputs.domain ? `, apps at <app>.${inputs.domain}` : ""}`,
+  undo: (inputs) => `Remove the environment ${inputs.name} (nothing runs there yet)`,
+  async run(ctx, inputs) {
+    const runner = await machineByName(ctx, inputs.machine);
+    const address = inputs.address ?? runner.host;
+    const refused = /^[0-9.:[\]a-f]+$/i.test(address)
+      ? refusedAddress(address, "deployment")
+      : null;
+    if (refused) return { ok: false, summary: refused };
+    await ctx.services.deploys.create(ctx.user, ctx.teamId, {
+      name: inputs.name,
+      runnerId: runner.id,
+      address,
+      ...(inputs.domain ? { domain: inputs.domain } : {}),
+      ...(inputs.https ? { https: inputs.https } : {}),
+      protected: inputs.protected ?? false,
+      variables: {},
+    });
+    return { ok: true, summary: `Created ${inputs.name} on ${runner.name} (${address}).` };
+  },
+  async prove(ctx, inputs) {
+    const environment = await environmentByName(ctx, inputs.name);
+    const row = environment
+      ? await ctx.services.store.deploy.environments.findByName(ctx.teamId, inputs.name)
+      : null;
+    const runner = row?.runnerId
+      ? await ctx.services.store.pipelines.runners.findById(row.runnerId)
+      : null;
+    return {
+      kind: "environment_exists",
+      target: inputs.name,
+      ok: Boolean(
+        row &&
+          runner?.name === inputs.machine &&
+          row.address &&
+          row.protected === (inputs.protected ?? false),
+      ),
+      detail: row
+        ? `On ${runner?.name ?? "?"}, address ${row.address}, ${row.protected ? "protected" : "not protected"}.`
+        : null,
+    };
+  },
+};
+
+const variablesInput = z
+  .object({
+    environment: nameField("environment"),
+    /** NAME: value. A secret is always vault://NAME, never its value. */
+    set: z
+      .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/), z.string().max(1000))
+      .default({}),
+    remove: z.array(z.string()).default([]),
+  })
+  .strict();
+
+/** A value that looks like a key or a password: it belongs in Vault, not in a plan. */
+function looksSecret(value: string): boolean {
+  return (
+    /^(sk|pk|rk)_(live|test)_/.test(value) ||
+    /^(ghp|gho|ghs|github_pat)_/.test(value) ||
+    /^AKIA[0-9A-Z]{12,}/.test(value) ||
+    /^xox[abposr]-/.test(value) ||
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(value) ||
+    /^[A-Za-z0-9+/_-]{32,}={0,2}$/.test(value)
+  );
+}
+
+const setVariables: OpsAction<z.infer<typeof variablesInput>> = {
+  name: "set_environment_variables",
+  description:
+    "Add, change or remove an environment's variables by name. A secret is always given as vault://NAME (a person puts its value in Vault). Other variables keep their values.",
+  input: variablesInput,
+  risk: "change",
+  environment: (ctx, inputs) => environmentByName(ctx, inputs.environment),
+  words: (inputs) => {
+    const set = Object.entries(inputs.set).map(([name, value]) =>
+      value.startsWith("vault://") ? `${name} from Vault (${value.slice(8)})` : `${name}=${value}`,
+    );
+    return `On ${inputs.environment}: ${[...(set.length ? [`set ${set.join(", ")}`] : []), ...(inputs.remove.length ? [`remove ${inputs.remove.join(", ")}`] : [])].join("; ") || "no change"}`;
+  },
+  undo: () => "Set the variables back as they were",
+  async run(ctx, inputs) {
+    for (const [name, value] of Object.entries(inputs.set)) {
+      if (!value.startsWith("vault://") && looksSecret(value)) {
+        return {
+          ok: false,
+          summary: `${name} looks like a secret. Ask the person to put it in Vault, then use vault://${name}.`,
+        };
+      }
+    }
+    const environment = await environmentRow(ctx, inputs.environment);
+    const existing = JSON.parse(environment.variables) as Record<string, unknown>;
+    // An empty value keeps what is there: Zelyq never sends values back, so none are lost.
+    const variables: Record<string, string> = {};
+    for (const name of Object.keys(existing)) {
+      if (!inputs.remove.includes(name)) variables[name] = "";
+    }
+    Object.assign(variables, inputs.set);
+    await ctx.services.deploys.update(ctx.user, ctx.teamId, environment.id, { variables });
+    return {
+      ok: true,
+      summary: `Variables on ${environment.name}: ${Object.keys(variables).join(", ") || "none"}.`,
+    };
+  },
+  async prove(ctx, inputs) {
+    const environment = await environmentRow(ctx, inputs.environment);
+    const names = Object.keys(JSON.parse(environment.variables) as Record<string, unknown>);
+    const ok =
+      Object.keys(inputs.set).every((name) => names.includes(name)) &&
+      inputs.remove.every((name) => !names.includes(name));
+    return {
+      kind: "variables_set",
+      target: environment.name,
+      ok,
+      detail: `Names now: ${names.join(", ") || "none"}.`,
+    };
+  },
+};
+
+const listEnvironments: OpsAction<Record<string, never>> = {
+  name: "list_environments",
+  description:
+    "The team's environments: name, machine, address, domain, whether protected or frozen, how much Ops may do there alone, and the variable names it gives apps.",
+  input: none,
+  risk: "read",
+  words: () => "Look at the team's environments",
+  async run(ctx) {
+    const rows = await ctx.services.store.deploy.environments.listForTeam(ctx.teamId);
+    const environments = await Promise.all(
+      rows.map(async (row) => ({
+        ...environmentRef(row),
+        machine: row.runnerId
+          ? ((await ctx.services.store.pipelines.runners.findById(row.runnerId))?.name ?? null)
+          : null,
+        address: row.address,
+        domain: row.domain,
+        https: row.https,
+        variables: Object.keys(JSON.parse(row.variables) as Record<string, unknown>),
+        live: (await ctx.services.store.deploy.deployments.live([row.id])).map((deployment) => ({
+          app: deployment.app,
+          number: deployment.number,
+          url: deployment.url,
+        })),
+      })),
+    );
+    return {
+      ok: true,
+      summary: `${environments.length} environment${environments.length === 1 ? "" : "s"}.`,
+      data: environments,
+    };
+  },
+};
+
+export const ENVIRONMENT_ACTIONS = [
+  listMachines,
+  machineStatus,
+  checkPorts,
+  listEnvironments,
+  createEnvironment,
+  setVariables,
+] as unknown as OpsAction[];

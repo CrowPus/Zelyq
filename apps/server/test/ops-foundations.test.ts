@@ -174,7 +174,7 @@ before(async () => {
       fake("delete_data", "always-ask"),
       fake("raise_trust", "own-limits"),
     ]),
-    { deploys: {} as never },
+    {} as never,
   );
 });
 

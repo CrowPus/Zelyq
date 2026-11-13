@@ -329,7 +329,7 @@ export class OpsService {
       );
     }
     const inputs = parsed.data as Record<string, unknown>;
-    const ctx = await this.context(engineer, job.id);
+    let ctx = await this.context(engineer, job.id);
     const risk = riskOf(action, inputs);
     // The habits: look first, plan, then act. Changes happen only once the plan stands.
     if (risk !== "read" && job.stage !== "act") {
@@ -363,6 +363,13 @@ export class OpsService {
     });
     if (verdict.verdict !== "run") {
       return { verdict, outcome: null, proof: null, step: null };
+    }
+    // Run as the approved step: what it starts carries the approval with it (and only then).
+    if (step && job.planApprovedAt !== null) {
+      ctx = await this.context(engineer, job.id, {
+        stepId: step.id,
+        approvedBy: job.planApprovedBy,
+      });
     }
 
     const now = () => new Date().toISOString();
@@ -501,6 +508,82 @@ export class OpsService {
     });
   }
 
+  // ------------------------------------------------------- outside agents
+
+  /** The list, for the gateway: outside agents get the same hands (072 §2.1). */
+  get actionList(): ActionList {
+    return this.actions;
+  }
+
+  /**
+   * One action for someone who is not Ops: an outside agent looking (`user` is
+   * the person it works for), or a person carrying out an agent's request they
+   * approved. Never anything that changes Ops's own limits; never on a frozen
+   * environment. A change is proven the same way as Ops's own.
+   */
+  async performFor(
+    user: User,
+    teamId: string,
+    name: string,
+    rawInputs: unknown,
+    options: { changesAllowed: boolean },
+  ): Promise<{ outcome: ActionOutcome; proof: ProofResult | null }> {
+    const action = this.actions.get(name);
+    if (!action) throw ZelyqError.badRequest(`There is no action called ${name}.`);
+    const parsed = action.input.safeParse(rawInputs ?? {});
+    if (!parsed.success) {
+      throw ZelyqError.badRequest(
+        `Inputs: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "(inputs)"} ${issue.message}`).join("; ")}`,
+      );
+    }
+    const inputs = parsed.data as Record<string, unknown>;
+    const risk = riskOf(action, inputs);
+    if (risk === "own-limits") {
+      throw new ZelyqError("forbidden", "Only a person changes Ops's own limits, on the Ops page.");
+    }
+    if (risk !== "read" && !options.changesAllowed) {
+      throw new ZelyqError(
+        "forbidden",
+        "This changes something: it waits for a person's approval.",
+      );
+    }
+    const ctx: ActionContext = {
+      teamId,
+      user,
+      jobId: null,
+      services: { store: this.store, ...this.services },
+      approval: null,
+      grantRun: async () => undefined,
+      say: async () => undefined,
+    };
+    const environment = action.environment ? await action.environment(ctx, inputs) : null;
+    if (environment?.frozen && risk !== "read") {
+      throw ZelyqError.badRequest(`${environment.name} is frozen; nothing changes there now.`);
+    }
+    const outcome = await action.run(ctx, inputs);
+    let proof: ProofResult | null = null;
+    if (risk !== "read" && outcome.ok && action.prove) {
+      proof = await action.prove(ctx, inputs, outcome).catch((error: Error) => ({
+        kind: "error",
+        target: name,
+        ok: false,
+        detail: error.message,
+      }));
+    }
+    if (risk !== "read") {
+      await this.access.recordChange(user, {
+        teamId,
+        action: "ops.acted",
+        detail: {
+          action: name,
+          by: "an outside agent's approved request",
+          summary: outcome.summary.slice(0, 300),
+        },
+      });
+    }
+    return { outcome, proof };
+  }
+
   // --------------------------------------------------------------- pipelines
 
   /** A run started for an approved plan step: its protected deploy is not asked a second time. */
@@ -550,12 +633,30 @@ export class OpsService {
     return engineer;
   }
 
-  private async context(engineer: OpsEngineerRow, jobId: string | null): Promise<ActionContext> {
+  private async context(
+    engineer: OpsEngineerRow,
+    jobId: string | null,
+    approval: ActionContext["approval"] = null,
+  ): Promise<ActionContext> {
     return {
       teamId: engineer.teamId,
       user: await this.engineers.account(engineer),
       jobId,
       services: { store: this.store, ...this.services },
+      approval,
+      grantRun: async (runId, environmentId) => {
+        if (!jobId || !approval) return;
+        await this.grantRun({
+          jobId,
+          stepId: approval.stepId,
+          runId,
+          environmentId,
+          approvedBy: approval.approvedBy,
+        });
+      },
+      say: async (text) => {
+        if (jobId) await this.message(jobId, "ops", null, text);
+      },
     };
   }
 
