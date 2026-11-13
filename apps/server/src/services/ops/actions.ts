@@ -129,25 +129,50 @@ export async function environmentByName(
 ): Promise<OpsEnvironmentRef | null> {
   if (typeof name !== "string" || !name) return null;
   const row = await ctx.services.store.deploy.environments.findByName(ctx.teamId, name);
-  return row ? environmentRef(row) : null;
+  return row ? environmentRef(row, await servesLiveSite(ctx.services.store, row)) : null;
 }
 
-export function environmentRef(row: {
-  id: string;
-  name: string;
-  frozen: boolean;
-  frozenReason: string | null;
-  protected: boolean;
-  opsTrust: string;
-  domain?: string | null;
-}): OpsEnvironmentRef {
+/**
+ * Whether an environment serves a site people use: it has a domain, an app on
+ * it has its own domain, or something live there answers at a real name (not
+ * a bare address and port, as a test copy does).
+ */
+export async function servesLiveSite(
+  store: ActionContext["services"]["store"],
+  row: { id: string; domain?: string | null },
+): Promise<boolean> {
+  if (row.domain) return true;
+  if ((await store.deploy.apps.listFor([row.id])).some((app) => app.domain)) return true;
+  return (await store.deploy.deployments.live([row.id])).some((deployment) => {
+    if (!deployment.url) return false;
+    try {
+      const host = new URL(deployment.url).hostname;
+      return !/^[\d.]+$/.test(host) && !host.includes(":") && host !== "localhost";
+    } catch {
+      return false;
+    }
+  });
+}
+
+export function environmentRef(
+  row: {
+    id: string;
+    name: string;
+    frozen: boolean;
+    frozenReason: string | null;
+    protected: boolean;
+    opsTrust: string;
+    domain?: string | null;
+  },
+  live = false,
+): OpsEnvironmentRef {
   return {
     id: row.id,
     name: row.name,
     frozen: row.frozen,
     frozenReason: row.frozenReason,
     protected: row.protected,
-    public: Boolean(row.domain),
+    public: live || Boolean(row.domain),
     trust: (["advise", "ask", "trusted", "oncall"].includes(row.opsTrust)
       ? row.opsTrust
       : "ask") as OpsTrust,

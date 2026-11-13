@@ -53,6 +53,8 @@ export class OpsBrain {
   private readonly working = new Set<string>();
   private readonly activity = new Map<string, string[]>();
   private readonly reviewed = new Set<string>();
+  /** Jobs a live conversation is working in. */
+  private readonly voices = new Set<string>();
 
   constructor(
     private readonly ops: OpsService,
@@ -61,7 +63,7 @@ export class OpsBrain {
     private readonly serverUrl: string,
   ) {
     ops.liveState = (jobId) => ({
-      working: this.working.has(jobId),
+      working: this.working.has(jobId) || this.voices.has(jobId),
       activity: this.activity.get(jobId) ?? [],
     });
   }
@@ -86,6 +88,7 @@ export class OpsBrain {
   /** Runs turns until the person's last message has an answer. */
   private async run(jobId: string): Promise<void> {
     if (this.working.has(jobId)) return; // the running turn picks the new message up after
+    if (this.voices.has(jobId)) return; // a live conversation answers in this job itself
     this.working.add(jobId);
     this.activity.set(jobId, []);
     try {
@@ -326,7 +329,7 @@ ${steps}`;
   openVoice(teamId: string, jobId: string): string {
     const token = randomBytes(32).toString("hex");
     this.tokens.set(token, { teamId, jobId, expires: Date.now() + VOICE_MS });
-    this.working.add(jobId);
+    this.voices.add(jobId);
     this.activity.set(jobId, this.activity.get(jobId) ?? []);
     return token;
   }
@@ -334,7 +337,12 @@ ${steps}`;
   closeVoice(token: string): void {
     const grant = this.tokens.get(token);
     this.tokens.delete(token);
-    if (grant) this.working.delete(grant.jobId);
+    if (grant) this.voices.delete(grant.jobId);
+  }
+
+  /** Whether a typed turn is working on the job right now (a live conversation is not one). */
+  typedTurnRunning(jobId: string): boolean {
+    return this.working.has(jobId);
   }
 
   /** The tools a live conversation may use: the same as typed, through the same gate. */

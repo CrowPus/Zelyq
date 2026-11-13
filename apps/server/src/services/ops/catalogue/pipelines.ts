@@ -18,18 +18,20 @@ async function strictestTarget(
   ctx: ActionContext,
   source: string,
 ): Promise<OpsEnvironmentRef | null> {
+  // Frozen or advise-only first, then protected, then a live site, then anything else.
+  const care = (environment: OpsEnvironmentRef) =>
+    environment.frozen || environment.trust === "advise"
+      ? 3
+      : environment.protected
+        ? 2
+        : environment.public
+          ? 1
+          : 0;
   let chosen: OpsEnvironmentRef | null = null;
   for (const name of checkBlocks(source).deploysTo) {
     const environment = await environmentByName(ctx, name);
     if (!environment) continue;
-    if (
-      !chosen ||
-      (environment.protected && !chosen.protected) ||
-      environment.frozen ||
-      environment.trust === "advise"
-    ) {
-      chosen = environment;
-    }
+    if (!chosen || care(environment) > care(chosen)) chosen = environment;
   }
   return chosen;
 }
@@ -323,6 +325,10 @@ const runPipeline: OpsAction<z.infer<typeof runInput>> = {
     if (!runId)
       return { kind: "pipeline_run", target: inputs.pipeline, ok: false, detail: "No run." };
     const run = await ctx.services.store.pipelines.runs.findById(runId);
+    const row = await ctx.services.store.pipelines.pipelines.findByName(
+      ctx.teamId,
+      inputs.pipeline,
+    );
     const target = `${inputs.pipeline} #${run?.number ?? "?"}`;
     if (run?.status !== "passed") {
       return {
@@ -341,6 +347,16 @@ const runPipeline: OpsAction<z.infer<typeof runInput>> = {
     for (const deployment of live) {
       const environment = environments.find((row) => row.id === deployment.environmentId);
       if (environment) checks.push(await proveDeployment(ctx, environment.name, deployment.app));
+    }
+    // A pipeline that deploys proves nothing until what it deployed is live and answers.
+    const deploys = checkBlocks(row?.source ?? "").deploysTo.length > 0;
+    if (deploys && checks.length === 0) {
+      return {
+        kind: "deployed_and_answers",
+        target,
+        ok: false,
+        detail: "The run passed, but nothing it deployed is live to check.",
+      };
     }
     return {
       kind: checks.length ? "deployed_and_answers" : "pipeline_run",

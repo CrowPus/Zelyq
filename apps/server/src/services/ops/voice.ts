@@ -89,6 +89,8 @@ export class OpsVoice {
   ): Promise<void> {
     const view = await this.ops.engineerView(jobId);
     if (["done", "failed", "stopped"].includes(view.stage)) return;
+    // Typed work on the same job is still going: it ends that work itself.
+    if (this.brain.typedTurnRunning(jobId)) return;
     if (
       view.stage === "approve" ||
       view.steps.some((step) => ["planned", "running"].includes(step.status))
@@ -330,6 +332,8 @@ export class OpsVoice {
       });
     } catch (error) {
       this.brain.closeVoice(token);
+      // A job this conversation started and never used is not left open.
+      await this.ops.abandonIfEmpty(current).catch(() => undefined);
       return fail(`Could not start talking: ${(error as Error).message}`);
     }
     emit({ type: "ready" });

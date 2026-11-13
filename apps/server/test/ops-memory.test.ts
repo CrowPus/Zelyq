@@ -459,3 +459,18 @@ test("Memory starts with Zelyq's own records; Ops's notes are kept below them", 
   assert.equal((await store.ops.sheets.find(teamId, "environment:staging"))!.version, version);
   assert.equal(withFacts(null, "F"), "F\n\n## Notes\n\n(none yet)");
 });
+
+test("a refresh replaces only Zelyq's own section: words above and below it stay", async () => {
+  const { withFacts } = await import("../src/services/ops/facts.js");
+  const before =
+    "Read me first: this box is shared.\n\n## From Zelyq's records\n- old fact\n\n## Notes\n\nResets nightly.";
+  const after = withFacts(before, "## From Zelyq's records\n- new fact");
+  assert.match(after, /- new fact/);
+  assert.doesNotMatch(after, /old fact/);
+  assert.match(after, /## Notes\n\nRead me first: this box is shared\.\n\nResets nightly\./);
+  assert.equal(
+    withFacts(after, "## From Zelyq's records\n- new fact"),
+    after,
+    "steady when nothing changed",
+  );
+});

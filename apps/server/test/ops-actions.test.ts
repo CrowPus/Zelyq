@@ -662,3 +662,77 @@ test("secret names are whole words: a password is one, a bypass switch is not", 
     assert.equal(isSecretName(name), false, name);
   }
 });
+
+test("a live site is treated as one wherever it shows: in a pipeline's targets, or through an app's own domain", async () => {
+  const now = new Date().toISOString();
+  const runner = await store.pipelines.runners.findById("rnr_test_box");
+  for (const [name, domain] of [
+    ["shopsite", "shop.example.com"],
+    ["appsite", null],
+  ] as const) {
+    await store.deploy.environments.create({
+      id: `env_${name}`,
+      teamId,
+      name,
+      runnerId: runner?.id ?? null,
+      address: "203.0.113.7",
+      domain,
+      https: "auto",
+      httpPort: 80,
+      httpsPort: 443,
+      protected: false,
+      frozen: false,
+      frozenReason: null,
+      opsTrust: "ask",
+      variables: "{}",
+      createdBy: null,
+      updatedBy: null,
+      createdAt: now,
+      updatedAt: now,
+    } as never);
+  }
+  // A pipeline to a test copy and a live site is judged by the live site: it waits.
+  const job = await ops.startJob(owner, teamId, { request: "Ship to both" });
+  const plan = await ops.proposePlan(job.id, {
+    steps: [
+      {
+        action: "create_pipeline",
+        inputs: {
+          source:
+            "name: Both\nruns-on: box\nsource: {app: Shop}\nstages:\n  - name: A\n    steps:\n      - deploy: {to: staging, port: 3000}\n  - name: B\n    needs: A\n    steps:\n      - deploy: {to: shopsite, port: 3000}\n",
+        },
+      },
+    ],
+  });
+  assert.equal(plan.job?.stage, "approve", JSON.stringify(plan.issues));
+  assert.equal(plan.job?.steps.at(-1)?.needsApproval, true);
+
+  // An environment with no domain of its own, where an app has one, is a live site too.
+  await store.deploy.apps.save({
+    id: "dap_appsite_shop",
+    environmentId: "env_appsite",
+    app: "shop",
+    domain: "myshop.example.com",
+    www: false,
+    database: null,
+    updatedBy: null,
+    updatedAt: now,
+  });
+  const restart = await ops.startJob(owner, teamId, { request: "Restart the shop" });
+  const restartPlan = await ops.proposePlan(restart.id, {
+    steps: [{ action: "restart_app", inputs: { environment: "appsite", app: "shop" } }],
+  });
+  assert.equal(restartPlan.job?.stage, "approve", JSON.stringify(restartPlan.issues));
+});
+
+test("the record of what Ops looked at keeps every line, even written at once", async () => {
+  const job = await ops.startJob(owner, teamId, { request: "Look around" });
+  await Promise.all(
+    Array.from({ length: 20 }, (_, index) => ops.recordActivity(job.id, `Look ${index}`)),
+  );
+  const view = await ops.engineerView(job.id);
+  assert.deepEqual(
+    view.activity,
+    Array.from({ length: 20 }, (_, index) => `Look ${index}`),
+  );
+});

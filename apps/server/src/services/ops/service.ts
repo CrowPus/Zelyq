@@ -877,9 +877,35 @@ export class OpsService {
     return this.detail(null, job);
   }
 
-  /** One line of what Ops looked at or did, kept with the job. */
-  async recordActivity(jobId: string, line: string): Promise<void> {
-    await this.store.ops.jobs.appendActivity(jobId, line);
+  /** One line of what Ops looked at or did, kept with the job, in order, none lost. */
+  recordActivity(jobId: string, line: string): Promise<void> {
+    // One write at a time per job: two at once would each read the list and drop a line.
+    const previous = this.activityWrites.get(jobId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() => this.store.ops.jobs.appendActivity(jobId, line));
+    this.activityWrites.set(jobId, next);
+    void next.finally(() => {
+      if (this.activityWrites.get(jobId) === next) this.activityWrites.delete(jobId);
+    });
+    return next;
+  }
+  private readonly activityWrites = new Map<string, Promise<void>>();
+
+  /** A job a live conversation started but never used (it could not connect): closed, not left open. */
+  async abandonIfEmpty(jobId: string): Promise<void> {
+    const job = await this.store.ops.jobs.findById(jobId);
+    if (!job || FINAL.has(job.stage as OpsStage)) return;
+    const messages = await this.store.ops.messages.listForJob(jobId);
+    const steps = await this.store.ops.steps.listForJob(jobId);
+    if (messages.length || steps.length) return;
+    const now = new Date().toISOString();
+    await this.store.ops.jobs.update(jobId, {
+      stage: "stopped",
+      outcome: "Talking could not start.",
+      finishedAt: now,
+      updatedAt: now,
+    });
   }
 
   /** A job started by talking is named by the person's first words. */

@@ -3,7 +3,7 @@ import { automaticConcurrency } from "@zelyq/core";
 import { z } from "zod";
 import { guardedLookup, refusedHost } from "../../net-guard.js";
 import { SshSession } from "../../pipelines/ssh.js";
-import { environmentByName, environmentRef, type OpsAction } from "../actions.js";
+import { environmentByName, environmentRef, type OpsAction, servesLiveSite } from "../actions.js";
 import { environmentRow, machineByName, nameField } from "./shared.js";
 
 const none = z.object({}).strict() as unknown as z.ZodType<Record<string, never>>;
@@ -471,7 +471,7 @@ const listEnvironments: OpsAction<Record<string, never>> = {
     const rows = await ctx.services.store.deploy.environments.listForTeam(ctx.teamId);
     const environments = await Promise.all(
       rows.map(async (row) => ({
-        ...environmentRef(row),
+        ...environmentRef(row, await servesLiveSite(ctx.services.store, row)),
         machine: row.runnerId
           ? ((await ctx.services.store.pipelines.runners.findById(row.runnerId))?.name ?? null)
           : null,

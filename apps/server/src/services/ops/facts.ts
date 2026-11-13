@@ -13,13 +13,28 @@ import type { OpsMemory } from "./memory.js";
 export const FACTS_AUTHOR = "zelyq";
 const NOTES = "## Notes";
 
-/** The sheet's text with fresh facts on top and its notes kept below. */
+const FACTS = "## From Zelyq's records";
+
+/**
+ * The sheet's text with fresh facts on top and every other word kept below,
+ * under Notes: only Zelyq's own section (its heading to "## Notes") is
+ * replaced; what anyone wrote above or below it stays.
+ */
 export function withFacts(existing: string | null, facts: string): string {
-  if (!existing) return `${facts}\n\n${NOTES}\n\n(none yet)`;
-  const at = existing.indexOf(NOTES);
-  // A sheet Ops or a person wrote before keeps all of its text, as notes.
-  const notes = at >= 0 ? existing.slice(at + NOTES.length).trim() : existing.trim();
-  return `${facts}\n\n${NOTES}\n\n${notes || "(none yet)"}`;
+  if (!existing?.trim()) return `${facts}\n\n${NOTES}\n\n(none yet)`;
+  const start = existing.indexOf(FACTS);
+  let kept: string;
+  if (start < 0) {
+    kept = existing.trim();
+  } else {
+    const end = existing.indexOf(NOTES, start);
+    const before = existing.slice(0, start).trim();
+    const after = end >= 0 ? existing.slice(end + NOTES.length).trim() : "";
+    kept = [before, after].filter(Boolean).join("\n\n");
+  }
+  if (kept === "(none yet)" || !kept) kept = "(none yet)";
+  else kept = kept.replace(/\n*\(none yet\)\s*$/, "").trim() || "(none yet)";
+  return `${facts}\n\n${NOTES}\n\n${kept}`;
 }
 
 const yes = (value: boolean) => (value ? "yes" : "no");
@@ -62,7 +77,7 @@ export async function refreshFacts(
     sheets.push({
       subject: `environment:${environment.name}`,
       facts: [
-        `## From Zelyq's records`,
+        FACTS,
         `- Machine: ${machine ? `${machine.name} (${machine.host})` : "none"}`,
         `- Address: ${environment.address ?? "the machine's own"}${environment.domain ? `; apps at <app>.${environment.domain} or their own domain` : ""}`,
         `- Domain: ${environment.domain ?? "none"} (HTTPS ${environment.https})`,
@@ -91,7 +106,7 @@ export async function refreshFacts(
     sheets.push({
       subject: `app:${subject}`,
       facts: [
-        `## From Zelyq's records`,
+        FACTS,
         ...where.map((row) => {
           const environment = environments.find((env) => env.id === row.environmentId);
           return `- On ${environment?.name ?? "?"}: #${row.number} live since ${row.createdAt.slice(0, 10)}${row.url ? `, at ${row.url}` : ""}`;
@@ -114,8 +129,8 @@ export async function refreshFacts(
     sheets.push({
       subject: `machine:${name}`,
       facts: [
-        `## From Zelyq's records`,
-        `- Host: ${runner.host} (SSH as ${runner.username})`,
+        FACTS,
+        `- Host: ${runner.host}`,
         `- Size: ${runner.cpus ?? "?"} processors, ${runner.memoryMb ? `${Math.round(runner.memoryMb / 1024)} GB memory` : "memory unknown"}, ${runner.os ?? "system unknown"}`,
         `- Environments on it: ${on.join(", ") || "none"}`,
         `- Last connection test: ${runner.lastTestOk === null ? "never" : runner.lastTestOk ? "passed" : "failed"}`,
