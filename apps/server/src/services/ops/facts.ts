@@ -29,9 +29,15 @@ export function withFacts(existing: string | null, facts: string): string {
   } else {
     const end = existing.indexOf(NOTES, start);
     const before = existing.slice(0, start).trim();
-    // Without its Notes heading the section's end is unknown: keep everything after it as notes.
+    // Without its Notes heading, the old records are the heading and its list lines; what
+    // follows them is someone's writing and is kept (the old records themselves are not).
     const after =
-      end >= 0 ? existing.slice(end + NOTES.length).trim() : existing.slice(start).trim();
+      end >= 0
+        ? existing.slice(end + NOTES.length).trim()
+        : existing
+            .slice(start + FACTS.length)
+            .replace(/^(\s*\n|\s*- [^\n]*\n?)*/, "")
+            .trim();
     kept = [before, after].filter(Boolean).join("\n\n");
   }
   if (kept === "(none yet)" || !kept) kept = "(none yet)";

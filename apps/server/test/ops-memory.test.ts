@@ -473,4 +473,11 @@ test("a refresh replaces only Zelyq's own section: words above and below it stay
     after,
     "steady when nothing changed",
   );
+  // The Notes heading deleted: the old records are not kept as notes; what was written after them is.
+  const noHeading =
+    "## From Zelyq's records\n- old fact\n- older fact\n\nWe moved this box in May.";
+  const fixed = withFacts(noHeading, "## From Zelyq's records\n- new fact");
+  assert.doesNotMatch(fixed, /old fact/);
+  assert.equal(fixed.match(/From Zelyq's records/g)?.length, 1);
+  assert.match(fixed, /## Notes\n\nWe moved this box in May\./);
 });
