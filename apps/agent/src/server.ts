@@ -13,6 +13,7 @@ import { capturePage } from "@zelyq/tools";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { AgentConfig } from "./config.js";
+import { opsTurnSchema, runOpsTurn } from "./ops-turn.js";
 import {
   apiKeyFromEnv,
   baseUrlFor,
@@ -161,6 +162,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       ...(provider.models ? { models: provider.models } : {}),
     })),
   }));
+
+  /** One turn of Ops, the DevOps engineer: the model only; tools run on the Zelyq server. */
+  app.post("/ops-turns", async (request) => runOpsTurn(opsTurnSchema.parse(request.body)));
 
   app.post("/sessions", async (request, reply) => {
     const input = createAgentSessionSchema.parse(request.body);

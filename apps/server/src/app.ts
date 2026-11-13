@@ -60,6 +60,7 @@ import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
 import { ActionList } from "./services/ops/actions.js";
+import { OpsBrain } from "./services/ops/brain.js";
 import { OPS_ACTIONS } from "./services/ops/catalogue.js";
 import { OpsService } from "./services/ops/service.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
@@ -463,7 +464,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
   registerDeployRoutes(app, { access, deploys });
-  registerOpsRoutes(app, { access, ops });
+  const opsBrain = new OpsBrain(ops, settings, agent, config.serverInternalUrl);
+  registerOpsRoutes(app, { access, ops, brain: opsBrain });
   // Zelyq's own plugins, signed: installed only if the signature verifies.
   const pluginRegistry = new PluginRegistryClient(store, settings, access, pipelinePlugins, {
     trustedKeys: process.env.ZELYQ_PLUGIN_REGISTRY_KEYS

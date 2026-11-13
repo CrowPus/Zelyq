@@ -1,0 +1,354 @@
+import { randomBytes } from "node:crypto";
+import { type OpsJobDetail, opsTalkSchema, type User, ZelyqError } from "@zelyq/core";
+import { z } from "zod";
+import type { AgentClient } from "../agent-client.js";
+import type { SettingsService } from "../settings.js";
+import { OPS_WAY } from "./guide.js";
+import { PLAYBOOKS } from "./playbooks.js";
+import type { OpsService } from "./service.js";
+
+/** One turn's ceilings: Ops never runs open-ended (072 §2.3). */
+const LIMITS = { rounds: 40, tokens: 1_500_000, minutes: 45 };
+
+/** How long a bridge token lives: one turn, with room for a long pipeline run. */
+const TOKEN_MS = 70 * 60_000;
+
+/** A person who keeps talking while Ops works gets answered after, up to this many times in a row. */
+const FOLLOW_UPS = 3;
+
+const planToolInput = z
+  .object({
+    steps: z
+      .array(
+        z
+          .object({ action: z.string(), inputs: z.record(z.string(), z.unknown()).default({}) })
+          .strict(),
+      )
+      .min(1)
+      .max(40),
+  })
+  .strict();
+const finishInput = z
+  .object({ outcome: z.string().trim().min(1).max(4000), failed: z.boolean().optional() })
+  .strict();
+
+/**
+ * Ops's brain (072 §2.3): a person talks, a turn runs. The agent service runs
+ * the model; this server decides what it reads (its way of working, the
+ * playbooks, its memory, the job as it stands) and answers every tool call
+ * through the same gate and proofs as everything else. The conversation is
+ * kept as text, so what was said aloud is on record too.
+ */
+export class OpsBrain {
+  private readonly tokens = new Map<string, { teamId: string; jobId: string; expires: number }>();
+  private readonly working = new Set<string>();
+  private readonly activity = new Map<string, string[]>();
+
+  constructor(
+    private readonly ops: OpsService,
+    private readonly settings: SettingsService,
+    private readonly agent: AgentClient,
+    private readonly serverUrl: string,
+  ) {
+    ops.liveState = (jobId) => ({
+      working: this.working.has(jobId),
+      activity: this.activity.get(jobId) ?? [],
+    });
+  }
+
+  /** A person says something to Ops: a new job, or more in one still going. */
+  async talk(user: User, teamId: string, raw: unknown): Promise<OpsJobDetail> {
+    const input = opsTalkSchema.parse(raw);
+    let jobId = input.jobId ?? null;
+    if (jobId) {
+      const job = await this.ops.getJob(user, teamId, jobId);
+      if (["done", "failed", "stopped"].includes(job.stage)) jobId = null;
+      else await this.ops.addPersonMessage(user, teamId, jobId, input.text);
+    }
+    if (!jobId) {
+      const job = await this.ops.startJob(user, teamId, { request: input.text });
+      jobId = job.id;
+    }
+    void this.run(jobId).catch(() => undefined);
+    return this.ops.getJob(user, teamId, jobId);
+  }
+
+  /** Runs turns until the person's last message has an answer. */
+  private async run(jobId: string): Promise<void> {
+    if (this.working.has(jobId)) return; // the running turn picks the new message up after
+    this.working.add(jobId);
+    this.activity.set(jobId, []);
+    try {
+      for (let turn = 0; turn < FOLLOW_UPS; turn += 1) {
+        await this.turn(jobId);
+        const view = await this.ops.engineerView(jobId);
+        const last = view.messages.at(-1);
+        if (!last || last.role !== "person" || ["done", "failed", "stopped"].includes(view.stage))
+          break;
+      }
+    } finally {
+      this.working.delete(jobId);
+    }
+  }
+
+  private async turn(jobId: string): Promise<void> {
+    const view = await this.ops.engineerView(jobId);
+    const teamId = (await this.ops.teamOf(jobId)) as string;
+    const engineer = await this.ops.engineers.find(teamId);
+    if (!engineer || engineer.paused) {
+      await this.ops.systemNote(jobId, "Ops is paused. A person resumes it on the Ops page.");
+      return;
+    }
+    if (engineer.monthlyTokenCap !== null) {
+      const used = await this.ops.engineers.tokensThisMonth(teamId);
+      if (used >= engineer.monthlyTokenCap) {
+        await this.ops.systemNote(
+          jobId,
+          `Ops has used this month's limit (${used.toLocaleString("en")} of ${engineer.monthlyTokenCap.toLocaleString("en")} tokens). An admin can raise it on the Ops page; checks and alerts keep working.`,
+        );
+        return;
+      }
+    }
+    const conversation = view.messages.filter((message) => message.role !== "system");
+    const lastPerson = [...conversation].reverse().find((message) => message.role === "person");
+    if (!lastPerson) return;
+    const history = conversation.slice(0, conversation.lastIndexOf(lastPerson)).map((message) => ({
+      role: message.role === "person" ? ("user" as const) : ("assistant" as const),
+      content: message.text,
+    }));
+
+    const token = randomBytes(32).toString("hex");
+    this.tokens.set(token, { teamId, jobId, expires: Date.now() + TOKEN_MS });
+    try {
+      const model = await this.modelConfig();
+      const result = await this.agent.opsTurn({
+        ...model,
+        systemPrompt: await this.systemPrompt(teamId, view),
+        history,
+        message: lastPerson.text,
+        tools: this.tools(),
+        bridge: { url: `${this.serverUrl.replace(/\/$/, "")}/api/ops-bridge`, token },
+        limits: LIMITS,
+      });
+      await this.ops.addTokens(jobId, result.usage.inputTokens, result.usage.outputTokens);
+      // Its own last words are the answer; a job it finished without any still says how it ended.
+      const after = await this.ops.engineerView(jobId);
+      const reply = result.text.trim() || (after.outcome && after.finishedAt ? after.outcome : "");
+      if (reply) await this.ops.say(jobId, reply);
+      if (result.stopped) await this.ops.systemNote(jobId, result.stopped);
+    } catch (error) {
+      await this.ops.systemNote(jobId, `Ops could not work on this: ${(error as Error).message}`);
+    } finally {
+      this.tokens.delete(token);
+    }
+  }
+
+  /** The provider of Settings → Model; the model of Settings → Ops, or the provider's default. */
+  private async modelConfig() {
+    const provider = await this.settings.value("provider");
+    const chosen = (await this.settings.value("opsModel")).trim();
+    const requested = chosen || (await this.settings.modelFor(provider));
+    const model =
+      provider === "openai"
+        ? await this.settings.resolveOpenAIModel(requested)
+        : provider === "anthropic"
+          ? await this.settings.resolveAnthropicModel(requested)
+          : provider === "google"
+            ? await this.settings.resolveGoogleModel(requested)
+            : requested;
+    const baseUrl =
+      provider === "openai"
+        ? await this.settings.openAIBaseUrl()
+        : provider === "anthropic"
+          ? await this.settings.anthropicBaseUrl()
+          : provider === "google"
+            ? await this.settings.googleBaseUrl()
+            : await this.settings.value("modelBaseUrl");
+    const workspace =
+      provider === "anthropic" ? await this.settings.value("anthropicWorkspaceId") : "";
+    return {
+      provider,
+      model,
+      apiKey: await this.settings.apiKeyFor(provider),
+      authMode: await this.settings.authModeFor(provider),
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(workspace ? { anthropicWorkspaceId: workspace } : {}),
+    };
+  }
+
+  /** What Ops reads first: who it is, how it works, what it remembers, and the job as it stands. */
+  private async systemPrompt(teamId: string, view: OpsJobDetail): Promise<string> {
+    const memory = await this.ops.memory.openingContext(teamId);
+    const steps = view.steps.length
+      ? view.steps
+          .map(
+            (step) =>
+              `${step.position + 1}. [${step.status}${step.needsApproval ? ", waits for approval" : ""}] ${step.words}${step.proof ? ` — checked: ${step.proof.ok ? "ok" : "FAILED"} (${step.proof.detail ?? step.proof.target})` : ""}${step.result ? ` — ${step.result.slice(0, 200)}` : ""}`,
+          )
+          .join("\n")
+      : "(no plan yet)";
+    return `You are Ops, this team's DevOps engineer inside Zelyq. People talk to you on the Ops page, by typing or aloud.
+
+${OPS_WAY}
+
+How you talk:
+- Plain words for people who are not engineers. No jargon without a one-line explanation.
+- Start every reply with one short sentence that sums it up: it is read aloud. Details after it, short.
+- Say what you are about to do before a long step ("Running the pipeline; this takes a few minutes").
+- Answer in the language the person writes in.
+- Never say done, live or fixed unless the step shows "checked: ok". Use the exact word for what was checked: an environment is a place that now exists; an app is "live" only when check_deployment says it answers; a domain "works" only when check_dns leads there and check_certificate is valid.
+- When a plan waits for approval, say so and ask them to press Approve after reading it. You cannot approve anything, and voice cannot approve.
+
+How you work here:
+- Your tools are the actions (each goes through Zelyq's gate and its own checks), plus propose_plan, job_state and finish_job.
+- Looking is free. Every change must be a step of a plan you propose with propose_plan (exact action names and inputs). A step that needs a person shows "waits for approval": stop and tell the person; continue when they come back.
+- Run the plan's steps with exactly the inputs you planned. If a step is refused, read why: do not try the same thing again.
+- A question needs no plan: answer it and finish_job with the answer.
+- When the work is over, finish_job: done (only if every step is checked) or failed, with what is live, what was proven, and what is left for the person.
+
+${PLAYBOOKS}
+
+${memory ? `What you remember:\n\n${memory}\n\n` : ""}This job:
+- Asked: ${view.request}
+- Stage: ${view.stage}
+- Plan:
+${steps}`;
+  }
+
+  /** Every action, and the three tools that move a job. */
+  private tools() {
+    const list = this.ops.actionList.all().map((action) => {
+      const schema = z.toJSONSchema(action.input as z.ZodType, { io: "input" }) as Record<
+        string,
+        unknown
+      >;
+      return {
+        name: action.name,
+        description: `${action.description}${typeof action.risk === "string" && action.risk === "read" ? " (Looks only.)" : " (A change: plan it first.)"}`,
+        input_schema: {
+          type: "object",
+          properties: schema.properties ?? {},
+          required: schema.required ?? [],
+        },
+      };
+    });
+    return [
+      {
+        name: "propose_plan",
+        description:
+          "Propose the plan for this job: exact actions and exact inputs, in order. A person reads it in plain words and approves what needs approval. Replaces any earlier plan.",
+        input_schema: z.toJSONSchema(planToolInput, { io: "input" }) as Record<string, unknown>,
+      },
+      {
+        name: "job_state",
+        description:
+          "This job as it stands: stage, the plan's steps with their status and checks, the conversation.",
+        input_schema: { type: "object", properties: {} },
+      },
+      {
+        name: "finish_job",
+        description:
+          "End the job: what is live, what was proven, what is left for the person. Done only if every planned step is checked; otherwise failed: true.",
+        input_schema: z.toJSONSchema(finishInput, { io: "input" }) as Record<string, unknown>,
+      },
+      ...list,
+    ];
+  }
+
+  /** A tool call from the agent, by its turn's token. Returns what the model reads. */
+  async bridge(
+    token: string | undefined,
+    tool: string,
+    input: unknown,
+  ): Promise<{ output: string; isError: boolean }> {
+    const grant = token ? this.tokens.get(token) : undefined;
+    if (!grant || grant.expires < Date.now()) {
+      throw new ZelyqError("unauthorized", "This Ops turn has ended.");
+    }
+    const note = (text: string) => {
+      const list = this.activity.get(grant.jobId) ?? [];
+      list.push(text);
+      this.activity.set(grant.jobId, list.slice(-30));
+    };
+    const out = (value: unknown, isError = false) => ({
+      output: (typeof value === "string" ? value : JSON.stringify(value, null, 1)).slice(0, 16_000),
+      isError,
+    });
+    try {
+      if (tool === "propose_plan") {
+        const parsed = planToolInput.parse(input);
+        note(
+          `Proposed a plan of ${parsed.steps.length} step${parsed.steps.length === 1 ? "" : "s"}`,
+        );
+        const plan = await this.ops.proposePlan(grant.jobId, parsed);
+        if (!plan.ok) return out({ ok: false, issues: plan.issues }, true);
+        return out({
+          ok: true,
+          stage: plan.job?.stage,
+          steps: plan.job?.steps.map((step) => ({
+            position: step.position + 1,
+            words: step.words,
+            needsApproval: step.needsApproval,
+          })),
+          note:
+            plan.job?.stage === "approve"
+              ? "The plan waits for a person's approval. Tell them, and stop here."
+              : "The plan stands: run its steps in order.",
+        });
+      }
+      if (tool === "job_state") {
+        const view = await this.ops.engineerView(grant.jobId);
+        return out({
+          stage: view.stage,
+          steps: view.steps.map((step) => ({
+            position: step.position + 1,
+            action: step.action,
+            words: step.words,
+            status: step.status,
+            needsApproval: step.needsApproval,
+            checked: step.proof ? { ok: step.proof.ok, detail: step.proof.detail } : null,
+          })),
+        });
+      }
+      if (tool === "finish_job") {
+        const parsed = finishInput.parse(input);
+        note(parsed.failed ? "Finished: could not complete it" : "Finished");
+        const view = await this.ops.finish(grant.jobId, parsed, { announce: false });
+        return out({ stage: view.stage });
+      }
+      const action = this.ops.actionList.get(tool);
+      if (action) {
+        try {
+          note(action.words(action.input.parse(input ?? {}) as never));
+        } catch {
+          note(tool);
+        }
+      }
+      const result = await this.ops.perform(grant.jobId, tool, input);
+      if (result.verdict.verdict !== "run") {
+        return out(
+          {
+            done: false,
+            [result.verdict.verdict === "ask" ? "waitsForPerson" : "refused"]:
+              result.verdict.reason,
+          },
+          true,
+        );
+      }
+      return out(
+        {
+          ok: result.outcome?.ok ?? false,
+          summary: result.outcome?.summary,
+          data: result.outcome?.data ?? undefined,
+          step: result.step,
+          checked: result.proof
+            ? { ok: result.proof.ok, target: result.proof.target, detail: result.proof.detail }
+            : undefined,
+        },
+        !(result.outcome?.ok ?? false),
+      );
+    } catch (error) {
+      return out((error as Error).message, true);
+    }
+  }
+}

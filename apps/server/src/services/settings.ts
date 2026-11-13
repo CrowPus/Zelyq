@@ -107,6 +107,11 @@ const GROUPS: Array<{ name: string; description: string }> = [
     name: "Pipelines",
     description: "Where runs-on: local pipelines run, and how long runs and artifacts are kept.",
   },
+  {
+    name: "Ops",
+    description:
+      "Ops, the team's DevOps engineer. It uses the provider above; its model can differ from the one that builds apps.",
+  },
 ];
 
 const DEFINITIONS: Definition[] = [
@@ -625,6 +630,17 @@ const DEFINITIONS: Definition[] = [
     envVar: "ZELYQ_PIPELINE_LOCAL_CONCURRENCY",
     envOverridable: true,
     fallback: "0",
+  },
+  {
+    key: "opsModel",
+    label: "Ops model",
+    description:
+      "The model Ops thinks with. Empty: the provider's strongest default. Ops refuses models known to be too small for multi-step operations work.",
+    kind: "text",
+    group: "Ops",
+    envVar: "ZELYQ_OPS_MODEL",
+    envOverridable: true,
+    fallback: "",
   },
   {
     key: "pluginRegistry",

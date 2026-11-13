@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
+import type { OpsBrain } from "../services/ops/brain.js";
 import type { OpsService } from "../services/ops/service.js";
 
 type Team = { Params: { teamId: string } };
@@ -13,9 +14,30 @@ type Step = { Params: { teamId: string; jobId: string; stepId: string } };
  */
 export function registerOpsRoutes(
   app: FastifyInstance,
-  deps: { access: AccessControl; ops: OpsService },
+  deps: { access: AccessControl; ops: OpsService; brain: OpsBrain },
 ): void {
-  const { access, ops } = deps;
+  const { access, ops, brain } = deps;
+
+  /** Talk to Ops, typed or said aloud: a new job, or more in one still going. */
+  app.post<Team>("/api/teams/:teamId/ops/talk", async (request) => ({
+    job: await brain.talk(access.requireUser(request), request.params.teamId, request.body),
+  }));
+
+  /**
+   * The engineer's own tool calls, from the agent service during a turn.
+   * Authorised only by that turn's token, never by a person's session.
+   */
+  app.post<{ Body: { tool?: string; input?: unknown } }>(
+    "/api/ops-bridge/call",
+    async (request) => {
+      const token = request.headers["x-zelyq-ops-bridge"];
+      return brain.bridge(
+        typeof token === "string" ? token : undefined,
+        String(request.body?.tool ?? ""),
+        request.body?.input,
+      );
+    },
+  );
 
   app.get<Team>("/api/teams/:teamId/ops", async (request) => ({
     engineer: await ops.engineers.summary(access.requireUser(request), request.params.teamId),

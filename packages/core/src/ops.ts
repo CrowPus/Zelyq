@@ -133,7 +133,22 @@ export interface OpsJobDetail extends OpsJobSummary {
   canApprove: boolean;
   approveBlockedBy: string | null;
   messages: OpsMessage[];
+  /** Ops is thinking or acting on this job right now. */
+  working: boolean;
+  /** What it has been doing in this turn, newest last: "Looked at the app Shop". */
+  activity: string[];
 }
+
+/** Talking to Ops: a new job, or more in an existing one. */
+export const opsTalkSchema = z
+  .object({
+    text: z.string().trim().min(1, "Say something.").max(4000),
+    jobId: z.string().min(1).optional(),
+    /** Said aloud rather than typed: shown the same, kept as text. */
+    spoken: z.boolean().optional(),
+  })
+  .strict();
+export type OpsTalkInput = z.input<typeof opsTalkSchema>;
 
 export const opsJobInputSchema = z
   .object({

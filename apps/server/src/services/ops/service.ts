@@ -66,6 +66,11 @@ export interface PlanResult {
 export class OpsService {
   readonly engineers: OpsEngineers;
   readonly memory: OpsMemory;
+  /** Whether the engineer is working on a job now, and what it has been doing; set by the brain. */
+  liveState: (jobId: string) => { working: boolean; activity: string[] } = () => ({
+    working: false,
+    activity: [],
+  });
   private readonly services: Omit<OpsServices, "store">;
 
   constructor(
@@ -496,7 +501,12 @@ export class OpsService {
   }
 
   /** The engineer finishes. "Done" needs every step proven; anything else is reported as it is. */
-  async finish(jobId: string, input: { outcome: string; failed?: boolean }): Promise<OpsJobDetail> {
+  async finish(
+    jobId: string,
+    input: { outcome: string; failed?: boolean },
+    /** Post the outcome as Ops's message; the brain says it in its own reply instead. */
+    options: { announce?: boolean } = {},
+  ): Promise<OpsJobDetail> {
     const job = await this.liveJob(jobId);
     const steps = await this.store.ops.steps.listForJob(job.id);
     const now = new Date().toISOString();
@@ -514,7 +524,7 @@ export class OpsService {
       finishedAt: now,
       updatedAt: now,
     });
-    await this.message(job.id, "ops", null, input.outcome);
+    if (options.announce !== false) await this.message(job.id, "ops", null, input.outcome);
     const engineer = await this.engineerOf(job.teamId);
     await this.access.recordChange(await this.engineers.account(engineer), {
       teamId: job.teamId,
@@ -522,6 +532,32 @@ export class OpsService {
       detail: { jobId: job.id, failed: input.failed === true },
     });
     return this.detail(null, (await this.store.ops.jobs.findById(job.id)) as OpsJobRow);
+  }
+
+  /** The team a job belongs to. */
+  async teamOf(jobId: string): Promise<string | null> {
+    return (await this.store.ops.jobs.findById(jobId))?.teamId ?? null;
+  }
+
+  /** The job as the engineer sees it (no viewer): its plan, steps, proofs and conversation. */
+  async engineerView(jobId: string): Promise<OpsJobDetail> {
+    const job = await this.store.ops.jobs.findById(jobId);
+    if (!job) throw ZelyqError.notFound("Job", jobId);
+    return this.detail(null, job);
+  }
+
+  /** A person says more in a job that is still going. */
+  async addPersonMessage(user: User, teamId: string, jobId: string, text: string): Promise<void> {
+    await this.access.requireTeamRole(user, teamId, "editor");
+    await this.requirePerson(user);
+    const job = await this.jobOf(teamId, jobId);
+    if (FINAL.has(job.stage as OpsStage)) throw ZelyqError.badRequest(`This job is ${job.stage}.`);
+    await this.message(job.id, "person", user.id, text.slice(0, 4000));
+  }
+
+  /** A note from Zelyq itself in a job: an error, a limit reached. */
+  async systemNote(jobId: string, text: string): Promise<void> {
+    await this.message(jobId, "system", null, text.slice(0, 4000));
   }
 
   /** What the engineer says to the person in the job. */
@@ -822,6 +858,7 @@ export class OpsService {
       planApprovedAt: row.planApprovedAt,
       canApprove,
       approveBlockedBy,
+      ...this.liveState(row.id),
       messages: messages.map((message) => ({
         id: message.id,
         role: message.role as OpsMessage["role"],
