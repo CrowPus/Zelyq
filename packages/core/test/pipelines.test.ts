@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  automaticConcurrency,
   cronMatches,
+  expandTemplates,
   PIPELINE_TEMPLATES,
   parseCron,
   parseDuration,
   parsePipelineFile,
   pipelineTarget,
   pipelineVaultNames,
+  stagePlan,
   summariseStages,
 } from "../src/pipelines.js";
 
@@ -222,4 +225,126 @@ stages:
 
   const yaml = parsePipelineFile("name: A\n  bad: [\n");
   assert.ok(yaml.issues.every((issue) => typeof issue.from === "number"));
+});
+
+const stage = (name: string, extra: Record<string, unknown> = {}) =>
+  ({ name, steps: [], ...extra }) as { name: string; parallel?: boolean; needs?: string[] };
+
+test("a file without needs: goes top to bottom, parallel: beside the stage above", () => {
+  const plan = stagePlan({
+    stages: [
+      stage("A"),
+      stage("B"),
+      stage("C", { parallel: true }),
+      stage("D", { "runs-on": "mac" }),
+      stage("E"),
+    ],
+  });
+  assert.equal(plan.graph, false);
+  assert.deepEqual(plan.needs, [[], [0], [0], [1, 2], [3]]);
+  assert.deepEqual(plan.levels, [[0], [1, 2], [3], [4]]);
+  // Beside another, or naming a machine: a machine of its own.
+  assert.deepEqual(plan.own, [false, true, true, true, false]);
+});
+
+test("with needs:, stages that don't wait for each other share a column and get machines", () => {
+  const plan = stagePlan({
+    stages: [
+      stage("Build"),
+      stage("Lint", { needs: [] }),
+      stage("Test (20)", { needs: ["Build"], matrix: { node: "20" } }),
+      stage("Test (22)", { needs: ["Build"], matrix: { node: "22" } }),
+      stage("Ship", { needs: ["Lint", "Test"] }),
+      stage("Tell", { needs: ["Ship"] }),
+    ],
+  });
+  assert.equal(plan.graph, true);
+  assert.deepEqual(plan.needs, [[], [], [0], [0], [1, 2, 3], [4]]);
+  assert.deepEqual(plan.levels, [[0, 1], [2, 3], [4], [5]]);
+  // Ship and Tell never run beside anything: they share the run's machine.
+  assert.deepEqual(plan.own, [true, true, true, true, false, false]);
+});
+
+test("a template in a file with needs: keeps its order with needs:", () => {
+  const template = [
+    "name: Checks",
+    "runs-on: local",
+    "stages:",
+    "  - name: Lint",
+    "    steps: [{run: lint}]",
+    "  - name: Types",
+    "    parallel: true",
+    "    steps: [{run: tsc}]",
+    "  - name: Unit",
+    "    steps: [{run: test}]",
+    "",
+  ].join("\n");
+  const host = [
+    "name: Shop",
+    "runs-on: local",
+    "stages:",
+    "  - name: Build",
+    "    steps: [{run: build}]",
+    "  - name: Checks",
+    "    uses: Checks",
+    "    needs: Build",
+    "  - name: Ship",
+    "    needs: Checks",
+    "    steps: [{run: ship}]",
+    "",
+  ].join("\n");
+  const expanded = expandTemplates(host, { Checks: template });
+  assert.equal(expanded.ok, true);
+  if (!expanded.ok) return;
+  const parsed = parsePipelineFile(expanded.text);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed.issues));
+  if (!parsed.ok) return;
+  assert.deepEqual(
+    parsed.file.stages.map((one) => [one.name, one.needs ?? null, one.parallel ?? null]),
+    [
+      ["Build", null, null],
+      ["Checks › Lint", ["Build"], null],
+      ["Checks › Types", ["Build"], null],
+      ["Checks › Unit", ["Checks › Lint", "Checks › Types"], null],
+      ["Ship", "Checks", null],
+    ],
+  );
+  // "Checks" means every stage it copied in.
+  assert.deepEqual(stagePlan(parsed.file).needs[4], [1, 2, 3]);
+
+  const withNeeds = expandTemplates(
+    "name: X\nruns-on: local\nstages:\n  - name: T\n    uses: Graph\n",
+    {
+      Graph:
+        "name: Graph\nruns-on: local\nstages:\n  - name: A\n    needs: []\n    steps: [{run: a}]\n",
+    },
+  );
+  assert.equal(withNeeds.ok, false);
+});
+
+test("an approval cannot be in a stage that may run beside another", () => {
+  const parsed = parsePipelineFile(
+    [
+      "name: X",
+      "runs-on: local",
+      "stages:",
+      "  - name: A",
+      "    steps: [{run: a}]",
+      "  - name: B",
+      "    needs: []",
+      "    steps: [{approval: Go?}]",
+      "",
+    ].join("\n"),
+  );
+  assert.equal(parsed.ok, false);
+  assert.match(JSON.stringify(parsed.issues), /not at the same time as another stage/);
+});
+
+test("a machine takes one run per two processors, with 2 GB each, between 1 and 8", () => {
+  assert.equal(automaticConcurrency(null, null), 1);
+  assert.equal(automaticConcurrency(1, 1024), 1);
+  assert.equal(automaticConcurrency(8, 32 * 1024), 4);
+  assert.equal(automaticConcurrency(8, 4 * 1024), 2);
+  assert.equal(automaticConcurrency(64, 256 * 1024), 8);
+  assert.equal(automaticConcurrency(4, null), 2);
 });

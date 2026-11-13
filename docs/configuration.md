@@ -378,7 +378,7 @@ Set in **Settings → Pipelines** (or by these variables until first saved there
 | --- | --- | --- |
 | `ZELYQ_PIPELINE_LOCAL_RUNNER` | `container` | Where `runs-on: local` runs: `container` (a fresh container per run, needs Docker), `host` (directly on the server, as Zelyq's own user), or `off`. |
 | `ZELYQ_PIPELINE_LOCAL_IMAGE` | `node:22-bookworm` | The image local runs start from. Needs `sh` and `tar`. |
-| `ZELYQ_PIPELINE_LOCAL_CONCURRENCY` | `2` | Local runs at the same time; the rest wait in the queue. |
+| `ZELYQ_PIPELINE_LOCAL_CONCURRENCY` | `0` | Local runs at the same time; the rest wait in line. `0` is automatic: one per two processors, with at least 2 GB of memory each, between 2 and 8. |
 
 Local run containers join the projects' network (`zelyq-projects`) when it exists, so the same
 metadata block and egress allowlist apply to them.

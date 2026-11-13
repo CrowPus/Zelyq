@@ -26,6 +26,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { AppShell } from "../components/AppShell";
 import { AgentRequests, forPipeline } from "../components/agents/AgentRequests";
 import { HistoryTab } from "../components/pipelines/HistoryTab";
+import { queueSummary } from "../components/pipelines/QueueNotice";
 import { RepoFileBar } from "../components/pipelines/RepoFile";
 import { StageStrip, StatusIcon } from "../components/pipelines/Stages";
 import { VisualEditor } from "../components/pipelines/VisualEditor";
@@ -234,6 +235,7 @@ function Runs({ teamId, pipelineId }: { teamId: string; pipelineId: string }) {
                 <span className="block truncate">
                   {run.triggeredBy ? run.triggeredBy.name : TRIGGER_WORDS[run.trigger]}
                   {run.runner && <> · on {run.runner}</>}
+                  {run.status === "queued" && <> · {queueSummary(run.queue)}</>}
                   {run.error && <> · {run.error}</>}
                 </span>
                 <RunSource run={run} />
@@ -715,6 +717,22 @@ stages:
 
 # A stage with runs-on, or beside another, starts in an empty folder
 # of its own: check out again there. No approvals in such a stage.`}</pre>
+      <p className="mt-3 font-medium text-fg">Say what each stage waits for: needs</p>
+      <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`stages:
+  - name: Build
+    steps: [{checkout: true}, {run: npm run build}]
+  - name: Lint                 # needs nothing: starts at once, beside Build
+    needs: []
+    steps: [{checkout: true}, {run: npm run lint}]
+  - name: Unit tests
+    needs: Build               # starts as soon as Build is done
+    steps: [{checkout: true}, {run: npm test}]
+  - name: Ship
+    needs: [Lint, Unit tests]  # once both are done
+    steps: [{run: echo ok}]
+
+# Once one stage has needs:, every stage starts as soon as what it
+# names is done — no more top to bottom. Use it instead of parallel:.`}</pre>
       <p className="mt-3 font-medium text-fg">Templates: reuse another pipeline's stages</p>
       <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`stages:
   - name: Checks

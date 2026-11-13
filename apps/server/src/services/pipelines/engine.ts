@@ -4,8 +4,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   fillRunValues,
+  type LocalRunnerStatus,
+  MAX_PARALLEL,
   newId,
-  onOwnMachine,
   type PipelineCondition,
   type PipelineFile,
   type PipelineShell,
@@ -16,10 +17,11 @@ import {
   pipelineTarget,
   pipelineVaultNames,
   type RunnerOs,
+  type RunQueueInfo,
   type RunStatus,
   roleAtLeast,
   type StepStatus,
-  stageGroups,
+  stagePlan,
   vaultReferenceName,
 } from "@zelyq/core";
 import type { PipelineLogRow, PipelineRunRow, PipelineStepRow, RunnerRow, Store } from "@zelyq/db";
@@ -36,6 +38,7 @@ import {
 import type { DeployService } from "../deploy.js";
 import type { SettingsService } from "../settings.js";
 import type { VaultService } from "../vault.js";
+import { automaticLocalConcurrency } from "./capacity.js";
 import { addJunit, emptySummary } from "./junit.js";
 import { Masker } from "./mask.js";
 import { sendNotification } from "./notify.js";
@@ -46,7 +49,7 @@ import {
   splitTestFiles,
   testFilesScript,
 } from "./results.js";
-import { parseList, type RunnerService } from "./runners.js";
+import { parseList, type RunnerService, runnerConcurrency } from "./runners.js";
 import {
   checkoutCommands,
   cleanupCommand,
@@ -117,10 +120,27 @@ export interface EngineDeps {
 
 type EndReason = "cancelled" | "timed_out";
 
+/** Why a queued run waits: its machine is full, or an earlier run of its pipeline goes first. */
+type Wait =
+  | {
+      reason: "machine";
+      /** The line it stands in: a runner, or a set of labels. */
+      line: string;
+      /** The runners that would take it ("local" or runner ids). */
+      keys: string[];
+      machine: string;
+      places: number;
+    }
+  | { reason: "earlier"; ahead: PipelineRunRow };
+
 interface ActiveRun {
+  /** The run as it started: what a waiting run's "waits for" names. */
+  row: PipelineRunRow;
   controller: AbortController;
   reason: EndReason | null;
   runnerKey: string;
+  /** The runners its stages on machines of their own hold now ("local" or a runner id). */
+  lanes: string[];
   /** Whether the run counts against its runner now (not while it waits for a person). */
   holding: boolean;
   /** True while it waits for an approval: a shutdown leaves it waiting. */
@@ -187,6 +207,10 @@ export class PipelineEngine {
   private readonly active = new Map<string, ActiveRun>();
   /** Running runs per runner ("local" or a runner id). */
   private readonly busy = new Map<string, number>();
+  /** Why each queued run waits, as of the last look at the queue. */
+  private queue = new Map<string, RunQueueInfo>();
+  private readonly typical = new Map<string, { at: number; ms: number | null }>();
+  private readonly names = new Map<string, string>();
   private timer: NodeJS.Timeout | null = null;
   private ticking = false;
   private again = false;
@@ -285,6 +309,23 @@ export class PipelineEngine {
     return this.active.has(runId);
   }
 
+  /**
+   * Cancels a run only if it has not started: claimed the way a runner
+   * claims it, so it cannot start meanwhile. False when it had already started.
+   */
+  async cancelQueued(run: PipelineRunRow): Promise<boolean> {
+    const now = new Date().toISOString();
+    if (!(await this.deps.store.pipelines.runs.claim(run.id, null, "", now))) return false;
+    await this.deps.store.pipelines.runs.update(run.id, {
+      status: "cancelled",
+      runnerName: null,
+      startedAt: null,
+      finishedAt: now,
+    });
+    await this.finishSteps(run.id, "cancelled");
+    return true;
+  }
+
   /** Stops a run. A queued run ends at once; a running one stops its step first. */
   async cancel(run: PipelineRunRow): Promise<void> {
     const active = this.active.get(run.id);
@@ -313,6 +354,7 @@ export class PipelineEngine {
 
   private async tick(): Promise<void> {
     const queued = await this.deps.store.pipelines.runs.listByStatus("queued");
+    const waits: { run: PipelineRunRow; wait: Wait }[] = [];
     for (const run of queued) {
       if (this.closed) return;
       const parsed = parsePipelineFile(run.source, runInputs(run));
@@ -326,7 +368,10 @@ export class PipelineEngine {
       const placement = await this.place(run, parsed.file).catch((error: Error) => ({
         fail: error.message,
       }));
-      if ("wait" in placement) continue;
+      if ("wait" in placement) {
+        waits.push({ run, wait: placement.wait });
+        continue;
+      }
       if ("fail" in placement) {
         await this.failQueued(run, placement.fail);
         continue;
@@ -341,13 +386,136 @@ export class PipelineEngine {
       const key = placement.runner?.id ?? "local";
       this.busy.set(key, (this.busy.get(key) ?? 0) + 1);
       const active: ActiveRun = {
+        row: claimed,
         controller: new AbortController(),
         reason: null,
         runnerKey: key,
+        lanes: [],
         holding: true,
       };
       this.launch(claimed, parsed.file, placement.runner, active, false);
     }
+    this.queue = await this.explain(waits).catch((error: Error) => {
+      this.deps.log.error(error, "pipeline queue could not be explained");
+      return new Map<string, RunQueueInfo>();
+    });
+  }
+
+  /** The local runner now: how many runs it takes at once, and how many it has. */
+  async localStatus(): Promise<LocalRunnerStatus> {
+    const set = await this.deps.settings.numberValue("pipelineLocalConcurrency");
+    return {
+      off: (await this.deps.settings.value("pipelineLocalRunner")) === "off",
+      places: await this.localConcurrency(),
+      automatic: set <= 0,
+      busy: this.busy.get("local") ?? 0,
+    };
+  }
+
+  /** Why a queued run has not started, and roughly when it will; null until the queue was looked at. */
+  queueInfo(runId: string): RunQueueInfo | null {
+    return this.queue.get(runId) ?? null;
+  }
+
+  /**
+   * Puts each waiting run in its line — for its machine, or for its pipeline
+   * when that runs one at a time — names what it waits for, and works out
+   * roughly when it starts from how long those runs usually take.
+   */
+  private async explain(
+    waits: { run: PipelineRunRow; wait: Wait }[],
+  ): Promise<Map<string, RunQueueInfo>> {
+    const out = new Map<string, RunQueueInfo>();
+    const now = Date.now();
+    const lineOf = (entry: { run: PipelineRunRow; wait: Wait }) =>
+      entry.wait.reason === "machine"
+        ? `machine:${entry.wait.line}`
+        : `pipeline:${entry.run.pipelineId}`;
+    const lines = new Map<string, PipelineRunRow[]>();
+    for (const entry of waits) {
+      const line = lines.get(lineOf(entry)) ?? [];
+      line.push(entry.run);
+      lines.set(lineOf(entry), line);
+    }
+    for (const entry of waits) {
+      const line = lines.get(lineOf(entry)) ?? [];
+      const position = line.indexOf(entry.run) + 1;
+      const ahead = line.slice(0, position - 1);
+      const { wait } = entry;
+      // When each place on the machine (or the pipeline's one place) is free again.
+      let free: number[] | null = [];
+      let blockers: PipelineRunRow[] = [];
+      if (wait.reason === "machine") {
+        for (const active of this.active.values()) {
+          const held =
+            (active.holding && wait.keys.includes(active.runnerKey) ? 1 : 0) +
+            active.lanes.filter((key) => wait.keys.includes(key)).length;
+          if (held === 0) continue;
+          blockers.push(active.row);
+          const typical = await this.typicalMs(active.row.pipelineId);
+          for (let place = 0; place < held; place += 1) {
+            if (typical === null || !active.row.startedAt) free = null;
+            else free?.push(Math.max(now, Date.parse(active.row.startedAt) + typical));
+          }
+        }
+        while (free && free.length < wait.places) free.push(now);
+      } else {
+        blockers = [wait.ahead];
+        const typical = await this.typicalMs(wait.ahead.pipelineId);
+        free =
+          typical === null || !wait.ahead.startedAt
+            ? null
+            : [Math.max(now, Date.parse(wait.ahead.startedAt) + typical)];
+      }
+      // The runs ahead in line each take a place for as long as they usually take.
+      for (const earlier of ahead) {
+        if (!free || free.length === 0) break;
+        const typical = await this.typicalMs(earlier.pipelineId);
+        if (typical === null) {
+          free = null;
+          break;
+        }
+        free.sort((a, b) => a - b);
+        free[0] = (free[0] ?? now) + typical;
+      }
+      const startsAt = free && free.length > 0 ? Math.min(...free) : null;
+      out.set(entry.run.id, {
+        reason: wait.reason,
+        machine: wait.reason === "machine" ? wait.machine : null,
+        places: wait.reason === "machine" ? wait.places : null,
+        position,
+        blockers: await Promise.all(
+          blockers.map(async (blocker) => ({
+            id: blocker.id,
+            pipelineId: blocker.pipelineId,
+            pipelineName: await this.pipelineName(blocker.pipelineId),
+            number: blocker.number,
+          })),
+        ),
+        startsAt: startsAt === null ? null : new Date(startsAt).toISOString(),
+      });
+    }
+    return out;
+  }
+
+  /** How long a pipeline's runs usually take (the middle of its last passed ones), for a minute. */
+  private async typicalMs(pipelineId: string): Promise<number | null> {
+    const cached = this.typical.get(pipelineId);
+    if (cached && Date.now() - cached.at < 60_000) return cached.ms;
+    const durations = (await this.deps.store.pipelines.runs.recentDurations(pipelineId)).sort(
+      (a, b) => a - b,
+    );
+    const ms = durations.length > 0 ? (durations[Math.floor(durations.length / 2)] ?? null) : null;
+    this.typical.set(pipelineId, { at: Date.now(), ms });
+    return ms;
+  }
+
+  private async pipelineName(pipelineId: string): Promise<string> {
+    const cached = this.names.get(pipelineId);
+    if (cached) return cached;
+    const name = (await this.deps.store.pipelines.pipelines.findById(pipelineId))?.name ?? "";
+    if (name) this.names.set(pipelineId, name);
+    return name;
   }
 
   private launch(
@@ -394,9 +562,11 @@ export class PipelineEngine {
       parsed.file,
       runner,
       {
+        row: run,
         controller: new AbortController(),
         reason: null,
         runnerKey: runner?.id ?? "local",
+        lanes: [],
         holding: false,
       },
       true,
@@ -407,7 +577,7 @@ export class PipelineEngine {
   private async place(
     run: PipelineRunRow,
     file: PipelineFile,
-  ): Promise<{ runner: RunnerRow | null } | { wait: true } | { fail: string }> {
+  ): Promise<{ runner: RunnerRow | null } | { wait: Wait } | { fail: string }> {
     // one-at-a-time: earlier runs of this pipeline go first.
     if (file.concurrency === "one-at-a-time") {
       const active = await this.deps.store.pipelines.runs.listActiveForPipeline(run.pipelineId);
@@ -415,7 +585,7 @@ export class PipelineEngine {
         (other) =>
           other.id !== run.id && (other.status !== "queued" || other.createdAt < run.createdAt),
       );
-      if (ahead) return { wait: true };
+      if (ahead) return { wait: { reason: "earlier", ahead } };
     }
     return this.pick(run, file);
   }
@@ -424,7 +594,7 @@ export class PipelineEngine {
   private async pick(
     run: PipelineRunRow,
     file: { "runs-on": string | string[] },
-  ): Promise<{ runner: RunnerRow | null } | { wait: true } | { fail: string }> {
+  ): Promise<{ runner: RunnerRow | null } | { wait: Wait } | { fail: string }> {
     const target = pipelineTarget(file);
     if (target.kind === "local") {
       const mode = await this.deps.settings.value("pipelineLocalRunner");
@@ -438,8 +608,18 @@ export class PipelineEngine {
           fail: "The local runner needs Docker on the Zelyq server, and Docker is not available. Add an SSH runner, or ask an instance admin.",
         };
       }
-      const limit = Math.max(1, await this.deps.settings.numberValue("pipelineLocalConcurrency"));
-      return (this.busy.get("local") ?? 0) < limit ? { runner: null } : { wait: true };
+      const limit = await this.localConcurrency();
+      return (this.busy.get("local") ?? 0) < limit
+        ? { runner: null }
+        : {
+            wait: {
+              reason: "machine",
+              line: "local",
+              keys: ["local"],
+              machine: "the local runner",
+              places: limit,
+            },
+          };
     }
     const runners = await this.deps.store.pipelines.runners.listForTeam(run.teamId);
     if (target.kind === "name") {
@@ -448,7 +628,17 @@ export class PipelineEngine {
       if (!runner.enabled) return { fail: `${runner.name} is turned off.` };
       if (!runner.hostKey)
         return { fail: `${runner.name}'s fingerprint has not been confirmed. Test it in Runners.` };
-      return this.hasRoom(runner) ? { runner } : { wait: true };
+      return this.hasRoom(runner)
+        ? { runner }
+        : {
+            wait: {
+              reason: "machine",
+              line: runner.id,
+              keys: [runner.id],
+              machine: runner.name,
+              places: runnerConcurrency(runner),
+            },
+          };
     }
     const wanted = target.labels.map((label) => label.toLowerCase());
     const matching = runners.filter((runner) => {
@@ -466,7 +656,17 @@ export class PipelineEngine {
     const free = matching
       .filter((runner) => this.hasRoom(runner))
       .sort((a, b) => (this.busy.get(a.id) ?? 0) - (this.busy.get(b.id) ?? 0));
-    return free[0] ? { runner: free[0] } : { wait: true };
+    if (free[0]) return { runner: free[0] };
+    return {
+      wait: {
+        reason: "machine",
+        line: matching.length === 1 ? (matching[0]?.id ?? "") : `labels:${wanted.join(",")}`,
+        keys: matching.map((runner) => runner.id),
+        machine:
+          matching.length === 1 ? (matching[0]?.name ?? "") : `a runner with ${wanted.join(", ")}`,
+        places: matching.reduce((sum, runner) => sum + runnerConcurrency(runner), 0),
+      },
+    };
   }
 
   /**
@@ -489,6 +689,7 @@ export class PipelineEngine {
       if ("runner" in picked) {
         const key = picked.runner?.id ?? "local";
         this.busy.set(key, (this.busy.get(key) ?? 0) + 1);
+        active.lanes.push(key);
         return { runner: picked.runner, key };
       }
       if (!announced) {
@@ -500,7 +701,13 @@ export class PipelineEngine {
   }
 
   private hasRoom(runner: RunnerRow): boolean {
-    return (this.busy.get(runner.id) ?? 0) < runner.maxConcurrent;
+    return (this.busy.get(runner.id) ?? 0) < runnerConcurrency(runner);
+  }
+
+  /** The local runner's places: the setting, or automatic when it is 0. */
+  private async localConcurrency(): Promise<number> {
+    const set = await this.deps.settings.numberValue("pipelineLocalConcurrency");
+    return set > 0 ? set : automaticLocalConcurrency();
   }
 
   private async dockerAvailable(): Promise<boolean> {
@@ -643,6 +850,23 @@ export class PipelineEngine {
           : `Run #${run.number} on ${runner ? runner.name : "the local runner"}.`,
       );
 
+      // Each stage starts once every stage it waits for is done (top to
+      // bottom, for a file without needs:). A stage that may run beside
+      // another has a machine of its own; the others share the run's.
+      const plan = stagePlan(file);
+      // "Run again from this stage": top to bottom, that stage and every one
+      // below it; with needs:, that stage and every stage waiting on it.
+      const rerun = new Set<number>();
+      if (run.fromStage !== null && plan.graph) {
+        rerun.add(run.fromStage);
+        plan.needs.forEach((waitsFor, index) => {
+          if (waitsFor.some((other) => rerun.has(other))) rerun.add(index);
+        });
+      }
+      const notRerun = (stageIndex: number): boolean =>
+        run.fromStage !== null &&
+        (plan.graph ? !rerun.has(stageIndex) : stageIndex < run.fromStage);
+
       /** One stage's steps, on the run's machine or (lane) one of its own. Returns whether the run has failed. */
       const runStage = async (
         stageIndex: number,
@@ -652,7 +876,7 @@ export class PipelineEngine {
         const stage = file.stages[stageIndex] as PipelineStage;
         let failed = failedBefore;
         const stageRows = steps.filter((row) => row.stageIndex === stageIndex);
-        const beforeRerun = run.fromStage !== null && stageIndex < run.fromStage;
+        const beforeRerun = notRerun(stageIndex);
         const stageRuns =
           !active.controller.signal.aborted && conditionHolds(stage.if, failedBefore);
         for (const [stepIndex, step] of stage.steps.entries()) {
@@ -774,7 +998,7 @@ export class PipelineEngine {
           }
           return failedBefore || rows.some(failure);
         }
-        const beforeRerun = run.fromStage !== null && stageIndex < run.fromStage;
+        const beforeRerun = notRerun(stageIndex);
         if (
           beforeRerun ||
           active.controller.signal.aborted ||
@@ -854,27 +1078,53 @@ export class PipelineEngine {
           }
           if (place) {
             this.busy.set(place.key, Math.max(0, (this.busy.get(place.key) ?? 1) - 1));
+            const held = active.lanes.indexOf(place.key);
+            if (held >= 0) active.lanes.splice(held, 1);
             this.wake();
           }
         }
         return failed;
       };
 
-      let failed = false;
-      for (const group of stageGroups(file)) {
-        const [first] = group;
-        if (first === undefined) continue;
-        if (group.length === 1 && !onOwnMachine(file, first)) {
-          failed = await runStage(first, failed, null);
-          continue;
+      /** Per finished stage: whether it, or anything it waited for, failed. */
+      const done = new Map<number, boolean>();
+      const going = new Map<number, Promise<void>>();
+      while (done.size < file.stages.length) {
+        for (const [index, waitsFor] of plan.needs.entries()) {
+          if (done.has(index) || going.has(index)) continue;
+          if (!waitsFor.every((other) => done.has(other))) continue;
+          // At most MAX_PARALLEL stages at once, however wide the file is.
+          if (going.size >= MAX_PARALLEL) break;
+          const before = waitsFor.some((other) => done.get(other) === true);
+          let work: Promise<boolean>;
+          if (plan.own[index]) {
+            // The run's own runner is not needed meanwhile; give it back, so a
+            // stage can take it, and take it again afterwards.
+            await releaseMachine();
+            work = runLane(index, before);
+          } else {
+            work = runStage(index, before, null);
+          }
+          going.set(
+            index,
+            work.then(
+              (result) => {
+                done.set(index, result);
+                going.delete(index);
+              },
+              (caught: unknown) => {
+                going.delete(index);
+                throw caught;
+              },
+            ),
+          );
         }
-        // The run's own runner is not needed meanwhile; give it back, so a
-        // stage can take it, and take it again afterwards.
-        await releaseMachine();
-        const before = failed;
-        const results = await Promise.all(group.map((index) => runLane(index, before)));
-        failed = before || results.some(Boolean);
+        if (going.size === 0) break;
+        await Promise.race(going.values());
       }
+      // Only a stage on the run's own machine throws (a restart while it
+      // waits), and such a stage never runs beside another.
+      const failed = [...done.values()].some(Boolean);
       if (!failed && !active.controller.signal.aborted && machine) {
         for (const work of state.post) await work(machine, log);
       }
@@ -1149,7 +1399,7 @@ export class PipelineEngine {
           throw new RunError("Stopped while waiting for a runner.");
         const fresh = await this.deps.store.pipelines.runners.findById(runner.id);
         if (!fresh) throw new RunError(`${runner.name} was removed while this run waited.`);
-        if ((this.busy.get(runner.id) ?? 0) < fresh.maxConcurrent) break;
+        if ((this.busy.get(runner.id) ?? 0) < runnerConcurrency(fresh)) break;
         if (!announced) {
           announced = true;
           const log = new RunLog(

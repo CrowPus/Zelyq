@@ -352,6 +352,22 @@ export function pipelineRepository(db: ZelyqDb) {
           )[0] ?? null
         );
       },
+      /** How long a pipeline's last few passed runs took, in milliseconds, newest first. */
+      async recentDurations(pipelineId: string, limit = 10): Promise<number[]> {
+        const rows = await db
+          .select({ startedAt: runs.startedAt, finishedAt: runs.finishedAt })
+          .from(runs)
+          .where(and(eq(runs.pipelineId, pipelineId), eq(runs.status, "passed")))
+          .orderBy(desc(runs.number))
+          .limit(limit);
+        return rows
+          .map((row) =>
+            row.startedAt && row.finishedAt
+              ? Date.parse(row.finishedAt) - Date.parse(row.startedAt)
+              : Number.NaN,
+          )
+          .filter((ms) => Number.isFinite(ms) && ms >= 0);
+      },
       /** Deletes runs; their steps, logs, artifacts and approvals go with them. */
       async removeMany(ids: string[]): Promise<void> {
         if (ids.length === 0) return;

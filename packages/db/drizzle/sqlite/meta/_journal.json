@@ -288,6 +288,13 @@
       "when": 1792938172241,
       "tag": "0040_agent_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1794571132263,
+      "tag": "0041_runner_capacity",
+      "breakpoints": true
     }
   ]
 }

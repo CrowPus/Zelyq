@@ -32,6 +32,7 @@ import type {
   ImageGeneration,
   ImageGenerationInput,
   ImageHistory,
+  LocalRunnerStatus,
   PipelineDetail,
   PipelinePluginSummary,
   PipelineRunDetail,
@@ -495,7 +496,8 @@ export const api = {
   },
 
   runners: {
-    list: (teamId: string) => request<{ runners: RunnerSummary[] }>(`/teams/${teamId}/runners`),
+    list: (teamId: string) =>
+      request<{ runners: RunnerSummary[]; local: LocalRunnerStatus }>(`/teams/${teamId}/runners`),
     create: (teamId: string, input: SshRunnerInput) =>
       request<{ runner: RunnerSummary }>(`/teams/${teamId}/runners`, {
         method: "POST",
