@@ -505,6 +505,17 @@ test("update_environment may protect, never unprotect; list_databases shows each
     machine: "box",
   });
   assert.equal(created.step?.status, "done", JSON.stringify(created));
+  // A new domain points people somewhere: approving the plan is not enough, it is confirmed on its own.
+  const unconfirmed = await ops.perform(job.id, "update_environment", {
+    environment: "review",
+    domain: "review.example.com",
+    protected: true,
+  });
+  assert.equal(unconfirmed.verdict.verdict, "ask");
+  const pending = (await ops.engineerView(job.id)).steps.find(
+    (step) => step.action === "update_environment",
+  );
+  await ops.confirmStep(owner, teamId, job.id, pending?.id as string);
   const changed = await ops.perform(job.id, "update_environment", {
     environment: "review",
     domain: "review.example.com",
@@ -735,4 +746,26 @@ test("the record of what Ops looked at keeps every line, even written at once", 
     view.activity,
     Array.from({ length: 20 }, (_, index) => `Look ${index}`),
   );
+});
+
+test("the first launch of a live site waits: a deploy that puts an app on a domain makes its target a live site", async () => {
+  const { checkBlocks } = await import("../src/services/ops/blocks.js");
+  const source =
+    "name: Launch\nruns-on: box\nsource: {app: Shop}\nstages:\n  - name: A\n    steps:\n      - deploy: {to: staging, port: 3000, domain: shop.example.org}\n";
+  assert.deepEqual(checkBlocks(source).liveTo, ["staging"]);
+  const job = await ops.startJob(owner, teamId, { request: "Launch shop.example.org" });
+  const plan = await ops.proposePlan(job.id, {
+    steps: [{ action: "create_pipeline", inputs: { source } }],
+  });
+  assert.equal(plan.job?.stage, "approve", JSON.stringify(plan.issues));
+  // Pointing an app at a domain always waits, even on a test environment.
+  const address = await ops.proposePlan(job.id, {
+    steps: [
+      {
+        action: "set_app_address",
+        inputs: { environment: "staging", app: "shop", domain: "shop.example.org" },
+      },
+    ],
+  });
+  assert.equal(address.job?.steps.at(-1)?.risk, "always-ask", JSON.stringify(address.issues));
 });

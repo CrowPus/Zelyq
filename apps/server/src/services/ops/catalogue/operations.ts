@@ -202,7 +202,8 @@ const setAppAddress: OpsAction<z.infer<typeof addressInput>> = {
   description:
     "Give a live app its own address (shop.example.com), with HTTPS from Zelyq's proxy. The person adds the DNS record; check_dns shows when it is in place.",
   input: addressInput,
-  risk: "change",
+  // Pointing a website address always waits for a person, whatever Ops may do there.
+  risk: (inputs) => (inputs.domain ? "always-ask" : "change"),
   environment: (ctx, inputs) => environmentByName(ctx, inputs.environment),
   words: (inputs) =>
     inputs.domain

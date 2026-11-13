@@ -53,8 +53,8 @@ export class OpsBrain {
   private readonly working = new Set<string>();
   private readonly activity = new Map<string, string[]>();
   private readonly reviewed = new Set<string>();
-  /** Jobs a live conversation is working in. */
-  private readonly voices = new Set<string>();
+  /** Jobs live conversations are working in, and how many (two tabs can talk at once). */
+  private readonly voices = new Map<string, number>();
 
   constructor(
     private readonly ops: OpsService,
@@ -329,7 +329,7 @@ ${steps}`;
   openVoice(teamId: string, jobId: string): string {
     const token = randomBytes(32).toString("hex");
     this.tokens.set(token, { teamId, jobId, expires: Date.now() + VOICE_MS });
-    this.voices.add(jobId);
+    this.voices.set(jobId, (this.voices.get(jobId) ?? 0) + 1);
     this.activity.set(jobId, this.activity.get(jobId) ?? []);
     return token;
   }
@@ -337,7 +337,11 @@ ${steps}`;
   closeVoice(token: string): void {
     const grant = this.tokens.get(token);
     this.tokens.delete(token);
-    if (grant) this.voices.delete(grant.jobId);
+    if (grant) {
+      const left = (this.voices.get(grant.jobId) ?? 1) - 1;
+      if (left > 0) this.voices.set(grant.jobId, left);
+      else this.voices.delete(grant.jobId);
+    }
   }
 
   /** Whether a typed turn is working on the job right now (a live conversation is not one). */

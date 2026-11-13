@@ -71,6 +71,8 @@ export interface BlockCheck {
   free: string[];
   /** The environments its deploy steps go to. */
   deploysTo: string[];
+  /** Environments a deploy step puts on a website address (its own domain or url): live sites. */
+  liveTo: string[];
 }
 
 /** Reads a pipeline Ops wants to save: what it deploys to, and every command not from a block. */
@@ -84,10 +86,12 @@ export function checkBlocks(source: string): BlockCheck {
         .join("; "),
       free: [],
       deploysTo: [],
+      liveTo: [],
     };
   }
   const free: string[] = [];
   const deploysTo = new Set<string>();
+  const liveTo = new Set<string>();
   const note = (command: string | undefined) => {
     if (command && !isKnownCommand(command)) free.push(command);
   };
@@ -96,13 +100,20 @@ export function checkBlocks(source: string): BlockCheck {
       if (step.run !== undefined) note(step.run);
       if (step.deploy) {
         deploysTo.add(step.deploy.to);
+        if (step.deploy.domain || step.deploy.url) liveTo.add(step.deploy.to);
         note(step.deploy.start);
         note(step.deploy.migrate);
         for (const command of Object.values(step.deploy.processes ?? {})) note(command);
       }
     }
   }
-  return { ok: true, error: null, free: [...new Set(free)], deploysTo: [...deploysTo] };
+  return {
+    ok: true,
+    error: null,
+    free: [...new Set(free)],
+    deploysTo: [...deploysTo],
+    liveTo: [...liveTo],
+  };
 }
 
 /** What Ops reads before writing a pipeline: the blocks it may use freely. */

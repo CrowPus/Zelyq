@@ -29,7 +29,9 @@ export function withFacts(existing: string | null, facts: string): string {
   } else {
     const end = existing.indexOf(NOTES, start);
     const before = existing.slice(0, start).trim();
-    const after = end >= 0 ? existing.slice(end + NOTES.length).trim() : "";
+    // Without its Notes heading the section's end is unknown: keep everything after it as notes.
+    const after =
+      end >= 0 ? existing.slice(end + NOTES.length).trim() : existing.slice(start).trim();
     kept = [before, after].filter(Boolean).join("\n\n");
   }
   if (kept === "(none yet)" || !kept) kept = "(none yet)";

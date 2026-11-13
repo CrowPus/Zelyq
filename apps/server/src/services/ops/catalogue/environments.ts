@@ -374,7 +374,8 @@ const updateEnvironment: OpsAction<z.infer<typeof updateInput>> = {
   description:
     "Change an environment's address, domain or HTTPS, or make it protected. Taking protection away, freezing and unfreezing are a person's decision and are not here.",
   input: updateInput,
-  risk: "change",
+  // A new address or domain points people somewhere: it always waits for a person.
+  risk: (inputs) => (inputs.address || inputs.domain ? "always-ask" : "change"),
   environment: (ctx, inputs) => environmentByName(ctx, inputs.environment),
   words: (inputs) => {
     const changes = [

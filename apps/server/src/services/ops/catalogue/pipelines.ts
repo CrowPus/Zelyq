@@ -28,9 +28,12 @@ async function strictestTarget(
           ? 1
           : 0;
   let chosen: OpsEnvironmentRef | null = null;
-  for (const name of checkBlocks(source).deploysTo) {
-    const environment = await environmentByName(ctx, name);
-    if (!environment) continue;
+  const { deploysTo, liveTo } = checkBlocks(source);
+  for (const name of deploysTo) {
+    const found = await environmentByName(ctx, name);
+    if (!found) continue;
+    // A deploy that puts an app on a website address makes this a live site, from its first launch.
+    const environment = liveTo.includes(name) ? { ...found, public: true } : found;
     if (!chosen || care(environment) > care(chosen)) chosen = environment;
   }
   return chosen;
