@@ -200,10 +200,13 @@ export class OpsBrain {
   /** The provider of Settings → Model; the model of Settings → Ops, or the provider's default. */
   private async modelConfig() {
     // Ops may think with its own provider; empty means the same as Settings → Model.
-    const provider =
-      (await this.settings.value("opsProvider")).trim() || (await this.settings.value("provider"));
+    const main = await this.settings.value("provider");
+    const provider = (await this.settings.value("opsProvider")).trim() || main;
     const chosen = (await this.settings.value("opsModel")).trim();
-    const requested = chosen || (await this.settings.modelFor(provider));
+    // Settings → Model's model belongs to its own provider ("gpt-…" means nothing to Gemini):
+    // when Ops thinks with another provider, that provider picks its own strongest model.
+    const requested =
+      chosen || (provider === main ? await this.settings.modelFor(provider) : "");
     const model =
       provider === "openai"
         ? await this.settings.resolveOpenAIModel(requested)
