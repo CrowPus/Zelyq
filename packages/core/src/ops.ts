@@ -195,3 +195,68 @@ export const opsEngineerUpdateSchema = z
     timeZone: z.string().trim().min(1).max(64).optional(),
   })
   .strict();
+
+// ------------------------------------------------------------------ watch (Phase 2)
+
+export const OPS_CHECK_KINDS = [
+  "address",
+  "speed",
+  "app",
+  "machine",
+  "certificate",
+  "domain",
+  "pipeline",
+] as const;
+export type OpsCheckKind = (typeof OPS_CHECK_KINDS)[number];
+export type OpsCheckState = "ok" | "failing" | "unknown";
+
+export interface OpsCheckView {
+  id: string;
+  kind: OpsCheckKind;
+  title: string;
+  target: string;
+  enabled: boolean;
+  state: OpsCheckState;
+  lastDetail: string | null;
+  lastCheckedAt: string | null;
+  /** The app's usual answer time, in ms (address and speed checks). */
+  normalMs: number | null;
+  /** Share of passing results over the last 30 days, 0–100; null before any. */
+  uptime30d: number | null;
+}
+
+export interface OpsAlertView {
+  id: string;
+  severity: "urgent" | "warning";
+  title: string;
+  detail: string | null;
+  openedAt: string;
+  closedAt: string | null;
+  closedHow: string | null;
+  acknowledgedBy: string | null;
+  acknowledgedAt: string | null;
+  silencedUntil: string | null;
+  escalation: number;
+}
+
+/** One app as the status view shows it: its light, uptime and checks. */
+export interface OpsStatusApp {
+  app: string;
+  environment: string;
+  url: string | null;
+  /** green: all well; amber: slow or a warning; red: down; grey: not known yet. */
+  light: "green" | "amber" | "red" | "grey";
+  uptime30d: number | null;
+  normalMs: number | null;
+  checks: OpsCheckView[];
+}
+
+export interface OpsStatusView {
+  apps: OpsStatusApp[];
+  machines: OpsCheckView[];
+  other: OpsCheckView[];
+  open: OpsAlertView[];
+  recent: OpsAlertView[];
+  /** False until a second place (the outside watcher) also watches. */
+  watchedFromTwoPlaces: boolean;
+}

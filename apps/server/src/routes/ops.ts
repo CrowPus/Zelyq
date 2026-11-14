@@ -1,8 +1,10 @@
-import { ZelyqError } from "@zelyq/core";
-import type { FastifyInstance } from "fastify";
+import { type Role, ZelyqError } from "@zelyq/core";
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { OpsBrain } from "../services/ops/brain.js";
 import type { OpsService } from "../services/ops/service.js";
+import type { CheckService } from "../services/ops/watch/checks.js";
 
 type Team = { Params: { teamId: string } };
 type Job = { Params: { teamId: string; jobId: string } };
@@ -15,9 +17,62 @@ type Step = { Params: { teamId: string; jobId: string; stepId: string } };
  */
 export function registerOpsRoutes(
   app: FastifyInstance,
-  deps: { access: AccessControl; ops: OpsService; brain: OpsBrain },
+  deps: { access: AccessControl; ops: OpsService; brain: OpsBrain; watch: CheckService },
 ): void {
-  const { access, ops, brain } = deps;
+  const { access, ops, brain, watch } = deps;
+
+  // ------------------------------------------------------------- the watch
+  type Alert = { Params: { teamId: string; alertId: string } };
+  /** A person, in this team, at least this role: the watch's controls are never Ops's. */
+  const person = async (request: FastifyRequest, teamId: string, role: Role) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, teamId, role);
+    if (await ops.isServiceUser(user.id))
+      throw new ZelyqError("forbidden", "Only a person can do this.");
+    return user;
+  };
+  const ownAlert = async (teamId: string, alertId: string) => {
+    const alert = await ops.alertOf(teamId, alertId);
+    if (!alert) throw ZelyqError.notFound("Alert", alertId);
+  };
+  app.get<Team>("/api/teams/:teamId/ops/status", async (request) => {
+    await person(request, request.params.teamId, "viewer");
+    return watch.status(request.params.teamId);
+  });
+  app.post<Alert>("/api/teams/:teamId/ops/alerts/:alertId/acknowledge", async (request) => {
+    const user = await person(request, request.params.teamId, "editor");
+    await ownAlert(request.params.teamId, request.params.alertId);
+    await watch.acknowledge(request.params.alertId, user.id);
+    return watch.status(request.params.teamId);
+  });
+  app.post<Alert>("/api/teams/:teamId/ops/alerts/:alertId/silence", async (request) => {
+    const user = await person(request, request.params.teamId, "editor");
+    await ownAlert(request.params.teamId, request.params.alertId);
+    const minutes = z
+      .object({
+        minutes: z
+          .number()
+          .int()
+          .min(5)
+          .max(7 * 24 * 60),
+      })
+      .parse(request.body).minutes;
+    await watch.silence(request.params.alertId, user.id, minutes);
+    return watch.status(request.params.teamId);
+  });
+  app.patch<{ Params: { teamId: string; checkId: string } }>(
+    "/api/teams/:teamId/ops/checks/:checkId",
+    async (request) => {
+      const user = await person(request, request.params.teamId, "admin");
+      const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(request.body);
+      await watch
+        .setEnabled(request.params.checkId, request.params.teamId, enabled, user.id)
+        .catch((error: Error) => {
+          throw ZelyqError.notFound("Check", error.message);
+        });
+      return watch.status(request.params.teamId);
+    },
+  );
 
   /** Talk to Ops, typed or said aloud: a new job, or more in one still going. */
   app.post<Team>("/api/teams/:teamId/ops/talk", async (request) => ({

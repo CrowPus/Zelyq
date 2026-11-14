@@ -29,6 +29,7 @@ import {
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { Markdown } from "../components/Markdown";
+import { StatusTab } from "../components/ops/StatusTab";
 import { Badge, Button, EmptyState, Input, Spinner, Textarea } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
@@ -36,7 +37,7 @@ import { useLiveTalk } from "../lib/ops-live";
 import { speak, spokenPart, stopSpeaking } from "../lib/ops-voice";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
-type Tab = "talk" | "memory" | "settings";
+type Tab = "talk" | "status" | "memory" | "settings";
 
 const STAGE_WORDS: Record<
   string,
@@ -79,7 +80,13 @@ export function OpsPage() {
   const teamId = team?.id ?? "";
   const isAdmin = team ? roleAtLeast(team.role, "admin") : false;
   const canTalk = team ? roleAtLeast(team.role, "editor") : false;
-  const [tab, setTab] = useState<Tab>("talk");
+  // A link to /ops#status (from an alert email) opens that tab.
+  const [tab, setTab] = useState<Tab>(() => {
+    const wanted = typeof window === "undefined" ? "" : window.location.hash.slice(1);
+    return (["talk", "status", "memory", "settings"] as const).includes(wanted as Tab)
+      ? (wanted as Tab)
+      : "talk";
+  });
   const queryClient = useQueryClient();
   const engineer = useQuery({
     queryKey: ["ops", teamId],
@@ -136,7 +143,7 @@ export function OpsPage() {
           ) : (
             <>
               <nav className="flex gap-1 border-b border-border-default" aria-label="Ops">
-                {(["talk", "memory", "settings"] as const).map((name) => (
+                {(["talk", "status", "memory", "settings"] as const).map((name) => (
                   <button
                     key={name}
                     type="button"
@@ -147,12 +154,19 @@ export function OpsPage() {
                         : "border-transparent text-fg-secondary hover:text-fg"
                     }`}
                   >
-                    {name === "talk" ? "Talk" : name === "memory" ? "Memory" : "Settings"}
+                    {
+                      { talk: "Talk", status: "Status", memory: "Memory", settings: "Settings" }[
+                        name
+                      ]
+                    }
                   </button>
                 ))}
               </nav>
               {tab === "talk" && (
                 <TalkTab teamId={teamId} canTalk={canTalk} paused={status.paused} />
+              )}
+              {tab === "status" && (
+                <StatusTab teamId={teamId} canAnswer={canTalk} isAdmin={isAdmin} />
               )}
               {tab === "memory" && (
                 <MemoryTab teamId={teamId} isAdmin={isAdmin} canEdit={canTalk} />

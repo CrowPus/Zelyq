@@ -66,6 +66,7 @@ import { OPS_ACTIONS } from "./services/ops/catalogue.js";
 import { OpsMailer } from "./services/ops/mailer.js";
 import { OpsService } from "./services/ops/service.js";
 import { OpsVoice } from "./services/ops/voice.js";
+import { CheckService } from "./services/ops/watch/checks.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
 import { PipelinePluginService } from "./services/pipelines/plugins.js";
@@ -107,6 +108,8 @@ export interface ZelyqServer {
   ops: OpsService;
   /** Talking to Ops live: exposed so tests can drive a conversation. */
   opsVoice: OpsVoice;
+  /** The watch (Phase 2): exposed so tests can run its ticks. */
+  watch: CheckService;
   /** The agent's image capability channel. Exposed so tests can mint a grant
    *  the way the websocket gateway does. */
   imageBridge: ImageBridge;
@@ -243,6 +246,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const mail = new MailService(settings);
   const opsMailer = new OpsMailer(store, mail, config.publicUrl);
   ops.events = (event) => opsMailer.handle(event);
+  const watch = new CheckService(store, runners);
+  watch.events = (event) => opsMailer.handleWatch(event);
   // Settings credentials may point at the instance Vault or a team's, and each
   // Vault shows which Settings fields use its secrets.
   settings.vaultLookup = async ({ name, scope }) =>
@@ -475,7 +480,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerDeployRoutes(app, { access, deploys });
   const opsBrain = new OpsBrain(ops, settings, agent, config.serverInternalUrl);
   const opsVoice = new OpsVoice(ops, opsBrain, settings);
-  registerOpsRoutes(app, { access, ops, brain: opsBrain });
+  registerOpsRoutes(app, { access, ops, brain: opsBrain, watch });
   // Zelyq's own plugins, signed: installed only if the signature verifies.
   const pluginRegistry = new PluginRegistryClient(store, settings, access, pipelinePlugins, {
     trustedKeys: process.env.ZELYQ_PLUGIN_REGISTRY_KEYS
@@ -548,8 +553,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
+    // The watch: checks on a timer for every team with Ops (no model, whatever the spending cap).
+    // Not under the test runner: tests run its ticks themselves, at the times they choose.
+    if (!process.env.NODE_TEST_CONTEXT || process.env.ZELYQ_WATCH === "1") watch.start();
   });
   app.addHook("onClose", async () => {
+    watch.stop();
     opsMailer.close();
     await images.close();
     await videos.close();
@@ -583,7 +592,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // Pipelines starting other pipelines: a `pipeline` step, and "after another pipeline" triggers.
   pipelineEngine.hooks = {
     startChild: (parent, name, inputs) => pipelines.startChild(parent, name, inputs),
-    runFinished: (run) => pipelineTriggers.runFinished(run),
+    runFinished: async (run) => {
+      // The watch hears every finished run: a deploying pipeline that failed is an alert.
+      await watch
+        .runFinished(run.teamId, run.pipelineId, run.status, `#${run.number}`)
+        .catch(() => undefined);
+      return pipelineTriggers.runFinished(run);
+    },
     preApproved: (run, environmentId) => ops.preApproved(run, environmentId),
   };
 
@@ -678,6 +693,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     pipelines,
     ops,
     opsVoice,
+    watch,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

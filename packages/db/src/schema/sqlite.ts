@@ -1498,6 +1498,97 @@ export const opsGuards = sqliteTable(
   }),
 );
 
+/**
+ * Ops, Phase 2 (Watch): what is checked, on a timer, by the server. Kept in
+ * step with Zelyq's records (origin "records") or added by a person.
+ */
+export const opsChecks = sqliteTable(
+  "ops_checks",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** address, speed, app, machine, certificate, domain, pipeline */
+    kind: text("kind").notNull(),
+    /** What it checks, as a stable key ("environment/app", "machine:name", "domain:x", "pipeline:id"). */
+    target: text("target").notNull(),
+    /** Plain words: "shop on production answers". */
+    title: text("title").notNull(),
+    /** JSON: the facts the probe needs (address, machine id, environment id, app). */
+    params: text("params").notNull().default("{}"),
+    everySeconds: integer("every_seconds").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    origin: text("origin").notNull().default("records"),
+    /** ok, failing, unknown */
+    state: text("state").notNull().default("unknown"),
+    failures: integer("failures").notNull().default(0),
+    /** When the failing began (for "for ten minutes" rules). */
+    failingSince: text("failing_since"),
+    lastDetail: text("last_detail"),
+    lastCheckedAt: text("last_checked_at"),
+    /** The app's normal answer time in ms (a slow-moving median). */
+    normalMs: integer("normal_ms"),
+    switchedOffBy: text("switched_off_by"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("ops_checks_team_idx").on(table.teamId),
+    targetIdx: uniqueIndex("ops_checks_target_idx").on(table.teamId, table.kind, table.target),
+  }),
+);
+
+/** One row per check per hour: uptime is computed from these, and the table stays small. */
+export const opsCheckHours = sqliteTable(
+  "ops_check_hours",
+  {
+    checkId: text("check_id")
+      .notNull()
+      .references(() => opsChecks.id, { onDelete: "cascade" }),
+    /** The hour, as ISO text to the hour: 2026-11-14T08 */
+    hour: text("hour").notNull(),
+    runs: integer("runs").notNull().default(0),
+    passed: integer("passed").notNull().default(0),
+    totalMs: integer("total_ms").notNull().default(0),
+    slowestMs: integer("slowest_ms").notNull().default(0),
+  },
+  (table) => ({
+    hourIdx: uniqueIndex("ops_check_hours_idx").on(table.checkId, table.hour),
+  }),
+);
+
+/** A problem a check found: opened once, closed when it passes again. */
+export const opsAlerts = sqliteTable(
+  "ops_alerts",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    checkId: text("check_id").references(() => opsChecks.id, { onDelete: "set null" }),
+    /** urgent, warning */
+    severity: text("severity").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail"),
+    openedAt: text("opened_at").notNull(),
+    closedAt: text("closed_at"),
+    /** How it ended: "back by itself", "closed by a person" */
+    closedHow: text("closed_how"),
+    acknowledgedBy: text("acknowledged_by").references(() => users.id, { onDelete: "set null" }),
+    acknowledgedAt: text("acknowledged_at"),
+    silencedUntil: text("silenced_until"),
+    silencedBy: text("silenced_by").references(() => users.id, { onDelete: "set null" }),
+    /** How many people down the list it has gone (0: the first). */
+    escalation: integer("escalation").notNull().default(0),
+    /** When the people at this level were told. */
+    notifiedAt: text("notified_at"),
+  },
+  (table) => ({
+    teamIdx: index("ops_alerts_team_idx").on(table.teamId, table.closedAt),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1554,4 +1645,7 @@ export const schema = {
   opsPreferences,
   opsLessons,
   opsGuards,
+  opsChecks,
+  opsCheckHours,
+  opsAlerts,
 };

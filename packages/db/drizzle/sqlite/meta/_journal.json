@@ -330,6 +330,13 @@
       "when": 1794611081457,
       "tag": "0046_job_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1794642913764,
+      "tag": "0047_ops_watch",
+      "breakpoints": true
     }
   ]
 }

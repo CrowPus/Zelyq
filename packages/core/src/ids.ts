@@ -67,6 +67,8 @@ export const ID_PREFIXES = {
   opsMessage: "opm",
   opsLesson: "opl",
   opsGuard: "opg",
+  opsCheck: "opk",
+  opsAlert: "opz",
   opsWish: "opw",
   opsSheet: "osh",
   opsSheetVersion: "osv",

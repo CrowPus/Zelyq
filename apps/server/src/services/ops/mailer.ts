@@ -2,6 +2,7 @@ import { type Role, roleAtLeast } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { MailService } from "../mail.js";
 import type { OpsEvent } from "./service.js";
+import type { WatchEvent } from "./watch/checks.js";
 
 /**
  * The three messages a launch needs (072 Phase 1), for a person who walked
@@ -41,6 +42,52 @@ export class OpsMailer {
     }, this.waitMs);
     timer.unref();
     this.timers.add(timer);
+  }
+
+  /** The watch's alerts: opened, moved on to the next person, or over. */
+  handleWatch(event: WatchEvent): void {
+    void this.watchMail(event).catch(() => undefined);
+  }
+
+  private async watchMail(event: WatchEvent): Promise<void> {
+    const emails: string[] = [];
+    for (const userId of event.to) {
+      const user = await this.store.users.findById(userId);
+      if (user?.email) emails.push(user.email);
+    }
+    if (emails.length === 0) return;
+    const { alert } = event;
+    const status = this.publicUrl
+      ? `${this.publicUrl.replace(/\/$/, "")}/ops#status`
+      : "Open Zelyq and go to Ops → Status.";
+    const subject =
+      event.kind === "alert_closed"
+        ? `Back: ${alert.title}`
+        : event.kind === "alert_escalated"
+          ? `Nobody has answered yet: ${alert.title}`
+          : `${alert.severity === "urgent" ? "Down" : "Warning"}: ${alert.title}`;
+    const lines =
+      event.kind === "alert_closed"
+        ? [
+            `${alert.title} — over (${alert.closedHow ?? "closed"}).`,
+            `It began ${alert.openedAt.replace("T", " ").slice(0, 16)} UTC and ended ${String(alert.closedAt).replace("T", " ").slice(0, 16)} UTC.`,
+          ]
+        : [
+            alert.title,
+            "",
+            `What the check saw: ${alert.detail ?? "no detail"}`,
+            `Since: ${alert.openedAt.replace("T", " ").slice(0, 16)} UTC`,
+            ...(event.kind === "alert_escalated"
+              ? ["", "Nobody has acknowledged it yet, so it has come to you."]
+              : []),
+            "",
+            'Press "I\'m on it" on the Status page so the team knows; silence it there for planned work.',
+          ];
+    await this.mail.send({
+      to: emails,
+      subject,
+      text: [...lines, "", `Status: ${status}`].join("\n"),
+    });
   }
 
   close(): void {

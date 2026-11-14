@@ -908,6 +908,17 @@ export class OpsService {
     });
   }
 
+  /** Whether an account is a team's Ops engineer rather than a person. */
+  isServiceUser(userId: string): Promise<boolean> {
+    return this.store.users.isService(userId);
+  }
+
+  /** An alert of this team, or null. */
+  async alertOf(teamId: string, alertId: string) {
+    const alert = await this.store.ops.alerts.findById(alertId);
+    return alert && alert.teamId === teamId ? alert : null;
+  }
+
   /** A job started by talking is named by the person's first words. */
   async renameRequest(jobId: string, request: string): Promise<void> {
     await this.store.ops.jobs.update(jobId, {

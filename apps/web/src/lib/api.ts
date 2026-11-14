@@ -36,6 +36,7 @@ import type {
   OpsEngineer,
   OpsJobDetail,
   OpsJobSummary,
+  OpsStatusView,
   OpsTrust,
   PipelineDetail,
   PipelinePluginSummary,
@@ -293,6 +294,23 @@ export const api = {
   /** Ops, the team's DevOps engineer. */
   ops: {
     get: (teamId: string) => request<{ engineer: OpsEngineer | null }>(`/teams/${teamId}/ops`),
+    /** The watch: every app's light, uptime and open alerts. */
+    status: (teamId: string) => request<OpsStatusView>(`/teams/${teamId}/ops/status`),
+    acknowledge: (teamId: string, alertId: string) =>
+      request<OpsStatusView>(`/teams/${teamId}/ops/alerts/${alertId}/acknowledge`, {
+        method: "POST",
+        body: "{}",
+      }),
+    silence: (teamId: string, alertId: string, minutes: number) =>
+      request<OpsStatusView>(`/teams/${teamId}/ops/alerts/${alertId}/silence`, {
+        method: "POST",
+        body: JSON.stringify({ minutes }),
+      }),
+    setCheck: (teamId: string, checkId: string, enabled: boolean) =>
+      request<OpsStatusView>(`/teams/${teamId}/ops/checks/${checkId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      }),
     setUp: (teamId: string) =>
       request<{ engineer: OpsEngineer }>(`/teams/${teamId}/ops`, { method: "POST", body: "{}" }),
     update: (

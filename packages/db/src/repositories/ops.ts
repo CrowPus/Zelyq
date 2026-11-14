@@ -1,7 +1,10 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import {
+  opsAlerts,
   opsAttempts,
+  opsCheckHours,
+  opsChecks,
   opsEngineers,
   opsGuards,
   opsJobs,
@@ -27,6 +30,9 @@ export type OpsSheetVersionRow = typeof opsSheetVersions.$inferSelect;
 export type OpsPreferenceRow = typeof opsPreferences.$inferSelect;
 export type OpsLessonRow = typeof opsLessons.$inferSelect;
 export type OpsGuardRow = typeof opsGuards.$inferSelect;
+export type OpsCheckRow = typeof opsChecks.$inferSelect;
+export type OpsCheckHourRow = typeof opsCheckHours.$inferSelect;
+export type OpsAlertRow = typeof opsAlerts.$inferSelect;
 
 /**
  * The team's DevOps engineer (Ops): its jobs, plans, proofs and what it has
@@ -36,6 +42,10 @@ export type OpsGuardRow = typeof opsGuards.$inferSelect;
 export function opsRepository(db: ZelyqDb) {
   return {
     engineers: {
+      /** Every team's engineer: the watch runs for all of them. */
+      async listAll(): Promise<OpsEngineerRow[]> {
+        return await db.select().from(opsEngineers);
+      },
       async findByTeam(teamId: string): Promise<OpsEngineerRow | null> {
         const rows = await db
           .select()
@@ -430,6 +440,107 @@ export function opsRepository(db: ZelyqDb) {
           .where(eq(opsRunGrants.runId, runId))
           .limit(1);
         return rows[0] ?? null;
+      },
+    },
+
+    checks: {
+      async listForTeam(teamId: string): Promise<OpsCheckRow[]> {
+        return await db
+          .select()
+          .from(opsChecks)
+          .where(eq(opsChecks.teamId, teamId))
+          .orderBy(asc(opsChecks.createdAt));
+      },
+      async findById(id: string): Promise<OpsCheckRow | null> {
+        const rows = await db.select().from(opsChecks).where(eq(opsChecks.id, id)).limit(1);
+        return rows[0] ?? null;
+      },
+      async create(row: OpsCheckRow): Promise<OpsCheckRow> {
+        await db.insert(opsChecks).values(row);
+        return row;
+      },
+      async update(id: string, patch: Partial<OpsCheckRow>): Promise<void> {
+        await db.update(opsChecks).set(patch).where(eq(opsChecks.id, id));
+      },
+      async remove(id: string): Promise<void> {
+        await db.delete(opsChecks).where(eq(opsChecks.id, id));
+      },
+    },
+
+    checkHours: {
+      /** Adds one result to its hour's row. */
+      async record(checkId: string, hour: string, passed: boolean, ms: number): Promise<void> {
+        await db
+          .insert(opsCheckHours)
+          .values({ checkId, hour, runs: 1, passed: passed ? 1 : 0, totalMs: ms, slowestMs: ms })
+          .onConflictDoUpdate({
+            target: [opsCheckHours.checkId, opsCheckHours.hour],
+            set: {
+              runs: sql`${opsCheckHours.runs} + 1`,
+              passed: sql`${opsCheckHours.passed} + ${passed ? 1 : 0}`,
+              totalMs: sql`${opsCheckHours.totalMs} + ${ms}`,
+              // CASE, not max(a, b): the same SQL in SQLite and Postgres.
+              slowestMs: sql`case when ${opsCheckHours.slowestMs} > ${ms} then ${opsCheckHours.slowestMs} else ${ms} end`,
+            },
+          });
+      },
+      async listSince(checkIds: string[], fromHour: string): Promise<OpsCheckHourRow[]> {
+        if (checkIds.length === 0) return [];
+        return await db
+          .select()
+          .from(opsCheckHours)
+          .where(
+            and(
+              inArray(opsCheckHours.checkId, checkIds),
+              sql`${opsCheckHours.hour} >= ${fromHour}`,
+            ),
+          )
+          .orderBy(asc(opsCheckHours.hour));
+      },
+      /** Hours older than this are forgotten. */
+      async prune(beforeHour: string): Promise<void> {
+        await db.delete(opsCheckHours).where(sql`${opsCheckHours.hour} < ${beforeHour}`);
+      },
+    },
+
+    alerts: {
+      async create(row: OpsAlertRow): Promise<OpsAlertRow> {
+        await db.insert(opsAlerts).values(row);
+        return row;
+      },
+      async findById(id: string): Promise<OpsAlertRow | null> {
+        const rows = await db.select().from(opsAlerts).where(eq(opsAlerts.id, id)).limit(1);
+        return rows[0] ?? null;
+      },
+      async openForCheck(checkId: string): Promise<OpsAlertRow | null> {
+        const rows = await db
+          .select()
+          .from(opsAlerts)
+          .where(and(eq(opsAlerts.checkId, checkId), sql`${opsAlerts.closedAt} is null`))
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      async listOpen(teamId?: string): Promise<OpsAlertRow[]> {
+        return await db
+          .select()
+          .from(opsAlerts)
+          .where(
+            teamId
+              ? and(eq(opsAlerts.teamId, teamId), sql`${opsAlerts.closedAt} is null`)
+              : sql`${opsAlerts.closedAt} is null`,
+          )
+          .orderBy(asc(opsAlerts.openedAt));
+      },
+      async listForTeam(teamId: string, limit = 50): Promise<OpsAlertRow[]> {
+        return await db
+          .select()
+          .from(opsAlerts)
+          .where(eq(opsAlerts.teamId, teamId))
+          .orderBy(desc(opsAlerts.openedAt))
+          .limit(limit);
+      },
+      async update(id: string, patch: Partial<OpsAlertRow>): Promise<void> {
+        await db.update(opsAlerts).set(patch).where(eq(opsAlerts.id, id));
       },
     },
   };

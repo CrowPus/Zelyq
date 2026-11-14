@@ -26,7 +26,10 @@ export type { ImageJobRow } from "./repositories/images.js";
 export type { MessageRepository } from "./repositories/messages.js";
 export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
 export type {
+  OpsAlertRow,
   OpsAttemptRow,
+  OpsCheckHourRow,
+  OpsCheckRow,
   OpsEngineerRow,
   OpsGuardRow,
   OpsJobRow,
