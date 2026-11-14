@@ -231,11 +231,24 @@ test("talk, look, plan, wait for approval, act, prove, finish", async () => {
     ["user", "assistant"],
   );
   assert.ok((await store.ops.jobs.findById(started.id))!.tokensIn >= 200);
-  // A new message after the job is over starts a new job.
+  // A follow-up after it ended stays in the same conversation ("now send the same by email"):
+  // it opens again, Ops hears what came before, and the old approval no longer counts.
   script.push(async () => answer("Production is on box."));
   const next = await brain.talk(owner, teamId, { text: "Where is production?", jobId: started.id });
-  assert.notEqual(next.id, started.id);
+  assert.equal(next.id, started.id);
+  const reopened = await store.ops.jobs.findById(started.id);
+  assert.equal(reopened?.planHash, null, "a new change needs a new plan and a new approval");
+  assert.equal(reopened?.planApprovedBy, null);
   await idle(next.id);
+  assert.ok(
+    (seen.at(-1)?.history.length ?? 0) > 2,
+    "the earlier exchange is in the follow-up's history",
+  );
+  const after = await server.ops.engineerView(started.id);
+  assert.deepEqual(
+    after.messages.filter((message) => message.role === "person").map((message) => message.text),
+    ["Make me a production environment on box.", "Approved, go on.", "Where is production?"],
+  );
 });
 
 test("the bridge answers only a live turn's token", async () => {

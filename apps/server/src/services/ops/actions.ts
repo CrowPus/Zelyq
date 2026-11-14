@@ -4,6 +4,7 @@ import type { Store } from "@zelyq/db";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { z } from "zod";
 import type { DeployService } from "../deploy.js";
+import type { MailService } from "../mail.js";
 import type { RunnerService } from "../pipelines/runners.js";
 import type { PipelineService } from "../pipelines/service.js";
 import type { PipelineTriggerService } from "../pipelines/triggers.js";
@@ -45,6 +46,8 @@ export interface OpsServices {
   memory: OpsMemory;
   /** Each person's own chats (Telegram, Slack), for a message they asked for. */
   channels: ChannelService;
+  /** Email (Settings → Email), for a message a person asked for there. */
+  mail: MailService;
 }
 
 export interface ActionContext {

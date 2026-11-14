@@ -927,12 +927,26 @@ export class OpsService {
     });
   }
 
-  /** A person says more in a job that is still going. */
+  /**
+   * A person says more in a conversation. One that had ended opens again, in the same place:
+   * a follow-up ("now send the same by email") belongs with what it follows. Its old plan
+   * is let go, so any new change needs a new plan and a new approval.
+   */
   async addPersonMessage(user: User, teamId: string, jobId: string, text: string): Promise<void> {
     await this.access.requireTeamRole(user, teamId, "editor");
     await this.requirePerson(user);
     const job = await this.jobOf(teamId, jobId);
-    if (FINAL.has(job.stage as OpsStage)) throw ZelyqError.badRequest(`This job is ${job.stage}.`);
+    if (FINAL.has(job.stage as OpsStage)) {
+      await this.store.ops.jobs.update(job.id, {
+        stage: "survey",
+        outcome: null,
+        finishedAt: null,
+        planHash: null,
+        planApprovedBy: null,
+        planApprovedAt: null,
+        updatedAt: new Date().toISOString(),
+      });
+    }
     await this.message(job.id, "person", user.id, text.slice(0, 4000));
   }
 

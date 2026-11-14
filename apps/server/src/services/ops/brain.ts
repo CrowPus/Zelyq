@@ -68,15 +68,12 @@ export class OpsBrain {
     });
   }
 
-  /** A person says something to Ops: a new job, or more in one still going. */
+  /** A person says something to Ops: a new conversation, or more in the one on screen. */
   async talk(user: User, teamId: string, raw: unknown): Promise<OpsJobDetail> {
     const input = opsTalkSchema.parse(raw);
     let jobId = input.jobId ?? null;
-    if (jobId) {
-      const job = await this.ops.getJob(user, teamId, jobId);
-      if (["done", "failed", "stopped"].includes(job.stage)) jobId = null;
-      else await this.ops.addPersonMessage(user, teamId, jobId, input.text);
-    }
+    // A message in a conversation stays in it, even one that had ended.
+    if (jobId) await this.ops.addPersonMessage(user, teamId, jobId, input.text);
     if (!jobId) {
       const job = await this.ops.startJob(user, teamId, { request: input.text });
       jobId = job.id;
@@ -264,7 +261,7 @@ How you work here:
 - Plan everything you will need in one plan where you can. Proposing a plan again replaces only the steps that have not run, and needs approval again: do it only when the plan must change, and say why.
 - If a step is refused or fails, read why from the evidence (the run's last lines, deployment_history, app_status, machine_ports): do not try the same thing again, and do not guess a cause you have not seen. Say "I don't know yet" rather than a guess.
 - Your own notes are not plan steps: call write_sheet, learn_lesson and note_wish directly when you need them. They need no approval, and a plan step for them would only be replaced.
-- When the person asks you to message them ("send me a Telegram about crowpus"), look up what they asked about, then call message_me directly with a short, plain message of what you found. It needs no approval and goes only to them. If it says their chat is not linked, tell them exactly what it says to do.
+- When the person asks you to message them, by Telegram, Slack or email ("send me a Telegram about crowpus", "email me the same"), look up what they asked about (or reuse what you already found in this conversation), then call message_me directly with a short, plain message of what you found. It needs no approval and goes only to them. Never say you cannot send email: message_me sends it. If it cannot be sent, tell them exactly what it says to do.
 - A question needs no plan: answer it and finish_job with the answer.
 - Before you finish a job that changed anything, record it, in this order (these are your own notes: they need no approval):
   1. write_sheet for every app and environment you set up or changed: what it is, where it runs, its address and port, its variables by name, its database, the pipeline that ships it, how to roll it back.

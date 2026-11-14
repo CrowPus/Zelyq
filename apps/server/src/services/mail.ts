@@ -108,11 +108,18 @@ export class MailService {
   /** Signs in to the mail server and sends a short message: the settings work, or it says why not. */
   async test(to: string): Promise<void> {
     const { transport, from } = await this.transport();
+    const user = (await this.settings.value("mailUsername")).trim();
     try {
       await transport.verify();
     } catch (error) {
+      const message = (error as Error).message;
+      // A refused login is nearly always the username: most mail servers want the whole address.
+      const hint =
+        /\b535\b|invalid login|authentication/i.test(message) && !user.includes("@")
+          ? ` Most mail servers want the whole email address as the username (such as ${addressOf(from) ?? "ops@example.com"}), not a name.`
+          : "";
       throw ZelyqError.badRequest(
-        `The mail server did not accept Zelyq: ${(error as Error).message}`,
+        `The mail server did not accept Zelyq: ${message.replace(/\.$/, "")}.${hint}`,
       );
     }
     try {

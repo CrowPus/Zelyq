@@ -237,6 +237,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   );
   // Telegram, Slack and Discord: each person's own chats, and the team's shared place.
   const opsChannels = new ChannelService(store, secrets);
+  const mail = new MailService(settings);
   // Ops, the team's DevOps engineer: one list of actions, one gate in front of it.
   const ops = new OpsService(store, access, new ActionList(OPS_ACTIONS), {
     deploys,
@@ -246,9 +247,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     vault,
     runtime,
     channels: opsChannels,
+    mail,
   });
   // Email (Settings → Email) and the messages Ops sends a person who walked away.
-  const mail = new MailService(settings);
   const opsMailer = new OpsMailer(store, mail, config.publicUrl);
   ops.events = (event) => opsMailer.handle(event);
   const watch = new CheckService(store, runners);

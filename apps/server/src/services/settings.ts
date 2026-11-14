@@ -112,6 +112,11 @@ const GROUPS: Array<{ name: string; description: string }> = [
     description:
       "Ops, the team's DevOps engineer. It uses the provider above; its model can differ from the one that builds apps.",
   },
+  {
+    name: "Email",
+    description:
+      'The mail server Zelyq sends email through: Ops\'s alerts, approval and secret requests, and "it is live" messages. Send a test email after saving.',
+  },
 ];
 
 const DEFINITIONS: Definition[] = [
@@ -834,6 +839,14 @@ const MODEL_SUGGESTIONS: Record<string, string[]> = {
  * labelled — never presented as a confirmed default the way `anthropic`'s
  * list above is.
  */
+/** Settings whose group has no section on the Settings page: they would be hidden. Must be empty. */
+export function ungroupedSettings(): string[] {
+  const named = new Set(GROUPS.map((group) => group.name));
+  return DEFINITIONS.filter((definition) => !named.has(definition.group)).map(
+    (definition) => `${definition.key} (${definition.group})`,
+  );
+}
+
 export const CODEX_MODEL_CANDIDATES = OPENAI_MODELS.filter(
   (model) => model.group === "recommended" || model.value === "gpt-5.4",
 ).map((model) => model.value);
