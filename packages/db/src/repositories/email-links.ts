@@ -166,6 +166,20 @@ export function emailLinkRepository(db: ZelyqDb) {
       return rows.map((row) => ({ ...row, role: row.role ?? "viewer" }));
     },
 
+    /** Voids an invitation. Marked used, not deleted: it still counts towards the hourly send limit. */
+    async voidInvite(teamId: string, id: string): Promise<void> {
+      await db
+        .update(emailLinks)
+        .set({ usedAt: new Date().toISOString() })
+        .where(
+          and(
+            eq(emailLinks.id, id),
+            eq(emailLinks.purpose, "invite"),
+            eq(emailLinks.teamId, teamId),
+          ),
+        );
+    },
+
     async removeInvite(teamId: string, id: string): Promise<boolean> {
       const removed = await db
         .delete(emailLinks)

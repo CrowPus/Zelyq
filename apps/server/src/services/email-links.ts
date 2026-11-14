@@ -162,7 +162,7 @@ export class EmailLinkService {
     if (!team) throw ZelyqError.notFound("Team", teamId);
 
     const earlier = await this.store.emailLinks.pendingInvite(teamId, email);
-    if (earlier) await this.store.emailLinks.removeInvite(teamId, earlier.id);
+    if (earlier) await this.store.emailLinks.voidInvite(teamId, earlier.id);
     const token = await this.issue({
       purpose: "invite",
       email,
@@ -185,7 +185,7 @@ export class EmailLinkService {
     ]);
     if (!sent) {
       const pending = await this.store.emailLinks.pendingInvite(teamId, email);
-      if (pending) await this.store.emailLinks.removeInvite(teamId, pending.id);
+      if (pending) await this.store.emailLinks.voidInvite(teamId, pending.id);
       throw ZelyqError.badRequest(
         `The invitation email to ${email} was not sent. Check Settings → Email and send a test.`,
       );
@@ -246,6 +246,22 @@ export class EmailLinkService {
     if (!link.teamId) throw expired();
     const existing = await this.store.users.findByEmail(link.email);
     if (existing?.kind === "service") throw expired();
+    // The invitation is only as good as the person who sent it, today: removed
+    // from the team, no longer an admin, or now below the role they offered,
+    // and it no longer works.
+    const inviterRole = link.createdBy
+      ? await this.store.teams.roleOf(link.teamId, link.createdBy)
+      : null;
+    if (
+      !inviterRole ||
+      !roleAtLeast(inviterRole, "admin") ||
+      !roleAtLeast(inviterRole, (link.role ?? "viewer") as Role)
+    ) {
+      throw new ZelyqError(
+        "not_found",
+        "This invitation is no longer valid. Ask a team admin to send a new one.",
+      );
+    }
 
     if (existing) {
       if (!signedIn || signedIn.id !== existing.id) {
@@ -282,10 +298,10 @@ export class EmailLinkService {
   private async join(link: EmailLinkRow, userId: string): Promise<void> {
     if (!link.teamId) return;
     const role = (link.role ?? "viewer") as Role;
-    const current = await this.store.teams.roleOf(link.teamId, userId);
-    if (!current) await this.store.teams.addMember(link.teamId, userId, role);
-    else if (!roleAtLeast(current, role)) {
-      await this.store.teams.updateMemberRole(link.teamId, userId, role);
+    // Already a member: their role stays as it is. Changing it is an admin's
+    // job on the team page, not something an old email does.
+    if (!(await this.store.teams.roleOf(link.teamId, userId))) {
+      await this.store.teams.addMember(link.teamId, userId, role);
     }
   }
 

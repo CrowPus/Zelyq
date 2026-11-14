@@ -66,58 +66,63 @@ export function registerTeamRoutes(
    * turned on (Settings → Email): on a computer nobody else can reach, a link
    * would lead nowhere, so then the person registers first and is added after.
    */
-  app.post<{ Params: { id: string } }>("/api/teams/:id/members", async (request, reply) => {
-    const user = access.requireUser(request);
-    const teamId = request.params.id;
-    const actorRole = await access.requireTeamRole(user, teamId, "admin");
-    const input = addMemberSchema.parse(request.body);
+  app.post<{ Params: { id: string } }>(
+    "/api/teams/:id/members",
+    // Each add or invite can send an email: capped, so no admin can flood an inbox.
+    { config: { rateLimit: { max: 30, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const user = access.requireUser(request);
+      const teamId = request.params.id;
+      const actorRole = await access.requireTeamRole(user, teamId, "admin");
+      const input = addMemberSchema.parse(request.body);
 
-    if (!roleAtLeast(actorRole, input.role)) {
-      throw new ZelyqError("forbidden", `You cannot grant a role above your own (${actorRole}).`);
-    }
-
-    const invitee = await store.users.findByEmail(input.email);
-    // A team's Ops engineer is managed on the Ops page, never as a member.
-    if (invitee?.kind === "service") {
-      throw new ZelyqError("not_found", `No account for ${input.email}.`);
-    }
-    if (!invitee) {
-      const state = await links.availability();
-      if (!state.available) {
-        throw new ZelyqError(
-          "not_found",
-          `No account for ${input.email}. They need to register first, then you can add them.`,
-          { invitations: false },
-        );
+      if (!roleAtLeast(actorRole, input.role)) {
+        throw new ZelyqError("forbidden", `You cannot grant a role above your own (${actorRole}).`);
       }
-      await links.invite(user, teamId, input.email, input.role);
+
+      const invitee = await store.users.findByEmail(input.email);
+      // A team's Ops engineer is managed on the Ops page, never as a member.
+      if (invitee?.kind === "service") {
+        throw new ZelyqError("not_found", `No account for ${input.email}.`);
+      }
+      if (!invitee) {
+        const state = await links.availability();
+        if (!state.available) {
+          throw new ZelyqError(
+            "not_found",
+            `No account for ${input.email}. They need to register first, then you can add them.`,
+            { invitations: false },
+          );
+        }
+        await links.invite(user, teamId, input.email, input.role);
+        await access.recordChange(user, {
+          teamId,
+          action: "team.member_invited",
+          detail: { email: input.email.trim().toLowerCase(), role: input.role },
+        });
+        reply.status(202);
+        return {
+          members: await store.teams.listMembers(teamId),
+          invited: input.email.trim().toLowerCase(),
+        };
+      }
+
+      if (await store.teams.roleOf(teamId, invitee.id)) {
+        throw new ZelyqError("conflict", `${input.email} is already a member of this team.`);
+      }
+
+      await store.teams.addMember(teamId, invitee.id, input.role);
       await access.recordChange(user, {
         teamId,
-        action: "team.member_invited",
-        detail: { email: input.email.trim().toLowerCase(), role: input.role },
+        action: "team.member_added",
+        detail: { email: input.email, role: input.role },
       });
-      reply.status(202);
-      return {
-        members: await store.teams.listMembers(teamId),
-        invited: input.email.trim().toLowerCase(),
-      };
-    }
-
-    if (await store.teams.roleOf(teamId, invitee.id)) {
-      throw new ZelyqError("conflict", `${input.email} is already a member of this team.`);
-    }
-
-    await store.teams.addMember(teamId, invitee.id, input.role);
-    await access.recordChange(user, {
-      teamId,
-      action: "team.member_added",
-      detail: { email: input.email, role: input.role },
-    });
-    const { passwordHash: _hash, kind: _kind, ...member } = invitee;
-    await links.notifyAdded(user, teamId, member, input.role);
-    reply.status(201);
-    return { members: await store.teams.listMembers(teamId) };
-  });
+      const { passwordHash: _hash, kind: _kind, ...member } = invitee;
+      await links.notifyAdded(user, teamId, member, input.role);
+      reply.status(201);
+      return { members: await store.teams.listMembers(teamId) };
+    },
+  );
 
   /** Invitations still waiting, and whether this instance can send them at all. */
   app.get<{ Params: { id: string } }>("/api/teams/:id/invites", async (request) => {

@@ -359,3 +359,49 @@ test("adding someone who already has an account tells them by email", async () =
   assert.match(mail[0]!.data, /Owner added you to/);
   assert.match(mail[0]!.data, new RegExp(`https://zelyq\\.test/teams/${teamId}`));
 });
+
+test("re-sending an invitation still counts: an admin cannot flood one inbox", async () => {
+  const statuses: number[] = [];
+  for (let i = 0; i < 6; i++) {
+    statuses.push(
+      (
+        await call("POST", `/api/teams/${teamId}/members`, {
+          email: "flood@example.com",
+          role: "viewer",
+        })
+      ).statusCode,
+    );
+  }
+  assert.deepEqual(statuses, [202, 202, 202, 202, 202, 429]);
+  assert.equal(inboxFor("flood@example.com").length, 5);
+  // Only the newest link works; the older ones were voided.
+  const pending = (await call("GET", `/api/teams/${teamId}/invites`)).json().invites;
+  assert.equal(
+    pending.filter((row: { email: string }) => row.email === "flood@example.com").length,
+    1,
+  );
+});
+
+test("an invitation stops working once the admin who sent it is no longer an admin", async () => {
+  const adminCookie = await register("helper@example.com", "Helper");
+  const helper = await store.users.findByEmail("helper@example.com");
+  await store.teams.addMember(teamId, helper!.id, "admin");
+  const sent = await call(
+    "POST",
+    `/api/teams/${teamId}/members`,
+    { email: "via-helper@example.com", role: "editor" },
+    adminCookie,
+  );
+  assert.equal(sent.statusCode, 202, sent.body);
+  const token = tokenFrom("via-helper@example.com", "invite");
+  await store.teams.updateMemberRole(teamId, helper!.id, "viewer");
+  const accepted = await call(
+    "POST",
+    "/api/auth/invite/accept",
+    { token, name: "Via Helper", password: PASSWORD },
+    "",
+  );
+  assert.equal(accepted.statusCode, 404);
+  assert.match(accepted.json().error.message, /no longer valid/);
+  assert.equal(await store.users.findByEmail("via-helper@example.com"), null);
+});
