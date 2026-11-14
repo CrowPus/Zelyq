@@ -9,6 +9,7 @@ import type { User } from "@zelyq/core";
 import { runMigrations, type Store } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
+import { SshError } from "../src/services/pipelines/ssh.js";
 import {
   CheckService,
   ESCALATE_AFTER_MS,
@@ -309,11 +310,12 @@ test("a stopped container and a full disk are seen on one visit to the machine; 
   await watch.tick(minutes(start, 10));
   assert.equal((await store.ops.alerts.listOpen(teamId)).length, 0);
 
-  // The whole machine goes away, and its app with it: one cause, one alert.
+  // The whole machine goes away, and its app with it: one cause, one alert. It goes at
+  // minute 12, when only the app's container visit is due, not the machine's own check.
   events.length = 0;
-  say.machine = new Error("connection refused");
+  say.machine = new SshError("Could not reach 203.0.113.30:22: timed out", "unreachable");
   appMode = "error";
-  for (let minute = 15; minute <= 20; minute += 1) await watch.tick(minutes(start, minute));
+  for (let minute = 12; minute <= 20; minute += 1) await watch.tick(minutes(start, minute));
   const opened = events.filter((event) => event.kind === "alert_opened");
   assert.deepEqual(
     opened.map((event) => event.alert.title),
@@ -327,6 +329,21 @@ test("a stopped container and a full disk are seen on one visit to the machine; 
   say.machine = null;
   appMode = "ok";
   await watch.tick(minutes(start, 25));
+  assert.equal((await store.ops.alerts.listOpen(teamId)).length, 0);
+
+  // A login problem is not the machine being gone: the site going down is still told.
+  events.length = 0;
+  say.machine = new SshError("203.0.113.30 refused the team's SSH key for zelyq.", "auth");
+  appMode = "error";
+  for (let minute = 26; minute <= 31; minute += 1) await watch.tick(minutes(start, minute));
+  const told = events
+    .filter((event) => event.kind === "alert_opened")
+    .map((event) => event.alert.title)
+    .sort();
+  assert.deepEqual(told, ["box needs attention", "shop on production does not answer"]);
+  say.machine = null;
+  appMode = "ok";
+  await watch.tick(minutes(start, 35));
   assert.equal((await store.ops.alerts.listOpen(teamId)).length, 0);
 });
 

@@ -365,20 +365,38 @@ export class CheckService {
       [...urls].map(async (url) => answers.set(url, await this.probes.probeAddress(url))),
     );
 
-    // One cause, one alert: while a machine cannot be reached, what runs on it is recorded
-    // but raises nothing of its own; the machine's alert says it. Machines go first, so this
-    // run's answer counts.
-    const unreachable = new Set(
-      (await this.store.ops.checks.listForTeam(teamId))
-        .filter(
-          (row) =>
-            row.kind === "machine" &&
-            row.enabled &&
-            row.state === "failing" &&
-            (row.lastDetail ?? "").startsWith("not reachable"),
-        )
-        .map((row) => (JSON.parse(row.params) as { runnerId?: string }).runnerId ?? ""),
-    );
+    // One cause, one alert: while a machine cannot be reached over the network, what runs on
+    // it is recorded but raises nothing of its own; the machine's alert says it. A visit that
+    // failed in this run counts at once (the machine is recorded now, even if not yet due);
+    // otherwise its last result does. A login or key problem holds back nothing: the site may
+    // be down for its own reasons.
+    const everything = await this.store.ops.checks.listForTeam(teamId);
+    const machineOf = (runnerId: string) =>
+      everything.find(
+        (row) =>
+          row.kind === "machine" &&
+          row.enabled &&
+          (JSON.parse(row.params) as { runnerId?: string }).runnerId === runnerId,
+      );
+    const unreachable = new Set<string>();
+    for (const row of everything) {
+      if (row.kind !== "machine" || !row.enabled) continue;
+      const runnerId = (JSON.parse(row.params) as { runnerId?: string }).runnerId ?? "";
+      const visit = visits.get(runnerId);
+      if (
+        visit instanceof Error
+          ? networkDown(visit)
+          : visit
+            ? false
+            : row.state === "failing" && (row.lastDetail ?? "").startsWith("not reachable")
+      )
+        unreachable.add(runnerId);
+    }
+    for (const [runnerId, visit] of visits) {
+      const machine = machineOf(runnerId);
+      if (visit instanceof Error && machine && !checks.some((row) => row.id === machine.id))
+        checks.push(machine);
+    }
     checks.sort((a, b) => Number(b.kind === "machine") - Number(a.kind === "machine"));
     for (const row of checks) {
       if ((busy(row) || gone(row)) && ["address", "speed", "app"].includes(row.kind)) continue;
@@ -400,7 +418,13 @@ export class CheckService {
         const visit = visits.get(String(params.runnerId ?? ""));
         result =
           visit instanceof Error
-            ? { ok: false, ms: 0, detail: `not reachable: ${visit.message}` }
+            ? {
+                ok: false,
+                ms: 0,
+                detail: networkDown(visit)
+                  ? `not reachable: ${visit.message}`
+                  : `could not be looked at: ${visit.message}`,
+              }
             : visit
               ? machineResult(visit)
               : null;
@@ -409,16 +433,8 @@ export class CheckService {
       } else if (row.kind === "domain") {
         result = await this.probes.probeDomain(String(params.domain), String(params.machine));
       }
-      if (row.kind === "machine") {
-        const runnerId = String(params.runnerId ?? "");
-        if (result && !result.ok && result.detail.startsWith("not reachable"))
-          unreachable.add(runnerId);
-        else if (result) unreachable.delete(runnerId);
-        await this.record(row, result, now);
-      } else {
-        const behind = unreachable.has(String(params.runnerId ?? ""));
-        await this.record(row, result, now, { quiet: behind });
-      }
+      const behind = row.kind !== "machine" && unreachable.has(String(params.runnerId ?? ""));
+      await this.record(row, result, now, { quiet: behind });
     }
   }
 
@@ -743,6 +759,13 @@ export class CheckService {
     });
     return { ...alert, silencedUntil: until, silencedBy: userId, notifiedAt: until };
   }
+}
+
+/** The machine itself is not there (no network answer), as against a login or script problem. */
+function networkDown(error: Error): boolean {
+  return (
+    (error as { kind?: string }).kind === "unreachable" || /^Could not reach /.test(error.message)
+  );
 }
 
 function alertTitle(row: OpsCheckRow, detail = ""): string {
