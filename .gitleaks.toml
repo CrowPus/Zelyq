@@ -18,7 +18,15 @@ and Discord, so it needs strings shaped like a bot token or a webhook address
 ("123456789:AAH-standinTokenForTestsOnly…", "xoxb-1111-2222-standin…",
 "discord.com/api/webhooks/42/abc") to check that a real one is accepted, a
 wrong one refused, and none ever shown again. They are made up, not leaks.
+
+The Ops tests (ops-actions, ops-brain, ops-memory) hand Ops a made-up Stripe-
+shaped value to check it refuses to put a raw secret into an app's settings.
+Only those exact made-up values are allowed (the regexes below), not the
+files, so a real key added there is still caught.
 """
+regexes = [
+  '''^sk_live_(0123456789abcdefghijk?|9876543210abcdefghijk|a{21}[1-4])$''',
+]
 paths = [
   '''^apps/agent/evals/cases\.ts$''',
   '''^apps/server/test/ops-channels\.test\.ts$''',
