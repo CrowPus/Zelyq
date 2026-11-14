@@ -206,8 +206,9 @@ test("an admin connects Telegram; the token is checked, kept encrypted and never
   });
   assert.equal(viewer.statusCode, 403, "only an admin connects a service");
 
+  // Pasting BotFather's whole message, full stop and all, is how people do it.
   const done = await inject(ownerCookie, "PUT", `/api/teams/${teamId}/ops/channels/telegram`, {
-    token: TOKEN,
+    token: `Use this token to access the HTTP API:\n${TOKEN}.\nKeep your token secure`,
   });
   assert.equal(done.statusCode, 200, done.body);
   assert.equal(done.json().channels[0].name, "@zelyq_test_bot");

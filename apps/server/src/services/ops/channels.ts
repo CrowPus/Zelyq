@@ -116,8 +116,11 @@ export class ChannelService {
     let teamChat: string | null = null;
     const secret: Secret = {};
     if (kind === "telegram") {
-      const token = (input.token ?? "").trim();
-      if (!/^\d{5,16}:[A-Za-z0-9_-]{30,64}$/.test(token))
+      // BotFather's whole message, or a token with a full stop after it, is fine: take the token out.
+      const token = (input.token ?? "").match(
+        /(?<![\w:-])\d{5,16}:[A-Za-z0-9_-]{30,64}(?![\w:-])/,
+      )?.[0];
+      if (!token)
         throw new ChannelError(
           "That does not look like a Telegram bot token (it reads 123456:ABC…).",
         );
@@ -134,8 +137,8 @@ export class ChannelService {
         );
       secret.token = token;
     } else if (kind === "slack") {
-      const token = (input.token ?? "").trim();
-      if (!/^xoxb-[A-Za-z0-9-]{10,200}$/.test(token))
+      const token = (input.token ?? "").match(/(?<![\w-])xoxb-[A-Za-z0-9-]{10,200}(?![\w-])/)?.[0];
+      if (!token)
         throw new ChannelError("That does not look like a Slack bot token (it starts with xoxb-).");
       const me = await this.slack(token, "auth.test", {});
       account = `slack:${String(me.team_id)}:${String(me.user_id)}`;
