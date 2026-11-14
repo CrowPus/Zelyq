@@ -219,7 +219,14 @@ export function SettingsPage() {
               key={field.key}
               field={field}
               draft={draft}
-              onChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))}
+              onChange={(value) =>
+                setDraft((current) => ({
+                  ...current,
+                  [field.key]: value,
+                  // A model belongs to its provider: a new Ops provider starts from its own default.
+                  ...(field.key === "opsProvider" ? { opsModel: "" } : {}),
+                }))
+              }
             />
           ))}
           {group.name === "Model" && (
@@ -568,6 +575,87 @@ function StatusRow({ label, ok, detail }: { label: string; ok: boolean; detail: 
   );
 }
 
+/**
+ * A model is picked from the list the key can use; typing a name is there for
+ * the rare model the list does not know, behind "Other model…".
+ */
+function ModelChoice({
+  field,
+  value,
+  providerChanged,
+  onChange,
+}: {
+  field: SettingField;
+  value: string;
+  providerChanged: boolean;
+  onChange(value: string): void;
+}) {
+  const options = field.modelOptions ?? [];
+  const listed = value === "" || options.some((model) => model.value === value);
+  const [typing, setTyping] = useState(!listed);
+  const other = typing || !listed;
+  return (
+    <div className="space-y-2">
+      <select
+        aria-label={field.label}
+        value={other ? "__other__" : value}
+        disabled={providerChanged}
+        onChange={(event) => {
+          if (event.target.value === "__other__") {
+            setTyping(true);
+            return;
+          }
+          setTyping(false);
+          onChange(event.target.value);
+        }}
+        className="h-[30px] w-full rounded-md border border-border-default bg-surface px-2 text-sm text-fg disabled:opacity-60"
+      >
+        <option value="">{field.placeholder ?? "Provider default"}</option>
+        {(["recommended", "previous", "legacy"] as const).map((group) => {
+          const inGroup = options.filter((model) => (model.group ?? "recommended") === group);
+          if (inGroup.length === 0) return null;
+          return (
+            <optgroup
+              key={group}
+              label={
+                group === "recommended"
+                  ? "Recommended"
+                  : group === "previous"
+                    ? "Previous generation"
+                    : "Legacy"
+              }
+            >
+              {inGroup.map((model) => (
+                <option key={model.value} value={model.value}>
+                  {model.label}
+                  {model.description ? ` — ${model.description}` : ""}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
+        <option value="__other__">Other model…</option>
+      </select>
+      {other && !providerChanged && (
+        <Input
+          aria-label={`${field.label}, typed`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="The model's exact name"
+          autoComplete="off"
+        />
+      )}
+      {providerChanged ? (
+        <p className="max-w-sm text-xs text-fg-muted">
+          Save first; then this lists the models of the provider you chose.
+        </p>
+      ) : (
+        field.modelNotice && <p className="max-w-sm text-xs text-fg-muted">{field.modelNotice}</p>
+      )}
+    </div>
+  );
+}
+
 function FieldRow({
   field,
   draft,
@@ -611,57 +699,12 @@ function FieldRow({
             {field.kind === "secret" ? (field.hint ?? "configured") : String(field.value ?? "")}
           </p>
         ) : field.modelOptions ? (
-          <div className="space-y-2">
-            <select
-              aria-label="Model suggestions"
-              value={
-                field.modelOptions.some(
-                  (model) => model.value === String(pending ?? field.value ?? ""),
-                )
-                  ? String(pending ?? field.value)
-                  : String(pending ?? field.value ?? "")
-                    ? "__custom__"
-                    : ""
-              }
-              onChange={(event) => onChange(event.target.value)}
-              className="h-[30px] w-full rounded-md border border-border-default bg-surface px-2 text-sm text-fg"
-            >
-              <option value="">Provider default</option>
-              <option value="__custom__" disabled hidden>
-                Custom model entered below
-              </option>
-              {(["recommended", "previous", "legacy"] as const).map((group) => (
-                <optgroup
-                  key={group}
-                  label={
-                    group === "recommended"
-                      ? "Recommended"
-                      : group === "previous"
-                        ? "Previous generation"
-                        : "Legacy"
-                  }
-                >
-                  {field.modelOptions
-                    ?.filter((model) => (model.group ?? "recommended") === group)
-                    .map((model) => (
-                      <option key={model.value} value={model.value}>
-                        {model.label}
-                        {model.description ? ` — ${model.description}` : ""}
-                      </option>
-                    ))}
-                </optgroup>
-              ))}
-            </select>
-            <Input
-              aria-label={field.label}
-              value={String(pending ?? field.value ?? "")}
-              onChange={(event) => onChange(event.target.value)}
-              placeholder={field.placeholder}
-            />
-            {field.modelNotice && (
-              <p className="max-w-sm text-xs text-fg-muted">{field.modelNotice}</p>
-            )}
-          </div>
+          <ModelChoice
+            field={field}
+            value={String(pending ?? field.value ?? "")}
+            providerChanged={field.key === "opsModel" && draft.opsProvider !== undefined}
+            onChange={onChange}
+          />
         ) : field.kind === "select" ? (
           <select
             value={String(pending ?? field.value ?? "")}

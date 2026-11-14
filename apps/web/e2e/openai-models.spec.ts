@@ -98,11 +98,9 @@ test("Settings saves a selected model and preserves custom IDs", async ({ page }
     await route.fulfill({ json: response() });
   });
   await page.goto("/settings");
-  const picker = page.getByRole("combobox", { name: "Model suggestions" });
+  const picker = page.getByRole("combobox", { name: "Model", exact: true });
   await picker.selectOption("gpt-6-astra");
-  await expect(page.getByRole("textbox", { name: "Model", exact: true })).toHaveValue(
-    "gpt-6-astra",
-  );
+  await expect(picker).toHaveValue("gpt-6-astra");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByText("Saved", { exact: true })).toHaveText("Saved");
   await page.reload();
@@ -111,11 +109,12 @@ test("Settings saves a selected model and preserves custom IDs", async ({ page }
     .getByRole("heading", { name: "Model", exact: true })
     .locator("..")
     .screenshot({ path: "/tmp/zelyq-openai-settings.png" });
-  await page.getByRole("textbox", { name: "Model", exact: true }).fill("my-custom-openai-model");
+  await picker.selectOption("__other__");
+  await page.getByRole("textbox", { name: "Model, typed" }).fill("my-custom-openai-model");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByText("Saved", { exact: true })).toHaveText("Saved");
   await page.reload();
-  await expect(page.getByRole("textbox", { name: "Model", exact: true })).toHaveValue(
+  await expect(page.getByRole("textbox", { name: "Model, typed" })).toHaveValue(
     "my-custom-openai-model",
   );
 });

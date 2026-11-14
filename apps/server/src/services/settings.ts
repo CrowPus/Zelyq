@@ -777,6 +777,13 @@ const DEFINITIONS: Definition[] = [
 const BY_KEY = new Map(DEFINITIONS.map((definition) => [definition.key, definition]));
 
 /** Which stored secret belongs to which provider. */
+/** How a provider is named on screen. */
+const PROVIDER_NAME: Record<string, string> = {
+  google: "Gemini",
+  anthropic: "Claude",
+  openai: "OpenAI",
+};
+
 const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
   anthropic: "anthropicApiKey",
   google: "geminiApiKey",
@@ -1310,6 +1317,18 @@ export class SettingsService {
     const modelSuggestions = catalog
       ? catalog.models.map((model) => model.value)
       : MODEL_SUGGESTIONS[effectiveProvider];
+    // Ops may think with its own provider: its model list is that provider's, read from its key.
+    const opsProvider = (await this.value("opsProvider")).trim() || effectiveProvider;
+    const opsCatalog =
+      opsProvider === effectiveProvider
+        ? catalog
+        : opsProvider === "openai"
+          ? await this.openAIModels()
+          : opsProvider === "anthropic"
+            ? await this.anthropicModels()
+            : opsProvider === "google"
+              ? await this.googleModels()
+              : undefined;
 
     const fields = await Promise.all(
       DEFINITIONS.map(async (definition): Promise<SettingField> => {
@@ -1367,6 +1386,13 @@ export class SettingsService {
                   catalog.modelAvailability === "subscription"
                     ? `Enter a supported ${effectiveProvider === "openai" ? "Codex" : "Claude"} model`
                     : `Default: ${DEFAULT_MODEL_BY_PROVIDER[effectiveProvider]}`,
+              }
+            : {}),
+          ...(definition.key === "opsModel" && opsCatalog
+            ? {
+                modelOptions: opsCatalog.models,
+                modelNotice: opsCatalog.modelNotice,
+                placeholder: `Default: the strongest ${PROVIDER_NAME[opsProvider] ?? opsProvider} model your key can use`,
               }
             : {}),
         } as const;

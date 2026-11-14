@@ -241,3 +241,40 @@ test("API-key discovery produces identical choices in Settings and project chat"
   assert.equal(openai.modelAvailability, "verified");
   assert.ok(!providers.body.includes("fixture-key"));
 });
+
+test("Settings → Ops offers the models of Ops's own provider, not Settings → Model's", async () => {
+  const fieldsOf = async () =>
+    (await server.app.inject({ method: "GET", url: "/api/settings", headers: { cookie } }))
+      .json<SettingsResponse>()
+      .groups.flatMap((group) => group.fields);
+  const listOf = async (id: string) =>
+    (await server.app.inject({ method: "GET", url: "/api/providers", headers: { cookie } }))
+      .json()
+      .providers.find((provider: { id: string }) => provider.id === id);
+
+  // The same provider as Settings → Model: the same list.
+  const same = await fieldsOf();
+  const model = same.find((field: SettingField) => field.key === "model")!;
+  const ops = same.find((field: SettingField) => field.key === "opsModel")!;
+  assert.ok(ops.modelOptions?.length, "Ops's model is chosen from a list");
+  assert.deepEqual(ops.modelOptions, model.modelOptions);
+
+  // Ops on another provider: that provider's list, and its default named plainly.
+  const saved = await server.app.inject({
+    method: "PUT",
+    url: "/api/settings",
+    headers: { cookie },
+    payload: { opsProvider: "anthropic" },
+  });
+  assert.equal(saved.statusCode, 200, saved.body);
+  const other = (await fieldsOf()).find((field: SettingField) => field.key === "opsModel")!;
+  assert.deepEqual(other.modelOptions, (await listOf("anthropic")).models);
+  assert.notDeepEqual(other.modelOptions, model.modelOptions);
+  assert.match(other.placeholder ?? "", /strongest Claude model/);
+  await server.app.inject({
+    method: "PUT",
+    url: "/api/settings",
+    headers: { cookie },
+    payload: { opsProvider: "" },
+  });
+});
