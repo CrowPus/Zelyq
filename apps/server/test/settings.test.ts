@@ -9,7 +9,7 @@ import { createStore, runMigrations } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 import { maskSecret, resolveSecretKey, SecretBox } from "../src/services/secrets.js";
-import { SettingsService } from "../src/services/settings.js";
+import { SettingsService, ungroupedSettings } from "../src/services/settings.js";
 
 const tmp = path.join(os.tmpdir(), `zelyq-settings-${Date.now()}`);
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -786,4 +786,8 @@ test("a key added to the team's Vault can be chosen in Settings, and works", asy
     payload: { vaultName: "GEMINI_TEAM_KEY", vault: "tem_not_mine" },
   });
   assert.equal(other.statusCode, 404);
+});
+
+test("every setting has a section on the Settings page (Email was once hidden)", () => {
+  assert.deepEqual(ungroupedSettings(), []);
 });
