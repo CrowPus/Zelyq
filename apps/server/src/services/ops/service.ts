@@ -19,15 +19,18 @@ import {
 } from "@zelyq/core";
 import type { OpsEngineerRow, OpsJobRow, OpsPlanStepRow, PipelineRunRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
+import { accessSummary, missingAccess, OpsAccess, scopedStore, visibleSubjects } from "./access.js";
 import {
   type ActionContext,
   type ActionList,
   type ActionOutcome,
   inputsHash,
+  type OpsAction,
   type OpsEnvironmentRef,
   type OpsServices,
   type ProofResult,
   riskOf,
+  touchesOf,
 } from "./actions.js";
 import { approvalStands } from "./catalogue/shared.js";
 import { OpsEngineers } from "./engineer.js";
@@ -158,6 +161,8 @@ export type OpsEvent =
 export class OpsService {
   readonly engineers: OpsEngineers;
   readonly memory: OpsMemory;
+  /** What Ops has been given (076): a team admin assigns each thing on Ops → Access. */
+  readonly accessList: OpsAccess;
   /** What happened that a person away from the page should hear about (the mailer listens). */
   events?: (event: OpsEvent) => void;
   /** Whether the engineer is working on a job now, and what it has been doing; set by the brain. */
@@ -174,6 +179,7 @@ export class OpsService {
     services: Omit<OpsServices, "store" | "memory">,
   ) {
     this.engineers = new OpsEngineers(store, access);
+    this.accessList = new OpsAccess(store, access);
     this.memory = new OpsMemory(store, access);
     this.memory.printedFor = (jobId) => this.printed.get(jobId) ?? [];
     this.services = { ...services, memory: this.memory };
@@ -413,6 +419,7 @@ export class OpsService {
         inApprovedPlan: false,
         confirmed: false,
         freeUse: action.freeUse === true,
+        noAccess: await this.noAccess(ctx, action, inputs, risk),
       });
       // A step only an approved plan can make possible is fine: that is what the plan is for.
       if (verdict.verdict === "refuse") {
@@ -548,6 +555,7 @@ export class OpsService {
       inApprovedPlan: step !== null && job.planApprovedAt !== null,
       confirmed: step?.confirmedAt !== null && step?.confirmedAt !== undefined,
       freeUse: action.freeUse === true,
+      noAccess: await this.noAccess(ctx, action, inputs, risk),
     });
     if (verdict.verdict !== "run") {
       return { verdict, outcome: null, proof: null, step: null };
@@ -1010,15 +1018,25 @@ export class OpsService {
         "This changes something: it waits for a person's approval.",
       );
     }
+    // An outside agent works through Ops's hands, so it reaches only what Ops was given.
+    const scope = await this.accessList.scopeFor(teamId);
     const ctx: ActionContext = {
       teamId,
       user,
       jobId: null,
-      services: { store: this.store, ...this.services },
+      services: { store: scopedStore(this.store, scope), ...this.services },
+      scope,
+      seesSubject: () => visibleSubjects(this.store, scope, teamId),
+      created: async (kind, id) => {
+        scope.add(kind, id, "manage");
+        await this.accessList.grantCreated(teamId, kind, id, user.id);
+      },
       approval: null,
       grantRun: async () => undefined,
       say: async () => undefined,
     };
+    const blocked = await this.noAccess(ctx, action, inputs, risk);
+    if (blocked) throw new ZelyqError("forbidden", blocked);
     const environment = action.environment ? await action.environment(ctx, inputs) : null;
     if (environment?.frozen && risk !== "read") {
       throw ZelyqError.badRequest(`${environment.name} is frozen; nothing changes there now.`);
@@ -1107,16 +1125,53 @@ export class OpsService {
     return engineer;
   }
 
+  /** What Ops reads first about its own reach (076), and which of its notes it may read. */
+  async reachOf(
+    teamId: string,
+  ): Promise<{ summary: string; seesSubject: (subject: string) => boolean }> {
+    const scope = await this.accessList.scopeFor(teamId);
+    const store = scopedStore(this.store, scope);
+    return {
+      summary: await accessSummary(store, scope, teamId),
+      seesSubject: await visibleSubjects(this.store, scope, teamId),
+    };
+  }
+
+  /** What this would reach that Ops was not given, in words; null when it has all of it. */
+  private async noAccess(
+    ctx: ActionContext,
+    action: OpsAction,
+    inputs: Record<string, unknown>,
+    risk: OpsRisk,
+  ): Promise<string | null> {
+    const missing = await missingAccess(
+      this.store,
+      ctx.scope,
+      await touchesOf(ctx, action, inputs, risk),
+    );
+    return missing
+      ? `${missing} Tell the person exactly that, and stop there: do not look for a way around it.`
+      : null;
+  }
+
   private async context(
     engineer: OpsEngineerRow,
     jobId: string | null,
     approval: ActionContext["approval"] = null,
   ): Promise<ActionContext> {
+    const scope = await this.accessList.scopeFor(engineer.teamId);
     return {
       teamId: engineer.teamId,
       user: await this.engineers.account(engineer),
       jobId,
-      services: { store: this.store, ...this.services },
+      // Ops sees the team only through what it was given: by construction, not by remembering.
+      services: { store: scopedStore(this.store, scope), ...this.services },
+      scope,
+      seesSubject: () => visibleSubjects(this.store, scope, engineer.teamId),
+      created: async (kind, id) => {
+        scope.add(kind, id, "manage");
+        await this.accessList.grantCreated(engineer.teamId, kind, id, approval?.approvedBy ?? null);
+      },
       approval,
       grantRun: async (runId, environmentId) => {
         if (!jobId || !approval) return;
@@ -1217,6 +1272,8 @@ export class OpsService {
             inApprovedPlan: row.planApprovedAt !== null,
             confirmed: step.confirmedAt !== null,
             freeUse: action?.freeUse === true,
+            // Only whether a person still has to say yes: a step Ops cannot reach shows when it is tried.
+            noAccess: null,
           }).verdict === "ask";
       }
       presented.push({

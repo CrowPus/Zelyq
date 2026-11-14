@@ -1637,6 +1637,36 @@ export const opsChannels = pgTable(
   }),
 );
 
+/**
+ * What Ops has been given (076). Ops sees and touches only what is listed
+ * here; nothing listed, nothing reachable. "see": it may look. "manage": it
+ * may change it, within the environment's trust level and the gate.
+ */
+export const opsAccess = pgTable(
+  "ops_access",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** environment, machine, pipeline, project, vault. */
+    kind: text("kind").notNull(),
+    /** The thing's id; "team" for the team's secret names. */
+    resourceId: text("resource_id").notNull(),
+    level: text("level").notNull(),
+    grantedBy: text("granted_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    resourceIdx: uniqueIndex("ops_access_resource_idx").on(
+      table.teamId,
+      table.kind,
+      table.resourceId,
+    ),
+  }),
+);
+
 /** A person's own chat on a service, linked by a one-time code. */
 export const opsChannelLinks = pgTable(
   "ops_channel_links",
@@ -1766,6 +1796,7 @@ export const schema = {
   opsAlerts,
   opsChannels,
   opsChannelLinks,
+  opsAccess,
   opsLinkCodes,
   opsNotifyPrefs,
 };

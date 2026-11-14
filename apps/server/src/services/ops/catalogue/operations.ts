@@ -167,6 +167,11 @@ const promote: OpsAction<z.infer<typeof promoteInput>> = {
     "Ship the exact image live in one environment (tested on staging) to another (production). Nothing is built again.",
   input: promoteInput,
   risk: "change",
+  // It reads what is live in one environment and changes the other.
+  touches: async (_ctx, inputs) => [
+    { kind: "environment", name: inputs.from, need: "see" },
+    { kind: "environment", name: inputs.to, need: "manage" },
+  ],
   environment: (ctx, inputs) => environmentByName(ctx, inputs.to),
   words: (inputs) => `Ship ${inputs.app} from ${inputs.from} to ${inputs.to}, the same image`,
   undo: (inputs) => `Roll ${inputs.app} on ${inputs.to} back to its previous version`,

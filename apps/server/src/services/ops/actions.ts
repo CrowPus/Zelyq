@@ -9,6 +9,7 @@ import type { RunnerService } from "../pipelines/runners.js";
 import type { PipelineService } from "../pipelines/service.js";
 import type { PipelineTriggerService } from "../pipelines/triggers.js";
 import type { VaultService } from "../vault.js";
+import type { OpsScope, OpsTouch } from "./access.js";
 import type { ChannelService } from "./channels.js";
 import type { OpsMemory } from "./memory.js";
 
@@ -62,6 +63,12 @@ export interface ActionContext {
   grantRun(runId: string, environmentId: string): Promise<void>;
   /** Tells the person in this job something (a secret to add, a DNS record to make). */
   say(text: string): Promise<void>;
+  /** What Ops has been given (076). `services.store` already shows only this. */
+  scope: OpsScope;
+  /** Which operations sheets Ops may read (076): none about a thing it was not given. */
+  seesSubject(): Promise<(subject: string) => boolean>;
+  /** Something Ops just made under an approved plan becomes its own to manage. */
+  created(kind: "environment" | "pipeline", id: string): Promise<void>;
 }
 
 export interface ActionOutcome {
@@ -92,6 +99,12 @@ export interface OpsAction<I extends Record<string, unknown> = Record<string, un
    * building blocks) may run without a plan. Default: it needs an approved plan.
    */
   freeUse?: boolean;
+  /**
+   * What it reaches beyond the names in its inputs (environment, machine,
+   * pipeline are found by themselves; see `touchesOf`). Checked before it
+   * runs: anything not given to Ops, and it does not run.
+   */
+  touches?: (ctx: ActionContext, inputs: I) => Promise<OpsTouch[]>;
   /** What a person reads in a plan, from the exact inputs. */
   words: (inputs: I) => string;
   /** How to undo it, in plain words; null when there is nothing to undo. */
@@ -106,6 +119,27 @@ export function riskOf<I extends Record<string, unknown>>(
   inputs: I,
 ): OpsRisk {
   return typeof action.risk === "function" ? action.risk(inputs) : action.risk;
+}
+
+/**
+ * Everything an action reaches, by name: the environment, machine and
+ * pipeline named in its inputs, at "see" for a look and "manage" for a
+ * change, and whatever else the action says it reaches.
+ */
+export async function touchesOf(
+  ctx: ActionContext,
+  action: OpsAction,
+  inputs: Record<string, unknown>,
+  risk: OpsRisk,
+): Promise<OpsTouch[]> {
+  const need = risk === "read" ? "see" : "manage";
+  const touches: OpsTouch[] = [];
+  for (const kind of ["environment", "machine", "pipeline"] as const) {
+    const name = inputs[kind];
+    if (typeof name === "string" && name.trim()) touches.push({ kind, name, need });
+  }
+  if (action.touches) touches.push(...(await action.touches(ctx, inputs)));
+  return touches;
 }
 
 /** The same inputs always give the same hash, whatever order their keys were written in. */

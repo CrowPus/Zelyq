@@ -10,6 +10,7 @@ import {
 import type { OpsAlertRow, OpsCheckRow, RunnerRow, Store } from "@zelyq/db";
 import type { RunnerService } from "../../pipelines/runners.js";
 import { SshSession } from "../../pipelines/ssh.js";
+import { type OpsScope, scopedStore } from "../access.js";
 import { checkBlocks } from "../blocks.js";
 import {
   CONTAINERS_SCRIPT,
@@ -70,6 +71,11 @@ export class CheckService {
   private running = false;
   /** Told of every alert that opens, closes or moves on (the mailer and channels listen). */
   events?: (event: WatchEvent) => void;
+  /**
+   * What Ops has been given (076). Set: only those are watched, and a thing
+   * taken away stops being watched at the next read of the records.
+   */
+  scopeFor?: (teamId: string) => Promise<OpsScope>;
 
   constructor(
     private readonly store: Store,
@@ -126,9 +132,10 @@ export class CheckService {
 
   /** What Zelyq's records say should be watched in a team. */
   async wanted(teamId: string): Promise<Wanted[]> {
-    const environments = await this.store.deploy.environments.listForTeam(teamId);
-    const runners = await this.store.pipelines.runners.listForTeam(teamId);
-    const live = await this.store.deploy.deployments.live(environments.map((row) => row.id));
+    const store = this.scopeFor ? scopedStore(this.store, await this.scopeFor(teamId)) : this.store;
+    const environments = await store.deploy.environments.listForTeam(teamId);
+    const runners = await store.pipelines.runners.listForTeam(teamId);
+    const live = await store.deploy.deployments.live(environments.map((row) => row.id));
     const wanted: Wanted[] = [];
     const domains = new Map<
       string,
@@ -198,7 +205,7 @@ export class CheckService {
         params: { domain, machine: where.machine, runnerId: where.runnerId },
       });
     }
-    for (const pipeline of await this.store.pipelines.pipelines.listForTeam(teamId)) {
+    for (const pipeline of await store.pipelines.pipelines.listForTeam(teamId)) {
       let deploys = false;
       try {
         deploys = checkBlocks(pipeline.source).deploysTo.length > 0;

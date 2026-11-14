@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { OpsTouch } from "../access.js";
 import type { OpsAction } from "../actions.js";
 import { GUARD_KINDS, type GuardKind } from "../memory.js";
 import { inTheirWords } from "../review.js";
@@ -11,9 +12,20 @@ const subject = z
     'What it is about: "app:shop", "environment:production" or "machine:box".',
   );
 
+/** A sheet is about one thing: reading it needs that thing seen, writing it needs it too. */
+function subjectTouch(value: string): OpsTouch[] {
+  const [kind, name] = value.split(":", 2) as [string, string];
+  if (!name) return [];
+  if (kind === "environment") return [{ kind: "environment", name, need: "see" }];
+  if (kind === "machine") return [{ kind: "machine", name, need: "see" }];
+  if (kind === "app") return [{ kind: "project", name, need: "see" }];
+  return [];
+}
+
 const readInput = z.object({ subject }).strict();
 const readSheet: OpsAction<z.infer<typeof readInput>> = {
   name: "read_sheet",
+  touches: async (_ctx, inputs) => subjectTouch(inputs.subject),
   description:
     "What you know about an app, an environment or a machine: its operations sheet (how it is built, configured, deployed, restored; what it depends on; what to do when it breaks).",
   input: readInput,
@@ -30,6 +42,7 @@ const readSheet: OpsAction<z.infer<typeof readInput>> = {
 const writeInput = z.object({ subject, body: z.string().min(1).max(20_000) }).strict();
 const writeSheet: OpsAction<z.infer<typeof writeInput>> = {
   name: "write_sheet",
+  touches: async (_ctx, inputs) => subjectTouch(inputs.subject),
   description:
     "Write or update an operations sheet so someone else (or you, next time) can run this tomorrow: what it is, how it is built and deployed, its variables by name, its database, how to restore it, what to do when it breaks. Every version is kept.",
   input: writeInput,
@@ -66,7 +79,11 @@ const recall: OpsAction<z.infer<typeof recallInput>> = {
   risk: "read",
   words: (inputs) => `Remember anything about "${inputs.about}"`,
   async run(ctx, inputs) {
-    const found = await ctx.services.memory.recall(ctx.teamId, inputs.about);
+    const found = await ctx.services.memory.recall(
+      ctx.teamId,
+      inputs.about,
+      await ctx.seesSubject(),
+    );
     return { ok: true, summary: `${found.length} things remembered.`, data: found };
   },
 };

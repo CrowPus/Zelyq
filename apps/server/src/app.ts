@@ -61,8 +61,10 @@ import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
 import { MailService } from "./services/mail.js";
+import { missingAccess, type OpsTouch } from "./services/ops/access.js";
 import { ActionList } from "./services/ops/actions.js";
 import { OpsBrain } from "./services/ops/brain.js";
+import { deployTouches } from "./services/ops/catalogue/pipelines.js";
 import { OPS_ACTIONS } from "./services/ops/catalogue.js";
 import { ChannelService } from "./services/ops/channels.js";
 import { OpsMailer } from "./services/ops/mailer.js";
@@ -130,7 +132,7 @@ export interface ZelyqServer {
   /** Exposed so tests can run the clean-up at a chosen time. */
   pipelineEngine: Pick<PipelineEngine, "cleanUp" | "reporter">;
   /** Exposed so tests can read pipeline files from a local repository. */
-  pipelines: Pick<PipelineService, "repoFiles">;
+  pipelines: Pick<PipelineService, "repoFiles" | "create" | "startTriggered">;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
   close(): Promise<void>;
@@ -258,6 +260,23 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const opsMailer = new OpsMailer(store, mail, config.publicUrl);
   ops.events = (event) => opsMailer.handle(event);
   const watch = new CheckService(store, runners);
+  // A pipeline Ops wrote runs by itself only while Ops still has it, and where it deploys.
+  pipelines.mayStartTriggered = async (pipeline) => {
+    if (!pipeline.createdBy || !(await store.users.isService(pipeline.createdBy))) return null;
+    const scope = await ops.accessList.scopeFor(pipeline.teamId);
+    let deploys: OpsTouch[] = [];
+    try {
+      deploys = deployTouches(pipeline.source);
+    } catch {
+      deploys = [];
+    }
+    return missingAccess(store, scope, [
+      { kind: "pipeline", name: pipeline.name, need: "manage" },
+      ...deploys,
+    ]);
+  };
+  // Ops watches only what it has been given.
+  watch.scopeFor = (teamId) => ops.accessList.scopeFor(teamId);
   watch.events = (event) => opsMailer.handleWatch(event);
   opsMailer.channels = opsChannels;
   // Settings credentials may point at the instance Vault or a team's, and each

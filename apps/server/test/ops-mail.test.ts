@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { after, before, test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
 import type { User } from "@zelyq/core";
 import { runMigrations, type Store } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
@@ -10,6 +10,7 @@ import type { ServerConfig } from "../src/config.js";
 import { addressOf, MailService } from "../src/services/mail.js";
 import { OpsMailer } from "../src/services/ops/mailer.js";
 import type { OpsService } from "../src/services/ops/service.js";
+import { giveOpsEverything } from "./ops-access-helper.js";
 import { smtpSink } from "./smtp-sink.js";
 
 /**
@@ -134,6 +135,11 @@ before(async () => {
   mail = new MailService(server.settings);
   mailer = new OpsMailer(store, mail, "https://zelyq.test/", 60);
   ops.events = (event) => mailer.handle(event);
+});
+
+// These tests are about how Ops works once it has what it needs (076: nothing is given at first).
+beforeEach(async () => {
+  if (store && teamId) await giveOpsEverything(store, teamId);
 });
 
 after(async () => {

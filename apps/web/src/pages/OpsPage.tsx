@@ -1,12 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  OPS_TRUST_LEVELS,
-  OPS_TRUST_WORDS,
-  type OpsJobDetail,
-  type OpsPlanStep,
-  type OpsTrust,
-  roleAtLeast,
-} from "@zelyq/core";
+import { type OpsJobDetail, type OpsPlanStep, roleAtLeast } from "@zelyq/core";
 import {
   ArrowLeft,
   Ban,
@@ -27,6 +20,7 @@ import {
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { Markdown } from "../components/Markdown";
+import { AccessTab } from "../components/ops/AccessTab";
 import { AlertsTab } from "../components/ops/AlertsTab";
 import { StatusTab } from "../components/ops/StatusTab";
 import { Badge, Button, EmptyState, Input, Spinner, Textarea } from "../components/ui";
@@ -35,7 +29,7 @@ import { api } from "../lib/api";
 import { useLiveTalk } from "../lib/ops-live";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
-type Tab = "talk" | "status" | "alerts" | "memory" | "settings";
+type Tab = "talk" | "status" | "alerts" | "memory" | "access" | "settings";
 
 const STAGE_WORDS: Record<
   string,
@@ -64,7 +58,9 @@ export function OpsPage() {
   // A link to /ops#status (from an alert email) opens that tab.
   const [tab, setTab] = useState<Tab>(() => {
     const wanted = typeof window === "undefined" ? "" : window.location.hash.slice(1);
-    return (["talk", "status", "alerts", "memory", "settings"] as const).includes(wanted as Tab)
+    return (["talk", "status", "alerts", "memory", "access", "settings"] as const).includes(
+      wanted as Tab,
+    )
       ? (wanted as Tab)
       : "talk";
   });
@@ -123,29 +119,35 @@ export function OpsPage() {
             />
           ) : (
             <>
-              <nav className="flex gap-1 border-b border-border-default" aria-label="Ops">
-                {(["talk", "status", "alerts", "memory", "settings"] as const).map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => setTab(name)}
-                    className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${
-                      tab === name
-                        ? "border-primary font-medium text-fg"
-                        : "border-transparent text-fg-secondary hover:text-fg"
-                    }`}
-                  >
-                    {
+              <nav
+                className="flex gap-1 overflow-x-auto border-b border-border-default"
+                aria-label="Ops"
+              >
+                {(["talk", "status", "alerts", "memory", "access", "settings"] as const).map(
+                  (name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => setTab(name)}
+                      className={`-mb-px shrink-0 border-b-2 px-3 py-1.5 text-sm whitespace-nowrap ${
+                        tab === name
+                          ? "border-primary font-medium text-fg"
+                          : "border-transparent text-fg-secondary hover:text-fg"
+                      }`}
+                    >
                       {
-                        talk: "Talk",
-                        status: "Status",
-                        alerts: "Alerts",
-                        memory: "Memory",
-                        settings: "Settings",
-                      }[name]
-                    }
-                  </button>
-                ))}
+                        {
+                          talk: "Talk",
+                          status: "Status",
+                          alerts: "Alerts",
+                          memory: "Memory",
+                          access: "Access",
+                          settings: "Settings",
+                        }[name]
+                      }
+                    </button>
+                  ),
+                )}
               </nav>
               {tab === "talk" && (
                 <TalkTab teamId={teamId} canTalk={canTalk} paused={status.paused} />
@@ -157,6 +159,7 @@ export function OpsPage() {
               {tab === "memory" && (
                 <MemoryTab teamId={teamId} isAdmin={isAdmin} canEdit={canTalk} />
               )}
+              {tab === "access" && <AccessTab teamId={teamId} isAdmin={isAdmin} />}
               {tab === "settings" && <SettingsTab teamId={teamId} isAdmin={isAdmin} />}
             </>
           )}
@@ -969,10 +972,6 @@ function SheetCard({
 function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) {
   const queryClient = useQueryClient();
   const engineer = useQuery({ queryKey: ["ops", teamId], queryFn: () => api.ops.get(teamId) });
-  const environments = useQuery({
-    queryKey: ["ops-environments", teamId],
-    queryFn: () => api.ops.environments(teamId),
-  });
   const status = engineer.data?.engineer;
   const [cap, setCap] = useState("");
   const [zone, setZone] = useState("");
@@ -988,12 +987,6 @@ function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) 
       void queryClient.invalidateQueries({ queryKey: ["ops", teamId] });
       setError(null);
     },
-    onError: (caught) => setError(vaultErrorMessage(caught)),
-  });
-  const trust = useMutation({
-    mutationFn: (input: { environmentId: string; trust: OpsTrust }) =>
-      api.ops.setTrust(teamId, input.environmentId, input.trust),
-    onSuccess: (data) => queryClient.setQueryData(["ops-environments", teamId], data),
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
   const used = useMemo(() => status?.tokensThisMonth ?? 0, [status]);
@@ -1073,47 +1066,10 @@ function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) 
         </p>
       </section>
 
-      <section className="grid gap-2">
-        <p className="text-sm font-medium">How much Ops may do on its own</p>
-        <p className="text-xs text-fg-secondary">
-          Per environment. Whatever you choose, deleting data, removing machines, pointing domains
-          and spending money always wait for a person.
-        </p>
-        <ul className="grid gap-2">
-          {(environments.data?.environments ?? []).map((row) => (
-            <li
-              key={row.id}
-              className="flex flex-wrap items-center gap-2 rounded-md border border-border-default px-3 py-2"
-            >
-              <span className="min-w-0 flex-1 text-sm font-medium">
-                {row.name} {row.protected && <Badge tone="warning">Protected</Badge>}{" "}
-                {row.frozen && <Badge tone="danger">Frozen</Badge>}
-              </span>
-              <select
-                aria-label={`How much Ops may do on ${row.name}`}
-                value={row.trust}
-                disabled={!isAdmin || trust.isPending}
-                onChange={(event) =>
-                  trust.mutate({ environmentId: row.id, trust: event.target.value as OpsTrust })
-                }
-                className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
-              >
-                {OPS_TRUST_LEVELS.map((level) => (
-                  <option key={level} value={level}>
-                    {OPS_TRUST_WORDS[level].label}
-                  </option>
-                ))}
-              </select>
-              <p className="w-full text-2xs text-fg-muted">
-                {OPS_TRUST_WORDS[row.trust].description}
-              </p>
-            </li>
-          ))}
-          {(environments.data?.environments.length ?? 0) === 0 && (
-            <li className="text-xs text-fg-muted">No environments yet. Ask Ops to set them up.</li>
-          )}
-        </ul>
-      </section>
+      <p className="text-xs text-fg-secondary">
+        What Ops may see and change, and how much it may do alone on each environment, is on the
+        Access tab.
+      </p>
     </div>
   );
 }

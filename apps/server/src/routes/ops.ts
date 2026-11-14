@@ -231,6 +231,18 @@ export function registerOpsRoutes(
     ),
   }));
 
+  /** What Ops has been given (076): any member looks, a team admin changes it. */
+  app.get<Team>("/api/teams/:teamId/ops/access", async (request) => ({
+    items: await ops.accessList.list(access.requireUser(request), request.params.teamId),
+  }));
+  app.put<Team>("/api/teams/:teamId/ops/access", async (request) => ({
+    items: await ops.accessList.change(
+      access.requireUser(request),
+      request.params.teamId,
+      request.body,
+    ),
+  }));
+
   /** How much Ops may do alone on each environment. */
   app.get<Team>("/api/teams/:teamId/ops/environments", async (request) => ({
     environments: await ops.engineers.environments(

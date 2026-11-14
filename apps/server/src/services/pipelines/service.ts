@@ -701,6 +701,9 @@ export class PipelineService {
    * A run started by a trigger, with no person behind it. The file was
    * checked against the Vault when an editor saved it.
    */
+  /** Set by the app: a reason a triggered run must not start (Ops's access, 076), or null. */
+  mayStartTriggered?: (pipeline: PipelineRow) => Promise<string | null>;
+
   async startTriggered(
     pipelineId: string,
     trigger: Exclude<RunTrigger, "manual" | "rerun">,
@@ -725,6 +728,9 @@ export class PipelineService {
       commitMessage: options.commitMessage ?? null,
       pullRequest: options.pullRequest ?? null,
     };
+    // A pipeline Ops wrote starts by itself only while Ops still has it and where it deploys.
+    const refused = await this.mayStartTriggered?.(pipeline);
+    if (refused) return this.failedAtStart(pipeline, input, refused);
     try {
       return await this.enqueue(pipeline, input);
     } catch (error) {

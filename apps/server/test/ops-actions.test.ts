@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { after, before, test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { User } from "@zelyq/core";
@@ -11,6 +11,7 @@ import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 import { checkBlocks, isKnownCommand } from "../src/services/ops/blocks.js";
 import type { OpsService } from "../src/services/ops/service.js";
+import { giveOpsEverything } from "./ops-access-helper.js";
 
 /**
  * Ops, step 3: the actions, through the gate, against Zelyq's own services.
@@ -144,6 +145,11 @@ before(async () => {
     "const key = process.env.STRIPE_KEY; const db = process.env.DATABASE_URL; const p = process.env.PORT || 3000;\nrequire('http').createServer((q, s) => s.end('ok')).listen(3000);\n",
   );
   await server.runtime.writeFile(project.id, "worker.js", "setInterval(() => {}, 1000);\n");
+});
+
+// These tests are about how Ops works once it has what it needs (076: nothing is given at first).
+beforeEach(async () => {
+  if (store && teamId) await giveOpsEverything(store, teamId);
 });
 
 after(async () => {
@@ -365,6 +371,7 @@ test("triggers only on pipelines Ops wrote", async () => {
       "name: Person made\nruns-on: local\nstages:\n  - name: A\n    steps:\n      - run: npm test\n",
   });
   assert.equal(person.statusCode, 201, person.body);
+  await giveOpsEverything(store, teamId);
   const { job } = await approvedJob("Schedules", [
     {
       action: "set_trigger",
@@ -702,6 +709,7 @@ test("a live site is treated as one wherever it shows: in a pipeline's targets, 
       updatedAt: now,
     } as never);
   }
+  await giveOpsEverything(store, teamId);
   // A pipeline to a test copy and a live site is judged by the live site: it waits.
   const job = await ops.startJob(owner, teamId, { request: "Ship to both" });
   const plan = await ops.proposePlan(job.id, {

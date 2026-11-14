@@ -33,6 +33,8 @@ import type {
   ImageGenerationInput,
   ImageHistory,
   LocalRunnerStatus,
+  OpsAccessChange,
+  OpsAccessItem,
   OpsChannelKind,
   OpsChannelsView,
   OpsEngineer,
@@ -396,6 +398,12 @@ export const api = {
         `/teams/${teamId}/ops/environments/${environmentId}`,
         { method: "PATCH", body: JSON.stringify({ trust }) },
       ),
+    access: (teamId: string) => request<{ items: OpsAccessItem[] }>(`/teams/${teamId}/ops/access`),
+    setAccess: (teamId: string, input: OpsAccessChange) =>
+      request<{ items: OpsAccessItem[] }>(`/teams/${teamId}/ops/access`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
     memory: (teamId: string) => request<OpsMemoryView>(`/teams/${teamId}/ops/memory`),
     addWish: (teamId: string, input: { text: string; scope?: string }) =>
       request<OpsMemoryView>(`/teams/${teamId}/ops/memory/wishes`, {

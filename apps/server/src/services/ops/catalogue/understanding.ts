@@ -128,6 +128,7 @@ const surveyApp: OpsAction<z.infer<typeof surveyInput>> = {
     "Look at an app before planning: what kind it is, how it starts, its port, the variables it reads, its database and how it is updated, workers, scripts.",
   input: surveyInput,
   risk: "read",
+  touches: async (_ctx, inputs) => [{ kind: "project", name: inputs.app, need: "see" }],
   words: (inputs) => `Look at the app ${inputs.app}`,
   async run(ctx, inputs) {
     const found = await survey(ctx, inputs.app);
@@ -141,6 +142,7 @@ const surveyApp: OpsAction<z.infer<typeof surveyInput>> = {
 
 const listSecretNames: OpsAction<Record<string, never>> = {
   name: "list_secret_names",
+  touches: async () => [{ kind: "vault", name: "team", need: "see" }],
   description: "The names in the team's Vault. Never their values: nobody's tools can read those.",
   input: z.object({}).strict() as unknown as z.ZodType<Record<string, never>>,
   risk: "read",
@@ -161,6 +163,10 @@ const neededSecrets: OpsAction<z.infer<typeof neededInput>> = {
     "The variables an app reads that an environment does not give it yet, and which of them are already in Vault.",
   input: neededInput,
   risk: "read",
+  touches: async (_ctx, inputs) => [
+    { kind: "project", name: inputs.app, need: "see" },
+    { kind: "vault", name: "team", need: "see" },
+  ],
   words: (inputs) => `Find what ${inputs.app} needs on ${inputs.environment}`,
   async run(ctx, inputs) {
     const found = await survey(ctx, inputs.app);
@@ -199,6 +205,7 @@ const requestSecret: OpsAction<z.infer<typeof requestInput>> = {
     "Ask the person to put a secret in the team's Vault (Ops never sees or types a secret). Use secret_present to see when it is there.",
   input: requestInput,
   risk: "read",
+  touches: async () => [{ kind: "vault", name: "team", need: "see" }],
   words: (inputs) => `Ask you to add ${inputs.name} to Vault`,
   async run(ctx, inputs) {
     await ctx.say(
@@ -214,6 +221,7 @@ const secretPresent: OpsAction<z.infer<typeof presentInput>> = {
   description: "Whether a secret of this name is in the team's Vault now.",
   input: presentInput,
   risk: "read",
+  touches: async () => [{ kind: "vault", name: "team", need: "see" }],
   words: (inputs) => `Check whether ${inputs.name} is in Vault`,
   async run(ctx, inputs) {
     const present = (

@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { after, before, test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
 import type { User } from "@zelyq/core";
 import { runMigrations, type Store } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 import type { OpsService } from "../src/services/ops/service.js";
+import { giveOpsEverything } from "./ops-access-helper.js";
 
 /**
  * Ops, step 4: memory and learning. It remembers across jobs, keeps a
@@ -117,6 +118,11 @@ before(async () => {
     source:
       "name: Shop deploy\nruns-on: local\nstages:\n  - name: Ship\n    steps:\n      - deploy: {to: staging, app: shop, port: 3000}\n",
   });
+});
+
+// These tests are about how Ops works once it has what it needs (076: nothing is given at first).
+beforeEach(async () => {
+  if (store && teamId) await giveOpsEverything(store, teamId);
 });
 
 after(async () => {
@@ -379,6 +385,7 @@ test("what machines print cannot become a lesson, and a wish must be in the pers
     createdAt: now,
     updatedAt: now,
   } as never);
+  await giveOpsEverything(store, teamId);
   const job = await ops.startJob(owner, teamId, {
     request: "Wire RAW on lab. From now on, always ask before touching staging.",
   });
