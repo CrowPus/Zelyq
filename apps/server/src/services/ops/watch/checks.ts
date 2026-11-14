@@ -130,7 +130,10 @@ export class CheckService {
     const runners = await this.store.pipelines.runners.listForTeam(teamId);
     const live = await this.store.deploy.deployments.live(environments.map((row) => row.id));
     const wanted: Wanted[] = [];
-    const domains = new Map<string, { environment: string; machine: string }>();
+    const domains = new Map<
+      string,
+      { environment: string; machine: string; runnerId: string | null }
+    >();
     for (const deployment of live) {
       const environment = environments.find((row) => row.id === deployment.environmentId);
       if (!environment) continue;
@@ -165,6 +168,7 @@ export class CheckService {
           domains.set(host, {
             environment: environment.name,
             machine: environment.address ?? runner.host,
+            runnerId: runner.id,
           });
         }
       }
@@ -185,13 +189,13 @@ export class CheckService {
         kind: "certificate",
         target: `domain:${domain}`,
         title: `${domain}: HTTPS certificate`,
-        params: { domain },
+        params: { domain, runnerId: where.runnerId },
       });
       wanted.push({
         kind: "domain",
         target: `domain:${domain}`,
         title: `${domain} is found in public DNS`,
-        params: { domain, machine: where.machine },
+        params: { domain, machine: where.machine, runnerId: where.runnerId },
       });
     }
     for (const pipeline of await this.store.pipelines.pipelines.listForTeam(teamId)) {
@@ -361,6 +365,21 @@ export class CheckService {
       [...urls].map(async (url) => answers.set(url, await this.probes.probeAddress(url))),
     );
 
+    // One cause, one alert: while a machine cannot be reached, what runs on it is recorded
+    // but raises nothing of its own; the machine's alert says it. Machines go first, so this
+    // run's answer counts.
+    const unreachable = new Set(
+      (await this.store.ops.checks.listForTeam(teamId))
+        .filter(
+          (row) =>
+            row.kind === "machine" &&
+            row.enabled &&
+            row.state === "failing" &&
+            (row.lastDetail ?? "").startsWith("not reachable"),
+        )
+        .map((row) => (JSON.parse(row.params) as { runnerId?: string }).runnerId ?? ""),
+    );
+    checks.sort((a, b) => Number(b.kind === "machine") - Number(a.kind === "machine"));
     for (const row of checks) {
       if ((busy(row) || gone(row)) && ["address", "speed", "app"].includes(row.kind)) continue;
       const params = JSON.parse(row.params) as Record<string, unknown>;
@@ -390,12 +409,26 @@ export class CheckService {
       } else if (row.kind === "domain") {
         result = await this.probes.probeDomain(String(params.domain), String(params.machine));
       }
-      await this.record(row, result, now);
+      if (row.kind === "machine") {
+        const runnerId = String(params.runnerId ?? "");
+        if (result && !result.ok && result.detail.startsWith("not reachable"))
+          unreachable.add(runnerId);
+        else if (result) unreachable.delete(runnerId);
+        await this.record(row, result, now);
+      } else {
+        const behind = unreachable.has(String(params.runnerId ?? ""));
+        await this.record(row, result, now, { quiet: behind });
+      }
     }
   }
 
   /** A result: state, the hour's figures, the app's normal, and the alert it opens or closes. */
-  async record(row: OpsCheckRow, result: ProbeResult | null, now: Date): Promise<void> {
+  async record(
+    row: OpsCheckRow,
+    result: ProbeResult | null,
+    now: Date,
+    options: { quiet?: boolean } = {},
+  ): Promise<void> {
     const at = now.toISOString();
     if (!result) {
       // Could not look (no machine, the visit failed for an app): unknown, never "ok".
@@ -446,7 +479,7 @@ export class CheckService {
       if (open) await this.close(open, "back by itself", now);
       return;
     }
-    if (open) return;
+    if (open || options.quiet) return;
     // One problem, one alert: an app that is down fails "answers" and "running" together.
     if (row.target.includes("/") && (row.kind === "address" || row.kind === "app")) {
       const siblings = (await this.store.ops.checks.listForTeam(row.teamId)).filter(
@@ -508,7 +541,7 @@ export class CheckService {
       teamId: row.teamId,
       checkId: row.id,
       severity: this.severityOf(row, detail),
-      title: alertTitle(row),
+      title: alertTitle(row, detail),
       detail: detail.slice(0, 500),
       openedAt: now.toISOString(),
       closedAt: null,
@@ -712,7 +745,7 @@ export class CheckService {
   }
 }
 
-function alertTitle(row: OpsCheckRow): string {
+function alertTitle(row: OpsCheckRow, detail = ""): string {
   const params = JSON.parse(row.params) as { app?: string; domain?: string };
   const where = row.target.includes("/") ? `${params.app} on ${row.target.split("/")[0]}` : "";
   switch (row.kind) {
@@ -723,6 +756,8 @@ function alertTitle(row: OpsCheckRow): string {
     case "app":
       return `${where} is not running properly`;
     case "machine":
+      if (detail.startsWith("not reachable"))
+        return row.title.replace(": disk, memory and reachable", " cannot be reached");
       return row.title.replace(": disk, memory and reachable", " needs attention");
     case "certificate":
       return `${params.domain}: the HTTPS certificate needs attention`;

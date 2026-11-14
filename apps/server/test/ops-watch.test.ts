@@ -309,16 +309,25 @@ test("a stopped container and a full disk are seen on one visit to the machine; 
   await watch.tick(minutes(start, 10));
   assert.equal((await store.ops.alerts.listOpen(teamId)).length, 0);
 
+  // The whole machine goes away, and its app with it: one cause, one alert.
   events.length = 0;
   say.machine = new Error("connection refused");
-  await watch.tick(minutes(start, 15));
-  await watch.tick(minutes(start, 20));
-  const unreachable = events.find((event) => event.alert.title === "box needs attention");
-  assert.equal(unreachable?.alert.severity, "urgent");
+  appMode = "error";
+  for (let minute = 15; minute <= 20; minute += 1) await watch.tick(minutes(start, minute));
+  const opened = events.filter((event) => event.kind === "alert_opened");
+  assert.deepEqual(
+    opened.map((event) => event.alert.title),
+    ["box cannot be reached"],
+    "the machine's alert, not one more per app on it",
+  );
+  assert.equal(opened[0]?.alert.severity, "urgent");
   // An app on a machine nobody can reach is "not known", never "fine".
   assert.equal((await checkOf("app")).state, "unknown");
+  assert.equal((await checkOf("address")).state, "failing", "still recorded, only not raised");
   say.machine = null;
+  appMode = "ok";
   await watch.tick(minutes(start, 25));
+  assert.equal((await store.ops.alerts.listOpen(teamId)).length, 0);
 });
 
 test("an app being deployed is not judged while its container is replaced", async () => {
