@@ -10,12 +10,13 @@ import {
 import type { Store } from "@zelyq/db";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
+import type { EmailLinkService } from "../services/email-links.js";
 
 export function registerTeamRoutes(
   app: FastifyInstance,
-  deps: { store: Store; access: AccessControl },
+  deps: { store: Store; access: AccessControl; links: EmailLinkService },
 ): void {
-  const { store, access } = deps;
+  const { store, access, links } = deps;
 
   app.get("/api/teams", async (request) => {
     const user = access.requireUser(request);
@@ -60,9 +61,10 @@ export function registerTeamRoutes(
   );
 
   /**
-   * Adds an existing account by email. There is no invitation email in the core
-   * — an instance has no mail transport it can assume — so the person registers
-   * first and an admin adds them.
+   * Adds someone by email. An existing account joins straight away. Someone
+   * with no account gets an invitation email, but only when email links are
+   * turned on (Settings → Email): on a computer nobody else can reach, a link
+   * would lead nowhere, so then the person registers first and is added after.
    */
   app.post<{ Params: { id: string } }>("/api/teams/:id/members", async (request, reply) => {
     const user = access.requireUser(request);
@@ -76,11 +78,29 @@ export function registerTeamRoutes(
 
     const invitee = await store.users.findByEmail(input.email);
     // A team's Ops engineer is managed on the Ops page, never as a member.
-    if (!invitee || invitee.kind === "service") {
-      throw new ZelyqError(
-        "not_found",
-        `No account for ${input.email}. They need to register first, then you can add them.`,
-      );
+    if (invitee?.kind === "service") {
+      throw new ZelyqError("not_found", `No account for ${input.email}.`);
+    }
+    if (!invitee) {
+      const state = await links.availability();
+      if (!state.available) {
+        throw new ZelyqError(
+          "not_found",
+          `No account for ${input.email}. They need to register first, then you can add them.`,
+          { invitations: false },
+        );
+      }
+      await links.invite(user, teamId, input.email, input.role);
+      await access.recordChange(user, {
+        teamId,
+        action: "team.member_invited",
+        detail: { email: input.email.trim().toLowerCase(), role: input.role },
+      });
+      reply.status(202);
+      return {
+        members: await store.teams.listMembers(teamId),
+        invited: input.email.trim().toLowerCase(),
+      };
     }
 
     if (await store.teams.roleOf(teamId, invitee.id)) {
@@ -93,9 +113,41 @@ export function registerTeamRoutes(
       action: "team.member_added",
       detail: { email: input.email, role: input.role },
     });
+    const { passwordHash: _hash, kind: _kind, ...member } = invitee;
+    await links.notifyAdded(user, teamId, member, input.role);
     reply.status(201);
     return { members: await store.teams.listMembers(teamId) };
   });
+
+  /** Invitations still waiting, and whether this instance can send them at all. */
+  app.get<{ Params: { id: string } }>("/api/teams/:id/invites", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "admin");
+    const state = await links.availability();
+    return {
+      canInvite: state.available,
+      ...(state.missing ? { missing: state.missing } : {}),
+      invites: await links.pendingInvites(request.params.id),
+    };
+  });
+
+  app.delete<{ Params: { id: string; inviteId: string } }>(
+    "/api/teams/:id/invites/:inviteId",
+    async (request, reply) => {
+      const user = access.requireUser(request);
+      const { id: teamId, inviteId } = request.params;
+      await access.requireTeamRole(user, teamId, "admin");
+      const invite = (await links.pendingInvites(teamId)).find((row) => row.id === inviteId);
+      if (!(await links.withdraw(teamId, inviteId)))
+        throw ZelyqError.notFound("Invitation", inviteId);
+      await access.recordChange(user, {
+        teamId,
+        action: "team.invite_withdrawn",
+        detail: { email: invite?.email ?? inviteId },
+      });
+      reply.status(204);
+    },
+  );
 
   app.patch<{ Params: { id: string; userId: string } }>(
     "/api/teams/:id/members/:userId",

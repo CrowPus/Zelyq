@@ -81,6 +81,32 @@ export const authSessions = pgTable(
   }),
 );
 
+/** A one-time link sent by email: a password reset or a team invitation. */
+export const emailLinks = pgTable(
+  "email_links",
+  {
+    id: text("id").primaryKey(),
+    /** "reset": set a new password. "invite": join a team, creating the account if needed. */
+    purpose: text("purpose").notNull(),
+    /** Only the hash is kept: a database copy holds no usable link. */
+    tokenHash: text("token_hash").notNull(),
+    /** Stored lowercased: who the link was sent to. */
+    email: text("email").notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    teamId: text("team_id").references(() => teams.id, { onDelete: "cascade" }),
+    role: text("role"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    tokenIdx: uniqueIndex("email_links_token_hash_idx").on(table.tokenHash),
+    emailIdx: index("email_links_email_idx").on(table.email),
+    teamIdx: index("email_links_team_id_idx").on(table.teamId),
+  }),
+);
+
 export const oidcIdentities = pgTable(
   "oidc_identities",
   {
@@ -1688,6 +1714,7 @@ export const schema = {
   teams,
   teamMembers,
   authSessions,
+  emailLinks,
   oidcIdentities,
   projects,
   sessions,

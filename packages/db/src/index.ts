@@ -3,6 +3,7 @@ import { agentRepository } from "./repositories/agents.js";
 import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { deployRepository } from "./repositories/deploy.js";
+import { emailLinkRepository } from "./repositories/email-links.js";
 import { imageRepository } from "./repositories/images.js";
 import { messageRepository } from "./repositories/messages.js";
 import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
@@ -22,6 +23,12 @@ export * from "./client.js";
 export { runMigrations } from "./migrate.js";
 export type { AuditLogRepository } from "./repositories/audit-log.js";
 export type { AuthSessionRepository } from "./repositories/auth-sessions.js";
+export type {
+  EmailLinkPurpose,
+  EmailLinkRepository,
+  EmailLinkRow,
+  PendingInviteRow,
+} from "./repositories/email-links.js";
 export type { ImageJobRow } from "./repositories/images.js";
 export type { MessageRepository } from "./repositories/messages.js";
 export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
@@ -87,6 +94,7 @@ export interface Store extends DatabaseHandle {
   users: ReturnType<typeof userRepository>;
   teams: ReturnType<typeof teamRepository>;
   authSessions: ReturnType<typeof authSessionRepository>;
+  emailLinks: ReturnType<typeof emailLinkRepository>;
   oidcIdentities: ReturnType<typeof oidcIdentityRepository>;
   projects: ReturnType<typeof projectRepository>;
   sessions: ReturnType<typeof sessionRepository>;
@@ -116,6 +124,7 @@ export function createStore(url: string): Store {
     users: userRepository(handle.db),
     teams: teamRepository(handle.db),
     authSessions: authSessionRepository(handle.db),
+    emailLinks: emailLinkRepository(handle.db),
     oidcIdentities: oidcIdentityRepository(handle.db),
     projects: projectRepository(handle.db),
     sessions: sessionRepository(handle.db),

@@ -779,7 +779,35 @@ export const api = {
     }),
   deleteImage: (id: string) => request<void>(`/images/generations/${id}`, { method: "DELETE" }),
 
-  authStatus: () => request<{ firstRun: boolean; oidcEnabled: boolean }>("/auth/status"),
+  authStatus: () =>
+    request<{ firstRun: boolean; oidcEnabled: boolean; passwordReset?: boolean }>("/auth/status"),
+
+  forgotPassword: (email: string) =>
+    request<{ sent: boolean }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (input: { token: string; password: string }) =>
+    request<SessionResponse>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  lookupInvite: (token: string) =>
+    request<{
+      email: string;
+      teamName: string;
+      role: string;
+      invitedBy: string | null;
+      accountExists: boolean;
+    }>("/auth/invite/lookup", { method: "POST", body: JSON.stringify({ token }) }),
+
+  acceptInvite: (input: { token: string; name?: string; password?: string }) =>
+    request<SessionResponse & { teamId: string }>("/auth/invite/accept", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   me: () => request<SessionResponse>("/auth/me"),
 
@@ -853,7 +881,7 @@ export const api = {
   listMembers: (teamId: string) => request<{ members: TeamMember[] }>(`/teams/${teamId}/members`),
 
   addMember: (teamId: string, input: AddMemberInput) =>
-    request<{ members: TeamMember[] }>(`/teams/${teamId}/members`, {
+    request<{ members: TeamMember[]; invited?: string }>(`/teams/${teamId}/members`, {
       method: "POST",
       body: JSON.stringify(input),
     }),
@@ -866,6 +894,23 @@ export const api = {
 
   removeMember: (teamId: string, userId: string) =>
     request<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
+
+  teamInvites: (teamId: string) =>
+    request<{
+      canInvite: boolean;
+      missing?: string;
+      invites: Array<{
+        id: string;
+        email: string;
+        role: string;
+        invitedBy: string | null;
+        expiresAt: string;
+        createdAt: string;
+      }>;
+    }>(`/teams/${teamId}/invites`),
+
+  withdrawInvite: (teamId: string, inviteId: string) =>
+    request<void>(`/teams/${teamId}/invites/${inviteId}`, { method: "DELETE" }),
 
   auditLog: (teamId: string) => request<{ entries: AuditLogEntry[] }>(`/teams/${teamId}/audit-log`),
 

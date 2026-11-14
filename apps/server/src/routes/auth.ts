@@ -1,18 +1,22 @@
 import {
+  acceptInviteSchema,
   changePasswordSchema,
+  forgotPasswordSchema,
   loginSchema,
   registerSchema,
+  resetPasswordSchema,
   updateProfileSchema,
   ZelyqError,
 } from "@zelyq/core";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AuthService } from "../services/auth.js";
+import type { EmailLinkService } from "../services/email-links.js";
 
 export const SESSION_COOKIE = "zelyq_session";
 
 export function registerAuthRoutes(
   app: FastifyInstance,
-  deps: { auth: AuthService; sessionTtlDays: () => Promise<number> },
+  deps: { auth: AuthService; links: EmailLinkService; sessionTtlDays: () => Promise<number> },
 ): void {
   /**
    * Cookie, not a header. A token in localStorage is readable by any script on
@@ -45,7 +49,63 @@ export function registerAuthRoutes(
   app.get("/api/auth/status", async () => ({
     firstRun: await deps.auth.isFirstRun(),
     oidcEnabled: deps.auth.oidcEnabled(),
+    // "Forgot password?" shows only when a reset email could actually arrive and lead back here.
+    passwordReset: (await deps.links.availability()).available,
   }));
+
+  /**
+   * The same answer whether or not the address has an account: nobody learns
+   * who is registered here by asking.
+   */
+  app.post(
+    "/api/auth/forgot-password",
+    // Per address the service allows 3 an hour; this caps one connection across all addresses.
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const input = forgotPasswordSchema.parse(request.body);
+      await deps.links.requestReset(input.email);
+      reply.status(202);
+      return { sent: true };
+    },
+  );
+
+  app.post(
+    "/api/auth/reset-password",
+    { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const input = resetPasswordSchema.parse(request.body);
+      const user = await deps.links.resetPassword(input.token, input.password);
+      await setSessionCookie(request, reply, await deps.links.session(user.id));
+      return await deps.auth.describe(user);
+    },
+  );
+
+  /** What an invitation is for, before accepting it. POST so the token never sits in a URL. */
+  app.post(
+    "/api/auth/invite/lookup",
+    { config: { rateLimit: { max: 30, timeWindow: "15 minutes" } } },
+    async (request) => {
+      const input = acceptInviteSchema.pick({ token: true }).parse(request.body);
+      return await deps.links.describeInvite(input.token);
+    },
+  );
+
+  app.post(
+    "/api/auth/invite/accept",
+    { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const input = acceptInviteSchema.parse(request.body);
+      const accepted = await deps.links.acceptInvite(
+        input.token,
+        { name: input.name, password: input.password },
+        request.zelyqUser ?? null,
+      );
+      if (accepted.created) {
+        await setSessionCookie(request, reply, await deps.links.session(accepted.user.id));
+      }
+      return { ...(await deps.auth.describe(accepted.user)), teamId: accepted.teamId };
+    },
+  );
 
   app.get("/api/auth/oidc/start", async (request, reply) => {
     const started = await deps.auth.oidcStart();

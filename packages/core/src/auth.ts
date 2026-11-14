@@ -87,6 +87,27 @@ export const changePasswordSchema = z.object({
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
+/** Asks for a reset link. The answer is the same whether or not the account exists. */
+export const forgotPasswordSchema = z.object({
+  email: z.string().email().max(320),
+});
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+/** The token comes from the emailed link; the link itself is never sent back. */
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20).max(200),
+  password: passwordSchema,
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/** Name and password only when the invitation creates the account. */
+export const acceptInviteSchema = z.object({
+  token: z.string().min(20).max(200),
+  name: z.string().min(1).max(80).optional(),
+  password: passwordSchema.optional(),
+});
+export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
+
 // ---------------------------------------------------------------------------
 // Team
 // ---------------------------------------------------------------------------
