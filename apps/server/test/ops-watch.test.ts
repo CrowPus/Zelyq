@@ -79,8 +79,9 @@ let watch: CheckService;
 
 const minutes = (base: Date, count: number) => new Date(base.getTime() + count * 60_000);
 const facts = (state: string, disk = 40): MachineFacts =>
+  // As a deploy behind the proxy names it: with its number, found by its deployment label.
   readMachine(
-    `disk ${disk}%\nmem 60\nload 0.3 4\nc zelyq-shop-production|${state}\nr /zelyq-shop-production|0\n`,
+    `disk ${disk}%\nmem 60\nload 0.3 4\nc zelyq-shop-production-7|${state}|dep_watch_shop|\nc zelyq-shop-production-worker|running|dep_watch_shop|worker\n`,
   );
 
 async function register(email: string, name: string) {
@@ -408,4 +409,52 @@ test("the status view: a light per app, uptime from the hours, alerts; only a pe
   // The records do not switch it back on.
   await watch.sync(teamId);
   assert.equal((await checkOf("speed")).enabled, false);
+});
+
+test("a certificate is checked only for a site served by name over public HTTPS", async () => {
+  const before = (await store.ops.checks.listForTeam(teamId)).filter(
+    (row) => row.kind === "certificate",
+  );
+  assert.equal(before.length, 0, "an http address by IP has none");
+  await store.deploy.environments.update("env_watch_production", {
+    domain: "shop.example.org",
+    https: "internal",
+  } as never);
+  await store.deploy.deployments.update("dep_watch_shop", {
+    url: "https://shop.example.org",
+  } as never);
+  const internal = (await watch.wanted(teamId)).filter((want) => want.kind === "certificate");
+  assert.equal(internal.length, 0, "Zelyq's own certificates are not judged as public ones");
+  await store.deploy.environments.update("env_watch_production", { https: "auto" } as never);
+  const auto = (await watch.wanted(teamId)).filter((want) => want.kind === "certificate");
+  assert.equal(auto.length, 1);
+  await store.deploy.environments.update("env_watch_production", { domain: null } as never);
+  await store.deploy.deployments.update("dep_watch_shop", { url: appUrl } as never);
+});
+
+test("the normal does not drift towards a slow week; a check switched back on starts afresh", async () => {
+  const speed = await checkOf("speed");
+  await store.ops.checks.update(speed.id, {
+    normalMs: 100,
+    enabled: true,
+    failures: 0,
+    failingSince: null,
+  });
+  const at = new Date("2026-11-15T09:00:00Z");
+  for (let index = 0; index < 60; index += 1) {
+    await watch.record(
+      { ...(await checkOf("speed")) },
+      { ok: true, ms: 280, detail: "answered 200 in 280 ms" },
+      new Date(at.getTime() + index * 60_000),
+    );
+  }
+  assert.equal((await checkOf("speed")).normalMs, 100, "280 ms is not learned as normal");
+
+  const address = await checkOf("address");
+  await store.ops.checks.update(address.id, { failures: 5, failingSince: at.toISOString() });
+  await watch.setEnabled(address.id, teamId, false, owner.id);
+  await watch.setEnabled(address.id, teamId, true, owner.id);
+  const fresh = await checkOf("address");
+  assert.equal(fresh.failures, 0);
+  assert.equal(fresh.failingSince, null);
 });

@@ -63,24 +63,23 @@ export async function dnsFacts(domain: string): Promise<DnsFacts> {
   return { a, aaaa, cname };
 }
 
-/** Whether a domain still leads to the machine it is served from. */
+/**
+ * Whether a domain is still found in public DNS. Where it points is told, not
+ * judged: behind Cloudflare, a CDN or a private network it rightly points
+ * somewhere other than the machine.
+ */
 export async function probeDomain(domain: string, machineAddress: string): Promise<ProbeResult> {
   const facts = await dnsFacts(domain);
-  const targets = /^[0-9.]+$/.test(machineAddress)
-    ? [machineAddress]
-    : await publicResolver()
-        .resolve4(machineAddress)
-        .catch(() => [] as string[]);
-  if (facts.a.length === 0 && facts.cname.length === 0) {
-    return { ok: false, ms: 0, detail: `${domain} has no DNS record` };
+  if (facts.a.length === 0 && facts.aaaa.length === 0 && facts.cname.length === 0) {
+    return { ok: false, ms: 0, detail: `${domain} is no longer found in public DNS` };
   }
-  const leads = facts.a.some((address) => targets.includes(address));
+  const found = [...facts.a, ...facts.aaaa, ...facts.cname];
   return {
-    ok: leads,
+    ok: true,
     ms: 0,
-    detail: leads
+    detail: found.includes(machineAddress)
       ? `${domain} leads to ${machineAddress}`
-      : `${domain} leads to ${[...facts.a, ...facts.cname].join(", ")}, not to ${machineAddress}`,
+      : `${domain} points at ${found.join(", ")} (not the machine directly: a proxy or CDN in front is fine)`,
   };
 }
 
@@ -100,7 +99,8 @@ export function certificateFacts(domain: string): Promise<CertificateFacts> {
       port: 443,
       servername: domain,
       rejectUnauthorized: false,
-      lookup: guardedLookup("strict") as never,
+      // The deployment level: a single-box server's own site is checked too (metadata never).
+      lookup: guardedLookup("deployment") as never,
       timeout: 10_000,
     });
     const finish = (facts: CertificateFacts) => {
@@ -162,15 +162,18 @@ export async function probeCertificate(
  * container's state and restart count. Lines are tagged so the answer is easy
  * to read and nothing in a container's name can be mistaken for a figure.
  */
+/** Disk, memory and load: every five minutes. */
 export const MACHINE_SCRIPT = `
 echo "disk $(df -P / | awk 'NR==2{print $5}')"
 d=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)
 [ -n "$d" ] && echo "dockerdisk $(df -P "$d" | awk 'NR==2{print $5}')"
 echo "mem $(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{print int(a*100/t)}' /proc/meminfo)"
 echo "load $(cut -d' ' -f1 /proc/loadavg) $(nproc)"
-docker ps -a --filter name=^zelyq- --format 'c {{.Names}}|{{.State}}' 2>/dev/null
-for n in $(docker ps -aq --filter name=^zelyq- 2>/dev/null); do docker inspect --format 'r {{.Name}}|{{.RestartCount}}' "$n"; done
-exit 0
+`;
+
+/** Zelyq's containers, their state and which deployment each runs: every minute, one light call. */
+export const CONTAINERS_SCRIPT = `
+docker ps -a --filter name=^zelyq- --format 'c {{.Names}}|{{.State}}|{{.Label "zelyq.deployment"}}|{{.Label "zelyq.process"}}' 2>/dev/null
 `;
 
 export interface MachineFacts {
@@ -179,7 +182,7 @@ export interface MachineFacts {
   memAvailablePct: number | null;
   load: number | null;
   cpus: number | null;
-  containers: Map<string, { state: string; restarts: number }>;
+  containers: Map<string, { state: string; restarts: number; deployment: string; process: string }>;
 }
 
 export function readMachine(output: string): MachineFacts {
@@ -202,10 +205,15 @@ export function readMachine(output: string): MachineFacts {
       facts.load = Number.parseFloat(load ?? "");
       facts.cpus = Number.parseInt(cpus ?? "", 10);
     } else if (tag === "c") {
-      const [name, state] = value.split("|");
+      const [name, state, deployment, process] = value.split("|");
       if (name) {
         const seen = facts.containers.get(name);
-        facts.containers.set(name, { state: state ?? "unknown", restarts: seen?.restarts ?? 0 });
+        facts.containers.set(name, {
+          state: state ?? "unknown",
+          restarts: seen?.restarts ?? 0,
+          deployment: deployment ?? "",
+          process: process ?? "",
+        });
       }
     } else if (tag === "r") {
       const [rawName, count] = value.split("|");
@@ -215,6 +223,8 @@ export function readMachine(output: string): MachineFacts {
         facts.containers.set(name, {
           state: seen?.state ?? "unknown",
           restarts: Number.parseInt(count ?? "0", 10) || 0,
+          deployment: seen?.deployment ?? "",
+          process: seen?.process ?? "",
         });
       }
     }

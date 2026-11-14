@@ -12,6 +12,7 @@ import type { RunnerService } from "../../pipelines/runners.js";
 import { SshSession } from "../../pipelines/ssh.js";
 import { checkBlocks } from "../blocks.js";
 import {
+  CONTAINERS_SCRIPT,
   MACHINE_SCRIPT,
   type MachineFacts,
   type ProbeResult,
@@ -40,6 +41,10 @@ const EVERY: Record<OpsCheckKind, number> = {
   domain: 24 * 60 * MINUTE,
   pipeline: 0,
 };
+/** How often each team's records are read again for what to watch. */
+const SYNC_EVERY_MS = 5 * 60_000;
+/** Teams checked side by side in one tick. */
+const TEAMS_AT_ONCE = 4;
 /** An urgent alert nobody acknowledged goes to the next person after this. */
 export const ESCALATE_AFTER_MS = 15 * 60_000;
 const SLOW_FOR_MS = 10 * 60_000;
@@ -94,12 +99,21 @@ export class CheckService {
     this.running = true;
     try {
       const engineers = await this.store.ops.engineers.listAll();
-      for (const engineer of engineers) {
-        // Checks and alerts keep going when Ops is paused or over its spending cap: they cost nothing.
-        await this.sync(engineer.teamId, now).catch(() => undefined);
-        await this.runDue(engineer.teamId, now).catch(() => undefined);
-        await this.escalate(engineer.teamId, now).catch(() => undefined);
-      }
+      // A few teams at a time: one slow machine never holds up everyone else's checks.
+      const queue = [...engineers];
+      const worker = async () => {
+        for (let engineer = queue.shift(); engineer; engineer = queue.shift()) {
+          const teamId = engineer.teamId;
+          // Checks and alerts keep going when Ops is paused or over its spending cap: they cost nothing.
+          const last = this.synced.get(teamId) ?? 0;
+          if (now.getTime() - last >= SYNC_EVERY_MS || now.getTime() < last) {
+            await this.sync(teamId, now).catch(() => undefined);
+          }
+          await this.runDue(teamId, now).catch(() => undefined);
+          await this.escalate(teamId, now).catch(() => undefined);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(TEAMS_AT_ONCE, queue.length) }, worker));
       if (now.getUTCMinutes() === 0) {
         await this.store.ops.checkHours.prune(hourOf(new Date(now.getTime() - 31 * 86_400_000)));
       }
@@ -125,6 +139,8 @@ export class CheckService {
       const params = {
         environmentId: environment.id,
         app: deployment.app,
+        // The container is found by this deployment's own label, whatever it is named.
+        deploymentId: deployment.id,
         runnerId: environment.runnerId,
         url: deployment.url
           ? new URL(deployment.healthPath || "/", deployment.url).toString()
@@ -138,9 +154,14 @@ export class CheckService {
           title: `${where} answers at its usual speed`,
           params,
         });
-        const host = new URL(deployment.url).hostname;
+        const parsed = new URL(deployment.url);
+        const host = parsed.hostname;
         const runner = runners.find((row) => row.id === environment.runnerId);
-        if (realName(host) && runner) {
+        // A certificate is checked only where the site is served over public HTTPS by name:
+        // not for http, nor for certificates from Zelyq's own authority ("internal").
+        const publicHttps =
+          parsed.protocol === "https:" && ["auto", "external"].includes(environment.https);
+        if (realName(host) && runner && publicHttps) {
           domains.set(host, {
             environment: environment.name,
             machine: environment.address ?? runner.host,
@@ -169,7 +190,7 @@ export class CheckService {
       wanted.push({
         kind: "domain",
         target: `domain:${domain}`,
-        title: `${domain} leads to its machine`,
+        title: `${domain} is found in public DNS`,
         params: { domain, machine: where.machine },
       });
     }
@@ -189,11 +210,22 @@ export class CheckService {
         });
       }
     }
-    return wanted;
+    // The same thing once (two live rows can exist for a moment while a deploy switches over).
+    const seen = new Set<string>();
+    return wanted.filter((want) => {
+      const key = `${want.kind} ${want.target}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
+
+  /** When each team's records were last read: they are read again every five minutes. */
+  private readonly synced = new Map<string, number>();
 
   /** Keeps the team's checks in step with its records; a person's choices stay. */
   async sync(teamId: string, now = new Date()): Promise<void> {
+    this.synced.set(teamId, now.getTime());
     const wanted = await this.wanted(teamId);
     const existing = await this.store.ops.checks.listForTeam(teamId);
     const at = now.toISOString();
@@ -265,21 +297,28 @@ export class CheckService {
       return deploying.has(`${params.environmentId}/${params.app}`);
     };
 
-    // Machines: one visit each, for the machine check and its apps' containers.
-    const machineIds = new Set<string>();
+    // Machines: one visit each, asking only for what is due (containers each minute,
+    // disk and memory every five).
+    const parts = new Map<string, { machine: boolean; containers: boolean }>();
     for (const row of checks) {
       const params = JSON.parse(row.params) as { runnerId?: string | null };
-      if ((row.kind === "machine" || row.kind === "app") && params.runnerId)
-        machineIds.add(params.runnerId);
+      if (!params.runnerId || (row.kind !== "machine" && row.kind !== "app")) continue;
+      const wanted = parts.get(params.runnerId) ?? { machine: false, containers: false };
+      if (row.kind === "machine") wanted.machine = true;
+      else if (!busy(row)) wanted.containers = true;
+      parts.set(params.runnerId, wanted);
     }
     const visits = new Map<string, MachineFacts | Error>();
     await Promise.all(
-      [...machineIds].map(async (runnerId) => {
+      [...parts].map(async ([runnerId, wanted]) => {
+        if (!wanted.machine && !wanted.containers) return;
         const runner = await this.store.pipelines.runners.findById(runnerId);
         if (!runner) return;
         visits.set(
           runnerId,
-          await this.probes.machine(runner, this.runners).catch((error: unknown) => error as Error),
+          await this.probes
+            .machine(runner, this.runners, wanted)
+            .catch((error: unknown) => error as Error),
         );
       }),
     );
@@ -307,7 +346,11 @@ export class CheckService {
         result =
           visit instanceof Error || !visit
             ? null
-            : appResult(visit, `zelyq-${params.app}-${row.target.split("/")[0]}`);
+            : appResult(
+                visit,
+                String(params.deploymentId ?? ""),
+                `zelyq-${params.app}-${row.target.split("/")[0]}`,
+              );
       } else if (row.kind === "machine") {
         const visit = visits.get(String(params.runnerId ?? ""));
         result =
@@ -349,7 +392,8 @@ export class CheckService {
         detail = "no answer (the answers check covers it)";
       } else {
         failing = normal !== null && result.ms > Math.max(3 * normal, normal + 1000);
-        if (!failing || normal === null) {
+        // The normal learns only from answers close to it: a slow week never becomes "normal".
+        if (normal === null || result.ms <= normal * 1.5) {
           patch.normalMs =
             normal === null ? result.ms : Math.round(normal * 0.95 + result.ms * 0.05);
         }
@@ -421,8 +465,10 @@ export class CheckService {
   private severityOf(row: OpsCheckRow, detail: string): "urgent" | "warning" {
     if (row.kind === "speed" || row.kind === "domain") return "warning";
     if (row.kind === "certificate") {
+      // Expired, or about to: urgent. Could not be reached or read: a warning to look at.
+      if (/expired/i.test(detail)) return "urgent";
       const days = /(-?\d+) days left/.exec(detail)?.[1];
-      return days !== undefined && Number(days) >= 3 ? "warning" : "urgent";
+      return days !== undefined && Number(days) < 3 ? "urgent" : "warning";
     }
     if (row.kind === "machine" && !detail.startsWith("not reachable")) {
       return /disk (9[5-9]|100)%/.test(detail) ? "urgent" : "warning";
@@ -599,6 +645,8 @@ export class CheckService {
       enabled,
       switchedOffBy: enabled ? null : userId,
       state: enabled ? "unknown" : check.state,
+      // Switched back on, it starts again: old misses do not count.
+      ...(enabled ? { failures: 0, failingSince: null } : {}),
       updatedAt: at,
     });
     if (!enabled) {
@@ -662,12 +710,16 @@ function alertTitle(row: OpsCheckRow): string {
 }
 
 /** A container's state as a check result: running, and not restarting again and again. */
-export function appResult(visit: MachineFacts, name: string): ProbeResult {
-  const container = visit.containers.get(name);
+export function appResult(visit: MachineFacts, deploymentId: string, name: string): ProbeResult {
+  // The container of this deployment (by its label), whatever it is named; else by the old name.
+  const container =
+    [...visit.containers.values()].find(
+      (row) => deploymentId && row.deployment === deploymentId && !row.process,
+    ) ?? visit.containers.get(name);
   if (!container) return { ok: false, ms: 0, detail: "its container is not on the machine" };
   if (container.state !== "running")
     return { ok: false, ms: 0, detail: `its container is ${container.state}` };
-  return { ok: true, ms: 0, detail: `running (restarted ${container.restarts} times in all)` };
+  return { ok: true, ms: 0, detail: "running" };
 }
 
 /** A machine's figures as a check result. */
@@ -688,10 +740,12 @@ export function machineResult(visit: MachineFacts): ProbeResult {
 export async function machineFacts(
   runner: RunnerRow,
   runners: Pick<RunnerService, "target">,
+  parts: { machine: boolean; containers: boolean } = { machine: true, containers: true },
 ): Promise<MachineFacts> {
   const session = await SshSession.open(await runners.target(runner));
   try {
-    const result = await session.capture("sh -s", 20_000, MACHINE_SCRIPT);
+    const script = `${parts.machine ? MACHINE_SCRIPT : ""}${parts.containers ? CONTAINERS_SCRIPT : ""}\nexit 0\n`;
+    const result = await session.capture("sh -s", 20_000, script);
     return readMachine(result.stdout);
   } finally {
     session.close();

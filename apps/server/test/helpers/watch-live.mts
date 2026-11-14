@@ -11,12 +11,23 @@ import { startLive } from "./ops-live.mjs";
 
 const [base = "http://127.0.0.1:8093", dir = "/tmp", database = ""] = process.argv.slice(2);
 const live = await startLive(base, dir, "watch-transcript.txt");
-const container = "zelyq-watchshop-production";
+// Named and labelled the way a deploy behind the proxy names and labels it.
+const container = "zelyq-watchshop-production-1";
 const port = 18181;
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 
 docker("rm", "-f", container);
-docker("run", "-d", "--name", container, "-p", `${port}:80`, "nginx:alpine");
+docker(
+  "run",
+  "-d",
+  "--name",
+  container,
+  "--label",
+  "zelyq.deployment=dep_watchlive",
+  "-p",
+  `${port}:80`,
+  "nginx:alpine",
+);
 const runner = (await live.call("GET", `/api/teams/${live.teamId}/runners`)).runners[0];
 const environment = (
   await live.call("POST", `/api/teams/${live.teamId}/environments`, {
