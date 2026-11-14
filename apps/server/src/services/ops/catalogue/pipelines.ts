@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import type { OpsRisk } from "@zelyq/core";
 import { z } from "zod";
-import type { OpsTouch } from "../access.js";
 import type { ActionContext, OpsAction, OpsEnvironmentRef } from "../actions.js";
 import { environmentByName } from "../actions.js";
 import { BLOCKS_GUIDE, checkBlocks } from "../blocks.js";
@@ -38,22 +37,6 @@ async function strictestTarget(
     if (!chosen || care(environment) > care(chosen)) chosen = environment;
   }
   return chosen;
-}
-
-/** Every environment a pipeline deploys to must be Ops's to manage. */
-export function deployTouches(source: string): OpsTouch[] {
-  return checkBlocks(source).deploysTo.map((name) => ({
-    kind: "environment" as const,
-    name,
-    need: "manage" as const,
-  }));
-}
-
-/** The stored pipeline's deploy targets, read past Ops's scope so a hidden one is still named. */
-async function storedDeployTouches(ctx: ActionContext, name: string): Promise<OpsTouch[]> {
-  if (!ctx.scope) return [];
-  const row = await ctx.services.store.pipelines.pipelines.findByName(ctx.teamId, name);
-  return row ? deployTouches(row.source) : [];
 }
 
 async function pipelineByName(ctx: ActionContext, name: string) {
@@ -151,7 +134,7 @@ const pipelineSource = z
 const createInput = z.object({ source: pipelineSource }).strict();
 const createPipeline: OpsAction<z.infer<typeof createInput>> = {
   name: "create_pipeline",
-  touches: async (_ctx, inputs) => deployTouches(inputs.source),
+  touches: async (_ctx, inputs) => [{ kind: "source", source: inputs.source }],
   description:
     "Save a new pipeline. Build it from blocks (pipeline_blocks); any command of your own makes it a step a person confirms word for word.",
   input: createInput,
@@ -199,7 +182,7 @@ const updateInput = z
   .strict();
 const updatePipeline: OpsAction<z.infer<typeof updateInput>> = {
   name: "update_pipeline",
-  touches: async (_ctx, inputs) => deployTouches(inputs.source),
+  touches: async (_ctx, inputs) => [{ kind: "source", source: inputs.source }],
   description:
     "Change a pipeline's file. Give `base` from get_pipeline; if someone changed it since, the change is refused. Only pipelines without triggers switched on, unless Ops wrote them.",
   input: updateInput,
@@ -255,7 +238,9 @@ const runInput = z
   .strict();
 const runPipeline: OpsAction<z.infer<typeof runInput>> = {
   name: "run_pipeline",
-  touches: async (ctx, inputs) => storedDeployTouches(ctx, inputs.pipeline),
+  touches: async (_ctx, inputs) => [
+    { kind: "pipeline", name: inputs.pipeline, need: "manage", contents: true },
+  ],
   description:
     "Run a pipeline and wait for it to end (up to 30 minutes). As a step of an approved plan, its deploy to a protected environment is not asked about a second time.",
   input: runInput,
@@ -405,7 +390,9 @@ const triggerInput = z
   .strict();
 const setTrigger: OpsAction<z.infer<typeof triggerInput>> = {
   name: "set_trigger",
-  touches: async (ctx, inputs) => storedDeployTouches(ctx, inputs.pipeline),
+  touches: async (_ctx, inputs) => [
+    { kind: "pipeline", name: inputs.pipeline, need: "manage", contents: true },
+  ],
   description:
     "Make a pipeline Ops wrote start by itself: when the app changes, or on a schedule (cron, UTC). Never on a pipeline a person wrote.",
   input: triggerInput,

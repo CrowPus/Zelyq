@@ -22,6 +22,18 @@ function subjectTouch(value: string): OpsTouch[] {
   return [];
 }
 
+/**
+ * A sheet about something that exists and was not given to Ops: refused.
+ * Sheets are named after an app as it runs, or a machine's name made plain,
+ * so the name alone is not enough; this asks the same question recall does.
+ */
+function notGiven(subject: string) {
+  return {
+    ok: false,
+    summary: `${subject} is about something not given to Ops. A team admin gives it in Ops → Access.`,
+  };
+}
+
 const readInput = z.object({ subject }).strict();
 const readSheet: OpsAction<z.infer<typeof readInput>> = {
   name: "read_sheet",
@@ -32,6 +44,7 @@ const readSheet: OpsAction<z.infer<typeof readInput>> = {
   risk: "read",
   words: (inputs) => `Read the operations sheet of ${inputs.subject}`,
   async run(ctx, inputs) {
+    if (!(await ctx.seesSubject())(inputs.subject)) return notGiven(inputs.subject);
     const sheet = await ctx.services.store.ops.sheets.find(ctx.teamId, inputs.subject);
     return sheet
       ? { ok: true, summary: `${inputs.subject}, version ${sheet.version}.`, data: sheet.body }
@@ -51,6 +64,7 @@ const writeSheet: OpsAction<z.infer<typeof writeInput>> = {
   words: (inputs) => `Write down how ${inputs.subject} runs`,
   undo: (inputs) => `Put ${inputs.subject}'s sheet back to its previous version`,
   async run(ctx, inputs) {
+    if (!(await ctx.seesSubject())(inputs.subject)) return notGiven(inputs.subject);
     const sheet = await ctx.services.memory.writeSheet(
       ctx.teamId,
       inputs.subject,

@@ -378,3 +378,99 @@ test("the watcher watches only what Ops was given", async () => {
   const targets = JSON.stringify(wanted);
   assert.doesNotMatch(targets, /production/);
 });
+
+test("a pipeline reaches what its file names: machines, label lists, an app's code, other pipelines", async () => {
+  const now = new Date().toISOString();
+  await store.pipelines.runners.create({
+    id: "rnr_access_prod",
+    teamId,
+    kind: "ssh",
+    name: "prod box",
+    host: "203.0.113.21",
+    port: 22,
+    username: "zelyq",
+    labels: '["gpu"]',
+    description: null,
+    enabled: true,
+    maxConcurrent: 0,
+    cpus: 2,
+    memoryMb: 4096,
+    os: "linux",
+    shells: "[]",
+    tools: "[]",
+    hostKey: null,
+    hostKeyFingerprint: null,
+    lastTestAt: null,
+    lastTestOk: null,
+    lastLatencyMs: null,
+    lastTestMessage: null,
+    acceptedKeyFingerprint: null,
+    createdBy: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const job = await ops.startJob(owner, teamId, { request: "Pipelines" });
+  const refusedFor = async (source: string) => {
+    const plan = await ops.proposePlan(job.id, {
+      steps: [{ action: "create_pipeline", inputs: { source } }],
+    });
+    assert.equal(plan.ok, false, source);
+    return plan.issues[0]!.reason;
+  };
+  const stage = "stages:\n  - name: A\n    steps:\n      - run: npm test\n";
+  assert.match(
+    await refusedFor(`name: P1\nruns-on: prod box\n${stage}`),
+    /machine prod box has not been given/,
+  );
+  assert.match(
+    await refusedFor(`name: P2\nruns-on: [gpu]\n${stage}`),
+    /labelled gpu.*prod box has not been given/,
+  );
+  // Only box is Ops's: a stage of its own on prod box is still caught.
+  assert.match(
+    await refusedFor(
+      "name: P3\nruns-on: box\nstages:\n  - name: A\n    runs-on: prod box\n    steps:\n      - run: npm test\n",
+    ),
+    /prod box/,
+  );
+  // Starting another pipeline reaches whatever that one reaches.
+  assert.match(
+    await refusedFor(
+      "name: P4\nruns-on: box\nstages:\n  - name: A\n    steps:\n      - pipeline: {run: Ship prod}\n",
+    ),
+    /environment production has not been given/,
+  );
+  // An app's code it was not given.
+  await give("project", ids.project!, null);
+  assert.match(
+    await refusedFor(`name: P5\nruns-on: box\nsource: {app: Shop}\n${stage}`),
+    /app Shop has not been given/,
+  );
+  await give("project", ids.project!, "see");
+  const fine = await ops.proposePlan(job.id, {
+    steps: [
+      {
+        action: "create_pipeline",
+        inputs: { source: `name: P6\nruns-on: box\nsource: {app: Shop}\n${stage}` },
+      },
+    ],
+  });
+  assert.ok(fine.ok, JSON.stringify(fine.issues));
+});
+
+test("a note about a machine or app Ops was not given cannot be read or written, whatever its name", async () => {
+  await ops.memory.writeSheet(teamId, "machine:prod-box", "Root password hint here.", "ops");
+  const job = await ops.startJob(owner, teamId, { request: "Notes" });
+  const read = await ops.perform(job.id, "read_sheet", { subject: "machine:prod-box" });
+  assert.equal(read.outcome?.ok, false);
+  assert.match(read.outcome?.summary ?? "", /not given to Ops/);
+  assert.equal(read.outcome?.data, undefined);
+  const write = await ops.perform(job.id, "write_sheet", {
+    subject: "machine:prod-box",
+    body: "Overwritten.",
+  });
+  assert.equal(write.outcome?.ok, false);
+  // Zelyq refreshes the facts part itself; what Ops tried to write never lands.
+  const body = (await store.ops.sheets.find(teamId, "machine:prod-box"))?.body ?? "";
+  assert.doesNotMatch(body, /Overwritten/);
+});

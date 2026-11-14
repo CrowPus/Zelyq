@@ -12,6 +12,7 @@ import {
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
+import { checkBlocks } from "./blocks.js";
 
 /**
  * What Ops has been given (076).
@@ -72,20 +73,37 @@ export class OpsScope {
 }
 
 /** One thing an action reaches, by the name Ops used for it. */
-export interface OpsTouch {
-  kind: OpsAccessKind;
-  name: string;
-  need: OpsAccessLevel;
-}
+export type OpsTouch =
+  | {
+      kind: OpsAccessKind;
+      name: string;
+      need: OpsAccessLevel;
+      /** A pipeline: everything inside it too (where it runs, what it deploys, what it starts). */
+      contents?: boolean;
+    }
+  /** A pipeline file not saved yet: everything it would reach. */
+  | { kind: "source"; source: string };
 
 /** In words, what Ops would need for this, and how a person gives it; null when it has it. */
 export async function missingAccess(
   store: Store,
   scope: OpsScope,
-  touches: OpsTouch[],
+  given: OpsTouch[],
 ): Promise<string | null> {
   const missing: string[] = [];
+  const touches = await expand(store, scope.teamId, given);
   for (const touch of touches) {
+    if (touch.kind === "machine" && "labels" in touch) {
+      // Any machine with these labels may be picked: every one of them must be Ops's.
+      for (const machine of await machinesWith(store, scope.teamId, touch.labels)) {
+        if (!scope.can("machine", machine.id, "manage")) {
+          missing.push(
+            `a pipeline step runs on any machine labelled ${touch.labels.join(", ")}, and the machine ${machine.name} has not been given to Ops to manage`,
+          );
+        }
+      }
+      continue;
+    }
     const id = await idByName(store, scope.teamId, touch.kind, touch.name);
     // Something that does not exist is not an access question: the action says it is not there.
     if (!id) continue;
@@ -103,10 +121,79 @@ export async function missingAccess(
   return `Ops cannot do this: ${[...new Set(missing)].join("; ")}. A team admin gives it in Ops → Access.`;
 }
 
+type Plain = { kind: OpsAccessKind; name: string; need: OpsAccessLevel };
+type Labelled = { kind: "machine"; labels: string[]; need: "manage" };
+
+/**
+ * Everything a pipeline reaches, read from its file: the machines it runs
+ * on, the environments it deploys to, the app it checks out, and every
+ * pipeline it starts, all the way down. Read past Ops's scope on purpose,
+ * so a hidden thing inside is still found and named.
+ */
+async function expand(
+  store: Store,
+  teamId: string,
+  given: OpsTouch[],
+): Promise<(Plain | Labelled)[]> {
+  const out: (Plain | Labelled)[] = [];
+  const opened = new Set<string>();
+  const fromSource = async (source: string, depth: number) => {
+    let read: ReturnType<typeof checkBlocks>;
+    try {
+      read = checkBlocks(source);
+    } catch {
+      return;
+    }
+    for (const name of read.deploysTo) out.push({ kind: "environment", name, need: "manage" });
+    for (const name of read.machines) out.push({ kind: "machine", name, need: "manage" });
+    for (const labels of read.machineLabels) out.push({ kind: "machine", labels, need: "manage" });
+    for (const name of read.apps) out.push({ kind: "project", name, need: "see" });
+    for (const name of read.pipelines) {
+      out.push({ kind: "pipeline", name, need: "manage" });
+      await fromPipeline(name, depth + 1);
+    }
+  };
+  const fromPipeline = async (name: string, depth: number) => {
+    if (opened.has(name) || depth > 5) return;
+    opened.add(name);
+    const row = await store.pipelines.pipelines.findByName(teamId, name);
+    if (row) await fromSource(row.source, depth);
+  };
+  for (const touch of given) {
+    if (touch.kind === "source") {
+      await fromSource(touch.source, 0);
+      continue;
+    }
+    out.push({ kind: touch.kind, name: touch.name, need: touch.need });
+    if (touch.kind === "pipeline" && touch.contents) await fromPipeline(touch.name, 0);
+  }
+  return out;
+}
+
+/** The team's machines a runs-on label list could pick: the same labels, system and tools the engine reads. */
+async function machinesWith(store: Store, teamId: string, labels: string[]) {
+  const list = (value: string) => {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? parsed.map((item) => String(item).toLowerCase()) : [];
+    } catch {
+      return [];
+    }
+  };
+  return (await store.pipelines.runners.listForTeam(teamId)).filter((runner) => {
+    const has = new Set([
+      ...list(runner.labels),
+      ...(runner.os ? [runner.os.toLowerCase()] : []),
+      ...list(runner.tools),
+    ]);
+    return labels.every((label) => has.has(label.toLowerCase()));
+  });
+}
+
 async function idByName(
   store: Store,
   teamId: string,
-  kind: OpsTouch["kind"],
+  kind: OpsAccessKind,
   name: string,
 ): Promise<string | null> {
   switch (kind) {
@@ -228,7 +315,12 @@ export async function visibleSubjects(
     sort(`environment:${row.name}`, scope.can("environment", row.id));
   }
   for (const row of await store.pipelines.runners.listForTeam(teamId)) {
+    // Its sheet is named after the machine's name made plain (facts.ts): both forms.
     sort(`machine:${row.name}`, scope.can("machine", row.id));
+    sort(
+      `machine:${row.name.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 63)}`,
+      scope.can("machine", row.id),
+    );
   }
   for (const row of await store.projects.listForTeams([teamId], 500)) {
     sort(`app:${slug(row.name)}`, scope.can("project", row.id));

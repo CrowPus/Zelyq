@@ -61,10 +61,9 @@ import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
 import { MailService } from "./services/mail.js";
-import { missingAccess, type OpsTouch } from "./services/ops/access.js";
+import { missingAccess } from "./services/ops/access.js";
 import { ActionList } from "./services/ops/actions.js";
 import { OpsBrain } from "./services/ops/brain.js";
-import { deployTouches } from "./services/ops/catalogue/pipelines.js";
 import { OPS_ACTIONS } from "./services/ops/catalogue.js";
 import { ChannelService } from "./services/ops/channels.js";
 import { OpsMailer } from "./services/ops/mailer.js";
@@ -264,15 +263,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   pipelines.mayStartTriggered = async (pipeline) => {
     if (!pipeline.createdBy || !(await store.users.isService(pipeline.createdBy))) return null;
     const scope = await ops.accessList.scopeFor(pipeline.teamId);
-    let deploys: OpsTouch[] = [];
-    try {
-      deploys = deployTouches(pipeline.source);
-    } catch {
-      deploys = [];
-    }
     return missingAccess(store, scope, [
-      { kind: "pipeline", name: pipeline.name, need: "manage" },
-      ...deploys,
+      { kind: "pipeline", name: pipeline.name, need: "manage", contents: true },
     ]);
   };
   // Ops watches only what it has been given.
