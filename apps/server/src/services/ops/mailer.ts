@@ -81,16 +81,22 @@ export class OpsMailer {
             "",
             'Press "I\'m on it" on the Status page so the team knows; silence it there for planned work.',
           ];
-    await this.tell(event.teamId, event.to, {
-      audience,
-      title: subject,
-      lines: event.kind === "alert_closed" ? lines : lines.slice(1, -2),
-      link: this.publicUrl ? status : null,
-      teamWide: event.kind !== "alert_escalated",
-    });
-    const to = await this.emailsOf(event.teamId, event.to, audience);
-    if (to.length > 0)
-      await this.mail.send({ to, subject, text: [...lines, "", `Status: ${status}`].join("\n") });
+    // Chats and email side by side: a slow chat service never holds up the email.
+    const email = async () => {
+      const to = await this.emailsOf(event.teamId, event.to, audience);
+      if (to.length > 0)
+        await this.mail.send({ to, subject, text: [...lines, "", `Status: ${status}`].join("\n") });
+    };
+    await Promise.all([
+      this.tell(event.teamId, event.to, {
+        audience,
+        title: subject,
+        lines: event.kind === "alert_closed" ? lines : lines.slice(1, -2),
+        link: this.publicUrl ? status : null,
+        teamWide: event.kind !== "alert_escalated",
+      }),
+      email(),
+    ]);
   }
 
   /** The same news in each person's chats; never holds up the email. */
@@ -148,15 +154,20 @@ export class OpsMailer {
     link: string,
   ): Promise<void> {
     // Ops's own messages go to the people concerned only, never to a shared channel.
-    await this.tell(teamId, userIds, {
-      audience: "approval",
-      title: subject,
-      lines: this.publicUrl ? lines.filter((line) => !line.includes(link)) : lines,
-      link: this.publicUrl ? link : null,
-      teamWide: false,
-    });
-    const to = await this.emailsOf(teamId, userIds, "approval");
-    if (to.length > 0) await this.mail.send({ to, subject, text: lines.join("\n") });
+    const email = async () => {
+      const to = await this.emailsOf(teamId, userIds, "approval");
+      if (to.length > 0) await this.mail.send({ to, subject, text: lines.join("\n") });
+    };
+    await Promise.all([
+      this.tell(teamId, userIds, {
+        audience: "approval",
+        title: subject,
+        lines: this.publicUrl ? lines.filter((line) => !line.includes(link)) : lines,
+        link: this.publicUrl ? link : null,
+        teamWide: false,
+      }),
+      email(),
+    ]);
   }
 
   private async planWaiting(jobId: string, planHash: string, approver: Role): Promise<void> {

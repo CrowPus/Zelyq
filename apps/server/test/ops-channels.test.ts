@@ -317,6 +317,16 @@ test("each person hears what they chose, where they chose; quiet hours hold all 
   assert.equal(repliesTo(555).length, 1, "urgent goes in quiet hours too");
   assert.equal(await channels.wantsEmail(teamId, ownerId, "approval"), false);
   assert.equal(await channels.wantsEmail(teamId, ownerId, "urgent"), true);
+  assert.equal(
+    await channels.wantsEmail(teamId, ownerId, "warning"),
+    false,
+    "quiet hours hold a warning email too",
+  );
+  assert.equal(
+    await channels.wantsEmail(teamId, ownerId, "warning", new Date(now.getTime() + 3 * 3600_000)),
+    true,
+    "after quiet hours, warnings come by email as chosen",
+  );
 
   // Over midnight, and in the person's own time zone.
   const night = cleanPrefs({ quietFrom: "22:00", quietTo: "07:00", timeZone: "Africa/Freetown" });

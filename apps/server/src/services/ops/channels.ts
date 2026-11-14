@@ -90,6 +90,7 @@ export class ChannelService {
   private timer: NodeJS.Timeout | null = null;
   private readonly polling = new Set<string>();
   private readonly resting = new Map<string, number>();
+  private pruned = 0;
   /** Wrong Slack codes typed, per person: too many and the code is gone. */
   private readonly wrong = new Map<string, number>();
 
@@ -371,9 +372,16 @@ export class ChannelService {
     return clean;
   }
 
-  /** Whether this person wants this kind of news by email. */
-  async wantsEmail(teamId: string, userId: string, audience: OpsNotifyAudience): Promise<boolean> {
-    return (await this.prefsOf(teamId, userId))[audience].includes("email");
+  /** Whether this person wants this kind of news by email now (quiet hours hold all but urgent). */
+  async wantsEmail(
+    teamId: string,
+    userId: string,
+    audience: OpsNotifyAudience,
+    now = new Date(),
+  ): Promise<boolean> {
+    const prefs = await this.prefsOf(teamId, userId);
+    if (audience !== "urgent" && inQuietHours(prefs, now)) return false;
+    return prefs[audience].includes("email");
   }
 
   async view(teamId: string, userId: string, isAdmin: boolean): Promise<OpsChannelsView> {
@@ -512,6 +520,11 @@ export class ChannelService {
   }
 
   private async pollAll(): Promise<void> {
+    // Spent and expired link codes are forgotten, once an hour.
+    if (Date.now() - this.pruned > 3_600_000) {
+      this.pruned = Date.now();
+      await this.store.ops.linkCodes.prune(new Date().toISOString()).catch(() => undefined);
+    }
     const telegrams = (await this.store.ops.channels.listAll().catch(() => [])).filter(
       (row) => row.kind === "telegram",
     );
@@ -520,7 +533,12 @@ export class ChannelService {
       if ((this.resting.get(channel.id) ?? 0) > Date.now()) continue;
       this.polling.add(channel.id);
       void this.poll(channel)
-        .catch(() => this.resting.set(channel.id, Date.now() + POLL_BACKOFF_MS))
+        .then(() => (channel.status === "ok" ? undefined : this.mark(channel, null)))
+        .catch(async (error: unknown) => {
+          this.resting.set(channel.id, Date.now() + POLL_BACKOFF_MS);
+          // Shown to the admin: a revoked token or another reader means codes are not read.
+          await this.mark(channel, (error as Error).message).catch(() => undefined);
+        })
         .finally(() => this.polling.delete(channel.id));
     }
   }

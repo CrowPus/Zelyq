@@ -447,7 +447,7 @@ function Choices({
           />
         </div>
         <p className="flex-1 text-fg-muted">
-          In quiet hours only urgent alerts reach your chats; email is not held.
+          In quiet hours only urgent alerts reach you, by chat or email.
         </p>
         <Button
           size="sm"
