@@ -1,5 +1,5 @@
 import type { Role, Team, TeamMember, TeamMembership } from "@zelyq/core";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { teamMembers, teams, users } from "../schema/sqlite.js";
 
@@ -78,13 +78,19 @@ export function teamRepository(db: ZelyqDb) {
         })
         .from(teamMembers)
         .innerJoin(users, eq(users.id, teamMembers.userId))
-        .where(eq(teamMembers.teamId, teamId))
+        // A team's Ops engineer is a member so Zelyq's checks apply to it, but it is not a person.
+        .where(and(eq(teamMembers.teamId, teamId), ne(users.kind, "service")))
         .orderBy(asc(teamMembers.joinedAt));
       return rows.map((row) => ({ ...row, role: row.role as Role }));
     },
 
+    /** People only: a team whose only member left is its Ops engineer has no members. */
     async countMembers(teamId: string): Promise<number> {
-      const rows = await db.select().from(teamMembers).where(eq(teamMembers.teamId, teamId));
+      const rows = await db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(and(eq(teamMembers.teamId, teamId), ne(users.kind, "service")));
       return rows.length;
     },
 

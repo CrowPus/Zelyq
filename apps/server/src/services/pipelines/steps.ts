@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { PassThrough, type Readable } from "node:stream";
 import {
+  deployOptionsFrom,
   type PipelineFile,
   type PipelineShell,
   type PipelineStep,
@@ -670,6 +671,7 @@ async function deploy(context: StepContext): Promise<StepResult> {
     triggeredBy: run.triggeredBy,
     source,
     reuse: null,
+    options: deployOptionsFrom(spec),
     onLine: (stream, text) => context.line(stream, text),
     signal: context.signal,
   });

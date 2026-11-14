@@ -13,6 +13,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Rocket,
+  ServerCog,
   Settings,
   Sun,
   UserRound,
@@ -184,6 +185,12 @@ const SECTIONS: {
         label: "Deployments",
         icon: Rocket,
         match: (p) => p.startsWith("/deployments"),
+      },
+      {
+        to: "/ops",
+        label: "Ops",
+        icon: ServerCog,
+        match: (p) => p.startsWith("/ops"),
       },
     ],
   },
@@ -496,6 +503,14 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
           className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
         >
           <Workflow size={16} />
+        </Link>
+        <Link
+          to="/ops"
+          aria-label="Ops"
+          title="Ops"
+          className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
+        >
+          <ServerCog size={16} />
         </Link>
         <AccountMenu />
       </div>

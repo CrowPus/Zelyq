@@ -8,6 +8,7 @@ does not come up, the previous one is put back by itself.
 - [Deploying from a pipeline](#deploying-from-a-pipeline)
 - [What a deploy does](#what-a-deploy-does)
 - [No Dockerfile needed](#no-dockerfile-needed)
+- [Data, a database, workers and limits](#data-a-database-workers-and-limits)
 - [Your own address, HTTPS, and no downtime](#your-own-address-https-and-no-downtime)
 - [Roll back](#roll-back)
 - [Ports and firewalls](#ports-and-firewalls)
@@ -67,6 +68,46 @@ stages:
 
 `app:` names the app on the machine (default: the source app's name). The template **Deploy an app**
 in New pipeline starts from this.
+
+## Data, a database, workers and limits
+
+An app usually needs more than one container that answers people. These go in the same `deploy`
+step:
+
+```yaml
+      - deploy:
+          to: production
+          port: 3000
+          database: postgres            # a database beside the app; DATABASE_URL is given to it
+          migrate: npm run migrate      # the database update, run before the new version takes traffic
+          volumes:                      # folders kept across every version
+            - {name: uploads, path: /app/uploads}
+          processes:                    # other processes from the same image
+            worker: node worker.js
+          memory: 1g                    # for each container; default three quarters of the machine
+```
+
+- **`database: postgres`** starts a Postgres 16 beside the app, the first time, on the machine.
+  Its data is kept in a volume of its own, and its password is made once and kept encrypted.
+  The app gets `DATABASE_URL`, masked in every log like the other variables. Each environment has
+  its own: staging never shares production's data. If the environment's variables already set
+  `DATABASE_URL`, that database is used and none is started.
+- **`migrate:`** runs in the new version, with its variables and kept folders, before it takes
+  traffic. If it fails, the deploy stops there and the running version keeps serving. A deploy
+  that updated the database is marked so; rolling back past it says that the database was changed
+  after the version you go back to, because the update is not undone.
+- **`volumes:`** are folders that survive every new version, a roll back and a promote. They are
+  named after the environment, the app and the folder on the machine
+  (`zelyq-production-shop-uploads`).
+- **`processes:`** start from the same image once the web one is live, each replacing the one
+  before it. Only the web one gets the address and the health check. One that does not stay up
+  is said plainly; the web version stays live and the run fails, so you notice.
+- **Limits.** Every container keeps at most 30 MB of logs, so logs never fill the disk, and has a
+  memory limit: `memory:`, or three quarters of the machine's memory when its size is known.
+
+A roll back and a promote set the app up exactly as the deploy they start again: the same kept
+folders, processes and database. A roll back never runs `migrate:`; a promote does, on the
+environment it ships to.
 
 ## No Dockerfile needed
 

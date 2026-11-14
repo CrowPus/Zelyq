@@ -1,5 +1,5 @@
 import type { InstanceRole, User } from "@zelyq/core";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { users } from "../schema/sqlite.js";
 
@@ -23,12 +23,15 @@ export function userRepository(db: ZelyqDb) {
       name: string;
       passwordHash: string;
       instanceRole?: InstanceRole;
+      /** "service": a team's Ops engineer, which can never sign in. */
+      kind?: "person" | "service";
     }): Promise<User> {
       const now = new Date().toISOString();
       const row = {
         ...input,
         email: input.email.toLowerCase(),
         instanceRole: input.instanceRole ?? "member",
+        kind: input.kind ?? "person",
         createdAt: now,
         updatedAt: now,
       };
@@ -36,14 +39,26 @@ export function userRepository(db: ZelyqDb) {
       return toUser(row as Row);
     },
 
-    async findByEmail(email: string): Promise<(User & { passwordHash: string }) | null> {
+    /** Whether this account is a team's Ops engineer: such an account never signs in. */
+    async isService(id: string): Promise<boolean> {
+      const rows = await db
+        .select({ kind: users.kind })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      return rows[0]?.kind === "service";
+    },
+
+    async findByEmail(
+      email: string,
+    ): Promise<(User & { passwordHash: string; kind: string }) | null> {
       const rows = await db
         .select()
         .from(users)
         .where(eq(users.email, email.toLowerCase()))
         .limit(1);
       const row = rows[0];
-      return row ? { ...toUser(row), passwordHash: row.passwordHash } : null;
+      return row ? { ...toUser(row), passwordHash: row.passwordHash, kind: row.kind } : null;
     },
 
     async findById(id: string): Promise<User | null> {
@@ -71,7 +86,10 @@ export function userRepository(db: ZelyqDb) {
 
     /** Drives first-run setup: the first account to register owns the instance. */
     async count(): Promise<number> {
-      const rows = await db.select({ value: sql<number>`count(*)` }).from(users);
+      const rows = await db
+        .select({ value: sql<number>`count(*)` })
+        .from(users)
+        .where(ne(users.kind, "service"));
       return Number(rows[0]?.value ?? 0);
     },
 
@@ -80,12 +98,17 @@ export function userRepository(db: ZelyqDb) {
       const rows = await db
         .select({ value: sql<number>`count(*)` })
         .from(users)
-        .where(eq(users.instanceRole, "admin"));
+        .where(and(eq(users.instanceRole, "admin"), ne(users.kind, "service")));
       return Number(rows[0]?.value ?? 0);
     },
 
     async list(limit = 200): Promise<User[]> {
-      const rows = await db.select().from(users).orderBy(users.createdAt).limit(limit);
+      const rows = await db
+        .select()
+        .from(users)
+        .where(ne(users.kind, "service"))
+        .orderBy(users.createdAt)
+        .limit(limit);
       return rows.map(toUser);
     },
 

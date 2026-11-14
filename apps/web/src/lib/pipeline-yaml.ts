@@ -308,6 +308,27 @@ const DEPLOY: KeyDoc[] = [
   { key: "url", doc: "Where the app is reached, shown on the run." },
   { key: "domain", doc: "The app's own name on an environment with a domain." },
   { key: "start", doc: "How the app starts when it has no Dockerfile: node server.js." },
+  {
+    key: "database",
+    doc: "A database beside the app, its data kept; the app gets DATABASE_URL.",
+    example: "database: postgres",
+  },
+  {
+    key: "migrate",
+    doc: "The database update, run in the new version before it takes traffic. If it fails, nothing changes.",
+    example: "migrate: npm run migrate",
+  },
+  {
+    key: "volumes",
+    doc: "Folders kept across every version.",
+    example: "volumes: [{name: uploads, path: /app/uploads}]",
+  },
+  {
+    key: "processes",
+    doc: "Other processes from the same image, started once the web one is live.",
+    example: "processes: {worker: node worker.js}",
+  },
+  { key: "memory", doc: "Memory for each container: 512m, 2g.", example: "memory: 1g" },
 ];
 
 const PIPELINE_STEP: KeyDoc[] = [

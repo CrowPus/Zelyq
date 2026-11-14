@@ -103,9 +103,47 @@ export const AGENT_PERMISSIONS = {
     levels: ["off", "allow"],
     default: "allow",
   },
+  ops: {
+    label: "DevOps (Ops's actions)",
+    description:
+      "Work as the team's DevOps engineer: look at machines, environments, apps and pipelines freely; every change (an environment, a pipeline, a deploy, a roll back) waits for a person.",
+    levels: ["off", "approve"],
+    default: "off",
+  },
 } as const;
 
 export type AgentPermission = keyof typeof AGENT_PERMISSIONS;
+
+/**
+ * The "DevOps engineer" preset (072 Phase 1): an outside agent (Claude Code,
+ * Cursor) that works like Ops through MCP. It reads everything it needs, and
+ * every change it makes waits for a person, with Ops's own playbooks
+ * (devops_guide) to work by. It writes no app code.
+ */
+export const DEVOPS_AGENT_PRESET: {
+  name: string;
+  job: string;
+  permissions: Record<AgentPermission, AgentPermissionLevel>;
+} = {
+  name: "DevOps engineer",
+  job: "You are this team's DevOps engineer. Read devops_guide first and follow its playbooks: survey before planning, build pipelines from its blocks, prove every change, and say plainly what is live where. Never change app code.",
+  permissions: {
+    "code.read": "allow",
+    "code.write": "off",
+    commands: "off",
+    preview: "off",
+    "git.commit": "off",
+    "git.push": "off",
+    "pipelines.write": "approve",
+    "pipelines.run": "approve",
+    "deploy.manage": "approve",
+    "media.image": "off",
+    "media.video": "off",
+    "media.files": "off",
+    "vault.names": "allow",
+    ops: "approve",
+  },
+};
 export const agentPermissionNames = Object.keys(AGENT_PERMISSIONS) as AgentPermission[];
 
 export const agentPermissionLevelSchema = z.enum(["off", "allow", "approve"]);
@@ -153,6 +191,7 @@ export const agentActionTypeSchema = z.enum([
   "deploy.rollback",
   "deploy.promote",
   "media.video",
+  "ops.action",
 ]);
 export type AgentActionType = z.infer<typeof agentActionTypeSchema>;
 
@@ -169,6 +208,7 @@ export const AGENT_ACTION_PERMISSION: Record<AgentActionType, AgentPermission> =
   "deploy.rollback": "deploy.manage",
   "deploy.promote": "deploy.manage",
   "media.video": "media.video",
+  "ops.action": "ops",
 };
 
 /**

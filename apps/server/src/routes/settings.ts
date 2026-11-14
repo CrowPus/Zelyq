@@ -3,12 +3,20 @@ import type { Store } from "@zelyq/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
+import type { MailService } from "../services/mail.js";
 import type { SettingsService } from "../services/settings.js";
 
 export function registerSettingsRoutes(
   app: FastifyInstance,
-  deps: { settings: SettingsService; access: AccessControl; store: Store },
+  deps: { settings: SettingsService; access: AccessControl; store: Store; mail: MailService },
 ): void {
+  /** Settings → Email: signs in to the mail server and sends the admin a short message. */
+  app.post("/api/settings/mail/test", async (request) => {
+    const user = deps.access.requireInstanceAdmin(request);
+    await deps.mail.test(user.email);
+    return { ok: true, to: user.email };
+  });
+
   app.get("/api/settings", async (request) => {
     deps.access.requireInstanceAdmin(request);
     return await deps.settings.describe();

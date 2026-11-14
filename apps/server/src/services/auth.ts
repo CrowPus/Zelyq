@@ -280,8 +280,12 @@ export class AuthService {
 
   private async findOrCreateOidcUser(issuer: string, claims: OidcClaims): Promise<User> {
     const linked = await this.store.oidcIdentities.find(issuer, claims.sub);
-    if (linked) return (await this.store.users.findById(linked.userId))!;
+    if (linked) {
+      if (await this.store.users.isService(linked.userId)) throw serviceAccount();
+      return (await this.store.users.findById(linked.userId))!;
+    }
     const email = claims.email!.trim().toLowerCase();
+    if (isServiceEmail(email)) throw serviceAccount();
     // Applies before existing/new is even decided — an unverified claim must
     // never establish an identity either way. Checking it only inside the
     // "existing account" branch (as this used to) left the "new account"
@@ -296,6 +300,7 @@ export class AuthService {
       );
     }
     const existing = await this.store.users.findByEmail(email);
+    if (existing?.kind === "service") throw serviceAccount();
     if (existing) {
       await this.store.oidcIdentities.create({
         id: randomUUID(),
@@ -347,6 +352,7 @@ export class AuthService {
     }
 
     const email = input.email.trim().toLowerCase();
+    if (isServiceEmail(email)) throw reservedAddress();
     if (await this.store.users.findByEmail(email)) {
       throw new ZelyqError("conflict", "An account with that email already exists.");
     }
@@ -389,11 +395,12 @@ export class AuthService {
       ? await verifyPassword(input.password, record.passwordHash)
       : await verifyPassword(input.password, await hashPassword(randomUUID()));
 
-    if (!record || !ok) {
+    // A team's Ops engineer has no password that could ever match; refused by name as well.
+    if (!record || !ok || record.kind === "service") {
       throw new ZelyqError("unauthorized", "Incorrect email or password.");
     }
 
-    const { passwordHash: _ignored, ...user } = record;
+    const { passwordHash: _ignored, kind: _kind, ...user } = record;
     return { user, token: await this.createSession(user.id) };
   }
 
@@ -450,6 +457,7 @@ export class AuthService {
     }
 
     const email = input.email?.trim().toLowerCase();
+    if (email && isServiceEmail(email)) throw reservedAddress();
     if (email && email !== user.email) {
       if (!input.currentPassword) {
         throw new ZelyqError("unauthorized", "Enter your password to change your email address.");
@@ -490,7 +498,11 @@ export class AuthService {
     }
 
     this.touchSession(session.id);
-    return await this.store.users.findById(session.userId);
+    const user = await this.store.users.findById(session.userId);
+    // No session can belong to a team's Ops engineer; should one ever exist, it is not honoured.
+    // Told by its address, which no person can register or take: no extra query per request.
+    if (user && isServiceEmail(user.email)) return null;
+    return user;
   }
 
   /** When each session was last marked seen by this process. */
@@ -546,4 +558,18 @@ export class AuthService {
     }
     return slug;
   }
+}
+
+/** A team's Ops engineer is an account Zelyq acts as; nobody signs in as it. */
+function serviceAccount(): ZelyqError {
+  return new ZelyqError("unauthorized", "This account cannot be used to sign in.");
+}
+
+function reservedAddress(): ZelyqError {
+  return ZelyqError.badRequest("That address is reserved for Zelyq's own accounts.");
+}
+
+/** Addresses only a team's Ops engineer has; no person may register or switch to one. */
+export function isServiceEmail(email: string): boolean {
+  return email.trim().toLowerCase().endsWith("@service.invalid");
 }

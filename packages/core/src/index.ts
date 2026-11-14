@@ -8,6 +8,7 @@ export * from "./ids.js";
 export * from "./images.js";
 export * from "./models.js";
 export * from "./openai-models.js";
+export * from "./ops.js";
 export * from "./pipelines.js";
 export * from "./project-runtime.js";
 export * from "./protocol.js";

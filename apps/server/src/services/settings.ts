@@ -107,6 +107,11 @@ const GROUPS: Array<{ name: string; description: string }> = [
     name: "Pipelines",
     description: "Where runs-on: local pipelines run, and how long runs and artifacts are kept.",
   },
+  {
+    name: "Ops",
+    description:
+      "Ops, the team's DevOps engineer. It uses the provider above; its model can differ from the one that builds apps.",
+  },
 ];
 
 const DEFINITIONS: Definition[] = [
@@ -627,6 +632,127 @@ const DEFINITIONS: Definition[] = [
     fallback: "0",
   },
   {
+    key: "opsModel",
+    label: "Ops model",
+    description:
+      "The model Ops thinks with. Empty: the provider's strongest default. Ops refuses models known to be too small for multi-step operations work.",
+    kind: "text",
+    group: "Ops",
+    envVar: "ZELYQ_OPS_MODEL",
+    envOverridable: true,
+    fallback: "",
+  },
+  {
+    key: "opsProvider",
+    label: "Ops provider",
+    description:
+      "Who Ops thinks with when you type to it. Empty: the same as Settings → Model. Choosing one here changes Ops only, not the model Zelyq builds apps with.",
+    kind: "select",
+    group: "Ops",
+    envVar: "ZELYQ_OPS_PROVIDER",
+    envOverridable: true,
+    fallback: "",
+    options: [
+      { value: "", label: "Same as Settings → Model" },
+      { value: "google", label: "Google Gemini" },
+      { value: "anthropic", label: "Anthropic Claude" },
+      { value: "openai", label: "OpenAI" },
+    ],
+  },
+  {
+    key: "opsVoiceModel",
+    label: "Ops voice model",
+    description:
+      "The Gemini Live model Ops talks with (it hears and speaks directly; no transcription). Uses the Google AI key in Settings → Model.",
+    kind: "text",
+    group: "Ops",
+    envVar: "ZELYQ_OPS_VOICE_MODEL",
+    envOverridable: true,
+    fallback: "gemini-3.8-live",
+  },
+  {
+    key: "opsVoice",
+    label: "Ops voice",
+    description: "The voice Ops speaks with when you talk to it live.",
+    kind: "select",
+    group: "Ops",
+    envVar: "ZELYQ_OPS_VOICE",
+    envOverridable: true,
+    fallback: "Kore",
+    options: ["Kore", "Puck", "Charon", "Aoede", "Fenrir", "Leda", "Orus", "Zephyr"].map(
+      (value) => ({ value, label: value }),
+    ),
+  },
+  {
+    key: "mailHost",
+    label: "Mail server",
+    description:
+      'The SMTP server Zelyq sends email through (smtp.example.com): Ops\'s approval requests, secret requests and "it is live" messages. Empty: Zelyq sends no email.',
+    kind: "text",
+    group: "Email",
+    envVar: "ZELYQ_MAIL_HOST",
+    envOverridable: true,
+    fallback: "",
+    placeholder: "smtp.example.com",
+  },
+  {
+    key: "mailPort",
+    label: "Mail server port",
+    description: "587 with STARTTLS is usual; 465 with TLS from the start.",
+    kind: "number",
+    group: "Email",
+    envVar: "ZELYQ_MAIL_PORT",
+    envOverridable: true,
+    fallback: "587",
+  },
+  {
+    key: "mailSecurity",
+    label: "Mail connection",
+    description: "How the connection to the mail server is protected.",
+    kind: "select",
+    group: "Email",
+    envVar: "ZELYQ_MAIL_SECURITY",
+    envOverridable: true,
+    fallback: "starttls",
+    options: [
+      { value: "starttls", label: "STARTTLS (port 587)" },
+      { value: "tls", label: "TLS from the start (port 465)" },
+      { value: "none", label: "None (only on a private network)" },
+    ],
+  },
+  {
+    key: "mailUsername",
+    label: "Mail username",
+    description: "The account Zelyq signs in to the mail server with. Empty: no sign-in.",
+    kind: "text",
+    group: "Email",
+    envVar: "ZELYQ_MAIL_USERNAME",
+    envOverridable: true,
+    fallback: "",
+  },
+  {
+    key: "mailPassword",
+    label: "Mail password",
+    description: "Stored encrypted; never shown again.",
+    kind: "secret",
+    group: "Email",
+    envVar: "ZELYQ_MAIL_PASSWORD",
+    fallback: "",
+    secret: true,
+  },
+  {
+    key: "mailFrom",
+    label: "Send email as",
+    description:
+      "The sender people see, such as Zelyq <ops@example.com>. The mail server must allow it.",
+    kind: "text",
+    group: "Email",
+    envVar: "ZELYQ_MAIL_FROM",
+    envOverridable: true,
+    fallback: "",
+    placeholder: "Zelyq <ops@example.com>",
+  },
+  {
     key: "pluginRegistry",
     label: "Plugin registry",
     description:
@@ -651,6 +777,13 @@ const DEFINITIONS: Definition[] = [
 const BY_KEY = new Map(DEFINITIONS.map((definition) => [definition.key, definition]));
 
 /** Which stored secret belongs to which provider. */
+/** How a provider is named on screen. */
+const PROVIDER_NAME: Record<string, string> = {
+  google: "Gemini",
+  anthropic: "Claude",
+  openai: "OpenAI",
+};
+
 const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
   anthropic: "anthropicApiKey",
   google: "geminiApiKey",
@@ -1184,6 +1317,18 @@ export class SettingsService {
     const modelSuggestions = catalog
       ? catalog.models.map((model) => model.value)
       : MODEL_SUGGESTIONS[effectiveProvider];
+    // Ops may think with its own provider: its model list is that provider's, read from its key.
+    const opsProvider = (await this.value("opsProvider")).trim() || effectiveProvider;
+    const opsCatalog =
+      opsProvider === effectiveProvider
+        ? catalog
+        : opsProvider === "openai"
+          ? await this.openAIModels()
+          : opsProvider === "anthropic"
+            ? await this.anthropicModels()
+            : opsProvider === "google"
+              ? await this.googleModels()
+              : undefined;
 
     const fields = await Promise.all(
       DEFINITIONS.map(async (definition): Promise<SettingField> => {
@@ -1241,6 +1386,13 @@ export class SettingsService {
                   catalog.modelAvailability === "subscription"
                     ? `Enter a supported ${effectiveProvider === "openai" ? "Codex" : "Claude"} model`
                     : `Default: ${DEFAULT_MODEL_BY_PROVIDER[effectiveProvider]}`,
+              }
+            : {}),
+          ...(definition.key === "opsModel" && opsCatalog
+            ? {
+                modelOptions: opsCatalog.models,
+                modelNotice: opsCatalog.modelNotice,
+                placeholder: `Default: the strongest ${PROVIDER_NAME[opsProvider] ?? opsProvider} model your key can use`,
               }
             : {}),
         } as const;

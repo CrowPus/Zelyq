@@ -18,6 +18,8 @@ export const users = pgTable(
      * settings. The first account to register gets it.
      */
     instanceRole: text("instance_role").notNull().default("member"),
+    /** "person", or "service" for a team's Ops engineer: never able to sign in. */
+    kind: text("kind").notNull().default("person"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -561,6 +563,8 @@ export const deployEnvironments = pgTable(
     protected: boolean("protected").notNull().default(false),
     frozen: boolean("frozen").notNull().default(false),
     frozenReason: text("frozen_reason"),
+    /** How much Ops may do here alone: advise, ask, trusted, oncall. */
+    opsTrust: text("ops_trust").notNull().default("ask"),
     /** JSON: name → typed value (SecretBox ciphertext) or vault://NAME */
     variables: text("variables").notNull().default("{}"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -600,6 +604,10 @@ export const deployments = pgTable(
     port: integer("port").notNull(),
     hostPort: integer("host_port").notNull(),
     healthPath: text("health_path").notNull(),
+    /** JSON: kept folders, other processes, database update, memory, database (DeployOptions). */
+    options: text("options").notNull().default("{}"),
+    /** This version ran a database update: rolling back past it may not be safe. */
+    changedDatabase: boolean("changed_database").notNull().default(false),
     error: text("error"),
     /** What happened, one JSON line per log line ({"s": stream, "t": text}). */
     log: text("log").notNull().default(""),
@@ -626,6 +634,8 @@ export const deployApps = pgTable(
     app: text("app").notNull(),
     /** The exact name it is reached at (example.com, shop.example.com); null: the usual one. */
     domain: text("domain"),
+    /** The app's own database, encrypted: {"kind":"postgres","password":…}; null when it has none. */
+    database: text("database"),
     /** www.<domain> sends people to <domain>. */
     www: boolean("www").notNull().default(false),
     updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
@@ -1191,6 +1201,483 @@ export const agentOauthGrants = pgTable(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// Ops: the team's DevOps engineer (docs: co-founders 072/073)
+// ---------------------------------------------------------------------------
+
+/** One per team: the engineer, its service user, and the limits a person sets. */
+export const opsEngineers = pgTable(
+  "ops_engineers",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** The users row Ops acts as: kind "service", never able to sign in. */
+    serviceUserId: text("service_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    paused: boolean("paused").notNull().default(false),
+    pausedBy: text("paused_by"),
+    pausedAt: text("paused_at"),
+    /** Tokens a month; null: no cap. */
+    monthlyTokenCap: integer("monthly_token_cap"),
+    timeZone: text("time_zone").notNull().default("UTC"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: uniqueIndex("ops_engineers_team_idx").on(table.teamId),
+  }),
+);
+
+/** A piece of work: a request, its plan, its steps, its proofs. */
+export const opsJobs = pgTable(
+  "ops_jobs",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    request: text("request").notNull(),
+    /** survey, plan, approve, act, prove, record, done, failed, stopped */
+    stage: text("stage").notNull().default("survey"),
+    /** Where it came from: page, mcp, alert, channel. */
+    source: text("source").notNull().default("page"),
+    askedBy: text("asked_by").references(() => users.id, { onDelete: "set null" }),
+    outcome: text("outcome"),
+    planHash: text("plan_hash"),
+    planApprovedBy: text("plan_approved_by").references(() => users.id, { onDelete: "set null" }),
+    planApprovedAt: text("plan_approved_at"),
+    tokensIn: integer("tokens_in").notNull().default(0),
+    tokensOut: integer("tokens_out").notNull().default(0),
+    /** What Ops looked at and did in this job, in order (JSON list of short lines). */
+    activity: text("activity").notNull().default("[]"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    finishedAt: text("finished_at"),
+  },
+  (table) => ({
+    teamIdx: index("ops_jobs_team_idx").on(table.teamId, table.createdAt),
+  }),
+);
+
+/** One step of a job's plan: the exact action and inputs a person approves. */
+export const opsPlanSteps = pgTable(
+  "ops_plan_steps",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => opsJobs.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    action: text("action").notNull(),
+    /** JSON, exactly as it will run. */
+    inputs: text("inputs").notNull(),
+    inputsHash: text("inputs_hash").notNull(),
+    /** What a person reads, rendered by the server from action + inputs. */
+    words: text("words").notNull(),
+    risk: text("risk").notNull(),
+    undo: text("undo"),
+    /** For an always-ask step: the person who confirmed this one step, beyond the plan. */
+    confirmedBy: text("confirmed_by").references(() => users.id, { onDelete: "set null" }),
+    confirmedAt: text("confirmed_at"),
+    /** planned, running, done, failed, skipped, not_verified */
+    status: text("status").notNull().default("planned"),
+    result: text("result"),
+    startedAt: text("started_at"),
+    finishedAt: text("finished_at"),
+  },
+  (table) => ({
+    jobIdx: index("ops_plan_steps_job_idx").on(table.jobId, table.position),
+  }),
+);
+
+/** What the server itself checked to show a step worked. */
+export const opsProofs = pgTable(
+  "ops_proofs",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => opsJobs.id, { onDelete: "cascade" }),
+    stepId: text("step_id").references(() => opsPlanSteps.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    target: text("target").notNull(),
+    ok: boolean("ok").notNull(),
+    detail: text("detail"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    jobIdx: index("ops_proofs_job_idx").on(table.jobId),
+  }),
+);
+
+/** Every action tried in a job: the same one with the same inputs is not tried twice. */
+export const opsAttempts = pgTable(
+  "ops_attempts",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => opsJobs.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    inputsHash: text("inputs_hash").notNull(),
+    ok: boolean("ok"),
+    /** How many times this attempt failed: a retry reuses the row, the count keeps going. */
+    failures: integer("failures").notNull().default(0),
+    detail: text("detail"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    triedIdx: uniqueIndex("ops_attempts_tried_idx").on(table.jobId, table.action, table.inputsHash),
+  }),
+);
+
+/** The conversation of a job. */
+export const opsMessages = pgTable(
+  "ops_messages",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => opsJobs.id, { onDelete: "cascade" }),
+    /** person, ops, system */
+    role: text("role").notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    text: text("text").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    jobIdx: index("ops_messages_job_idx").on(table.jobId, table.createdAt),
+  }),
+);
+
+/** A pipeline run started under an approved plan step: its protected deploy is not asked twice. */
+export const opsRunGrants = pgTable("ops_run_grants", {
+  runId: text("run_id")
+    .primaryKey()
+    .references(() => pipelineRuns.id, { onDelete: "cascade" }),
+  jobId: text("job_id")
+    .notNull()
+    .references(() => opsJobs.id, { onDelete: "cascade" }),
+  stepId: text("step_id"),
+  environmentId: text("environment_id").notNull(),
+  approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: text("created_at").notNull(),
+});
+
+/** What Ops knows about one thing — an app, an environment, a machine — kept true by it. */
+export const opsSheets = pgTable(
+  "ops_sheets",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** "app:shop", "environment:production", "machine:box" */
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    version: integer("version").notNull().default(1),
+    /** "ops", or the person who last edited it. */
+    updatedBy: text("updated_by").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    subjectIdx: uniqueIndex("ops_sheets_subject_idx").on(table.teamId, table.subject),
+  }),
+);
+
+export const opsSheetVersions = pgTable(
+  "ops_sheet_versions",
+  {
+    id: text("id").primaryKey(),
+    sheetId: text("sheet_id")
+      .notNull()
+      .references(() => opsSheets.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    body: text("body").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    sheetIdx: index("ops_sheet_versions_sheet_idx").on(table.sheetId, table.version),
+  }),
+);
+
+/** What the team told Ops about how they want things done. A person's word beats Ops's own. */
+export const opsPreferences = pgTable(
+  "ops_preferences",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    /** "team", "app:shop", "environment:production" */
+    scope: text("scope").notNull().default("team"),
+    /** person (added on the Memory tab), correction (a rejected plan, a message in a job) */
+    source: text("source").notNull(),
+    jobId: text("job_id"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    active: boolean("active").notNull().default(true),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("ops_preferences_team_idx").on(table.teamId),
+  }),
+);
+
+/** What went wrong or right, why, and the rule that follows; with the evidence. */
+export const opsLessons = pgTable(
+  "ops_lessons",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    what: text("what").notNull(),
+    why: text("why").notNull(),
+    rule: text("rule").notNull(),
+    scope: text("scope").notNull().default("team"),
+    /** reminder, precheck, block */
+    strength: text("strength").notNull().default("reminder"),
+    /** review, person, repeat */
+    source: text("source").notNull(),
+    /** The job, and the failed step or the person's message, it was learned from. */
+    evidenceJobId: text("evidence_job_id"),
+    evidence: text("evidence"),
+    /** active, retired */
+    status: text("status").notNull().default("active"),
+    retiredReason: text("retired_reason"),
+    lastMatchedAt: text("last_matched_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("ops_lessons_team_idx").on(table.teamId, table.status),
+  }),
+);
+
+/** A check the server runs before a kind of step, from a fixed catalogue. Only a person switches one off. */
+export const opsGuards = pgTable(
+  "ops_guards",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    lessonId: text("lesson_id").references(() => opsLessons.id, { onDelete: "set null" }),
+    /** secrets_present, disk_space, staging_first, allowed_time, block_action */
+    kind: text("kind").notNull(),
+    /** JSON, checked against the kind. */
+    params: text("params").notNull().default("{}"),
+    scope: text("scope").notNull().default("team"),
+    active: boolean("active").notNull().default(true),
+    createdBy: text("created_by").notNull(),
+    switchedOffBy: text("switched_off_by"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("ops_guards_team_idx").on(table.teamId, table.active),
+  }),
+);
+
+/**
+ * Ops, Phase 2 (Watch): what is checked, on a timer, by the server. Kept in
+ * step with Zelyq's records (origin "records") or added by a person.
+ */
+export const opsChecks = pgTable(
+  "ops_checks",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** address, speed, app, machine, certificate, domain, pipeline */
+    kind: text("kind").notNull(),
+    /** What it checks, as a stable key ("environment/app", "machine:name", "domain:x", "pipeline:id"). */
+    target: text("target").notNull(),
+    /** Plain words: "shop on production answers". */
+    title: text("title").notNull(),
+    /** JSON: the facts the probe needs (address, machine id, environment id, app). */
+    params: text("params").notNull().default("{}"),
+    everySeconds: integer("every_seconds").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    origin: text("origin").notNull().default("records"),
+    /** ok, failing, unknown */
+    state: text("state").notNull().default("unknown"),
+    failures: integer("failures").notNull().default(0),
+    /** When the failing began (for "for ten minutes" rules). */
+    failingSince: text("failing_since"),
+    lastDetail: text("last_detail"),
+    lastCheckedAt: text("last_checked_at"),
+    /** The app's normal answer time in ms (a slow-moving median). */
+    normalMs: integer("normal_ms"),
+    switchedOffBy: text("switched_off_by"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamIdx: index("ops_checks_team_idx").on(table.teamId),
+    targetIdx: uniqueIndex("ops_checks_target_idx").on(table.teamId, table.kind, table.target),
+  }),
+);
+
+/** One row per check per hour: uptime is computed from these, and the table stays small. */
+export const opsCheckHours = pgTable(
+  "ops_check_hours",
+  {
+    checkId: text("check_id")
+      .notNull()
+      .references(() => opsChecks.id, { onDelete: "cascade" }),
+    /** The hour, as ISO text to the hour: 2026-11-14T08 */
+    hour: text("hour").notNull(),
+    runs: integer("runs").notNull().default(0),
+    passed: integer("passed").notNull().default(0),
+    totalMs: integer("total_ms").notNull().default(0),
+    slowestMs: integer("slowest_ms").notNull().default(0),
+  },
+  (table) => ({
+    hourIdx: uniqueIndex("ops_check_hours_idx").on(table.checkId, table.hour),
+  }),
+);
+
+/** A problem a check found: opened once, closed when it passes again. */
+export const opsAlerts = pgTable(
+  "ops_alerts",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    checkId: text("check_id").references(() => opsChecks.id, { onDelete: "set null" }),
+    /** urgent, warning */
+    severity: text("severity").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail"),
+    openedAt: text("opened_at").notNull(),
+    closedAt: text("closed_at"),
+    /** How it ended: "back by itself", "closed by a person" */
+    closedHow: text("closed_how"),
+    acknowledgedBy: text("acknowledged_by").references(() => users.id, { onDelete: "set null" }),
+    acknowledgedAt: text("acknowledged_at"),
+    silencedUntil: text("silenced_until"),
+    silencedBy: text("silenced_by").references(() => users.id, { onDelete: "set null" }),
+    /** How many people down the list it has gone (0: the first). */
+    escalation: integer("escalation").notNull().default(0),
+    /** When the people at this level were told. */
+    notifiedAt: text("notified_at"),
+  },
+  (table) => ({
+    teamIdx: index("ops_alerts_team_idx").on(table.teamId, table.closedAt),
+  }),
+);
+
+/** A team's connection to a chat service the watch sends through (075 Step 2). */
+export const opsChannels = pgTable(
+  "ops_channels",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** telegram, slack, discord */
+    kind: text("kind").notNull(),
+    /** What the person sees: the bot's name, the workspace and channel. */
+    name: text("name").notNull(),
+    /** Who it is at the service (one Telegram bot reads its messages for one team only). */
+    account: text("account").notNull(),
+    /** Token or webhook, encrypted with the server's key (never in the Vault). */
+    secret: text("secret").notNull(),
+    /** The team's shared place, when the service has one (a Slack channel). */
+    teamChat: text("team_chat"),
+    /** ok, failing */
+    status: text("status").notNull(),
+    lastError: text("last_error"),
+    /** Telegram: the next update to read. */
+    pollOffset: integer("poll_offset").notNull().default(0),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamKindIdx: uniqueIndex("ops_channels_team_kind_idx").on(table.teamId, table.kind),
+    accountIdx: index("ops_channels_account_idx").on(table.account),
+  }),
+);
+
+/** A person's own chat on a service, linked by a one-time code. */
+export const opsChannelLinks = pgTable(
+  "ops_channel_links",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    chatId: text("chat_id").notNull(),
+    /** How the chat calls itself (a Telegram name, a Slack handle). */
+    label: text("label"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    personIdx: uniqueIndex("ops_channel_links_person_idx").on(
+      table.teamId,
+      table.kind,
+      table.userId,
+    ),
+  }),
+);
+
+/** A one-time code a person uses to link a chat; only its hash is kept. */
+export const opsLinkCodes = pgTable(
+  "ops_link_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    /** Slack: the chat the code was sent to, linked when it is typed back. */
+    chatId: text("chat_id"),
+    label: text("label"),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+  },
+  (table) => ({
+    personIdx: index("ops_link_codes_person_idx").on(table.teamId, table.userId),
+  }),
+);
+
+/** What a person wants to hear, where, and when not (JSON). */
+export const opsNotifyPrefs = pgTable(
+  "ops_notify_prefs",
+  {
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    prefs: text("prefs").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    personIdx: uniqueIndex("ops_notify_prefs_person_idx").on(table.teamId, table.userId),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1235,4 +1722,23 @@ export const schema = {
   agentReferences,
   agentOauthClients,
   agentOauthGrants,
+  opsEngineers,
+  opsJobs,
+  opsPlanSteps,
+  opsProofs,
+  opsAttempts,
+  opsMessages,
+  opsRunGrants,
+  opsSheets,
+  opsSheetVersions,
+  opsPreferences,
+  opsLessons,
+  opsGuards,
+  opsChecks,
+  opsCheckHours,
+  opsAlerts,
+  opsChannels,
+  opsChannelLinks,
+  opsLinkCodes,
+  opsNotifyPrefs,
 };

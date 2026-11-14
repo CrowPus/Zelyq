@@ -104,21 +104,20 @@ test("Settings saves a selected Gemini model and preserves custom IDs", async ({
   });
 
   await page.goto("/settings");
-  const picker = page.getByRole("combobox", { name: "Model suggestions" });
+  const picker = page.getByRole("combobox", { name: "Model", exact: true });
   await picker.selectOption("gemini-3.8-flash");
-  await expect(page.getByRole("textbox", { name: "Model", exact: true })).toHaveValue(
-    "gemini-3.8-flash",
-  );
+  await expect(picker).toHaveValue("gemini-3.8-flash");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByText("Saved", { exact: true })).toHaveText("Saved");
   await page.reload();
   await expect(picker).toHaveValue("gemini-3.8-flash");
 
-  await page.getByRole("textbox", { name: "Model", exact: true }).fill("gemini-custom-preview");
+  await picker.selectOption("__other__");
+  await page.getByRole("textbox", { name: "Model, typed" }).fill("gemini-custom-preview");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByText("Saved", { exact: true })).toHaveText("Saved");
   await page.reload();
-  await expect(page.getByRole("textbox", { name: "Model", exact: true })).toHaveValue(
+  await expect(page.getByRole("textbox", { name: "Model, typed" })).toHaveValue(
     "gemini-custom-preview",
   );
 });

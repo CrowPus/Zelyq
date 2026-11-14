@@ -289,6 +289,60 @@ export const domainSchema = z
     );
   }, "Use a name like shop.example.com.");
 
+const oneLine = (what: string) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .refine((value) => !/[\r\n]/.test(value), `Keep the ${what} on one line.`);
+
+const deployNameSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z][a-z0-9-]{0,29}$/, "Use lower-case letters, digits and '-' (uploads).");
+
+/**
+ * What a deploy keeps and runs beside the app. Stored on every deployment, so
+ * a roll back or a promote sets the app up exactly as it was.
+ */
+export interface DeployOptions {
+  /** Folders that survive every new version: kept on the machine, per app and environment. */
+  volumes: { name: string; path: string }[];
+  /** Other processes from the same image: a worker, a scheduler. Only the web one gets the address. */
+  processes: Record<string, string>;
+  /** Run in the new version before it takes traffic: the app's database update. */
+  migrate: string | null;
+  /** Memory for each container, as Docker writes it (512m, 2g); null: a share of the machine. */
+  memory: string | null;
+  /** A database beside the app, its data kept, DATABASE_URL given to the app. */
+  database: "postgres" | null;
+}
+
+export const NO_DEPLOY_OPTIONS: DeployOptions = {
+  volumes: [],
+  processes: {},
+  migrate: null,
+  memory: null,
+  database: null,
+};
+
+/** A stored deployment's options, whatever an older row holds. */
+export function deployOptionsOf(json: string | null | undefined): DeployOptions {
+  try {
+    const value = JSON.parse(json ?? "{}") as Partial<DeployOptions>;
+    return {
+      volumes: Array.isArray(value.volumes) ? value.volumes : [],
+      processes: value.processes && typeof value.processes === "object" ? value.processes : {},
+      migrate: typeof value.migrate === "string" ? value.migrate : null,
+      memory: typeof value.memory === "string" ? value.memory : null,
+      database: value.database === "postgres" ? "postgres" : null,
+    };
+  } catch {
+    return { ...NO_DEPLOY_OPTIONS };
+  }
+}
+
 /** `deploy: {to: production, port: 3000, …}` — see docs/deploy-plan.md. */
 const deploySchema = z
   .object({
@@ -317,8 +371,82 @@ const deploySchema = z
       .max(500)
       .refine((value) => !/[\r\n]/.test(value), "Keep the start command on one line.")
       .optional(),
+    /** Folders kept across versions: `[{name: uploads, path: /app/uploads}]`, or `[uploads:/app/uploads]`. */
+    volumes: z
+      .array(
+        z.preprocess(
+          // The short form people know from Docker: name:/path.
+          (value) => {
+            if (typeof value !== "string") return value;
+            const colon = value.indexOf(":");
+            return colon > 0
+              ? { name: value.slice(0, colon).trim(), path: value.slice(colon + 1).trim() }
+              : { name: value.trim(), path: "" };
+          },
+          z
+            .object({
+              name: deployNameSchema,
+              path: z
+                .string()
+                .trim()
+                .regex(
+                  /^\/[A-Za-z0-9._/-]*$/,
+                  "Use the folder's full path in the app, like /app/uploads (uploads:/app/uploads).",
+                ),
+            })
+            .strict(),
+        ),
+      )
+      .max(10)
+      .optional(),
+    /** Other processes from the same image: `{worker: node worker.js}`. */
+    processes: z
+      .record(deployNameSchema, oneLine("command"))
+      .refine((value) => Object.keys(value).length <= 5, "At most 5 processes.")
+      .refine((value) => !("web" in value), "web is the app itself; name the others.")
+      .optional(),
+    /** The database update, run in the new version before it takes traffic: `npm run migrate`. */
+    migrate: oneLine("database update command").optional(),
+    /** Memory for each container: 512m, 2g. */
+    memory: z
+      .string()
+      .trim()
+      .regex(/^[1-9][0-9]{0,5}[mg]$/, "Use a size like 512m or 2g.")
+      .optional(),
+    /** A database beside the app: DATABASE_URL is given to it, its data kept. */
+    database: z.enum(["postgres"]).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((spec, ctx) => {
+    const names = new Set<string>();
+    for (const [index, volume] of (spec.volumes ?? []).entries()) {
+      if (names.has(volume.name)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["volumes", index, "name"],
+          message: `Two folders are called ${volume.name}.`,
+        });
+      }
+      names.add(volume.name);
+    }
+  });
+
+/** The options of a `deploy:` step, as a deploy stores them. */
+export function deployOptionsFrom(spec: {
+  volumes?: { name: string; path: string }[] | undefined;
+  processes?: Record<string, string> | undefined;
+  migrate?: string | undefined;
+  memory?: string | undefined;
+  database?: "postgres" | undefined;
+}): DeployOptions {
+  return {
+    volumes: spec.volumes ?? [],
+    processes: spec.processes ?? {},
+    migrate: spec.migrate ?? null,
+    memory: spec.memory ?? null,
+    database: spec.database ?? null,
+  };
+}
 
 /** `pipeline: {run: Shop deploy, wait: true, with: {…}}` — start a downstream pipeline. */
 const pipelineStepSchema = z

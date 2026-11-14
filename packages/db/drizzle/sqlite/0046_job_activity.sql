@@ -1,0 +1,1 @@
+ALTER TABLE `ops_jobs` ADD `activity` text DEFAULT '[]' NOT NULL;

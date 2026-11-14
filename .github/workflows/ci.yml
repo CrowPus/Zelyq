@@ -48,11 +48,13 @@ jobs:
           tar -xzf "$asset" gitleaks
           sudo install gitleaks /usr/local/bin/gitleaks
 
-      # .gitleaks.toml at the repo root allowlists exactly one fixture file
-      # that deliberately contains a fake credential as eval test data —
-      # everything else uses gitleaks' full default ruleset.
+      # .gitleaks.toml at the repo root allowlists two fixture files that
+      # deliberately contain fake credentials as test data — everything else
+      # uses gitleaks' full default ruleset. --verbose names each finding's
+      # file, line and rule (the value stays redacted), so a failure says
+      # what to fix instead of only how many.
       - name: Scan for secrets
-        run: gitleaks detect --source . --no-banner --redact
+        run: gitleaks detect --source . --no-banner --redact --verbose
 
       - uses: pnpm/action-setup@v6
 

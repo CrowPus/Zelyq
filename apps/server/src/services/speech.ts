@@ -77,6 +77,12 @@ export class SpeechService {
         );
       }
       if (response.status === 429) {
+        // OpenAI answers 429 both for "too fast" and for "no credits left"; only one waits out.
+        if (/insufficient_quota|exceeded your current quota|no credits/i.test(body)) {
+          throw ZelyqError.badRequest(
+            "The OpenAI account for voice input has no credits left. Add credits at platform.openai.com, or choose another key in Settings.",
+          );
+        }
         throw new ZelyqError(
           "rate_limited",
           "OpenAI is rate-limiting voice transcription. Try again shortly.",

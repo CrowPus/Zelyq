@@ -1,6 +1,5 @@
-import { lookup } from "node:dns/promises";
-import { BlockList, isIP } from "node:net";
 import type { RunStatus } from "@zelyq/core";
+import { guardedRequest } from "../net-guard.js";
 
 /**
  * Tells a chat or an incident tool how a run ended. The body works for Slack
@@ -10,14 +9,6 @@ import type { RunStatus } from "@zelyq/core";
  * The address comes from the team's Vault, but it is still checked: a webhook
  * pointing at this server itself, or at the cloud metadata service, is refused.
  */
-
-const BLOCKED = new BlockList();
-BLOCKED.addSubnet("127.0.0.0", 8, "ipv4");
-BLOCKED.addSubnet("0.0.0.0", 8, "ipv4");
-BLOCKED.addSubnet("169.254.0.0", 16, "ipv4");
-BLOCKED.addAddress("::1", "ipv6");
-BLOCKED.addAddress("::", "ipv6");
-BLOCKED.addSubnet("fe80::", 10, "ipv6");
 
 const WORDS: Record<RunStatus, string> = {
   queued: "is queued",
@@ -38,28 +29,27 @@ export interface RunNotice {
 }
 
 export async function sendNotification(address: string, notice: RunNotice): Promise<void> {
-  const url = new URL(address);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("A notification address must be http:// or https://.");
-  }
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  const addresses = isIP(host)
-    ? [{ address: host, family: isIP(host) }]
-    : await lookup(host, { all: true });
-  for (const entry of addresses) {
-    if (BLOCKED.check(entry.address, entry.family === 6 ? "ipv6" : "ipv4")) {
-      throw new Error(
-        `Notifications to ${host} are not allowed (it is this machine or a link-local address).`,
-      );
-    }
-  }
   const text = `${notice.pipeline} #${notice.run} ${WORDS[notice.status]}${notice.link ? ` — ${notice.link}` : ""}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, content: text, ...notice }),
-    redirect: "error",
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw new Error(`The notification address answered ${response.status}.`);
+  let response: { status: number };
+  try {
+    // "normal": a person set this address up, and the team's own chat server
+    // on the office network is fine; this server and metadata addresses are not.
+    response = await guardedRequest(address, {
+      level: "normal",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, content: text, ...notice }),
+      timeoutMs: 10_000,
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    throw new Error(
+      /this server|link-local|metadata/.test(message)
+        ? `Notifications to that address are not allowed (it is this machine or a link-local address).`
+        : message,
+    );
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`The notification address answered ${response.status}.`);
+  }
 }

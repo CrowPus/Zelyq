@@ -28,6 +28,28 @@ export class AgentClient {
     return (await response.json()) as { status: string };
   }
 
+  /**
+   * One turn of Ops, the DevOps engineer: the agent runs the model, and every
+   * tool call comes back to this server through the bridge. Long: a turn can
+   * wait for a pipeline run.
+   */
+  async opsTurn(input: OpsTurnRequest): Promise<OpsTurnResult> {
+    const response = await fetch(`${this.baseUrl}/ops-turns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(60 * 60_000),
+    });
+    const body = (await response.json().catch(() => ({}))) as OpsTurnResult & {
+      error?: string | { message?: string };
+    };
+    if (!response.ok || body.error) {
+      const message = typeof body.error === "string" ? body.error : body.error?.message;
+      throw ZelyqError.badRequest(message ?? `The agent answered ${response.status}.`);
+    }
+    return body;
+  }
+
   /** What the chat's model picker offers. */
   async listProviders(): Promise<AvailableProviders> {
     const response = await fetch(`${this.baseUrl}/providers`, {
@@ -266,4 +288,28 @@ export class AgentClient {
       reader.releaseLock();
     }
   }
+}
+
+export interface OpsTurnRequest {
+  provider: string;
+  model: string;
+  apiKey: string;
+  authMode: "api_key" | "subscription";
+  baseUrl?: string;
+  anthropicWorkspaceId?: string;
+  systemPrompt: string;
+  history: { role: "user" | "assistant"; content: string }[];
+  message: string;
+  tools: { name: string; description: string; input_schema: Record<string, unknown> }[];
+  bridge: { url: string; token: string };
+  limits: { rounds: number; tokens: number; minutes: number };
+}
+
+export interface OpsTurnResult {
+  text: string;
+  usage: { inputTokens: number; outputTokens: number };
+  rounds: number;
+  /** Why it stopped early, in plain words; null when it finished. */
+  stopped: string | null;
+  model: string;
 }

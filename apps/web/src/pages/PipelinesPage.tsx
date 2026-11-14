@@ -20,7 +20,7 @@ import { OverviewTab } from "../components/pipelines/OverviewTab";
 import { PluginsTab } from "../components/pipelines/PluginsTab";
 import { RunnersTab } from "../components/pipelines/RunnersTab";
 import { StageStrip } from "../components/pipelines/Stages";
-import { Badge, Button, EmptyState, Spinner } from "../components/ui";
+import { Badge, buttonClass, EmptyState, Spinner } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { RUN_STATUS } from "../lib/pipelines";
@@ -41,6 +41,13 @@ export function PipelinesPage() {
   const tab: Tab =
     asked === "runners" || asked === "plugins" || asked === "overview" ? asked : "pipelines";
   const canWrite = team ? roleAtLeast(team.role, "editor") : false;
+  // The same list the tab shows (shared, not fetched twice).
+  const pipelineCount =
+    useQuery({
+      queryKey: ["pipelines", team?.id],
+      queryFn: () => api.pipelines.list(team?.id as string),
+      enabled: Boolean(team),
+    }).data?.pipelines.length ?? 0;
 
   return (
     <AppShell crumbs={[{ label: "Pipelines" }]}>
@@ -56,11 +63,11 @@ export function PipelinesPage() {
                 machines over SSH. Secrets come from the team's Vault and never appear in a log.
               </p>
             </div>
-            {tab === "pipelines" && canWrite && (
-              <Link to="/pipelines/new">
-                <Button variant="primary" icon={<Plus size={14} />}>
-                  New pipeline
-                </Button>
+            {/* With no pipelines, the empty list's own "New pipeline" is the one button. */}
+            {tab === "pipelines" && canWrite && pipelineCount > 0 && (
+              <Link to="/pipelines/new" className={buttonClass("primary")}>
+                <Plus size={14} />
+                New pipeline
               </Link>
             )}
           </header>
@@ -173,10 +180,9 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
         description="A pipeline is a short file: stages, and the commands in each. Start from a template — Node, Python or Docker."
         action={
           canWrite && (
-            <Link to="/pipelines/new">
-              <Button variant="primary" icon={<Plus size={14} />}>
-                New pipeline
-              </Button>
+            <Link to="/pipelines/new" className={buttonClass("primary")}>
+              <Plus size={14} />
+              New pipeline
             </Link>
           )
         }

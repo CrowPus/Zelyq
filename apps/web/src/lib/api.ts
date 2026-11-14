@@ -33,6 +33,15 @@ import type {
   ImageGenerationInput,
   ImageHistory,
   LocalRunnerStatus,
+  OpsChannelKind,
+  OpsChannelsView,
+  OpsEngineer,
+  OpsJobDetail,
+  OpsJobSummary,
+  OpsLinkStart,
+  OpsNotifyPrefs,
+  OpsStatusView,
+  OpsTrust,
   PipelineDetail,
   PipelinePluginSummary,
   PipelineRunDetail,
@@ -286,6 +295,140 @@ export const api = {
   },
 
   /** Pipelines, their runs, the team's runners and SSH key. */
+  /** Ops, the team's DevOps engineer. */
+  ops: {
+    get: (teamId: string) => request<{ engineer: OpsEngineer | null }>(`/teams/${teamId}/ops`),
+    /** The watch: every app's light, uptime and open alerts. */
+    status: (teamId: string) => request<OpsStatusView>(`/teams/${teamId}/ops/status`),
+    acknowledge: (teamId: string, alertId: string) =>
+      request<OpsStatusView>(`/teams/${teamId}/ops/alerts/${alertId}/acknowledge`, {
+        method: "POST",
+        body: "{}",
+      }),
+    silence: (teamId: string, alertId: string, minutes: number) =>
+      request<OpsStatusView>(`/teams/${teamId}/ops/alerts/${alertId}/silence`, {
+        method: "POST",
+        body: JSON.stringify({ minutes }),
+      }),
+    /** Where alerts reach people: the team's services, each person's chats and choices. */
+    channels: (teamId: string) => request<OpsChannelsView>(`/teams/${teamId}/ops/channels`),
+    connectChannel: (
+      teamId: string,
+      kind: OpsChannelKind,
+      input: { token?: string; webhook?: string; teamChat?: string | null },
+    ) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channels/${kind}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    disconnectChannel: (teamId: string, kind: OpsChannelKind) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channels/${kind}`, { method: "DELETE" }),
+    testChannel: (teamId: string, kind: OpsChannelKind) =>
+      request<OpsChannelsView & { went: string[] }>(`/teams/${teamId}/ops/channels/${kind}/test`, {
+        method: "POST",
+        body: "{}",
+      }),
+    startLink: (teamId: string, kind: OpsChannelKind) =>
+      request<OpsLinkStart>(`/teams/${teamId}/ops/channels/${kind}/link`, {
+        method: "POST",
+        body: "{}",
+      }),
+    confirmSlack: (teamId: string, code: string) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channels/slack/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      }),
+    unlink: (teamId: string, linkId: string) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channel-links/${linkId}`, {
+        method: "DELETE",
+      }),
+    setNotify: (teamId: string, prefs: OpsNotifyPrefs) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/notify`, {
+        method: "PUT",
+        body: JSON.stringify(prefs),
+      }),
+    setCheck: (teamId: string, checkId: string, enabled: boolean) =>
+      request<OpsStatusView>(`/teams/${teamId}/ops/checks/${checkId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      }),
+    setUp: (teamId: string) =>
+      request<{ engineer: OpsEngineer }>(`/teams/${teamId}/ops`, { method: "POST", body: "{}" }),
+    update: (
+      teamId: string,
+      input: { paused?: boolean; monthlyTokenCap?: number | null; timeZone?: string },
+    ) =>
+      request<{ engineer: OpsEngineer }>(`/teams/${teamId}/ops`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    jobs: (teamId: string) => request<{ jobs: OpsJobSummary[] }>(`/teams/${teamId}/ops/jobs`),
+    job: (teamId: string, jobId: string) =>
+      request<{ job: OpsJobDetail }>(`/teams/${teamId}/ops/jobs/${jobId}`),
+    talk: (teamId: string, input: { text: string; jobId?: string; spoken?: boolean }) =>
+      request<{ job: OpsJobDetail }>(`/teams/${teamId}/ops/talk`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    decide: (
+      teamId: string,
+      jobId: string,
+      input: { decision: "approve" | "reject"; planHash: string; comment?: string },
+    ) =>
+      request<{ job: OpsJobDetail }>(`/teams/${teamId}/ops/jobs/${jobId}/plan`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    confirmStep: (teamId: string, jobId: string, stepId: string) =>
+      request<{ job: OpsJobDetail }>(`/teams/${teamId}/ops/jobs/${jobId}/steps/${stepId}/confirm`, {
+        method: "POST",
+        body: "{}",
+      }),
+    stop: (teamId: string, jobId: string) =>
+      request<{ job: OpsJobDetail }>(`/teams/${teamId}/ops/jobs/${jobId}/stop`, {
+        method: "POST",
+        body: "{}",
+      }),
+    environments: (teamId: string) =>
+      request<{ environments: OpsEnvironmentTrust[] }>(`/teams/${teamId}/ops/environments`),
+    setTrust: (teamId: string, environmentId: string, trust: OpsTrust) =>
+      request<{ environments: OpsEnvironmentTrust[] }>(
+        `/teams/${teamId}/ops/environments/${environmentId}`,
+        { method: "PATCH", body: JSON.stringify({ trust }) },
+      ),
+    memory: (teamId: string) => request<OpsMemoryView>(`/teams/${teamId}/ops/memory`),
+    addWish: (teamId: string, input: { text: string; scope?: string }) =>
+      request<OpsMemoryView>(`/teams/${teamId}/ops/memory/wishes`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    editWish: (teamId: string, id: string, input: { text?: string; active?: boolean }) =>
+      request<OpsMemoryView>(`/teams/${teamId}/ops/memory/wishes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    removeWish: (teamId: string, id: string) =>
+      request<OpsMemoryView>(`/teams/${teamId}/ops/memory/wishes/${id}`, { method: "DELETE" }),
+    editLesson: (
+      teamId: string,
+      id: string,
+      input: { rule?: string; status?: "active" | "retired"; retiredReason?: string },
+    ) =>
+      request<OpsMemoryView>(`/teams/${teamId}/ops/memory/lessons/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    switchCheck: (teamId: string, id: string, active: boolean) =>
+      request<OpsMemoryView>(`/teams/${teamId}/ops/memory/checks/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active }),
+      }),
+    writeSheet: (teamId: string, input: { subject: string; body: string }) =>
+      request<OpsMemoryView>(`/teams/${teamId}/ops/memory/sheets`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+  },
   pipelines: {
     list: (teamId: string) =>
       request<{ pipelines: PipelineSummary[] }>(`/teams/${teamId}/pipelines`),
@@ -677,6 +820,9 @@ export const api = {
   updateSettings: (changes: UpdateSettingsInput) =>
     request<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify(changes) }),
 
+  /** Settings → Email: signs in to the mail server and sends the admin a test message. */
+  testMail: () => request<{ ok: true; to: string }>("/settings/mail/test", { method: "POST" }),
+
   /** Instance administrator only. Takes effect on the agent's next restart. */
   uploadSkill: (input: UploadSkillInput) =>
     request<{ skill: { name: string; description: string; fileCount: number } }>("/skills", {
@@ -986,3 +1132,53 @@ export const api = {
   attachmentUrl: (projectId: string, attachmentId: string) =>
     `/api/projects/${projectId}/attachments/${attachmentId}`,
 };
+
+export interface OpsEnvironmentTrust {
+  id: string;
+  name: string;
+  protected: boolean;
+  frozen: boolean;
+  trust: OpsTrust;
+}
+
+export interface OpsMemoryView {
+  sheets: {
+    id: string;
+    subject: string;
+    body: string;
+    version: number;
+    updatedBy: string;
+    updatedAt: string;
+  }[];
+  wishes: {
+    id: string;
+    text: string;
+    scope: string;
+    source: string;
+    active: boolean;
+    createdAt: string;
+  }[];
+  lessons: {
+    id: string;
+    what: string;
+    why: string;
+    rule: string;
+    scope: string;
+    strength: string;
+    source: string;
+    evidence: string | null;
+    status: string;
+    retiredReason: string | null;
+    lastMatchedAt: string | null;
+    createdAt: string;
+  }[];
+  guards: {
+    id: string;
+    kind: string;
+    words: string;
+    scope: string;
+    lessonId: string | null;
+    active: boolean;
+    createdBy: string;
+  }[];
+}

@@ -28,6 +28,7 @@ import { ACCESS_PREFIX, type AgentOAuthService } from "./agent-oauth.js";
 import type { AgentReferenceStore } from "./agent-references.js";
 import type { DeployService } from "./deploy.js";
 import type { ImageGenerationService } from "./image-generation.js";
+import type { OpsService } from "./ops/service.js";
 import type { PipelineService } from "./pipelines/service.js";
 import type { PipelineTriggerService } from "./pipelines/triggers.js";
 import type { ProjectService } from "./projects.js";
@@ -91,6 +92,9 @@ export class AgentService {
 
   /** Connectors signing in as agents with OAuth; set in app.ts. */
   oauth?: AgentOAuthService;
+
+  /** Ops's actions, for an outside agent's approved DevOps requests; set in app.ts. */
+  ops?: OpsService;
 
   /** Connectors signed in as this agent (Claude.ai, ChatGPT). */
   async connections(user: User, teamId: string, agentId: string) {
@@ -661,6 +665,18 @@ export class AgentService {
         },
       );
       return `Video ${video.id} is being generated. When it is ready the agent can place it with place_media, or see it with studio_view.`;
+    }
+    if (proposal.actionType === "ops.action") {
+      if (!this.ops) throw ZelyqError.badRequest("Ops is not available on this server.");
+      const { outcome, proof } = await this.ops.performFor(
+        user,
+        proposal.teamId,
+        String(payload.action ?? ""),
+        payload.inputs,
+        { changesAllowed: true },
+      );
+      if (!outcome.ok) throw ZelyqError.badRequest(outcome.summary);
+      return `${outcome.summary}${proof ? ` Checked: ${proof.ok ? "it worked" : "it did NOT work"} (${proof.detail ?? proof.target}).` : " Not checked."}`;
     }
     if (proposal.actionType === "pipeline.delete") {
       await this.pipelines.remove(user, proposal.teamId, pipelineId);

@@ -39,6 +39,13 @@ export class AccountService {
 
     const target = await this.store.users.findById(targetId);
     if (!target) throw ZelyqError.notFound("User", targetId);
+    // A team's Ops engineer is not a person's account: deleting it would take the team with it.
+    if (await this.store.users.isService(target.id)) {
+      throw new ZelyqError(
+        "conflict",
+        "This is a team's Ops engineer, not a person. Switch Ops off on the team's Ops page instead.",
+      );
+    }
 
     if (target.instanceRole === "admin" && (await this.store.users.countAdmins()) <= 1) {
       throw new ZelyqError(

@@ -11,6 +11,18 @@ import * as sqlite from "../src/schema/sqlite.js";
  * whichever dialect you do not run locally.
  */
 const TABLES = [
+  "opsSheets",
+  "opsSheetVersions",
+  "opsPreferences",
+  "opsLessons",
+  "opsGuards",
+  "opsEngineers",
+  "opsJobs",
+  "opsPlanSteps",
+  "opsProofs",
+  "opsAttempts",
+  "opsMessages",
+  "opsRunGrants",
   "videoAccounts",
   "videoFrameSets",
   "videoReferences",

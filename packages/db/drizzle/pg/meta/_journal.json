@@ -295,6 +295,55 @@
       "when": 1794571133267,
       "tag": "0041_runner_capacity",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794579046466,
+      "tag": "0042_ops_foundations",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794580257667,
+      "tag": "0043_deploy_options",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794585441888,
+      "tag": "0044_ops_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794593391861,
+      "tag": "0045_attempt_failures",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794611082780,
+      "tag": "0046_job_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794642915063,
+      "tag": "0047_ops_watch",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794658831071,
+      "tag": "0048_ops_channels",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,7 @@ key can change every app it is given.
 | Generate images / video | Off, Allowed / Off, Needs approval | Studio, on the agent's own provider key |
 | Bring its own media | Off, Allowed | Images and videos it made itself, by link or file |
 | Vault names | Off, Allowed | Which secrets an app gets — never their values |
+| DevOps (Ops's actions) | Off, Needs approval | Work as the team's DevOps engineer: look at machines, environments, apps and pipelines freely; every change (an environment, a pipeline, a run, a roll back) is a request a person approves. Off by default |
 
 The key (`zlq_agent_…`) is shown once. Replace or revoke it at any time.
 
@@ -56,6 +57,21 @@ agent, with its apps, permissions and approvals.
 - Discovery is at `/.well-known/oauth-protected-resource` and
   `/.well-known/oauth-authorization-server`; the gateway's 401 points to the first. Behind a proxy,
   set `ZELYQ_PUBLIC_URL` (or `ZELYQ_TRUST_PROXY=true`) so the addresses are your public https ones.
+
+## Working as the DevOps engineer
+
+With **DevOps** set to Needs approval, the agent gets Ops's own actions as tools (`ops_survey_app`,
+`ops_create_environment`, `ops_run_pipeline`, `ops_rollback`, `ops_check_dns`, …) and
+`devops_guide`, which explains how a job goes: look first, plan, get approval, act one step at a
+time, prove each result, say what changed. Ask the agent to call `devops_guide` before anything else.
+
+- Looking (an app, the machines, what is live, DNS, a certificate) happens at once.
+- Every change becomes a request. When a person approves it, it is done as that person, and Zelyq
+  checks the result itself: the request says *Checked: it worked*, or that it did not.
+- Pipelines it writes from Zelyq's building blocks are ordinary requests; a pipeline with a command
+  of its own shows that command, word for word, in the request.
+- Ops's own limits (how much it may do alone, protection, freeze, spending) are never among its
+  tools.
 
 ## Approvals
 
