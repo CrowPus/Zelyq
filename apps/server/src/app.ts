@@ -23,6 +23,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerGuideRoutes } from "./routes/guide.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
+import { registerOpsRoutes } from "./routes/ops.js";
 import { registerPipelineRoutes } from "./routes/pipelines.js";
 import { registerPluginRegistryRoutes } from "./routes/plugin-registry.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
@@ -58,6 +59,15 @@ import { ImageAssetStore } from "./services/image-assets.js";
 import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
+import { MailService } from "./services/mail.js";
+import { ActionList } from "./services/ops/actions.js";
+import { OpsBrain } from "./services/ops/brain.js";
+import { OPS_ACTIONS } from "./services/ops/catalogue.js";
+import { ChannelService } from "./services/ops/channels.js";
+import { OpsMailer } from "./services/ops/mailer.js";
+import { OpsService } from "./services/ops/service.js";
+import { OpsVoice } from "./services/ops/voice.js";
+import { CheckService } from "./services/ops/watch/checks.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
 import { PipelinePluginService } from "./services/pipelines/plugins.js";
@@ -95,6 +105,13 @@ export interface ZelyqServer {
   app: FastifyInstance;
   store: Store;
   runtime: RuntimeDriver;
+  /** Ops, the team's DevOps engineer: exposed so tests can act as the engineer does. */
+  ops: OpsService;
+  /** Talking to Ops live: exposed so tests can drive a conversation. */
+  opsVoice: OpsVoice;
+  /** The watch (Phase 2): exposed so tests can run its ticks. */
+  watch: CheckService;
+  opsChannels: ChannelService;
   /** The agent's image capability channel. Exposed so tests can mint a grant
    *  the way the websocket gateway does. */
   imageBridge: ImageBridge;
@@ -218,6 +235,24 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       error: (object, message) => app.log.error(object, message),
     },
   );
+  // Ops, the team's DevOps engineer: one list of actions, one gate in front of it.
+  const ops = new OpsService(store, access, new ActionList(OPS_ACTIONS), {
+    deploys,
+    pipelines,
+    triggers: pipelineTriggers,
+    runners,
+    vault,
+    runtime,
+  });
+  // Email (Settings → Email) and the messages Ops sends a person who walked away.
+  const mail = new MailService(settings);
+  const opsMailer = new OpsMailer(store, mail, config.publicUrl);
+  ops.events = (event) => opsMailer.handle(event);
+  const watch = new CheckService(store, runners);
+  watch.events = (event) => opsMailer.handleWatch(event);
+  // Telegram, Slack and Discord: each person's own chats, and the team's shared place.
+  const opsChannels = new ChannelService(store, secrets);
+  opsMailer.channels = opsChannels;
   // Settings credentials may point at the instance Vault or a team's, and each
   // Vault shows which Settings fields use its secrets.
   settings.vaultLookup = async ({ name, scope }) =>
@@ -351,7 +386,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
 
   registerAuthRoutes(app, { auth, sessionTtlDays: () => settings.numberValue("sessionTtlDays") });
   registerAccountRoutes(app, { accounts, auth, access });
-  registerSettingsRoutes(app, { settings, access, store });
+  registerSettingsRoutes(app, { settings, access, store, mail });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerTeamRoutes(app, { store, access });
@@ -418,6 +453,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     pipelineGuide: readPipelineGuide(),
     runtime,
     agents,
+    ops,
     projects,
     variables,
     startPreview: async (projectId, restart) => {
@@ -433,6 +469,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   const agentOAuth = new AgentOAuthService(store);
   agents.oauth = agentOAuth;
+  agents.ops = ops;
   registerAgentRoutes(app, {
     agents,
     gateway: agentGateway,
@@ -446,6 +483,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   registerVaultKeyRoutes(app, { keys: vaultKeys, access });
   registerDeployRoutes(app, { access, deploys });
+  const opsBrain = new OpsBrain(ops, settings, agent, config.serverInternalUrl);
+  const opsVoice = new OpsVoice(ops, opsBrain, settings);
+  registerOpsRoutes(app, { access, ops, brain: opsBrain, watch, channels: opsChannels });
   // Zelyq's own plugins, signed: installed only if the signature verifies.
   const pluginRegistry = new PluginRegistryClient(store, settings, access, pipelinePlugins, {
     trustedKeys: process.env.ZELYQ_PLUGIN_REGISTRY_KEYS
@@ -518,8 +558,17 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
+    // The watch: checks on a timer for every team with Ops (no model, whatever the spending cap).
+    // Not under the test runner: tests run its ticks themselves, at the times they choose.
+    if (!process.env.NODE_TEST_CONTEXT || process.env.ZELYQ_WATCH === "1") {
+      watch.start();
+      opsChannels.start();
+    }
   });
   app.addHook("onClose", async () => {
+    watch.stop();
+    opsChannels.stop();
+    opsMailer.close();
     await images.close();
     await videos.close();
     pipelineTriggers.stop();
@@ -552,7 +601,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // Pipelines starting other pipelines: a `pipeline` step, and "after another pipeline" triggers.
   pipelineEngine.hooks = {
     startChild: (parent, name, inputs) => pipelines.startChild(parent, name, inputs),
-    runFinished: (run) => pipelineTriggers.runFinished(run),
+    runFinished: async (run) => {
+      // The watch hears every finished run: a deploying pipeline that failed is an alert.
+      await watch
+        .runFinished(run.teamId, run.pipelineId, run.status, `#${run.number}`)
+        .catch(() => undefined);
+      return pipelineTriggers.runFinished(run);
+    },
+    preApproved: (run, environmentId) => ops.preApproved(run, environmentId),
   };
 
   gateway.appChanged = async (projectId) => {
@@ -567,6 +623,44 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       .catch(() => undefined);
     if (project) await pipelineTriggers.appChanged(project);
   };
+
+  // Talking to Ops live: the microphone streams here and on to Gemini Live (services/ops/voice.ts).
+  app.get<{ Params: { teamId: string }; Querystring: { job?: string } }>(
+    "/ws/ops/:teamId",
+    { websocket: true },
+    (socket, request) => {
+      const user = request.zelyqUser;
+      if (!user) {
+        socket.close(4401, "Not signed in");
+        return;
+      }
+      // Only Zelyq's own page may open this with the person's session, never another site.
+      const origin = request.headers.origin;
+      let sameSite = false;
+      try {
+        sameSite = Boolean(origin) && new URL(origin as string).host === request.headers.host;
+      } catch {
+        sameSite = false;
+      }
+      if (!sameSite) {
+        socket.close(4403, "Not from Zelyq");
+        return;
+      }
+      const { teamId } = request.params;
+      void (async () => {
+        await access.requireTeamRole(user, teamId, "editor");
+        if (await store.users.isService(user.id)) throw new Error("Ops does not talk to itself.");
+        await opsVoice.relay(socket as never, user, teamId, request.query.job ?? null);
+      })().catch((error) => {
+        try {
+          socket.send(JSON.stringify({ type: "error", message: (error as Error).message }));
+        } catch {
+          // closed already
+        }
+        socket.close(1011, "error");
+      });
+    },
+  );
 
   app.get<{ Params: { id: string } }>(
     "/ws/projects/:id",
@@ -606,6 +700,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     pipelineTriggers,
     pipelineEngine,
     pipelines,
+    ops,
+    opsVoice,
+    watch,
+    opsChannels,
     store,
     runtime,
     /** Read at startup to warn when an exposed instance also accepts signups. */

@@ -13,6 +13,7 @@ import { capturePage } from "@zelyq/tools";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { AgentConfig } from "./config.js";
+import { opsTurnSchema, runOpsTurn } from "./ops-turn.js";
 import {
   apiKeyFromEnv,
   baseUrlFor,
@@ -161,6 +162,24 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       ...(provider.models ? { models: provider.models } : {}),
     })),
   }));
+
+  /** One turn of Ops, the DevOps engineer: the model only; tools run on the Zelyq server. */
+  // A turn can last longer than an HTTP client waits for an answer to start (Node's fetch gives
+  // up after five minutes), so the answer starts at once, a space is sent every 20 seconds, and
+  // the result (or the error) comes at the end. Leading spaces are valid JSON.
+  app.post("/ops-turns", async (request, reply) => {
+    const input = opsTurnSchema.parse(request.body);
+    reply.hijack();
+    reply.raw.writeHead(200, { "content-type": "application/json" });
+    const alive = setInterval(() => reply.raw.write(" "), 20_000);
+    try {
+      reply.raw.end(JSON.stringify(await runOpsTurn(input)));
+    } catch (error) {
+      reply.raw.end(JSON.stringify({ error: { message: (error as Error).message } }));
+    } finally {
+      clearInterval(alive);
+    }
+  });
 
   app.post("/sessions", async (request, reply) => {
     const input = createAgentSessionSchema.parse(request.body);

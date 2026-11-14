@@ -15,6 +15,7 @@ import {
   GitBranch,
   Hand,
   RotateCw,
+  ScrollText,
   Search,
   Server,
   Square,
@@ -26,7 +27,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { QueueNotice } from "../components/pipelines/QueueNotice";
 import { StageGraph, StatusIcon } from "../components/pipelines/Stages";
-import { Badge, Button, EmptyState, Input, Spinner } from "../components/ui";
+import { Badge, Button, buttonClass, EmptyState, Input, Spinner } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { duration, formatBytes, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
@@ -127,6 +128,8 @@ export function PipelineRunPage() {
     null;
   const selected = picked ?? automatic;
   const [query, setQuery] = useState("");
+  // The stages one by one, or the whole log in order, on the page (no download needed).
+  const [view, setView] = useState<"stages" | "full">("stages");
   // Where the run went wrong: the first failed step, shown at the top and scrolled to.
   const failure = steps.find((step) => step.status === "failed" || step.status === "timed_out");
   const [focus, setFocus] = useState(0);
@@ -154,6 +157,10 @@ export function PipelineRunPage() {
   const firstStepSeq = lines.find((line) => line.stepId)?.seq ?? Number.POSITIVE_INFINITY;
   const setupLines = runLines.filter((line) => line.seq < firstStepSeq);
   const finishLines = runLines.filter((line) => line.seq > firstStepSeq);
+  // The run's last lines, less what the error above already says.
+  const lastWords = lines
+    .slice(-15)
+    .filter((line) => line.text.trim() && line.text.trim() !== detail.error?.trim());
 
   return (
     <AppShell
@@ -205,8 +212,20 @@ export function PipelineRunPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <a href={`/api/teams/${teamId}/pipeline-runs/${runId}/log.txt`}>
-                <Button icon={<FileDown size={13} />}>Download log</Button>
+              <Button
+                icon={<ScrollText size={13} />}
+                aria-pressed={view === "full"}
+                className={view === "full" ? "border-border-strong bg-surface-active" : ""}
+                onClick={() => setView(view === "full" ? "stages" : "full")}
+              >
+                {view === "full" ? "Back to stages" : "Full log"}
+              </Button>
+              <a
+                href={`/api/teams/${teamId}/pipeline-runs/${runId}/log.txt`}
+                className={buttonClass()}
+              >
+                <FileDown size={13} />
+                Download log
               </a>
               {active ? (
                 <Button
@@ -278,6 +297,19 @@ export function PipelineRunPage() {
             </button>
           )}
 
+          {/* Failed, but no step reports it (the machine could not be reached, a stage failed
+              before its steps): the run's own last lines carry the reason. Shown only when they
+              say more than the error above. */}
+          {!failure && ["failed", "timed_out"].includes(detail.status) && lastWords.length > 0 && (
+            <section className="mb-3 overflow-hidden rounded-md border border-danger/40">
+              <p className="flex items-center gap-2 bg-danger-subtle px-3 py-2 text-sm">
+                <StatusIcon status={detail.status} />
+                Where it went wrong: the run's last lines
+              </p>
+              <LogLines lines={lastWords} query="" follow />
+            </section>
+          )}
+
           {/* A run that could not start (no file at that commit) has no steps to show. */}
           {stages.length > 0 && (
             <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
@@ -309,7 +341,16 @@ export function PipelineRunPage() {
 
           <RunTests steps={steps} onShow={(stageIndex) => setPicked(stageIndex)} />
 
-          {stages.length > 0 && (
+          {view === "full" && (
+            <FullLog
+              lines={lines}
+              steps={steps}
+              done={done}
+              failed={["failed", "timed_out"].includes(detail.status)}
+            />
+          )}
+
+          {view === "stages" && stages.length > 0 && (
             <section className="rounded-md border border-border-default">
               <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
                 <h2 className="flex-1 text-sm font-semibold">
@@ -596,6 +637,133 @@ function LogSection({
 
 function matchLine(line: RunLogLine, query: string): boolean {
   return line.text.toLowerCase().includes(query.toLowerCase());
+}
+
+/**
+ * The whole run's log, in order, on the page: a heading where each stage and
+ * step begins, lines numbered from the top, a search, and the end in view when
+ * the run failed (that is where the reason is).
+ */
+function FullLog({
+  lines,
+  steps,
+  done,
+  failed,
+}: {
+  lines: RunLogLine[];
+  steps: RunStep[];
+  done: boolean;
+  failed: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  const stepOf = new Map(steps.map((step) => [step.id, step]));
+  // Line numbers count what is shown in the log, not the heading lines folded into headings.
+  const numbers = new Map<number, number>();
+  {
+    let count = 0;
+    let last: string | null | undefined;
+    for (const line of lines) {
+      const folded =
+        line.stepId !== last &&
+        Boolean(line.stepId) &&
+        line.stream === "system" &&
+        line.text.includes(" › ");
+      last = line.stepId;
+      if (!folded) numbers.set(line.seq, ++count);
+    }
+  }
+  const shown = query ? lines.filter((line) => matchLine(line, query)) : lines;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the end while it grows, or when it failed
+  useEffect(() => {
+    if (box.current && (failed || !done)) box.current.scrollTop = box.current.scrollHeight;
+  }, [lines.length, failed, done]);
+  let previous: string | null | undefined;
+  return (
+    <section className="rounded-md border border-border-default">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
+        <h2 className="flex-1 text-sm font-semibold">
+          Full log <span className="font-normal text-fg-muted">· {lines.length} lines</span>
+        </h2>
+        <div className="relative w-full sm:w-64">
+          <Search
+            size={12}
+            className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-fg-muted"
+          />
+          <Input
+            aria-label="Search the full log"
+            placeholder="Search the full log"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="h-7 pl-6 text-xs"
+          />
+        </div>
+      </div>
+      <div
+        ref={box}
+        className="max-h-[75vh] overflow-auto bg-surface-subtle py-1 font-mono text-2xs leading-[1.6]"
+      >
+        {shown.length === 0 ? (
+          <p className="px-4 py-1 text-fg-muted">
+            {query ? "No matching lines." : done ? "No output." : "Waiting for output…"}
+          </p>
+        ) : (
+          shown.map((line, index) => {
+            const heading =
+              line.stepId !== previous
+                ? line.stepId
+                  ? (() => {
+                      const step = stepOf.get(line.stepId);
+                      return step ? `${step.stage} › ${step.name}` : "Step";
+                    })()
+                  : "Run"
+                : null;
+            previous = line.stepId;
+            const step = line.stepId ? stepOf.get(line.stepId) : undefined;
+            const bad = step?.status === "failed" || step?.status === "timed_out";
+            // The step's own first line ("Build › npm ci") is its heading already: not repeated.
+            const isOwnHeading =
+              Boolean(heading) &&
+              Boolean(line.stepId) &&
+              line.stream === "system" &&
+              line.text.includes(" › ");
+            return (
+              <div key={line.seq}>
+                {heading && (
+                  <p
+                    className={`sticky top-0 mt-1 border-y border-border-default px-3 py-0.5 font-sans text-xs font-medium ${
+                      bad ? "bg-danger-subtle text-danger" : "bg-surface text-fg-secondary"
+                    }`}
+                  >
+                    {heading}
+                    {bad ? " — failed" : ""}
+                  </p>
+                )}
+                {!isOwnHeading && (
+                  <div className="flex hover:bg-surface-hover">
+                    <span className="w-14 shrink-0 pr-3 text-right text-fg-muted select-none">
+                      {numbers.get(line.seq) ?? index + 1}
+                    </span>
+                    <span
+                      className={`min-w-0 flex-1 pr-3 break-all whitespace-pre-wrap ${
+                        line.stream === "system"
+                          ? "font-semibold text-fg-secondary"
+                          : line.stream === "err"
+                            ? "text-warning"
+                            : "text-fg"
+                      }`}
+                    >
+                      {highlight(line.text.replace(ANSI, ""), query) || " "}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
 }
 
 /** A step's log with line numbers; while the step runs it stays scrolled to the end. */

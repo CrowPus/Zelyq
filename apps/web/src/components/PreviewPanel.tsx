@@ -268,7 +268,9 @@ export function PreviewPanel({
             >
               Stop
             </Button>
-          ) : (
+          ) : busy || preview?.status === "crashed" ? (
+            // When the preview is simply stopped, the panel's own "Start preview" is the one
+            // button: two identical buttons on one screen is one too many.
             <Button
               size="sm"
               variant="primary"
@@ -280,7 +282,7 @@ export function PreviewPanel({
             >
               {busy ? "Starting…" : "Start preview"}
             </Button>
-          )}
+          ) : null}
         </div>
       </header>
 

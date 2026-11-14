@@ -7,6 +7,7 @@ import { AppPage } from "./pages/AppPage";
 import { DeploymentsPage } from "./pages/DeploymentsPage";
 import { DocsPage } from "./pages/DocsPage";
 import { ImageStudioPage } from "./pages/ImageStudioPage";
+import { OpsPage } from "./pages/OpsPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { PipelineRunPage } from "./pages/PipelineRunPage";
 import { PipelinesPage } from "./pages/PipelinesPage";
@@ -91,6 +92,7 @@ function Gate() {
       <Route path="/agents" element={<AgentsPage />} />
       <Route path="/pipelines" element={<PipelinesPage />} />
       <Route path="/deployments" element={<DeploymentsPage />} />
+      <Route path="/ops" element={<OpsPage />} />
       <Route path="/deployments/:environmentId/apps/:app" element={<AppPage />} />
       <Route path="/pipelines/:id" element={<PipelinePage />} />
       <Route path="/pipelines/:id/runs/:runId" element={<PipelineRunPage />} />

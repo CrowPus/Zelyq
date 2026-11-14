@@ -224,6 +224,12 @@ export class PipelineEngine {
       inputs: Record<string, string>,
     ) => Promise<PipelineRunRow>;
     runFinished?: (run: PipelineRunRow) => Promise<unknown>;
+    /**
+     * Whether a person already approved this run's deploy to a protected
+     * environment elsewhere: a plan they approved in Ops. Asked before the
+     * engine asks an admin; never makes an unprotected deploy wait.
+     */
+    preApproved?: (run: PipelineRunRow, environmentId: string) => Promise<boolean>;
   } = {};
   private cleaner: NodeJS.Timeout | null = null;
   /** Wakes a run waiting for an approval, by run id. */
@@ -906,7 +912,18 @@ export class PipelineEngine {
           // A protected environment: an admin approves every deploy first.
           if (step.deploy) {
             const environment = await this.deps.deploys.environmentFor(run.teamId, step.deploy.to);
-            if (!("error" in environment) && environment.protected && lane) {
+            const granted =
+              !("error" in environment) &&
+              environment.protected &&
+              this.hooks.preApproved !== undefined &&
+              (await this.hooks.preApproved(run, environment.id).catch(() => false));
+            if (granted) {
+              log.add(
+                row.id,
+                "system",
+                `Deploy to ${step.deploy.to} was approved in an Ops plan; not asking again.`,
+              );
+            } else if (!("error" in environment) && environment.protected && lane) {
               // Waiting for an admin would hold this stage's machine for hours.
               log.add(
                 row.id,

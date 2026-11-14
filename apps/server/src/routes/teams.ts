@@ -75,7 +75,8 @@ export function registerTeamRoutes(
     }
 
     const invitee = await store.users.findByEmail(input.email);
-    if (!invitee) {
+    // A team's Ops engineer is managed on the Ops page, never as a member.
+    if (!invitee || invitee.kind === "service") {
       throw new ZelyqError(
         "not_found",
         `No account for ${input.email}. They need to register first, then you can add them.`,
@@ -105,7 +106,9 @@ export function registerTeamRoutes(
       const input = updateMemberSchema.parse(request.body);
 
       const targetRole = await store.teams.roleOf(teamId, userId);
-      if (!targetRole) throw ZelyqError.notFound("Member", userId);
+      if (!targetRole || (await store.users.isService(userId))) {
+        throw ZelyqError.notFound("Member", userId);
+      }
 
       if (!roleAtLeast(actorRole, input.role)) {
         throw new ZelyqError("forbidden", `You cannot grant a role above your own (${actorRole}).`);
@@ -146,7 +149,9 @@ export function registerTeamRoutes(
       const actorRole = await access.requireTeamRole(user, teamId, isSelf ? "viewer" : "admin");
 
       const targetRole = await store.teams.roleOf(teamId, userId);
-      if (!targetRole) throw ZelyqError.notFound("Member", userId);
+      if (!targetRole || (await store.users.isService(userId))) {
+        throw ZelyqError.notFound("Member", userId);
+      }
 
       if (!isSelf && !roleAtLeast(actorRole, targetRole)) {
         throw new ZelyqError("forbidden", "You cannot remove someone above you.");

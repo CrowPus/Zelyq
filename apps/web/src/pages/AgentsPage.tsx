@@ -89,7 +89,8 @@ export function AgentsPage() {
     <AppShell
       crumbs={[{ label: "Agents" }]}
       actions={
-        canAdmin && !mode ? (
+        // With no agents yet, the empty list's own "New agent" is the one button.
+        canAdmin && !mode && all.length > 0 ? (
           <Button
             variant="primary"
             size="sm"

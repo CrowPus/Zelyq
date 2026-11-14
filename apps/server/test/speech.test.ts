@@ -85,3 +85,23 @@ test("an unsupported configured speech provider fails clearly", async () => {
     /not available/i,
   );
 });
+
+test("no credits left is said as that, not as a rate limit", async () => {
+  const answer = (body: object) =>
+    new SpeechService(async () => new Response(JSON.stringify(body), { status: 429 }));
+  const input = { audio: Buffer.from("x"), mimeType: "audio/webm" };
+  const config = { provider: "openai", model: "whisper-1", apiKey: "sk-test" };
+  await assert.rejects(
+    answer({
+      error: { code: "insufficient_quota", message: "You exceeded your current quota" },
+    }).transcribe(config, input),
+    /no credits left/,
+  );
+  await assert.rejects(
+    answer({ error: { code: "rate_limit_exceeded", message: "Too many requests" } }).transcribe(
+      config,
+      input,
+    ),
+    /rate-limiting/,
+  );
+});

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -11,12 +12,15 @@ import {
   type DeploymentDetail,
   type DeploymentStatus,
   type DeploymentSummary,
+  type DeployOptions,
+  deployOptionsOf,
   type EnvironmentHttps,
   type EnvironmentInput,
   type EnvironmentSummary,
   type EnvironmentUpdate,
   environmentInputSchema,
   environmentUpdateSchema,
+  NO_DEPLOY_OPTIONS,
   newId,
   type PipelineActor,
   type User,
@@ -69,6 +73,9 @@ export interface DeployRequest {
   source: Readable | null;
   /** For a roll back: the deploy whose image to start again. */
   reuse: DeploymentRow | null;
+  /** Kept folders, other processes, the database update, memory, a database. A roll back or a
+   * promote takes the options of the deploy it starts again. */
+  options?: DeployOptions;
   /** For a promote: the tested deploy (in another environment) whose image to ship, and its machine. */
   promote?: { from: DeploymentRow; runner: RunnerRow } | null;
   /** Every line of what happened, masked. */
@@ -155,6 +162,7 @@ export class DeployService {
       protected: input.protected ?? false,
       frozen: false,
       frozenReason: null,
+      opsTrust: "ask",
       variables: JSON.stringify(await this.storeVariables(user, teamId, input.variables ?? {}, {})),
       createdBy: user.id,
       updatedBy: user.id,
@@ -436,6 +444,7 @@ export class DeployService {
         triggeredBy: user.id,
         source: null,
         reuse: target,
+        options: deployOptionsOf(target.options),
       },
       (result) =>
         this.access.recordChange(user, {
@@ -522,6 +531,7 @@ export class DeployService {
         source: null,
         reuse: null,
         promote: { from: source, runner },
+        options: deployOptionsOf(source.options),
       },
       (result) =>
         this.access.recordChange(user, {
@@ -735,6 +745,15 @@ export class DeployService {
       // 0: not published on the machine; reached through the proxy.
       hostPort: proxied ? 0 : request.hostPort,
       healthPath: request.healthPath,
+      options: JSON.stringify(
+        request.options ??
+          (reused
+            ? deployOptionsOf(reused.options)
+            : request.promote
+              ? deployOptionsOf(request.promote.from.options)
+              : NO_DEPLOY_OPTIONS),
+      ),
+      changedDatabase: false,
       error: null,
       log: "",
       createdAt: new Date().toISOString(),
@@ -808,7 +827,24 @@ export class DeployService {
     // The app's variables for this environment, resolved now; masked wherever they appear.
     const variables = await this.resolveVariables(environment);
     if ("error" in variables) return fail(variables.error);
-    const masker = new Masker(Object.values(variables.values));
+    const options = deployOptionsOf(deployment.options);
+    // A database beside the app: its address is one more variable, masked like the rest.
+    let database: { container: string; password: string } | null = null;
+    if (options.database) {
+      if (variables.values.DATABASE_URL) {
+        request.onLine(
+          "system",
+          `DATABASE_URL is set in ${environment.name}'s variables, so that database is used and none is started beside the app.`,
+        );
+      } else {
+        database = await this.appDatabase(environment, app);
+        variables.values.DATABASE_URL = `postgres://app:${database.password}@${database.container}:5432/app`;
+      }
+    }
+    const masker = new Masker([
+      ...Object.values(variables.values),
+      ...(database ? [database.password] : []),
+    ]);
     const out = masker.fork();
     const err = masker.fork();
     const emit = (stream: "out" | "err", chunk: Buffer) => {
@@ -842,6 +878,16 @@ export class DeployService {
       if (host) {
         const problem = await this.startProxy(environment, runner, sh);
         if (problem) return fail(problem);
+      }
+      if (database) {
+        request.onLine(
+          "system",
+          `Starting ${app}'s database on ${runner.name} (its data is kept).`,
+        );
+        const ready = await sh(
+          databaseScript(database.container, database.password, `${environment.name}/${app}`),
+        );
+        if (ready.code !== 0) return fail(`${app}'s database did not start on ${runner.name}.`);
       }
 
       if (request.promote) {
@@ -913,6 +959,62 @@ export class DeployService {
         request.onLine("system", `Rolling back to #${reused.number} (${image}).`);
       }
 
+      // What every container of the app gets: log and memory limits, its kept folders,
+      // and the app's network when a database is beside it.
+      const extras = containerExtras(
+        environment.name,
+        app,
+        options,
+        runner.memoryMb,
+        Boolean(database) && !host,
+      );
+      if (options.volumes.length > 0) {
+        request.onLine(
+          "system",
+          `Kept across versions: ${options.volumes.map((volume) => volume.path).join(", ")}.`,
+        );
+      }
+
+      // The database update runs in the new version before it takes traffic. If it
+      // fails, nothing else happens: the running version keeps serving.
+      if (options.migrate && reused) {
+        const newer = (await this.store.deploy.deployments.listFor(environment.id, app, 50)).filter(
+          (row) => row.number > reused.number && row.changedDatabase,
+        );
+        if (newer.length > 0) {
+          request.onLine(
+            "system",
+            `Note: ${newer.map((row) => `#${row.number}`).join(", ")} changed the database after #${reused.number}. The database update is not undone; check that #${reused.number} works with it.`,
+          );
+        }
+      } else if (options.migrate) {
+        request.onLine("system", `Updating the database: ${options.migrate}`);
+        const env = Object.entries(variables.values);
+        const migrated = await sh(
+          [
+            ...env.map(([k, v]) => `export ${k}=${sq(v)}`),
+            [
+              "docker run --rm",
+              `--name ${sq(`${name}-migrate-${deployment.number}`)}`,
+              ...extras,
+              // Behind the proxy the app lives on its network; without, extras already joined it for the database.
+              ...(host ? [`--network ${NETWORK}`] : []),
+              ...env.map(([k]) => `-e ${k}`),
+              sq(image),
+              "sh -c",
+              sq(options.migrate),
+            ].join(" "),
+          ].join("\n"),
+        );
+        if (migrated.code !== 0) {
+          return fail(
+            "The database update did not work, so the new version was not started. The running version was not touched.",
+          );
+        }
+        await this.store.deploy.deployments.update(deployment.id, { changedDatabase: true });
+        request.onLine("system", "The database is updated.");
+      }
+
       if (host) {
         return await this.switchOver(
           request,
@@ -923,6 +1025,8 @@ export class DeployService {
           sh,
           variables.values,
           fail,
+          extras,
+          options,
         );
       }
 
@@ -939,6 +1043,7 @@ export class DeployService {
           [
             'if ! out=$(docker run -d --name "$n" --restart unless-stopped',
             `-p ${request.hostPort}:${request.port}`,
+            ...extras,
             ...env.map(([k]) => `-e ${k}`),
             `--label zelyq.deployment=${sq(deployment.id)}`,
             sq(image),
@@ -986,6 +1091,16 @@ export class DeployService {
       }
 
       await sh(`docker rm -f ${sq(`${name}-previous`)} >/dev/null 2>&1 || true`);
+      // extras already joined the app's network when a database is beside it.
+      const stopped = await this.startProcesses(
+        request,
+        image,
+        options,
+        extras,
+        variables.values,
+        sh,
+        false,
+      );
       request.onLine(
         "system",
         `${app} #${deployment.number} is live on ${environment.name}${deployment.url ? `: ${deployment.url}` : "."}`,
@@ -993,11 +1108,12 @@ export class DeployService {
       await request.flushLog?.();
       const row = (await this.store.deploy.deployments.update(deployment.id, {
         status: "live",
+        error: stopped,
         finishedAt: new Date().toISOString(),
       })) as DeploymentRow;
       await this.store.deploy.deployments.replaceOthers(environment.id, app, deployment.id);
       await this.pruneImages(environment.id, app, sh);
-      return { ok: true, deployment: row };
+      return { ok: stopped === null, deployment: row };
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1020,6 +1136,8 @@ export class DeployService {
     sh: (script: string) => Promise<{ code: number | null }>,
     values: Record<string, string>,
     fail: (error: string) => Promise<{ ok: boolean; deployment: DeploymentRow }>,
+    extras: string[],
+    options: DeployOptions,
   ): Promise<{ ok: boolean; deployment: DeploymentRow }> {
     const { environment, app } = request;
     const settings = proxiedOf(environment);
@@ -1041,6 +1159,7 @@ export class DeployService {
         [
           'docker run -d --name "$c" --restart unless-stopped',
           `--network ${NETWORK}`,
+          ...extras,
           ...env.map(([k]) => `-e ${k}`),
           `--label zelyq.app=${sq(app)}`,
           `--label zelyq.environment=${sq(environment.name)}`,
@@ -1105,6 +1224,7 @@ export class DeployService {
     );
     await this.store.deploy.deployments.replaceOthers(environment.id, app, deployment.id);
     await this.pruneImages(environment.id, app, sh);
+    const stopped = await this.startProcesses(request, image, options, extras, values, sh, true);
 
     // Running is not the same as reachable: open the address the way a visitor
     // would, and say plainly what stops it (DNS, a firewall, the certificate).
@@ -1122,10 +1242,99 @@ export class DeployService {
     await request.flushLog?.();
     const row = (await this.store.deploy.deployments.update(deployment.id, {
       status: "live",
-      error: problem,
+      error: [problem, stopped].filter(Boolean).join(" ") || null,
       finishedAt: new Date().toISOString(),
     })) as DeploymentRow;
-    return { ok: true, deployment: row };
+    return { ok: stopped === null, deployment: row };
+  }
+
+  /**
+   * The app's other processes (a worker, a scheduler), from the same image,
+   * started once the web one is live. Each replaces the one before it. A
+   * process that does not stay up is said plainly; the web version stays live.
+   * Returns that problem, or null.
+   */
+  private async startProcesses(
+    request: DeployRequest,
+    image: string,
+    options: DeployOptions,
+    extras: string[],
+    values: Record<string, string>,
+    sh: (script: string) => Promise<{ code: number | null }>,
+    onNetwork: boolean,
+  ): Promise<string | null> {
+    const { environment, app } = request;
+    const names = Object.keys(options.processes);
+    if (names.length === 0) return null;
+    const env = Object.entries(values);
+    const failed: string[] = [];
+    for (const name of names) {
+      const container = `zelyq-${app}-${environment.name}-${name}`;
+      request.onLine("system", `Starting ${name}: ${options.processes[name]}`);
+      const started = await sh(
+        [
+          `c=${sq(container)}`,
+          'docker rm -f "$c" >/dev/null 2>&1 || true',
+          ...env.map(([k, v]) => `export ${k}=${sq(v)}`),
+          [
+            'docker run -d --name "$c" --restart unless-stopped',
+            ...extras,
+            ...(onNetwork ? [`--network ${NETWORK}`] : []),
+            ...env.map(([k]) => `-e ${k}`),
+            `--label zelyq.app=${sq(app)}`,
+            `--label zelyq.environment=${sq(environment.name)}`,
+            `--label zelyq.process=${sq(name)}`,
+            sq(image),
+            "sh -c",
+            sq(options.processes[name] as string),
+            ">/dev/null",
+          ].join(" "),
+          // Still running a few seconds later, and not restarting over and over.
+          "sleep 5",
+          '[ "$(docker inspect -f \'{{.State.Running}} {{.RestartCount}}\' "$c")" = "true 0" ]',
+        ].join("\n"),
+      );
+      if (started.code !== 0) {
+        await sh(`docker logs --tail 30 ${sq(container)} 2>&1 || true`);
+        failed.push(name);
+      }
+    }
+    return failed.length > 0
+      ? `${failed.join(" and ")} did not stay up (its last lines are above). The web version is live.`
+      : null;
+  }
+
+  /** The app's own database: its container, and a password made once and kept encrypted. */
+  private async appDatabase(
+    environment: DeployEnvironmentRow,
+    app: string,
+  ): Promise<{ container: string; password: string }> {
+    const container = `zelyq-db-${environment.name}-${app}`;
+    const own = await this.store.deploy.apps.find(environment.id, app);
+    if (own?.database) {
+      const stored = this.box.decrypt(own.database);
+      const password = stored ? (JSON.parse(stored) as { password?: string }).password : undefined;
+      if (password) return { container, password };
+    }
+    const password = randomBytes(24).toString("hex");
+    if (!own) {
+      await this.store.deploy.apps.save({
+        id: newId("deployApp"),
+        environmentId: environment.id,
+        app,
+        domain: null,
+        www: false,
+        database: null,
+        updatedBy: null,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await this.store.deploy.apps.setDatabase(
+      environment.id,
+      app,
+      this.box.encrypt(JSON.stringify({ kind: "postgres", password })),
+    );
+    return { container, password };
   }
 
   /**
@@ -1313,6 +1522,7 @@ export class DeployService {
       app,
       domain,
       www,
+      database: before?.database ?? null,
       updatedBy: user.id,
       updatedAt: new Date().toISOString(),
     });
@@ -2242,4 +2452,71 @@ async function behindProblem(
     return `Ports 80 and 443 on ${address} do not answer: a firewall blocks them. Open them on ${machine}, in its own firewall and the cloud's.`;
   }
   return `Nothing answers on ports 80 and 443 on ${address}. Is your web server (nginx, Apache) running on ${machine}?`;
+}
+
+/**
+ * What every container of an app gets: logs that cannot fill the disk, a
+ * memory limit (the step's, or three quarters of the machine), its kept
+ * folders, and the app's network when a database is beside it.
+ */
+export function containerExtras(
+  environment: string,
+  app: string,
+  options: DeployOptions,
+  machineMemoryMb: number | null,
+  network: boolean,
+): string[] {
+  const memory =
+    options.memory ??
+    (machineMemoryMb ? `${Math.max(256, Math.floor(machineMemoryMb * 0.75))}m` : null);
+  return [
+    "--log-opt max-size=10m",
+    "--log-opt max-file=3",
+    ...(memory ? [`--memory ${memory}`] : []),
+    ...options.volumes.map(
+      (volume) => `-v ${sq(`${keptFolder(environment, app, volume.name)}:${volume.path}`)}`,
+    ),
+    ...(network ? [`--network ${NETWORK}`] : []),
+  ];
+}
+
+/** The machine's name for an app's kept folder: the same on every version. */
+export function keptFolder(environment: string, app: string, name: string): string {
+  return `zelyq-${environment}-${app}-${name}`;
+}
+
+/**
+ * Starts the app's Postgres once, on the app's network, with its data kept in
+ * a volume of its own, and waits until it answers over TCP (the image's
+ * first-run server listens on a socket only, so it is not mistaken for ready).
+ * Not labelled as part of the app: replacing a version never touches it.
+ */
+export function databaseScript(container: string, password: string, owner: string): string {
+  return [
+    "set -e",
+    `docker network inspect ${NETWORK} >/dev/null 2>&1 || docker network create ${NETWORK} >/dev/null`,
+    `c=${sq(container)}`,
+    'if ! docker container inspect "$c" >/dev/null 2>&1; then',
+    `  export POSTGRES_PASSWORD=${sq(password)}`,
+    [
+      '  docker run -d --name "$c" --restart unless-stopped',
+      `--network ${NETWORK}`,
+      "-e POSTGRES_USER=app -e POSTGRES_PASSWORD -e POSTGRES_DB=app",
+      '-v "$c-data:/var/lib/postgresql/data"',
+      "--log-opt max-size=10m --log-opt max-file=3",
+      `--label zelyq.database=${sq(owner)}`,
+      "postgres:16-alpine >/dev/null",
+    ].join(" "),
+    "else",
+    '  docker start "$c" >/dev/null 2>&1 || true',
+    `  docker network connect ${NETWORK} "$c" >/dev/null 2>&1 || true`,
+    "fi",
+    "i=0",
+    'until docker exec "$c" pg_isready -h 127.0.0.1 -U app -d app >/dev/null 2>&1; do',
+    "  i=$((i+1))",
+    '  [ "$i" -ge 90 ] && { echo "The database did not start in 90 seconds." >&2; exit 1; }',
+    "  sleep 1",
+    "done",
+    "",
+  ].join("\n");
 }

@@ -5,6 +5,7 @@ import {
   type AgentPermission,
   type AgentPermissionLevel,
   agentPermissionNames,
+  DEVOPS_AGENT_PRESET,
   defaultAgentPermissions,
   type Project,
 } from "@zelyq/core";
@@ -100,6 +101,27 @@ export function AgentForm({
       onSubmit={submit}
       className="mb-5 grid gap-4 rounded-lg border border-border-default bg-surface p-4"
     >
+      {!initial && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md bg-surface-subtle px-3 py-2 text-xs text-fg-muted">
+          <span>Start from:</span>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setName(DEVOPS_AGENT_PRESET.name);
+              setJob(DEVOPS_AGENT_PRESET.job);
+              setPermissions({ ...DEVOPS_AGENT_PRESET.permissions });
+            }}
+          >
+            DevOps engineer
+          </Button>
+          <span>
+            Sees apps, pipelines and environments; every change it makes waits for you; it follows
+            Ops's playbooks and never changes app code.
+          </span>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-[1fr_2fr]">
         <label htmlFor={nameId} className="grid gap-1">
           <FieldLabel>Name</FieldLabel>

@@ -45,10 +45,14 @@ import {
   type ZelyqTool,
 } from "@zelyq/tools";
 import sharp from "sharp";
+import { z } from "zod";
 import type { AgentReferenceStore } from "./agent-references.js";
 import type { AgentContext, AgentService } from "./agents.js";
 import type { DeployService } from "./deploy.js";
 import type { ImageGenerationService } from "./image-generation.js";
+import { riskOf } from "./ops/actions.js";
+import { devopsGuide } from "./ops/guide.js";
+import type { OpsService } from "./ops/service.js";
 import type { PipelineService } from "./pipelines/service.js";
 import type { ProjectVariableService } from "./project-variables.js";
 import type { ProjectService } from "./projects.js";
@@ -118,6 +122,8 @@ export interface AgentGatewayDeps {
   variables: ProjectVariableService;
   /** Starts the preview the way the editor does: inspector script, Vault variables, backend. */
   startPreview(projectId: string, restart: boolean): Promise<Preview>;
+  /** Ops's actions and gate: outside agents working as the DevOps engineer. */
+  ops: OpsService;
   /** Tells anyone with the app open that files changed, so their editor refreshes. */
   filesChanged(projectId: string, paths: string[]): void;
 }
@@ -136,7 +142,7 @@ export class AgentGateway {
   private readonly lastUndoPoint = new Map<string, number>();
 
   constructor(private readonly deps: AgentGatewayDeps) {
-    this.tools = [...this.ownTools(), ...this.lentTools()];
+    this.tools = [...this.ownTools(), ...this.lentTools(), ...this.opsTools()];
   }
 
   /** An MCP server for this one request, showing this agent's tools only. */
@@ -1605,6 +1611,164 @@ export class AgentGateway {
     ];
   }
 
+  // ------------------------------------------------------------ Ops's actions
+
+  /**
+   * Ops's actions as tools (ops_<name>), so an outside agent can work as the
+   * team's DevOps engineer with the same hands. Looking runs at once, as the
+   * person the agent works for; every change becomes a request a person
+   * approves; Ops's own limits are never offered. Environments outside the
+   * agent's list are refused.
+   */
+  private opsTools(): GatewayTool[] {
+    const actions = this.deps.ops.actionList;
+    const guide: GatewayTool = {
+      name: "devops_guide",
+      description:
+        "How to work as the team's DevOps engineer here: the steps every job follows, the habits, every ops_ action, and how to write pipelines from blocks. Read it first.",
+      permission: "ops",
+      inputSchema: obj({}, []),
+      run: async () => ({ content: [{ type: "text", text: devopsGuide(actions) }] }),
+    };
+    const tools = actions.all().map((action): GatewayTool => {
+      const schema = z.toJSONSchema(action.input as z.ZodType, { io: "input" }) as Record<
+        string,
+        unknown
+      >;
+      const properties = (schema.properties as Record<string, unknown> | undefined) ?? {};
+      return {
+        name: `ops_${action.name}`,
+        description: action.description,
+        permission: "ops",
+        inputSchema: {
+          type: "object",
+          properties: {
+            ...properties,
+            reason: {
+              type: "string",
+              description: "For a change: why, for the person approving it.",
+            },
+          },
+          required: (schema.required as string[] | undefined) ?? [],
+        },
+        run: async (context, args) => {
+          this.deps.agents.requirePermission(context, "ops");
+          const { reason, ...rawInputs } = args;
+          const parsed = action.input.safeParse(rawInputs);
+          if (!parsed.success) {
+            return failure(
+              `Inputs: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "(inputs)"} ${issue.message}`).join("; ")}`,
+            );
+          }
+          const inputs = parsed.data as Record<string, unknown>;
+          const risk = riskOf(action, inputs);
+          if (risk === "own-limits") {
+            return failure("Only a person changes Ops's own limits, on the Ops page.");
+          }
+          const user = await this.deps.agents.actingUser(context);
+          if (action.environment && context.environmentIds) {
+            const environment = await action.environment(
+              {
+                teamId: context.agent.teamId,
+                user,
+                jobId: null,
+                services: { store: this.deps.store } as never,
+                approval: null,
+                grantRun: async () => undefined,
+                say: async () => undefined,
+              },
+              inputs,
+            );
+            if (environment && !context.environmentIds.includes(environment.id)) {
+              return failure(`${environment.name} is not one of this agent's environments.`);
+            }
+          }
+          // An agent kept to some environments sees and names only those, in every action.
+          const scope = context.environmentIds
+            ? await this.agentScope(context.agent.teamId, context.environmentIds)
+            : null;
+          if (scope) {
+            const subject = typeof inputs.subject === "string" ? inputs.subject : "";
+            const named = [
+              inputs.environment,
+              inputs.environments,
+              inputs.from,
+              inputs.to,
+              subject.startsWith("environment:") ? subject.slice("environment:".length) : null,
+            ]
+              .flat()
+              .filter((value): value is string => typeof value === "string");
+            const outside = named.find((name) => !scope.environments.has(name));
+            if (outside) return failure(`${outside} is not one of this agent's environments.`);
+            const machine =
+              typeof inputs.machine === "string"
+                ? inputs.machine
+                : subject.startsWith("machine:")
+                  ? subject.slice("machine:".length)
+                  : null;
+            if (machine !== null && !scope.machines.has(machine)) {
+              return failure(`${machine} is not a machine of this agent's environments.`);
+            }
+            // What Ops remembers spans every environment: a kept agent reads only notes about its own.
+            if (["recall", "journal"].includes(action.name)) {
+              return failure(
+                "This agent is kept to some environments; Ops's memory and journal cover all of them.",
+              );
+            }
+            if (
+              action.name === "read_sheet" &&
+              !subject.startsWith("environment:") &&
+              !subject.startsWith("machine:")
+            ) {
+              return failure(
+                "This agent is kept to some environments: it reads only the notes about those environments and their machines.",
+              );
+            }
+          }
+          if (risk === "read") {
+            const { outcome } = await this.deps.ops.performFor(
+              user,
+              context.agent.teamId,
+              action.name,
+              inputs,
+              { changesAllowed: false },
+            );
+            if (!outcome.ok) return failure(outcome.summary);
+            return json({
+              summary: outcome.summary,
+              data: scope ? onlyEnvironments(outcome.data ?? null, scope) : (outcome.data ?? null),
+            });
+          }
+          return this.ask(context, {
+            actionType: "ops.action",
+            projectId: null,
+            title: action.words(inputs),
+            reason,
+            payload: { action: action.name, inputs },
+          });
+        },
+      };
+    });
+    return [guide, ...tools];
+  }
+
+  /** The environments an agent is kept to, by name, and the machines they run on. */
+  private async agentScope(
+    teamId: string,
+    environmentIds: string[],
+  ): Promise<{ environments: Set<string>; machines: Set<string> }> {
+    const rows = (await this.deps.store.deploy.environments.listForTeam(teamId)).filter((row) =>
+      environmentIds.includes(row.id),
+    );
+    const machines = new Set<string>();
+    for (const row of rows) {
+      if (!row.runnerId) continue;
+      const runner = await this.deps.store.pipelines.runners.findById(row.runnerId);
+      if (runner) machines.add(runner.name);
+    }
+    return { environments: new Set(rows.map((row) => row.name)), machines };
+  }
+
   /** Checks a file before asking anyone to approve it; the problem, or null. */
   private async invalid(context: AgentContext, source: string): Promise<CallToolResult | null> {
     const user = await this.deps.agents.actingUser(context);
@@ -1721,4 +1885,30 @@ function toMcp(result: ToolResult): CallToolResult {
     ],
     ...(result.isError ? { isError: true } : {}),
   };
+}
+
+/**
+ * A look across environments, cut to what an agent is kept to: entries that
+ * name another environment (`environment`, an environment's own `name`, a
+ * sheet about one) or another machine are left out.
+ */
+export function onlyEnvironments(
+  data: unknown,
+  scope: { environments: ReadonlySet<string>; machines: ReadonlySet<string> },
+): unknown {
+  if (!Array.isArray(data)) return data;
+  return data.filter((entry) => {
+    if (!entry || typeof entry !== "object") return true;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.environment === "string") return scope.environments.has(record.environment);
+    if (typeof record.name === "string" && "protected" in record) {
+      return scope.environments.has(record.name);
+    }
+    if (typeof record.name === "string" && "cpus" in record) return scope.machines.has(record.name);
+    for (const field of [record.kind, record.subject]) {
+      const about = typeof field === "string" ? /environment:([a-z0-9-]+)/i.exec(field) : null;
+      if (about?.[1]) return scope.environments.has(about[1]);
+    }
+    return true;
+  });
 }
