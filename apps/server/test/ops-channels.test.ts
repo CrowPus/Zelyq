@@ -395,14 +395,26 @@ test("an alert from the watch reaches the linked chat as well as email", async (
 test("asked for it, Ops messages the person in their own chat, and only them", async () => {
   const action = OPS_ACTIONS.find((row) => row.name === "message_me");
   assert.ok(action, "Ops has a way to send a message");
+  const emails: Array<{ to: string[]; subject: string; text: string }> = [];
+  let mailReady = true;
   const ask = (askedBy: string | null, inputs: Record<string, unknown>) =>
     action.run(
       {
         teamId,
         jobId: askedBy ? "opj_test" : null,
         services: {
-          store: { ops: { jobs: { findById: async () => ({ askedBy }) } } },
+          store: {
+            ops: { jobs: { findById: async () => ({ askedBy }) } },
+            users: { findById: (id: string) => store.users.findById(id) },
+          },
           channels,
+          mail: {
+            configured: async () => mailReady,
+            send: async (message: { to: string[]; subject: string; text: string }) => {
+              emails.push(message);
+              return { sent: message.to.length, failed: [] };
+            },
+          },
         },
       } as never,
       action.input.parse(inputs),
@@ -425,6 +437,22 @@ test("asked for it, Ops messages the person in their own chat, and only them", a
   assert.equal(unlinked.ok, false);
   assert.match(unlinked.summary, /Link my Telegram/);
   assert.equal(sent("sendMessage").length, before);
+
+  // "Email me the same": to the address of their own account, nobody else's.
+  const mailed = await ask(viewerId, { message: "crowpus is up.", where: "email" });
+  assert.equal(mailed.ok, true, mailed.summary);
+  assert.deepEqual(emails.at(-1)?.to, ["viewer@example.com"]);
+  assert.match(String(emails.at(-1)?.subject), /^Ops: crowpus is up/);
+  // No chat linked and "any": email instead.
+  const fallback = await ask(viewerId, { message: "the deploy finished." });
+  assert.equal(fallback.ok, true, fallback.summary);
+  assert.match(fallback.summary, /email/);
+  assert.equal(emails.length, 2);
+  // Email not set up: said plainly, with where to set it up.
+  mailReady = false;
+  const unset = await ask(viewerId, { message: "x", where: "email" });
+  assert.equal(unset.ok, false);
+  assert.match(unset.summary, /Settings → Email/);
 
   // Not from a conversation with a person (an outside agent): nobody to send to.
   const nobody = await ask(null, { message: "hello" });
