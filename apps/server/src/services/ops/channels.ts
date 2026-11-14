@@ -216,7 +216,7 @@ export class ChannelService {
     if (targets.length === 0)
       throw new ChannelError(
         kind === "telegram"
-          ? "Link your own Telegram first (Link my Telegram), then test."
+          ? 'Link your own Telegram first: press "Link my Telegram" at the top of the Alerts tab, then test.'
           : "Link your own Slack or set a team channel first, then test.",
       );
     for (const target of targets) {

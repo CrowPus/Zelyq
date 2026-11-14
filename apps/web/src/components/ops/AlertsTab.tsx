@@ -213,6 +213,12 @@ export function AlertsTab({ teamId }: { teamId: string }) {
             kind={kind}
             channel={connected(kind) ?? null}
             canManage={data.canManage}
+            // A test goes to the admin's own linked chat (or Slack's team channel, or Discord's webhook).
+            canTest={
+              kind === "discord" ||
+              me.some((link) => link.kind === kind) ||
+              (kind === "slack" && Boolean(connected(kind)?.teamChat))
+            }
             onDone={keep}
             onSaid={(words) => {
               setError(null);
@@ -467,6 +473,7 @@ function ServiceCard({
   kind,
   channel,
   canManage,
+  canTest,
   onDone,
   onSaid,
   onError,
@@ -475,6 +482,7 @@ function ServiceCard({
   kind: OpsChannelKind;
   channel: OpsChannelView | null;
   canManage: boolean;
+  canTest: boolean;
   onDone: (next: OpsChannelsView) => void;
   onSaid: (words: string) => void;
   onError: (caught: unknown) => void;
@@ -534,14 +542,20 @@ function ServiceCard({
             </span>
             {canManage && (
               <>
-                <Button
-                  size="sm"
-                  icon={<Send size={13} />}
-                  disabled={test.isPending}
-                  onClick={() => test.mutate()}
-                >
-                  Send a test
-                </Button>
+                {canTest ? (
+                  <Button
+                    size="sm"
+                    icon={<Send size={13} />}
+                    disabled={test.isPending}
+                    onClick={() => test.mutate()}
+                  >
+                    Send a test
+                  </Button>
+                ) : (
+                  <span className="text-xs text-fg-muted">
+                    To send a test, first press "Link my {SERVICE[kind]}" at the top of this tab.
+                  </span>
+                )}
                 <Button
                   size="sm"
                   variant="danger"
