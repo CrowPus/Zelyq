@@ -1,8 +1,9 @@
-import { type Role, ZelyqError } from "@zelyq/core";
+import { type Role, roleAtLeast, type User, ZelyqError } from "@zelyq/core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { OpsBrain } from "../services/ops/brain.js";
+import { ChannelError, type ChannelService } from "../services/ops/channels.js";
 import type { OpsService } from "../services/ops/service.js";
 import type { CheckService } from "../services/ops/watch/checks.js";
 
@@ -17,9 +18,15 @@ type Step = { Params: { teamId: string; jobId: string; stepId: string } };
  */
 export function registerOpsRoutes(
   app: FastifyInstance,
-  deps: { access: AccessControl; ops: OpsService; brain: OpsBrain; watch: CheckService },
+  deps: {
+    access: AccessControl;
+    ops: OpsService;
+    brain: OpsBrain;
+    watch: CheckService;
+    channels: ChannelService;
+  },
 ): void {
-  const { access, ops, brain, watch } = deps;
+  const { access, ops, brain, watch, channels } = deps;
 
   // ------------------------------------------------------------- the watch
   type Alert = { Params: { teamId: string; alertId: string } };
@@ -73,6 +80,97 @@ export function registerOpsRoutes(
       return watch.status(request.params.teamId);
     },
   );
+
+  // ------------------------------------------------------------- channels (075 Step 2)
+  type Kind = { Params: { teamId: string; kind: string } };
+  const kindOf = (raw: string) => {
+    const parsed = z.enum(["telegram", "slack", "discord"]).safeParse(raw);
+    if (!parsed.success) throw ZelyqError.notFound("Channel", raw);
+    return parsed.data;
+  };
+  /** A service's own refusal, said to the person as it is (it never holds a token). */
+  const plainly = async <T>(work: Promise<T>): Promise<T> => {
+    try {
+      return await work;
+    } catch (error) {
+      if (error instanceof ChannelError) throw ZelyqError.badRequest(error.message);
+      throw error;
+    }
+  };
+  const channelsView = async (teamId: string, user: User) => {
+    const role = await access.requireTeamRole(user, teamId, "viewer");
+    return channels.view(teamId, user.id, roleAtLeast(role, "admin"));
+  };
+  app.get<Team>("/api/teams/:teamId/ops/channels", async (request) => {
+    const user = await person(request, request.params.teamId, "viewer");
+    return channelsView(request.params.teamId, user);
+  });
+  app.put<Kind>("/api/teams/:teamId/ops/channels/:kind", async (request) => {
+    const user = await person(request, request.params.teamId, "admin");
+    const input = z
+      .object({
+        token: z.string().max(300).optional(),
+        webhook: z.string().max(500).optional(),
+        teamChat: z.string().max(100).nullable().optional(),
+      })
+      .strict()
+      .parse(request.body);
+    await plainly(
+      channels.connect(request.params.teamId, kindOf(request.params.kind), input, user.id),
+    );
+    return channelsView(request.params.teamId, user);
+  });
+  app.delete<Kind>("/api/teams/:teamId/ops/channels/:kind", async (request) => {
+    const user = await person(request, request.params.teamId, "admin");
+    await channels.disconnect(request.params.teamId, kindOf(request.params.kind));
+    return channelsView(request.params.teamId, user);
+  });
+  app.post<Kind>("/api/teams/:teamId/ops/channels/:kind/test", async (request) => {
+    const user = await person(request, request.params.teamId, "admin");
+    const went = await plainly(
+      channels.test(request.params.teamId, kindOf(request.params.kind), user.id),
+    );
+    return { went, ...(await channelsView(request.params.teamId, user)) };
+  });
+  app.post<Kind>("/api/teams/:teamId/ops/channels/:kind/link", async (request) => {
+    const user = await person(request, request.params.teamId, "viewer");
+    return plainly(
+      channels.startLink(request.params.teamId, kindOf(request.params.kind), {
+        id: user.id,
+        email: user.email,
+      }),
+    );
+  });
+  app.post<Team>("/api/teams/:teamId/ops/channels/slack/confirm", async (request) => {
+    const user = await person(request, request.params.teamId, "viewer");
+    const { code } = z
+      .object({ code: z.string().min(4).max(32) })
+      .strict()
+      .parse(request.body);
+    await plainly(channels.confirmLink(request.params.teamId, user.id, code));
+    return channelsView(request.params.teamId, user);
+  });
+  app.delete<{ Params: { teamId: string; linkId: string } }>(
+    "/api/teams/:teamId/ops/channel-links/:linkId",
+    async (request) => {
+      const user = await person(request, request.params.teamId, "viewer");
+      const role = await access.requireTeamRole(user, request.params.teamId, "viewer");
+      await plainly(
+        channels.unlink(
+          request.params.teamId,
+          request.params.linkId,
+          user.id,
+          roleAtLeast(role, "admin"),
+        ),
+      );
+      return channelsView(request.params.teamId, user);
+    },
+  );
+  app.put<Team>("/api/teams/:teamId/ops/notify", async (request) => {
+    const user = await person(request, request.params.teamId, "viewer");
+    await channels.setPrefs(request.params.teamId, user.id, request.body);
+    return channelsView(request.params.teamId, user);
+  });
 
   /** Talk to Ops, typed or said aloud: a new job, or more in one still going. */
   app.post<Team>("/api/teams/:teamId/ops/talk", async (request) => ({

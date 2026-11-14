@@ -29,6 +29,7 @@ import {
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { Markdown } from "../components/Markdown";
+import { AlertsTab } from "../components/ops/AlertsTab";
 import { StatusTab } from "../components/ops/StatusTab";
 import { Badge, Button, EmptyState, Input, Spinner, Textarea } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
@@ -37,7 +38,7 @@ import { useLiveTalk } from "../lib/ops-live";
 import { speak, spokenPart, stopSpeaking } from "../lib/ops-voice";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
-type Tab = "talk" | "status" | "memory" | "settings";
+type Tab = "talk" | "status" | "alerts" | "memory" | "settings";
 
 const STAGE_WORDS: Record<
   string,
@@ -83,7 +84,7 @@ export function OpsPage() {
   // A link to /ops#status (from an alert email) opens that tab.
   const [tab, setTab] = useState<Tab>(() => {
     const wanted = typeof window === "undefined" ? "" : window.location.hash.slice(1);
-    return (["talk", "status", "memory", "settings"] as const).includes(wanted as Tab)
+    return (["talk", "status", "alerts", "memory", "settings"] as const).includes(wanted as Tab)
       ? (wanted as Tab)
       : "talk";
   });
@@ -143,7 +144,7 @@ export function OpsPage() {
           ) : (
             <>
               <nav className="flex gap-1 border-b border-border-default" aria-label="Ops">
-                {(["talk", "status", "memory", "settings"] as const).map((name) => (
+                {(["talk", "status", "alerts", "memory", "settings"] as const).map((name) => (
                   <button
                     key={name}
                     type="button"
@@ -155,9 +156,13 @@ export function OpsPage() {
                     }`}
                   >
                     {
-                      { talk: "Talk", status: "Status", memory: "Memory", settings: "Settings" }[
-                        name
-                      ]
+                      {
+                        talk: "Talk",
+                        status: "Status",
+                        alerts: "Alerts",
+                        memory: "Memory",
+                        settings: "Settings",
+                      }[name]
                     }
                   </button>
                 ))}
@@ -168,6 +173,7 @@ export function OpsPage() {
               {tab === "status" && (
                 <StatusTab teamId={teamId} canAnswer={canTalk} isAdmin={isAdmin} />
               )}
+              {tab === "alerts" && <AlertsTab teamId={teamId} />}
               {tab === "memory" && (
                 <MemoryTab teamId={teamId} isAdmin={isAdmin} canEdit={canTalk} />
               )}

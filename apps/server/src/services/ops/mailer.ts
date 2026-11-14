@@ -1,6 +1,7 @@
 import { type Role, roleAtLeast } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { MailService } from "../mail.js";
+import type { ChannelService, Notice } from "./channels.js";
 import type { OpsEvent } from "./service.js";
 import type { WatchEvent } from "./watch/checks.js";
 
@@ -16,6 +17,8 @@ import type { WatchEvent } from "./watch/checks.js";
 const SHIPPING = new Set(["run_pipeline", "promote", "rollback", "restart_app", "set_app_address"]);
 
 export class OpsMailer {
+  /** Chats beyond email (Telegram, Slack, Discord), each person as they chose. */
+  channels: ChannelService | null = null;
   private readonly timers = new Set<NodeJS.Timeout>();
   /** Each waiting plan and each secret is emailed once. */
   private readonly sent = new Set<string>();
@@ -50,13 +53,8 @@ export class OpsMailer {
   }
 
   private async watchMail(event: WatchEvent): Promise<void> {
-    const emails: string[] = [];
-    for (const userId of event.to) {
-      const user = await this.store.users.findById(userId);
-      if (user?.email) emails.push(user.email);
-    }
-    if (emails.length === 0) return;
     const { alert } = event;
+    const audience = alert.severity === "urgent" ? "urgent" : "warning";
     const status = this.publicUrl
       ? `${this.publicUrl.replace(/\/$/, "")}/ops#status`
       : "Open Zelyq and go to Ops → Status.";
@@ -83,11 +81,36 @@ export class OpsMailer {
             "",
             'Press "I\'m on it" on the Status page so the team knows; silence it there for planned work.',
           ];
-    await this.mail.send({
-      to: emails,
-      subject,
-      text: [...lines, "", `Status: ${status}`].join("\n"),
+    await this.tell(event.teamId, event.to, {
+      audience,
+      title: subject,
+      lines: event.kind === "alert_closed" ? lines : lines.slice(1, -2),
+      link: this.publicUrl ? status : null,
+      teamWide: event.kind !== "alert_escalated",
     });
+    const to = await this.emailsOf(event.teamId, event.to, audience);
+    if (to.length > 0)
+      await this.mail.send({ to, subject, text: [...lines, "", `Status: ${status}`].join("\n") });
+  }
+
+  /** The same news in each person's chats; never holds up the email. */
+  private async tell(teamId: string, userIds: string[], notice: Notice): Promise<void> {
+    await this.channels?.notify(teamId, userIds, notice).catch(() => undefined);
+  }
+
+  /** The addresses of the people who want this kind of news by email. */
+  private async emailsOf(
+    teamId: string,
+    userIds: string[],
+    audience: Notice["audience"],
+  ): Promise<string[]> {
+    const emails: string[] = [];
+    for (const userId of new Set(userIds)) {
+      if (this.channels && !(await this.channels.wantsEmail(teamId, userId, audience))) continue;
+      const user = await this.store.users.findById(userId);
+      if (user?.email) emails.push(user.email);
+    }
+    return emails;
   }
 
   close(): void {
@@ -105,11 +128,35 @@ export class OpsMailer {
   private async recipients(teamId: string, askedBy: string | null, role: Role): Promise<string[]> {
     const members = await this.store.teams.listMembers(teamId);
     const asker = members.find((member) => member.userId === askedBy);
-    if (asker && roleAtLeast(asker.role, role)) return [asker.email];
+    if (asker && roleAtLeast(asker.role, role)) return [asker.userId];
     return [
-      ...(asker ? [asker.email] : []),
-      ...members.filter((member) => roleAtLeast(member.role, role)).map((member) => member.email),
+      ...new Set([
+        ...(asker ? [asker.userId] : []),
+        ...members
+          .filter((member) => roleAtLeast(member.role, role))
+          .map((member) => member.userId),
+      ]),
     ];
+  }
+
+  /** One message, by email and in chats, to these people. */
+  private async send(
+    teamId: string,
+    userIds: string[],
+    subject: string,
+    lines: string[],
+    link: string,
+  ): Promise<void> {
+    // Ops's own messages go to the people concerned only, never to a shared channel.
+    await this.tell(teamId, userIds, {
+      audience: "approval",
+      title: subject,
+      lines: this.publicUrl ? lines.filter((line) => !line.includes(link)) : lines,
+      link: this.publicUrl ? link : null,
+      teamWide: false,
+    });
+    const to = await this.emailsOf(teamId, userIds, "approval");
+    if (to.length > 0) await this.mail.send({ to, subject, text: lines.join("\n") });
   }
 
   private async planWaiting(jobId: string, planHash: string, approver: Role): Promise<void> {
@@ -121,10 +168,11 @@ export class OpsMailer {
       (step) => step.status === "planned",
     );
     this.sent.add(key);
-    await this.mail.send({
-      to: await this.recipients(job.teamId, job.askedBy, approver),
-      subject: `Ops needs your approval: ${short(job.request)}`,
-      text: [
+    await this.send(
+      job.teamId,
+      await this.recipients(job.teamId, job.askedBy, approver),
+      `Ops needs your approval: ${short(job.request)}`,
+      [
         `You asked: ${job.request}`,
         "",
         "Ops has a plan and waits for your approval before it changes anything:",
@@ -136,8 +184,9 @@ export class OpsMailer {
           ? "It touches a protected environment, so a team admin approves it."
           : "Any editor of the team can approve it.",
         "Opening the link changes nothing; only pressing Approve there does.",
-      ].join("\n"),
-    });
+      ],
+      this.link(jobId),
+    );
   }
 
   private async secretWaiting(jobId: string, name: string): Promise<void> {
@@ -147,18 +196,20 @@ export class OpsMailer {
     if (!job || ["done", "failed", "stopped"].includes(job.stage)) return;
     if (await this.store.vault.findByName(job.teamId, name)) return;
     this.sent.add(key);
-    await this.mail.send({
-      to: await this.recipients(job.teamId, job.askedBy, "editor"),
-      subject: `Ops needs a secret from you: ${name}`,
-      text: [
+    await this.send(
+      job.teamId,
+      await this.recipients(job.teamId, job.askedBy, "editor"),
+      `Ops needs a secret from you: ${name}`,
+      [
         `For "${short(job.request)}", Ops needs ${name} in the team's Vault.`,
         "",
         "Add it yourself in Zelyq: Vault → New secret, named exactly as above.",
-        "Ops never sees or types the value, and nobody should send it by email.",
+        "Ops never sees or types the value; nobody should send it by email or chat.",
         "",
         `Then tell Ops on its page that it is there: ${this.link(jobId)}`,
-      ].join("\n"),
-    });
+      ],
+      this.link(jobId),
+    );
   }
 
   private async finished(jobId: string): Promise<void> {
@@ -176,21 +227,22 @@ export class OpsMailer {
         const environment = environments.find((row) => row.id === deployment.environmentId);
         return `  ${deployment.app} on ${environment?.name ?? "?"}: ${deployment.url}`;
       });
-    await this.mail.send({
-      to: await this.recipients(job.teamId, job.askedBy, "editor"),
-      subject:
-        job.stage === "done"
-          ? `Done: ${short(job.request)}`
-          : `Ops could not finish: ${short(job.request)}`,
-      text: [
+    await this.send(
+      job.teamId,
+      await this.recipients(job.teamId, job.askedBy, "editor"),
+      job.stage === "done"
+        ? `Done: ${short(job.request)}`
+        : `Ops could not finish: ${short(job.request)}`,
+      [
         `You asked: ${job.request}`,
         "",
         job.outcome ?? "",
         ...(job.stage === "done" && where.length ? ["", "Live now:", ...where] : []),
         "",
         `The whole record, step by step with what was checked: ${this.link(jobId)}`,
-      ].join("\n"),
-    });
+      ],
+      this.link(jobId),
+    );
   }
 }
 

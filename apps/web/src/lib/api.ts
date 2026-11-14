@@ -33,9 +33,13 @@ import type {
   ImageGenerationInput,
   ImageHistory,
   LocalRunnerStatus,
+  OpsChannelKind,
+  OpsChannelsView,
   OpsEngineer,
   OpsJobDetail,
   OpsJobSummary,
+  OpsLinkStart,
+  OpsNotifyPrefs,
   OpsStatusView,
   OpsTrust,
   PipelineDetail,
@@ -305,6 +309,43 @@ export const api = {
       request<OpsStatusView>(`/teams/${teamId}/ops/alerts/${alertId}/silence`, {
         method: "POST",
         body: JSON.stringify({ minutes }),
+      }),
+    /** Where alerts reach people: the team's services, each person's chats and choices. */
+    channels: (teamId: string) => request<OpsChannelsView>(`/teams/${teamId}/ops/channels`),
+    connectChannel: (
+      teamId: string,
+      kind: OpsChannelKind,
+      input: { token?: string; webhook?: string; teamChat?: string | null },
+    ) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channels/${kind}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    disconnectChannel: (teamId: string, kind: OpsChannelKind) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channels/${kind}`, { method: "DELETE" }),
+    testChannel: (teamId: string, kind: OpsChannelKind) =>
+      request<OpsChannelsView & { went: string[] }>(`/teams/${teamId}/ops/channels/${kind}/test`, {
+        method: "POST",
+        body: "{}",
+      }),
+    startLink: (teamId: string, kind: OpsChannelKind) =>
+      request<OpsLinkStart>(`/teams/${teamId}/ops/channels/${kind}/link`, {
+        method: "POST",
+        body: "{}",
+      }),
+    confirmSlack: (teamId: string, code: string) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channels/slack/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      }),
+    unlink: (teamId: string, linkId: string) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channel-links/${linkId}`, {
+        method: "DELETE",
+      }),
+    setNotify: (teamId: string, prefs: OpsNotifyPrefs) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/notify`, {
+        method: "PUT",
+        body: JSON.stringify(prefs),
       }),
     setCheck: (teamId: string, checkId: string, enabled: boolean) =>
       request<OpsStatusView>(`/teams/${teamId}/ops/checks/${checkId}`, {

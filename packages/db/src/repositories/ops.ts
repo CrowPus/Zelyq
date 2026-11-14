@@ -3,13 +3,17 @@ import type { ZelyqDb } from "../client.js";
 import {
   opsAlerts,
   opsAttempts,
+  opsChannelLinks,
+  opsChannels,
   opsCheckHours,
   opsChecks,
   opsEngineers,
   opsGuards,
   opsJobs,
   opsLessons,
+  opsLinkCodes,
   opsMessages,
+  opsNotifyPrefs,
   opsPlanSteps,
   opsPreferences,
   opsProofs,
@@ -33,6 +37,10 @@ export type OpsGuardRow = typeof opsGuards.$inferSelect;
 export type OpsCheckRow = typeof opsChecks.$inferSelect;
 export type OpsCheckHourRow = typeof opsCheckHours.$inferSelect;
 export type OpsAlertRow = typeof opsAlerts.$inferSelect;
+export type OpsChannelRow = typeof opsChannels.$inferSelect;
+export type OpsChannelLinkRow = typeof opsChannelLinks.$inferSelect;
+export type OpsLinkCodeRow = typeof opsLinkCodes.$inferSelect;
+export type OpsNotifyPrefsRow = typeof opsNotifyPrefs.$inferSelect;
 
 /**
  * The team's DevOps engineer (Ops): its jobs, plans, proofs and what it has
@@ -541,6 +549,150 @@ export function opsRepository(db: ZelyqDb) {
       },
       async update(id: string, patch: Partial<OpsAlertRow>): Promise<void> {
         await db.update(opsAlerts).set(patch).where(eq(opsAlerts.id, id));
+      },
+    },
+
+    channels: {
+      async listAll(): Promise<OpsChannelRow[]> {
+        return await db.select().from(opsChannels);
+      },
+      async listForTeam(teamId: string): Promise<OpsChannelRow[]> {
+        return await db
+          .select()
+          .from(opsChannels)
+          .where(eq(opsChannels.teamId, teamId))
+          .orderBy(asc(opsChannels.kind));
+      },
+      async find(teamId: string, kind: string): Promise<OpsChannelRow | null> {
+        const rows = await db
+          .select()
+          .from(opsChannels)
+          .where(and(eq(opsChannels.teamId, teamId), eq(opsChannels.kind, kind)))
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      async findByAccount(account: string): Promise<OpsChannelRow[]> {
+        return await db.select().from(opsChannels).where(eq(opsChannels.account, account));
+      },
+      async create(row: OpsChannelRow): Promise<OpsChannelRow> {
+        await db.insert(opsChannels).values(row);
+        return row;
+      },
+      async update(id: string, patch: Partial<OpsChannelRow>): Promise<void> {
+        await db.update(opsChannels).set(patch).where(eq(opsChannels.id, id));
+      },
+      async remove(id: string): Promise<void> {
+        await db.delete(opsChannels).where(eq(opsChannels.id, id));
+      },
+    },
+
+    channelLinks: {
+      async listForTeam(teamId: string): Promise<OpsChannelLinkRow[]> {
+        return await db
+          .select()
+          .from(opsChannelLinks)
+          .where(eq(opsChannelLinks.teamId, teamId))
+          .orderBy(asc(opsChannelLinks.createdAt));
+      },
+      async findById(id: string): Promise<OpsChannelLinkRow | null> {
+        const rows = await db
+          .select()
+          .from(opsChannelLinks)
+          .where(eq(opsChannelLinks.id, id))
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      async findByChat(
+        teamId: string,
+        kind: string,
+        chatId: string,
+      ): Promise<OpsChannelLinkRow | null> {
+        const rows = await db
+          .select()
+          .from(opsChannelLinks)
+          .where(
+            and(
+              eq(opsChannelLinks.teamId, teamId),
+              eq(opsChannelLinks.kind, kind),
+              eq(opsChannelLinks.chatId, chatId),
+            ),
+          )
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      /** One chat per person per service: linking again replaces the old one. */
+      async put(row: OpsChannelLinkRow): Promise<OpsChannelLinkRow> {
+        await db
+          .delete(opsChannelLinks)
+          .where(
+            and(
+              eq(opsChannelLinks.teamId, row.teamId),
+              eq(opsChannelLinks.kind, row.kind),
+              eq(opsChannelLinks.userId, row.userId),
+            ),
+          );
+        await db.insert(opsChannelLinks).values(row);
+        return row;
+      },
+      async remove(id: string): Promise<void> {
+        await db.delete(opsChannelLinks).where(eq(opsChannelLinks.id, id));
+      },
+      async removeForKind(teamId: string, kind: string): Promise<void> {
+        await db
+          .delete(opsChannelLinks)
+          .where(and(eq(opsChannelLinks.teamId, teamId), eq(opsChannelLinks.kind, kind)));
+      },
+    },
+
+    linkCodes: {
+      async create(row: OpsLinkCodeRow): Promise<OpsLinkCodeRow> {
+        // A person has one live code at a time per service.
+        await db
+          .delete(opsLinkCodes)
+          .where(
+            and(
+              eq(opsLinkCodes.teamId, row.teamId),
+              eq(opsLinkCodes.userId, row.userId),
+              eq(opsLinkCodes.kind, row.kind),
+            ),
+          );
+        await db.insert(opsLinkCodes).values(row);
+        return row;
+      },
+      async find(codeHash: string): Promise<OpsLinkCodeRow | null> {
+        const rows = await db
+          .select()
+          .from(opsLinkCodes)
+          .where(eq(opsLinkCodes.codeHash, codeHash))
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      /** Marks it used only if it was not already: true when this call used it. */
+      async use(codeHash: string, at: string): Promise<boolean> {
+        const rows = await db
+          .update(opsLinkCodes)
+          .set({ usedAt: at })
+          .where(and(eq(opsLinkCodes.codeHash, codeHash), sql`${opsLinkCodes.usedAt} is null`))
+          .returning({ codeHash: opsLinkCodes.codeHash });
+        return rows.length > 0;
+      },
+      async prune(before: string): Promise<void> {
+        await db.delete(opsLinkCodes).where(sql`${opsLinkCodes.expiresAt} < ${before}`);
+      },
+    },
+
+    notifyPrefs: {
+      async listForTeam(teamId: string): Promise<OpsNotifyPrefsRow[]> {
+        return await db.select().from(opsNotifyPrefs).where(eq(opsNotifyPrefs.teamId, teamId));
+      },
+      async put(row: OpsNotifyPrefsRow): Promise<void> {
+        await db
+          .insert(opsNotifyPrefs)
+          .values(row)
+          .onConflictDoUpdate({
+            target: [opsNotifyPrefs.teamId, opsNotifyPrefs.userId],
+            set: { prefs: row.prefs, updatedAt: row.updatedAt },
+          });
       },
     },
   };

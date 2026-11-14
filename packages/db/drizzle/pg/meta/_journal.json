@@ -337,6 +337,13 @@
       "when": 1794642915063,
       "tag": "0047_ops_watch",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794658831071,
+      "tag": "0048_ops_channels",
+      "breakpoints": true
     }
   ]
 }

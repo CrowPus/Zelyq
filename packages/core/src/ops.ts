@@ -260,3 +260,73 @@ export interface OpsStatusView {
   /** False until a second place (the outside watcher) also watches. */
   watchedFromTwoPlaces: boolean;
 }
+
+// ------------------------------------------------------------ channels (075 Step 2)
+
+/** Where the watch and Ops can reach a person or the team. */
+export type OpsChannelKind = "telegram" | "slack" | "discord";
+/** Where a person can be told: email, or their own linked chat. */
+export type OpsPersonalChannel = "email" | "telegram" | "slack";
+/** What is being told: each person chooses where each kind goes. */
+export type OpsNotifyAudience = "urgent" | "warning" | "approval" | "weekly";
+
+export interface OpsNotifyPrefs {
+  urgent: OpsPersonalChannel[];
+  warning: OpsPersonalChannel[];
+  approval: OpsPersonalChannel[];
+  weekly: OpsPersonalChannel[];
+  /** Quiet hours, "HH:MM" in the person's time zone; urgent alerts still go. */
+  quietFrom: string | null;
+  quietTo: string | null;
+  timeZone: string;
+}
+
+export const DEFAULT_NOTIFY_PREFS: OpsNotifyPrefs = {
+  urgent: ["email", "telegram", "slack"],
+  warning: ["email", "telegram", "slack"],
+  approval: ["email", "telegram", "slack"],
+  weekly: ["email"],
+  quietFrom: null,
+  quietTo: null,
+  timeZone: "UTC",
+};
+
+export interface OpsChannelLinkView {
+  id: string;
+  kind: OpsChannelKind;
+  userId: string;
+  userName: string;
+  label: string | null;
+  createdAt: string;
+}
+
+export interface OpsChannelView {
+  kind: OpsChannelKind;
+  /** The bot's name, the workspace and channel, the Discord channel. */
+  name: string;
+  status: "ok" | "failing";
+  lastError: string | null;
+  teamChat: string | null;
+  updatedAt: string;
+}
+
+export interface OpsChannelsView {
+  channels: OpsChannelView[];
+  /** Linked chats: everyone's for an admin, one's own otherwise. */
+  links: OpsChannelLinkView[];
+  prefs: OpsNotifyPrefs;
+  canManage: boolean;
+  /** Who is looking: their own links among an admin's list. */
+  me: string;
+}
+
+export interface OpsLinkStart {
+  kind: OpsChannelKind;
+  /** Telegram: open this and press Start. */
+  url: string | null;
+  /** The code itself (Telegram: the fallback, "/start CODE"). Slack: sent to the person's DMs instead. */
+  code: string | null;
+  expiresAt: string;
+  /** What to do, in plain words. */
+  words: string;
+}

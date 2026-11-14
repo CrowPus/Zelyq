@@ -1578,6 +1578,106 @@ export const opsAlerts = pgTable(
   }),
 );
 
+/** A team's connection to a chat service the watch sends through (075 Step 2). */
+export const opsChannels = pgTable(
+  "ops_channels",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** telegram, slack, discord */
+    kind: text("kind").notNull(),
+    /** What the person sees: the bot's name, the workspace and channel. */
+    name: text("name").notNull(),
+    /** Who it is at the service (one Telegram bot reads its messages for one team only). */
+    account: text("account").notNull(),
+    /** Token or webhook, encrypted with the server's key (never in the Vault). */
+    secret: text("secret").notNull(),
+    /** The team's shared place, when the service has one (a Slack channel). */
+    teamChat: text("team_chat"),
+    /** ok, failing */
+    status: text("status").notNull(),
+    lastError: text("last_error"),
+    /** Telegram: the next update to read. */
+    pollOffset: integer("poll_offset").notNull().default(0),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    teamKindIdx: uniqueIndex("ops_channels_team_kind_idx").on(table.teamId, table.kind),
+    accountIdx: index("ops_channels_account_idx").on(table.account),
+  }),
+);
+
+/** A person's own chat on a service, linked by a one-time code. */
+export const opsChannelLinks = pgTable(
+  "ops_channel_links",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    chatId: text("chat_id").notNull(),
+    /** How the chat calls itself (a Telegram name, a Slack handle). */
+    label: text("label"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    personIdx: uniqueIndex("ops_channel_links_person_idx").on(
+      table.teamId,
+      table.kind,
+      table.userId,
+    ),
+  }),
+);
+
+/** A one-time code a person uses to link a chat; only its hash is kept. */
+export const opsLinkCodes = pgTable(
+  "ops_link_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    /** Slack: the chat the code was sent to, linked when it is typed back. */
+    chatId: text("chat_id"),
+    label: text("label"),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+  },
+  (table) => ({
+    personIdx: index("ops_link_codes_person_idx").on(table.teamId, table.userId),
+  }),
+);
+
+/** What a person wants to hear, where, and when not (JSON). */
+export const opsNotifyPrefs = pgTable(
+  "ops_notify_prefs",
+  {
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    prefs: text("prefs").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    personIdx: uniqueIndex("ops_notify_prefs_person_idx").on(table.teamId, table.userId),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1637,4 +1737,8 @@ export const schema = {
   opsChecks,
   opsCheckHours,
   opsAlerts,
+  opsChannels,
+  opsChannelLinks,
+  opsLinkCodes,
+  opsNotifyPrefs,
 };

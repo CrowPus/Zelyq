@@ -27,6 +27,10 @@ export type { MessageRepository } from "./repositories/messages.js";
 export type { OidcIdentityRepository } from "./repositories/oidc-identities.js";
 export type {
   OpsAlertRow,
+  OpsChannelLinkRow,
+  OpsChannelRow,
+  OpsLinkCodeRow,
+  OpsNotifyPrefsRow,
   OpsAttemptRow,
   OpsCheckHourRow,
   OpsCheckRow,
