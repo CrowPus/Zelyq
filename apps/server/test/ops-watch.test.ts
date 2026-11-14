@@ -9,7 +9,6 @@ import type { User } from "@zelyq/core";
 import { runMigrations, type Store } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
-import { SshError } from "../src/services/pipelines/ssh.js";
 import {
   CheckService,
   ESCALATE_AFTER_MS,
@@ -21,6 +20,7 @@ import {
   probeAddress,
   readMachine,
 } from "../src/services/ops/watch/probes.js";
+import { SshError } from "../src/services/pipelines/ssh.js";
 
 /**
  * The watch (075 Step 1): what is watched follows Zelyq's records; each rule
