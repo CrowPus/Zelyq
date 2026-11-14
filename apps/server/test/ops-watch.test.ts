@@ -458,3 +458,46 @@ test("the normal does not drift towards a slow week; a check switched back on st
   assert.equal(fresh.failures, 0);
   assert.equal(fresh.failingSince, null);
 });
+
+test("right after a new deploy, the check follows the new container at once: no false alert", async () => {
+  events.length = 0;
+  const start = new Date("2026-11-15T12:00:00Z");
+  // The records were read just now: the next read is five minutes away.
+  await watch.sync(teamId, start);
+  const now = new Date().toISOString();
+  await store.deploy.deployments.create({
+    id: "dep_watch_shop_2",
+    teamId,
+    environmentId: "env_watch_production",
+    app: "shop",
+    status: "live",
+    kind: "deploy",
+    image: "zelyq-shop:2",
+    rolledBackTo: null,
+    promotedFrom: null,
+    runId: null,
+    triggeredBy: null,
+    url: appUrl,
+    port: 3000,
+    hostPort: 3000,
+    healthPath: "/",
+    options: "{}",
+    changedDatabase: false,
+    error: null,
+    log: "",
+    createdAt: now,
+    finishedAt: now,
+  } as never);
+  await store.deploy.deployments.update("dep_watch_shop", { status: "replaced" } as never);
+  // The machine now runs only the new container, with the new deployment's label.
+  say.machine = readMachine("c zelyq-shop-production-8|running|dep_watch_shop_2|\n");
+  await watch.tick(minutes(start, 1));
+  await watch.tick(minutes(start, 2));
+  assert.equal(
+    events.filter((event) => event.kind === "alert_opened").length,
+    0,
+    JSON.stringify(events),
+  );
+  assert.equal((await checkOf("app")).state, "ok");
+  say.machine = null;
+});

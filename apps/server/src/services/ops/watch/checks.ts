@@ -296,6 +296,32 @@ export class CheckService {
       const params = JSON.parse(row.params) as { environmentId?: string; app?: string };
       return deploying.has(`${params.environmentId}/${params.app}`);
     };
+    // What is live right now, read on every run (the records themselves are re-read every
+    // five minutes): a deploy, roll back or promote makes a new deployment at once, and its
+    // checks follow it at once.
+    const environments = await this.store.deploy.environments.listForTeam(teamId);
+    const liveNow = new Map(
+      (await this.store.deploy.deployments.live(environments.map((row) => row.id))).map((row) => [
+        `${row.environmentId}/${row.app}`,
+        row,
+      ]),
+    );
+    for (const row of checks) {
+      if (!["address", "speed", "app"].includes(row.kind)) continue;
+      const params = JSON.parse(row.params) as Record<string, unknown>;
+      const current = liveNow.get(`${params.environmentId}/${params.app}`);
+      if (!current) {
+        // No longer live: not judged; the next read of the records takes the check away.
+        params.gone = true;
+      } else {
+        params.deploymentId = current.id;
+        params.url = current.url
+          ? new URL(current.healthPath || "/", current.url).toString()
+          : null;
+      }
+      row.params = JSON.stringify(params);
+    }
+    const gone = (row: OpsCheckRow) => Boolean((JSON.parse(row.params) as { gone?: boolean }).gone);
 
     // Machines: one visit each, asking only for what is due (containers each minute,
     // disk and memory every five).
@@ -305,7 +331,7 @@ export class CheckService {
       if (!params.runnerId || (row.kind !== "machine" && row.kind !== "app")) continue;
       const wanted = parts.get(params.runnerId) ?? { machine: false, containers: false };
       if (row.kind === "machine") wanted.machine = true;
-      else if (!busy(row)) wanted.containers = true;
+      else if (!busy(row) && !gone(row)) wanted.containers = true;
       parts.set(params.runnerId, wanted);
     }
     const visits = new Map<string, MachineFacts | Error>();
@@ -329,14 +355,14 @@ export class CheckService {
     for (const row of checks) {
       if (row.kind !== "address" && row.kind !== "speed") continue;
       const url = (JSON.parse(row.params) as { url?: string | null }).url;
-      if (url && !busy(row)) urls.add(url);
+      if (url && !busy(row) && !gone(row)) urls.add(url);
     }
     await Promise.all(
       [...urls].map(async (url) => answers.set(url, await this.probes.probeAddress(url))),
     );
 
     for (const row of checks) {
-      if (busy(row) && ["address", "speed", "app"].includes(row.kind)) continue;
+      if ((busy(row) || gone(row)) && ["address", "speed", "app"].includes(row.kind)) continue;
       const params = JSON.parse(row.params) as Record<string, unknown>;
       let result: ProbeResult | null = null;
       if (row.kind === "address" || row.kind === "speed") {
