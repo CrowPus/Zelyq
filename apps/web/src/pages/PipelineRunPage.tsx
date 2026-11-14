@@ -26,7 +26,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { QueueNotice } from "../components/pipelines/QueueNotice";
 import { StageGraph, StatusIcon } from "../components/pipelines/Stages";
-import { Badge, Button, EmptyState, Input, Spinner } from "../components/ui";
+import { Badge, Button, buttonClass, EmptyState, Input, Spinner } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { duration, formatBytes, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
@@ -205,8 +205,12 @@ export function PipelineRunPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <a href={`/api/teams/${teamId}/pipeline-runs/${runId}/log.txt`}>
-                <Button icon={<FileDown size={13} />}>Download log</Button>
+              <a
+                href={`/api/teams/${teamId}/pipeline-runs/${runId}/log.txt`}
+                className={buttonClass()}
+              >
+                <FileDown size={13} />
+                Download log
               </a>
               {active ? (
                 <Button

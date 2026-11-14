@@ -157,14 +157,17 @@ export function ProjectListPage() {
     <AppShell
       crumbs={[{ label: "Apps" }]}
       actions={
-        <Button
-          variant="primary"
-          size="sm"
-          icon={<Plus size={13} strokeWidth={2} />}
-          onClick={() => setComposing(true)}
-        >
-          New app
-        </Button>
+        // With no apps yet, the empty list's own "New app" is the one button.
+        all.length > 0 ? (
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Plus size={13} strokeWidth={2} />}
+            onClick={() => setComposing(true)}
+          >
+            New app
+          </Button>
+        ) : undefined
       }
     >
       <div className="h-full overflow-y-auto">

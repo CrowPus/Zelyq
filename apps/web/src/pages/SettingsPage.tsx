@@ -241,22 +241,6 @@ export function SettingsPage() {
             </>
           )}
         </div>
-        {["Image Studio", "Video Studio"].includes(group.name) && (
-          <div className="mt-3 flex items-center gap-3">
-            <Button
-              variant="primary"
-              disabled={!dirty || save.isPending}
-              onClick={() => save.mutate()}
-            >
-              {save.isPending ? "Saving…" : "Save changes"}
-            </Button>
-            {saved && (
-              <span role="status" className="text-xs text-success">
-                Saved
-              </span>
-            )}
-          </div>
-        )}
       </section>
     );
   }
