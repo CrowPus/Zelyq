@@ -463,6 +463,51 @@ export class ChannelService {
     }
   }
 
+  /**
+   * A message a person asked Ops for ("message me on Telegram about the shop"): to their own
+   * linked chats only, never a shared channel. Quiet hours do not apply: they asked for it now.
+   * Returns where it went; says plainly what to do when there is nowhere to send it.
+   */
+  async tellPerson(
+    teamId: string,
+    userId: string,
+    notice: { title: string; lines: string[]; link: string | null },
+    where: OpsChannelKind | "any" = "any",
+  ): Promise<OpsChannelKind[]> {
+    const channels = await this.store.ops.channels.listForTeam(teamId);
+    const links = (await this.currentLinks(teamId)).filter(
+      (link) => link.userId === userId && (where === "any" || link.kind === where),
+    );
+    const named = where === "any" ? "Telegram or Slack" : SERVICE_NAME[where];
+    if (where !== "any" && !channels.some((row) => row.kind === where))
+      throw new ChannelError(
+        `${named} is not connected for this team yet. A team admin connects it in Ops → Alerts.`,
+      );
+    const targets = links.flatMap((link) => {
+      const channel = channels.find((row) => row.kind === link.kind);
+      return channel ? [{ channel, chat: link.chatId }] : [];
+    });
+    if (targets.length === 0)
+      throw new ChannelError(
+        `Your ${named} is not linked yet: press "Link my ${where === "slack" ? "Slack" : "Telegram"}" at the top of Ops → Alerts, then ask again.`,
+      );
+    const text = render({ audience: "approval", teamWide: false, ...notice });
+    const went: OpsChannelKind[] = [];
+    let failed: string | null = null;
+    for (const { channel, chat } of targets) {
+      try {
+        await this.deliver(channel, chat, text);
+        if (channel.status !== "ok") await this.mark(channel, null);
+        went.push(channel.kind as OpsChannelKind);
+      } catch (error) {
+        failed = (error as Error).message;
+        await this.mark(channel, failed);
+      }
+    }
+    if (went.length === 0) throw new ChannelError(`It could not be sent: ${failed ?? "unknown"}`);
+    return went;
+  }
+
   private async send(channel: OpsChannelRow, chat: string | null, text: string): Promise<void> {
     try {
       await this.deliver(channel, chat, text);
@@ -808,6 +853,12 @@ export function inQuietHours(prefs: OpsNotifyPrefs, now: Date): boolean {
   // Over midnight (22:00–07:00) or within a day (13:00–14:00).
   return from <= to ? local >= from && local < to : local >= from || local < to;
 }
+
+const SERVICE_NAME: Record<OpsChannelKind, string> = {
+  telegram: "Telegram",
+  slack: "Slack",
+  discord: "Discord",
+};
 
 function render(notice: Notice): string {
   return [notice.title, ...notice.lines, ...(notice.link ? ["", notice.link] : [])]

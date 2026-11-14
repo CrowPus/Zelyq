@@ -2,6 +2,7 @@ import type { OpsAction } from "./actions.js";
 import { CHECK_ACTIONS } from "./catalogue/checks.js";
 import { ENVIRONMENT_ACTIONS } from "./catalogue/environments.js";
 import { MEMORY_ACTIONS } from "./catalogue/memory.js";
+import { MESSAGE_ACTIONS } from "./catalogue/messages.js";
 import { OPERATION_ACTIONS } from "./catalogue/operations.js";
 import { PIPELINE_ACTIONS } from "./catalogue/pipelines.js";
 import { UNDERSTANDING_ACTIONS } from "./catalogue/understanding.js";
@@ -17,4 +18,5 @@ export const OPS_ACTIONS: OpsAction[] = [
   ...OPERATION_ACTIONS,
   ...CHECK_ACTIONS,
   ...MEMORY_ACTIONS,
+  ...MESSAGE_ACTIONS,
 ];

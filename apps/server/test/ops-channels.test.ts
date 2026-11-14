@@ -6,6 +6,7 @@ import { after, before, beforeEach, test } from "node:test";
 import { runMigrations, type Store } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
+import { OPS_ACTIONS } from "../src/services/ops/catalogue.js";
 import {
   type ChannelService,
   cleanPrefs,
@@ -389,6 +390,45 @@ test("an alert from the watch reaches the linked chat as well as email", async (
   assert.match(text, /^Down: shop on production does not answer/);
   assert.match(text, /What the check saw: no answer: timed out/);
   assert.match(text, /https:\/\/zelyq\.example\/ops#status/);
+});
+
+test("asked for it, Ops messages the person in their own chat, and only them", async () => {
+  const action = OPS_ACTIONS.find((row) => row.name === "message_me");
+  assert.ok(action, "Ops has a way to send a message");
+  const ask = (askedBy: string | null, inputs: Record<string, unknown>) =>
+    action.run(
+      {
+        teamId,
+        jobId: askedBy ? "opj_test" : null,
+        services: {
+          store: { ops: { jobs: { findById: async () => ({ askedBy }) } } },
+          channels,
+        },
+      } as never,
+      action.input.parse(inputs),
+    );
+
+  // The owner linked Telegram above: it goes to their chat, quiet hours or not.
+  const done = await ask(ownerId, {
+    message: "crowpus is up; last deploy 2 hours ago.",
+    where: "telegram",
+  });
+  assert.equal(done.ok, true, done.summary);
+  assert.match(done.summary, /Telegram/);
+  const last = sent("sendMessage").at(-1);
+  assert.equal(String(last?.body.chat_id), "555");
+  assert.match(String(last?.body.text), /crowpus is up/);
+
+  // Someone who never linked: told plainly what to press, nothing sent.
+  const before = sent("sendMessage").length;
+  const unlinked = await ask(viewerId, { message: "hello", where: "telegram" });
+  assert.equal(unlinked.ok, false);
+  assert.match(unlinked.summary, /Link my Telegram/);
+  assert.equal(sent("sendMessage").length, before);
+
+  // Not from a conversation with a person (an outside agent): nobody to send to.
+  const nobody = await ask(null, { message: "hello" });
+  assert.equal(nobody.ok, false);
 });
 
 test("Slack: found by email, the code goes to their DMs and is typed back; wrong codes run out", async () => {

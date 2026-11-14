@@ -8,6 +8,7 @@ import type { RunnerService } from "../pipelines/runners.js";
 import type { PipelineService } from "../pipelines/service.js";
 import type { PipelineTriggerService } from "../pipelines/triggers.js";
 import type { VaultService } from "../vault.js";
+import type { ChannelService } from "./channels.js";
 import type { OpsMemory } from "./memory.js";
 
 /**
@@ -42,6 +43,8 @@ export interface OpsServices {
   vault: VaultService;
   runtime: RuntimeDriver;
   memory: OpsMemory;
+  /** Each person's own chats (Telegram, Slack), for a message they asked for. */
+  channels: ChannelService;
 }
 
 export interface ActionContext {
