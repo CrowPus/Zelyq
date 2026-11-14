@@ -98,7 +98,6 @@ export function certificateFacts(domain: string): Promise<CertificateFacts> {
       host: domain,
       port: 443,
       servername: domain,
-      rejectUnauthorized: false,
       // The deployment level: a single-box server's own site is checked too (metadata never).
       lookup: guardedLookup("deployment") as never,
       timeout: 10_000,

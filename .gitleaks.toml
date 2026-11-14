@@ -12,5 +12,14 @@ apps/agent/evals/cases.ts is eval fixture data, not application code — some
 cases deliberately hand the agent a fake credential (e.g. "sk_live_abc123")
 to check it never treats one as real or invents its own. That is the
 behaviour under test, not a leak.
+
+apps/server/test/ops-channels.test.ts talks to stand-ins for Telegram, Slack
+and Discord, so it needs strings shaped like a bot token or a webhook address
+("123456789:AAH-standinTokenForTestsOnly…", "xoxb-1111-2222-standin…",
+"discord.com/api/webhooks/42/abc") to check that a real one is accepted, a
+wrong one refused, and none ever shown again. They are made up, not leaks.
 """
-paths = ['''^apps/agent/evals/cases\.ts$''']
+paths = [
+  '''^apps/agent/evals/cases\.ts$''',
+  '''^apps/server/test/ops-channels\.test\.ts$''',
+]

@@ -123,7 +123,6 @@ const checkCertificate: OpsAction<z.infer<typeof certificateInput>> = {
         host: inputs.domain,
         port: 443,
         servername: inputs.domain,
-        rejectUnauthorized: false,
         lookup: guardedLookup("strict") as never,
         timeout: 10_000,
       });
