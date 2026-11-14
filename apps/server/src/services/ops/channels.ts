@@ -116,10 +116,7 @@ export class ChannelService {
     let teamChat: string | null = null;
     const secret: Secret = {};
     if (kind === "telegram") {
-      // BotFather's whole message, or a token with a full stop after it, is fine: take the token out.
-      const token = (input.token ?? "").match(
-        /(?<![\w:-])\d{5,16}:[A-Za-z0-9_-]{30,64}(?![\w:-])/,
-      )?.[0];
+      const token = telegramToken(input.token ?? "");
       if (!token)
         throw new ChannelError(
           "That does not look like a Telegram bot token (it reads 123456:ABC…).",
@@ -719,6 +716,26 @@ function parse(text: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/**
+ * The bot token out of whatever was pasted: BotFather's whole message (which a
+ * one-line box squeezes to "…HTTP API:8816…:AAH…Keep your…"), a full stop after
+ * it, or dashes a phone or mail app turned into look-alikes. When words run on
+ * after it, it is cut at 35 characters, the length Telegram gives.
+ */
+export function telegramToken(pasted: string): string | null {
+  const text = pasted
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    // BotFather's next line, which a one-line box glues on: "…H7aYKeep your token secure".
+    .replace(/Keep your token secure[\s\S]*$/, "");
+  return (
+    /(?<!\d)\d{5,16}:[A-Za-z0-9_-]{30,64}(?![A-Za-z0-9_-])/.exec(text)?.[0] ??
+    /(?<!\d)\d{5,16}:[A-Za-z0-9_-]{35}/.exec(text)?.[0] ??
+    null
+  );
 }
 
 function scrub(text: string, token: string): string {

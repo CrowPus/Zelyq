@@ -12,6 +12,7 @@ import {
   discordWebhook,
   type Http,
   inQuietHours,
+  telegramToken,
 } from "../src/services/ops/channels.js";
 
 /**
@@ -226,6 +227,22 @@ test("an admin connects Telegram; the token is checked, kept encrypted and never
     channels.connect(otherTeamId, "telegram", { token: TOKEN }, ownerId),
     /already connected to another team/,
   );
+});
+
+test("the bot token is found in whatever was pasted", () => {
+  const real = "1234567890:AAH-standinTokenForPasteTests_abcde";
+  for (const pasted of [
+    real,
+    ` ${real}. `,
+    `Use this token to access the HTTP API:\n${real}\nKeep your token secure`,
+    `Use this token to access the HTTP API:${real}Keep your token secure and store it safely`,
+    real.replace("-", "\u2011"),
+    real.replace("-", "\u2013"),
+    `${real.slice(0, 12)}\u200B${real.slice(12)}`,
+  ])
+    assert.equal(telegramToken(pasted), real, JSON.stringify(pasted));
+  assert.equal(telegramToken("123:short"), null);
+  assert.equal(telegramToken("hello"), null);
 });
 
 test("linking with a code: it works once, in a private chat, for its own team, before it expires", async () => {
