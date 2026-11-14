@@ -6,6 +6,7 @@ import { AgentsPage } from "./pages/AgentsPage";
 import { AppPage } from "./pages/AppPage";
 import { DeploymentsPage } from "./pages/DeploymentsPage";
 import { DocsPage } from "./pages/DocsPage";
+import { InvitePage, ResetPasswordPage } from "./pages/EmailLinkPages";
 import { ImageStudioPage } from "./pages/ImageStudioPage";
 import { OpsPage } from "./pages/OpsPage";
 import { PipelinePage } from "./pages/PipelinePage";
@@ -60,6 +61,9 @@ function Gate() {
     return (
       <Routes>
         <Route path={SIGN_IN_PATH} element={<SignInPage />} />
+        {/* Opened from an emailed link: they work signed in or out. */}
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/invite" element={<InvitePage />} />
         <Route
           path="*"
           element={
@@ -79,6 +83,8 @@ function Gate() {
     <Routes>
       {/* Already signed in: go on to whatever they were trying to reach. */}
       <Route path={SIGN_IN_PATH} element={<AfterSignIn />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/invite" element={<InvitePage />} />
       <Route path="/" element={<ProjectListPage />} />
       <Route path="/projects/:id" element={<ProjectEditorPage />} />
       <Route path="/teams/:id" element={<TeamPage />} />

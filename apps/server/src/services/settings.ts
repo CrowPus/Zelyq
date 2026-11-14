@@ -758,6 +758,29 @@ const DEFINITIONS: Definition[] = [
     placeholder: "Zelyq <ops@example.com>",
   },
   {
+    key: "publicUrl",
+    label: "Public web address",
+    description:
+      "The address people open Zelyq at, such as https://zelyq.example.com. Links in email point here.",
+    kind: "text",
+    group: "Email",
+    envVar: "ZELYQ_PUBLIC_URL",
+    envOverridable: true,
+    fallback: "",
+    placeholder: "https://zelyq.example.com",
+  },
+  {
+    key: "emailSignInLinks",
+    label: "Password reset and invitations by email",
+    description:
+      'Adds "Forgot password?" to the sign-in page and lets a team invite people who have no account yet. Turn on only when this Zelyq runs on a server others can reach at the public address above: on your own computer the links would lead nowhere. Needs the mail server above.',
+    kind: "boolean",
+    group: "Email",
+    envVar: "ZELYQ_EMAIL_SIGN_IN_LINKS",
+    envOverridable: true,
+    fallback: "false",
+  },
+  {
     key: "pluginRegistry",
     label: "Plugin registry",
     description:
@@ -1529,5 +1552,27 @@ export class SettingsService {
     if (definition.kind === "number" && !/^\d+$/.test(value)) {
       throw ZelyqError.badRequest(`${definition.label} must be a whole number.`);
     }
+    if (definition.key === "publicUrl" && value.trim() && !publicAddress(value)) {
+      throw ZelyqError.badRequest(
+        `${definition.label} must be a web address starting with https:// or http://, such as https://zelyq.example.com.`,
+      );
+    }
+  }
+}
+
+/**
+ * The public web address, cleaned: scheme and host only, no trailing slash.
+ * Null when it is not a usable http(s) address. Links in email are built from
+ * this and nothing else, never from the request's own Host header, which
+ * anyone can set.
+ */
+export function publicAddress(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password || url.search || url.hash) return null;
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return null;
   }
 }

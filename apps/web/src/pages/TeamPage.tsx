@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ROLE_DESCRIPTIONS, ROLES, type Role, roleAtLeast } from "@zelyq/core";
-import { CircleAlert, UserPlus } from "lucide-react";
+import { CircleAlert, CircleCheck, Mail, UserPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
@@ -18,16 +18,36 @@ export function TeamPage() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("editor");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const members = useQuery({ queryKey: ["members", id], queryFn: () => api.listMembers(id) });
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["members", id] });
 
   const addMember = useMutation({
     mutationFn: () => api.addMember(id, { email: email.trim(), role }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       setEmail("");
       setError(null);
+      setNotice(
+        result.invited
+          ? `Invitation sent to ${result.invited}. They join when they open the link.`
+          : null,
+      );
       invalidate();
+      queryClient.invalidateQueries({ queryKey: ["invites", id] });
+      queryClient.invalidateQueries({ queryKey: ["audit-log", id] });
+    },
+    onError: (caught) => {
+      setNotice(null);
+      setError((caught as Error).message);
+    },
+  });
+
+  const withdraw = useMutation({
+    mutationFn: (inviteId: string) => api.withdrawInvite(id, inviteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invites", id] });
+      queryClient.invalidateQueries({ queryKey: ["audit-log", id] });
     },
     onError: (caught) => setError((caught as Error).message),
   });
@@ -54,6 +74,14 @@ export function TeamPage() {
     queryFn: () => api.auditLog(id),
     enabled: canManage,
   });
+
+  // Whether people without an account can be invited by email: only on an instance set up for it.
+  const invites = useQuery({
+    queryKey: ["invites", id],
+    queryFn: () => api.teamInvites(id),
+    enabled: canManage,
+  });
+  const canInvite = invites.data?.canInvite ?? false;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -84,7 +112,7 @@ export function TeamPage() {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="Email of an existing account"
+                placeholder={canInvite ? "Email address" : "Email of an existing account"}
                 aria-label="Email"
                 className="sm:flex-1"
               />
@@ -106,9 +134,27 @@ export function TeamPage() {
                 icon={<UserPlus size={13} strokeWidth={1.75} />}
                 disabled={addMember.isPending || !email.trim()}
               >
-                Add
+                {canInvite ? "Add or invite" : "Add"}
               </Button>
             </form>
+          )}
+
+          {canManage && (
+            <p className="mt-2 text-2xs text-fg-muted">
+              {canInvite
+                ? "Someone with an account joins straight away. Anyone else gets an invitation email, valid for 7 days."
+                : "Only people who already have an account can be added. To invite anyone by email, an instance admin turns on invitations in Settings → Email."}
+            </p>
+          )}
+
+          {notice && (
+            <p
+              role="status"
+              className="mt-3 flex items-start gap-2 rounded-md border border-success/25 bg-success-subtle px-2.5 py-2 text-xs text-success"
+            >
+              <CircleCheck size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+              {notice}
+            </p>
           )}
 
           {error && (
@@ -185,6 +231,40 @@ export function TeamPage() {
               </div>
             ))}
           </div>
+
+          {canManage && (invites.data?.invites.length ?? 0) > 0 && (
+            <div className="mt-6">
+              <h2 className="text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">
+                Waiting to join
+              </h2>
+              <div className="mt-2 overflow-hidden rounded-lg border border-border-default bg-surface">
+                {invites.data?.invites.map((invite) => (
+                  <div
+                    key={invite.id}
+                    className="flex items-center gap-3 border-b border-border-default px-4 py-2.5 last:border-b-0"
+                  >
+                    <Mail size={14} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-mono text-xs text-fg">{invite.email}</p>
+                      <p className="truncate text-2xs text-fg-muted">
+                        {invite.role} · invited
+                        {invite.invitedBy ? ` by ${invite.invitedBy}` : ""} · link works until{" "}
+                        {new Date(invite.expiresAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={withdraw.isPending}
+                      onClick={() => withdraw.mutate(invite.id)}
+                    >
+                      Withdraw
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {canManage && (
             <div className="mt-6">

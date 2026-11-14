@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { AuthNotice } from "../components/AuthCard";
 import { Button, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -15,7 +16,8 @@ export function SignInPage() {
   const status = useQuery({ queryKey: ["auth-status"], queryFn: api.authStatus });
 
   const firstRun = status.data?.firstRun ?? false;
-  const [mode, setMode] = useState<"signin" | "register">("signin");
+  const [mode, setMode] = useState<"signin" | "register" | "forgot">("signin");
+  const [sent, setSent] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -24,12 +26,19 @@ export function SignInPage() {
   const oidcError = new URLSearchParams(window.location.search).has("error");
 
   const registering = firstRun || mode === "register";
+  const forgot = !firstRun && mode === "forgot";
+  const canReset = Boolean(status.data?.passwordReset);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
+      if (forgot) {
+        await api.forgotPassword(email);
+        setSent(true);
+        return;
+      }
       if (registering) await api.register({ email, name, password });
       else await api.login({ email, password });
       // The router decides where to land — see AfterSignIn in App.tsx.
@@ -56,14 +65,22 @@ export function SignInPage() {
           <img src="/zelyq-mark-64.png" alt="" width={32} height={32} className="size-8" />
           <div>
             <h1 className="text-lg font-semibold text-fg">
-              {firstRun ? "Set up Zelyq" : registering ? "Create an account" : "Sign in to Zelyq"}
+              {firstRun
+                ? "Set up Zelyq"
+                : registering
+                  ? "Create an account"
+                  : forgot
+                    ? "Reset your password"
+                    : "Sign in to Zelyq"}
             </h1>
             <p className="mt-1 text-xs text-fg-secondary">
               {firstRun
                 ? "This instance has no accounts yet. The first one owns it."
                 : registering
                   ? "You will get a team of your own."
-                  : "Use the account an administrator set up for you."}
+                  : forgot
+                    ? "Enter your account's email. We will send a link to choose a new password."
+                    : "Use the account an administrator set up for you."}
             </p>
           </div>
         </div>
@@ -100,20 +117,44 @@ export function SignInPage() {
             />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="signin-password" className="text-xs font-medium text-fg-secondary">
-              Password
-            </label>
-            <PasswordInput
-              id="signin-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete={registering ? "new-password" : "current-password"}
-              required
-              minLength={registering ? 10 : undefined}
-              placeholder={registering ? "At least 10 characters" : ""}
-            />
-          </div>
+          {!forgot && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between">
+                <label htmlFor="signin-password" className="text-xs font-medium text-fg-secondary">
+                  Password
+                </label>
+                {canReset && !registering && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("forgot");
+                      setError(null);
+                      setSent(false);
+                    }}
+                    className="text-xs text-info underline-offset-2 hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
+              <PasswordInput
+                id="signin-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete={registering ? "new-password" : "current-password"}
+                required
+                minLength={registering ? 10 : undefined}
+                placeholder={registering ? "At least 10 characters" : ""}
+              />
+            </div>
+          )}
+
+          {forgot && sent && (
+            <AuthNotice>
+              If an account uses {email}, a link is on its way. It works for one hour. Check spam if
+              it does not arrive in a few minutes.
+            </AuthNotice>
+          )}
 
           {error && (
             <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
@@ -132,15 +173,19 @@ export function SignInPage() {
           <Button type="submit" variant="primary" disabled={busy} className="mt-1 w-full">
             {busy
               ? "Working…"
-              : firstRun
-                ? "Create owner account"
-                : registering
-                  ? "Create account"
-                  : "Sign in"}
+              : forgot
+                ? sent
+                  ? "Send again"
+                  : "Send reset link"
+                : firstRun
+                  ? "Create owner account"
+                  : registering
+                    ? "Create account"
+                    : "Sign in"}
           </Button>
         </form>
 
-        {status.data?.oidcEnabled && !registering && (
+        {status.data?.oidcEnabled && !registering && !forgot && (
           <Button
             type="button"
             variant="secondary"
@@ -151,7 +196,23 @@ export function SignInPage() {
           </Button>
         )}
 
-        {!firstRun && (
+        {forgot && (
+          <p className="mt-4 text-center text-xs text-fg-muted">
+            Remembered it?{" "}
+            <button
+              type="button"
+              onClick={() => {
+                setMode("signin");
+                setError(null);
+              }}
+              className="text-info underline underline-offset-2 hover:no-underline"
+            >
+              Sign in
+            </button>
+          </p>
+        )}
+
+        {!firstRun && !forgot && (
           <p className="mt-4 text-center text-xs text-fg-muted">
             {registering ? "Already have an account?" : "No account?"}{" "}
             <button

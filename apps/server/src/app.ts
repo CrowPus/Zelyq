@@ -52,6 +52,7 @@ import { AgentService } from "./services/agents.js";
 import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
 import { DeployService } from "./services/deploy.js";
+import { EmailLinkService } from "./services/email-links.js";
 import { FigmaConnectionService } from "./services/figma-connections.js";
 import { FigmaExtractService } from "./services/figma-extract.js";
 import { FunctionSecretSync } from "./services/function-secrets.js";
@@ -238,6 +239,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // Telegram, Slack and Discord: each person's own chats, and the team's shared place.
   const opsChannels = new ChannelService(store, secrets);
   const mail = new MailService(settings);
+  // Password reset and team invitations by emailed link, once an admin turns them on.
+  const emailLinks = new EmailLinkService(store, settings, mail, auth, {
+    warn: (object, message) => app.log.warn(object, message),
+  });
   // Ops, the team's DevOps engineer: one list of actions, one gate in front of it.
   const ops = new OpsService(store, access, new ActionList(OPS_ACTIONS), {
     deploys,
@@ -386,12 +391,16 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     };
   });
 
-  registerAuthRoutes(app, { auth, sessionTtlDays: () => settings.numberValue("sessionTtlDays") });
+  registerAuthRoutes(app, {
+    auth,
+    links: emailLinks,
+    sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
+  });
   registerAccountRoutes(app, { accounts, auth, access });
   registerSettingsRoutes(app, { settings, access, store, mail });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
-  registerTeamRoutes(app, { store, access });
+  registerTeamRoutes(app, { store, access, links: emailLinks });
   registerProjectRoutes(app, {
     projects,
     access,

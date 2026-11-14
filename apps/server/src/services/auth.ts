@@ -532,6 +532,11 @@ export class AuthService {
     });
   }
 
+  /** A fresh session for an account that proved itself another way: a reset or invitation link. */
+  async startSession(userId: string): Promise<string> {
+    return await this.createSession(userId);
+  }
+
   async describe(user: User): Promise<SessionResponse> {
     return { user, teams: await this.store.teams.listForUser(user.id) };
   }

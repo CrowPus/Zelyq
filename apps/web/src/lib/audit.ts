@@ -90,6 +90,8 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "snapshot.created": "saved a snapshot",
   "snapshot.restored": "restored a snapshot",
   "team.member_added": "added a member",
+  "team.member_invited": "invited someone by email",
+  "team.invite_withdrawn": "withdrew an invitation",
   "team.member_role_changed": "changed a member's role",
   "team.member_removed": "removed a member",
   "provider.connected": "connected a Supabase account",

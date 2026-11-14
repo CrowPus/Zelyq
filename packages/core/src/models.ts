@@ -623,6 +623,8 @@ export const auditActionSchema = z.enum([
   "snapshot.created",
   "snapshot.restored",
   "team.member_added",
+  "team.member_invited",
+  "team.invite_withdrawn",
   "team.member_role_changed",
   "team.member_removed",
   "provider.connected",
