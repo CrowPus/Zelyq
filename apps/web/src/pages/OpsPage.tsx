@@ -22,8 +22,6 @@ import {
   Play,
   Plus,
   Send,
-  Volume2,
-  VolumeX,
   XCircle,
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -35,7 +33,6 @@ import { Badge, Button, EmptyState, Input, Spinner, Textarea } from "../componen
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { useLiveTalk } from "../lib/ops-live";
-import { speak, spokenPart, stopSpeaking } from "../lib/ops-voice";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
 type Tab = "talk" | "status" | "alerts" | "memory" | "settings";
@@ -53,23 +50,6 @@ const STAGE_WORDS: Record<
   failed: { label: "Not done", tone: "danger" },
   stopped: { label: "Stopped", tone: "neutral" },
 };
-
-function readFlag(key: string, fallback: boolean): boolean {
-  try {
-    const value = localStorage.getItem(key);
-    return value === null ? fallback : value === "1";
-  } catch {
-    return fallback;
-  }
-}
-
-function writeFlag(key: string, value: boolean): void {
-  try {
-    localStorage.setItem(key, value ? "1" : "0");
-  } catch {
-    // a preference only
-  }
-}
 
 /**
  * Ops, the team's DevOps engineer: talk to it (typed or aloud), read its plan,
@@ -220,7 +200,6 @@ function TalkTab({
   });
   const current = job.data?.job ?? null;
 
-  const [speakAloud, setSpeakAloud] = useState(() => readFlag("zelyq.ops.speak", true));
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -251,25 +230,6 @@ function TalkTab({
   });
   const talking = live.status !== "idle";
 
-  // A typed conversation's new replies are read aloud (a live one speaks for itself).
-  const heard = useRef<Set<string>>(new Set());
-  const primed = useRef<string | null>(null);
-  useEffect(() => {
-    if (!current) return;
-    if (primed.current !== current.id) {
-      // Opening a job does not read out its whole history.
-      primed.current = current.id;
-      for (const message of current.messages) heard.current.add(message.id);
-      return;
-    }
-    const fresh = current.messages.filter((message) => !heard.current.has(message.id));
-    for (const message of fresh) heard.current.add(message.id);
-    const reply = [...fresh].reverse().find((message) => message.role === "ops");
-    if (reply && speakAloud && !talking) speak(spokenPart(reply.text));
-  }, [current, speakAloud, talking]);
-
-  useEffect(() => () => stopSpeaking(), []);
-
   const send = (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
@@ -284,7 +244,6 @@ function TalkTab({
   };
 
   const newConversation = () => {
-    stopSpeaking();
     if (talking) live.stop();
     setJobId(null);
     setDraft("");
@@ -407,7 +366,6 @@ function TalkTab({
                 }
                 disabled={!canTalk || paused}
                 onClick={() => {
-                  stopSpeaking();
                   if (talking) live.stop();
                   else live.start(jobId);
                 }}
@@ -429,18 +387,6 @@ function TalkTab({
             </div>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-fg-secondary">
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={speakAloud}
-                onChange={(event) => {
-                  setSpeakAloud(event.target.checked);
-                  writeFlag("zelyq.ops.speak", event.target.checked);
-                  if (!event.target.checked) stopSpeaking();
-                }}
-              />
-              {speakAloud ? <Volume2 size={12} /> : <VolumeX size={12} />} Read replies aloud
-            </label>
             <span className="text-fg-muted">
               Approving always takes a button, never your voice.
             </span>
