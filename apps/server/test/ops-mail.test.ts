@@ -356,3 +356,30 @@ test("how a job ended: emailed when it shipped or failed, not for a note", async
   assert.equal(count(), before + 2);
   assert.match(inboxFor("editor@example.com").at(-1)!.data, /Ops could not finish/);
 });
+
+test("a refused login with a bare name says the whole address is usually wanted", async () => {
+  const values: Record<string, string> = {
+    mailHost: "smtp.example.com",
+    mailPort: "587",
+    mailSecurity: "starttls",
+    mailUsername: "Epliv",
+    mailPassword: "x",
+    mailFrom: "noreply@example.com",
+  };
+  const settings = { value: async (key: string) => values[key] ?? "" } as never;
+  const refusing = new MailService(settings, () => ({
+    verify: async () => {
+      throw new Error("Invalid login: 535 Authentication credentials invalid");
+    },
+    sendMail: async () => undefined,
+  }));
+  await assert.rejects(
+    refusing.test("a@example.com"),
+    /whole email address .*noreply@example\.com/,
+  );
+  values.mailUsername = "noreply@example.com";
+  await assert.rejects(
+    refusing.test("a@example.com"),
+    (error: Error) => !/whole email/.test(error.message),
+  );
+});
