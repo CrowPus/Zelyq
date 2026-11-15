@@ -25,6 +25,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { useTheme } from "../hooks/useTheme";
+import { Inbox } from "./Inbox";
 import { Button, IconButton } from "./ui";
 
 export interface Crumb {
@@ -487,6 +488,7 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
         >
           <Palette size={16} />
         </Link>
+        <Inbox />
         <ThemeToggle />
         <Link
           to="/vault"

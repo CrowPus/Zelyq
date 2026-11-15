@@ -377,6 +377,54 @@ export async function accessSummary(
   ].join("\n");
 }
 
+/** What an outside agent was given on the Agents page; null means every one. */
+export interface AgentReach {
+  projectIds: string[] | null;
+  pipelineIds: string[] | null;
+  environmentIds: string[] | null;
+  /** Its "Vault names" permission is on. */
+  secretNames: boolean;
+}
+
+/**
+ * An outside agent's reach, for its Ops tools: what it was given on the
+ * Agents page, not what Ops was given on Ops → Access. Each worker has one
+ * place where it is given things. Its environments' machines come with them
+ * (an environment runs on its machine); every change it asks for still waits
+ * for a person.
+ */
+export async function agentScope(
+  store: Store,
+  teamId: string,
+  reach: AgentReach,
+): Promise<OpsScope> {
+  const rows: Array<{ kind: string; resourceId: string; level: string }> = [];
+  const environments = (await store.deploy.environments.listForTeam(teamId)).filter(
+    (row) => reach.environmentIds === null || reach.environmentIds.includes(row.id),
+  );
+  for (const row of environments) {
+    rows.push({ kind: "environment", resourceId: row.id, level: "manage" });
+  }
+  const runners = await store.pipelines.runners.listForTeam(teamId);
+  for (const row of runners) {
+    if (reach.environmentIds === null || environments.some((env) => env.runnerId === row.id)) {
+      rows.push({ kind: "machine", resourceId: row.id, level: "manage" });
+    }
+  }
+  for (const row of await store.pipelines.pipelines.listForTeam(teamId)) {
+    if (reach.pipelineIds === null || reach.pipelineIds.includes(row.id)) {
+      rows.push({ kind: "pipeline", resourceId: row.id, level: "manage" });
+    }
+  }
+  for (const row of await store.projects.listForTeams([teamId], 500)) {
+    if (reach.projectIds === null || reach.projectIds.includes(row.id)) {
+      rows.push({ kind: "project", resourceId: row.id, level: "see" });
+    }
+  }
+  if (reach.secretNames) rows.push({ kind: "vault", resourceId: VAULT_RESOURCE, level: "see" });
+  return new OpsScope(teamId, rows);
+}
+
 /** The access list: what people see and change on Ops → Access. */
 export class OpsAccess {
   constructor(

@@ -370,6 +370,18 @@ export const api = {
         body: JSON.stringify(input),
       }),
     jobs: (teamId: string) => request<{ jobs: OpsJobSummary[] }>(`/teams/${teamId}/ops/jobs`),
+    waiting: (teamId: string) =>
+      request<{
+        waiting: Array<{
+          jobId: string;
+          kind: "plan" | "step";
+          request: string;
+          words: string;
+          createdAt: string;
+          canDecide: boolean;
+          why: string | null;
+        }>;
+      }>(`/teams/${teamId}/ops/waiting`),
     job: (teamId: string, jobId: string) =>
       request<{ job: OpsJobDetail }>(`/teams/${teamId}/ops/jobs/${jobId}`),
     talk: (teamId: string, input: { text: string; jobId?: string; spoken?: boolean }) =>
@@ -488,6 +500,21 @@ export const api = {
       request<{ lines: RunLogLine[]; done: boolean }>(
         `/teams/${teamId}/pipeline-runs/${runId}/logs?after=${after}`,
       ),
+    waitingApprovals: (teamId: string) =>
+      request<{
+        approvals: Array<{
+          runId: string;
+          approvalId: string;
+          pipelineId: string;
+          pipeline: string;
+          run: number;
+          message: string;
+          deadline: string;
+          createdAt: string;
+          canDecide: boolean;
+          why: string | null;
+        }>;
+      }>(`/teams/${teamId}/pipeline-approvals/waiting`),
     decide: (
       teamId: string,
       runId: string,

@@ -65,6 +65,8 @@ export interface ActionContext {
   say(text: string): Promise<void>;
   /** What Ops has been given (076). `services.store` already shows only this. */
   scope: OpsScope;
+  /** The person this work is for when there is no job (an outside agent's): message_me tells them. */
+  person: string | null;
   /** Which operations sheets Ops may read (076): none about a thing it was not given. */
   seesSubject(): Promise<(subject: string) => boolean>;
   /** Something Ops just made under an approved plan becomes its own to manage. */
@@ -105,6 +107,11 @@ export interface OpsAction<I extends Record<string, unknown> = Record<string, un
    * runs: anything not given to Ops, and it does not run.
    */
   touches?: (ctx: ActionContext, inputs: I) => Promise<OpsTouch[]>;
+  /**
+   * It changes nothing anywhere: it only tells the person who asked (message_me).
+   * An outside agent may do it without a request waiting for approval.
+   */
+  onlyTellsTheAsker?: boolean;
   /** What a person reads in a plan, from the exact inputs. */
   words: (inputs: I) => string;
   /** How to undo it, in plain words; null when there is nothing to undo. */

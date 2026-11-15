@@ -668,12 +668,25 @@ export class AgentService {
     }
     if (proposal.actionType === "ops.action") {
       if (!this.ops) throw ZelyqError.badRequest("Ops is not available on this server.");
+      const asking = await this.store.agents.findById(proposal.agentId);
+      if (!asking) throw ZelyqError.badRequest("The agent that asked for this no longer exists.");
       const { outcome, proof } = await this.ops.performFor(
         user,
         proposal.teamId,
         String(payload.action ?? ""),
         payload.inputs,
-        { changesAllowed: true },
+        {
+          changesAllowed: true,
+          // What the agent was given on the Agents page, not Ops → Access.
+          agent: {
+            projectIds: parseList(asking.projectIds),
+            pipelineIds: parseList(asking.pipelineIds),
+            environmentIds: parseList(asking.environmentIds),
+            secretNames:
+              (JSON.parse(asking.permissions || "{}") as Record<string, string>)["vault.names"] !==
+              "off",
+          },
+        },
       );
       if (!outcome.ok) throw ZelyqError.badRequest(outcome.summary);
       return `${outcome.summary}${proof ? ` Checked: ${proof.ok ? "it worked" : "it did NOT work"} (${proof.detail ?? proof.target}).` : " Not checked."}`;

@@ -1676,6 +1676,7 @@ export class AgentGateway {
                 // Only the environment's id is wanted here; what Ops may reach is checked in performFor.
                 scope: undefined as never,
                 seesSubject: async () => () => true,
+                person: null,
                 created: async () => undefined,
                 approval: null,
                 grantRun: async () => undefined,
@@ -1729,13 +1730,22 @@ export class AgentGateway {
               );
             }
           }
-          if (risk === "read") {
+          // Looking, or a message only to the person it works for: done now, no request to approve.
+          if (risk === "read" || action.onlyTellsTheAsker === true) {
             const { outcome } = await this.deps.ops.performFor(
               user,
               context.agent.teamId,
               action.name,
               inputs,
-              { changesAllowed: false },
+              {
+                changesAllowed: false,
+                agent: {
+                  projectIds: context.projectIds,
+                  pipelineIds: context.pipelineIds,
+                  environmentIds: context.environmentIds,
+                  secretNames: context.permissions["vault.names"] === "allow",
+                },
+              },
             );
             if (!outcome.ok) return failure(outcome.summary);
             return json({

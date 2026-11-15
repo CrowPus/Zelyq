@@ -19,7 +19,15 @@ import {
 } from "@zelyq/core";
 import type { OpsEngineerRow, OpsJobRow, OpsPlanStepRow, PipelineRunRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
-import { accessSummary, missingAccess, OpsAccess, scopedStore, visibleSubjects } from "./access.js";
+import {
+  type AgentReach,
+  accessSummary,
+  agentScope,
+  missingAccess,
+  OpsAccess,
+  scopedStore,
+  visibleSubjects,
+} from "./access.js";
 import {
   type ActionContext,
   type ActionList,
@@ -244,6 +252,57 @@ export class OpsService {
     await this.access.requireTeamRole(user, teamId, "viewer");
     const rows = await this.store.ops.jobs.listForTeam(teamId);
     return rows.map((row) => this.summary(row));
+  }
+
+  /**
+   * What Ops waits on a person for: a plan to approve, or a step that cannot be
+   * undone to confirm on its own. With whether this person may answer: the bell.
+   */
+  async waiting(user: User, teamId: string) {
+    const role = await this.access.requireTeamRole(user, teamId, "viewer");
+    const out: Array<{
+      jobId: string;
+      kind: "plan" | "step";
+      request: string;
+      words: string;
+      createdAt: string;
+      canDecide: boolean;
+      why: string | null;
+    }> = [];
+    for (const job of await this.store.ops.jobs.listForTeam(teamId, 200)) {
+      if (job.stage !== "approve" && job.stage !== "act") continue;
+      const planned = (await this.store.ops.steps.listForJob(job.id)).filter(
+        (step) => step.status === "planned",
+      );
+      if (job.stage === "approve") {
+        const needed = await this.approverRole(job, planned);
+        const may = roleAtLeast(role, needed);
+        out.push({
+          jobId: job.id,
+          kind: "plan",
+          request: job.request,
+          words: `A plan of ${planned.length} step${planned.length === 1 ? "" : "s"}`,
+          createdAt: job.updatedAt,
+          canDecide: may,
+          why: may ? null : `Only a team ${needed} approves this plan.`,
+        });
+        continue;
+      }
+      for (const step of planned) {
+        if (step.risk !== "always-ask" || step.confirmedAt) continue;
+        const may = roleAtLeast(role, "admin");
+        out.push({
+          jobId: job.id,
+          kind: "step",
+          request: job.request,
+          words: step.words,
+          createdAt: job.updatedAt,
+          canDecide: may,
+          why: may ? null : "Only a team admin confirms a step that cannot be undone.",
+        });
+      }
+    }
+    return out;
   }
 
   async getJob(user: User, teamId: string, jobId: string): Promise<OpsJobDetail> {
@@ -997,7 +1056,11 @@ export class OpsService {
     teamId: string,
     name: string,
     rawInputs: unknown,
-    options: { changesAllowed: boolean },
+    options: {
+      changesAllowed: boolean;
+      /** An outside agent: what it was given on the Agents page decides its reach, not Ops → Access. */
+      agent?: AgentReach;
+    },
   ): Promise<{ outcome: ActionOutcome; proof: ProofResult | null }> {
     const action = this.actions.get(name);
     if (!action) throw ZelyqError.badRequest(`There is no action called ${name}.`);
@@ -1012,24 +1075,28 @@ export class OpsService {
     if (risk === "own-limits") {
       throw new ZelyqError("forbidden", "Only a person changes Ops's own limits, on the Ops page.");
     }
-    if (risk !== "read" && !options.changesAllowed) {
+    if (risk !== "read" && !options.changesAllowed && action.onlyTellsTheAsker !== true) {
       throw new ZelyqError(
         "forbidden",
         "This changes something: it waits for a person's approval.",
       );
     }
-    // An outside agent works through Ops's hands, so it reaches only what Ops was given.
-    const scope = await this.accessList.scopeFor(teamId);
+    // An outside agent reaches what it was given on the Agents page; anyone else here, what Ops was.
+    const scope = options.agent
+      ? await agentScope(this.store, teamId, options.agent)
+      : await this.accessList.scopeFor(teamId);
     const ctx: ActionContext = {
       teamId,
       user,
       jobId: null,
+      person: (await this.store.users.isService(user.id)) ? null : user.id,
       services: { store: scopedStore(this.store, scope), ...this.services },
       scope,
       seesSubject: () => visibleSubjects(this.store, scope, teamId),
       created: async (kind, id) => {
         scope.add(kind, id, "manage");
-        await this.accessList.grantCreated(teamId, kind, id, user.id);
+        // What an agent makes is not thereby given to Ops.
+        if (!options.agent) await this.accessList.grantCreated(teamId, kind, id, user.id);
       },
       approval: null,
       grantRun: async () => undefined,
@@ -1067,7 +1134,9 @@ export class OpsService {
         action: "ops.acted",
         detail: {
           action: name,
-          by: "an outside agent's approved request",
+          by: action.onlyTellsTheAsker
+            ? "an outside agent, telling the person it works for"
+            : "an outside agent's approved request",
           summary: outcome.summary.slice(0, 300),
         },
       });
@@ -1167,6 +1236,7 @@ export class OpsService {
       // Ops sees the team only through what it was given: by construction, not by remembering.
       services: { store: scopedStore(this.store, scope), ...this.services },
       scope,
+      person: null,
       seesSubject: () => visibleSubjects(this.store, scope, engineer.teamId),
       created: async (kind, id) => {
         scope.add(kind, id, "manage");

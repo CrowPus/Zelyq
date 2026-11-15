@@ -24,7 +24,6 @@ import {
 import { lazy, type ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { AgentRequests, forPipeline } from "../components/agents/AgentRequests";
 import { HistoryTab } from "../components/pipelines/HistoryTab";
 import { queueSummary } from "../components/pipelines/QueueNotice";
 import { RepoFileBar } from "../components/pipelines/RepoFile";
@@ -110,15 +109,6 @@ export function PipelinePage() {
               busy={start.isPending}
               onCancel={() => setAsking(false)}
               onStart={(values) => start.mutate(values)}
-            />
-          )}
-
-          {!isNew && team && (
-            <AgentRequests
-              teamId={team.id}
-              canDecide={roleAtLeast(team.role, "admin")}
-              only={forPipeline(id)}
-              waitingOnly
             />
           )}
 
