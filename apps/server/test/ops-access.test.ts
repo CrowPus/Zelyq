@@ -474,3 +474,49 @@ test("a note about a machine or app Ops was not given cannot be read or written,
   const body = (await store.ops.sheets.find(teamId, "machine:prod-box"))?.body ?? "";
   assert.doesNotMatch(body, /Overwritten/);
 });
+
+test("an outside agent reaches what it was given on the Agents page, not what Ops was", async () => {
+  // Ops was never given production; an agent given it may look there.
+  const agent = {
+    projectIds: [ids.project!],
+    pipelineIds: [],
+    environmentIds: [ids.production!],
+    secretNames: false,
+  };
+  const looked = await ops.performFor(
+    owner,
+    teamId,
+    "deployment_history",
+    { environment: "production" },
+    { changesAllowed: false, agent },
+  );
+  assert.equal(looked.outcome.ok, true, looked.outcome.summary);
+  // Staging is Ops's, but not this agent's.
+  await assert.rejects(
+    ops.performFor(
+      owner,
+      teamId,
+      "deployment_history",
+      { environment: "staging" },
+      {
+        changesAllowed: false,
+        agent,
+      },
+    ),
+    /environment staging has not been given/,
+  );
+  await assert.rejects(
+    ops.performFor(owner, teamId, "list_secret_names", {}, { changesAllowed: false, agent }),
+    /secret names/,
+  );
+  // A message only to the person it works for needs no request: it goes now, or says why not.
+  const told = await ops.performFor(
+    owner,
+    teamId,
+    "message_me",
+    { message: "crowpus looks fine.", where: "telegram" },
+    { changesAllowed: false, agent },
+  );
+  assert.doesNotMatch(told.outcome.summary, /conversation on the Ops page/);
+  assert.match(told.outcome.summary, /Telegram|link/i);
+});

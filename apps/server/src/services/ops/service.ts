@@ -19,7 +19,15 @@ import {
 } from "@zelyq/core";
 import type { OpsEngineerRow, OpsJobRow, OpsPlanStepRow, PipelineRunRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
-import { accessSummary, missingAccess, OpsAccess, scopedStore, visibleSubjects } from "./access.js";
+import {
+  type AgentReach,
+  accessSummary,
+  agentScope,
+  missingAccess,
+  OpsAccess,
+  scopedStore,
+  visibleSubjects,
+} from "./access.js";
 import {
   type ActionContext,
   type ActionList,
@@ -997,7 +1005,11 @@ export class OpsService {
     teamId: string,
     name: string,
     rawInputs: unknown,
-    options: { changesAllowed: boolean },
+    options: {
+      changesAllowed: boolean;
+      /** An outside agent: what it was given on the Agents page decides its reach, not Ops → Access. */
+      agent?: AgentReach;
+    },
   ): Promise<{ outcome: ActionOutcome; proof: ProofResult | null }> {
     const action = this.actions.get(name);
     if (!action) throw ZelyqError.badRequest(`There is no action called ${name}.`);
@@ -1012,24 +1024,28 @@ export class OpsService {
     if (risk === "own-limits") {
       throw new ZelyqError("forbidden", "Only a person changes Ops's own limits, on the Ops page.");
     }
-    if (risk !== "read" && !options.changesAllowed) {
+    if (risk !== "read" && !options.changesAllowed && action.onlyTellsTheAsker !== true) {
       throw new ZelyqError(
         "forbidden",
         "This changes something: it waits for a person's approval.",
       );
     }
-    // An outside agent works through Ops's hands, so it reaches only what Ops was given.
-    const scope = await this.accessList.scopeFor(teamId);
+    // An outside agent reaches what it was given on the Agents page; anyone else here, what Ops was.
+    const scope = options.agent
+      ? await agentScope(this.store, teamId, options.agent)
+      : await this.accessList.scopeFor(teamId);
     const ctx: ActionContext = {
       teamId,
       user,
       jobId: null,
+      person: (await this.store.users.isService(user.id)) ? null : user.id,
       services: { store: scopedStore(this.store, scope), ...this.services },
       scope,
       seesSubject: () => visibleSubjects(this.store, scope, teamId),
       created: async (kind, id) => {
         scope.add(kind, id, "manage");
-        await this.accessList.grantCreated(teamId, kind, id, user.id);
+        // What an agent makes is not thereby given to Ops.
+        if (!options.agent) await this.accessList.grantCreated(teamId, kind, id, user.id);
       },
       approval: null,
       grantRun: async () => undefined,
@@ -1067,7 +1083,9 @@ export class OpsService {
         action: "ops.acted",
         detail: {
           action: name,
-          by: "an outside agent's approved request",
+          by: action.onlyTellsTheAsker
+            ? "an outside agent, telling the person it works for"
+            : "an outside agent's approved request",
           summary: outcome.summary.slice(0, 300),
         },
       });
@@ -1167,6 +1185,7 @@ export class OpsService {
       // Ops sees the team only through what it was given: by construction, not by remembering.
       services: { store: scopedStore(this.store, scope), ...this.services },
       scope,
+      person: null,
       seesSubject: () => visibleSubjects(this.store, scope, engineer.teamId),
       created: async (kind, id) => {
         scope.add(kind, id, "manage");

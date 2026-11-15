@@ -25,12 +25,15 @@ const messageMe: OpsAction<z.infer<typeof tellInput>> = {
   input: tellInput,
   risk: "change",
   freeUse: true,
+  onlyTellsTheAsker: true,
   words: (inputs) =>
     `Send you a message${inputs.where === "any" ? "" : inputs.where === "email" ? " by email" : ` on ${NAME[inputs.where]}`}`,
   undo: () => null,
   async run(ctx, inputs) {
+    // In a job: the person who asked. From an outside agent: the person it works for.
     const job = ctx.jobId ? await ctx.services.store.ops.jobs.findById(ctx.jobId) : null;
-    if (!job?.askedBy)
+    const askedBy = job ? job.askedBy : ctx.person;
+    if (!askedBy)
       return {
         ok: false,
         summary: "A message goes to the person who asked, in a conversation on the Ops page.",
@@ -43,7 +46,7 @@ const messageMe: OpsAction<z.infer<typeof tellInput>> = {
         throw new Error(
           "Email is not set up yet: a Zelyq admin fills in Settings → Email and sends a test there.",
         );
-      const user = await ctx.services.store.users.findById(job.askedBy as string);
+      const user = await ctx.services.store.users.findById(askedBy);
       if (!user?.email) throw new Error("Your account has no email address.");
       const result = await ctx.services.mail.send({
         to: [user.email],
@@ -55,7 +58,7 @@ const messageMe: OpsAction<z.infer<typeof tellInput>> = {
     const byChat = (where: "telegram" | "slack" | "any") =>
       ctx.services.channels.tellPerson(
         ctx.teamId,
-        job.askedBy as string,
+        askedBy,
         { title: "From Ops", lines: [inputs.message], link: null },
         where,
       );
