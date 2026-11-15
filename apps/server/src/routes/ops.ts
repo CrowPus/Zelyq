@@ -1,4 +1,4 @@
-import { type Role, roleAtLeast, type User, ZelyqError } from "@zelyq/core";
+import { OPS_TEAM_AUDIENCES, type Role, roleAtLeast, type User, ZelyqError } from "@zelyq/core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
@@ -117,6 +117,18 @@ export function registerOpsRoutes(
       .parse(request.body);
     await plainly(
       channels.connect(request.params.teamId, kindOf(request.params.kind), input, user.id),
+    );
+    return channelsView(request.params.teamId, user);
+  });
+  /** What the team's shared channel hears: urgent alerts, warnings, or neither. */
+  app.put<Kind>("/api/teams/:teamId/ops/channels/:kind/team-audiences", async (request) => {
+    const user = await person(request, request.params.teamId, "admin");
+    const { audiences } = z
+      .object({ audiences: z.array(z.enum(OPS_TEAM_AUDIENCES)).max(2) })
+      .strict()
+      .parse(request.body);
+    await plainly(
+      channels.setTeamAudiences(request.params.teamId, kindOf(request.params.kind), audiences),
     );
     return channelsView(request.params.teamId, user);
   });

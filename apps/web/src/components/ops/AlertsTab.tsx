@@ -7,7 +7,9 @@ import type {
   OpsNotifyAudience,
   OpsNotifyPrefs,
   OpsPersonalChannel,
+  OpsTeamAudience,
 } from "@zelyq/core";
+import { OPS_TEAM_AUDIENCES } from "@zelyq/core";
 import { ExternalLink, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSession } from "../../hooks/useSession";
@@ -233,6 +235,25 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                   </li>
                 );
               })}
+          </ul>
+        )}
+        {data.channels.some((row) => row.teamAudiences !== null) && (
+          <ul className="grid gap-2" aria-label="The team's channels">
+            {data.channels
+              .filter((row) => row.teamAudiences !== null)
+              .map((row) => (
+                <li
+                  key={`team-${row.kind}`}
+                  className="flex flex-wrap items-center gap-3 rounded-md border border-border-default bg-surface px-3 py-2 text-sm"
+                >
+                  <span className="w-20 font-medium">{SERVICE[row.kind]}</span>
+                  <span className="min-w-0 flex-1 text-xs text-fg-secondary">
+                    {row.kind === "discord" ? row.name.replace(/^Discord · /, "") : row.teamChat} is
+                    the team's channel: everyone there sees{" "}
+                    {teamAudienceWords(row.teamAudiences ?? [])}. Nothing to link.
+                  </span>
+                </li>
+              ))}
           </ul>
         )}
         <Choices
@@ -628,6 +649,19 @@ function ServiceCard({
           <span className="flex-1 text-xs text-fg-muted">Not connected</span>
         )}
       </div>
+      {channel?.teamAudiences && (
+        <TeamAudiences
+          teamId={teamId}
+          kind={kind}
+          chosen={channel.teamAudiences}
+          canManage={canManage}
+          where={
+            kind === "discord" ? "The Discord channel" : `The Slack channel ${channel.teamChat}`
+          }
+          onDone={onDone}
+          onError={onError}
+        />
+      )}
       {!channel && canManage && (
         <form
           className="mt-2 grid gap-2 border-t border-border-default pt-2 text-xs"
@@ -706,5 +740,64 @@ function ServiceCard({
         </form>
       )}
     </div>
+  );
+}
+
+const TEAM_AUDIENCE_WORDS: Record<OpsTeamAudience, string> = {
+  urgent: "urgent alerts",
+  warning: "warnings",
+};
+
+function teamAudienceWords(chosen: OpsTeamAudience[]): string {
+  if (chosen.length === 0) return "nothing for now";
+  return chosen.map((one) => TEAM_AUDIENCE_WORDS[one]).join(" and ");
+}
+
+/** What the team's shared channel hears: an admin ticks, everyone reads. */
+function TeamAudiences({
+  teamId,
+  kind,
+  chosen,
+  canManage,
+  where,
+  onDone,
+  onError,
+}: {
+  teamId: string;
+  kind: OpsChannelKind;
+  chosen: OpsTeamAudience[];
+  canManage: boolean;
+  where: string;
+  onDone: (next: OpsChannelsView) => void;
+  onError: (caught: unknown) => void;
+}) {
+  const save = useMutation({
+    mutationFn: (next: OpsTeamAudience[]) => api.ops.setTeamAudiences(teamId, kind, next),
+    onSuccess: onDone,
+    onError,
+  });
+  return (
+    <fieldset className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border-default pt-2 text-xs">
+      <legend className="sr-only">What {where.toLowerCase()} hears</legend>
+      <span className="text-fg-secondary">{where} hears:</span>
+      {OPS_TEAM_AUDIENCES.map((one) => (
+        <label key={one} className="inline-flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={chosen.includes(one)}
+            disabled={!canManage || save.isPending}
+            onChange={(event) =>
+              save.mutate(
+                event.target.checked ? [...chosen, one] : chosen.filter((other) => other !== one),
+              )
+            }
+          />
+          {TEAM_AUDIENCE_WORDS[one].replace(/^./, (first) => first.toUpperCase())}
+        </label>
+      ))}
+      <span className="text-fg-muted">
+        Approvals and messages Ops sends you stay in your own chats.
+      </span>
+    </fieldset>
   );
 }

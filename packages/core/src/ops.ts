@@ -345,8 +345,17 @@ export interface OpsChannelView {
   status: "ok" | "failing";
   lastError: string | null;
   teamChat: string | null;
+  /**
+   * What the team's shared place hears (the Discord channel, a Slack channel).
+   * Null when the service has no shared place (Telegram, Slack without a channel).
+   */
+  teamAudiences: OpsTeamAudience[] | null;
   updatedAt: string;
 }
+
+/** What a team's shared channel can hear: alerts, which concern everyone. */
+export const OPS_TEAM_AUDIENCES = ["urgent", "warning"] as const;
+export type OpsTeamAudience = (typeof OPS_TEAM_AUDIENCES)[number];
 
 export interface OpsChannelsView {
   channels: OpsChannelView[];

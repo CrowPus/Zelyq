@@ -1,0 +1,1 @@
+ALTER TABLE `ops_channels` ADD `team_audiences` text DEFAULT '["urgent","warning"]' NOT NULL;
