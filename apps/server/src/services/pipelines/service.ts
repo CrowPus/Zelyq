@@ -978,6 +978,39 @@ export class PipelineService {
     return this.getRun(user, teamId, run.id);
   }
 
+  /**
+   * Every question a run of this team waits on (an approval step, a deploy to a
+   * protected environment), with whether this person may answer it and why
+   * not: the bell shows them all, in one place.
+   */
+  async waitingApprovals(user: User, teamId: string) {
+    const role = await this.access.requireTeamRole(user, teamId, "viewer");
+    const runs = (await this.store.pipelines.runs.listByStatus("waiting")).filter(
+      (run) => run.teamId === teamId,
+    );
+    const waiting = [];
+    for (const run of runs) {
+      const pipeline = await this.store.pipelines.pipelines.findById(run.pipelineId);
+      for (const approval of await this.store.pipelines.approvals.listForRun(run.id)) {
+        if (approval.decision) continue;
+        const refusal = mayApprove(approval, run, user, role);
+        waiting.push({
+          runId: run.id,
+          approvalId: approval.id,
+          pipelineId: run.pipelineId,
+          pipeline: pipeline?.name ?? "A pipeline",
+          run: run.number,
+          message: approval.message,
+          deadline: approval.deadline,
+          createdAt: approval.createdAt,
+          canDecide: refusal === null,
+          why: refusal,
+        });
+      }
+    }
+    return waiting;
+  }
+
   /** Log lines after a sequence number; `done` once the run has ended and all is read. */
   async logs(
     user: User,

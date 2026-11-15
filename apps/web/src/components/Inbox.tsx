@@ -1,44 +1,67 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
-import { Bell, ServerCog } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Bell, ServerCog, Workflow } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { AgentRequests } from "./agents/AgentRequests";
+import { Button } from "./ui";
 
 /**
- * One place for everything that waits on a person: what agents asked to do
- * (pipelines, deploys, pushes, video, Ops's actions) and Ops's plans. A bell
- * on every page, with the count; open it to approve or decline where you are.
+ * One place for everything that waits on a person, wherever they are:
+ * questions pipeline runs ask (an approval step, a deploy to a protected
+ * environment), Ops's plans and the steps it cannot undo, and what agents
+ * asked to do. A bell on every page with the count of what this person can
+ * answer; open it to answer there.
  */
 export function Inbox() {
   const { team } = useActiveTeam();
   const teamId = team?.id ?? "";
   const isAdmin = team ? roleAtLeast(team.role, "admin") : false;
-  const canApprovePlans = team ? roleAtLeast(team.role, "editor") : false;
   const [open, setOpen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const location = useLocation();
+  const queryClient = useQueryClient();
 
+  const every = { enabled: Boolean(teamId), refetchInterval: 15_000, retry: false } as const;
   const requests = useQuery({
     queryKey: ["agent-requests", teamId],
     queryFn: () => api.agents.requests(teamId),
-    enabled: Boolean(teamId),
-    refetchInterval: 15_000,
+    ...every,
   });
-  const jobs = useQuery({
-    queryKey: ["ops-jobs-waiting", teamId],
-    queryFn: () => api.ops.jobs(teamId),
-    enabled: Boolean(teamId) && canApprovePlans,
-    refetchInterval: 15_000,
-    retry: false,
+  const runs = useQuery({
+    queryKey: ["inbox-pipeline-approvals", teamId],
+    queryFn: () => api.pipelines.waitingApprovals(teamId),
+    ...every,
+  });
+  const ops = useQuery({
+    queryKey: ["inbox-ops", teamId],
+    queryFn: () => api.ops.waiting(teamId),
+    ...every,
+  });
+
+  const answer = useMutation({
+    mutationFn: (input: { runId: string; approvalId: string; decision: "approved" | "rejected" }) =>
+      api.pipelines.decide(teamId, input.runId, input.approvalId, input.decision, null),
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          ["inbox-pipeline-approvals", "pipeline-runs", "pipeline", "pipelines"].includes(
+            String(query.queryKey[0]),
+          ),
+      }),
   });
 
   const agentWaiting = (requests.data?.requests ?? []).filter((r) => r.status === "pending");
-  const plans = (jobs.data?.jobs ?? []).filter((job) => job.stage === "approve");
-  // Counted only what this person can decide: a bell nobody can answer is noise.
-  const count = (isAdmin ? agentWaiting.length : 0) + (canApprovePlans ? plans.length : 0);
+  const runQuestions = runs.data?.approvals ?? [];
+  const opsWaiting = ops.data?.waiting ?? [];
+  // Counted only what this person can answer: a bell nobody can answer is noise.
+  const count =
+    (isAdmin ? agentWaiting.length : 0) +
+    runQuestions.filter((one) => one.canDecide).length +
+    opsWaiting.filter((one) => one.canDecide).length;
+  const nothing = agentWaiting.length + runQuestions.length + opsWaiting.length === 0;
 
   // Moving to another page closes it; so do Escape and a click outside.
   // biome-ignore lint/correctness/useExhaustiveDependencies: closes on every change of page
@@ -88,47 +111,126 @@ export function Inbox() {
             Everything in {team?.name} that needs a person's yes, in one place.
           </p>
 
-          {canApprovePlans && plans.length > 0 && (
-            <section className="mb-4">
-              <h2 className="text-sm font-medium text-fg">Ops plans ({plans.length})</h2>
-              <ul className="mt-2 grid gap-2">
-                {plans.map((job) => (
-                  <li
-                    key={job.id}
-                    className="flex items-start justify-between gap-3 rounded-lg border border-border-default bg-surface px-3.5 py-2.5"
-                  >
-                    <span className="flex min-w-0 items-start gap-2.5">
-                      <ServerCog
-                        size={15}
-                        strokeWidth={1.75}
-                        className="mt-0.5 shrink-0 text-fg-muted"
-                      />
-                      <span className="min-w-0">
-                        <span className="line-clamp-2 text-sm text-fg">{job.request}</span>
-                        <span className="block text-2xs text-fg-muted">
-                          A plan from Ops · {new Date(job.createdAt).toLocaleString()}
-                        </span>
+          {runQuestions.length > 0 && (
+            <Group title={`Pipeline runs (${runQuestions.length})`}>
+              {answer.isError && (
+                <p className="text-xs text-danger">{(answer.error as Error).message}</p>
+              )}
+              {runQuestions.map((one) => (
+                <Item
+                  key={one.approvalId}
+                  icon={<Workflow size={15} strokeWidth={1.75} />}
+                  title={one.message}
+                  detail={
+                    <>
+                      <Link
+                        to={`/pipelines/${one.pipelineId}/runs/${one.runId}`}
+                        className="underline underline-offset-2 hover:text-fg"
+                      >
+                        {one.pipeline} #{one.run}
+                      </Link>{" "}
+                      · answer by {new Date(one.deadline).toLocaleString()}
+                    </>
+                  }
+                  actions={
+                    one.canDecide ? (
+                      <span className="flex shrink-0 gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={answer.isPending}
+                          onClick={() => answer.mutate({ ...one, decision: "approved" })}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={answer.isPending}
+                          onClick={() => answer.mutate({ ...one, decision: "rejected" })}
+                        >
+                          Reject
+                        </Button>
                       </span>
-                    </span>
-                    <Link
-                      to={`/ops?job=${encodeURIComponent(job.id)}`}
-                      className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg hover:opacity-90"
-                    >
-                      Read and approve
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
+                    ) : (
+                      <span className="max-w-40 text-right text-2xs text-fg-muted">{one.why}</span>
+                    )
+                  }
+                />
+              ))}
+            </Group>
+          )}
+
+          {opsWaiting.length > 0 && (
+            <Group title={`Ops (${opsWaiting.length})`}>
+              {opsWaiting.map((one) => (
+                <Item
+                  key={`${one.jobId}:${one.kind}:${one.words}`}
+                  icon={<ServerCog size={15} strokeWidth={1.75} />}
+                  title={one.kind === "plan" ? one.request : one.words}
+                  detail={
+                    one.kind === "plan"
+                      ? `${one.words}, waiting for approval`
+                      : `Cannot be undone: confirm it on its own · ${one.request}`
+                  }
+                  actions={
+                    one.canDecide ? (
+                      <Link
+                        to={`/ops?job=${encodeURIComponent(one.jobId)}`}
+                        className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg hover:bg-primary-hover"
+                      >
+                        {one.kind === "plan" ? "Read and approve" : "Read and confirm"}
+                      </Link>
+                    ) : (
+                      <span className="max-w-40 text-right text-2xs text-fg-muted">{one.why}</span>
+                    )
+                  }
+                />
+              ))}
+            </Group>
           )}
 
           <AgentRequests teamId={teamId} canDecide={isAdmin} waitingOnly title="From agents" />
 
-          {agentWaiting.length === 0 && plans.length === 0 && (
+          {nothing && (
             <p className="py-6 text-center text-xs text-fg-muted">Nothing waits for you.</p>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mb-4">
+      <h2 className="text-sm font-medium text-fg">{title}</h2>
+      <ul className="mt-2 grid gap-2">{children}</ul>
+    </section>
+  );
+}
+
+function Item({
+  icon,
+  title,
+  detail,
+  actions,
+}: {
+  icon: ReactNode;
+  title: string;
+  detail: ReactNode;
+  actions: ReactNode;
+}) {
+  return (
+    <li className="flex items-start justify-between gap-3 rounded-lg border border-border-default bg-surface px-3.5 py-2.5">
+      <span className="flex min-w-0 items-start gap-2.5">
+        <span className="mt-0.5 shrink-0 text-fg-muted">{icon}</span>
+        <span className="min-w-0">
+          <span className="line-clamp-2 text-sm text-fg">{title}</span>
+          <span className="block text-2xs text-fg-muted">{detail}</span>
+        </span>
+      </span>
+      {actions}
+    </li>
   );
 }

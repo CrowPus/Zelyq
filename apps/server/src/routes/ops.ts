@@ -281,6 +281,10 @@ export function registerOpsRoutes(
     }),
   );
 
+  /** What Ops waits on a person for: plans and steps to confirm, for the bell. */
+  app.get<Team>("/api/teams/:teamId/ops/waiting", async (request) => ({
+    waiting: await ops.waiting(access.requireUser(request), request.params.teamId),
+  }));
   app.get<Team>("/api/teams/:teamId/ops/jobs", async (request) => ({
     jobs: await ops.listJobs(access.requireUser(request), request.params.teamId),
   }));

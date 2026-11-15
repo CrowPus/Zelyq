@@ -254,6 +254,57 @@ export class OpsService {
     return rows.map((row) => this.summary(row));
   }
 
+  /**
+   * What Ops waits on a person for: a plan to approve, or a step that cannot be
+   * undone to confirm on its own. With whether this person may answer: the bell.
+   */
+  async waiting(user: User, teamId: string) {
+    const role = await this.access.requireTeamRole(user, teamId, "viewer");
+    const out: Array<{
+      jobId: string;
+      kind: "plan" | "step";
+      request: string;
+      words: string;
+      createdAt: string;
+      canDecide: boolean;
+      why: string | null;
+    }> = [];
+    for (const job of await this.store.ops.jobs.listForTeam(teamId, 200)) {
+      if (job.stage !== "approve" && job.stage !== "act") continue;
+      const planned = (await this.store.ops.steps.listForJob(job.id)).filter(
+        (step) => step.status === "planned",
+      );
+      if (job.stage === "approve") {
+        const needed = await this.approverRole(job, planned);
+        const may = roleAtLeast(role, needed);
+        out.push({
+          jobId: job.id,
+          kind: "plan",
+          request: job.request,
+          words: `A plan of ${planned.length} step${planned.length === 1 ? "" : "s"}`,
+          createdAt: job.updatedAt,
+          canDecide: may,
+          why: may ? null : `Only a team ${needed} approves this plan.`,
+        });
+        continue;
+      }
+      for (const step of planned) {
+        if (step.risk !== "always-ask" || step.confirmedAt) continue;
+        const may = roleAtLeast(role, "admin");
+        out.push({
+          jobId: job.id,
+          kind: "step",
+          request: job.request,
+          words: step.words,
+          createdAt: job.updatedAt,
+          canDecide: may,
+          why: may ? null : "Only a team admin confirms a step that cannot be undone.",
+        });
+      }
+    }
+    return out;
+  }
+
   async getJob(user: User, teamId: string, jobId: string): Promise<OpsJobDetail> {
     await this.access.requireTeamRole(user, teamId, "viewer");
     return this.detail(user, await this.jobOf(teamId, jobId));

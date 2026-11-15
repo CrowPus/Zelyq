@@ -222,6 +222,16 @@ export function registerPipelineRoutes(
     reply.header("content-disposition", `attachment; filename="${log.name}"`);
     return log.text;
   });
+  /** What runs of the team wait on, for the bell. */
+  app.get<{ Params: { teamId: string } }>(
+    "/api/teams/:teamId/pipeline-approvals/waiting",
+    async (request) => ({
+      approvals: await pipelines.waitingApprovals(
+        access.requireUser(request),
+        request.params.teamId,
+      ),
+    }),
+  );
   app.post<{ Params: { teamId: string; runId: string; approvalId: string } }>(
     "/api/teams/:teamId/pipeline-runs/:runId/approvals/:approvalId",
     async (request) => {

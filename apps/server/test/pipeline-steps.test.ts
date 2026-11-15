@@ -199,6 +199,18 @@ stages:
     .run;
   assert.equal(editorView.approvals[0].canDecide, false);
 
+  // The bell lists it for everyone in the team, and says who may answer.
+  const forAdmin = (await call(cookies.admin, "GET", team("/pipeline-approvals/waiting"))).json()
+    .approvals;
+  const mine = forAdmin.find((one: { runId: string }) => one.runId === runId);
+  assert.equal(mine?.message, "Deploy to production?");
+  assert.equal(mine?.canDecide, true);
+  const forEditor = (await call(cookies.editor, "GET", team("/pipeline-approvals/waiting"))).json()
+    .approvals;
+  const theirs = forEditor.find((one: { runId: string }) => one.runId === runId);
+  assert.equal(theirs?.canDecide, false);
+  assert.match(String(theirs?.why), /admins and owners/);
+
   const approved = await answer(runId, cookies.admin, "approved", "Looks good");
   assert.equal(approved.statusCode, 200, approved.body);
   const done = await finished(runId);

@@ -520,3 +520,27 @@ test("an outside agent reaches what it was given on the Agents page, not what Op
   assert.doesNotMatch(told.outcome.summary, /conversation on the Ops page/);
   assert.match(told.outcome.summary, /Telegram|link/i);
 });
+
+test("the bell lists Ops's plans waiting for approval, and says who may approve", async () => {
+  const job = await ops.startJob(owner, teamId, { request: "Put the shop on shop.example.org" });
+  const plan = await ops.proposePlan(job.id, {
+    steps: [
+      {
+        action: "set_app_address",
+        inputs: { environment: "staging", app: "shop", domain: "shop.example.org" },
+      },
+    ],
+  });
+  assert.ok(plan.ok, JSON.stringify(plan.issues));
+  assert.equal(plan.job?.stage, "approve");
+  const forOwner = (await call("GET", `/api/teams/${teamId}/ops/waiting`)).json().waiting;
+  const mine = forOwner.find((one: { jobId: string }) => one.jobId === job.id);
+  assert.equal(mine?.kind, "plan");
+  assert.equal(mine?.canDecide, true);
+  const forEditor = (
+    await call("GET", `/api/teams/${teamId}/ops/waiting`, undefined, editorCookie)
+  ).json().waiting;
+  const theirs = forEditor.find((one: { jobId: string }) => one.jobId === job.id);
+  assert.equal(theirs?.canDecide, false);
+  assert.match(String(theirs?.why), /admin/);
+});
