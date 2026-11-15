@@ -330,6 +330,11 @@ export const api = {
         method: "POST",
         body: "{}",
       }),
+    setTeamAudiences: (teamId: string, kind: OpsChannelKind, audiences: string[]) =>
+      request<OpsChannelsView>(`/teams/${teamId}/ops/channels/${kind}/team-audiences`, {
+        method: "PUT",
+        body: JSON.stringify({ audiences }),
+      }),
     startLink: (teamId: string, kind: OpsChannelKind, slackEmail?: string) =>
       request<OpsLinkStart>(`/teams/${teamId}/ops/channels/${kind}/link`, {
         method: "POST",

@@ -1633,6 +1633,8 @@ export const opsChannels = sqliteTable(
     secret: text("secret").notNull(),
     /** The team's shared place, when the service has one (a Slack channel). */
     teamChat: text("team_chat"),
+    /** What the team's shared place hears (a JSON list): urgent, warning. */
+    teamAudiences: text("team_audiences").notNull().default('["urgent","warning"]'),
     /** ok, failing */
     status: text("status").notNull(),
     lastError: text("last_error"),

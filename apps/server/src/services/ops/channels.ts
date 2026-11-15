@@ -2,12 +2,14 @@ import { createHash, randomInt } from "node:crypto";
 import {
   DEFAULT_NOTIFY_PREFS,
   newId,
+  OPS_TEAM_AUDIENCES,
   type OpsChannelKind,
   type OpsChannelsView,
   type OpsLinkStart,
   type OpsNotifyAudience,
   type OpsNotifyPrefs,
   type OpsPersonalChannel,
+  type OpsTeamAudience,
 } from "@zelyq/core";
 import type { OpsChannelLinkRow, OpsChannelRow, Store } from "@zelyq/db";
 import { guardedRequest } from "../net-guard.js";
@@ -185,6 +187,7 @@ export class ChannelService {
       account,
       secret: sealed,
       teamChat,
+      teamAudiences: JSON.stringify(OPS_TEAM_AUDIENCES),
       status: "ok",
       lastError: null,
       pollOffset: 0,
@@ -411,6 +414,29 @@ export class ChannelService {
     return prefs[audience].includes("email");
   }
 
+  /** What the team's shared place hears; an admin chooses. Nothing is a valid choice. */
+  async setTeamAudiences(
+    teamId: string,
+    kind: OpsChannelKind,
+    audiences: OpsTeamAudience[],
+    now = new Date(),
+  ): Promise<void> {
+    const channel = await this.store.ops.channels.find(teamId, kind);
+    if (!channel) throw new ChannelError("That service is not connected.");
+    if (!hasTeamPlace(channel)) {
+      throw new ChannelError(
+        kind === "slack"
+          ? "This Slack has no team channel. Connect it again with a channel to post to."
+          : "Telegram has no team channel: each person links their own chat.",
+      );
+    }
+    const clean = OPS_TEAM_AUDIENCES.filter((one) => audiences.includes(one));
+    await this.store.ops.channels.update(channel.id, {
+      teamAudiences: JSON.stringify(clean),
+      updatedAt: now.toISOString(),
+    });
+  }
+
   async view(teamId: string, userId: string, isAdmin: boolean): Promise<OpsChannelsView> {
     const members = await this.store.teams.listMembers(teamId);
     const links = await this.currentLinks(teamId, members);
@@ -421,6 +447,7 @@ export class ChannelService {
         status: row.status === "ok" ? "ok" : "failing",
         lastError: row.lastError,
         teamChat: row.teamChat,
+        teamAudiences: hasTeamPlace(row) ? teamAudiencesOf(row) : null,
         updatedAt: row.updatedAt,
       })),
       links: links
@@ -479,6 +506,8 @@ export class ChannelService {
       }
       if (notice.teamWide) {
         for (const channel of channels) {
+          // The team's place hears only what the team chose for it.
+          if (!(teamAudiencesOf(channel) as string[]).includes(notice.audience)) continue;
           if (channel.kind === "discord") sends.push(this.send(channel, null, text));
           if (channel.kind === "slack" && channel.teamChat)
             sends.push(this.send(channel, channel.teamChat, text));
@@ -769,6 +798,22 @@ export class ChannelService {
 }
 
 // ------------------------------------------------------------ small pieces
+
+/** Whether the service has a place the whole team reads: Discord, or Slack with a channel. */
+function hasTeamPlace(row: { kind: string; teamChat: string | null }): boolean {
+  return row.kind === "discord" || (row.kind === "slack" && Boolean(row.teamChat));
+}
+
+function teamAudiencesOf(row: { teamAudiences: string }): OpsTeamAudience[] {
+  try {
+    const parsed = JSON.parse(row.teamAudiences) as unknown;
+    return Array.isArray(parsed)
+      ? OPS_TEAM_AUDIENCES.filter((one) => (parsed as unknown[]).includes(one))
+      : [...OPS_TEAM_AUDIENCES];
+  } catch {
+    return [...OPS_TEAM_AUDIENCES];
+  }
+}
 
 function makeCode(): string {
   let code = "";

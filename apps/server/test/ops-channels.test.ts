@@ -604,6 +604,45 @@ test("Discord takes only a Discord webhook address, and never pings anyone", asy
   assert.deepEqual(post.body.allowed_mentions, { parse: [] });
 });
 
+test("the team's channel hears what an admin chose for it, and shows as the team's channel", async () => {
+  const view = (await inject(ownerCookie, "GET", `/api/teams/${teamId}/ops/channels`)).json();
+  const discord = view.channels.find((row: { kind: string }) => row.kind === "discord");
+  assert.deepEqual(discord.teamAudiences, ["urgent", "warning"]);
+  assert.equal(
+    view.channels.find((row: { kind: string }) => row.kind === "telegram")?.teamAudiences ?? null,
+    null,
+  );
+  // Warnings off: a warning no longer goes there; urgent still does.
+  const set = await inject(
+    ownerCookie,
+    "PUT",
+    `/api/teams/${teamId}/ops/channels/discord/team-audiences`,
+    { audiences: ["urgent"] },
+  );
+  assert.equal(set.statusCode, 200, set.body);
+  calls.length = 0;
+  const notice = { title: "x", lines: [], link: null, teamWide: true };
+  await channels.notify(teamId, [], { ...notice, audience: "warning" });
+  assert.ok(!calls.some((call) => call.url.startsWith(WEBHOOK)));
+  await channels.notify(teamId, [], { ...notice, audience: "urgent" });
+  assert.ok(calls.some((call) => call.url.startsWith(WEBHOOK)));
+  // Only an admin chooses, and a service with no team place has nothing to choose.
+  const asViewer = await inject(
+    viewerCookie,
+    "PUT",
+    `/api/teams/${teamId}/ops/channels/discord/team-audiences`,
+    { audiences: [] },
+  );
+  assert.equal(asViewer.statusCode, 403);
+  const telegram = await inject(
+    ownerCookie,
+    "PUT",
+    `/api/teams/${teamId}/ops/channels/telegram/team-audiences`,
+    { audiences: ["urgent"] },
+  );
+  assert.equal(telegram.statusCode, 400);
+});
+
 test("a person who leaves the team loses their links; disconnecting forgets them all", async () => {
   assert.ok(
     (await store.ops.channelLinks.listForTeam(teamId)).some((link) => link.userId === viewerId),
