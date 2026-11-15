@@ -470,12 +470,27 @@ test("Slack: found by email, the code goes to their DMs and is typed back; wrong
   // The owner's email is not in that Slack: said plainly.
   const missing = await inject(ownerCookie, "POST", `/api/teams/${teamId}/ops/channels/slack/link`);
   assert.equal(missing.statusCode, 400);
-  assert.match(missing.body, /No one in Acme uses owner@example.com/);
+  assert.match(
+    missing.body,
+    /Nobody in Acme uses owner@example.com.*Enter the email your Slack account uses/,
+  );
+  // So they say which one it uses: the code goes to that Slack account's own messages.
+  const chosen = await inject(ownerCookie, "POST", `/api/teams/${teamId}/ops/channels/slack/link`, {
+    slackEmail: "Viewer@Example.com",
+  });
+  assert.equal(chosen.statusCode, 200, chosen.body);
+  assert.match(chosen.json().words, /viewer@example.com/);
+  const bad = await inject(ownerCookie, "POST", `/api/teams/${teamId}/ops/channels/slack/link`, {
+    slackEmail: "not an email",
+  });
+  assert.equal(bad.statusCode, 400);
 
   const start = await inject(viewerCookie, "POST", `/api/teams/${teamId}/ops/channels/slack/link`);
   assert.equal(start.statusCode, 200, start.body);
   assert.equal(start.json().code, null, "the code is not shown in Zelyq: it goes to Slack");
-  const dm = sent("chat.postMessage").find((call) => call.body.channel === "U77");
+  const dm = sent("chat.postMessage")
+    .filter((call) => call.body.channel === "U77")
+    .at(-1);
   const code = /Your Zelyq code: (\w+)/.exec(String(dm?.body.text))?.[1] as string;
   assert.ok(code);
 

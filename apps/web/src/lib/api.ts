@@ -330,10 +330,10 @@ export const api = {
         method: "POST",
         body: "{}",
       }),
-    startLink: (teamId: string, kind: OpsChannelKind) =>
+    startLink: (teamId: string, kind: OpsChannelKind, slackEmail?: string) =>
       request<OpsLinkStart>(`/teams/${teamId}/ops/channels/${kind}/link`, {
         method: "POST",
-        body: "{}",
+        body: JSON.stringify(slackEmail ? { slackEmail } : {}),
       }),
     confirmSlack: (teamId: string, code: string) =>
       request<OpsChannelsView>(`/teams/${teamId}/ops/channels/slack/confirm`, {

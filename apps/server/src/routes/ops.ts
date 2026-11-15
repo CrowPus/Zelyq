@@ -134,11 +134,18 @@ export function registerOpsRoutes(
   });
   app.post<Kind>("/api/teams/:teamId/ops/channels/:kind/link", async (request) => {
     const user = await person(request, request.params.teamId, "viewer");
+    const { slackEmail } = z
+      .object({ slackEmail: z.string().trim().email().max(320).optional() })
+      .strict()
+      .parse(request.body ?? {});
     return plainly(
-      channels.startLink(request.params.teamId, kindOf(request.params.kind), {
-        id: user.id,
-        email: user.email,
-      }),
+      channels.startLink(
+        request.params.teamId,
+        kindOf(request.params.kind),
+        { id: user.id, email: user.email },
+        new Date(),
+        slackEmail,
+      ),
     );
   });
   app.post<Team>("/api/teams/:teamId/ops/channels/slack/confirm", async (request) => {
