@@ -241,6 +241,11 @@ export function forStudio(request: AgentProposal): boolean {
   return request.actionType === "media.video";
 }
 
+/** Ops's actions an agent asked for: approved on the Ops page, beside Ops's own work. */
+export function forOps(request: AgentProposal): boolean {
+  return request.actionType === "ops.action";
+}
+
 /** Pushes: until an app's own page shows them, the Agents page is where they wait. */
 export function forAgentsPage(request: AgentProposal): boolean {
   return request.actionType === "git.push";
@@ -250,6 +255,7 @@ const ELSEWHERE = [
   { label: "Pipelines", to: "/pipelines", matches: forPipeline() },
   { label: "Deployments", to: "/deployments", matches: forDeployments },
   { label: "Video Studio", to: "/studio/video", matches: forStudio },
+  { label: "Ops", to: "/ops", matches: forOps },
 ] as const;
 
 /**

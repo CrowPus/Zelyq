@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "../components/AppShell";
+import { AgentRequests, forOps } from "../components/agents/AgentRequests";
 import { Markdown } from "../components/Markdown";
 import { AccessTab } from "../components/ops/AccessTab";
 import { AlertsTab } from "../components/ops/AlertsTab";
@@ -119,6 +120,8 @@ export function OpsPage() {
             />
           ) : (
             <>
+              {/* What an outside agent asked to do with Ops's tools waits here for a team admin. */}
+              <AgentRequests teamId={teamId} canDecide={isAdmin} only={forOps} waitingOnly />
               <nav
                 className="flex gap-1 overflow-x-auto border-b border-border-default"
                 aria-label="Ops"
