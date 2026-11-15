@@ -4,7 +4,6 @@ import { roleAtLeast } from "@zelyq/core";
 import { GitBranch, Plus, Star, Workflow } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { AgentRequests, forPipeline } from "../components/agents/AgentRequests";
 import {
   FilterSelect,
   FilterToggle,
@@ -71,16 +70,6 @@ export function PipelinesPage() {
               </Link>
             )}
           </header>
-
-          {/* What agents asked to do to pipelines, here where the pipelines are. */}
-          {team && (
-            <AgentRequests
-              teamId={team.id}
-              canDecide={roleAtLeast(team.role, "admin")}
-              only={forPipeline()}
-              waitingOnly
-            />
-          )}
 
           <div role="tablist" className="mb-4 flex gap-1 border-b border-border-default">
             {(["pipelines", "overview", "runners", "plugins"] as const).map((name) => (

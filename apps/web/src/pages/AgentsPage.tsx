@@ -4,7 +4,7 @@ import { Bot, Pencil, Plus, RefreshCw, ShieldOff, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { AgentForm, type AgentFormValue } from "../components/agents/AgentForm";
-import { AgentRequests, forAgentsPage, WaitingElsewhere } from "../components/agents/AgentRequests";
+import { AgentRequests } from "../components/agents/AgentRequests";
 import { ConnectAgent, CopyBlock, gatewayUrl } from "../components/agents/ConnectAgent";
 import { Pager, pageOf, useListParams } from "../components/ListControls";
 import { Badge, Button, EmptyState, IconButton, Spinner } from "../components/ui";
@@ -111,8 +111,8 @@ export function AgentsPage() {
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-fg-secondary">
             Let Claude Code, Cursor, Gemini CLI or any MCP client work on your apps. The agent uses
             its own model and subscription — Zelyq lends it hands, only on the apps and with the
-            permissions you give it. What needs your approval waits where it is used: runs in
-            Pipelines, deployment changes in Deployments, videos in Video Studio.
+            permissions you give it. Whatever needs your approval waits under the bell at the top of
+            every page.
           </p>
 
           <div className="mt-4 max-w-xl">
@@ -123,14 +123,8 @@ export function AgentsPage() {
           </div>
 
           <div className="mt-6">
-            {teamId && <WaitingElsewhere teamId={teamId} />}
             {teamId && (
-              <AgentRequests
-                teamId={teamId}
-                canDecide={canAdmin}
-                appNames={appNames}
-                only={forAgentsPage}
-              />
+              <AgentRequests teamId={teamId} canDecide={canAdmin} appNames={appNames} historyOnly />
             )}
 
             {shown && (

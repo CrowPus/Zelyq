@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentProposal } from "@zelyq/core";
 import { Clapperboard, FilePen, GitBranchPlus, Rocket, RotateCcw, Workflow } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { TextDiff } from "../DiffView";
 import { Badge, Button } from "../ui";
@@ -25,6 +24,8 @@ export function AgentRequests({
   appNames = new Map(),
   only,
   waitingOnly = false,
+  historyOnly = false,
+  title,
 }: {
   teamId: string;
   canDecide: boolean;
@@ -34,6 +35,10 @@ export function AgentRequests({
   only?: (request: AgentProposal) => boolean;
   /** Only what still needs a decision; nothing at all when nothing does. */
   waitingOnly?: boolean;
+  /** Only what was decided: what waits is decided in one place, the bell (Inbox). */
+  historyOnly?: boolean;
+  /** A heading in place of "Waiting for you". */
+  title?: string;
 }) {
   const queryClient = useQueryClient();
   const [showHistory, setShowHistory] = useState(false);
@@ -68,11 +73,33 @@ export function AgentRequests({
   const waiting = all.filter((request) => request.status === "pending");
   const history = all.filter((request) => request.status !== "pending").slice(0, 20);
   if (all.length === 0 || (waitingOnly && waiting.length === 0)) return null;
+  if (historyOnly) {
+    if (history.length === 0) return null;
+    return (
+      <section className="mb-6">
+        <h2 className="text-sm font-medium text-fg">{title ?? "Earlier requests"}</h2>
+        <p className="mt-1 text-xs text-fg-secondary">
+          What agents asked for, and how each ended. What still waits is under the bell at the top.
+        </p>
+        <ul className="mt-2 grid gap-2">
+          {history.map((request) => (
+            <RequestRow
+              key={request.id}
+              request={request}
+              appName={request.projectId ? appNames.get(request.projectId) : undefined}
+            />
+          ))}
+        </ul>
+      </section>
+    );
+  }
 
   return (
     <section className="mb-6">
       <h2 className="text-sm font-medium text-fg">
-        {waiting.length > 0 ? `Waiting for you (${waiting.length})` : "Requests"}
+        {waiting.length > 0
+          ? `${title ?? "Waiting for you"} (${waiting.length})`
+          : (title ?? "Requests")}
       </h2>
       {waiting.length === 0 && (
         <p className="mt-1 text-xs text-fg-secondary">Nothing waiting for approval.</p>
@@ -249,39 +276,4 @@ export function forOps(request: AgentProposal): boolean {
 /** Pushes: until an app's own page shows them, the Agents page is where they wait. */
 export function forAgentsPage(request: AgentProposal): boolean {
   return request.actionType === "git.push";
-}
-
-const ELSEWHERE = [
-  { label: "Pipelines", to: "/pipelines", matches: forPipeline() },
-  { label: "Deployments", to: "/deployments", matches: forDeployments },
-  { label: "Video Studio", to: "/studio/video", matches: forStudio },
-  { label: "Ops", to: "/ops", matches: forOps },
-] as const;
-
-/**
- * What waits for a decision elsewhere — each request is approved where it is
- * used, not here — with the way there.
- */
-export function WaitingElsewhere({ teamId }: { teamId: string }) {
-  const requests = useQuery({
-    queryKey: ["agent-requests", teamId],
-    queryFn: () => api.agents.requests(teamId),
-    refetchInterval: 15_000,
-  });
-  const waiting = (requests.data?.requests ?? []).filter((r) => r.status === "pending");
-  const places = ELSEWHERE.map((place) => ({
-    ...place,
-    count: waiting.filter((request) => place.matches(request)).length,
-  })).filter((place) => place.count > 0);
-  if (places.length === 0) return null;
-  return (
-    <p className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-warning/25 bg-warning-subtle px-3.5 py-2.5 text-xs text-fg">
-      <span className="font-medium">Waiting for approval where they are used:</span>
-      {places.map((place) => (
-        <Link key={place.to} to={place.to} className="underline underline-offset-2 hover:text-fg">
-          {place.count} in {place.label} →
-        </Link>
-      ))}
-    </p>
-  );
 }
