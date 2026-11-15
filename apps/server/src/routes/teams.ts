@@ -11,12 +11,13 @@ import type { Store } from "@zelyq/db";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { EmailLinkService } from "../services/email-links.js";
+import type { TeamKeys } from "../services/team-keys.js";
 
 export function registerTeamRoutes(
   app: FastifyInstance,
-  deps: { store: Store; access: AccessControl; links: EmailLinkService },
+  deps: { store: Store; access: AccessControl; links: EmailLinkService; keys: TeamKeys },
 ): void {
-  const { store, access, links } = deps;
+  const { store, access, links, keys } = deps;
 
   app.get("/api/teams", async (request) => {
     const user = access.requireUser(request);
@@ -121,6 +122,29 @@ export function registerTeamRoutes(
       await links.notifyAdded(user, teamId, member, input.role);
       reply.status(201);
       return { members: await store.teams.listMembers(teamId) };
+    },
+  );
+
+  /** The team's own AI keys: which it has, and where each provider's key comes from. */
+  app.get<{ Params: { id: string } }>("/api/teams/:id/ai-keys", async (request) =>
+    keys.status(access.requireUser(request), request.params.id),
+  );
+  app.put<{ Params: { id: string; provider: string } }>(
+    "/api/teams/:id/ai-keys/:provider",
+    async (request) => {
+      const user = access.requireUser(request);
+      const { key } = (request.body ?? {}) as { key?: unknown };
+      if (typeof key !== "string") throw ZelyqError.badRequest("Paste the key.");
+      await keys.set(user, request.params.id, request.params.provider, key);
+      return keys.status(user, request.params.id);
+    },
+  );
+  app.delete<{ Params: { id: string; provider: string } }>(
+    "/api/teams/:id/ai-keys/:provider",
+    async (request) => {
+      const user = access.requireUser(request);
+      await keys.remove(user, request.params.id, request.params.provider);
+      return keys.status(user, request.params.id);
     },
   );
 

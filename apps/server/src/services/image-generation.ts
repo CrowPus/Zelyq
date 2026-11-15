@@ -20,6 +20,7 @@ import { imageProvider, imageProviders } from "./image-providers/index.js";
 import { normalizeImage } from "./image-providers/normalize.js";
 import { type ImageProvider, ImageProviderError, inspectPng } from "./image-providers/shared.js";
 import type { SettingsService } from "./settings.js";
+import { TEAM_KEY_NAME } from "./settings.js";
 
 /** Defaults an operator can change. Ten per hour was sized for one person
  *  clicking Generate; once the build agent shares the same budget it is too
@@ -80,7 +81,8 @@ export class ImageGenerationService {
 
   constructor(
     private readonly store: Store,
-    private readonly settings: Pick<SettingsService, "value" | "numberValue">,
+    private readonly settings: Pick<SettingsService, "value" | "numberValue"> &
+      Partial<Pick<SettingsService, "teamKey" | "serverKeysFor" | "mediaKeyFor">>,
     readonly assets: ImageAssetStore,
     private readonly providerOverride?: ImageProvider,
     private readonly reportError: () => void = () => undefined,
@@ -94,7 +96,30 @@ export class ImageGenerationService {
     return key?.trim() ? key : null;
   }
 
-  async capabilities(): Promise<ImageCapabilities> {
+  /**
+   * For a team: its own key for this provider (a Vault reference, so the value
+   * is read only when the image is made), or the server's when it may use it.
+   */
+  private async withTeamKey<
+    O extends { keyRef?: { teamId: string; name: string }; teamId?: string | null },
+  >(origin: O, provider: string): Promise<O> {
+    if (origin.keyRef || !origin.teamId) return origin;
+    if (await this.settings.teamKey?.(origin.teamId, provider)) {
+      return {
+        ...origin,
+        keyRef: { teamId: origin.teamId, name: TEAM_KEY_NAME[provider] as string },
+      };
+    }
+    if (!((await this.settings.serverKeysFor?.(origin.teamId)) ?? true)) {
+      throw new ZelyqError(
+        "model_error",
+        `Your team has no ${imageProviders[provider as ImageProviderId]?.label ?? provider} key yet. A team admin adds one on the Team page, under AI keys.`,
+      );
+    }
+    return origin;
+  }
+
+  async capabilities(teamId?: string | null): Promise<ImageCapabilities> {
     const configuredDefault = await this.settings.value("imageProvider");
     const defaultProvider = imageProviderIds.includes(configuredDefault as ImageProviderId)
       ? (configuredDefault as ImageProviderId)
@@ -103,7 +128,8 @@ export class ImageGenerationService {
       imageProviderIds.map(async (id) => {
         const provider = imageProviders[id];
         const [key, model] = await Promise.all([
-          this.settings.value(provider.apiKeySetting),
+          this.settings.mediaKeyFor?.(provider.apiKeySetting, id, teamId) ??
+            this.settings.value(provider.apiKeySetting),
           this.settings.value(provider.modelSetting),
         ]);
         const selectedModel = provider.models.find((entry) => entry.value === model);
@@ -178,7 +204,11 @@ export class ImageGenerationService {
     const deadline = Date.now() + (options.waitForSlotMs ?? 120_000);
     for (;;) {
       try {
-        return await this.submit(ownerId, input, { ...origin, source: "agent" });
+        return await this.submit(ownerId, input, {
+          ...origin,
+          source: "agent",
+          teamId: (await this.store.projects.findById(origin.projectId))?.teamId ?? null,
+        });
       } catch (error) {
         const busy =
           error instanceof ZelyqError &&
@@ -201,10 +231,13 @@ export class ImageGenerationService {
       /** An outside agent's own key, from the team's Vault: used instead of the
        * instance's, and never falls back to it. */
       keyRef?: { teamId: string; name: string };
+      /** The team this is made for: its own key first, the server's only if it may. */
+      teamId?: string | null;
     } = {},
   ): Promise<ImageGeneration> {
     const existing = await this.store.images.findRequest(ownerId, input.idempotencyKey);
     if (existing) return this.replay(existing, input);
+    origin = await this.withTeamKey(origin, input.provider ?? (await this.capabilities()).provider);
     const capabilities = await this.capabilities();
     const selected = capabilities.providers.find(
       (provider) => provider.id === (input.provider ?? capabilities.provider),

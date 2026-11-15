@@ -11,6 +11,7 @@ import {
   stripHeavyToolInputs,
   type ToolCall,
   type User,
+  ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { WebSocket } from "ws";
@@ -76,6 +77,18 @@ interface Connection {
  * agent's events verbatim and only steps in to persist messages, which keeps
  * the browser and the agent speaking exactly the same vocabulary.
  */
+/** Provider names as people know them, for a message about a missing key. */
+const PROVIDER_WORDS: Record<string, string> = {
+  anthropic: "Claude",
+  google: "Gemini",
+  openai: "OpenAI",
+  xai: "Grok",
+  deepseek: "DeepSeek",
+  mistral: "Mistral",
+  groq: "Groq",
+  openrouter: "OpenRouter",
+};
+
 export class ChatGateway {
   private readonly rooms = new Map<string, Room>();
 
@@ -384,8 +397,16 @@ export class ChatGateway {
       // the live setting.
       const provider = override.provider ?? settingsProvider;
       const pickedDifferentProvider = provider !== settingsProvider;
-      const apiKey = await this.settings.apiKeyFor(provider);
+      // The team's own key first; the server's only when this team may use it.
+      const teamId = (await this.store.projects.findById(room.projectId))?.teamId ?? null;
+      const apiKey = await this.settings.apiKeyFor(provider, teamId);
       const authMode = await this.settings.authModeFor(provider);
+      if (!apiKey && teamId && !(await this.settings.serverKeysFor(teamId))) {
+        throw new ZelyqError(
+          "model_error",
+          `Your team has no ${PROVIDER_WORDS[provider] ?? provider} key yet. A team admin adds one on the Team page, under AI keys.`,
+        );
+      }
       // Settings' own `model` and `modelBaseUrl` were configured for
       // whichever provider settings actually names — forwarding either to a
       // different provider picked from the chat would redirect it to a

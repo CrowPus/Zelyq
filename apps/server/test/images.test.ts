@@ -170,6 +170,8 @@ before(async () => {
   await runMigrations(config.databaseUrl);
   await runMigrations(config.databaseUrl); // Repeat migration is safe.
   server = await buildServer(config);
+  // About Studio itself: every team here may use the server's keys (team-keys.test.ts covers who may).
+  await server.store.settings.set("shareServerKeys", "true");
   owner = await register(`owner-${randomUUID()}@example.com`);
   other = await register(`other-${randomUUID()}@example.com`);
 });
@@ -193,6 +195,8 @@ test("generation is standalone, durable, private, downloadable, and idempotent",
   assert.equal(calls - beforeCalls, 1);
   await server.close();
   server = await buildServer(config);
+  // About Studio itself: every team here may use the server's keys (team-keys.test.ts covers who may).
+  await server.store.settings.set("shareServerKeys", "true");
   const result = await server.app.inject({
     url: `/api/images/assets/${id}?download=1`,
     headers: { cookie: owner.cookie },

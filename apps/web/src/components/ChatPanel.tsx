@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useActiveTeam } from "../hooks/useActiveTeam";
 import type { AgentActivity, ChatState } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import {
@@ -248,9 +249,11 @@ export function ChatPanel({
    * is, not just at the end of the draft. */
   const [cursor, setCursor] = useState(0);
 
+  // The team's own AI keys decide which providers it can use.
+  const { team: activeTeam } = useActiveTeam();
   const providers = useQuery({
-    queryKey: ["providers"],
-    queryFn: api.getProviders,
+    queryKey: ["providers", activeTeam?.id],
+    queryFn: () => api.getProviders(activeTeam?.id),
     staleTime: 60_000,
   });
   // Only fetched once someone actually starts a `/figma` command — it gates

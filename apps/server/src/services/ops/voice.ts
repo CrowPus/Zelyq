@@ -147,7 +147,7 @@ export class OpsVoice {
         return fail("Ops has used this month's limit. An admin can raise it on the Settings tab.");
       }
     }
-    const apiKey = (await this.settings.apiKeyFor("google")).trim();
+    const apiKey = (await this.settings.apiKeyFor("google", teamId)).trim();
     if (!apiKey) {
       return fail(
         "Talking live uses Gemini. Add a Google AI key in Settings → Model (it does not change the model Zelyq builds with).",

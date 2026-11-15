@@ -24,6 +24,7 @@ import { ProjectVariablesPanel } from "../components/ProjectVariablesPanel";
 import { SnapshotPanel } from "../components/SnapshotPanel";
 import { StudioMediaPicker } from "../components/StudioMediaPicker";
 import { Badge, IconButton, Spinner } from "../components/ui";
+import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { api } from "../lib/api";
 import { MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
@@ -42,6 +43,8 @@ const STATUS_TONE = {
 } as const;
 
 export function ProjectEditorPage() {
+  // Studio and the model list use the team's own AI keys first.
+  const { team: activeTeam } = useActiveTeam();
   const { id = "" } = useParams();
   const queryClient = useQueryClient();
   const [pane, setPane] = useState<Pane>("preview");
@@ -65,13 +68,15 @@ export function ProjectEditorPage() {
   const [pointedElement, setPointedElement] = useState<SelectedElement | null>(null);
 
   const project = useQuery({ queryKey: ["project", id], queryFn: () => api.getProject(id) });
+  // The app's own team: its AI keys are the ones this app's agent uses.
+  const appTeam = project.data?.project.teamId ?? activeTeam?.id;
   const imageCapabilities = useQuery({
-    queryKey: ["image-capabilities"],
-    queryFn: () => api.imageCapabilities(),
+    queryKey: ["image-capabilities", appTeam],
+    queryFn: () => api.imageCapabilities(appTeam),
   });
   const videoCapabilities = useQuery({
-    queryKey: ["video-capabilities"],
-    queryFn: () => api.videoCapabilities(),
+    queryKey: ["video-capabilities", appTeam],
+    queryFn: () => api.videoCapabilities(appTeam),
   });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: 60_000 });
   const files = useQuery({ queryKey: ["files", id], queryFn: () => api.listFiles(id) });

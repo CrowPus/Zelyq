@@ -122,7 +122,7 @@ export class OpsBrain {
     const teamId = (await this.ops.teamOf(jobId)) as string;
     this.activity.get(jobId)?.push("Looked back at the job");
     const result = await this.agent.opsTurn({
-      ...(await this.modelConfig()),
+      ...(await this.modelConfig(teamId)),
       systemPrompt: REVIEW_BRIEF,
       history: [],
       message: reviewMessage(view, await this.ops.knownMemory(teamId)),
@@ -168,7 +168,7 @@ export class OpsBrain {
     const token = randomBytes(32).toString("hex");
     this.tokens.set(token, { teamId, jobId, expires: Date.now() + TOKEN_MS });
     try {
-      const model = await this.modelConfig();
+      const model = await this.modelConfig(teamId);
       const result = await this.agent.opsTurn({
         ...model,
         systemPrompt: await this.systemPrompt(teamId, view),
@@ -195,7 +195,18 @@ export class OpsBrain {
   }
 
   /** The provider of Settings → Model; the model of Settings → Ops, or the provider's default. */
-  private async modelConfig() {
+  /** The key Ops thinks with: the team's own, or the server's when the team may use it. */
+  private async teamKeyOrSay(provider: string, teamId: string): Promise<string> {
+    const key = await this.settings.apiKeyFor(provider, teamId);
+    if (!key && !(await this.settings.serverKeysFor(teamId))) {
+      throw new Error(
+        "your team has no AI key for Ops yet. A team admin adds one on the Team page, under AI keys.",
+      );
+    }
+    return key;
+  }
+
+  private async modelConfig(teamId: string) {
     // Ops may think with its own provider; empty means the same as Settings → Model.
     const main = await this.settings.value("provider");
     const provider = (await this.settings.value("opsProvider")).trim() || main;
@@ -224,7 +235,7 @@ export class OpsBrain {
     return {
       provider,
       model,
-      apiKey: await this.settings.apiKeyFor(provider),
+      apiKey: await this.teamKeyOrSay(provider, teamId),
       authMode: await this.settings.authModeFor(provider),
       ...(baseUrl ? { baseUrl } : {}),
       ...(workspace ? { anthropicWorkspaceId: workspace } : {}),

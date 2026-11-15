@@ -40,6 +40,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { StudioSwitch } from "../components/StudioSwitch";
 import { Button, Spinner } from "../components/ui";
+import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { ApiError, api } from "../lib/api";
 
@@ -81,6 +82,8 @@ const examples = [
 ];
 
 export function VideoStudioPage() {
+  // Studio and the model list use the team's own AI keys first.
+  const { team: activeTeam } = useActiveTeam();
   const { user } = useSession();
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -99,8 +102,8 @@ export function VideoStudioPage() {
   const submission = useRef<VideoGenerationInput | null>(null);
   const historyKey = ["video-history", user?.id];
   const caps = useQuery({
-    queryKey: ["video-capabilities", user?.id],
-    queryFn: api.videoCapabilities,
+    queryKey: ["video-capabilities", user?.id, activeTeam?.id],
+    queryFn: () => api.videoCapabilities(activeTeam?.id),
   });
   const provider = caps.data?.providers.find((p) => p.id === (providerId ?? caps.data.provider));
   const history = useInfiniteQuery({
@@ -166,7 +169,7 @@ export function VideoStudioPage() {
       if (previous && JSON.stringify(next) !== JSON.stringify(previous))
         next.idempotencyKey = randomUUID();
       submission.current = next;
-      return api.generateVideo(next);
+      return api.generateVideo(next, activeTeam?.id);
     },
     onSuccess: ({ generation }) => {
       submission.current = null;

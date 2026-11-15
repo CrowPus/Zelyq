@@ -4,6 +4,7 @@ import { CircleAlert, CircleCheck, Mail, UserPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { TeamKeys } from "../components/TeamKeys";
 import { Badge, Button, Input, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -231,6 +232,8 @@ export function TeamPage() {
               </div>
             ))}
           </div>
+
+          {team && <TeamKeys teamId={id} canManage={canManage} />}
 
           {canManage && (invites.data?.invites.length ?? 0) > 0 && (
             <div className="mt-6">
