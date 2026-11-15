@@ -199,7 +199,7 @@ const createEnvironment: OpsAction<z.infer<typeof createInput>> = {
     const address = inputs.address ?? runner.host;
     const refused = await refusedHost(address, "deployment");
     if (refused) return { ok: false, summary: refused };
-    await ctx.services.deploys.create(ctx.user, ctx.teamId, {
+    const created = await ctx.services.deploys.create(ctx.user, ctx.teamId, {
       name: inputs.name,
       runnerId: runner.id,
       address,
@@ -208,6 +208,8 @@ const createEnvironment: OpsAction<z.infer<typeof createInput>> = {
       protected: inputs.protected ?? false,
       variables: {},
     });
+    // Made under an approved plan: Ops's to manage, so the next steps can use it.
+    await ctx.created("environment", created.id);
     return { ok: true, summary: `Created ${inputs.name} on ${runner.name} (${address}).` };
   },
   async prove(ctx, inputs) {
@@ -307,6 +309,11 @@ function looksSecret(value: string): boolean {
 
 const setVariables: OpsAction<z.infer<typeof variablesInput>> = {
   name: "set_environment_variables",
+  // Pointing a variable at a Vault secret uses the team's secret names.
+  touches: async (_ctx, inputs) =>
+    Object.values(inputs.set ?? {}).some((value) => value.startsWith("vault://"))
+      ? [{ kind: "vault", name: "team", need: "see" }]
+      : [],
   description:
     "Add, change or remove an environment's variables by name. A secret is always given as vault://NAME (a person puts its value in Vault). Other variables keep their values.",
   input: variablesInput,

@@ -71,6 +71,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "agent.proposal_declined": "declined an agent's request",
   "ops.set_up": "set up Ops",
   "ops.updated": "changed Ops's settings",
+  "ops.access_changed": "changed what Ops may reach",
   "ops.job_started": "asked Ops for something",
   "ops.plan_approved": "approved an Ops plan",
   "ops.plan_rejected": "rejected an Ops plan",

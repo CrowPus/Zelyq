@@ -77,6 +77,8 @@ const DISCORD_HOSTS = new Set([
 const POLL_WAIT_S = 25;
 /** After a failed poll, wait this long before the next. */
 const POLL_BACKOFF_MS = 30_000;
+/** Slack codes one person may have sent in an hour. */
+const SLACK_CODES_PER_HOUR = 5;
 const WRONG_TRIES = 5;
 
 interface Secret {
@@ -93,6 +95,8 @@ export class ChannelService {
   private pruned = 0;
   /** Wrong Slack codes typed, per person: too many and the code is gone. */
   private readonly wrong = new Map<string, number>();
+  /** When Slack codes were sent, per person: a few an hour. */
+  private readonly slackSends = new Map<string, number[]>();
 
   constructor(
     private readonly store: Store,
@@ -240,6 +244,8 @@ export class ChannelService {
     kind: OpsChannelKind,
     user: { id: string; email: string },
     now = new Date(),
+    /** Slack: the email the person's Slack account uses, when it is not their Zelyq one. */
+    slackEmail?: string,
   ): Promise<OpsLinkStart> {
     if (kind === "discord")
       throw new ChannelError("Discord sends to the team's channel; there is nothing to link.");
@@ -270,15 +276,36 @@ export class ChannelService {
     }
     // Slack: found by the person's own email, and the code goes to their direct messages;
     // typing it back here proves the Slack account is theirs.
+    // Any address will do: the code goes only to that Slack account's own messages, and
+    // only its owner can type it back. A few a time, so nobody's inbox is filled with codes.
+    const email = (slackEmail ?? "").trim().toLowerCase() || user.email;
+    const sendKey = `${teamId}/${user.id}`;
+    const recent = (this.slackSends.get(sendKey) ?? []).filter(
+      (at) => now.getTime() - at < 60 * 60_000,
+    );
+    if (recent.length >= SLACK_CODES_PER_HOUR) {
+      throw new ChannelError("Several codes were sent in the last hour. Try again later.");
+    }
     const token = this.open(channel).token as string;
+    const workspace = channel.name.split(" · ")[0];
     let found: Record<string, unknown>;
     try {
-      found = await this.slack(token, "users.lookupByEmail", { email: user.email }, "GET");
-    } catch {
-      throw new ChannelError(
-        `No one in ${channel.name.split(" · ")[0]} uses ${user.email}. Use the same email in Slack and Zelyq.`,
-      );
+      found = await this.slack(token, "users.lookupByEmail", { email }, "GET");
+    } catch (error) {
+      const message = (error as Error).message;
+      if (/users_not_found/.test(message)) {
+        throw new ChannelError(
+          `Nobody in ${workspace} uses ${email}. Enter the email your Slack account uses (Slack → your profile → Contact information).`,
+        );
+      }
+      if (/permission/.test(message)) {
+        throw new ChannelError(
+          "The Slack app is missing the permission to find people by email (users:read.email). An admin adds it in the Slack app's settings (OAuth & Permissions → Bot Token Scopes), reinstalls the app, and connects the new bot token here.",
+        );
+      }
+      throw error;
     }
+    this.slackSends.set(sendKey, [...recent, now.getTime()]);
     const person = found.user as { id: string; name?: string };
     await this.slack(token, "chat.postMessage", {
       channel: person.id,
@@ -295,7 +322,7 @@ export class ChannelService {
       url: null,
       code: null,
       expiresAt,
-      words: "Zelyq sent you a code in Slack, in your direct messages. Type it here.",
+      words: `Zelyq sent a code to ${email} in Slack, in your direct messages from the app. Type it here.`,
     };
   }
 

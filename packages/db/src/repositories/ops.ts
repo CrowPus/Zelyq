@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import {
+  opsAccess,
   opsAlerts,
   opsAttempts,
   opsChannelLinks,
@@ -22,6 +23,7 @@ import {
   opsSheetVersions,
 } from "../schema/sqlite.js";
 
+export type OpsAccessRow = typeof opsAccess.$inferSelect;
 export type OpsEngineerRow = typeof opsEngineers.$inferSelect;
 export type OpsJobRow = typeof opsJobs.$inferSelect;
 export type OpsPlanStepRow = typeof opsPlanSteps.$inferSelect;
@@ -583,6 +585,38 @@ export function opsRepository(db: ZelyqDb) {
       },
       async remove(id: string): Promise<void> {
         await db.delete(opsChannels).where(eq(opsChannels.id, id));
+      },
+    },
+
+    /** What Ops has been given: one row per thing, at "see" or "manage". */
+    access: {
+      async listForTeam(teamId: string): Promise<OpsAccessRow[]> {
+        return await db
+          .select()
+          .from(opsAccess)
+          .where(eq(opsAccess.teamId, teamId))
+          .orderBy(asc(opsAccess.createdAt));
+      },
+      /** Gives or changes one thing's level; a second write for the same thing replaces the first. */
+      async put(row: OpsAccessRow): Promise<void> {
+        await db
+          .insert(opsAccess)
+          .values(row)
+          .onConflictDoUpdate({
+            target: [opsAccess.teamId, opsAccess.kind, opsAccess.resourceId],
+            set: { level: row.level, grantedBy: row.grantedBy, updatedAt: row.updatedAt },
+          });
+      },
+      async remove(teamId: string, kind: string, resourceId: string): Promise<void> {
+        await db
+          .delete(opsAccess)
+          .where(
+            and(
+              eq(opsAccess.teamId, teamId),
+              eq(opsAccess.kind, kind),
+              eq(opsAccess.resourceId, resourceId),
+            ),
+          );
       },
     },
 

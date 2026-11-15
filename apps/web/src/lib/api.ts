@@ -33,6 +33,8 @@ import type {
   ImageGenerationInput,
   ImageHistory,
   LocalRunnerStatus,
+  OpsAccessChange,
+  OpsAccessItem,
   OpsChannelKind,
   OpsChannelsView,
   OpsEngineer,
@@ -328,10 +330,10 @@ export const api = {
         method: "POST",
         body: "{}",
       }),
-    startLink: (teamId: string, kind: OpsChannelKind) =>
+    startLink: (teamId: string, kind: OpsChannelKind, slackEmail?: string) =>
       request<OpsLinkStart>(`/teams/${teamId}/ops/channels/${kind}/link`, {
         method: "POST",
-        body: "{}",
+        body: JSON.stringify(slackEmail ? { slackEmail } : {}),
       }),
     confirmSlack: (teamId: string, code: string) =>
       request<OpsChannelsView>(`/teams/${teamId}/ops/channels/slack/confirm`, {
@@ -396,6 +398,12 @@ export const api = {
         `/teams/${teamId}/ops/environments/${environmentId}`,
         { method: "PATCH", body: JSON.stringify({ trust }) },
       ),
+    access: (teamId: string) => request<{ items: OpsAccessItem[] }>(`/teams/${teamId}/ops/access`),
+    setAccess: (teamId: string, input: OpsAccessChange) =>
+      request<{ items: OpsAccessItem[] }>(`/teams/${teamId}/ops/access`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
     memory: (teamId: string) => request<OpsMemoryView>(`/teams/${teamId}/ops/memory`),
     addWish: (teamId: string, input: { text: string; scope?: string }) =>
       request<OpsMemoryView>(`/teams/${teamId}/ops/memory/wishes`, {

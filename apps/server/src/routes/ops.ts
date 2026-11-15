@@ -134,11 +134,18 @@ export function registerOpsRoutes(
   });
   app.post<Kind>("/api/teams/:teamId/ops/channels/:kind/link", async (request) => {
     const user = await person(request, request.params.teamId, "viewer");
+    const { slackEmail } = z
+      .object({ slackEmail: z.string().trim().email().max(320).optional() })
+      .strict()
+      .parse(request.body ?? {});
     return plainly(
-      channels.startLink(request.params.teamId, kindOf(request.params.kind), {
-        id: user.id,
-        email: user.email,
-      }),
+      channels.startLink(
+        request.params.teamId,
+        kindOf(request.params.kind),
+        { id: user.id, email: user.email },
+        new Date(),
+        slackEmail,
+      ),
     );
   });
   app.post<Team>("/api/teams/:teamId/ops/channels/slack/confirm", async (request) => {
@@ -225,6 +232,18 @@ export function registerOpsRoutes(
   /** Pause, the monthly cap, the time zone. */
   app.patch<Team>("/api/teams/:teamId/ops", async (request) => ({
     engineer: await ops.engineers.update(
+      access.requireUser(request),
+      request.params.teamId,
+      request.body,
+    ),
+  }));
+
+  /** What Ops has been given (076): any member looks, a team admin changes it. */
+  app.get<Team>("/api/teams/:teamId/ops/access", async (request) => ({
+    items: await ops.accessList.list(access.requireUser(request), request.params.teamId),
+  }));
+  app.put<Team>("/api/teams/:teamId/ops/access", async (request) => ({
+    items: await ops.accessList.change(
       access.requireUser(request),
       request.params.teamId,
       request.body,

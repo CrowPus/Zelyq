@@ -73,6 +73,14 @@ export interface BlockCheck {
   deploysTo: string[];
   /** Environments a deploy step puts on a website address (its own domain or url): live sites. */
   liveTo: string[];
+  /** Machines named in runs-on (file or stage); "local" is the Zelyq server's own runner, not one. */
+  machines: string[];
+  /** Label lists in runs-on: any team machine with all of them may run it. */
+  machineLabels: string[][];
+  /** Apps whose code it checks out (source: {app: …}). */
+  apps: string[];
+  /** Other pipelines its steps start (pipeline: {run: …}). */
+  pipelines: string[];
 }
 
 /** Reads a pipeline Ops wants to save: what it deploys to, and every command not from a block. */
@@ -87,6 +95,10 @@ export function checkBlocks(source: string): BlockCheck {
       free: [],
       deploysTo: [],
       liveTo: [],
+      machines: [],
+      machineLabels: [],
+      apps: [],
+      pipelines: [],
     };
   }
   const free: string[] = [];
@@ -95,8 +107,19 @@ export function checkBlocks(source: string): BlockCheck {
   const note = (command: string | undefined) => {
     if (command && !isKnownCommand(command)) free.push(command);
   };
+  const machines = new Set<string>();
+  const machineLabels: string[][] = [];
+  const pipelines = new Set<string>();
+  const where = (target: string | string[] | undefined) => {
+    if (target === undefined) return;
+    if (Array.isArray(target)) machineLabels.push(target.map((label) => label.toLowerCase()));
+    else if (target !== "local") machines.add(target);
+  };
+  where(parsed.file["runs-on"]);
   for (const stage of parsed.file.stages) {
+    where(stage["runs-on"]);
     for (const step of stage.steps) {
+      if (step.pipeline) pipelines.add(step.pipeline.run);
       if (step.run !== undefined) note(step.run);
       if (step.deploy) {
         deploysTo.add(step.deploy.to);
@@ -113,6 +136,10 @@ export function checkBlocks(source: string): BlockCheck {
     free: [...new Set(free)],
     deploysTo: [...deploysTo],
     liveTo: [...liveTo],
+    machines: [...machines],
+    machineLabels,
+    apps: parsed.file.source?.app ? [parsed.file.source.app] : [],
+    pipelines: [...pipelines],
   };
 }
 

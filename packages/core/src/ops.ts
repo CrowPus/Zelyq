@@ -9,6 +9,44 @@ import { z } from "zod";
 
 /** How much Ops may do on an environment without a person. */
 export const OPS_TRUST_LEVELS = ["advise", "ask", "trusted", "oncall"] as const;
+
+/**
+ * What can be given to Ops (076). Nothing given, nothing reachable: Ops does
+ * not see, list, watch or touch anything a team admin has not assigned.
+ */
+export const OPS_ACCESS_KINDS = ["environment", "machine", "pipeline", "project", "vault"] as const;
+export type OpsAccessKind = (typeof OPS_ACCESS_KINDS)[number];
+/** "see": look, report, advise. "manage": change it too, within its trust level and the gate. */
+export const OPS_ACCESS_LEVELS = ["see", "manage"] as const;
+export type OpsAccessLevel = (typeof OPS_ACCESS_LEVELS)[number];
+/** Apps' code and the team's secret names are only ever looked at: Ops never changes them. */
+export const OPS_SEE_ONLY_KINDS: readonly OpsAccessKind[] = ["project", "vault"];
+
+export const opsAccessChangeSchema = z
+  .object({
+    kind: z.enum(OPS_ACCESS_KINDS),
+    /** The thing's id; "team" for the team's secret names. */
+    resourceId: z.string().min(1).max(100),
+    /** null: take it away. */
+    level: z.enum(OPS_ACCESS_LEVELS).nullable(),
+    /** Environments only, with "manage": how much Ops may do there alone. */
+    trust: z.enum(["ask", "trusted", "oncall"]).optional(),
+  })
+  .strict();
+export type OpsAccessChange = z.infer<typeof opsAccessChangeSchema>;
+
+export interface OpsAccessItem {
+  kind: OpsAccessKind;
+  id: string;
+  name: string;
+  /** A second line: the machine an environment is on, a machine's address. */
+  detail: string | null;
+  level: OpsAccessLevel | null;
+  /** Environments: the trust level, used when the level is "manage". */
+  trust: OpsTrust | null;
+  protected: boolean;
+  frozen: boolean;
+}
 export type OpsTrust = (typeof OPS_TRUST_LEVELS)[number];
 
 export const OPS_TRUST_WORDS: Record<OpsTrust, { label: string; description: string }> = {

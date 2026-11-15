@@ -351,6 +351,13 @@
       "when": 1794693547270,
       "tag": "0049_email_links",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794697351779,
+      "tag": "0050_ops_access",
+      "breakpoints": true
     }
   ]
 }

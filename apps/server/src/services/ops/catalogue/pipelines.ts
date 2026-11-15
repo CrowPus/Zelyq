@@ -134,6 +134,7 @@ const pipelineSource = z
 const createInput = z.object({ source: pipelineSource }).strict();
 const createPipeline: OpsAction<z.infer<typeof createInput>> = {
   name: "create_pipeline",
+  touches: async (_ctx, inputs) => [{ kind: "source", source: inputs.source }],
   description:
     "Save a new pipeline. Build it from blocks (pipeline_blocks); any command of your own makes it a step a person confirms word for word.",
   input: createInput,
@@ -151,6 +152,8 @@ const createPipeline: OpsAction<z.infer<typeof createInput>> = {
     const created = await ctx.services.pipelines.create(ctx.user, ctx.teamId, inputs.source, {
       note: "Written by Ops",
     });
+    // Written under an approved plan: Ops's to manage, so it can run and change it.
+    await ctx.created("pipeline", created.id);
     return {
       ok: true,
       summary: `Saved the pipeline ${created.name}.`,
@@ -179,6 +182,7 @@ const updateInput = z
   .strict();
 const updatePipeline: OpsAction<z.infer<typeof updateInput>> = {
   name: "update_pipeline",
+  touches: async (_ctx, inputs) => [{ kind: "source", source: inputs.source }],
   description:
     "Change a pipeline's file. Give `base` from get_pipeline; if someone changed it since, the change is refused. Only pipelines without triggers switched on, unless Ops wrote them.",
   input: updateInput,
@@ -234,6 +238,9 @@ const runInput = z
   .strict();
 const runPipeline: OpsAction<z.infer<typeof runInput>> = {
   name: "run_pipeline",
+  touches: async (_ctx, inputs) => [
+    { kind: "pipeline", name: inputs.pipeline, need: "manage", contents: true },
+  ],
   description:
     "Run a pipeline and wait for it to end (up to 30 minutes). As a step of an approved plan, its deploy to a protected environment is not asked about a second time.",
   input: runInput,
@@ -383,6 +390,9 @@ const triggerInput = z
   .strict();
 const setTrigger: OpsAction<z.infer<typeof triggerInput>> = {
   name: "set_trigger",
+  touches: async (_ctx, inputs) => [
+    { kind: "pipeline", name: inputs.pipeline, need: "manage", contents: true },
+  ],
   description:
     "Make a pipeline Ops wrote start by itself: when the app changes, or on a schedule (cron, UTC). Never on a pipeline a person wrote.",
   input: triggerInput,

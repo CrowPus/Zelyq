@@ -147,7 +147,12 @@ export class OpsMemory {
    * last few jobs. Gathered by the server from records, not by Ops choosing to
    * look. Only what applies, so it stays short as history grows.
    */
-  async openingContext(teamId: string, subjects: string[] = []): Promise<string> {
+  async openingContext(
+    teamId: string,
+    subjects: string[] = [],
+    /** Whether Ops may read a sheet about this subject (076); default every one. */
+    seesSubject: (subject: string) => boolean = () => true,
+  ): Promise<string> {
     const [sheets, wishes, lessons, guards, jobs] = await Promise.all([
       this.store.ops.sheets.listForTeam(teamId),
       this.store.ops.preferences.listForTeam(teamId),
@@ -159,7 +164,8 @@ export class OpsMemory {
       scope === "team" || subjects.length === 0 || subjects.includes(scope);
     const parts: string[] = [];
     const relevantSheets = sheets.filter(
-      (sheet) => subjects.length === 0 || subjects.includes(sheet.subject),
+      (sheet) =>
+        seesSubject(sheet.subject) && (subjects.length === 0 || subjects.includes(sheet.subject)),
     );
     if (relevantSheets.length) {
       parts.push(
@@ -220,6 +226,8 @@ export class OpsMemory {
   async recall(
     teamId: string,
     query: string,
+    /** Whether Ops may read a sheet about this subject; default every one (a person's view). */
+    seesSubject: (subject: string) => boolean = () => true,
   ): Promise<{ kind: string; text: string; at: string }[]> {
     const words = query
       .toLowerCase()
@@ -243,6 +251,7 @@ export class OpsMemory {
       found.push({ kind: "wish", text: wish.text, at: wish.createdAt, score: hit(wish.text) });
     }
     for (const sheet of await this.store.ops.sheets.listForTeam(teamId)) {
+      if (!seesSubject(sheet.subject)) continue;
       found.push({
         kind: `sheet ${sheet.subject}`,
         text: sheet.body.slice(0, 1500),

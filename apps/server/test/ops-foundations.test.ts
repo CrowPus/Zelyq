@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { after, before, test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
 import type { OpsRisk, User } from "@zelyq/core";
 import { runMigrations, type Store } from "@zelyq/db";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import { AccessControl } from "../src/services/access.js";
 import { ActionList, environmentByName, type OpsAction } from "../src/services/ops/actions.js";
 import { decide, type GateFacts } from "../src/services/ops/gate.js";
 import { OpsService } from "../src/services/ops/service.js";
+import { giveOpsEverything } from "./ops-access-helper.js";
 
 /**
  * Ops, step 1: the engineer's account, its jobs, the gate and proof — the
@@ -177,6 +178,11 @@ before(async () => {
     ]),
     {} as never,
   );
+});
+
+// These tests are about how Ops works once it has what it needs (076: nothing is given at first).
+beforeEach(async () => {
+  if (store && teamId) await giveOpsEverything(store, teamId);
 });
 
 after(async () => {

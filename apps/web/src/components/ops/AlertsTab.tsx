@@ -10,6 +10,7 @@ import type {
 } from "@zelyq/core";
 import { ExternalLink, Send } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useSession } from "../../hooks/useSession";
 import { api } from "../../lib/api";
 import { Badge, Button, FieldLabel, Input, PasswordInput, Spinner } from "../ui";
 
@@ -60,6 +61,10 @@ function browserZone(): string {
 export function AlertsTab({ teamId }: { teamId: string }) {
   const queryClient = useQueryClient();
   const [linking, setLinking] = useState<OpsLinkStart | null>(null);
+  // Slack: the person says which email their Slack account uses before a code is sent.
+  const { user } = useSession();
+  const [askingSlack, setAskingSlack] = useState(false);
+  const [slackEmail, setSlackEmail] = useState("");
   const view = useQuery({
     queryKey: ["ops-channels", teamId],
     queryFn: () => api.ops.channels(teamId),
@@ -94,8 +99,10 @@ export function AlertsTab({ teamId }: { teamId: string }) {
   }, [data, linking, linkingSince]);
 
   const startLink = useMutation({
-    mutationFn: (kind: OpsChannelKind) => api.ops.startLink(teamId, kind),
+    mutationFn: (input: { kind: OpsChannelKind; slackEmail?: string }) =>
+      api.ops.startLink(teamId, input.kind, input.slackEmail),
     onSuccess: (started) => {
+      setAskingSlack(false);
       setLinkingSince(new Date(Date.now() - 5000).toISOString());
       setLinking(started);
       setError(null);
@@ -156,17 +163,60 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                     ) : (
                       <>
                         <span className="flex-1 text-xs text-fg-muted">Not linked</span>
-                        {linking?.kind !== kind && (
+                        {linking?.kind !== kind && !(kind === "slack" && askingSlack) && (
                           <Button
                             size="sm"
                             variant="primary"
                             disabled={startLink.isPending}
-                            onClick={() => startLink.mutate(kind)}
+                            onClick={() => {
+                              if (kind === "slack") {
+                                setSlackEmail(user?.email ?? "");
+                                setAskingSlack(true);
+                                setError(null);
+                              } else startLink.mutate({ kind });
+                            }}
                           >
                             Link my {SERVICE[kind]}
                           </Button>
                         )}
                       </>
+                    )}
+                    {kind === "slack" && askingSlack && !mine && linking?.kind !== "slack" && (
+                      <form
+                        className="grid w-full gap-2 border-t border-border-default pt-2 text-xs"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (slackEmail.trim())
+                            startLink.mutate({ kind: "slack", slackEmail: slackEmail.trim() });
+                        }}
+                      >
+                        <label htmlFor="slack-email" className="text-fg-secondary">
+                          The email your Slack account uses. Zelyq sends a code to that account's
+                          direct messages; typing it here proves the account is yours.
+                        </label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            id="slack-email"
+                            type="email"
+                            required
+                            value={slackEmail}
+                            onChange={(event) => setSlackEmail(event.target.value)}
+                            placeholder="you@example.com"
+                            className="w-72 max-w-full"
+                          />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant="primary"
+                            disabled={startLink.isPending}
+                          >
+                            {startLink.isPending ? "Sending…" : "Send me a code"}
+                          </Button>
+                          <Button type="button" size="sm" onClick={() => setAskingSlack(false)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
                     )}
                     {linking?.kind === kind && !mine && (
                       <LinkSteps

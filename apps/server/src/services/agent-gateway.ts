@@ -1673,6 +1673,10 @@ export class AgentGateway {
                 user,
                 jobId: null,
                 services: { store: this.deps.store } as never,
+                // Only the environment's id is wanted here; what Ops may reach is checked in performFor.
+                scope: undefined as never,
+                seesSubject: async () => () => true,
+                created: async () => undefined,
                 approval: null,
                 grantRun: async () => undefined,
                 say: async () => undefined,

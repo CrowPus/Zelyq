@@ -8,6 +8,7 @@ import type { OpsEnvironmentRef } from "./actions.js";
  *
  * The rules, in order (the first that applies wins):
  *  1. Ops is paused                                   → refuse
+ * 13. it reaches something not given to Ops (076)    → refuse (checked second; a person gives it in Ops → Access)
  *  2. it changes what Ops itself may do               → refuse (a person does it)
  *  3. it cannot be undone and this step is not confirmed one by one → ask
  *  4. the environment is frozen (and it is not a read) → refuse
@@ -39,6 +40,8 @@ export interface GateFacts {
   /** For an always-ask action: a person confirmed this one step. */
   confirmed: boolean;
   freeUse: boolean;
+  /** What it reaches that Ops was not given, in words; null when Ops has all of it. */
+  noAccess: string | null;
 }
 
 export function decide(facts: GateFacts): Verdict {
@@ -50,6 +53,8 @@ export function decide(facts: GateFacts): Verdict {
       reason: "Ops is paused. A person resumes it on the Ops page.",
     };
   }
+  // Nothing outranks this but a pause: not a plan, not a trust level, not a person's yes.
+  if (facts.noAccess) return { verdict: "refuse", rule: 13, reason: facts.noAccess };
   if (facts.risk === "own-limits") {
     return {
       verdict: "refuse",
