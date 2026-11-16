@@ -142,7 +142,9 @@ export function registerVideoBridgeRoutes(
    *  to generate a near-duplicate of one that already exists. */
   app.get("/api/internal/videos/library", async (request) => {
     const grant = await libraryContext(request);
-    return videos.history(grant.userId);
+    // The app's own team: an agent places what was made there, not in another team.
+    const teamId = (await store.projects.findById(grant.projectId))?.teamId ?? undefined;
+    return videos.history(grant.userId, undefined, teamId);
   });
 
   /** The finished MP4 and its poster, for writing into a project. */

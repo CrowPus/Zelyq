@@ -934,6 +934,8 @@ export const imageGenerations = sqliteTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** The team it was made in: Studio shows it only there. Null: made before teams had Studios. */
+    teamId: text("team_id").references(() => teams.id, { onDelete: "cascade" }),
     idempotencyKey: text("idempotency_key").notNull(),
     prompt: text("prompt").notNull(),
     provider: text("provider").notNull().default("openai"),
@@ -1026,6 +1028,8 @@ export const videoGenerations = sqliteTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** The team it was made in: Studio shows it only there. Null: made before teams had Studios. */
+    teamId: text("team_id").references(() => teams.id, { onDelete: "cascade" }),
     idempotencyKey: text("idempotency_key").notNull(),
     requestDigest: text("request_digest").notNull(),
     input: text("input").notNull(),

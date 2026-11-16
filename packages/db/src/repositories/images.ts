@@ -21,6 +21,8 @@ export function imageRepository(db: ZelyqDb) {
         sessionId?: string;
         /** An outside agent's Vault secret paying for this image. */
         keyRef?: { teamId: string; name: string };
+        /** The team it is made in: Studio shows it only there. */
+        teamId?: string | null;
       } = {},
     ) {
       const storedInput = {
@@ -42,6 +44,7 @@ export function imageRepository(db: ZelyqDb) {
         projectName: origin.projectName ?? "",
         sessionId: origin.sessionId ?? "",
         keyRef: origin.keyRef ? JSON.stringify(origin.keyRef) : null,
+        teamId: origin.teamId ?? null,
         activeOwner: ownerId,
         createdAt: new Date().toISOString(),
       });
@@ -92,13 +95,20 @@ export function imageRepository(db: ZelyqDb) {
         )[0]?.n ?? 0
       );
     },
-    async list(ownerId: string, before?: { createdAt: string; id: string }, limit = 25) {
+    async list(
+      ownerId: string,
+      before?: { createdAt: string; id: string },
+      limit = 25,
+      /** Only what was made in this team. */
+      teamId?: string,
+    ) {
       return db
         .select()
         .from(jobs)
         .where(
           and(
             eq(jobs.ownerId, ownerId),
+            teamId ? eq(jobs.teamId, teamId) : undefined,
             isNull(jobs.deletedAt),
             before
               ? or(

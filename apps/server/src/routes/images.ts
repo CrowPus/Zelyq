@@ -50,7 +50,7 @@ export function registerImageRoutes(
     const user = access.requireUser(request);
     const { cursor } = z.object({ cursor: idSchema.optional() }).parse(request.query);
     reply.header("cache-control", "private, no-store");
-    return images.history(user.id, cursor);
+    return images.history(user.id, cursor, (await teamOf(request)) ?? undefined);
   });
   app.get<{ Params: { id: string } }>("/api/images/generations/:id", async (request, reply) => {
     const user = access.requireUser(request);

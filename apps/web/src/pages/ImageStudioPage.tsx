@@ -120,7 +120,8 @@ export function ImageStudioPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const submission = useRef<ImageGenerationInput | null>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
-  const historyKey = ["image-history", user?.id];
+  // Each team has its own Studio: what was made in another team is not shown here.
+  const historyKey = ["image-history", user?.id, activeTeam?.id];
   const capabilities = useQuery({
     queryKey: ["image-capabilities", user?.id, activeTeam?.id],
     queryFn: () => api.imageCapabilities(activeTeam?.id),
@@ -134,7 +135,7 @@ export function ImageStudioPage() {
   const history = useInfiniteQuery({
     queryKey: historyKey,
     initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) => api.imageHistory(pageParam),
+    queryFn: ({ pageParam }) => api.imageHistory(pageParam, activeTeam?.id),
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     refetchInterval: (query) =>
       query.state.data?.pages.some((page) =>

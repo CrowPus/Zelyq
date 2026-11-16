@@ -236,9 +236,10 @@ export class VideoGenerationService {
   async get(ownerId: string, id: string) {
     return this.present(await this.owned(ownerId, id));
   }
-  async history(ownerId: string, cursor?: string) {
+  /** One person's videos, made in this team (every team's when none is named). */
+  async history(ownerId: string, cursor?: string, teamId?: string) {
     const before = cursor ? await this.owned(ownerId, cursor) : undefined;
-    const rows = await this.store.videos.history(ownerId, before);
+    const rows = await this.store.videos.history(ownerId, before, teamId);
     return {
       generations: await Promise.all(rows.map((row) => this.present(row))),
       nextCursor: rows.length === 25 ? rows.at(-1)!.id : null,
@@ -404,6 +405,7 @@ export class VideoGenerationService {
         projectName: origin.projectName ?? "",
         sessionId: origin.sessionId ?? "",
         keyRef: origin.keyRef ? JSON.stringify(origin.keyRef) : null,
+        teamId: origin.teamId ?? null,
         activeOwner: ownerId,
         storageBytes: maxVideoBytes,
         createdAt: iso(),

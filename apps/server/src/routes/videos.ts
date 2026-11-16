@@ -110,7 +110,10 @@ export async function registerVideoRoutes(
     });
     scope.get("/api/videos/generations", async (request) => {
       const { cursor } = z.object({ cursor: videoIdSchema.optional() }).parse(request.query);
-      return videos.history(access.requireUser(request).id, cursor);
+      const user = access.requireUser(request);
+      const teamId = (request.query as { teamId?: string } | undefined)?.teamId;
+      if (teamId) await access.requireTeamRole(user, teamId, "viewer");
+      return videos.history(user.id, cursor, teamId);
     });
     scope.get<{ Params: { id: string } }>("/api/videos/generations/:id", async (request) => ({
       generation: await videos.get(

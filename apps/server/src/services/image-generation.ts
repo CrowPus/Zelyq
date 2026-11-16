@@ -363,9 +363,10 @@ export class ImageGenerationService {
     return present(await this.owned(ownerId, id));
   }
 
-  async history(ownerId: string, cursor?: string): Promise<ImageHistory> {
+  /** One person's images, made in this team (every team's when none is named). */
+  async history(ownerId: string, cursor?: string, teamId?: string): Promise<ImageHistory> {
     const before = cursor ? await this.owned(ownerId, cursor) : undefined;
-    const rows = await this.store.images.list(ownerId, before, 25);
+    const rows = await this.store.images.list(ownerId, before, 25, teamId);
     const page = rows.slice(0, 24);
     return {
       generations: page.map(present),

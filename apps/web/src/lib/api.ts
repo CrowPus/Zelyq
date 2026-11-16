@@ -149,6 +149,15 @@ function teamQuery(teamId?: string): string {
   return teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
 }
 
+/** A Studio list's page and team: "?cursor=…&teamId=…", or nothing. */
+function listQuery(cursor?: string, teamId?: string): string {
+  const query = new URLSearchParams();
+  if (cursor) query.set("cursor", cursor);
+  if (teamId) query.set("teamId", teamId);
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
@@ -768,10 +777,8 @@ export const api = {
     request<ImageCapabilities>(`/images/capabilities${teamQuery(teamId)}`),
   videoCapabilities: (teamId?: string) =>
     request<VideoCapabilities>(`/videos/capabilities${teamQuery(teamId)}`),
-  videoHistory: (cursor?: string) =>
-    request<VideoHistory>(
-      `/videos/generations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-    ),
+  videoHistory: (cursor?: string, teamId?: string) =>
+    request<VideoHistory>(`/videos/generations${listQuery(cursor, teamId)}`),
   videoGeneration: (id: string) =>
     request<{ generation: VideoGeneration }>(`/videos/generations/${id}`),
   generateVideo: (input: VideoGenerationInput, teamId?: string) =>
@@ -813,10 +820,8 @@ export const api = {
     request<{ generation: VideoGeneration }>(`/videos/generations/${id}/reconcile`, {
       method: "POST",
     }),
-  imageHistory: (cursor?: string) =>
-    request<ImageHistory>(
-      `/images/generations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-    ),
+  imageHistory: (cursor?: string, teamId?: string) =>
+    request<ImageHistory>(`/images/generations${listQuery(cursor, teamId)}`),
   imageGeneration: (id: string) =>
     request<{ generation: ImageGeneration }>(`/images/generations/${id}`),
   generateImage: (input: ImageGenerationInput, teamId?: string) =>

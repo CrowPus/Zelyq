@@ -100,7 +100,8 @@ export function VideoStudioPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const submission = useRef<VideoGenerationInput | null>(null);
-  const historyKey = ["video-history", user?.id];
+  // Each team has its own Studio: what was made in another team is not shown here.
+  const historyKey = ["video-history", user?.id, activeTeam?.id];
   const caps = useQuery({
     queryKey: ["video-capabilities", user?.id, activeTeam?.id],
     queryFn: () => api.videoCapabilities(activeTeam?.id),
@@ -108,7 +109,7 @@ export function VideoStudioPage() {
   const provider = caps.data?.providers.find((p) => p.id === (providerId ?? caps.data.provider));
   const history = useInfiniteQuery({
     queryKey: historyKey,
-    queryFn: ({ pageParam }) => api.videoHistory(pageParam),
+    queryFn: ({ pageParam }) => api.videoHistory(pageParam, activeTeam?.id),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     refetchInterval: (query) =>
@@ -133,8 +134,8 @@ export function VideoStudioPage() {
     (current && (isVideoActive(current.status) || current.status === "unknown")) ||
     entries.find((entry) => isVideoActive(entry.status) || entry.status === "unknown");
   const imageLibrary = useInfiniteQuery({
-    queryKey: ["video-image-library", user?.id],
-    queryFn: ({ pageParam }) => api.imageHistory(pageParam),
+    queryKey: ["video-image-library", user?.id, activeTeam?.id],
+    queryFn: ({ pageParam }) => api.imageHistory(pageParam, activeTeam?.id),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: libraryOpen,
