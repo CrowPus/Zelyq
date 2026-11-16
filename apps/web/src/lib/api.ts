@@ -960,29 +960,28 @@ export const api = {
         label: string;
         hint: string;
         source: "team" | "server" | "none";
+        vaultName: string | null;
+        vaultMissing: boolean;
       }>;
       usesServerKeys: boolean;
     }>(`/teams/${teamId}/ai-keys`),
   setTeamKey: (teamId: string, provider: string, key: string) =>
-    request<{
-      keys: Array<{
-        provider: string;
-        label: string;
-        hint: string;
-        source: "team" | "server" | "none";
-      }>;
-      usesServerKeys: boolean;
-    }>(`/teams/${teamId}/ai-keys/${provider}`, { method: "PUT", body: JSON.stringify({ key }) }),
+    request<Awaited<ReturnType<typeof api.teamKeys>>>(`/teams/${teamId}/ai-keys/${provider}`, {
+      method: "PUT",
+      body: JSON.stringify({ key }),
+    }),
+  teamKeyFromVault: (teamId: string, provider: string, vaultName: string) =>
+    request<Awaited<ReturnType<typeof api.teamKeys>>>(
+      `/teams/${teamId}/ai-keys/${provider}/vault`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ vaultName }),
+      },
+    ),
   removeTeamKey: (teamId: string, provider: string) =>
-    request<{
-      keys: Array<{
-        provider: string;
-        label: string;
-        hint: string;
-        source: "team" | "server" | "none";
-      }>;
-      usesServerKeys: boolean;
-    }>(`/teams/${teamId}/ai-keys/${provider}`, { method: "DELETE" }),
+    request<Awaited<ReturnType<typeof api.teamKeys>>>(`/teams/${teamId}/ai-keys/${provider}`, {
+      method: "DELETE",
+    }),
   teamInvites: (teamId: string) =>
     request<{
       canInvite: boolean;

@@ -1242,9 +1242,29 @@ export class SettingsService {
    * has none.
    */
   async teamKey(teamId: string, provider: string): Promise<string> {
-    const name = TEAM_KEY_NAME[provider];
-    if (!name || !this.vaultLookup) return "";
+    if (!TEAM_KEY_NAME[provider] || !this.vaultLookup) return "";
+    const name = await this.teamKeyName(teamId, provider);
     return ((await this.vaultLookup({ name, scope: teamId })) ?? "").trim();
+  }
+
+  /**
+   * Which secret in the team's Vault holds its key for a provider: one the
+   * team chose ("From Vault"), or the provider's usual name (a pasted key).
+   */
+  async teamKeyName(teamId: string, provider: string): Promise<string> {
+    const chosen = await this.store.settings.get(this.teamSettingKey(teamId, `keyref:${provider}`));
+    return chosen || (TEAM_KEY_NAME[provider] as string);
+  }
+
+  /** The secret the team chose for a provider's key, if it chose one; null to stop. */
+  async chosenTeamKey(teamId: string, provider: string): Promise<string | null> {
+    return await this.store.settings.get(this.teamSettingKey(teamId, `keyref:${provider}`));
+  }
+
+  async chooseTeamKey(teamId: string, provider: string, vaultName: string | null): Promise<void> {
+    const name = this.teamSettingKey(teamId, `keyref:${provider}`);
+    if (vaultName) await this.store.settings.set(name, vaultName);
+    else await this.store.settings.remove(name);
   }
 
   /**

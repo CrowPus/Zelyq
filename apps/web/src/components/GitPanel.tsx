@@ -569,7 +569,7 @@ function RemoteField({
   );
 }
 
-function TokenField({
+export function TokenField({
   value,
   onChange,
   teamId,

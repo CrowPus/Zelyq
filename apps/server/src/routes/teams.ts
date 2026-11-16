@@ -169,6 +169,19 @@ export function registerTeamRoutes(
       return keys.status(user, request.params.id);
     },
   );
+  /** The team's key for a provider from a secret already in its Vault, by name. */
+  app.put<{ Params: { id: string; provider: string } }>(
+    "/api/teams/:id/ai-keys/:provider/vault",
+    async (request) => {
+      const user = access.requireUser(request);
+      const { vaultName } = (request.body ?? {}) as { vaultName?: unknown };
+      if (typeof vaultName !== "string" || !vaultName.trim()) {
+        throw ZelyqError.badRequest("Choose the secret that holds the key.");
+      }
+      await keys.useVault(user, request.params.id, request.params.provider, vaultName.trim());
+      return keys.status(user, request.params.id);
+    },
+  );
   app.delete<{ Params: { id: string; provider: string } }>(
     "/api/teams/:id/ai-keys/:provider",
     async (request) => {

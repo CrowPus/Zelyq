@@ -81,6 +81,8 @@ export const createProjectSchema = z.object({
   /** Clone this repository instead of scaffolding a template. */
   gitUrl: gitUrlSchema.optional(),
   gitToken: gitTokenSchema.optional(),
+  /** The name of a team Vault secret holding the token: read on the server, never sent back. */
+  gitTokenVault: gitTokenVaultSchema.optional(),
   /** Optional first instruction — the project is created, then this is sent to the agent. */
   prompt: z.string().max(20_000).optional(),
 });

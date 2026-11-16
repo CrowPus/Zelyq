@@ -93,8 +93,21 @@ export function registerProjectRoutes(
 
     const teamId = input.teamId ?? (await access.defaultTeamFor(user));
     await access.requireTeamRole(user, teamId, "editor");
+    // A token from the team's Vault: read here, used for the clone, never sent back.
+    const { gitTokenVault, ...rest } = input;
+    let cloneToken = rest.gitToken;
+    if (gitTokenVault) {
+      await deps.vault.requireUse(user, { kind: "team", teamId }, gitTokenVault);
+      cloneToken = (await deps.vault.resolve(teamId, [gitTokenVault])).get(gitTokenVault);
+      if (!cloneToken)
+        throw ZelyqError.badRequest(`${gitTokenVault} could not be read from Vault.`);
+    }
 
-    const project = await deps.projects.create({ ...input, teamId });
+    const project = await deps.projects.create({
+      ...rest,
+      ...(cloneToken ? { gitToken: cloneToken } : {}),
+      teamId,
+    });
     await access.recordChange(user, {
       teamId,
       projectId: project.id,

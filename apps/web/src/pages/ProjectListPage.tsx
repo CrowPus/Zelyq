@@ -4,6 +4,7 @@ import { Box, CircleAlert, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { TokenField } from "../components/GitPanel";
 import {
   FilterSelect,
   ListToolbar,
@@ -14,16 +15,7 @@ import {
   SearchBox,
   useListParams,
 } from "../components/ListControls";
-import {
-  Badge,
-  Button,
-  EmptyState,
-  IconButton,
-  Input,
-  PasswordInput,
-  Spinner,
-  StatusDot,
-} from "../components/ui";
+import { Badge, Button, EmptyState, IconButton, Input, Spinner, StatusDot } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 
@@ -45,6 +37,8 @@ export function ProjectListPage() {
   const [name, setName] = useState("");
   const [gitUrl, setGitUrl] = useState("");
   const [gitToken, setGitToken] = useState("");
+  const [tokenSource, setTokenSource] = useState<"paste" | "vault">("paste");
+  const [tokenVault, setTokenVault] = useState("");
   /** Which starter stack a new (non-clone) project scaffolds from. */
   const [template, setTemplate] = useState("vite-react");
   const [composing, setComposing] = useState(false);
@@ -74,7 +68,13 @@ export function ProjectListPage() {
   );
 
   const createProject = useMutation({
-    mutationFn: (input: { name: string; gitUrl?: string; gitToken?: string; template?: string }) =>
+    mutationFn: (input: {
+      name: string;
+      gitUrl?: string;
+      gitToken?: string;
+      gitTokenVault?: string;
+      template?: string;
+    }) =>
       api.createProject({
         template: "vite-react",
         ...input,
@@ -114,7 +114,13 @@ export function ProjectListPage() {
     createProject.mutate({
       name: trimmed,
       gitUrl: repository,
-      ...(token ? { gitToken: token } : {}),
+      ...(tokenSource === "vault"
+        ? tokenVault
+          ? { gitTokenVault: tokenVault }
+          : {}
+        : token
+          ? { gitToken: token }
+          : {}),
     });
   }
 
@@ -279,16 +285,19 @@ export function ProjectListPage() {
                 aria-label="Repository URL"
                 className="max-w-xl"
               />
-              {gitUrl.trim() && (
-                <PasswordInput
-                  value={gitToken}
-                  onChange={(event) => setGitToken(event.target.value)}
-                  onKeyDown={(event) => event.key === "Escape" && setComposing(false)}
-                  placeholder="Access token — only if the repository is private"
-                  aria-label="Repository access token"
-                  autoComplete="off"
-                  className="max-w-xl"
-                />
+              {gitUrl.trim() && team && (
+                <div className="max-w-xl">
+                  {/* Pasted, or a secret from the team's Vault (read on the server). */}
+                  <TokenField
+                    value={gitToken}
+                    onChange={setGitToken}
+                    teamId={team.id}
+                    source={tokenSource}
+                    onSource={setTokenSource}
+                    vaultName={tokenVault}
+                    onVaultName={setTokenVault}
+                  />
+                </div>
               )}
 
               <p className="text-2xs text-fg-muted">

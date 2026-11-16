@@ -246,3 +246,41 @@ test("the owner's own sign-in on this machine is never another team's", async ()
   );
   await server.store.settings.set("anthropicAuthMode", "api_key");
 });
+
+test("a team's key can come from a secret already in its Vault; removing it never deletes the secret", async () => {
+  const added = await call(guestCookie, "POST", `/api/teams/${guestTeam}/vault`, {
+    name: "OUR_GEMINI",
+    value: "AIza-from-the-vault-4242",
+  });
+  assert.equal(added.statusCode, 201, added.body);
+  const chosen = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/ai-keys/google/vault`, {
+    vaultName: "OUR_GEMINI",
+  });
+  assert.equal(chosen.statusCode, 200, chosen.body);
+  assert.doesNotMatch(chosen.body, /from-the-vault/);
+  const google = chosen.json().keys.find((key: { provider: string }) => key.provider === "google");
+  assert.equal(google.vaultName, "OUR_GEMINI");
+  assert.equal(google.source, "team");
+  assert.equal(await server.settings.apiKeyFor("google", guestTeam), "AIza-from-the-vault-4242");
+  // A secret that is not there is refused, and an editor cannot choose one.
+  const missing = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/ai-keys/openai/vault`, {
+    vaultName: "NOT_THERE",
+  });
+  assert.equal(missing.statusCode, 400);
+  // Removing stops using it; the secret stays in the Vault.
+  await call(guestCookie, "DELETE", `/api/teams/${guestTeam}/ai-keys/google`);
+  assert.equal(await server.settings.apiKeyFor("google", guestTeam), "");
+  const vault = (await call(guestCookie, "GET", `/api/teams/${guestTeam}/vault`)).json();
+  assert.ok(vault.secrets.some((row: { name: string }) => row.name === "OUR_GEMINI"));
+});
+
+test("a new app from a repository can take its token from the team's Vault", async () => {
+  const response = await call(guestCookie, "POST", "/api/projects", {
+    teamId: guestTeam,
+    name: "From a repo",
+    gitUrl: "https://github.com/example/private-repo.git",
+    gitTokenVault: "NO_SUCH_TOKEN",
+  });
+  assert.equal(response.statusCode, 400, response.body);
+  assert.match(response.json().error.message, /NO_SUCH_TOKEN/);
+});
