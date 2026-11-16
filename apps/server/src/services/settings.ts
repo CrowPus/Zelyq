@@ -572,6 +572,17 @@ const DEFINITIONS: Definition[] = [
     restartRequired: true,
   },
   {
+    key: "cleanIdleAfterDays",
+    label: "Clear installed packages of idle apps after (days)",
+    description:
+      "An app nobody has opened, talked to or previewed for this many days has its installed packages and build caches (node_modules, Python environments, framework caches) removed to free disk. Nothing the person wrote is touched; the packages come back by themselves the next time its preview starts. 0: never.",
+    kind: "number",
+    group: "Runtime",
+    envVar: "ZELYQ_CLEAN_IDLE_AFTER_DAYS",
+    envOverridable: true,
+    fallback: "14",
+  },
+  {
     key: "containerEgressAllowlist",
     label: "Container egress allowlist",
     description:

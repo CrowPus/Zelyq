@@ -327,6 +327,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   usage.previewRunning = async (projectId) =>
     (await runtime.previewStatus(projectId)).status === "running";
+  // An app whose agent is working is never cleared under it.
+  usage.appBusy = async (projectId) =>
+    (await store.projects.findById(projectId))?.status === "building";
+  usage.idleDays = () => settings.numberValue("cleanIdleAfterDays");
   for (const service of [pipelines, pipelineTriggers, deploys, runners, images, videos]) {
     service.limits = usage;
   }

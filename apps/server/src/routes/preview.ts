@@ -12,7 +12,7 @@ export function registerPreviewRoutes(
   app: FastifyInstance,
   deps: {
     /** What the team's plan allows; none: no limits. */
-    limits?: Pick<UsageService, "check">;
+    limits?: Pick<UsageService, "check" | "touch">;
     projects: ProjectService;
     runtime: RuntimeDriver;
     access: AccessControl;
@@ -50,6 +50,7 @@ export function registerPreviewRoutes(
       .then((preview) => preview.status === "running")
       .catch(() => false);
     if (!already) await deps.limits?.check(project.project.teamId, "previews");
+    deps.limits?.touch(request.params.id);
     // A project made before the element inspector shipped, or not started
     // from Zelyq's own template at all, gets patched with the same bridge
     // script the template ships. Best-effort, before the

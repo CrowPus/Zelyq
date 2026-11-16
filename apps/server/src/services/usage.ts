@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -47,6 +48,50 @@ const REINSTALLABLE = new Set([
   "build",
   "target",
 ]);
+
+/**
+ * What the idle-app clean-up may remove: only what an install or a framework
+ * rebuilds by itself. Never dist, build or anything that might be the
+ * person's own work, and never a folder with files in the app's git history.
+ */
+const CLEARABLE = new Set([
+  "node_modules",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".next",
+  ".nuxt",
+  ".svelte-kit",
+  ".turbo",
+  ".parcel-cache",
+]);
+/** A Python environment is only one when it says so. */
+const PYTHON_ENVS = new Set([".venv", "venv"]);
+const CLEAN_EVERY_MS = 6 * 60 * 60_000;
+const TOUCH_EVERY_MS = 60 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
+
+export interface CleanupReport {
+  at: string;
+  /** Only looked: what would be cleared, nothing removed. */
+  dryRun: boolean;
+  apps: number;
+  freedBytes: number;
+  /** One line per app cleared. */
+  cleared: Array<{ projectId: string; name: string; bytes: number; folders: string[] }>;
+}
+
+/** Whether git keeps any file under this folder: then it is the person's, never cleared. */
+function gitTracks(root: string, relative: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      ["-C", root, "ls-files", "--", relative],
+      { timeout: 20_000, maxBuffer: 1024 * 1024 },
+      (error, stdout) => resolve(error ? true : stdout.trim().length > 0),
+    );
+  });
+}
 
 const PLANS_KEY = "plans";
 const MEASURE_EVERY_MS = 15 * 60_000;
@@ -116,12 +161,150 @@ export class UsageService {
     if (this.timer) return;
     this.timer = setInterval(() => void this.measureAll(), MEASURE_EVERY_MS);
     this.timer.unref();
+    this.cleanTimer = setInterval(
+      () => void this.cleanIdle().catch(() => undefined),
+      CLEAN_EVERY_MS,
+    );
+    this.cleanTimer.unref();
     void this.measureAll();
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.cleanTimer) clearInterval(this.cleanTimer);
     this.timer = null;
+    this.cleanTimer = null;
+  }
+
+  // -------------------------------------------------------- idle clean-up
+
+  private cleanTimer: NodeJS.Timeout | null = null;
+  private readonly touched = new Map<string, number>();
+  /** Whether an app's agent is working now (its status says building). */
+  appBusy?: (projectId: string) => Promise<boolean>;
+  /** How many idle days before clearing (Server settings); 0: never. */
+  idleDays?: () => Promise<number>;
+
+  /** Someone opened, talked to or previewed an app: it is not idle. At most once an hour. */
+  touch(projectId: string): void {
+    const now = Date.now();
+    if (now - (this.touched.get(projectId) ?? 0) < TOUCH_EVERY_MS) return;
+    this.touched.set(projectId, now);
+    void this.store.settings
+      .set(`project:${projectId}:used`, new Date(now).toISOString())
+      .catch(() => this.touched.delete(projectId));
+  }
+
+  async lastUsed(projectId: string, updatedAt: string): Promise<number> {
+    // Every use is recorded (opened, talked to, previewed); an app never used since
+    // that began counts from when it last changed.
+    const used = await this.store.settings.get(`project:${projectId}:used`);
+    return used ? Date.parse(used) : Date.parse(updatedAt) || 0;
+  }
+
+  async lastCleanup(): Promise<CleanupReport | null> {
+    const stored = await this.store.settings.get("cleanup:last");
+    try {
+      return stored ? (JSON.parse(stored) as CleanupReport) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Clears installed packages and build caches from apps nobody has used for
+   * a while. Skips an app whose preview runs or whose agent works, and any
+   * folder git keeps. The packages come back the next time its preview starts.
+   */
+  async cleanIdle(options: { days?: number; dryRun?: boolean } = {}): Promise<CleanupReport> {
+    const days = options.days ?? (await this.idleDays?.()) ?? 14;
+    const report: CleanupReport = {
+      at: new Date().toISOString(),
+      dryRun: options.dryRun === true,
+      apps: 0,
+      freedBytes: 0,
+      cleared: [],
+    };
+    if (!this.paths.workspaceDir || days <= 0) return report;
+    const cutoff = Date.now() - days * DAY_MS;
+    for (const team of await this.store.teams.listAll()) {
+      for (const project of await this.store.projects.listForTeams([team.id], 100_000)) {
+        if ((await this.lastUsed(project.id, project.updatedAt)) > cutoff) continue;
+        if (await this.previewRunning?.(project.id).catch(() => true)) continue;
+        if (await this.appBusy?.(project.id).catch(() => true)) continue;
+        const root = path.join(this.paths.workspaceDir, project.id);
+        const folders = await this.clearableFolders(root);
+        if (folders.length === 0) continue;
+        let bytes = 0;
+        const removed: string[] = [];
+        for (const relative of folders) {
+          const full = path.join(root, relative);
+          const size = await folderBytes(full, false);
+          if (options.dryRun) {
+            bytes += size;
+            removed.push(relative);
+            continue;
+          }
+          try {
+            await fs.rm(full, { recursive: true, force: true });
+            bytes += size;
+            removed.push(relative);
+          } catch {
+            // Left as it is: next time.
+          }
+        }
+        if (removed.length === 0) continue;
+        report.apps += 1;
+        report.freedBytes += bytes;
+        report.cleared.push({ projectId: project.id, name: project.name, bytes, folders: removed });
+      }
+    }
+    if (options.dryRun) return report;
+    await this.store.settings.set("cleanup:last", JSON.stringify(report)).catch(() => undefined);
+    // What each team uses has changed.
+    this.measured.clear();
+    return report;
+  }
+
+  /** The folders under an app that may go, outermost only, git-kept ones left out. */
+  private async clearableFolders(root: string): Promise<string[]> {
+    const found: string[] = [];
+    const hasGit = await fs
+      .access(path.join(root, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    const walk = async (relative: string, depth: number) => {
+      if (depth > 4) return;
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = await fs.readdir(path.join(root, relative), { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+        if (entry.name === ".git" || entry.name === ".zelyq") continue;
+        const child = relative ? path.join(relative, entry.name) : entry.name;
+        if (CLEARABLE.has(entry.name)) {
+          if (
+            PYTHON_ENVS.has(entry.name) &&
+            !(await fs
+              .access(path.join(root, child, "pyvenv.cfg"))
+              .then(() => true)
+              .catch(() => false))
+          ) {
+            await walk(child, depth + 1);
+            continue;
+          }
+          if (hasGit && (await gitTracks(root, child))) continue;
+          found.push(child);
+          continue;
+        }
+        await walk(child, depth + 1);
+      }
+    };
+    await walk("", 0);
+    return found;
   }
 
   // ------------------------------------------------------------------ plans

@@ -24,7 +24,7 @@ export function registerProjectRoutes(
   app: FastifyInstance,
   deps: {
     /** What the team's plan allows; none: no limits. */
-    limits?: Pick<UsageService, "check">;
+    limits?: Pick<UsageService, "check" | "touch">;
     projects: ProjectService;
     access: AccessControl;
     templatesDir: string;
@@ -126,6 +126,8 @@ export function registerProjectRoutes(
   app.get<{ Params: { id: string } }>("/api/projects/:id", async (request) => {
     const user = access.requireUser(request);
     const { project } = await access.requireProject(user, request.params.id, "viewer");
+    // Opened: not idle, so its installed packages are kept.
+    deps.limits?.touch(request.params.id);
     return { project };
   });
 

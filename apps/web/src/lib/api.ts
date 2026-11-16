@@ -147,6 +147,15 @@ export class ApiError extends Error {
   }
 }
 
+/** What the idle-app clean-up freed, or would. */
+export interface CleanupReportView {
+  at: string;
+  dryRun: boolean;
+  apps: number;
+  freedBytes: number;
+  cleared: Array<{ projectId: string; name: string; bytes: number; folders: string[] }>;
+}
+
 /** "?teamId=…" for a request whose AI key is the team's own, or nothing. */
 function teamQuery(teamId?: string): string {
   return teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
@@ -969,6 +978,9 @@ export const api = {
         members: number;
       }>;
     }>("/plans/teams"),
+  cleanupLast: () => request<{ last: CleanupReportView | null }>("/cleanup"),
+  cleanup: (look: boolean) =>
+    request<{ last: CleanupReportView }>(`/cleanup${look ? "?look=1" : ""}`, { method: "POST" }),
   setTeamPlan: (teamId: string, plan: string) =>
     request<TeamUsage>(`/teams/${teamId}/plan`, { method: "PUT", body: JSON.stringify({ plan }) }),
   teamSettings: (teamId: string) => request<SettingsResponse>(`/teams/${teamId}/settings`),

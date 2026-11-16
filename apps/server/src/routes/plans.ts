@@ -23,6 +23,17 @@ export function registerPlanRoutes(
     },
   );
 
+  /** The idle-app clean-up: what it last freed, and running it now. */
+  app.get("/api/cleanup", async (request) => {
+    access.requireInstanceAdmin(request);
+    return { last: await usage.lastCleanup() };
+  });
+  /** ?look=1: what would be cleared, nothing removed. */
+  app.post<{ Querystring: { look?: string } }>("/api/cleanup", async (request) => {
+    access.requireInstanceAdmin(request);
+    return { last: await usage.cleanIdle({ dryRun: request.query.look === "1" }) };
+  });
+
   app.get("/api/plans", async (request) => {
     access.requireInstanceAdmin(request);
     return { ...(await usage.plans()), all: await usage.allPlans() };

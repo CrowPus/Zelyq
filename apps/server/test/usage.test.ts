@@ -188,3 +188,80 @@ test("storage over the limit stops new things, and says what to do", async () =>
   assert.equal(blocked.statusCode, 403);
   assert.match(blocked.json().error.message, /storage.*Delete what it no longer needs/);
 });
+
+test("idle apps lose only what an install rebuilds; nothing the person wrote, nothing git keeps", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const made = await app(ownerCookie, ownerTeam, "Idle one");
+  assert.equal(made.statusCode, 201, made.body);
+  const idle = made.json().project.id as string;
+  const root = path.join(config.runtime.workspaceDir, idle);
+  const write = async (relative: string, bytes = 1000) => {
+    await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await fs.writeFile(path.join(root, relative), Buffer.alloc(bytes));
+  };
+  await write("src/app.js");
+  await write("dist/kept.js");
+  await write("node_modules/big/lib.js", 200_000);
+  await write("web/node_modules/other/lib.js", 100_000);
+  await write(".venv/pyvenv.cfg", 10);
+  await write(".venv/lib/site.py", 50_000);
+  await write("venv/notes.txt", 10); // not a Python environment: the person's
+  await write("vendored/node_modules/kept.js"); // in git: the person's
+  execFileSync("git", ["-C", root, "init", "-q"]);
+  execFileSync("git", ["-C", root, "add", "-f", "vendored/node_modules/kept.js", "src/app.js"]);
+  execFileSync("git", [
+    "-C",
+    root,
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@t",
+    "commit",
+    "-qm",
+    "x",
+  ]);
+
+  // Used yesterday: kept, whatever its age on disk.
+  await server.store.settings.set(
+    `project:${idle}:used`,
+    new Date(Date.now() - 86_400_000).toISOString(),
+  );
+  assert.equal(
+    (await server.usage.cleanIdle({ days: 14 })).cleared.some((c) => c.projectId === idle),
+    false,
+  );
+
+  // Unused for 30 days: cleared.
+  const old = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  await server.store.settings.set(`project:${idle}:used`, old);
+  // Looking first removes nothing.
+  const look = await server.usage.cleanIdle({ days: 14, dryRun: true });
+  assert.ok(look.cleared.some((c) => c.projectId === idle));
+  assert.equal(
+    await fs.access(path.join(root, "node_modules")).then(
+      () => true,
+      () => false,
+    ),
+    true,
+  );
+  const report = await server.usage.cleanIdle({ days: 14 });
+  const mine = report.cleared.find((c) => c.projectId === idle);
+  assert.ok(mine, JSON.stringify(report));
+  assert.deepEqual([...mine.folders].sort(), [".venv", "node_modules", "web/node_modules"].sort());
+  assert.ok(mine.bytes >= 350_000);
+  const exists = (relative: string) =>
+    fs.access(path.join(root, relative)).then(
+      () => true,
+      () => false,
+    );
+  assert.equal(await exists("node_modules"), false);
+  assert.equal(await exists(".venv"), false);
+  assert.equal(await exists("src/app.js"), true);
+  assert.equal(await exists("dist/kept.js"), true);
+  assert.equal(await exists("venv/notes.txt"), true);
+  assert.equal(await exists("vendored/node_modules/kept.js"), true);
+  assert.ok(((await server.usage.lastCleanup())?.apps ?? 0) >= 1);
+  // Only the server admin runs it from the page.
+  assert.equal((await call(guestCookie, "POST", "/api/cleanup")).statusCode, 403);
+  assert.equal((await call(ownerCookie, "POST", "/api/cleanup")).statusCode, 200);
+});

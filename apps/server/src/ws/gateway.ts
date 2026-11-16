@@ -92,7 +92,7 @@ const PROVIDER_WORDS: Record<string, string> = {
 
 export class ChatGateway {
   /** What the team's plan allows (set by the app); none: no limits. */
-  limits?: Pick<UsageService, "check">;
+  limits?: Pick<UsageService, "check" | "touch">;
   private readonly rooms = new Map<string, Room>();
 
   constructor(
@@ -399,6 +399,7 @@ export class ChatGateway {
       this.settings.enterTeam(teamId);
       // Over the team's storage: the agent writes no more until it has room again.
       if (teamId) await this.limits?.check(teamId, "storageMb", 0);
+      this.limits?.touch(room.projectId);
       const settingsProvider = await this.settings.value("provider");
       // A pick from the chat's own model control wins over the instance
       // default for this turn onward. Omitted means what it always meant:

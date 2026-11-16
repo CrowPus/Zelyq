@@ -3,6 +3,7 @@ import { PLAN_LIMIT_KEYS, PLAN_LIMITS, type Plan, type PlanLimitKey } from "@zel
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { IdleCleanup } from "./IdleCleanup";
 import { sizeWords } from "./UsagePanel";
 import { Button, Input, Spinner } from "./ui";
 
@@ -228,6 +229,7 @@ export function PlansPanel() {
           </div>
         )}
       </div>
+      <IdleCleanup />
     </section>
   );
 }
