@@ -21,6 +21,7 @@ import { normalizeImage } from "./image-providers/normalize.js";
 import { type ImageProvider, ImageProviderError, inspectPng } from "./image-providers/shared.js";
 import type { SettingsService } from "./settings.js";
 import { TEAM_KEY_NAME } from "./settings.js";
+import type { UsageService } from "./usage.js";
 
 /** Defaults an operator can change. Ten per hour was sized for one person
  *  clicking Generate; once the build agent shares the same budget it is too
@@ -74,6 +75,8 @@ function present(row: ImageJobRow): ImageGeneration {
 }
 
 export class ImageGenerationService {
+  /** What the team's plan allows (set by the app); none: no limits. */
+  limits?: Pick<UsageService, "check">;
   private timer?: ReturnType<typeof setInterval>;
   private ticking: Promise<void> | null = null;
   private running = new Map<string, { controller: AbortController; work: Promise<void> }>();
@@ -233,6 +236,8 @@ export class ImageGenerationService {
     input: ImageGenerationInput,
     origin: Parameters<ImageGenerationService["submitHere"]>[2] = {},
   ) {
+    // Over the team's storage: nothing new is made until it has room again.
+    if (origin.teamId) await this.limits?.check(origin.teamId, "storageMb", 0);
     return this.settings.forTeam
       ? this.settings.forTeam(origin.teamId, () => this.submitHere(ownerId, input, origin))
       : this.submitHere(ownerId, input, origin);

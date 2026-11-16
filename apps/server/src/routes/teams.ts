@@ -14,6 +14,7 @@ import type { AccessControl } from "../services/access.js";
 import type { EmailLinkService } from "../services/email-links.js";
 import type { SettingsService } from "../services/settings.js";
 import type { TeamKeys } from "../services/team-keys.js";
+import type { UsageService } from "../services/usage.js";
 
 export function registerTeamRoutes(
   app: FastifyInstance,
@@ -23,6 +24,8 @@ export function registerTeamRoutes(
     links: EmailLinkService;
     keys: TeamKeys;
     settings: SettingsService;
+    /** What the team's plan allows; none: no limits. */
+    limits?: Pick<UsageService, "check">;
   },
 ): void {
   const { store, access, links, keys, settings } = deps;
@@ -88,6 +91,7 @@ export function registerTeamRoutes(
       if (!roleAtLeast(actorRole, input.role)) {
         throw new ZelyqError("forbidden", `You cannot grant a role above your own (${actorRole}).`);
       }
+      await deps.limits?.check(teamId, "members");
 
       const invitee = await store.users.findByEmail(input.email);
       // A team's Ops engineer is managed on the Ops page, never as a member.

@@ -233,6 +233,43 @@ export function pipelineRepository(db: ZelyqDb) {
     },
 
     // ----------------------------------------------------------------- runs
+    /** What a team's pipelines use, for its plan: stored run files and logs, triggers, local minutes. */
+    usage: {
+      async forTeam(teamId: string, since: string) {
+        const [stored] = await db
+          .select({ bytes: sql<number>`coalesce(sum(${artifacts.sizeBytes}), 0)` })
+          .from(artifacts)
+          .innerJoin(runs, eq(runs.id, artifacts.runId))
+          .where(eq(runs.teamId, teamId));
+        const [logs] = await db
+          .select({ bytes: sql<number>`coalesce(sum(${runs.logBytes}), 0)` })
+          .from(runs)
+          .where(eq(runs.teamId, teamId));
+        const [triggerCount] = await db
+          .select({ n: sql<number>`count(*)` })
+          .from(triggers)
+          .innerJoin(pipelines, eq(pipelines.id, triggers.pipelineId))
+          .where(eq(pipelines.teamId, teamId));
+        // The server's own runner: a run with no machine of the team's.
+        const local = await db
+          .select({ startedAt: runs.startedAt, finishedAt: runs.finishedAt })
+          .from(runs)
+          .where(and(eq(runs.teamId, teamId), isNull(runs.runnerId), gt(runs.startedAt, since)));
+        const now = Date.now();
+        const localSeconds = local.reduce((total, row) => {
+          if (!row.startedAt) return total;
+          const end = row.finishedAt ? Date.parse(row.finishedAt) : now;
+          return total + Math.max(0, (end - Date.parse(row.startedAt)) / 1000);
+        }, 0);
+        return {
+          artifactBytes: Number(stored?.bytes ?? 0),
+          logBytes: Number(logs?.bytes ?? 0),
+          triggers: Number(triggerCount?.n ?? 0),
+          localSeconds: Math.round(localSeconds),
+        };
+      },
+    },
+
     runs: {
       /** A new run, numbered one past the pipeline's last, with its steps. */
       async create(

@@ -6,10 +6,13 @@ import type { PreviewEnvResolver } from "../services/preview-env.js";
 import type { ProjectBackendService } from "../services/project-backend.js";
 import type { ProjectService } from "../services/projects.js";
 import type { ThumbnailStore } from "../services/thumbnails.js";
+import type { UsageService } from "../services/usage.js";
 
 export function registerPreviewRoutes(
   app: FastifyInstance,
   deps: {
+    /** What the team's plan allows; none: no limits. */
+    limits?: Pick<UsageService, "check">;
     projects: ProjectService;
     runtime: RuntimeDriver;
     access: AccessControl;
@@ -36,7 +39,17 @@ export function registerPreviewRoutes(
   });
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/preview/start", async (request) => {
-    await access.requireProject(access.requireUser(request), request.params.id, "editor");
+    const project = await access.requireProject(
+      access.requireUser(request),
+      request.params.id,
+      "editor",
+    );
+    // One more preview running at once, unless this one already is.
+    const already = await deps.runtime
+      .previewStatus(request.params.id)
+      .then((preview) => preview.status === "running")
+      .catch(() => false);
+    if (!already) await deps.limits?.check(project.project.teamId, "previews");
     // A project made before the element inspector shipped, or not started
     // from Zelyq's own template at all, gets patched with the same bridge
     // script the template ships. Best-effort, before the

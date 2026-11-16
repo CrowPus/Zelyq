@@ -10,6 +10,7 @@ export * from "./models.js";
 export * from "./openai-models.js";
 export * from "./ops.js";
 export * from "./pipelines.js";
+export * from "./plans.js";
 export * from "./project-runtime.js";
 export * from "./protocol.js";
 export * from "./registry.js";

@@ -25,6 +25,7 @@ import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
 import { registerOpsRoutes } from "./routes/ops.js";
 import { registerPipelineRoutes } from "./routes/pipelines.js";
+import { registerPlanRoutes } from "./routes/plans.js";
 import { registerPluginRegistryRoutes } from "./routes/plugin-registry.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProjectBackendRoutes } from "./routes/project-backend.js";
@@ -90,6 +91,7 @@ import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
 import { TeamKeys } from "./services/team-keys.js";
 import { ThumbnailStore } from "./services/thumbnails.js";
+import { UsageService } from "./services/usage.js";
 import { VaultService } from "./services/vault.js";
 import { VaultKeyService } from "./services/vault-keys.js";
 import { VideoAssetStore } from "./services/video-assets.js";
@@ -108,6 +110,8 @@ export interface ZelyqServer {
   app: FastifyInstance;
   store: Store;
   runtime: RuntimeDriver;
+  /** What each team uses, and its plan: exposed so tests measure when they choose. */
+  usage: UsageService;
   /** Ops, the team's DevOps engineer: exposed so tests can act as the engineer does. */
   ops: OpsService;
   /** Talking to Ops live: exposed so tests can drive a conversation. */
@@ -313,6 +317,19 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     await Promise.all([imageAssets.removeUser(id), videoAssets.removeUser(id)]);
   });
   const attachments = new AttachmentService(config.attachmentsDir);
+  // What each team uses, and what its plan allows (one plan, Unlimited, until an admin sets more).
+  const usage = new UsageService(store, {
+    workspaceDir:
+      config.runtime.kind === "remote"
+        ? null
+        : ((config.runtime as { workspaceDir?: string }).workspaceDir ?? null),
+    attachmentsDir: config.attachmentsDir,
+  });
+  usage.previewRunning = async (projectId) =>
+    (await runtime.previewStatus(projectId)).status === "running";
+  for (const service of [pipelines, pipelineTriggers, deploys, runners, images, videos]) {
+    service.limits = usage;
+  }
   const skillUploads = new SkillUploadService(config.uploadedSkillsDir);
   const speech = new SpeechService();
 
@@ -412,7 +429,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSettingsRoutes(app, { settings, access, store, mail });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
+  registerPlanRoutes(app, { usage, access, store });
   registerTeamRoutes(app, {
+    limits: usage,
     store,
     access,
     links: emailLinks,
@@ -420,6 +439,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     settings,
   });
   registerProjectRoutes(app, {
+    limits: usage,
     projects,
     access,
     templatesDir: config.templatesDir,
@@ -429,6 +449,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   registerFileRoutes(app, { projects, runtime, access, images, videos });
   registerPreviewRoutes(app, {
+    limits: usage,
     projects,
     runtime,
     access,
@@ -551,7 +572,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     store,
     resolvePreviewEnv,
   });
-  registerAttachmentRoutes(app, { attachments, access });
+  registerAttachmentRoutes(app, { attachments, access, limits: usage });
   registerVoiceRoutes(app, { speech, settings, access });
   registerGuideRoutes(app, { access });
   registerImageRoutes(app, { images, access });
@@ -584,6 +605,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     }
     images.start();
     videos.start();
+    // Measures every team's files in the background; under the test runner only when asked.
+    if (!process.env.NODE_TEST_CONTEXT) usage.start();
     await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
@@ -595,6 +618,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     }
   });
   app.addHook("onClose", async () => {
+    usage.stop();
     watch.stop();
     opsChannels.stop();
     opsMailer.close();
@@ -604,7 +628,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     await pipelineEngine.close();
   });
 
-  const gateway = new ChatGateway(
+  const gateway: ChatGateway = new ChatGateway(
     store,
     projects,
     agent,
@@ -625,6 +649,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     { bridge: videoBridge, serverInternalUrl: config.serverInternalUrl },
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
+  gateway.limits = usage;
   agentFilesChanged = (projectId, paths) => gateway.notifyFilesChanged(projectId, paths);
 
   // Pipelines starting other pipelines: a `pipeline` step, and "after another pipeline" triggers.
@@ -735,6 +760,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     opsChannels,
     store,
     runtime,
+    usage,
     /** Read at startup to warn when an exposed instance also accepts signups. */
     async registrationOpen(): Promise<boolean> {
       return await settings.booleanValue("allowRegistration").catch(() => false);

@@ -17,11 +17,14 @@ import type { AccessControl } from "../services/access.js";
 import type { ProjectService } from "../services/projects.js";
 import { listTemplates } from "../services/templates.js";
 import type { ThumbnailStore } from "../services/thumbnails.js";
+import type { UsageService } from "../services/usage.js";
 import type { VaultService } from "../services/vault.js";
 
 export function registerProjectRoutes(
   app: FastifyInstance,
   deps: {
+    /** What the team's plan allows; none: no limits. */
+    limits?: Pick<UsageService, "check">;
     projects: ProjectService;
     access: AccessControl;
     templatesDir: string;
@@ -93,6 +96,8 @@ export function registerProjectRoutes(
 
     const teamId = input.teamId ?? (await access.defaultTeamFor(user));
     await access.requireTeamRole(user, teamId, "editor");
+    await deps.limits?.check(teamId, "apps");
+    await deps.limits?.check(teamId, "storageMb", 0);
     // A token from the team's Vault: read here, used for the clone, never sent back.
     const { gitTokenVault, ...rest } = input;
     let cloneToken = rest.gitToken;

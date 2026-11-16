@@ -13,6 +13,7 @@ import {
 import type { PipelineRunRow, PipelineTriggerRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
 import type { SecretBox } from "../secrets.js";
+import type { UsageService } from "../usage.js";
 import type { PipelineService } from "./service.js";
 
 /**
@@ -25,6 +26,8 @@ import type { PipelineService } from "./service.js";
  *   firing is stored, so a restart never fires the same minute twice.
  */
 export class PipelineTriggerService {
+  /** What the team's plan allows (set by the app); none: no limits. */
+  limits?: Pick<UsageService, "check">;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -63,6 +66,7 @@ export class PipelineTriggerService {
     await this.access.requireTeamRole(user, teamId, "editor");
     const pipeline = await this.pipeline(teamId, pipelineId);
     const input = triggerInputSchema.parse(raw);
+    await this.limits?.check(teamId, "triggers");
     const secret = input.kind === "push" ? randomBytes(24).toString("hex") : null;
     await this.checkUpstream(teamId, pipelineId, input);
     const row: PipelineTriggerRow = {

@@ -42,6 +42,7 @@ import {
 } from "@zelyq/core";
 import type { PipelineRow, PipelineRunRow, PipelineStepRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
+import type { UsageService } from "../usage.js";
 import type { VaultService } from "../vault.js";
 import type { PipelineEngine } from "./engine.js";
 import type { PipelinePluginService } from "./plugins.js";
@@ -287,6 +288,7 @@ export class PipelineService {
     options: { note?: string } = {},
   ): Promise<PipelineDetail> {
     await this.access.requireTeamRole(user, teamId, "editor");
+    await this.limits?.check(teamId, "pipelines");
     const file = await this.validate(user, teamId, source);
     if (await this.store.pipelines.pipelines.findByName(teamId, file.name)) {
       throw new ZelyqError("conflict", `There is already a pipeline called ${file.name}.`);
@@ -628,6 +630,10 @@ export class PipelineService {
   ): Promise<PipelineRunSummary> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const pipeline = await this.find(teamId, pipelineId);
+    // Minutes on this server's own runner are the plan's to give.
+    if (this.limits?.usesLocalRunner(pipeline.source)) {
+      await this.limits.check(teamId, "runnerMinutes");
+    }
     const run = await this.enqueue(pipeline, {
       trigger: "manual",
       triggeredBy: user.id,
@@ -701,6 +707,8 @@ export class PipelineService {
    * A run started by a trigger, with no person behind it. The file was
    * checked against the Vault when an editor saved it.
    */
+  /** What the team's plan allows (set by the app); none: no limits. */
+  limits?: Pick<UsageService, "check" | "usesLocalRunner">;
   /** Set by the app: a reason a triggered run must not start (Ops's access, 076), or null. */
   mayStartTriggered?: (pipeline: PipelineRow) => Promise<string | null>;
 
@@ -731,6 +739,13 @@ export class PipelineService {
     // A pipeline Ops wrote starts by itself only while Ops still has it and where it deploys.
     const refused = await this.mayStartTriggered?.(pipeline);
     if (refused) return this.failedAtStart(pipeline, input, refused);
+    if (this.limits?.usesLocalRunner(pipeline.source)) {
+      const over = await this.limits
+        .check(pipeline.teamId, "runnerMinutes")
+        .then(() => null)
+        .catch((error: Error) => error.message);
+      if (over) return this.failedAtStart(pipeline, input, over);
+    }
     try {
       return await this.enqueue(pipeline, input);
     } catch (error) {

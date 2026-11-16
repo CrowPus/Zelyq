@@ -116,6 +116,14 @@ export function videoRepository(db: ZelyqDb) {
         .limit(1);
       return Boolean(row);
     },
+    /** What a team's videos take on disk, for its plan. */
+    async bytesForTeam(teamId: string): Promise<number> {
+      const [row] = await db
+        .select({ bytes: sql<number>`coalesce(sum(${jobs.storageBytes}), 0)` })
+        .from(jobs)
+        .where(and(eq(jobs.teamId, teamId), isNull(jobs.deletedAt)));
+      return Number(row?.bytes ?? 0);
+    },
     async history(ownerId: string, before?: VideoJobRow, teamId?: string) {
       return db
         .select()

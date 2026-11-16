@@ -5,6 +5,7 @@ import {
   CircleAlert,
   Clapperboard,
   Cpu,
+  Gauge,
   GraduationCap,
   Image as ImageIcon,
   Lock,
@@ -26,6 +27,7 @@ import { Link, useLocation } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { CliSessionControl } from "../components/CliSessionControl";
 import { FigmaIntegration } from "../components/FigmaIntegration";
+import { PlansPanel } from "../components/PlansPanel";
 import { SkillUploadControl } from "../components/SkillUploadControl";
 import { SupabaseIntegration } from "../components/SupabaseIntegration";
 import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../components/ui";
@@ -79,6 +81,7 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
   },
   status: { label: "Instance status", icon: Activity, blurb: "Health, migrations and diagnostics" },
   users: { label: "Users", icon: Users, blurb: "Accounts on this instance" },
+  plans: { label: "Plans", icon: Gauge, blurb: "What each team may use" },
 };
 
 /** A group's name as it arrives from the API, as a section id. */
@@ -139,7 +142,7 @@ export function SettingsPage() {
     // Anything the server adds later still gets a menu entry rather than
     // silently disappearing from the page.
     const extra = fromGroups.filter((id) => !ordered.includes(id));
-    return [...ordered, ...extra, "integrations", "status", "users"];
+    return [...ordered, ...extra, "integrations", "status", "users", "plans"];
   }, [settings.data]);
 
   const [active, setActive] = useState<string>("model");
@@ -470,6 +473,8 @@ export function SettingsPage() {
                   </section>
                 </>
               )}
+
+              {active === "plans" && <PlansPanel />}
 
               {active === "users" && (
                 <>

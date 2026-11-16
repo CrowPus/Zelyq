@@ -198,6 +198,15 @@ export function imageRepository(db: ZelyqDb) {
           ),
         );
     },
+    /** What a team's images take on disk, for its plan. */
+    async bytesForTeam(teamId: string): Promise<number> {
+      const rows = await db
+        .select({ bytes: jobs.sizeBytes })
+        .from(jobs)
+        .where(and(eq(jobs.teamId, teamId), isNull(jobs.deletedAt)));
+      return rows.reduce((total, row) => total + (row.bytes ?? 0), 0);
+    },
+
     async remove(id: string) {
       // Preserve a minimal tombstone for idempotency and hourly accounting.
       await db

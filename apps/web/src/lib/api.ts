@@ -53,6 +53,8 @@ import type {
   PipelineTriggerSummary,
   PipelineVersionSummary,
   PlaceStudioMediaInput,
+  Plan,
+  PlansSettings,
   Preview,
   Project,
   ProjectVariable,
@@ -76,6 +78,7 @@ import type {
   TeamMember,
   TeamMembership,
   TeamSshKeySummary,
+  TeamUsage,
   TriggerInput,
   UpdateProfileInput,
   UpdateSettingsInput,
@@ -947,6 +950,27 @@ export const api = {
   removeMember: (teamId: string, userId: string) =>
     request<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
 
+  teamUsage: (teamId: string, fresh = false) =>
+    request<TeamUsage>(`/teams/${teamId}/usage${fresh ? "?fresh=1" : ""}`),
+  plans: () => request<PlansSettings & { all: Plan[] }>("/plans"),
+  savePlans: (input: PlansSettings) =>
+    request<PlansSettings & { all: Plan[] }>("/plans", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  planTeams: () =>
+    request<{
+      teams: Array<{
+        id: string;
+        name: string;
+        plan: { id: string; name: string };
+        storageMb: number;
+        apps: number;
+        members: number;
+      }>;
+    }>("/plans/teams"),
+  setTeamPlan: (teamId: string, plan: string) =>
+    request<TeamUsage>(`/teams/${teamId}/plan`, { method: "PUT", body: JSON.stringify({ plan }) }),
   teamSettings: (teamId: string) => request<SettingsResponse>(`/teams/${teamId}/settings`),
   updateTeamSettings: (teamId: string, changes: Record<string, string | number | boolean>) =>
     request<SettingsResponse>(`/teams/${teamId}/settings`, {
