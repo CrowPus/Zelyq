@@ -875,13 +875,20 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   }
 
   async deleteSnapshot(projectId: string, snapshotId: string): Promise<void> {
+    // Both are ids Zelyq made, and the folder removed is always inside this app's undo points.
+    if (!/^prj_[A-Za-z0-9]+$/.test(projectId)) throw new Error(`Not an app: ${projectId}`);
     if (!/^snp_[A-Za-z0-9]+$/.test(snapshotId)) throw new Error(`Not an undo point: ${snapshotId}`);
-    const dir = this.snapshotDir(projectId);
+    const base = path.resolve(this.workspaceDir, ".snapshots", projectId);
+    const target = path.resolve(base, snapshotId);
+    const latestFile = path.resolve(base, LATEST_SNAPSHOT);
+    if (!target.startsWith(base + path.sep) || !latestFile.startsWith(base + path.sep)) {
+      throw new Error("That undo point is not inside this app.");
+    }
     // The newest is what the next one hard-links from: kept, whatever is asked.
-    const latest = await fs.readFile(path.join(dir, LATEST_SNAPSHOT), "utf8").catch(() => "");
+    const latest = await fs.readFile(latestFile, "utf8").catch(() => "");
     if (latest.trim() === snapshotId) return;
     // Its files are hard links: a newer undo point that shares one keeps it.
-    await fs.rm(path.join(dir, snapshotId), { recursive: true, force: true });
+    await fs.rm(target, { recursive: true, force: true });
   }
 
   async restoreSnapshot(projectId: string, snapshotId: string): Promise<void> {
