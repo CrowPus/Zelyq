@@ -391,6 +391,9 @@ export class ChatGateway {
       // with and never updates itself. Preferring the stored value over what
       // settings say now would pin every session to its original provider
       // forever.
+      // The app's team: its own settings and keys, from here to the end of this turn.
+      const teamId = (await this.store.projects.findById(room.projectId))?.teamId ?? null;
+      this.settings.enterTeam(teamId);
       const settingsProvider = await this.settings.value("provider");
       // A pick from the chat's own model control wins over the instance
       // default for this turn onward. Omitted means what it always meant:
@@ -398,7 +401,6 @@ export class ChatGateway {
       const provider = override.provider ?? settingsProvider;
       const pickedDifferentProvider = provider !== settingsProvider;
       // The team's own key first; the server's only when this team may use it.
-      const teamId = (await this.store.projects.findById(room.projectId))?.teamId ?? null;
       const apiKey = await this.settings.apiKeyFor(provider, teamId);
       const authMode = await this.settings.authModeFor(provider);
       if (!apiKey && teamId && !(await this.settings.serverKeysFor(teamId))) {

@@ -120,6 +120,8 @@ export class OpsBrain {
 
   private async review(jobId: string, view: OpsJobDetail): Promise<void> {
     const teamId = (await this.ops.teamOf(jobId)) as string;
+    // Ops works for this team: its own settings and keys.
+    this.settings.enterTeam(teamId);
     this.activity.get(jobId)?.push("Looked back at the job");
     const result = await this.agent.opsTurn({
       ...(await this.modelConfig(teamId)),
@@ -142,6 +144,8 @@ export class OpsBrain {
   private async turn(jobId: string): Promise<void> {
     const view = await this.ops.engineerView(jobId);
     const teamId = (await this.ops.teamOf(jobId)) as string;
+    // Ops works for this team: its own settings and keys.
+    this.settings.enterTeam(teamId);
     const engineer = await this.ops.engineers.find(teamId);
     if (!engineer || engineer.paused) {
       await this.ops.systemNote(jobId, "Ops is paused. A person resumes it on the Ops page.");

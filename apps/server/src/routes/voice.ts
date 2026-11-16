@@ -32,9 +32,15 @@ export function registerVoiceRoutes(
       throw ZelyqError.badRequest("That voice recording is larger than the 10MB limit.");
     }
 
-    const provider = await deps.settings.value("speechProvider");
-    const model = await deps.settings.value("speechModel");
-    const apiKey = await deps.settings.speechApiKeyFor(provider, teamId);
+    // The team's own voice provider, model and key, when it chose them.
+    const { provider, model, apiKey } = await deps.settings.forTeam(teamId, async () => {
+      const chosen = await deps.settings.value("speechProvider");
+      return {
+        provider: chosen,
+        model: await deps.settings.value("speechModel"),
+        apiKey: await deps.settings.speechApiKeyFor(chosen, teamId),
+      };
+    });
     const text = await deps.speech.transcribe({ provider, model, apiKey }, { audio, mimeType });
     return { text };
   };

@@ -15,6 +15,7 @@ import {
   Rocket,
   ServerCog,
   Settings,
+  SlidersHorizontal,
   Sun,
   UserRound,
   Users,
@@ -365,19 +366,36 @@ function TeamSwitcher({ open }: { open: boolean }) {
   );
 }
 
-/** Instance settings are administrator-only, so the entry point is too. */
+/**
+ * Settings: everyone has their team's (everything the team decides for
+ * itself); the server's own are its administrator's alone.
+ */
 function SettingsLink({ open }: { open: boolean }) {
   const { user } = useSession();
+  const { team } = useActiveTeam();
   const { pathname } = useLocation();
-  if (user?.instanceRole !== "admin") return null;
+  const teamSettings = team ? `/teams/${team.id}/settings` : null;
   return (
-    <RailLink
-      to="/settings"
-      label="Settings"
-      icon={Settings}
-      active={pathname === "/settings"}
-      open={open}
-    />
+    <>
+      {teamSettings && (
+        <RailLink
+          to={teamSettings}
+          label="Team settings"
+          icon={SlidersHorizontal}
+          active={pathname === teamSettings}
+          open={open}
+        />
+      )}
+      {user?.instanceRole === "admin" && (
+        <RailLink
+          to="/settings"
+          label="Server settings"
+          icon={Settings}
+          active={pathname === "/settings"}
+          open={open}
+        />
+      )}
+    </>
   );
 }
 

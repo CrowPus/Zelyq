@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core";
 import {
   ANTHROPIC_DEFAULT_MODEL,
@@ -823,6 +824,36 @@ const PROVIDER_NAME: Record<string, string> = {
   openai: "OpenAI",
 };
 
+/** Which team the current work is for (see SettingsService.forTeam). */
+const teamContext = new AsyncLocalStorage<string>();
+
+/**
+ * What each team decides for itself: how its apps are built (provider, model,
+ * effort, its own endpoint), Studio's providers and models, voice, and Ops's
+ * brain and voice. Everything else runs the server, and is the server
+ * admin's alone.
+ */
+export const TEAM_SETTINGS = new Set([
+  "provider",
+  "model",
+  "effort",
+  "modelBaseUrl",
+  "anthropicWorkspaceId",
+  "imageProvider",
+  "imageModel",
+  "imageGoogleModel",
+  "imageXaiModel",
+  "videoProvider",
+  "videoGoogleModel",
+  "videoXaiModel",
+  "speechProvider",
+  "speechModel",
+  "opsProvider",
+  "opsModel",
+  "opsVoice",
+  "opsVoiceModel",
+]);
+
 /** The name a team's own key for a provider has in its Vault. */
 export const TEAM_KEY_NAME: Record<string, string> = {
   anthropic: "ANTHROPIC_API_KEY",
@@ -833,6 +864,7 @@ export const TEAM_KEY_NAME: Record<string, string> = {
   mistral: "MISTRAL_API_KEY",
   groq: "GROQ_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  custom: "MODEL_ENDPOINT_API_KEY",
 };
 
 const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
@@ -957,10 +989,111 @@ export class SettingsService {
     private readonly googleModelDiscovery = new GoogleModelDiscovery(),
   ) {}
 
+  // ------------------------------------------------------------ team settings
+
+  /**
+   * Runs work for one team: while it runs, a team setting (TEAM_SETTINGS)
+   * reads the team's own choice first, and keys come from the team's own
+   * first. Everything that reads settings inside, the model lists, endpoints
+   * and keys included, follows without being told.
+   */
+  async forTeam<T>(teamId: string | null | undefined, work: () => Promise<T>): Promise<T> {
+    return teamId ? await teamContext.run(teamId, work) : await work();
+  }
+
+  /** From here on in this piece of work, settings are read for this team. */
+  enterTeam(teamId: string | null | undefined): void {
+    if (teamId) teamContext.enterWith(teamId);
+  }
+
+  /** The team the current work is for, if any. */
+  currentTeam(): string | null {
+    return teamContext.getStore() ?? null;
+  }
+
+  private teamSettingKey(teamId: string, key: string): string {
+    return `team:${teamId}:${key}`;
+  }
+
+  /** Only the team's own choices, for the team's settings page. */
+  async teamValues(teamId: string): Promise<Record<string, string>> {
+    const own: Record<string, string> = {};
+    for (const key of TEAM_SETTINGS) {
+      const value = await this.store.settings.get(this.teamSettingKey(teamId, key));
+      if (value !== null && value !== "") own[key] = value;
+    }
+    return own;
+  }
+
+  /**
+   * The team's settings page: the same fields as the server's, only those a
+   * team decides, read for the team (its keys, its provider's models). Each
+   * says whether the team chose it or it is the server's default.
+   */
+  async describeForTeam(teamId: string): Promise<SettingsResponse> {
+    const own = await this.teamValues(teamId);
+    const full = await this.forTeam(teamId, () => this.describe());
+    return {
+      groups: full.groups
+        .map((group) => ({
+          ...group,
+          fields: group.fields
+            .filter((field) => TEAM_SETTINGS.has(field.key))
+            .map((field) => ({
+              ...field,
+              source: (field.key in own ? "database" : "default") as SettingField["source"],
+              managedByEnv: false,
+              restartRequired: false,
+            })),
+        }))
+        .filter((group) => group.fields.length > 0),
+      restartPending: false,
+    };
+  }
+
+  /**
+   * A team admin's changes to the team's own settings. Only team settings; an
+   * empty value goes back to the server's default.
+   */
+  async updateForTeam(
+    teamId: string,
+    changes: Record<string, string | number | boolean | null>,
+  ): Promise<void> {
+    for (const key of Object.keys(changes)) {
+      if (!TEAM_SETTINGS.has(key)) {
+        throw ZelyqError.badRequest(`${BY_KEY.get(key)?.label ?? key} is the server's to set.`);
+      }
+    }
+    for (const [key, raw] of Object.entries(changes)) {
+      const definition = BY_KEY.get(key) as Definition;
+      const value = raw === null ? "" : String(raw).trim();
+      const name = this.teamSettingKey(teamId, key);
+      if (value === "") {
+        await this.store.settings.remove(name);
+        continue;
+      }
+      this.validate(definition, value);
+      await this.store.settings.set(name, value);
+    }
+    // A model belongs to its provider: a new provider starts on its own default.
+    if ("provider" in changes && !("model" in changes)) {
+      await this.store.settings.remove(this.teamSettingKey(teamId, "model"));
+    }
+    if ("opsProvider" in changes && !("opsModel" in changes)) {
+      await this.store.settings.remove(this.teamSettingKey(teamId, "opsModel"));
+    }
+  }
+
   /** The effective value, following environment → database → default. */
   async value(key: string): Promise<string> {
     const definition = BY_KEY.get(key);
     if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
+    // Working for a team: its own choice first, the server's when it made none.
+    const team = teamContext.getStore();
+    if (team && TEAM_SETTINGS.has(key)) {
+      const own = await this.store.settings.get(this.teamSettingKey(team, key));
+      if (own !== null && own !== "") return own;
+    }
 
     // A secret's stored form is ciphertext, and a failed decrypt has its own
     // fallback — resolveSetting only knows plain strings, so this one case
@@ -1067,7 +1200,8 @@ export class SettingsService {
    * var was ever meant to override; it goes straight to storage instead of
    * through the normal env-first `value()` path once `authModeFor` says so.
    */
-  async apiKeyFor(provider: string, teamId?: string | null): Promise<string> {
+  async apiKeyFor(provider: string, given?: string | null): Promise<string> {
+    const teamId = given ?? teamContext.getStore() ?? null;
     // A team's own key first; the server's only for a team allowed to use it.
     if (teamId) {
       const own = await this.teamKey(teamId, provider);
@@ -1090,7 +1224,8 @@ export class SettingsService {
   /** Speech credentials deliberately ignore chat auth mode. A Codex
    * subscription token is not an OpenAI API key and cannot call the audio
    * transcription endpoint. */
-  async speechApiKeyFor(provider: string, teamId?: string | null): Promise<string> {
+  async speechApiKeyFor(provider: string, given?: string | null): Promise<string> {
+    const teamId = given ?? teamContext.getStore() ?? null;
     if (teamId) {
       const own = await this.teamKey(teamId, provider);
       if (own) return own;
@@ -1130,7 +1265,8 @@ export class SettingsService {
    * A media key (Studio's image and video providers have their own fields):
    * the team's own first, then the server's field when the team may use it.
    */
-  async mediaKeyFor(setting: string, provider: string, teamId?: string | null): Promise<string> {
+  async mediaKeyFor(setting: string, provider: string, given?: string | null): Promise<string> {
+    const teamId = given ?? teamContext.getStore() ?? null;
     if (teamId) {
       const own = await this.teamKey(teamId, provider);
       if (own) return own;
@@ -1181,6 +1317,12 @@ export class SettingsService {
           ? "openaiAuthMode"
           : null;
     if (!settingKey) return "api_key";
+    // A sign-in on this machine (Claude Pro, ChatGPT) is the server owner's own.
+    // A team with its own key, or one not given the server's keys, uses an API key.
+    const team = teamContext.getStore();
+    if (team && ((await this.teamKey(team, provider)) || !(await this.serverKeysFor(team)))) {
+      return "api_key";
+    }
     const mode = await this.value(settingKey);
     return mode === "subscription" ? "subscription" : "api_key";
   }

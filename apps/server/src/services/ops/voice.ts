@@ -289,11 +289,16 @@ export class OpsVoice {
       queue = queue.then(() => onMessage(message)).catch(() => undefined);
     };
 
-    const voice = (await this.settings.value("opsVoice")).trim();
+    // The team's own voice and voice model, when it chose them.
+    const [voiceSetting, voiceModel] = await this.settings.forTeam(teamId, async () => [
+      await this.settings.value("opsVoice"),
+      await this.settings.value("opsVoiceModel"),
+    ]);
+    const voice = voiceSetting.trim();
     try {
       session = await this.connect({
         apiKey,
-        model: (await this.settings.value("opsVoiceModel")).trim() || "gemini-3.8-live",
+        model: voiceModel.trim() || "gemini-3.8-live",
         config: {
           responseModalities: [Modality.AUDIO],
           systemInstruction: await this.brain.voicePrompt(teamId, current),

@@ -5,19 +5,27 @@ import {
   roleAtLeast,
   slugify,
   updateMemberSchema,
+  updateSettingsSchema,
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { EmailLinkService } from "../services/email-links.js";
+import type { SettingsService } from "../services/settings.js";
 import type { TeamKeys } from "../services/team-keys.js";
 
 export function registerTeamRoutes(
   app: FastifyInstance,
-  deps: { store: Store; access: AccessControl; links: EmailLinkService; keys: TeamKeys },
+  deps: {
+    store: Store;
+    access: AccessControl;
+    links: EmailLinkService;
+    keys: TeamKeys;
+    settings: SettingsService;
+  },
 ): void {
-  const { store, access, links, keys } = deps;
+  const { store, access, links, keys, settings } = deps;
 
   app.get("/api/teams", async (request) => {
     const user = access.requireUser(request);
@@ -124,6 +132,28 @@ export function registerTeamRoutes(
       return { members: await store.teams.listMembers(teamId) };
     },
   );
+
+  /**
+   * The team's own settings: how its apps are built, Studio, voice and Ops.
+   * Any member may look; a team admin changes them. Unset: the server's default.
+   */
+  app.get<{ Params: { id: string } }>("/api/teams/:id/settings", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "viewer");
+    return settings.describeForTeam(request.params.id);
+  });
+  app.put<{ Params: { id: string } }>("/api/teams/:id/settings", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "admin");
+    const changes = updateSettingsSchema.parse(request.body);
+    await settings.updateForTeam(request.params.id, changes);
+    await access.recordChange(user, {
+      teamId: request.params.id,
+      action: "team.settings_changed",
+      detail: { fields: Object.keys(changes) },
+    });
+    return settings.describeForTeam(request.params.id);
+  });
 
   /** The team's own AI keys: which it has, and where each provider's key comes from. */
   app.get<{ Params: { id: string } }>("/api/teams/:id/ai-keys", async (request) =>

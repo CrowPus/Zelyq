@@ -1,10 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ROLE_DESCRIPTIONS, ROLES, type Role, roleAtLeast } from "@zelyq/core";
-import { CircleAlert, CircleCheck, Mail, UserPlus } from "lucide-react";
+import { ChevronRight, CircleAlert, CircleCheck, Mail, UserPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { TeamKeys } from "../components/TeamKeys";
 import { Badge, Button, Input, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -233,7 +232,21 @@ export function TeamPage() {
             ))}
           </div>
 
-          {team && <TeamKeys teamId={id} canManage={canManage} />}
+          {team && (
+            <Link
+              to={`/teams/${id}/settings`}
+              className="mt-8 flex items-center justify-between gap-3 rounded-lg border border-border-default bg-surface px-4 py-3 hover:bg-surface-hover"
+            >
+              <span>
+                <span className="block text-sm font-medium text-fg">Team settings</span>
+                <span className="block text-xs text-fg-secondary">
+                  AI keys, how apps are built, Studio, voice and Ops: everything this team decides
+                  for itself.
+                </span>
+              </span>
+              <ChevronRight size={16} className="shrink-0 text-fg-muted" />
+            </Link>
+          )}
 
           {canManage && (invites.data?.invites.length ?? 0) > 0 && (
             <div className="mt-6">

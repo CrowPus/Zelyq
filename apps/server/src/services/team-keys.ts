@@ -21,6 +21,11 @@ export const TEAM_KEY_PROVIDERS: { id: string; label: string; hint: string }[] =
   { id: "mistral", label: "Mistral", hint: "console.mistral.ai → API keys" },
   { id: "groq", label: "Groq", hint: "console.groq.com → API keys" },
   { id: "openrouter", label: "OpenRouter", hint: "openrouter.ai → Keys" },
+  {
+    id: "custom",
+    label: "Custom endpoint",
+    hint: "the key of your own OpenAI-compatible endpoint (Team settings → Model endpoint)",
+  },
 ];
 
 export interface TeamKeyStatus {

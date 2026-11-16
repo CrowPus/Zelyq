@@ -947,6 +947,12 @@ export const api = {
   removeMember: (teamId: string, userId: string) =>
     request<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
 
+  teamSettings: (teamId: string) => request<SettingsResponse>(`/teams/${teamId}/settings`),
+  updateTeamSettings: (teamId: string, changes: Record<string, string | number | boolean>) =>
+    request<SettingsResponse>(`/teams/${teamId}/settings`, {
+      method: "PUT",
+      body: JSON.stringify(changes),
+    }),
   teamKeys: (teamId: string) =>
     request<{
       keys: Array<{

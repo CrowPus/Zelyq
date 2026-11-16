@@ -167,3 +167,82 @@ test("sharing the server's keys with every team is the server admin's choice", a
   await call(ownerCookie, "PUT", "/api/settings", { shareServerKeys: "false" });
   assert.equal(await server.settings.apiKeyFor("google", guestTeam), "");
 });
+
+test("a team admin sets the team's own settings; the server's stay the server admin's", async () => {
+  // The server's default provider, then the guest team's own choice.
+  await call(ownerCookie, "PUT", "/api/settings", {
+    provider: "anthropic",
+    speechModel: "whisper-1",
+  });
+  const set = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/settings`, {
+    provider: "google",
+    speechModel: "gpt-4o-transcribe",
+  });
+  assert.equal(set.statusCode, 200, set.body);
+  const fields = set
+    .json()
+    .groups.flatMap(
+      (group: { fields: { key: string; source: string; value: unknown }[] }) => group.fields,
+    );
+  const provider = fields.find((field: { key: string }) => field.key === "provider");
+  assert.equal(provider.value, "google");
+  assert.equal(provider.source, "database");
+  // Only what a team decides is on its page: nothing that runs the server.
+  assert.ok(!fields.some((field: { key: string }) => field.key === "allowRegistration"));
+  assert.ok(!fields.some((field: { key: string }) => field.key.endsWith("ApiKey")));
+  // Work for the guest team reads its own choice; the server's is unchanged.
+  assert.equal(
+    await server.settings.forTeam(guestTeam, () => server.settings.value("provider")),
+    "google",
+  );
+  assert.equal(
+    await server.settings.forTeam(ownerTeam, () => server.settings.value("provider")),
+    "anthropic",
+  );
+  assert.equal(await server.settings.value("provider"), "anthropic");
+  assert.equal(
+    await server.settings.forTeam(guestTeam, () => server.settings.value("speechModel")),
+    "gpt-4o-transcribe",
+  );
+  // A server setting cannot be set from a team, and only a team admin changes the team's.
+  const server_ = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/settings`, {
+    allowRegistration: "false",
+  });
+  assert.equal(server_.statusCode, 400);
+  const editorCookie = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "editor@example.com", password: "correct-horse-battery" },
+    })
+  ).cookies.find((c) => c.name === "zelyq_session")?.value;
+  const asEditor = await call(
+    `zelyq_session=${editorCookie}`,
+    "PUT",
+    `/api/teams/${guestTeam}/settings`,
+    {
+      provider: "openai",
+    },
+  );
+  assert.equal(asEditor.statusCode, 403);
+  // Back to the server's default.
+  await call(guestCookie, "PUT", `/api/teams/${guestTeam}/settings`, { provider: "" });
+  assert.equal(
+    await server.settings.forTeam(guestTeam, () => server.settings.value("provider")),
+    "anthropic",
+  );
+});
+
+test("the owner's own sign-in on this machine is never another team's", async () => {
+  await server.store.settings.set("anthropicAuthMode", "subscription");
+  // A team that may not use the server's keys works only with its own API key.
+  assert.equal(
+    await server.settings.forTeam(guestTeam, () => server.settings.authModeFor("anthropic")),
+    "api_key",
+  );
+  assert.equal(
+    await server.settings.forTeam(ownerTeam, () => server.settings.authModeFor("anthropic")),
+    "subscription",
+  );
+  await server.store.settings.set("anthropicAuthMode", "api_key");
+});
