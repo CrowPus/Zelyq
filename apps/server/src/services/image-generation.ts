@@ -82,7 +82,7 @@ export class ImageGenerationService {
   constructor(
     private readonly store: Store,
     private readonly settings: Pick<SettingsService, "value" | "numberValue"> &
-      Partial<Pick<SettingsService, "teamKey" | "serverKeysFor" | "mediaKeyFor">>,
+      Partial<Pick<SettingsService, "teamKey" | "serverKeysFor" | "mediaKeyFor" | "forTeam">>,
     readonly assets: ImageAssetStore,
     private readonly providerOverride?: ImageProvider,
     private readonly reportError: () => void = () => undefined,
@@ -119,7 +119,14 @@ export class ImageGenerationService {
     return origin;
   }
 
+  /** What Studio offers this team: its own provider choices, models and keys first. */
   async capabilities(teamId?: string | null): Promise<ImageCapabilities> {
+    return this.settings.forTeam
+      ? this.settings.forTeam(teamId, () => this.readCapabilities(teamId))
+      : this.readCapabilities(teamId);
+  }
+
+  private async readCapabilities(teamId?: string | null): Promise<ImageCapabilities> {
     const configuredDefault = await this.settings.value("imageProvider");
     const defaultProvider = imageProviderIds.includes(configuredDefault as ImageProviderId)
       ? (configuredDefault as ImageProviderId)
@@ -220,7 +227,18 @@ export class ImageGenerationService {
     }
   }
 
+  /** Made for a team: its own provider choice, model and key first. */
   async submit(
+    ownerId: string,
+    input: ImageGenerationInput,
+    origin: Parameters<ImageGenerationService["submitHere"]>[2] = {},
+  ) {
+    return this.settings.forTeam
+      ? this.settings.forTeam(origin.teamId, () => this.submitHere(ownerId, input, origin))
+      : this.submitHere(ownerId, input, origin);
+  }
+
+  private async submitHere(
     ownerId: string,
     input: ImageGenerationInput,
     origin: {
@@ -363,9 +381,10 @@ export class ImageGenerationService {
     return present(await this.owned(ownerId, id));
   }
 
-  async history(ownerId: string, cursor?: string): Promise<ImageHistory> {
+  /** One person's images, made in this team (every team's when none is named). */
+  async history(ownerId: string, cursor?: string, teamId?: string): Promise<ImageHistory> {
     const before = cursor ? await this.owned(ownerId, cursor) : undefined;
-    const rows = await this.store.images.list(ownerId, before, 25);
+    const rows = await this.store.images.list(ownerId, before, 25, teamId);
     const page = rows.slice(0, 24);
     return {
       generations: page.map(present),
@@ -460,7 +479,14 @@ export class ImageGenerationService {
     }
   }
 
+  /** A job runs for the team it was made in: its provider, model and key. */
   private async execute(row: ImageJobRow, signal: AbortSignal) {
+    return this.settings.forTeam
+      ? this.settings.forTeam(row.teamId, () => this.executeHere(row, signal))
+      : this.executeHere(row, signal);
+  }
+
+  private async executeHere(row: ImageJobRow, signal: AbortSignal) {
     try {
       const provider = imageProvider(row.provider);
       if (!provider) throw new ImageProviderError("This image provider is no longer supported.");

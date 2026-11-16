@@ -54,7 +54,7 @@ export class VideoGenerationService {
   constructor(
     private readonly store: Store,
     private readonly settings: Pick<SettingsService, "value" | "numberValue"> &
-      Partial<Pick<SettingsService, "teamKey" | "serverKeysFor" | "mediaKeyFor">>,
+      Partial<Pick<SettingsService, "teamKey" | "serverKeysFor" | "mediaKeyFor" | "forTeam">>,
     readonly assets: VideoAssetStore,
     private readonly providers: Record<VideoProviderId, VideoProvider> = videoProviders,
     private readonly pollMs = 10000,
@@ -174,7 +174,14 @@ export class VideoGenerationService {
     return key?.trim() ? key : null;
   }
 
+  /** What Studio offers this team: its own provider choices, models and keys first. */
   async capabilities(teamId?: string | null): Promise<VideoCapabilities> {
+    return this.settings.forTeam
+      ? this.settings.forTeam(teamId, () => this.readCapabilities(teamId))
+      : this.readCapabilities(teamId);
+  }
+
+  private async readCapabilities(teamId?: string | null): Promise<VideoCapabilities> {
     const chosen = await this.settings.value("videoProvider");
     const providers = await Promise.all(
       videoProviderIds.map(async (id) => {
@@ -236,9 +243,10 @@ export class VideoGenerationService {
   async get(ownerId: string, id: string) {
     return this.present(await this.owned(ownerId, id));
   }
-  async history(ownerId: string, cursor?: string) {
+  /** One person's videos, made in this team (every team's when none is named). */
+  async history(ownerId: string, cursor?: string, teamId?: string) {
     const before = cursor ? await this.owned(ownerId, cursor) : undefined;
-    const rows = await this.store.videos.history(ownerId, before);
+    const rows = await this.store.videos.history(ownerId, before, teamId);
     return {
       generations: await Promise.all(rows.map((row) => this.present(row))),
       nextCursor: rows.length === 25 ? rows.at(-1)!.id : null,
@@ -330,7 +338,18 @@ export class VideoGenerationService {
     return { generation, used: used + 1, limit };
   }
 
+  /** Made for a team: its own provider choice, model and key first. */
   async submit(
+    ownerId: string,
+    input: VideoGenerationInput,
+    origin: Parameters<VideoGenerationService["submitHere"]>[2] = {},
+  ) {
+    return this.settings.forTeam
+      ? this.settings.forTeam(origin.teamId, () => this.submitHere(ownerId, input, origin))
+      : this.submitHere(ownerId, input, origin);
+  }
+
+  private async submitHere(
     ownerId: string,
     input: VideoGenerationInput,
     origin: {
@@ -404,6 +423,7 @@ export class VideoGenerationService {
         projectName: origin.projectName ?? "",
         sessionId: origin.sessionId ?? "",
         keyRef: origin.keyRef ? JSON.stringify(origin.keyRef) : null,
+        teamId: origin.teamId ?? null,
         activeOwner: ownerId,
         storageBytes: maxVideoBytes,
         createdAt: iso(),
@@ -501,7 +521,18 @@ export class VideoGenerationService {
       }
     }
   }
+  /** A job runs for the team it was made in: its provider, model and key. */
   private async execute(
+    row: VideoJobRow,
+    newlyClaimed: boolean,
+    token: string,
+    controller: AbortController,
+  ) {
+    const work = () => this.executeHere(row, newlyClaimed, token, controller);
+    return this.settings.forTeam ? this.settings.forTeam(row.teamId, work) : work();
+  }
+
+  private async executeHere(
     row: VideoJobRow,
     newlyClaimed: boolean,
     token: string,

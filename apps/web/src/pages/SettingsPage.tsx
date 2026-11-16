@@ -32,7 +32,7 @@ import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../compone
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 
-type Draft = Record<string, string | number | boolean>;
+export type Draft = Record<string, string | number | boolean>;
 
 /**
  * Everything that can be set through the environment can be set here instead,
@@ -254,7 +254,7 @@ export function SettingsPage() {
 
   if (settings.isLoading) {
     return (
-      <AppShell crumbs={[{ label: "Settings" }]}>
+      <AppShell crumbs={[{ label: "Server settings" }]}>
         <div className="grid h-full place-items-center">
           <Spinner />
         </div>
@@ -264,7 +264,7 @@ export function SettingsPage() {
 
   if (settings.isError) {
     return (
-      <AppShell crumbs={[{ label: "Settings" }]}>
+      <AppShell crumbs={[{ label: "Server settings" }]}>
         <div className="grid h-full place-items-center px-6 text-center">
           <div>
             <p className="text-sm text-fg">{(settings.error as Error).message}</p>
@@ -278,11 +278,16 @@ export function SettingsPage() {
   }
 
   return (
-    <AppShell crumbs={[{ label: "Settings" }]}>
+    <AppShell crumbs={[{ label: "Server settings" }]}>
       <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
           <header>
-            <h1 className="text-xl font-semibold text-fg">Settings</h1>
+            <h1 className="text-xl font-semibold text-fg">Server settings</h1>
+            <p className="mt-1 text-xs leading-relaxed text-fg">
+              These run the whole server, and only a server administrator sees them. What a team
+              decides for itself (its AI keys, model, Studio, voice and Ops) each team sets on its
+              own Team settings; the choices here are only the defaults a team starts from.
+            </p>
             <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
               API keys live here — typed, or taken from the instance Vault — and are never read from
               the environment. Other settings can also be set as environment variables; one the
@@ -656,7 +661,7 @@ function ModelChoice({
   );
 }
 
-function FieldRow({
+export function FieldRow({
   field,
   draft,
   onChange,

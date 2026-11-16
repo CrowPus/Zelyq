@@ -417,6 +417,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     access,
     links: emailLinks,
     keys: new TeamKeys(settings, vault, access),
+    settings,
   });
   registerProjectRoutes(app, {
     projects,

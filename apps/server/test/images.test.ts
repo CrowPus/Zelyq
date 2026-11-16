@@ -622,3 +622,54 @@ test("a library-only token lists the Studio library but cannot generate", async 
   assert.match(submit.json().error.message, /switched off for this project/);
   assert.equal(calls, before, "no provider was called");
 });
+
+test("each team has its own Studio: an image made in one team is not shown in another", async () => {
+  const maker = await register(`two-teams-${randomUUID()}@example.com`);
+  const list = async (teamId?: string) =>
+    (
+      await server.app.inject({
+        url: `/api/images/generations${teamId ? `?teamId=${teamId}` : ""}`,
+        headers: { cookie: maker.cookie },
+      })
+    ).json().generations as { id: string }[];
+  const home = (
+    await server.app.inject({ url: "/api/teams", headers: { cookie: maker.cookie } })
+  ).json().teams[0].id as string;
+  const made = await server.app.inject({
+    method: "POST",
+    url: "/api/teams",
+    headers: { cookie: maker.cookie },
+    payload: { name: "Second team" },
+  });
+  const second = made.json().team.id as string;
+  const inHome = newId("imageGeneration");
+  const inSecond = newId("imageGeneration");
+  await server.store.images.create(inHome, maker.id, input(), "gpt-image-2", "openai", undefined, {
+    teamId: home,
+  });
+  // One image at a time per person: the first is finished before the second starts.
+  await server.store.images.finish(inHome, "failed", "test");
+  await server.store.images.create(
+    inSecond,
+    maker.id,
+    input(),
+    "gpt-image-2",
+    "openai",
+    undefined,
+    { teamId: second },
+  );
+  assert.deepEqual(
+    (await list(home)).map((row) => row.id),
+    [inHome],
+  );
+  assert.deepEqual(
+    (await list(second)).map((row) => row.id),
+    [inSecond],
+  );
+  // Someone outside a team cannot list its Studio.
+  const outsider = await server.app.inject({
+    url: `/api/images/generations?teamId=${second}`,
+    headers: { cookie: owner.cookie },
+  });
+  assert.ok([403, 404].includes(outsider.statusCode), String(outsider.statusCode));
+});

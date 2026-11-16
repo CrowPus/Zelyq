@@ -444,6 +444,7 @@ export function ProjectEditorPage() {
               />
               {studioDir !== null && (
                 <StudioMediaPicker
+                  teamId={appTeam}
                   projectId={id}
                   destDir={studioDir}
                   onClose={() => setStudioDir(null)}

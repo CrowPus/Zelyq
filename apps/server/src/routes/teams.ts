@@ -5,19 +5,27 @@ import {
   roleAtLeast,
   slugify,
   updateMemberSchema,
+  updateSettingsSchema,
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { EmailLinkService } from "../services/email-links.js";
+import type { SettingsService } from "../services/settings.js";
 import type { TeamKeys } from "../services/team-keys.js";
 
 export function registerTeamRoutes(
   app: FastifyInstance,
-  deps: { store: Store; access: AccessControl; links: EmailLinkService; keys: TeamKeys },
+  deps: {
+    store: Store;
+    access: AccessControl;
+    links: EmailLinkService;
+    keys: TeamKeys;
+    settings: SettingsService;
+  },
 ): void {
-  const { store, access, links, keys } = deps;
+  const { store, access, links, keys, settings } = deps;
 
   app.get("/api/teams", async (request) => {
     const user = access.requireUser(request);
@@ -125,6 +133,28 @@ export function registerTeamRoutes(
     },
   );
 
+  /**
+   * The team's own settings: how its apps are built, Studio, voice and Ops.
+   * Any member may look; a team admin changes them. Unset: the server's default.
+   */
+  app.get<{ Params: { id: string } }>("/api/teams/:id/settings", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "viewer");
+    return settings.describeForTeam(request.params.id);
+  });
+  app.put<{ Params: { id: string } }>("/api/teams/:id/settings", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "admin");
+    const changes = updateSettingsSchema.parse(request.body);
+    await settings.updateForTeam(request.params.id, changes);
+    await access.recordChange(user, {
+      teamId: request.params.id,
+      action: "team.settings_changed",
+      detail: { fields: Object.keys(changes) },
+    });
+    return settings.describeForTeam(request.params.id);
+  });
+
   /** The team's own AI keys: which it has, and where each provider's key comes from. */
   app.get<{ Params: { id: string } }>("/api/teams/:id/ai-keys", async (request) =>
     keys.status(access.requireUser(request), request.params.id),
@@ -136,6 +166,19 @@ export function registerTeamRoutes(
       const { key } = (request.body ?? {}) as { key?: unknown };
       if (typeof key !== "string") throw ZelyqError.badRequest("Paste the key.");
       await keys.set(user, request.params.id, request.params.provider, key);
+      return keys.status(user, request.params.id);
+    },
+  );
+  /** The team's key for a provider from a secret already in its Vault, by name. */
+  app.put<{ Params: { id: string; provider: string } }>(
+    "/api/teams/:id/ai-keys/:provider/vault",
+    async (request) => {
+      const user = access.requireUser(request);
+      const { vaultName } = (request.body ?? {}) as { vaultName?: unknown };
+      if (typeof vaultName !== "string" || !vaultName.trim()) {
+        throw ZelyqError.badRequest("Choose the secret that holds the key.");
+      }
+      await keys.useVault(user, request.params.id, request.params.provider, vaultName.trim());
       return keys.status(user, request.params.id);
     },
   );

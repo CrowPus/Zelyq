@@ -116,13 +116,15 @@ export function videoRepository(db: ZelyqDb) {
         .limit(1);
       return Boolean(row);
     },
-    async history(ownerId: string, before?: VideoJobRow) {
+    async history(ownerId: string, before?: VideoJobRow, teamId?: string) {
       return db
         .select()
         .from(jobs)
         .where(
           and(
             eq(jobs.ownerId, ownerId),
+            // Only what was made in this team.
+            teamId ? eq(jobs.teamId, teamId) : undefined,
             isNull(jobs.deletedAt),
             before
               ? or(

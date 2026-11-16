@@ -17,11 +17,14 @@ type Picked = { kind: "image"; item: ImageGeneration } | { kind: "video"; item: 
  */
 export function StudioMediaPicker({
   projectId,
+  teamId,
   destDir,
   onClose,
   onPlaced,
 }: {
   projectId: string;
+  /** The app's team: its Studio is the one picked from. */
+  teamId?: string;
   /** The folder the person was in; "" is the app's root. */
   destDir: string;
   onClose(): void;
@@ -35,15 +38,15 @@ export function StudioMediaPicker({
   const [name, setName] = useState("");
 
   const images = useInfiniteQuery({
-    queryKey: ["studio-picker-images"],
-    queryFn: ({ pageParam }) => api.imageHistory(pageParam),
+    queryKey: ["studio-picker-images", teamId],
+    queryFn: ({ pageParam }) => api.imageHistory(pageParam, teamId),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: tab === "image",
   });
   const videos = useInfiniteQuery({
-    queryKey: ["studio-picker-videos"],
-    queryFn: ({ pageParam }) => api.videoHistory(pageParam),
+    queryKey: ["studio-picker-videos", teamId],
+    queryFn: ({ pageParam }) => api.videoHistory(pageParam, teamId),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: tab === "video",

@@ -167,3 +167,120 @@ test("sharing the server's keys with every team is the server admin's choice", a
   await call(ownerCookie, "PUT", "/api/settings", { shareServerKeys: "false" });
   assert.equal(await server.settings.apiKeyFor("google", guestTeam), "");
 });
+
+test("a team admin sets the team's own settings; the server's stay the server admin's", async () => {
+  // The server's default provider, then the guest team's own choice.
+  await call(ownerCookie, "PUT", "/api/settings", {
+    provider: "anthropic",
+    speechModel: "whisper-1",
+  });
+  const set = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/settings`, {
+    provider: "google",
+    speechModel: "gpt-4o-transcribe",
+  });
+  assert.equal(set.statusCode, 200, set.body);
+  const fields = set
+    .json()
+    .groups.flatMap(
+      (group: { fields: { key: string; source: string; value: unknown }[] }) => group.fields,
+    );
+  const provider = fields.find((field: { key: string }) => field.key === "provider");
+  assert.equal(provider.value, "google");
+  assert.equal(provider.source, "database");
+  // Only what a team decides is on its page: nothing that runs the server.
+  assert.ok(!fields.some((field: { key: string }) => field.key === "allowRegistration"));
+  assert.ok(!fields.some((field: { key: string }) => field.key.endsWith("ApiKey")));
+  // Work for the guest team reads its own choice; the server's is unchanged.
+  assert.equal(
+    await server.settings.forTeam(guestTeam, () => server.settings.value("provider")),
+    "google",
+  );
+  assert.equal(
+    await server.settings.forTeam(ownerTeam, () => server.settings.value("provider")),
+    "anthropic",
+  );
+  assert.equal(await server.settings.value("provider"), "anthropic");
+  assert.equal(
+    await server.settings.forTeam(guestTeam, () => server.settings.value("speechModel")),
+    "gpt-4o-transcribe",
+  );
+  // A server setting cannot be set from a team, and only a team admin changes the team's.
+  const server_ = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/settings`, {
+    allowRegistration: "false",
+  });
+  assert.equal(server_.statusCode, 400);
+  const editorCookie = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "editor@example.com", password: "correct-horse-battery" },
+    })
+  ).cookies.find((c) => c.name === "zelyq_session")?.value;
+  const asEditor = await call(
+    `zelyq_session=${editorCookie}`,
+    "PUT",
+    `/api/teams/${guestTeam}/settings`,
+    {
+      provider: "openai",
+    },
+  );
+  assert.equal(asEditor.statusCode, 403);
+  // Back to the server's default.
+  await call(guestCookie, "PUT", `/api/teams/${guestTeam}/settings`, { provider: "" });
+  assert.equal(
+    await server.settings.forTeam(guestTeam, () => server.settings.value("provider")),
+    "anthropic",
+  );
+});
+
+test("the owner's own sign-in on this machine is never another team's", async () => {
+  await server.store.settings.set("anthropicAuthMode", "subscription");
+  // A team that may not use the server's keys works only with its own API key.
+  assert.equal(
+    await server.settings.forTeam(guestTeam, () => server.settings.authModeFor("anthropic")),
+    "api_key",
+  );
+  assert.equal(
+    await server.settings.forTeam(ownerTeam, () => server.settings.authModeFor("anthropic")),
+    "subscription",
+  );
+  await server.store.settings.set("anthropicAuthMode", "api_key");
+});
+
+test("a team's key can come from a secret already in its Vault; removing it never deletes the secret", async () => {
+  const added = await call(guestCookie, "POST", `/api/teams/${guestTeam}/vault`, {
+    name: "OUR_GEMINI",
+    value: "AIza-from-the-vault-4242",
+  });
+  assert.equal(added.statusCode, 201, added.body);
+  const chosen = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/ai-keys/google/vault`, {
+    vaultName: "OUR_GEMINI",
+  });
+  assert.equal(chosen.statusCode, 200, chosen.body);
+  assert.doesNotMatch(chosen.body, /from-the-vault/);
+  const google = chosen.json().keys.find((key: { provider: string }) => key.provider === "google");
+  assert.equal(google.vaultName, "OUR_GEMINI");
+  assert.equal(google.source, "team");
+  assert.equal(await server.settings.apiKeyFor("google", guestTeam), "AIza-from-the-vault-4242");
+  // A secret that is not there is refused, and an editor cannot choose one.
+  const missing = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/ai-keys/openai/vault`, {
+    vaultName: "NOT_THERE",
+  });
+  assert.equal(missing.statusCode, 400);
+  // Removing stops using it; the secret stays in the Vault.
+  await call(guestCookie, "DELETE", `/api/teams/${guestTeam}/ai-keys/google`);
+  assert.equal(await server.settings.apiKeyFor("google", guestTeam), "");
+  const vault = (await call(guestCookie, "GET", `/api/teams/${guestTeam}/vault`)).json();
+  assert.ok(vault.secrets.some((row: { name: string }) => row.name === "OUR_GEMINI"));
+});
+
+test("a new app from a repository can take its token from the team's Vault", async () => {
+  const response = await call(guestCookie, "POST", "/api/projects", {
+    teamId: guestTeam,
+    name: "From a repo",
+    gitUrl: "https://github.com/example/private-repo.git",
+    gitTokenVault: "NO_SUCH_TOKEN",
+  });
+  assert.equal(response.statusCode, 400, response.body);
+  assert.match(response.json().error.message, /NO_SUCH_TOKEN/);
+});

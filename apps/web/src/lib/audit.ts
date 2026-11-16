@@ -95,6 +95,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "team.invite_withdrawn": "withdrew an invitation",
   "team.member_role_changed": "changed a member's role",
   "team.member_removed": "removed a member",
+  "team.settings_changed": "changed the team's settings",
   "provider.connected": "connected a Supabase account",
   "provider.disconnected": "disconnected a Supabase account",
   "provider.resource_linked": "linked a Supabase project",

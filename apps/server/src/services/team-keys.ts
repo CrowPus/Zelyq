@@ -21,6 +21,11 @@ export const TEAM_KEY_PROVIDERS: { id: string; label: string; hint: string }[] =
   { id: "mistral", label: "Mistral", hint: "console.mistral.ai → API keys" },
   { id: "groq", label: "Groq", hint: "console.groq.com → API keys" },
   { id: "openrouter", label: "OpenRouter", hint: "openrouter.ai → Keys" },
+  {
+    id: "custom",
+    label: "Custom endpoint",
+    hint: "the key of your own OpenAI-compatible endpoint (Team settings → Model endpoint)",
+  },
 ];
 
 export interface TeamKeyStatus {
@@ -29,6 +34,10 @@ export interface TeamKeyStatus {
   hint: string;
   /** Where this team's key for it comes from now. */
   source: "team" | "server" | "none";
+  /** The team Vault secret it was pointed at ("From Vault"), if any. */
+  vaultName: string | null;
+  /** That secret is gone or empty: the key no longer works. */
+  vaultMissing: boolean;
 }
 
 export class TeamKeys {
@@ -48,11 +57,14 @@ export class TeamKeys {
     for (const provider of TEAM_KEY_PROVIDERS) {
       const own = await this.settings.teamKey(teamId, provider.id);
       const server = !own && usesServerKeys && Boolean(await this.settings.apiKeyFor(provider.id));
+      const chosen = await this.settings.chosenTeamKey(teamId, provider.id);
       keys.push({
         provider: provider.id,
         label: provider.label,
         hint: provider.hint,
         source: own ? "team" : server ? "server" : "none",
+        vaultName: chosen,
+        vaultMissing: Boolean(chosen) && !own,
       });
     }
     return { keys, usesServerKeys };
@@ -67,6 +79,8 @@ export class TeamKeys {
       throw ZelyqError.badRequest("That does not look like an API key. Paste the whole key.");
     }
     const scope = { kind: "team" as const, teamId };
+    // A pasted key replaces a Vault secret chosen before.
+    await this.settings.chooseTeamKey(teamId, provider, null);
     const existing = (await this.vault.list(user, scope)).find((entry) => entry.name === name);
     if (existing) {
       await this.vault.update(user, scope, existing.id, { value: key, protected: true });
@@ -80,9 +94,28 @@ export class TeamKeys {
     }
   }
 
+  /**
+   * A team admin points the team's key at a secret already in its Vault: only
+   * the name is kept, the value is read when it is used and never shown.
+   */
+  async useVault(user: User, teamId: string, provider: string, vaultName: string): Promise<void> {
+    await this.access.requireTeamRole(user, teamId, "admin");
+    this.nameOf(provider);
+    const scope = { kind: "team" as const, teamId };
+    await this.vault.requireUse(user, scope, vaultName);
+    const value = (await this.vault.resolve(teamId, [vaultName])).get(vaultName);
+    if (!value?.trim()) throw ZelyqError.badRequest(`${vaultName} is empty in the team's Vault.`);
+    await this.settings.chooseTeamKey(teamId, provider, vaultName);
+  }
+
   /** A team admin takes the team's key away: the team falls back to the server's, if it may. */
   async remove(user: User, teamId: string, provider: string): Promise<void> {
     await this.access.requireTeamRole(user, teamId, "admin");
+    // A secret chosen from the Vault is the team's own: stop using it, never delete it.
+    if (await this.settings.chosenTeamKey(teamId, provider)) {
+      await this.settings.chooseTeamKey(teamId, provider, null);
+      return;
+    }
     const name = this.nameOf(provider);
     const scope = { kind: "team" as const, teamId };
     const existing = (await this.vault.list(user, scope)).find((entry) => entry.name === name);

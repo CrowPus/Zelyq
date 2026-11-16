@@ -18,6 +18,7 @@ import { ProjectListPage } from "./pages/ProjectListPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { TeamPage } from "./pages/TeamPage";
+import { TeamSettingsPage } from "./pages/TeamSettingsPage";
 import { VaultPage } from "./pages/VaultPage";
 import { VideoStudioPage } from "./pages/VideoStudioPage";
 
@@ -88,6 +89,7 @@ function Gate() {
       <Route path="/" element={<ProjectListPage />} />
       <Route path="/projects/:id" element={<ProjectEditorPage />} />
       <Route path="/teams/:id" element={<TeamPage />} />
+      <Route path="/teams/:id/settings" element={<TeamSettingsPage />} />
       <Route path="/studio" element={<Navigate to="/studio/image" replace />} />
       <Route path="/studio/image" element={<ImageStudioPage />} />
       <Route path="/studio/video" element={<VideoStudioPage />} />

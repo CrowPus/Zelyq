@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Badge, Button, PasswordInput, Spinner } from "./ui";
 
@@ -13,6 +14,15 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<string | null>(null);
   const [value, setValue] = useState("");
+  // A key is pasted, or taken from a secret already in the team's Vault (by name).
+  const [from, setFrom] = useState<"paste" | "vault">("paste");
+  const [vaultName, setVaultName] = useState("");
+  const choices = useQuery({
+    queryKey: ["vault-choices", teamId],
+    queryFn: () => api.vault.choices({ kind: "team", teamId }).then((r) => r.choices),
+    enabled: editing !== null && from === "vault",
+  });
+  const usable = choices.data?.filter((choice) => choice.selectable) ?? [];
   const [error, setError] = useState<string | null>(null);
   const keys = useQuery({ queryKey: ["team-keys", teamId], queryFn: () => api.teamKeys(teamId) });
 
@@ -27,7 +37,10 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
     setError(null);
   };
   const save = useMutation({
-    mutationFn: (provider: string) => api.setTeamKey(teamId, provider, value),
+    mutationFn: (provider: string) =>
+      from === "vault"
+        ? api.teamKeyFromVault(teamId, provider, vaultName)
+        : api.setTeamKey(teamId, provider, value),
     onSuccess: done,
     onError: (caught) => setError((caught as Error).message),
   });
@@ -67,7 +80,12 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
             <KeyRound size={14} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
             <span className="w-28 shrink-0 text-sm text-fg">{key.label}</span>
             <span className="min-w-0 flex-1">
-              {key.source === "team" ? (
+              {key.vaultName ? (
+                <Badge tone={key.vaultMissing ? "danger" : "info"}>
+                  Vault: {key.vaultName}
+                  {key.vaultMissing ? " (missing)" : ""}
+                </Badge>
+              ) : key.source === "team" ? (
                 <Badge tone="success">Team's own key</Badge>
               ) : key.source === "server" ? (
                 <Badge tone="neutral">Server's key</Badge>
@@ -82,12 +100,14 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                   onClick={() => {
                     setEditing(key.provider);
                     setValue("");
+                    setFrom(key.vaultName ? "vault" : "paste");
+                    setVaultName(key.vaultName ?? "");
                     setError(null);
                   }}
                 >
-                  {key.source === "team" ? "Replace" : "Add key"}
+                  {key.source === "team" || key.vaultName ? "Change" : "Add key"}
                 </Button>
-                {key.source === "team" && (
+                {(key.source === "team" || key.vaultName) && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -107,24 +127,81 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                 className="flex w-full flex-wrap items-center gap-2"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  if (value.trim()) save.mutate(key.provider);
+                  if (from === "vault" ? vaultName : value.trim()) save.mutate(key.provider);
                 }}
               >
-                <PasswordInput
-                  aria-label={`${key.label} API key`}
-                  placeholder="Paste the key"
-                  value={value}
-                  onChange={(event) => setValue(event.target.value)}
-                  autoComplete="off"
-                  className="min-w-0 flex-1"
-                />
+                <div className="flex w-full gap-1 rounded-md bg-canvas p-0.5 text-2xs">
+                  {(
+                    [
+                      ["paste", "Paste key"],
+                      ["vault", "From Vault"],
+                    ] as const
+                  ).map(([choice, label]) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      aria-pressed={from === choice}
+                      onClick={() => setFrom(choice)}
+                      className={`flex-1 rounded px-2 py-1 font-medium ${
+                        from === choice
+                          ? "bg-surface text-fg shadow-sm"
+                          : "text-fg-muted hover:text-fg"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {from === "vault" ? (
+                  choices.isPending ? (
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-2xs text-fg-secondary">
+                      <Spinner /> Reading the team's Vault…
+                    </span>
+                  ) : usable.length === 0 ? (
+                    <span className="min-w-0 flex-1 text-2xs text-fg-secondary">
+                      The team's Vault has no secret to choose yet.{" "}
+                      <Link to={`/vault?scope=${teamId}`} className="underline underline-offset-2">
+                        Add the key to the Vault
+                      </Link>
+                      , then choose it here.
+                    </span>
+                  ) : (
+                    <select
+                      aria-label={`${key.label} key from Vault`}
+                      value={vaultName}
+                      onChange={(event) => setVaultName(event.target.value)}
+                      className="h-[30px] min-w-0 flex-1 rounded-md border border-border-default bg-surface px-2 text-sm text-fg"
+                    >
+                      <option value="">Choose the secret holding the key…</option>
+                      {usable.map((choice) => (
+                        <option key={choice.name} value={choice.name}>
+                          {choice.name}
+                          {choice.protected ? " · Protected" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )
+                ) : (
+                  <PasswordInput
+                    aria-label={`${key.label} API key`}
+                    placeholder="Paste the key"
+                    value={value}
+                    onChange={(event) => setValue(event.target.value)}
+                    autoComplete="off"
+                    className="min-w-0 flex-1"
+                  />
+                )}
                 <Button type="submit" size="sm" variant="primary" disabled={save.isPending}>
                   {save.isPending ? "Saving…" : "Save"}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>
                   Cancel
                 </Button>
-                <span className="w-full text-2xs text-fg-muted">Get one at {key.hint}.</span>
+                <span className="w-full text-2xs text-fg-muted">
+                  {from === "vault"
+                    ? "Only the secret's name is kept; its value is read when the key is used and never shown."
+                    : `Get one at ${key.hint}.`}
+                </span>
               </form>
             )}
           </li>
