@@ -632,6 +632,7 @@ export const auditActionSchema = z.enum([
   "team.member_removed",
   "team.settings_changed",
   "team.plan_changed",
+  "project.space_freed",
   "provider.connected",
   "provider.disconnected",
   "provider.resource_linked",

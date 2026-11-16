@@ -121,4 +121,23 @@ export interface TeamUsage {
   };
   /** When the files were last measured. */
   measuredAt: string | null;
+  /** Each app, biggest first: what it uses, in MB, and how many undo points it keeps. */
+  apps: AppUsage[];
+}
+
+export interface AppUsage {
+  id: string;
+  name: string;
+  files: number;
+  undoPoints: number;
+  undoCount: number;
+  attachments: number;
+}
+
+/** What freeing space in one app did, or would do (look). */
+export interface FreeSpaceResult {
+  look: boolean;
+  freedMb: number;
+  undoPointsRemoved: number;
+  attachmentsRemoved: boolean;
 }

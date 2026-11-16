@@ -572,6 +572,17 @@ const DEFINITIONS: Definition[] = [
     restartRequired: true,
   },
   {
+    key: "keepUndoPoints",
+    label: "Undo points kept per app",
+    description:
+      "Zelyq saves an undo point before every AI turn. Each app keeps its newest this many; older ones are removed, and the newest is always kept. 0: keep every one.",
+    kind: "number",
+    group: "Runtime",
+    envVar: "ZELYQ_KEEP_UNDO_POINTS",
+    envOverridable: true,
+    fallback: "30",
+  },
+  {
     key: "cleanIdleAfterDays",
     label: "Clear installed packages of idle apps after (days)",
     description:

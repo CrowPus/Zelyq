@@ -50,6 +50,8 @@ export interface RuntimeDriver {
 
   createSnapshot(projectId: string, label: string): Promise<Snapshot>;
   restoreSnapshot(projectId: string, snapshotId: string): Promise<void>;
+  /** Removes one undo point. The newest is kept whatever is asked: the next is built from it. */
+  deleteSnapshot(projectId: string, snapshotId: string): Promise<void>;
   /**
    * One file as it stood at a snapshot, for showing what a turn changed.
    * Throws `ZelyqError("not_found")` when the snapshot did not contain it —

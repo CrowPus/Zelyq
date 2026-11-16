@@ -309,7 +309,28 @@ export class ProjectService {
   async snapshot(id: string, label: string): Promise<Snapshot> {
     const snapshot = await this.runtime.createSnapshot(id, label);
     await this.store.snapshots.create(snapshot);
+    // Only the newest are kept (Server settings → Runtime); best effort, never failing the turn.
+    const keep = (await this.keepSnapshots?.().catch(() => 0)) ?? 0;
+    if (keep > 0) await this.pruneSnapshots(id, keep).catch(() => undefined);
     return snapshot;
+  }
+
+  /** How many undo points each app keeps (set by the app); 0 or none: every one. */
+  keepSnapshots?: () => Promise<number>;
+
+  /**
+   * Removes all but the newest `keep` undo points of an app. The newest one is
+   * kept whatever `keep` says: the next undo point is built from it.
+   */
+  async pruneSnapshots(id: string, keep: number): Promise<number> {
+    const all = await this.store.snapshots.listForProject(id, 100_000);
+    let removed = 0;
+    for (const old of all.slice(Math.max(1, keep))) {
+      await this.runtime.deleteSnapshot(id, old.id);
+      await this.store.snapshots.remove(old.id);
+      removed += 1;
+    }
+    return removed;
   }
 
   /**

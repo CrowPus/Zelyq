@@ -265,3 +265,71 @@ test("idle apps lose only what an install rebuilds; nothing the person wrote, no
   assert.equal((await call(guestCookie, "POST", "/api/cleanup")).statusCode, 403);
   assert.equal((await call(ownerCookie, "POST", "/api/cleanup")).statusCode, 200);
 });
+
+test("undo points: only the newest are kept, and a team member frees older ones and attachments", async () => {
+  const made = await app(ownerCookie, ownerTeam, "Undo heavy");
+  assert.equal(made.statusCode, 201, made.body);
+  const id = made.json().project.id as string;
+  const root = path.join(config.runtime.workspaceDir, id);
+  const snap = async (n: number) => {
+    // Each undo point holds a different version of the same big file (edited art):
+    // the old versions are only in the old undo points, so removing them frees space.
+    await fs.writeFile(path.join(root, "art.bin"), Buffer.alloc(300_000, n));
+    const response = await call(ownerCookie, "POST", `/api/projects/${id}/snapshots`, {
+      label: `Point ${n}`,
+    });
+    assert.equal(response.statusCode, 201, response.body);
+  };
+  const count = async () =>
+    (await call(ownerCookie, "GET", `/api/projects/${id}/snapshots`)).json().snapshots.length;
+
+  // Kept to the newest 3 (Server settings → Runtime).
+  await call(ownerCookie, "PUT", "/api/settings", { keepUndoPoints: "3" });
+  for (const n of [1, 2, 3, 4, 5]) await snap(n);
+  assert.equal(await count(), 3);
+  const dirs = await fs.readdir(path.join(config.runtime.workspaceDir, ".snapshots", id));
+  assert.equal(dirs.filter((name) => name.startsWith("snp_")).length, 3);
+
+  // A team member keeps only the newest one: looking first changes nothing.
+  const look = await call(ownerCookie, "POST", `/api/projects/${id}/free-space`, {
+    keepUndo: 1,
+    look: true,
+  });
+  assert.equal(look.statusCode, 200, look.body);
+  assert.equal(look.json().undoPointsRemoved, 2);
+  assert.ok(look.json().freedMb > 0.3, JSON.stringify(look.json()));
+  assert.equal(await count(), 3);
+  const done = await call(ownerCookie, "POST", `/api/projects/${id}/free-space`, { keepUndo: 1 });
+  assert.equal(done.json().undoPointsRemoved, 2);
+  assert.equal(await count(), 1);
+  // The newest still restores the app's files.
+  const newest = (await call(ownerCookie, "GET", `/api/projects/${id}/snapshots`)).json()
+    .snapshots[0];
+  const restored = await call(
+    ownerCookie,
+    "POST",
+    `/api/projects/${id}/snapshots/${newest.id}/restore`,
+  );
+  assert.ok([200, 204].includes(restored.statusCode), restored.body);
+
+  // Chat attachments go too, when asked.
+  const sent = await call(ownerCookie, "POST", `/api/projects/${id}/attachments`, {
+    filename: "photo.png",
+    mimeType: "image/png",
+    data: Buffer.alloc(5000).toString("base64"),
+  });
+  assert.equal(sent.statusCode, 201, sent.body);
+  const cleared = await call(ownerCookie, "POST", `/api/projects/${id}/free-space`, {
+    attachments: true,
+  });
+  assert.equal(cleared.json().attachmentsRemoved, true);
+  // Each app is listed with what it uses; outsiders cannot free a team's space.
+  const used = (await call(ownerCookie, "GET", `/api/teams/${ownerTeam}/usage?fresh=1`)).json();
+  const listed = used.apps.find((row: { id: string }) => row.id === id);
+  assert.equal(listed.undoCount, 1);
+  const outsider = await call(guestCookie, "POST", `/api/projects/${id}/free-space`, {
+    keepUndo: 1,
+  });
+  assert.ok([403, 404].includes(outsider.statusCode), String(outsider.statusCode));
+  await call(ownerCookie, "PUT", "/api/settings", { keepUndoPoints: "30" });
+});

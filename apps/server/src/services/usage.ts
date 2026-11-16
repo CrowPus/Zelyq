@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  type FreeSpaceResult,
   PLAN_LIMIT_KEYS,
   PLAN_LIMITS,
   type Plan,
@@ -99,9 +100,14 @@ const MB = 1024 * 1024;
 
 /** Bytes under a folder; hard links once, links never followed. */
 export async function folderBytes(root: string, skipReinstallable: boolean): Promise<number> {
+  return await foldersBytes([root], skipReinstallable);
+}
+
+/** Bytes under several folders together: a file hard-linked in two is counted once. */
+export async function foldersBytes(roots: string[], skipReinstallable: boolean): Promise<number> {
   const seen = new Set<string>();
   let total = 0;
-  const stack = [root];
+  const stack = [...roots];
   while (stack.length > 0) {
     const dir = stack.pop() as string;
     let entries: import("node:fs").Dirent[];
@@ -137,6 +143,13 @@ interface Measured {
   undoPoints: number;
   attachments: number;
   at: string;
+  perApp: Array<{
+    id: string;
+    name: string;
+    files: number;
+    undoPoints: number;
+    attachments: number;
+  }>;
 }
 
 export interface UsagePaths {
@@ -414,7 +427,75 @@ export class UsageService {
       })),
       storage,
       measuredAt: files.at || null,
+      apps: await Promise.all(
+        [...(files.perApp ?? [])]
+          .sort(
+            (a, b) =>
+              b.files + b.undoPoints + b.attachments - (a.files + a.undoPoints + a.attachments),
+          )
+          .map(async (app) => ({
+            id: app.id,
+            name: app.name,
+            files: app.files / MB,
+            undoPoints: app.undoPoints / MB,
+            undoCount: (await this.store.snapshots.listForProject(app.id, 100_000)).length,
+            attachments: app.attachments / MB,
+          })),
+      ),
     };
+  }
+
+  /** Removes an app's older undo points (set by the app: the project service does it). */
+  pruneUndo?: (projectId: string, keep: number) => Promise<number>;
+  /** Removes an app's chat attachments (set by the app). */
+  removeAttachments?: (projectId: string) => Promise<void>;
+
+  /**
+   * Frees space in one app, as a team member asks: older undo points (the
+   * newest `keepUndo` stay, at least one), and its chat attachments. With
+   * `look`, only says what it would free.
+   */
+  async freeSpace(
+    teamId: string,
+    projectId: string,
+    options: { keepUndo?: number; attachments?: boolean; look?: boolean },
+  ): Promise<FreeSpaceResult> {
+    const look = options.look === true;
+    let freed = 0;
+    let undoPointsRemoved = 0;
+    if (options.keepUndo !== undefined && this.paths.workspaceDir) {
+      const keep = Math.max(1, options.keepUndo);
+      const all = await this.store.snapshots.listForProject(projectId, 100_000);
+      const dir = path.join(this.paths.workspaceDir, ".snapshots", projectId);
+      const before = await folderBytes(dir, false);
+      const kept = await foldersBytes(
+        all.slice(0, keep).map((snapshot) => path.join(dir, snapshot.id)),
+        false,
+      );
+      const going = Math.max(0, all.length - keep);
+      if (look) {
+        freed += going > 0 ? Math.max(0, before - kept) : 0;
+        undoPointsRemoved = going;
+      } else if (going > 0 && this.pruneUndo) {
+        undoPointsRemoved = await this.pruneUndo(projectId, keep);
+        freed += Math.max(0, before - (await folderBytes(dir, false)));
+      }
+    }
+    let attachmentsRemoved = false;
+    if (options.attachments) {
+      const dir = path.join(this.paths.attachmentsDir, projectId);
+      const size = await folderBytes(dir, false);
+      if (look) {
+        freed += size;
+        attachmentsRemoved = size > 0;
+      } else if (size > 0 && this.removeAttachments) {
+        await this.removeAttachments(projectId);
+        freed += size;
+        attachmentsRemoved = true;
+      }
+    }
+    if (!look) await this.measure(teamId).catch(() => undefined);
+    return { look, freedMb: freed / MB, undoPointsRemoved, attachmentsRemoved };
   }
 
   /**
@@ -511,17 +592,27 @@ export class UsageService {
       let apps = 0;
       let undoPoints = 0;
       let attachments = 0;
+      const perApp: Measured["perApp"] = [];
       for (const project of projects) {
-        if (this.paths.workspaceDir) {
-          apps += await folderBytes(path.join(this.paths.workspaceDir, project.id), true);
-          undoPoints += await folderBytes(
-            path.join(this.paths.workspaceDir, ".snapshots", project.id),
-            false,
-          );
-        }
-        attachments += await folderBytes(path.join(this.paths.attachmentsDir, project.id), false);
+        const files = this.paths.workspaceDir
+          ? await folderBytes(path.join(this.paths.workspaceDir, project.id), true)
+          : 0;
+        const undo = this.paths.workspaceDir
+          ? await folderBytes(path.join(this.paths.workspaceDir, ".snapshots", project.id), false)
+          : 0;
+        const sent = await folderBytes(path.join(this.paths.attachmentsDir, project.id), false);
+        apps += files;
+        undoPoints += undo;
+        attachments += sent;
+        perApp.push({
+          id: project.id,
+          name: project.name,
+          files,
+          undoPoints: undo,
+          attachments: sent,
+        });
       }
-      const result = { apps, undoPoints, attachments, at: new Date().toISOString() };
+      const result = { apps, undoPoints, attachments, at: new Date().toISOString(), perApp };
       this.measured.set(teamId, result);
       return result;
     })();

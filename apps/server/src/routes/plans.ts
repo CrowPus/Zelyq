@@ -23,6 +23,38 @@ export function registerPlanRoutes(
     },
   );
 
+  /**
+   * A team member frees space in one app: older undo points (the newest
+   * `keepUndo` stay), its chat attachments. `look`: only says what it would free.
+   */
+  app.post<{ Params: { id: string } }>("/api/projects/:id/free-space", async (request) => {
+    const user = access.requireUser(request);
+    const { project } = await access.requireProject(user, request.params.id, "editor");
+    const input = z
+      .object({
+        keepUndo: z.number().int().min(1).max(1000).optional(),
+        attachments: z.boolean().optional(),
+        look: z.boolean().optional(),
+      })
+      .strict()
+      .parse(request.body ?? {});
+    const result = await usage.freeSpace(project.teamId, project.id, input);
+    if (!result.look) {
+      await access.recordChange(user, {
+        teamId: project.teamId,
+        projectId: project.id,
+        action: "project.space_freed",
+        detail: {
+          name: project.name,
+          freedMb: Math.round(result.freedMb),
+          undoPoints: result.undoPointsRemoved,
+          attachments: result.attachmentsRemoved,
+        },
+      });
+    }
+    return result;
+  });
+
   /** The idle-app clean-up: what it last freed, and running it now. */
   app.get("/api/cleanup", async (request) => {
     access.requireInstanceAdmin(request);

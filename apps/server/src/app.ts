@@ -331,6 +331,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   usage.appBusy = async (projectId) =>
     (await store.projects.findById(projectId))?.status === "building";
   usage.idleDays = () => settings.numberValue("cleanIdleAfterDays");
+  // Undo points: only the newest are kept; a team member frees more from its Usage panel.
+  projects.keepSnapshots = () => settings.numberValue("keepUndoPoints");
+  usage.pruneUndo = (projectId, keep) => projects.pruneSnapshots(projectId, keep);
+  usage.removeAttachments = (projectId) => attachments.removeProject(projectId);
   for (const service of [pipelines, pipelineTriggers, deploys, runners, images, videos]) {
     service.limits = usage;
   }

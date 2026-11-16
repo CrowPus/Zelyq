@@ -162,7 +162,7 @@ export function TeamSettingsPage() {
             </p>
           </header>
 
-          <UsagePanel teamId={id} />
+          <UsagePanel teamId={id} canEdit={team ? roleAtLeast(team.role, "editor") : false} />
 
           <TeamKeys teamId={id} canManage={canManage} />
 

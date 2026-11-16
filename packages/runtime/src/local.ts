@@ -874,6 +874,16 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     }
   }
 
+  async deleteSnapshot(projectId: string, snapshotId: string): Promise<void> {
+    if (!/^snp_[A-Za-z0-9]+$/.test(snapshotId)) throw new Error(`Not an undo point: ${snapshotId}`);
+    const dir = this.snapshotDir(projectId);
+    // The newest is what the next one hard-links from: kept, whatever is asked.
+    const latest = await fs.readFile(path.join(dir, LATEST_SNAPSHOT), "utf8").catch(() => "");
+    if (latest.trim() === snapshotId) return;
+    // Its files are hard links: a newer undo point that shares one keeps it.
+    await fs.rm(path.join(dir, snapshotId), { recursive: true, force: true });
+  }
+
   async restoreSnapshot(projectId: string, snapshotId: string): Promise<void> {
     const root = await this.requireRoot(projectId);
     const source = path.join(this.snapshotDir(projectId), snapshotId);

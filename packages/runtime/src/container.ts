@@ -566,6 +566,10 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   createSnapshot(projectId: string, label: string): Promise<Snapshot> {
     return this.local.createSnapshot(projectId, label);
   }
+
+  deleteSnapshot(projectId: string, snapshotId: string): Promise<void> {
+    return this.local.deleteSnapshot(projectId, snapshotId);
+  }
   restoreSnapshot(projectId: string, snapshotId: string): Promise<void> {
     return this.local.restoreSnapshot(projectId, snapshotId);
   }

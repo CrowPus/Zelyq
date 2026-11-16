@@ -24,6 +24,7 @@ import type {
   FileContent,
   FileEntry,
   FrameExportInput,
+  FreeSpaceResult,
   GitBranchInput,
   GitFetchInput,
   GitPullInput,
@@ -961,6 +962,14 @@ export const api = {
 
   teamUsage: (teamId: string, fresh = false) =>
     request<TeamUsage>(`/teams/${teamId}/usage${fresh ? "?fresh=1" : ""}`),
+  freeSpace: (
+    projectId: string,
+    input: { keepUndo?: number; attachments?: boolean; look?: boolean },
+  ) =>
+    request<FreeSpaceResult>(`/projects/${projectId}/free-space`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   plans: () => request<PlansSettings & { all: Plan[] }>("/plans"),
   savePlans: (input: PlansSettings) =>
     request<PlansSettings & { all: Plan[] }>("/plans", {
