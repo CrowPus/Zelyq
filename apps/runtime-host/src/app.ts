@@ -212,6 +212,22 @@ export function buildHost(config: HostConfig): RuntimeHost {
     return await runtime.createSnapshot(request.params.id, label);
   });
 
+  app.delete<{ Params: { id: string; snapshotId: string } }>(
+    "/v1/projects/:id/snapshots/:snapshotId",
+    async (request, reply) => {
+      // Only ids Zelyq makes: the driver checks again that the folder is the app's.
+      if (
+        !/^prj_[A-Za-z0-9]+$/.test(request.params.id) ||
+        !/^snp_[A-Za-z0-9]+$/.test(request.params.snapshotId)
+      ) {
+        reply.status(400);
+        return { error: "Not an undo point." };
+      }
+      await runtime.deleteSnapshot(request.params.id, request.params.snapshotId);
+      reply.status(204);
+    },
+  );
+
   app.post<{ Params: { id: string; snapshotId: string } }>(
     "/v1/projects/:id/snapshots/:snapshotId/restore",
     async (request, reply) => {
