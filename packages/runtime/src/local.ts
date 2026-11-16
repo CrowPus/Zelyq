@@ -63,7 +63,7 @@ type SnapshotManifest = Record<string, [number, number]>;
 async function readManifest(snapshotDir: string): Promise<SnapshotManifest> {
   try {
     return JSON.parse(
-      await fs.readFile(path.join(snapshotDir, SNAPSHOT_MANIFEST), "utf8"),
+      await fs.readFile(containedPath(snapshotDir, SNAPSHOT_MANIFEST), "utf8"),
     ) as SnapshotManifest;
   } catch {
     // No manifest means a snapshot from before this existed; copy everything.
@@ -103,11 +103,33 @@ export interface PreviewRecord {
  * record one of them writes is readable by the others instead of each keeping
  * a layout of its own that can drift.
  */
+/**
+ * A path under `base`, never anywhere else: resolved, then checked to start
+ * inside it. Every folder and file the runtime builds from an app's id goes
+ * through here, so a crafted id ("../x") can never reach outside the workspace.
+ */
+export function containedPath(base: string, ...parts: string[]): string {
+  const root = path.resolve(base);
+  const target = path.resolve(root, ...parts);
+  if (target !== root && !target.startsWith(root + path.sep)) {
+    throw ZelyqError.badRequest("That path is outside the workspace.");
+  }
+  return target;
+}
+
+/** An app's id as Zelyq makes it: letters, digits, '-' and '_'. */
+function safeId(projectId: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(projectId)) {
+    throw ZelyqError.badRequest(`Unsafe project id: ${projectId}`);
+  }
+  return projectId;
+}
+
 export function previewStateFile(workspaceDir: string, projectId: string): string {
-  return path.join(workspaceDir, PREVIEW_STATE_DIR, `${projectId}.json`);
+  return containedPath(workspaceDir, PREVIEW_STATE_DIR, `${safeId(projectId)}.json`);
 }
 export function previewLogFile(workspaceDir: string, projectId: string): string {
-  return path.join(workspaceDir, PREVIEW_STATE_DIR, `${projectId}.log`);
+  return containedPath(workspaceDir, PREVIEW_STATE_DIR, `${safeId(projectId)}.log`);
 }
 export async function writePreviewRecord(
   workspaceDir: string,
@@ -734,7 +756,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   async createSnapshot(projectId: string, label: string): Promise<Snapshot> {
     const root = await this.requireRoot(projectId);
     const id = newId("snapshot");
-    const target = path.join(this.snapshotDir(projectId), id);
+    const target = containedPath(this.snapshotDir(projectId), id);
     await fs.mkdir(target, { recursive: true });
 
     const previous = await this.latestSnapshotPath(projectId);
@@ -747,7 +769,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     for (const entry of files) {
       if (entry.type !== "file") continue;
       const source = resolveInside(root, entry.path);
-      const destination = path.join(target, entry.path);
+      const destination = containedPath(target, entry.path);
       await fs.mkdir(path.dirname(destination), { recursive: true });
 
       const live = await fs.stat(source).catch(() => null);
@@ -763,7 +785,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
         // A hard link, so the bytes are stored once however many snapshots
         // contain them.
         reused = await fs
-          .link(path.join(previous, entry.path), destination)
+          .link(containedPath(previous, entry.path), destination)
           .then(() => true)
           .catch(() => false);
       }
@@ -774,10 +796,10 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     }
 
     await fs
-      .writeFile(path.join(target, SNAPSHOT_MANIFEST), JSON.stringify(manifest))
+      .writeFile(containedPath(target, SNAPSHOT_MANIFEST), JSON.stringify(manifest))
       .catch(() => undefined);
     await fs
-      .writeFile(path.join(this.snapshotDir(projectId), LATEST_SNAPSHOT), id)
+      .writeFile(containedPath(this.snapshotDir(projectId), LATEST_SNAPSHOT), id)
       .catch(() => undefined);
 
     return {
@@ -802,9 +824,9 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   /** The snapshot most recently taken, if it is still on disk. */
   private async latestSnapshotPath(projectId: string): Promise<string | null> {
     const dir = this.snapshotDir(projectId);
-    const id = await fs.readFile(path.join(dir, LATEST_SNAPSHOT), "utf8").catch(() => "");
+    const id = await fs.readFile(containedPath(dir, LATEST_SNAPSHOT), "utf8").catch(() => "");
     if (!id.trim()) return null;
-    const candidate = path.join(dir, id.trim());
+    const candidate = containedPath(dir, id.trim());
     return (await fs
       .stat(candidate)
       .then((entry) => entry.isDirectory())
@@ -878,12 +900,9 @@ export class LocalRuntimeDriver implements RuntimeDriver {
     // Both are ids Zelyq made, and the folder removed is always inside this app's undo points.
     if (!/^prj_[A-Za-z0-9]+$/.test(projectId)) throw new Error(`Not an app: ${projectId}`);
     if (!/^snp_[A-Za-z0-9]+$/.test(snapshotId)) throw new Error(`Not an undo point: ${snapshotId}`);
-    const base = path.resolve(this.workspaceDir, ".snapshots", projectId);
-    const target = path.resolve(base, snapshotId);
-    const latestFile = path.resolve(base, LATEST_SNAPSHOT);
-    if (!target.startsWith(base + path.sep) || !latestFile.startsWith(base + path.sep)) {
-      throw new Error("That undo point is not inside this app.");
-    }
+    const base = this.snapshotDir(projectId);
+    const target = containedPath(base, snapshotId);
+    const latestFile = containedPath(base, LATEST_SNAPSHOT);
     // The newest is what the next one hard-links from: kept, whatever is asked.
     const latest = await fs.readFile(latestFile, "utf8").catch(() => "");
     if (latest.trim() === snapshotId) return;
@@ -925,10 +944,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   // -------------------------------------------------------------------------
 
   private rootFor(projectId: string): string {
-    if (!/^[A-Za-z0-9_-]+$/.test(projectId)) {
-      throw ZelyqError.badRequest(`Unsafe project id: ${projectId}`);
-    }
-    return path.join(this.workspaceDir, projectId);
+    return containedPath(this.workspaceDir, safeId(projectId));
   }
 
   private async requireRoot(projectId: string): Promise<string> {
@@ -942,7 +958,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
   }
 
   private snapshotDir(projectId: string): string {
-    return path.join(this.workspaceDir, ".snapshots", projectId);
+    return containedPath(this.workspaceDir, ".snapshots", safeId(projectId));
   }
 
   /**
