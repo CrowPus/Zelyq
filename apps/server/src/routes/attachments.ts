@@ -2,6 +2,7 @@ import { promptAttachmentSchema } from "@zelyq/core";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { AttachmentService } from "../services/attachments.js";
+import type { UsageService } from "../services/usage.js";
 
 /**
  * A file uploaded to be attached to a prompt. Editor role to upload (the
@@ -11,13 +12,19 @@ import type { AttachmentService } from "../services/attachments.js";
  */
 export function registerAttachmentRoutes(
   app: FastifyInstance,
-  deps: { attachments: AttachmentService; access: AccessControl },
+  deps: {
+    attachments: AttachmentService;
+    access: AccessControl;
+    /** What the team's plan allows; none: no limits. */
+    limits?: Pick<UsageService, "check">;
+  },
 ): void {
   const { access, attachments } = deps;
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/attachments", async (request, reply) => {
     const user = access.requireUser(request);
-    await access.requireProject(user, request.params.id, "editor");
+    const project = await access.requireProject(user, request.params.id, "editor");
+    await deps.limits?.check(project.project.teamId, "storageMb", 0);
     const input = promptAttachmentSchema.parse(request.body);
     const ref = await attachments.store(request.params.id, input);
     reply.status(201);

@@ -35,6 +35,7 @@ import type { RunnerService } from "./pipelines/runners.js";
 import { shellCommand } from "./pipelines/scripts.js";
 import { SshSession } from "./pipelines/ssh.js";
 import type { SecretBox } from "./secrets.js";
+import type { UsageService } from "./usage.js";
 import type { VaultService } from "./vault.js";
 
 /**
@@ -92,6 +93,8 @@ function sq(value: string): string {
 }
 
 export class DeployService {
+  /** What the team's plan allows (set by the app); none: no limits. */
+  limits?: Pick<UsageService, "check">;
   /** One deploy at a time per environment and app. */
   private readonly locks = new Map<string, Promise<unknown>>();
   /** A machine's connection, kept for a minute while its app page is open. */
@@ -137,6 +140,7 @@ export class DeployService {
 
   async create(user: User, teamId: string, raw: EnvironmentInput): Promise<EnvironmentSummary> {
     await this.access.requireTeamRole(user, teamId, "admin");
+    await this.limits?.check(teamId, "environments");
     const input = environmentInputSchema.parse(raw);
     if (await this.store.deploy.environments.findByName(teamId, input.name)) {
       throw new ZelyqError("conflict", `There is already an environment called ${input.name}.`);

@@ -183,6 +183,10 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
     return await this.request<Snapshot>("POST", `/v1/projects/${projectId}/snapshots`, { label });
   }
 
+  async deleteSnapshot(projectId: string, snapshotId: string): Promise<void> {
+    await this.request("DELETE", `/v1/projects/${projectId}/snapshots/${snapshotId}`);
+  }
+
   async restoreSnapshot(projectId: string, snapshotId: string): Promise<void> {
     await this.request("POST", `/v1/projects/${projectId}/snapshots/${snapshotId}/restore`);
   }

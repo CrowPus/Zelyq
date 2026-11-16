@@ -24,6 +24,7 @@ import type { Store, VideoJobRow, VideoReferenceRow } from "@zelyq/db";
 import sharp from "sharp";
 import type { SettingsService } from "./settings.js";
 import { TEAM_KEY_NAME } from "./settings.js";
+import type { UsageService } from "./usage.js";
 import type { VideoAssetStore, VideoMetadata } from "./video-assets.js";
 import { VideoFrameStore } from "./video-frames.js";
 import { type VideoProvider, VideoProviderError, videoProviders } from "./video-providers/index.js";
@@ -47,6 +48,8 @@ function referenceView(ref: VideoReferenceRow): VideoReference {
   };
 }
 export class VideoGenerationService {
+  /** What the team's plan allows (set by the app); none: no limits. */
+  limits?: Pick<UsageService, "check">;
   private timer?: ReturnType<typeof setInterval>;
   private ticking: Promise<void> | null = null;
   private running = new Map<string, { controller: AbortController; work: Promise<void> }>();
@@ -344,6 +347,8 @@ export class VideoGenerationService {
     input: VideoGenerationInput,
     origin: Parameters<VideoGenerationService["submitHere"]>[2] = {},
   ) {
+    // Over the team's storage: nothing new is made until it has room again.
+    if (origin.teamId) await this.limits?.check(origin.teamId, "storageMb", 0);
     return this.settings.forTeam
       ? this.settings.forTeam(origin.teamId, () => this.submitHere(ownerId, input, origin))
       : this.submitHere(ownerId, input, origin);

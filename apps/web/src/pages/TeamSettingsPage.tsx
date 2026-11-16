@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { TeamKeys } from "../components/TeamKeys";
+import { UsagePanel } from "../components/UsagePanel";
 import { Badge, Button, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -160,6 +161,8 @@ export function TeamSettingsPage() {
               .
             </p>
           </header>
+
+          <UsagePanel teamId={id} canEdit={team ? roleAtLeast(team.role, "editor") : false} />
 
           <TeamKeys teamId={id} canManage={canManage} />
 

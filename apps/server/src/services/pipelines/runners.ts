@@ -15,6 +15,7 @@ import {
 } from "@zelyq/core";
 import type { RunnerRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
+import type { UsageService } from "../usage.js";
 import type { TeamSshKeyService } from "./keys.js";
 import { shellCommand } from "./scripts.js";
 import {
@@ -38,6 +39,8 @@ import {
  * A runner is not used until its fingerprint is confirmed.
  */
 export class RunnerService {
+  /** What the team's plan allows (set by the app); none: no limits. */
+  limits?: Pick<UsageService, "check">;
   constructor(
     private readonly store: Store,
     private readonly access: AccessControl,
@@ -57,6 +60,7 @@ export class RunnerService {
 
   async create(user: User, teamId: string, raw: SshRunnerInput): Promise<RunnerSummary> {
     await this.access.requireTeamRole(user, teamId, "admin");
+    await this.limits?.check(teamId, "machines");
     const input = sshRunnerInputSchema.parse(raw);
     if (input.name === "local")
       throw ZelyqError.badRequest('"local" is the name of the built-in local runner.');

@@ -19,6 +19,10 @@ export function snapshotRepository(db: ZelyqDb) {
         .limit(limit);
     },
 
+    async remove(id: string): Promise<void> {
+      await db.delete(snapshots).where(eq(snapshots.id, id));
+    },
+
     async findById(id: string): Promise<Snapshot | null> {
       const rows = await db.select().from(snapshots).where(eq(snapshots.id, id)).limit(1);
       return rows[0] ?? null;

@@ -21,8 +21,8 @@ export function registerSnapshotRoutes(
     const user = access.requireUser(request);
     const { project } = await access.requireProject(user, request.params.id, "editor");
     const { label } = createSnapshotSchema.parse(request.body ?? {});
-    const snapshot = await deps.runtime.createSnapshot(request.params.id, label);
-    await deps.store.snapshots.create(snapshot);
+    // Through the project service, so the app keeps only its newest undo points.
+    const snapshot = await deps.projects.snapshot(request.params.id, label);
     await access.recordChange(user, {
       teamId: project.teamId,
       projectId: project.id,

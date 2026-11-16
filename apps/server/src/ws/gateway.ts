@@ -26,6 +26,7 @@ import type { ProjectBackendService } from "../services/project-backend.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
 import type { SupabaseBridge } from "../services/supabase-bridge.js";
+import type { UsageService } from "../services/usage.js";
 import type { VideoBridge } from "../services/video-bridge.js";
 
 /** What a provider actually knows how to embed as an image. */
@@ -90,6 +91,8 @@ const PROVIDER_WORDS: Record<string, string> = {
 };
 
 export class ChatGateway {
+  /** What the team's plan allows (set by the app); none: no limits. */
+  limits?: Pick<UsageService, "check" | "touch">;
   private readonly rooms = new Map<string, Room>();
 
   constructor(
@@ -394,6 +397,9 @@ export class ChatGateway {
       // The app's team: its own settings and keys, from here to the end of this turn.
       const teamId = (await this.store.projects.findById(room.projectId))?.teamId ?? null;
       this.settings.enterTeam(teamId);
+      // Over the team's storage: the agent writes no more until it has room again.
+      if (teamId) await this.limits?.check(teamId, "storageMb", 0);
+      this.limits?.touch(room.projectId);
       const settingsProvider = await this.settings.value("provider");
       // A pick from the chat's own model control wins over the instance
       // default for this turn onward. Omitted means what it always meant:

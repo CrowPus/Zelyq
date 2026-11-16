@@ -16,6 +16,11 @@ export function teamRepository(db: ZelyqDb) {
       return rows[0] ?? null;
     },
 
+    /** Every team on the server, oldest first: for its administrator's plans page. */
+    async listAll(): Promise<Team[]> {
+      return await db.select().from(teams).orderBy(asc(teams.createdAt));
+    },
+
     async findBySlug(slug: string): Promise<Team | null> {
       const rows = await db.select().from(teams).where(eq(teams.slug, slug)).limit(1);
       return rows[0] ?? null;

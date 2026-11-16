@@ -24,6 +24,7 @@ import type {
   FileContent,
   FileEntry,
   FrameExportInput,
+  FreeSpaceResult,
   GitBranchInput,
   GitFetchInput,
   GitPullInput,
@@ -53,6 +54,8 @@ import type {
   PipelineTriggerSummary,
   PipelineVersionSummary,
   PlaceStudioMediaInput,
+  Plan,
+  PlansSettings,
   Preview,
   Project,
   ProjectVariable,
@@ -76,6 +79,7 @@ import type {
   TeamMember,
   TeamMembership,
   TeamSshKeySummary,
+  TeamUsage,
   TriggerInput,
   UpdateProfileInput,
   UpdateSettingsInput,
@@ -142,6 +146,15 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/** What the idle-app clean-up freed, or would. */
+export interface CleanupReportView {
+  at: string;
+  dryRun: boolean;
+  apps: number;
+  freedBytes: number;
+  cleared: Array<{ projectId: string; name: string; bytes: number; folders: string[] }>;
 }
 
 /** "?teamId=…" for a request whose AI key is the team's own, or nothing. */
@@ -947,6 +960,38 @@ export const api = {
   removeMember: (teamId: string, userId: string) =>
     request<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
 
+  teamUsage: (teamId: string, fresh = false) =>
+    request<TeamUsage>(`/teams/${teamId}/usage${fresh ? "?fresh=1" : ""}`),
+  freeSpace: (
+    projectId: string,
+    input: { keepUndo?: number; attachments?: boolean; look?: boolean },
+  ) =>
+    request<FreeSpaceResult>(`/projects/${projectId}/free-space`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  plans: () => request<PlansSettings & { all: Plan[] }>("/plans"),
+  savePlans: (input: PlansSettings) =>
+    request<PlansSettings & { all: Plan[] }>("/plans", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  planTeams: () =>
+    request<{
+      teams: Array<{
+        id: string;
+        name: string;
+        plan: { id: string; name: string };
+        storageMb: number;
+        apps: number;
+        members: number;
+      }>;
+    }>("/plans/teams"),
+  cleanupLast: () => request<{ last: CleanupReportView | null }>("/cleanup"),
+  cleanup: (look: boolean) =>
+    request<{ last: CleanupReportView }>(`/cleanup${look ? "?look=1" : ""}`, { method: "POST" }),
+  setTeamPlan: (teamId: string, plan: string) =>
+    request<TeamUsage>(`/teams/${teamId}/plan`, { method: "PUT", body: JSON.stringify({ plan }) }),
   teamSettings: (teamId: string) => request<SettingsResponse>(`/teams/${teamId}/settings`),
   updateTeamSettings: (teamId: string, changes: Record<string, string | number | boolean>) =>
     request<SettingsResponse>(`/teams/${teamId}/settings`, {
