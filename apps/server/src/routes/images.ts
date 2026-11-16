@@ -3,7 +3,7 @@ import {
   maxImageReferenceBytes,
   maxImageReferences,
 } from "@zelyq/core";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { ImageGenerationService } from "../services/image-generation.js";
@@ -23,10 +23,17 @@ export function registerImageRoutes(
   deps: { images: ImageGenerationService; access: AccessControl },
 ) {
   const { images, access } = deps;
+  /** The team a Studio request is for (?teamId=), checked: its key is used, or the server's if it may. */
+  const teamOf = async (request: FastifyRequest): Promise<string | null> => {
+    const user = access.requireUser(request);
+    const teamId = (request.query as { teamId?: string } | undefined)?.teamId ?? null;
+    if (teamId) await access.requireTeamRole(user, teamId, "viewer");
+    return teamId;
+  };
   app.get("/api/images/capabilities", async (request, reply) => {
-    access.requireUser(request);
+    const teamId = await teamOf(request);
     reply.header("cache-control", "private, no-store");
-    return images.capabilities();
+    return images.capabilities(teamId);
   });
   app.post(
     "/api/images/generations",
@@ -34,7 +41,7 @@ export function registerImageRoutes(
     async (request, reply) => {
       const user = access.requireUser(request);
       const input = imageGenerationInputSchema.parse(request.body);
-      const generation = await images.submit(user.id, input);
+      const generation = await images.submit(user.id, input, { teamId: await teamOf(request) });
       reply.code(202).header("cache-control", "private, no-store");
       return { generation };
     },

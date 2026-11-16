@@ -28,6 +28,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { StudioSwitch } from "../components/StudioSwitch";
 import { Button, Spinner } from "../components/ui";
+import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 
@@ -104,6 +105,8 @@ async function referenceFromFile(file: File): Promise<UploadedReference> {
 }
 
 export function ImageStudioPage() {
+  // Studio and the model list use the team's own AI keys first.
+  const { team: activeTeam } = useActiveTeam();
   const { user } = useSession();
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -119,8 +122,8 @@ export function ImageStudioPage() {
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const historyKey = ["image-history", user?.id];
   const capabilities = useQuery({
-    queryKey: ["image-capabilities", user?.id],
-    queryFn: api.imageCapabilities,
+    queryKey: ["image-capabilities", user?.id, activeTeam?.id],
+    queryFn: () => api.imageCapabilities(activeTeam?.id),
     refetchOnMount: "always",
   });
   const selectedProviderId = providerId ?? capabilities.data?.provider ?? "openai";
@@ -153,7 +156,7 @@ export function ImageStudioPage() {
     generations.some((job) => isImageJobActive(job.status)) ||
     Boolean(selected && isImageJobActive(selected.status));
   const generate = useMutation({
-    mutationFn: (input: ImageGenerationInput) => api.generateImage(input),
+    mutationFn: (input: ImageGenerationInput) => api.generateImage(input, activeTeam?.id),
     onSuccess: ({ generation }) => {
       submission.current = null;
       client.setQueryData(["image-generation", user?.id, generation.id], { generation });

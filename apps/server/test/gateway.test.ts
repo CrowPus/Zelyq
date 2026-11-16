@@ -232,6 +232,9 @@ before(async () => {
   // test actually needs admin rights rather than each one guessing at
   // whether it happens to run first.
   adminCookie = (await register("gateway-admin@example.com")).cookie;
+  // These tests are about how the server's own keys reach a turn, so every team
+  // here may use them (on a shared server, teams bring their own: team-keys.test.ts).
+  await server.store.settings.set("shareServerKeys", "true");
 });
 
 after(async () => {

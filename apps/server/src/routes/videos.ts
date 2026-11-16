@@ -45,7 +45,12 @@ export async function registerVideoRoutes(
       access.requireUser(request);
       reply.header("cache-control", "private, no-store");
     });
-    scope.get("/api/videos/capabilities", () => videos.capabilities());
+    scope.get("/api/videos/capabilities", async (request) => {
+      const user = access.requireUser(request);
+      const teamId = (request.query as { teamId?: string } | undefined)?.teamId ?? null;
+      if (teamId) await access.requireTeamRole(user, teamId, "viewer");
+      return videos.capabilities(teamId);
+    });
     scope.post(
       "/api/videos/references",
       {
@@ -93,9 +98,13 @@ export async function registerVideoRoutes(
       },
     );
     scope.post("/api/videos/generations", { bodyLimit: 32768 }, async (request, reply) => {
+      const user = access.requireUser(request);
+      const teamId = (request.query as { teamId?: string } | undefined)?.teamId ?? null;
+      if (teamId) await access.requireTeamRole(user, teamId, "viewer");
       const generation = await videos.submit(
-        access.requireUser(request).id,
+        user.id,
         videoGenerationInputSchema.parse(request.body),
+        { teamId },
       );
       return reply.code(202).send({ generation });
     });

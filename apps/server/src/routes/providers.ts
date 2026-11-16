@@ -14,7 +14,10 @@ export function registerProviderRoutes(
   deps: { agent: AgentClient; access: AccessControl; settings: SettingsService },
 ): void {
   app.get("/api/providers", async (request) => {
-    deps.access.requireUser(request);
+    const user = deps.access.requireUser(request);
+    // For a team: whether it has a key, its own or the server's it may use.
+    const teamId = (request.query as { teamId?: string } | undefined)?.teamId ?? null;
+    if (teamId) await deps.access.requireTeamRole(user, teamId, "viewer");
     const listed = await deps.agent.listProviders();
     // The agent's own `configured` only ever checked its own process
     // environment — true before Settings could hold a key at all, wrong
@@ -28,7 +31,7 @@ export function registerProviderRoutes(
     const providers = await Promise.all(
       listed.providers.map(async (provider) => ({
         ...provider,
-        configured: Boolean(await deps.settings.apiKeyFor(provider.id)),
+        configured: Boolean(await deps.settings.apiKeyFor(provider.id, teamId)),
         ...(provider.id === "openai"
           ? await deps.settings.openAIModels()
           : provider.id === "anthropic"

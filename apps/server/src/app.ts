@@ -88,6 +88,7 @@ import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
+import { TeamKeys } from "./services/team-keys.js";
 import { ThumbnailStore } from "./services/thumbnails.js";
 import { VaultService } from "./services/vault.js";
 import { VaultKeyService } from "./services/vault-keys.js";
@@ -411,7 +412,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSettingsRoutes(app, { settings, access, store, mail });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
-  registerTeamRoutes(app, { store, access, links: emailLinks });
+  registerTeamRoutes(app, {
+    store,
+    access,
+    links: emailLinks,
+    keys: new TeamKeys(settings, vault, access),
+  });
   registerProjectRoutes(app, {
     projects,
     access,

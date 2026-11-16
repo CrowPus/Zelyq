@@ -23,6 +23,7 @@ import {
 import type { Store, VideoJobRow, VideoReferenceRow } from "@zelyq/db";
 import sharp from "sharp";
 import type { SettingsService } from "./settings.js";
+import { TEAM_KEY_NAME } from "./settings.js";
 import type { VideoAssetStore, VideoMetadata } from "./video-assets.js";
 import { VideoFrameStore } from "./video-frames.js";
 import { type VideoProvider, VideoProviderError, videoProviders } from "./video-providers/index.js";
@@ -52,7 +53,8 @@ export class VideoGenerationService {
   private stopped = false;
   constructor(
     private readonly store: Store,
-    private readonly settings: Pick<SettingsService, "value" | "numberValue">,
+    private readonly settings: Pick<SettingsService, "value" | "numberValue"> &
+      Partial<Pick<SettingsService, "teamKey" | "serverKeysFor" | "mediaKeyFor">>,
     readonly assets: VideoAssetStore,
     private readonly providers: Record<VideoProviderId, VideoProvider> = videoProviders,
     private readonly pollMs = 10000,
@@ -172,7 +174,7 @@ export class VideoGenerationService {
     return key?.trim() ? key : null;
   }
 
-  async capabilities(): Promise<VideoCapabilities> {
+  async capabilities(teamId?: string | null): Promise<VideoCapabilities> {
     const chosen = await this.settings.value("videoProvider");
     const providers = await Promise.all(
       videoProviderIds.map(async (id) => {
@@ -183,7 +185,12 @@ export class VideoGenerationService {
         return {
           ...cap,
           configured:
-            Boolean((await this.settings.value(keySetting(id))).trim()) && model === cap.model,
+            Boolean(
+              (
+                await (this.settings.mediaKeyFor?.(keySetting(id), id, teamId) ??
+                  this.settings.value(keySetting(id)))
+              ).trim(),
+            ) && model === cap.model,
         };
       }),
     );
@@ -315,7 +322,11 @@ export class VideoGenerationService {
         "rate_limited",
         `This conversation has already generated ${limit} video${limit === 1 ? "" : "s"}, its limit. Reuse one with place_video, or start a new conversation.`,
       );
-    const generation = await this.submit(ownerId, input, { ...origin, source: "agent" });
+    const generation = await this.submit(ownerId, input, {
+      ...origin,
+      source: "agent",
+      teamId: (await this.store.projects.findById(origin.projectId))?.teamId ?? null,
+    });
     return { generation, used: used + 1, limit };
   }
 
@@ -330,6 +341,8 @@ export class VideoGenerationService {
       /** An outside agent's own key, from the team's Vault: used instead of the
        * instance's, and never falls back to it. */
       keyRef?: { teamId: string; name: string };
+      /** The team this is made for: its own key first, the server's only if it may. */
+      teamId?: string | null;
     } = {},
   ) {
     input = videoGenerationInputSchema.parse(input);
@@ -348,6 +361,20 @@ export class VideoGenerationService {
     if (existing) return replay(existing);
     const error = videoInputError(input);
     if (error) throw ZelyqError.badRequest(error);
+    // For a team: its own key (as a Vault reference), or the server's when it may use it.
+    if (!origin.keyRef && origin.teamId) {
+      if (await this.settings.teamKey?.(origin.teamId, input.provider)) {
+        origin = {
+          ...origin,
+          keyRef: { teamId: origin.teamId, name: TEAM_KEY_NAME[input.provider] as string },
+        };
+      } else if (!((await this.settings.serverKeysFor?.(origin.teamId)) ?? true)) {
+        throw new ZelyqError(
+          "model_error",
+          `Your team has no ${input.provider === "google" ? "Gemini" : "Grok"} key yet. A team admin adds one on the Team page, under AI keys.`,
+        );
+      }
+    }
     const cap = (await this.capabilities()).providers.find((p) => p.id === input.provider)!;
     if (!origin.keyRef && !cap.configured)
       throw ZelyqError.badRequest(

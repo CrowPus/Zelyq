@@ -144,6 +144,11 @@ export class ApiError extends Error {
   }
 }
 
+/** "?teamId=…" for a request whose AI key is the team's own, or nothing. */
+function teamQuery(teamId?: string): string {
+  return teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
@@ -759,16 +764,18 @@ export const api = {
       ),
   },
   inspectBackend: (id: string) => request(`/projects/${id}/backend/inspect`, { method: "POST" }),
-  imageCapabilities: () => request<ImageCapabilities>("/images/capabilities"),
-  videoCapabilities: () => request<VideoCapabilities>("/videos/capabilities"),
+  imageCapabilities: (teamId?: string) =>
+    request<ImageCapabilities>(`/images/capabilities${teamQuery(teamId)}`),
+  videoCapabilities: (teamId?: string) =>
+    request<VideoCapabilities>(`/videos/capabilities${teamQuery(teamId)}`),
   videoHistory: (cursor?: string) =>
     request<VideoHistory>(
       `/videos/generations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
     ),
   videoGeneration: (id: string) =>
     request<{ generation: VideoGeneration }>(`/videos/generations/${id}`),
-  generateVideo: (input: VideoGenerationInput) =>
-    request<{ generation: VideoGeneration }>("/videos/generations", {
+  generateVideo: (input: VideoGenerationInput, teamId?: string) =>
+    request<{ generation: VideoGeneration }>(`/videos/generations${teamQuery(teamId)}`, {
       method: "POST",
       body: JSON.stringify(input),
     }),
@@ -812,8 +819,8 @@ export const api = {
     ),
   imageGeneration: (id: string) =>
     request<{ generation: ImageGeneration }>(`/images/generations/${id}`),
-  generateImage: (input: ImageGenerationInput) =>
-    request<{ generation: ImageGeneration }>("/images/generations", {
+  generateImage: (input: ImageGenerationInput, teamId?: string) =>
+    request<{ generation: ImageGeneration }>(`/images/generations${teamQuery(teamId)}`, {
       method: "POST",
       body: JSON.stringify(input),
     }),
@@ -871,7 +878,7 @@ export const api = {
   getSettings: () => request<SettingsResponse>("/settings"),
 
   /** What the chat's model picker offers — open to anyone signed in. */
-  getProviders: () => request<AvailableProviders>("/providers"),
+  getProviders: (teamId?: string) => request<AvailableProviders>(`/providers${teamQuery(teamId)}`),
 
   /** Point a credential field at a Vault secret — the instance's, or a team's
    * (`vault` is "instance" or a team id) — or (null) clear it. */
@@ -935,6 +942,36 @@ export const api = {
   removeMember: (teamId: string, userId: string) =>
     request<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
 
+  teamKeys: (teamId: string) =>
+    request<{
+      keys: Array<{
+        provider: string;
+        label: string;
+        hint: string;
+        source: "team" | "server" | "none";
+      }>;
+      usesServerKeys: boolean;
+    }>(`/teams/${teamId}/ai-keys`),
+  setTeamKey: (teamId: string, provider: string, key: string) =>
+    request<{
+      keys: Array<{
+        provider: string;
+        label: string;
+        hint: string;
+        source: "team" | "server" | "none";
+      }>;
+      usesServerKeys: boolean;
+    }>(`/teams/${teamId}/ai-keys/${provider}`, { method: "PUT", body: JSON.stringify({ key }) }),
+  removeTeamKey: (teamId: string, provider: string) =>
+    request<{
+      keys: Array<{
+        provider: string;
+        label: string;
+        hint: string;
+        source: "team" | "server" | "none";
+      }>;
+      usesServerKeys: boolean;
+    }>(`/teams/${teamId}/ai-keys/${provider}`, { method: "DELETE" }),
   teamInvites: (teamId: string) =>
     request<{
       canInvite: boolean;

@@ -19,7 +19,7 @@ export function registerVoiceRoutes(
   deps: { access: AccessControl; settings: SettingsService; speech: SpeechService },
 ): void {
   /** Recorded speech to text, with the speech provider in Settings. */
-  const transcribe = async (body: unknown) => {
+  const transcribe = async (body: unknown, teamId: string | null) => {
     const input = voiceTranscriptionSchema.parse(body);
     const mimeType = input.mimeType.split(";", 1)[0]?.toLowerCase() ?? "";
     if (!SUPPORTED_AUDIO_TYPES.has(mimeType)) {
@@ -34,7 +34,7 @@ export function registerVoiceRoutes(
 
     const provider = await deps.settings.value("speechProvider");
     const model = await deps.settings.value("speechModel");
-    const apiKey = await deps.settings.speechApiKeyFor(provider);
+    const apiKey = await deps.settings.speechApiKeyFor(provider, teamId);
     const text = await deps.speech.transcribe({ provider, model, apiKey }, { audio, mimeType });
     return { text };
   };
@@ -43,8 +43,8 @@ export function registerVoiceRoutes(
     "/api/projects/:id/voice/transcriptions",
     async (request) => {
       const user = deps.access.requireUser(request);
-      await deps.access.requireProject(user, request.params.id, "editor");
-      return transcribe(request.body);
+      const project = await deps.access.requireProject(user, request.params.id, "editor");
+      return transcribe(request.body, (project as { teamId?: string | null }).teamId ?? null);
     },
   );
 
@@ -54,7 +54,7 @@ export function registerVoiceRoutes(
     async (request) => {
       const user = deps.access.requireUser(request);
       await deps.access.requireTeamRole(user, request.params.teamId, "editor");
-      return transcribe(request.body);
+      return transcribe(request.body, request.params.teamId);
     },
   );
 }

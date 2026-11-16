@@ -19,6 +19,10 @@ and Discord, so it needs strings shaped like a bot token or a webhook address
 "discord.com/api/webhooks/42/abc") to check that a real one is accepted, a
 wrong one refused, and none ever shown again. They are made up, not leaks.
 
+apps/server/test/team-keys.test.ts likewise sets made-up AI keys
+("AIza-guest-own-key-5678", …) to check a team's own key is used first, kept
+in its Vault and never shown again.
+
 The Ops tests (ops-actions, ops-brain, ops-memory) hand Ops a made-up Stripe-
 shaped value to check it refuses to put a raw secret into an app's settings.
 Only those exact made-up values are allowed (the regexes below), not the
@@ -30,4 +34,5 @@ regexes = [
 paths = [
   '''^apps/agent/evals/cases\.ts$''',
   '''^apps/server/test/ops-channels\.test\.ts$''',
+  '''^apps/server/test/team-keys\.test\.ts$''',
 ]

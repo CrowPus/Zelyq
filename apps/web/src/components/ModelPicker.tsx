@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { AvailableProviders } from "@zelyq/core";
 import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 
 export interface ModelChoice {
@@ -72,9 +73,11 @@ export function modelPickerState(query: {
 export function ModelPicker({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  // The team's own AI keys decide which providers it can use.
+  const { team: activeTeam } = useActiveTeam();
   const providers = useQuery({
-    queryKey: ["providers"],
-    queryFn: api.getProviders,
+    queryKey: ["providers", activeTeam?.id],
+    queryFn: () => api.getProviders(activeTeam?.id),
     staleTime: 60_000,
     // The agent going away for a few seconds (a restart, a redeploy) is the
     // common failure here, not a permanent one — so retry rather than settling

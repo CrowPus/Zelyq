@@ -540,6 +540,17 @@ const DEFINITIONS: Definition[] = [
     fallback: "true",
   },
   {
+    key: "shareServerKeys",
+    label: "Share this server's AI keys with every team",
+    description:
+      "Off: the AI keys set here serve only the teams a server admin belongs to; every other team adds its own on its Team page (AI keys). On: every team may use them, at your cost.",
+    kind: "boolean",
+    group: "Access",
+    envVar: "ZELYQ_SHARE_SERVER_KEYS",
+    envOverridable: true,
+    fallback: "false",
+  },
+  {
     key: "sessionTtlDays",
     label: "Session length (days)",
     description: "How long a sign-in lasts before it has to be repeated.",
@@ -812,6 +823,18 @@ const PROVIDER_NAME: Record<string, string> = {
   openai: "OpenAI",
 };
 
+/** The name a team's own key for a provider has in its Vault. */
+export const TEAM_KEY_NAME: Record<string, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GEMINI_API_KEY",
+  openai: "OPENAI_API_KEY",
+  xai: "XAI_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  groq: "GROQ_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+};
+
 const KEY_SETTING_BY_PROVIDER: Record<string, string> = {
   anthropic: "anthropicApiKey",
   google: "geminiApiKey",
@@ -1044,7 +1067,13 @@ export class SettingsService {
    * var was ever meant to override; it goes straight to storage instead of
    * through the normal env-first `value()` path once `authModeFor` says so.
    */
-  async apiKeyFor(provider: string): Promise<string> {
+  async apiKeyFor(provider: string, teamId?: string | null): Promise<string> {
+    // A team's own key first; the server's only for a team allowed to use it.
+    if (teamId) {
+      const own = await this.teamKey(teamId, provider);
+      if (own) return own;
+      if (!(await this.serverKeysFor(teamId))) return "";
+    }
     const key = KEY_SETTING_BY_PROVIDER[provider] ?? "anthropicApiKey";
     if ((await this.authModeFor(provider)) === "subscription") {
       if (provider === "anthropic") {
@@ -1061,10 +1090,53 @@ export class SettingsService {
   /** Speech credentials deliberately ignore chat auth mode. A Codex
    * subscription token is not an OpenAI API key and cannot call the audio
    * transcription endpoint. */
-  async speechApiKeyFor(provider: string): Promise<string> {
+  async speechApiKeyFor(provider: string, teamId?: string | null): Promise<string> {
+    if (teamId) {
+      const own = await this.teamKey(teamId, provider);
+      if (own) return own;
+      if (!(await this.serverKeysFor(teamId))) return "";
+    }
     const key = KEY_SETTING_BY_PROVIDER[provider];
     if (!key) return "";
     return await this.value(key);
+  }
+
+  /**
+   * A team's own key for a provider: the Vault entry of that provider's name
+   * (ANTHROPIC_API_KEY, GEMINI_API_KEY, …) in the team's Vault. Empty when it
+   * has none.
+   */
+  async teamKey(teamId: string, provider: string): Promise<string> {
+    const name = TEAM_KEY_NAME[provider];
+    if (!name || !this.vaultLookup) return "";
+    return ((await this.vaultLookup({ name, scope: teamId })) ?? "").trim();
+  }
+
+  /**
+   * Whether a team may use the server's own AI keys: every team when the
+   * server shares them, else only a team a server admin belongs to (the
+   * owner's own teams keep working with no setup at all).
+   */
+  async serverKeysFor(teamId: string): Promise<boolean> {
+    if (await this.booleanValue("shareServerKeys")) return true;
+    for (const member of await this.store.teams.listMembers(teamId)) {
+      const user = await this.store.users.findById(member.userId);
+      if (user?.instanceRole === "admin") return true;
+    }
+    return false;
+  }
+
+  /**
+   * A media key (Studio's image and video providers have their own fields):
+   * the team's own first, then the server's field when the team may use it.
+   */
+  async mediaKeyFor(setting: string, provider: string, teamId?: string | null): Promise<string> {
+    if (teamId) {
+      const own = await this.teamKey(teamId, provider);
+      if (own) return own;
+      if (!(await this.serverKeysFor(teamId))) return "";
+    }
+    return (await this.value(setting)).trim();
   }
 
   /** A secret's stored, decrypted value only — never the environment
