@@ -212,14 +212,6 @@ export function buildHost(config: HostConfig): RuntimeHost {
     return await runtime.createSnapshot(request.params.id, label);
   });
 
-  app.delete<{ Params: { id: string; snapshotId: string } }>(
-    "/v1/projects/:id/snapshots/:snapshotId",
-    async (request, reply) => {
-      await runtime.deleteSnapshot(request.params.id, request.params.snapshotId);
-      reply.status(204);
-    },
-  );
-
   app.post<{ Params: { id: string; snapshotId: string } }>(
     "/v1/projects/:id/snapshots/:snapshotId/restore",
     async (request, reply) => {
