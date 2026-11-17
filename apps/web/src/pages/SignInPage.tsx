@@ -109,7 +109,9 @@ export function SignInPage() {
               <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
               {suspended
                 ? `This account is suspended. Contact ${accounts.name} for help.`
-                : "Signing in could not be completed. Please try again."}
+                : unavailable
+                  ? `${accounts.name} can't be reached right now. Try again in a minute.`
+                  : "Signing in could not be completed. Please try again."}
             </p>
           )}
           <Button
