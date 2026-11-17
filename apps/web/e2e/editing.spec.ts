@@ -36,7 +36,7 @@ test("an editor can change a file in the browser and it lands on disk", async ({
   const projectId = await createProject(page, "edit-me");
 
   await page.goto(`/projects/${projectId}`);
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   await page.getByText("App.tsx", { exact: false }).first().click();
 
   const editor = page.getByLabel("Edit src/App.tsx");
@@ -62,7 +62,7 @@ test("cmd+s saves without reaching for the button", async ({ page }) => {
   const projectId = await createProject(page, "shortcut");
 
   await page.goto(`/projects/${projectId}`);
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   await page.getByText("App.tsx", { exact: false }).first().click();
 
   const editor = page.getByLabel("Edit src/App.tsx");
@@ -95,7 +95,7 @@ test("a viewer is offered no way to edit", async ({ page, browser, baseURL }) =>
   });
 
   await guestPage.goto(`/projects/${projectId}`);
-  await guestPage.getByRole("button", { name: "Code" }).click();
+  await guestPage.getByRole("radio", { name: "Code" }).click();
   await guestPage.getByText("App.tsx", { exact: false }).first().click();
 
   await expect(guestPage.getByRole("button", { name: "Save" })).toHaveCount(0);

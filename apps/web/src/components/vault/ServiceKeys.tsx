@@ -3,6 +3,7 @@ import { VAULT_KEY_SCOPES, type VaultKeyScope, type VaultServiceKey } from "@zel
 import { Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff } from "lucide-react";
 import { useId, useState } from "react";
 import { api } from "../../lib/api";
+import { formatDate } from "../../lib/format";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
 import { Badge, Button, EmptyState, FieldLabel, IconButton, Input, Spinner } from "../ui";
 
@@ -368,7 +369,7 @@ function KeyRow({
             {item.namePatterns ? `Names: ${item.namePatterns.join(", ")}` : "Every secret"}
             {" · "}
             {item.allowedIps ? `From: ${item.allowedIps.join(", ")}` : "From anywhere"}
-            {item.expiresAt ? ` · Expires ${new Date(item.expiresAt).toLocaleDateString()}` : ""}
+            {item.expiresAt ? ` · Expires ${formatDate(item.expiresAt)}` : ""}
           </p>
           <p className="mt-0.5 text-2xs text-fg-muted">
             {item.lastUsedAt

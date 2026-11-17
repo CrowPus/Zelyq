@@ -3,6 +3,7 @@ import type { PipelinePluginSummary, RegistryPluginSummary, TeamMembership } fro
 import { AlertTriangle, BadgeCheck, ChevronDown, ChevronRight, Download } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
+import { formatDate } from "../../lib/format";
 import { vaultErrorMessage } from "../../lib/vault";
 import { Markdown } from "../Markdown";
 import { Badge, Button, Input, Spinner } from "../ui";
@@ -239,7 +240,7 @@ function RegistryRow({
                   {detail.data.plugin.versions.map((version) => (
                     <li key={version.version}>
                       <span className="text-fg">v{version.version}</span> ·{" "}
-                      {new Date(version.publishedAt).toLocaleDateString()}
+                      {formatDate(version.publishedAt)}
                       {version.yanked && (
                         <span className="text-danger"> · withdrawn: {version.yanked.reason}</span>
                       )}

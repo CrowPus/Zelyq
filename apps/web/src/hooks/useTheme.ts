@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 export type Theme = "light" | "dark" | "system";
 
@@ -14,36 +14,65 @@ function read(): Theme {
   }
 }
 
+/*
+ * One store for the whole page, so every control that shows or changes the
+ * theme (the account menu, the command palette, the toasts) agrees.
+ */
+let current: Theme = typeof window === "undefined" ? "system" : read();
+const listeners = new Set<() => void>();
+
+function apply(theme: Theme) {
+  const root = document.documentElement;
+  if (theme === "system") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", theme);
+  try {
+    if (theme === "system") localStorage.removeItem(STORAGE_KEY);
+    else localStorage.setItem(STORAGE_KEY, theme);
+  } catch {
+    // Persistence is a convenience; the theme still applies this session.
+  }
+}
+
+function set(theme: Theme) {
+  current = theme;
+  apply(theme);
+  for (const listener of listeners) listener();
+}
+
+const media =
+  typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  media?.addEventListener("change", listener);
+  return () => {
+    listeners.delete(listener);
+    media?.removeEventListener("change", listener);
+  };
+}
+
 /**
  * Theme selection with three states, because "follow the system" is a real
  * choice and not the absence of one. `system` leaves the attribute off so the
- * media query in the stylesheet decides.
+ * media query in the stylesheet decides. `resolved` is what is on screen.
  */
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(read);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", theme);
-
-    try {
-      if (theme === "system") localStorage.removeItem(STORAGE_KEY);
-      else localStorage.setItem(STORAGE_KEY, theme);
-    } catch {
-      // Persistence is a convenience; the theme still applies this session.
-    }
-  }, [theme]);
-
-  const setTheme = useCallback((next: Theme) => setThemeState(next), []);
-
+  const theme = useSyncExternalStore(
+    subscribe,
+    () => current,
+    () => "system" as Theme,
+  );
+  const systemDark = useSyncExternalStore(
+    subscribe,
+    () => media?.matches ?? false,
+    () => false,
+  );
+  const resolved: "light" | "dark" = theme === "system" ? (systemDark ? "dark" : "light") : theme;
+  const setTheme = useCallback((next: Theme) => set(next), []);
   const cycle = useCallback(() => {
-    setThemeState((current) =>
-      current === "light" ? "dark" : current === "dark" ? "system" : "light",
-    );
+    set(current === "light" ? "dark" : current === "dark" ? "system" : "light");
   }, []);
-
-  return { theme, setTheme, cycle };
+  return { theme, resolved, setTheme, cycle };
 }
 
 /** Applied before React mounts so the first paint is never the wrong colour. */

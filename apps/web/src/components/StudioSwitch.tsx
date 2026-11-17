@@ -1,5 +1,6 @@
 import { Clapperboard, ImagePlus } from "lucide-react";
 import { Link } from "react-router-dom";
+import { teamHref } from "../lib/routes";
 
 /** Studio is one module with two kinds of work in it: images and video. */
 export function StudioSwitch({ current }: { current: "image" | "video" }) {
@@ -16,7 +17,7 @@ export function StudioSwitch({ current }: { current: "image" | "video" }) {
       ).map(([id, label, Icon]) => (
         <Link
           key={id}
-          to={`/studio/${id}`}
+          to={teamHref(`/studio/${id}`)}
           aria-current={current === id ? "page" : undefined}
           className={`flex h-6 items-center gap-1.5 rounded px-2 text-xs transition-colors ${
             current === id ? "bg-surface text-fg shadow-sm" : "text-fg-secondary hover:text-fg"

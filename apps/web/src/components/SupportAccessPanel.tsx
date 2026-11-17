@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LifeBuoy } from "lucide-react";
 import { api } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 import { Button } from "./ui";
 
 /**
@@ -30,7 +31,7 @@ export function SupportAccessPanel({ teamId, canManage }: { teamId: string; canM
       </h2>
       <p className="mt-1 text-xs text-fg-secondary">
         {until
-          ? `Support may look inside this team's apps until ${new Date(until).toLocaleString()}. Every look is in the team's activity.`
+          ? `Support may look inside this team's apps until ${formatDateTime(until)}. Every look is in the team's activity.`
           : "Support can see this team's facts and logs, not what is inside its apps. To get help with an app, let them look for 48 hours."}
       </p>
       {canManage && (

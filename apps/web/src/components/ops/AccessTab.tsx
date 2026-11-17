@@ -8,7 +8,7 @@ import {
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
-import { Badge, Spinner } from "../ui";
+import { Badge, NativeSelect, Spinner } from "../ui";
 
 /**
  * What Ops has been given (076). Nothing is given at first: Ops does not see,
@@ -173,23 +173,21 @@ export function AccessTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolea
                           <p className="truncate text-2xs text-fg-muted">{item.detail}</p>
                         )}
                       </div>
-                      <select
+                      <NativeSelect
                         aria-label={`What Ops may do with ${item.name}`}
                         value={choice}
                         disabled={!isAdmin || change.isPending}
                         onChange={(event) =>
                           change.mutate({ item, choice: event.target.value as Choice })
                         }
-                        className={`h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm ${
-                          choice === "none" ? "text-fg-muted" : "text-fg"
-                        }`}
+                        className={`w-auto ${choice === "none" ? "text-fg-muted" : "text-fg"}`}
                       >
                         {choicesFor(item.kind).map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                       <p className="w-full text-2xs text-fg-muted">{CHOICE_WORDS[choice]}</p>
                     </li>
                   );

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { collectDroppedFiles, type DroppedFile } from "../lib/files";
-import { IconButton, Spinner } from "./ui";
+import { confirmAction, IconButton, Spinner } from "./ui";
 
 interface Props {
   entries: FileEntry[];
@@ -438,12 +438,15 @@ function TreeRow({
               <IconButton
                 size="sm"
                 label={`Delete ${node.name}`}
-                onClick={(event) => {
+                onClick={async (event) => {
                   event.stopPropagation();
                   if (
-                    window.confirm(
-                      `Delete ${node.path}${isDirectory ? " and everything in it" : ""}? This cannot be undone.`,
-                    )
+                    await confirmAction({
+                      title: `Delete ${node.path}?`,
+                      description: `${isDirectory ? "Everything in this folder is deleted with it. " : ""}This cannot be undone.`,
+                      confirmLabel: "Delete",
+                      danger: true,
+                    })
                   ) {
                     onDelete(node.path);
                   }

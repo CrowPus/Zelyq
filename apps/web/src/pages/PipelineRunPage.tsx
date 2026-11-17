@@ -27,10 +27,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { QueueNotice } from "../components/pipelines/QueueNotice";
 import { StageGraph, StatusIcon } from "../components/pipelines/Stages";
-import { Badge, Button, buttonClass, EmptyState, Input, Spinner } from "../components/ui";
+import { Badge, Button, buttonClass, EmptyState, Input, PageBody, Spinner } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 import { duration, formatBytes, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
+import { teamHref } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
 /** Colour codes some tools print even when asked not to. */
@@ -100,7 +102,7 @@ export function PipelineRunPage() {
   const cancel = useMutation({ mutationFn: () => api.pipelines.cancel(teamId, runId) });
   const rerun = useMutation({
     mutationFn: (stage: number | null) => api.pipelines.rerun(teamId, runId, stage),
-    onSuccess: ({ run: next }) => navigate(`/pipelines/${id}/runs/${next.id}`),
+    onSuccess: ({ run: next }) => navigate(teamHref(`/pipelines/${id}/runs/${next.id}`)),
   });
 
   const detail = run.data?.run;
@@ -136,7 +138,7 @@ export function PipelineRunPage() {
 
   if (run.isLoading || !detail) {
     return (
-      <AppShell crumbs={[{ label: "Pipelines", to: "/pipelines" }, { label: "Run" }]}>
+      <AppShell crumbs={[{ label: "Pipelines", to: teamHref("/pipelines") }, { label: "Run" }]}>
         {run.isLoading ? (
           <div className="p-6">
             <Spinner />
@@ -165,247 +167,250 @@ export function PipelineRunPage() {
   return (
     <AppShell
       crumbs={[
-        { label: "Pipelines", to: "/pipelines" },
-        { label: detail.pipelineName, to: `/pipelines/${id}` },
+        { label: "Pipelines", to: teamHref("/pipelines") },
+        { label: detail.pipelineName, to: teamHref(`/pipelines/${id}`) },
         { label: `#${detail.number}` },
       ]}
     >
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto w-full max-w-6xl px-4 py-6">
-          <header className="mb-4 flex flex-wrap items-start gap-3">
-            <span className="mt-1">
-              <StatusIcon status={detail.status} size={22} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-lg font-semibold">
-                {detail.pipelineName}{" "}
-                <span className="font-mono font-normal text-fg-secondary">#{detail.number}</span>
-              </h1>
-              <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-secondary">
-                <Badge tone={status.tone}>{status.label}</Badge>
-                <span className="flex items-center gap-1">
-                  {detail.triggeredBy ? <UserRound size={12} /> : <GitBranch size={12} />}
-                  {detail.triggeredBy ? detail.triggeredBy.name : TRIGGER_WORDS[detail.trigger]}
-                </span>
-                {detail.upstream && (
-                  <Link
-                    to={`/pipelines/${detail.upstream.pipelineId}/runs/${detail.upstream.id}`}
-                    className="text-info hover:underline"
-                  >
-                    started by {detail.upstream.pipelineName} #{detail.upstream.number}
-                  </Link>
-                )}
-                {Object.entries(detail.inputs).map(([name, value]) => (
-                  <span key={name} className="rounded bg-surface-subtle px-1.5 font-mono">
-                    {name}={value}
-                  </span>
-                ))}
-                {detail.runner && (
-                  <span className="flex items-center gap-1">
-                    <Server size={12} /> {detail.runner}
-                  </span>
-                )}
-                <span>{formatRelative(detail.createdAt)}</span>
-                {detail.startedAt && (
-                  <span>took {duration(detail.startedAt, detail.finishedAt)}</span>
-                )}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                icon={<ScrollText size={13} />}
-                aria-pressed={view === "full"}
-                className={view === "full" ? "border-border-strong bg-surface-active" : ""}
-                onClick={() => setView(view === "full" ? "stages" : "full")}
-              >
-                {view === "full" ? "Back to stages" : "Full log"}
-              </Button>
-              <a
-                href={`/api/teams/${teamId}/pipeline-runs/${runId}/log.txt`}
-                className={buttonClass()}
-              >
-                <FileDown size={13} />
-                Download log
-              </a>
-              {active ? (
-                <Button
-                  variant="danger"
-                  icon={<Square size={13} />}
-                  disabled={cancel.isPending}
-                  onClick={() => cancel.mutate()}
-                >
-                  Cancel
-                </Button>
-              ) : (
-                <Button
-                  variant="primary"
-                  icon={<RotateCw size={13} />}
-                  disabled={rerun.isPending}
-                  onClick={() => rerun.mutate(null)}
-                >
-                  Run again
-                </Button>
-              )}
-            </div>
-          </header>
-
-          {detail.status === "queued" && <QueueNotice queue={detail.queue} />}
-
-          {detail.error && (
-            <p className="mb-3 rounded-md border border-danger/30 bg-danger-subtle p-2 text-xs text-danger">
-              {detail.error}
-            </p>
-          )}
-          {(cancel.error || rerun.error) && (
-            <p className="mb-3 text-xs text-danger">
-              {vaultErrorMessage(cancel.error ?? rerun.error)}
-            </p>
-          )}
-
-          {detail.approvals
-            .filter((approval) => !approval.decision && detail.status === "waiting")
-            .map((approval) => (
-              <ApprovalBox
-                key={approval.id}
-                teamId={teamId}
-                runId={runId}
-                approval={approval}
-                onAnswered={() => void run.refetch()}
-              />
-            ))}
-
-          {failure && (
-            <button
-              type="button"
-              onClick={() => {
-                setPicked(failure.stageIndex);
-                setFocus((count) => count + 1);
-              }}
-              className="mb-3 flex w-full items-center gap-2 rounded-md border border-danger/40 bg-danger-subtle px-3 py-2 text-left text-sm hover:border-danger"
-            >
-              <StatusIcon status={failure.status} />
-              <span className="min-w-0 flex-1 truncate">
-                {failure.status === "timed_out" ? "Timed out at " : "Failed at "}
-                <span className="font-medium">
-                  {failure.stage} › {failure.name}
-                </span>
-                {failure.exitCode !== null && failure.exitCode !== 0 && (
-                  <span className="font-mono text-xs text-danger"> exit {failure.exitCode}</span>
-                )}
+      <PageBody width="standard">
+        <header className="mb-4 flex flex-wrap items-start gap-3">
+          <span className="mt-1">
+            <StatusIcon status={detail.status} size={22} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-semibold text-fg">
+              {detail.pipelineName}{" "}
+              <span className="font-mono font-normal text-fg-secondary">#{detail.number}</span>
+            </h1>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-secondary">
+              <Badge tone={status.tone}>{status.label}</Badge>
+              <span className="flex items-center gap-1">
+                {detail.triggeredBy ? <UserRound size={12} /> : <GitBranch size={12} />}
+                {detail.triggeredBy ? detail.triggeredBy.name : TRIGGER_WORDS[detail.trigger]}
               </span>
-              <span className="text-xs text-fg-secondary">Show the error</span>
-            </button>
-          )}
+              {detail.upstream && (
+                <Link
+                  to={teamHref(
+                    `/pipelines/${detail.upstream.pipelineId}/runs/${detail.upstream.id}`,
+                  )}
+                  className="text-info hover:underline"
+                >
+                  started by {detail.upstream.pipelineName} #{detail.upstream.number}
+                </Link>
+              )}
+              {Object.entries(detail.inputs).map(([name, value]) => (
+                <span key={name} className="rounded bg-surface-subtle px-1.5 font-mono">
+                  {name}={value}
+                </span>
+              ))}
+              {detail.runner && (
+                <span className="flex items-center gap-1">
+                  <Server size={12} /> {detail.runner}
+                </span>
+              )}
+              <span>{formatRelative(detail.createdAt)}</span>
+              {detail.startedAt && (
+                <span>took {duration(detail.startedAt, detail.finishedAt)}</span>
+              )}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              icon={<ScrollText size={13} />}
+              aria-pressed={view === "full"}
+              className={view === "full" ? "border-border-strong bg-surface-active" : ""}
+              onClick={() => setView(view === "full" ? "stages" : "full")}
+            >
+              {view === "full" ? "Back to stages" : "Full log"}
+            </Button>
+            <a
+              href={`/api/teams/${teamId}/pipeline-runs/${runId}/log.txt`}
+              className={buttonClass()}
+            >
+              <FileDown size={13} />
+              Download log
+            </a>
+            {active ? (
+              <Button
+                variant="danger"
+                icon={<Square size={13} />}
+                disabled={cancel.isPending}
+                onClick={() => cancel.mutate()}
+              >
+                Cancel
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                icon={<RotateCw size={13} />}
+                disabled={rerun.isPending}
+                onClick={() => rerun.mutate(null)}
+              >
+                Run again
+              </Button>
+            )}
+          </div>
+        </header>
 
-          {/* Failed, but no step reports it (the machine could not be reached, a stage failed
+        {detail.status === "queued" && <QueueNotice queue={detail.queue} />}
+
+        {detail.error && (
+          <p className="mb-3 rounded-md border border-danger/30 bg-danger-subtle p-2 text-xs text-danger">
+            {detail.error}
+          </p>
+        )}
+        {(cancel.error || rerun.error) && (
+          <p className="mb-3 text-xs text-danger">
+            {vaultErrorMessage(cancel.error ?? rerun.error)}
+          </p>
+        )}
+
+        {detail.approvals
+          .filter((approval) => !approval.decision && detail.status === "waiting")
+          .map((approval) => (
+            <ApprovalBox
+              key={approval.id}
+              teamId={teamId}
+              runId={runId}
+              approval={approval}
+              onAnswered={() => void run.refetch()}
+            />
+          ))}
+
+        {failure && (
+          <button
+            type="button"
+            onClick={() => {
+              setPicked(failure.stageIndex);
+              setFocus((count) => count + 1);
+            }}
+            className="mb-3 flex w-full items-center gap-2 rounded-md border border-danger/40 bg-danger-subtle px-3 py-2 text-left text-sm hover:border-danger"
+          >
+            <StatusIcon status={failure.status} />
+            <span className="min-w-0 flex-1 truncate">
+              {failure.status === "timed_out" ? "Timed out at " : "Failed at "}
+              <span className="font-medium">
+                {failure.stage} › {failure.name}
+              </span>
+              {failure.exitCode !== null && failure.exitCode !== 0 && (
+                <span className="font-mono text-xs text-danger"> exit {failure.exitCode}</span>
+              )}
+            </span>
+            <span className="text-xs text-fg-secondary">Show the error</span>
+          </button>
+        )}
+
+        {/* Failed, but no step reports it (the machine could not be reached, a stage failed
               before its steps): the run's own last lines carry the reason. Shown only when they
               say more than the error above. */}
-          {!failure && ["failed", "timed_out"].includes(detail.status) && lastWords.length > 0 && (
-            <section className="mb-3 overflow-hidden rounded-md border border-danger/40">
-              <p className="flex items-center gap-2 bg-danger-subtle px-3 py-2 text-sm">
-                <StatusIcon status={detail.status} />
-                Where it went wrong: the run's last lines
-              </p>
-              <LogLines lines={lastWords} query="" follow />
-            </section>
-          )}
+        {!failure && ["failed", "timed_out"].includes(detail.status) && lastWords.length > 0 && (
+          <section className="mb-3 overflow-hidden rounded-md border border-danger/40">
+            <p className="flex items-center gap-2 bg-danger-subtle px-3 py-2 text-sm">
+              <StatusIcon status={detail.status} />
+              Where it went wrong: the run's last lines
+            </p>
+            <LogLines lines={lastWords} query="" follow />
+          </section>
+        )}
 
-          {/* A run that could not start (no file at that commit) has no steps to show. */}
-          {stages.length > 0 && (
-            <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
-              <StageGraph
-                stages={stages}
-                groups={detail?.stageGroups}
-                needs={detail?.stageNeeds ?? null}
-                selected={selected}
-                onSelect={setPicked}
-              />
-            </section>
-          )}
-
-          {detail.artifacts.length > 0 && (
-            <section className="mb-4 flex flex-wrap items-center gap-2 text-xs">
-              <span className="font-medium">Artifacts</span>
-              {detail.artifacts.map((artifact) => (
-                <a
-                  key={artifact.id}
-                  href={api.pipelines.artifactUrl(teamId, artifact.id)}
-                  className="flex items-center gap-1 rounded border border-border-default px-2 py-1 hover:bg-surface-hover"
-                >
-                  <Download size={12} /> {artifact.name}
-                  <span className="text-fg-muted">{formatBytes(artifact.sizeBytes)}</span>
-                </a>
-              ))}
-            </section>
-          )}
-
-          <RunTests steps={steps} onShow={(stageIndex) => setPicked(stageIndex)} />
-
-          {view === "full" && (
-            <FullLog
-              lines={lines}
-              steps={steps}
-              done={done}
-              failed={["failed", "timed_out"].includes(detail.status)}
+        {/* A run that could not start (no file at that commit) has no steps to show. */}
+        {stages.length > 0 && (
+          <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
+            <StageGraph
+              stages={stages}
+              groups={detail?.stageGroups}
+              needs={detail?.stageNeeds ?? null}
+              selected={selected}
+              onSelect={setPicked}
             />
-          )}
+          </section>
+        )}
 
-          {view === "stages" && stages.length > 0 && (
-            <section className="rounded-md border border-border-default">
-              <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
-                <h2 className="flex-1 text-sm font-semibold">
-                  {stages.find((stage) => stage.index === selected)?.name ?? "Steps"}
-                </h2>
-                {!active && selected !== null && selected > 0 && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={<RotateCw size={12} />}
-                    onClick={() => rerun.mutate(selected)}
-                  >
-                    Run again from this stage
-                  </Button>
-                )}
-                <div className="relative w-56">
-                  <Search
-                    size={12}
-                    className="pointer-events-none absolute top-2 left-2 text-fg-muted"
-                  />
-                  <Input
-                    aria-label="Search the log"
-                    placeholder="Search the log"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    className="h-7 pl-6 text-xs"
-                  />
-                </div>
-              </div>
+        {detail.artifacts.length > 0 && (
+          <section className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium">Artifacts</span>
+            {detail.artifacts.map((artifact) => (
+              <a
+                key={artifact.id}
+                href={api.pipelines.artifactUrl(teamId, artifact.id)}
+                className="flex items-center gap-1 rounded border border-border-default px-2 py-1 hover:bg-surface-hover"
+              >
+                <Download size={12} /> {artifact.name}
+                <span className="text-fg-muted">{formatBytes(artifact.sizeBytes)}</span>
+              </a>
+            ))}
+          </section>
+        )}
 
-              {selected === stages[0]?.index && setupLines.length > 0 && (
-                <LogSection title="Set up" lines={setupLines} query={query} defaultOpen={false} />
+        <RunTests steps={steps} onShow={(stageIndex) => setPicked(stageIndex)} />
+
+        {view === "full" && (
+          <FullLog
+            lines={lines}
+            steps={steps}
+            done={done}
+            failed={["failed", "timed_out"].includes(detail.status)}
+          />
+        )}
+
+        {view === "stages" && stages.length > 0 && (
+          <section className="rounded-md border border-border-default">
+            <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
+              <h2 className="flex-1 text-sm font-semibold">
+                {stages.find((stage) => stage.index === selected)?.name ?? "Steps"}
+              </h2>
+              {!active && selected !== null && selected > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<RotateCw size={12} />}
+                  onClick={() => rerun.mutate(selected)}
+                >
+                  Run again from this stage
+                </Button>
               )}
-              {stageSteps.map((step) => (
-                <StepSection
-                  key={step.id}
-                  step={step}
-                  lines={byStep.get(step.id) ?? []}
-                  query={query}
-                  focus={step.id === failure?.id && !active ? focus + 1 : 0}
+              <div className="relative w-56">
+                <Search
+                  size={12}
+                  className="pointer-events-none absolute top-2 left-2 text-fg-muted"
                 />
-              ))}
-              {selected === stages[stages.length - 1]?.index && finishLines.length > 0 && (
-                <LogSection title="Finish" lines={finishLines} query={query} defaultOpen={false} />
-              )}
-            </section>
-          )}
+                <Input
+                  aria-label="Search the log"
+                  placeholder="Search the log"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="h-7 pl-6 text-xs"
+                />
+              </div>
+            </div>
 
-          <p className="mt-3">
-            <Link to={`/pipelines/${id}`} className="text-xs text-fg-secondary hover:underline">
-              All runs of {detail.pipelineName}
-            </Link>
-          </p>
-        </div>
-      </div>
+            {selected === stages[0]?.index && setupLines.length > 0 && (
+              <LogSection title="Set up" lines={setupLines} query={query} defaultOpen={false} />
+            )}
+            {stageSteps.map((step) => (
+              <StepSection
+                key={step.id}
+                step={step}
+                lines={byStep.get(step.id) ?? []}
+                query={query}
+                focus={step.id === failure?.id && !active ? focus + 1 : 0}
+              />
+            ))}
+            {selected === stages[stages.length - 1]?.index && finishLines.length > 0 && (
+              <LogSection title="Finish" lines={finishLines} query={query} defaultOpen={false} />
+            )}
+          </section>
+        )}
+
+        <p className="mt-3">
+          <Link
+            to={teamHref(`/pipelines/${id}`)}
+            className="text-xs text-fg-secondary hover:underline"
+          >
+            All runs of {detail.pipelineName}
+          </Link>
+        </p>
+      </PageBody>
     </AppShell>
   );
 }
@@ -496,7 +501,7 @@ function StepSection({
       {open && step.tests && step.tests.failures.length > 0 && <TestFailures tests={step.tests} />}
       {step.child && (
         <Link
-          to={`/pipelines/${step.child.pipelineId}/runs/${step.child.id}`}
+          to={teamHref(`/pipelines/${step.child.pipelineId}/runs/${step.child.id}`)}
           className="block px-10 pb-2 text-xs text-info hover:underline"
         >
           → the run it started: #{step.child.number}
@@ -864,7 +869,7 @@ function ApprovalBox({
       </p>
       <p className="mt-1 text-xs text-fg-secondary">
         {who} can answer{approval.allowSelf ? "" : ", but not the person who started this run"}. If
-        nobody answers by {new Date(approval.deadline).toLocaleString()}, the step times out.
+        nobody answers by {formatDateTime(approval.deadline)}, the step times out.
       </p>
       {approval.canDecide ? (
         <div className="mt-3 grid gap-2">

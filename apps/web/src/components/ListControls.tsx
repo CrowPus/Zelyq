@@ -2,6 +2,8 @@ import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { NativeSelect } from "./ui";
+
 /** Rows on one page of a long list. */
 export const PAGE_SIZE = 10;
 
@@ -182,20 +184,18 @@ export function FilterSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <select
+    <NativeSelect
       aria-label={label}
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className={`h-[30px] max-w-full min-w-0 rounded-md border bg-surface px-2 text-sm ${
-        value ? "border-focus text-fg" : "border-border-default text-fg-secondary"
-      }`}
+      className={`w-auto max-w-full min-w-0 ${value ? "!border-accent text-fg" : "text-fg-secondary"}`}
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 }
 

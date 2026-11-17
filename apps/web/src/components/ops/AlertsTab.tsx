@@ -14,7 +14,7 @@ import { ExternalLink, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSession } from "../../hooks/useSession";
 import { api } from "../../lib/api";
-import { Badge, Button, FieldLabel, Input, PasswordInput, Spinner } from "../ui";
+import { Badge, Button, confirmAction, FieldLabel, Input, PasswordInput, Spinner } from "../ui";
 
 /**
  * Where alerts reach people (075 Step 2). Each person links their own
@@ -631,11 +631,14 @@ function ServiceCard({
                   size="sm"
                   variant="danger"
                   disabled={disconnect.isPending}
-                  onClick={() => {
+                  onClick={async () => {
                     if (
-                      window.confirm(
-                        `Disconnect ${SERVICE[kind]}? Everyone's linked chats there are forgotten.`,
-                      )
+                      await confirmAction({
+                        title: `Disconnect ${SERVICE[kind]}?`,
+                        description: `Everyone's linked chats there are forgotten.`,
+                        confirmLabel: "Disconnect",
+                        danger: true,
+                      })
                     )
                       disconnect.mutate();
                   }}

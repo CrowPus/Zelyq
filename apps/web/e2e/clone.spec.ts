@@ -29,14 +29,16 @@ test("a project can be started from a repository address", async ({ page }) => {
   await signUp(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "New project" }).first().click();
-  await page.getByLabel("Project name").fill("from-a-repo");
-  await page.getByLabel("Repository URL").fill("https://github.com/octocat/Hello-World.git");
-  await page.getByRole("button", { name: "Create" }).click();
+  await page.getByRole("button", { name: "New app" }).first().click();
+  await page.getByRole("radio", { name: "Import from Git" }).click();
+  await page.getByLabel("Repository address").fill("https://github.com/octocat/Hello-World.git");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("App name").fill("from-a-repo");
+  await page.getByRole("button", { name: "Import app" }).click();
 
   // Lands in the editor, on the repository's own files rather than a template.
   await expect(page.getByLabel("Message the agent")).toBeVisible({ timeout: 3 * 60_000 });
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   await expect(page.getByText("README", { exact: false }).first()).toBeVisible();
   await expect(page.getByText("App.tsx", { exact: false })).toHaveCount(0);
 });
@@ -46,24 +48,26 @@ test("leaving the address empty still starts a new app", async ({ page }) => {
   await signUp(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "New project" }).first().click();
-  await page.getByLabel("Project name").fill("blank-one");
-  await page.getByRole("button", { name: "Create" }).click();
+  await page.getByRole("button", { name: "New app" }).first().click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("App name").fill("blank-one");
+  await page.getByRole("button", { name: "Create app" }).click();
 
   await expect(page.getByLabel("Message the agent")).toBeVisible({ timeout: 2 * 60_000 });
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   await expect(page.getByText("App.tsx", { exact: false }).first()).toBeVisible();
 });
 
 test("the token field appears only when a repository address is given", async ({ page }) => {
   await signUp(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "New project" }).first().click();
+  await page.getByRole("button", { name: "New app" }).first().click();
 
-  // Nothing to authenticate against until there is an address.
+  // Nothing to authenticate against until the person chooses a repository.
   await expect(page.getByLabel("Repository access token")).toHaveCount(0);
 
-  await page.getByLabel("Repository URL").fill("https://example.com/owner/repo.git");
+  await page.getByRole("radio", { name: "Import from Git" }).click();
+  await page.getByLabel("Repository address").fill("https://example.com/owner/repo.git");
   const token = page.getByLabel("Repository access token");
   await expect(token).toBeVisible();
   await expect(token).toHaveAttribute("type", "password");

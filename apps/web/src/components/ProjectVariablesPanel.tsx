@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ProjectVariable } from "@zelyq/core";
 import {
-  Braces,
   Eye,
   EyeOff,
   History,
@@ -17,14 +16,17 @@ import {
 import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { teamHref, useTeamPaths } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 import {
   Badge,
   Button,
+  Drawer,
   EmptyState,
   FieldLabel,
   IconButton,
   Input,
+  NativeSelect,
   PasswordInput,
   Spinner,
 } from "./ui";
@@ -46,16 +48,21 @@ export function ProjectVariablesPanel({
   teamId,
   canEdit,
   hasBackend,
+  open,
+  onOpenChange,
 }: {
   projectId: string;
   teamId: string;
   canEdit: boolean;
   /** Whether this project runs server code that receives the variables. */
   hasBackend: boolean;
+  /** Opened from the app's sidebar (the address says `?panel=variables`). */
+  open: boolean;
+  onOpenChange(open: boolean): void;
 }) {
-  const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Form>({ mode: "closed" });
   const cache = useQueryClient();
+  const vaultPath = `${useTeamPaths().vault}?scope=${teamId}`;
   const variables = useQuery({
     queryKey: ["variables", projectId],
     queryFn: () => api.variables.list(projectId).then((r) => r.variables),
@@ -68,136 +75,110 @@ export function ProjectVariablesPanel({
   };
 
   return (
-    <>
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={<Braces size={13} strokeWidth={1.75} />}
-        onClick={() => setOpen(true)}
-        className="max-md:px-1.5"
-        // On a phone the word is hidden and only the icon shows; the button
-        // still needs a name.
-        aria-label="Variables"
-        title="Variables: what this app is given"
-      >
-        <span className="max-md:hidden">Variables</span>
-      </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Variables"
-            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border-default bg-overlay text-fg shadow-overlay"
-          >
-            <header className="flex items-start justify-between gap-4 border-b border-border-default p-4">
-              <div>
-                <h2 className="flex items-center gap-2 text-base font-semibold">
-                  <Braces size={16} strokeWidth={1.75} /> Variables
-                </h2>
-                <p className="mt-1 text-xs text-fg-secondary">
-                  What this app is given, encrypted. Type a value, or take one from your team's{" "}
-                  <Link to={`/vault?scope=${teamId}`} className="underline underline-offset-2">
-                    Vault
-                  </Link>
-                  . Never sent to the browser or to the agent.
-                </p>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-                Close
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      width="lg"
+      title="Variables"
+      description={
+        <>
+          What this app is given, encrypted. Type a value, or take one from your team's{" "}
+          <Link to={vaultPath} className="text-accent hover:underline">
+            Vault
+          </Link>
+          . Never sent to the browser or to the agent.
+        </>
+      }
+    >
+      <div className="flex h-full flex-col">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default px-4 py-2.5">
+          <p className="text-2xs text-fg-muted">
+            {hasBackend
+              ? "The backend receives these when the preview runs. A change restarts it."
+              : "This app has no server of its own yet, so nothing reads these until it has one. Browser code never gets them."}
+          </p>
+          {canEdit && (
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Upload size={13} strokeWidth={1.75} />}
+                onClick={() => setForm({ mode: "import" })}
+              >
+                Import .env
               </Button>
-            </header>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default px-4 py-2.5">
-              <p className="text-2xs text-fg-muted">
-                {hasBackend
-                  ? "The backend receives these when the preview runs. A change restarts it."
-                  : "This app has no server of its own yet, so nothing reads these until it has one. Browser code never gets them."}
-              </p>
-              {canEdit && (
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={<Upload size={13} strokeWidth={1.75} />}
-                    onClick={() => setForm({ mode: "import" })}
-                  >
-                    Import .env
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    icon={<Plus size={13} strokeWidth={1.75} />}
-                    onClick={() => setForm({ mode: "add" })}
-                  >
-                    Add variable
-                  </Button>
-                </div>
-              )}
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Plus size={13} strokeWidth={1.75} />}
+                onClick={() => setForm({ mode: "add" })}
+              >
+                Add variable
+              </Button>
             </div>
-
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              {(form.mode === "add" || form.mode === "edit") && (
-                <VariableForm
-                  key={form.mode === "edit" ? form.variable.id : "add"}
-                  projectId={projectId}
-                  teamId={teamId}
-                  editing={form.mode === "edit" ? form.variable : null}
-                  onDone={async () => {
-                    setForm({ mode: "closed" });
-                    await refresh();
-                  }}
-                  onCancel={() => setForm({ mode: "closed" })}
-                />
-              )}
-              {form.mode === "import" && (
-                <ImportForm
-                  title="Import into this app"
-                  run={(input) => api.variables.import(projectId, input)}
-                  onImported={refresh}
-                  onClose={() => setForm({ mode: "closed" })}
-                />
-              )}
-              {variables.isPending && (
-                <p className="flex items-center gap-1.5 text-xs text-fg-secondary">
-                  <Spinner className="size-3" /> Loading…
-                </p>
-              )}
-              {variables.isError && (
-                <p role="alert" className="text-xs text-danger">
-                  {vaultErrorMessage(variables.error)}
-                </p>
-              )}
-              {variables.data?.length === 0 && form.mode === "closed" && (
-                <EmptyState
-                  title="No variables"
-                  description={
-                    canEdit
-                      ? "Add the keys this app needs: type a value, or pick one from your team's Vault."
-                      : "An editor of this app can add them."
-                  }
-                />
-              )}
-              <SupabaseSync projectId={projectId} canEdit={canEdit} />
-              {variables.data && variables.data.length > 0 && (
-                <ul className="divide-y divide-border-default rounded-lg border border-border-default">
-                  {variables.data.map((variable) => (
-                    <VariableRow
-                      key={`${variable.id}:${variable.version}`}
-                      projectId={projectId}
-                      variable={variable}
-                      canEdit={canEdit}
-                      onEdit={() => setForm({ mode: "edit", variable })}
-                      onChanged={refresh}
-                    />
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
+          )}
         </div>
-      )}
-    </>
+
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {(form.mode === "add" || form.mode === "edit") && (
+            <VariableForm
+              key={form.mode === "edit" ? form.variable.id : "add"}
+              projectId={projectId}
+              teamId={teamId}
+              editing={form.mode === "edit" ? form.variable : null}
+              onDone={async () => {
+                setForm({ mode: "closed" });
+                await refresh();
+              }}
+              onCancel={() => setForm({ mode: "closed" })}
+            />
+          )}
+          {form.mode === "import" && (
+            <ImportForm
+              title="Import into this app"
+              run={(input) => api.variables.import(projectId, input)}
+              onImported={refresh}
+              onClose={() => setForm({ mode: "closed" })}
+            />
+          )}
+          {variables.isPending && (
+            <p className="flex items-center gap-1.5 text-xs text-fg-secondary">
+              <Spinner className="size-3" /> Loading…
+            </p>
+          )}
+          {variables.isError && (
+            <p role="alert" className="text-xs text-danger">
+              {vaultErrorMessage(variables.error)}
+            </p>
+          )}
+          {variables.data?.length === 0 && form.mode === "closed" && (
+            <EmptyState
+              title="No variables"
+              description={
+                canEdit
+                  ? "Add the keys this app needs: type a value, or pick one from your team's Vault."
+                  : "An editor of this app can add them."
+              }
+            />
+          )}
+          <SupabaseSync projectId={projectId} canEdit={canEdit} />
+          {variables.data && variables.data.length > 0 && (
+            <ul className="divide-y divide-border-default rounded-lg border border-border-default">
+              {variables.data.map((variable) => (
+                <VariableRow
+                  key={`${variable.id}:${variable.version}`}
+                  projectId={projectId}
+                  variable={variable}
+                  canEdit={canEdit}
+                  onEdit={() => setForm({ mode: "edit", variable })}
+                  onChanged={refresh}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Drawer>
   );
 }
 
@@ -307,9 +288,9 @@ function VariableForm({
         </label>
         {source === "vault" && (
           <>
-            <select
+            <NativeSelect
               aria-label="Vault secret"
-              className="h-[30px] rounded-md border border-border-default bg-surface px-2 font-mono text-sm"
+              className="font-mono"
               value={vaultName}
               onChange={(event) => setVaultName(event.target.value)}
             >
@@ -320,11 +301,14 @@ function VariableForm({
                   {choice.protected ? " (Protected — admins and owners)" : ""}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             {choices.data?.length === 0 && (
               <p className="text-2xs text-fg-muted">
                 Your team's Vault is empty.{" "}
-                <Link to={`/vault?scope=${teamId}`} className="underline underline-offset-2">
+                <Link
+                  to={teamHref(`/vault?scope=${teamId}`)}
+                  className="underline underline-offset-2"
+                >
                   Add a secret there
                 </Link>
                 .

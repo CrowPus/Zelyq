@@ -7,7 +7,6 @@ import {
   type TeamMembership,
 } from "@zelyq/core";
 import {
-  Activity,
   ArrowUpRight,
   Copy,
   Cpu,
@@ -24,9 +23,20 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, EmptyState, Input, Spinner, StatTile } from "../components/ui";
+import {
+  Badge,
+  Button,
+  confirmAction,
+  EmptyState,
+  Input,
+  NativeSelect,
+  PageBody,
+  Spinner,
+  StatTile,
+} from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { teamHref } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 import { DnsRecord, HistoryList, ReachWarning, RollBackProgress } from "./DeploymentsPage";
 
@@ -64,32 +74,30 @@ export function AppPage() {
   return (
     <AppShell
       crumbs={[
-        { label: "Deployments", to: "/deployments" },
+        { label: "Deployments", to: teamHref("/deployments") },
         { label: environment ? `${app} on ${environment.name}` : app },
       ]}
     >
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl px-4 py-6">
-          {!team || environments.isLoading ? (
-            <Spinner />
-          ) : !environment ? (
-            <EmptyState
-              title="No such environment"
-              description="It may have been removed. Go back to Deployments."
-            />
-          ) : (
-            <LiveAppView
-              key={`${environment.id}/${app}`}
-              team={team}
-              app={app}
-              environment={environment}
-              others={(environments.data?.environments ?? []).filter(
-                (env) => env.id !== environment.id,
-              )}
-            />
-          )}
-        </div>
-      </div>
+      <PageBody width="standard">
+        {!team || environments.isLoading ? (
+          <Spinner />
+        ) : !environment ? (
+          <EmptyState
+            title="No such environment"
+            description="It may have been removed. Go back to Deployments."
+          />
+        ) : (
+          <LiveAppView
+            key={`${environment.id}/${app}`}
+            team={team}
+            app={app}
+            environment={environment}
+            others={(environments.data?.environments ?? []).filter(
+              (env) => env.id !== environment.id,
+            )}
+          />
+        )}
+      </PageBody>
     </AppShell>
   );
 }
@@ -179,7 +187,7 @@ function LiveAppView({
     mutationFn: (forget: boolean) => api.deploys.removeApp(team.id, environment.id, app, forget),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["environments", team.id] });
-      navigate("/deployments");
+      navigate(teamHref("/deployments"));
     },
   });
 
@@ -210,8 +218,8 @@ function LiveAppView({
   return (
     <div className="grid min-w-0 gap-5">
       <header className="grid min-w-0 gap-1">
-        <h1 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
-          <Activity size={18} strokeWidth={1.75} /> {app}
+        <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-fg">
+          {app}
           <span className="font-normal text-fg-secondary">on {environment.name}</span>
           <Badge tone={state.tone}>{state.label}</Badge>
         </h1>
@@ -229,7 +237,7 @@ function LiveAppView({
             <>
               {" · "}
               <Link
-                to={`/pipelines/${deployment.run.pipelineId}/runs/${deployment.run.id}`}
+                to={teamHref(`/pipelines/${deployment.run.pipelineId}/runs/${deployment.run.id}`)}
                 className="text-info hover:underline"
               >
                 run #{deployment.run.number}
@@ -282,11 +290,14 @@ function LiveAppView({
               variant="danger"
               icon={act.isPending && act.variables === "stop" ? <Spinner /> : <Square size={13} />}
               disabled={act.isPending}
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  window.confirm(
-                    `Stop ${app} on ${environment.name}? People cannot open it until it is started again (it also stays stopped after the machine restarts).`,
-                  )
+                  await confirmAction({
+                    title: `Stop ${app} on ${environment.name}?`,
+                    description: `People cannot open it until it is started again (it also stays stopped after the machine restarts).`,
+                    confirmLabel: "Stop app",
+                    danger: true,
+                  })
                 )
                   act.mutate("stop");
               }}
@@ -299,11 +310,14 @@ function LiveAppView({
             className="ml-auto"
             icon={remove.isPending ? <Spinner /> : <Trash2 size={13} />}
             disabled={remove.isPending}
-            onClick={() => {
+            onClick={async () => {
               if (
-                window.confirm(
-                  `Remove ${app} from ${environment.name}? Zelyq stops it and removes its containers, its address on the proxy and its images from the machine. Its history stays.`,
-                )
+                await confirmAction({
+                  title: `Remove ${app} from ${environment.name}?`,
+                  description: `Zelyq stops it and removes its containers, its address on the proxy and its images from the machine. Its history stays.`,
+                  confirmLabel: "Remove app",
+                  danger: true,
+                })
               )
                 remove.mutate(false);
             }}
@@ -321,11 +335,13 @@ function LiveAppView({
             <button
               type="button"
               className="text-info hover:underline"
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  window.confirm(
-                    `Forget ${app} on ${environment.name}, without touching the machine?`,
-                  )
+                  await confirmAction({
+                    title: `Forget ${app} on ${environment.name}, without touching the machine?`,
+                    confirmLabel: "Forget app",
+                    danger: true,
+                  })
                 )
                   remove.mutate(true);
               }}
@@ -718,9 +734,9 @@ function Promote({
         what runs there is what you tested here. Only that environment's own variables differ.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <select
+        <NativeSelect
           aria-label="Environment to promote to"
-          className="h-[30px] min-w-0 rounded-md border border-border-default bg-surface px-2 text-sm"
+          className="min-w-0"
           value={target}
           onChange={(event) => setTarget(event.target.value)}
         >
@@ -729,13 +745,19 @@ function Promote({
               {env.name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <Button
           variant="primary"
           icon={promote.isPending ? <Spinner /> : <ArrowUpRight size={13} />}
           disabled={!chosen || promote.isPending}
-          onClick={() => {
-            if (chosen && window.confirm(`Ship this exact image of ${app} to ${chosen.name}?`)) {
+          onClick={async () => {
+            if (
+              chosen &&
+              (await confirmAction({
+                title: `Ship this exact image of ${app} to ${chosen.name}?`,
+                confirmLabel: "Ship it",
+              }))
+            ) {
               promote.mutate(chosen.id);
             }
           }}
@@ -763,7 +785,9 @@ function Promote({
           />
           <p className="px-2 py-1.5 text-xs">
             <Link
-              to={`/deployments/${others.find((env) => env.name === following.env)?.id ?? ""}/apps/${encodeURIComponent(app)}`}
+              to={teamHref(
+                `/deployments/${others.find((env) => env.name === following.env)?.id ?? ""}/apps/${encodeURIComponent(app)}`,
+              )}
               className="text-info hover:underline"
             >
               Open {app} on {following.env}

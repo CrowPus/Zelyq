@@ -23,7 +23,17 @@ import { Markdown } from "../components/Markdown";
 import { AccessTab } from "../components/ops/AccessTab";
 import { AlertsTab } from "../components/ops/AlertsTab";
 import { StatusTab } from "../components/ops/StatusTab";
-import { Badge, Button, EmptyState, Input, Spinner, Textarea } from "../components/ui";
+import {
+  Badge,
+  Button,
+  confirmAction,
+  EmptyState,
+  Input,
+  PageBody,
+  PageHeader,
+  Spinner,
+  Textarea,
+} from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { useLiveTalk } from "../lib/ops-live";
@@ -78,93 +88,85 @@ export function OpsPage() {
   const status = engineer.data?.engineer;
   return (
     <AppShell crumbs={[{ label: "Ops" }]}>
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-6">
-          <header className="flex flex-wrap items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <h1 className="text-lg font-semibold">Ops</h1>
-              <p className="text-xs text-fg-secondary">
-                Your DevOps engineer. Tell it what you need, typed or aloud; it looks first, shows
-                you a plan, and proves every change.
-              </p>
-            </div>
-            {status && (
+      <PageBody width="standard" className="flex flex-col gap-4">
+        <PageHeader
+          title="Ops"
+          description={
+            <>
+              Your DevOps engineer. Tell it what you need, typed or aloud; it looks first, shows you
+              a plan, and proves every change.
+            </>
+          }
+          actions={
+            status && (
               <Badge tone={status.paused ? "warning" : "success"}>
                 {status.paused ? "Paused" : "Ready"}
               </Badge>
-            )}
-          </header>
+            )
+          }
+        />
 
-          {engineer.isLoading ? (
-            <Spinner />
-          ) : !status ? (
-            <EmptyState
-              title="Ops is not set up in this team"
-              description={
-                isAdmin
-                  ? "Setting it up adds Ops to the team. It can do nothing until someone asks it, and changes to anything protected always wait for an admin."
-                  : "A team admin sets it up once."
-              }
-              action={
-                isAdmin ? (
-                  <Button
-                    variant="primary"
-                    disabled={setUp.isPending}
-                    onClick={() => setUp.mutate()}
+        {engineer.isLoading ? (
+          <Spinner />
+        ) : !status ? (
+          <EmptyState
+            title="Ops is not set up in this team"
+            description={
+              isAdmin
+                ? "Setting it up adds Ops to the team. It can do nothing until someone asks it, and changes to anything protected always wait for an admin."
+                : "A team admin sets it up once."
+            }
+            action={
+              isAdmin ? (
+                <Button variant="primary" disabled={setUp.isPending} onClick={() => setUp.mutate()}>
+                  Set up Ops
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <>
+            <nav
+              className="flex gap-1 overflow-x-auto border-b border-border-default"
+              aria-label="Ops"
+            >
+              {(["talk", "status", "alerts", "memory", "access", "settings"] as const).map(
+                (name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setTab(name)}
+                    className={`-mb-px shrink-0 border-b-2 px-3 py-1.5 text-sm whitespace-nowrap ${
+                      tab === name
+                        ? "border-primary font-medium text-fg"
+                        : "border-transparent text-fg-secondary hover:text-fg"
+                    }`}
                   >
-                    Set up Ops
-                  </Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <>
-              <nav
-                className="flex gap-1 overflow-x-auto border-b border-border-default"
-                aria-label="Ops"
-              >
-                {(["talk", "status", "alerts", "memory", "access", "settings"] as const).map(
-                  (name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => setTab(name)}
-                      className={`-mb-px shrink-0 border-b-2 px-3 py-1.5 text-sm whitespace-nowrap ${
-                        tab === name
-                          ? "border-primary font-medium text-fg"
-                          : "border-transparent text-fg-secondary hover:text-fg"
-                      }`}
-                    >
+                    {
                       {
-                        {
-                          talk: "Talk",
-                          status: "Status",
-                          alerts: "Alerts",
-                          memory: "Memory",
-                          access: "Access",
-                          settings: "Settings",
-                        }[name]
-                      }
-                    </button>
-                  ),
-                )}
-              </nav>
-              {tab === "talk" && (
-                <TalkTab teamId={teamId} canTalk={canTalk} paused={status.paused} />
+                        talk: "Talk",
+                        status: "Status",
+                        alerts: "Alerts",
+                        memory: "Memory",
+                        access: "Access",
+                        settings: "Settings",
+                      }[name]
+                    }
+                  </button>
+                ),
               )}
-              {tab === "status" && (
-                <StatusTab teamId={teamId} canAnswer={canTalk} isAdmin={isAdmin} />
-              )}
-              {tab === "alerts" && <AlertsTab teamId={teamId} />}
-              {tab === "memory" && (
-                <MemoryTab teamId={teamId} isAdmin={isAdmin} canEdit={canTalk} />
-              )}
-              {tab === "access" && <AccessTab teamId={teamId} isAdmin={isAdmin} />}
-              {tab === "settings" && <SettingsTab teamId={teamId} isAdmin={isAdmin} />}
-            </>
-          )}
-        </div>
-      </div>
+            </nav>
+            {tab === "talk" && <TalkTab teamId={teamId} canTalk={canTalk} paused={status.paused} />}
+            {tab === "status" && (
+              <StatusTab teamId={teamId} canAnswer={canTalk} isAdmin={isAdmin} />
+            )}
+            {tab === "alerts" && <AlertsTab teamId={teamId} />}
+            {tab === "memory" && <MemoryTab teamId={teamId} isAdmin={isAdmin} canEdit={canTalk} />}
+            {tab === "access" && <AccessTab teamId={teamId} isAdmin={isAdmin} />}
+            {tab === "settings" && <SettingsTab teamId={teamId} isAdmin={isAdmin} />}
+          </>
+        )}
+      </PageBody>
     </AppShell>
   );
 }
@@ -660,11 +662,14 @@ function PlanCard({
                       variant="danger"
                       className="mt-1"
                       disabled={confirming}
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          window.confirm(
-                            `This cannot be undone:\n\n${step.words}\n\nConfirm this one step?`,
-                          )
+                          await confirmAction({
+                            title: "This step cannot be undone",
+                            description: step.words,
+                            confirmLabel: "Confirm this step",
+                            danger: true,
+                          })
                         ) {
                           onConfirm(step.id);
                         }

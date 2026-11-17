@@ -4,7 +4,7 @@ import { Download, GitBranch, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { vaultErrorMessage } from "../../lib/vault";
-import { Button, Input } from "../ui";
+import { Button, confirmAction, Input } from "../ui";
 
 /**
  * Where a pipeline's file lives: only in Zelyq, or in its repository, where
@@ -98,11 +98,13 @@ export function RepoFileBar({
                 size="sm"
                 variant="ghost"
                 disabled={busy}
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    window.confirm(
-                      "Keep the file only in Zelyq again? Runs will use this copy, not the repository's.",
-                    )
+                    await confirmAction({
+                      title: "Keep the file only in Zelyq again?",
+                      description: "Runs will use this copy, not the repository's.",
+                      confirmLabel: "Keep in Zelyq",
+                    })
                   )
                     unlink.mutate();
                 }}

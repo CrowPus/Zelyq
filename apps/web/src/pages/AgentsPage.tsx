@@ -7,9 +7,18 @@ import { AgentForm, type AgentFormValue } from "../components/agents/AgentForm";
 import { AgentRequests } from "../components/agents/AgentRequests";
 import { ConnectAgent, CopyBlock, gatewayUrl } from "../components/agents/ConnectAgent";
 import { Pager, pageOf, useListParams } from "../components/ListControls";
-import { Badge, Button, EmptyState, IconButton, Spinner } from "../components/ui";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  IconButton,
+  PageBody,
+  PageHeader,
+  Spinner,
+} from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 
 /**
  * Agents: outside AI agents (Claude Code, Cursor, Gemini CLI, any MCP client)
@@ -87,132 +96,127 @@ export function AgentsPage() {
   const { rows, page } = pageOf(all, list.page);
 
   return (
-    <AppShell
-      crumbs={[{ label: "Agents" }]}
-      actions={
-        // With no agents yet, the empty list's own "New agent" is the one button.
-        canAdmin && !mode && all.length > 0 ? (
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Plus size={13} strokeWidth={2} />}
-            onClick={() => {
-              setShown(null);
-              setMode({ kind: "create" });
-            }}
-          >
-            New agent
-          </Button>
-        ) : undefined
-      }
-    >
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-          <h1 className="text-xl font-semibold text-fg">Agents</h1>
-          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-fg-secondary">
-            Let Claude Code, Cursor, Gemini CLI or any MCP client work on your apps. The agent uses
-            its own model and subscription — Zelyq lends it hands, only on the apps and with the
-            permissions you give it. Whatever needs your approval waits under the bell at the top of
-            every page.
-          </p>
+    <AppShell crumbs={[{ label: "Agents" }]}>
+      <PageBody>
+        <PageHeader
+          title="Agents"
+          description="Let Claude Code, Cursor, Gemini CLI or any MCP client work on your apps, with its own model and only the permissions you give it."
+          actions={
+            canAdmin && !mode && all.length > 0 ? (
+              <Button
+                variant="primary"
+                icon={<Plus size={15} strokeWidth={2} />}
+                onClick={() => {
+                  setShown(null);
+                  setMode({ kind: "create" });
+                }}
+              >
+                New agent
+              </Button>
+            ) : undefined
+          }
+        />
 
-          <div className="mt-4 max-w-xl">
-            <p className="mb-1 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-              Gateway address
-            </p>
+        {all.length > 0 && (
+          <div className="max-w-xl">
+            <p className="mb-1.5 text-sm font-medium text-fg">Gateway address</p>
             <CopyBlock value={gatewayUrl()} label="Copy address" />
+            <p className="mt-1.5 text-xs text-fg-muted">
+              Each agent connects here with its own key. What needs your approval waits in the
+              Inbox.
+            </p>
           </div>
+        )}
 
-          <div className="mt-6">
-            {teamId && (
-              <AgentRequests teamId={teamId} canDecide={canAdmin} appNames={appNames} historyOnly />
-            )}
+        <div className="mt-6">
+          {teamId && (
+            <AgentRequests teamId={teamId} canDecide={canAdmin} appNames={appNames} historyOnly />
+          )}
 
-            {shown && (
-              <ConnectAgent name={shown.name} agentKey={shown.key} onClose={() => setShown(null)} />
-            )}
+          {shown && (
+            <ConnectAgent name={shown.name} agentKey={shown.key} onClose={() => setShown(null)} />
+          )}
 
-            {mode && (
-              <AgentForm
-                key={mode.kind === "edit" ? mode.agent.id : "new"}
-                {...(mode.kind === "edit" ? { initial: mode.agent } : {})}
-                apps={apps}
-                pipelines={pipelines}
-                environments={environments}
-                secrets={secrets}
-                submitLabel={mode.kind === "edit" ? "Save" : "Create agent"}
-                busy={create.isPending || update.isPending}
-                error={((create.error ?? update.error) as Error | null)?.message ?? null}
-                onCancel={() => setMode(null)}
-                onSubmit={(value) =>
-                  mode.kind === "edit"
-                    ? update.mutate({ id: mode.agent.id, value })
-                    : create.mutate(value)
+          {mode && (
+            <AgentForm
+              key={mode.kind === "edit" ? mode.agent.id : "new"}
+              {...(mode.kind === "edit" ? { initial: mode.agent } : {})}
+              apps={apps}
+              pipelines={pipelines}
+              environments={environments}
+              secrets={secrets}
+              submitLabel={mode.kind === "edit" ? "Save" : "Create agent"}
+              busy={create.isPending || update.isPending}
+              error={((create.error ?? update.error) as Error | null)?.message ?? null}
+              onCancel={() => setMode(null)}
+              onSubmit={(value) =>
+                mode.kind === "edit"
+                  ? update.mutate({ id: mode.agent.id, value })
+                  : create.mutate(value)
+              }
+            />
+          )}
+
+          {!canAdmin && (
+            <p className="rounded-lg border border-border-default bg-surface px-4 py-6 text-xs text-fg-secondary">
+              Only the team's admins and owners manage agents, because an agent's key can change
+              every app it is given. You can still see what agents asked to be approved above.
+            </p>
+          )}
+
+          {canAdmin && agents.isLoading && (
+            <div className="flex items-center gap-2 py-6 text-xs text-fg-muted">
+              <Spinner /> Loading agents…
+            </div>
+          )}
+
+          {canAdmin && !agents.isLoading && all.length === 0 && !mode && (
+            <div className="rounded-lg border border-border-default bg-surface">
+              <EmptyState
+                title="No agents yet"
+                description="Create one, paste its key into Claude Code (or any MCP client), and it can work on the apps you choose — on its own tokens, not Zelyq's."
+                action={
+                  <Button
+                    variant="primary"
+                    icon={<Plus size={13} strokeWidth={2} />}
+                    onClick={() => setMode({ kind: "create" })}
+                  >
+                    New agent
+                  </Button>
                 }
               />
-            )}
+            </div>
+          )}
 
-            {!canAdmin && (
-              <p className="rounded-lg border border-border-default bg-surface px-4 py-6 text-xs text-fg-secondary">
-                Only the team's admins and owners manage agents, because an agent's key can change
-                every app it is given. You can still see what agents asked to be approved above.
-              </p>
-            )}
-
-            {canAdmin && agents.isLoading && (
-              <div className="flex items-center gap-2 py-6 text-xs text-fg-muted">
-                <Spinner /> Loading agents…
-              </div>
-            )}
-
-            {canAdmin && !agents.isLoading && all.length === 0 && !mode && (
-              <div className="rounded-lg border border-border-default bg-surface">
-                <EmptyState
-                  title="No agents yet"
-                  description="Create one, paste its key into Claude Code (or any MCP client), and it can work on the apps you choose — on its own tokens, not Zelyq's."
-                  action={
-                    <Button
-                      variant="primary"
-                      icon={<Plus size={13} strokeWidth={2} />}
-                      onClick={() => setMode({ kind: "create" })}
-                    >
-                      New agent
-                    </Button>
-                  }
+          {canAdmin && rows.length > 0 && (
+            <ul className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default bg-surface">
+              {rows.map((agent) => (
+                <AgentRow
+                  key={agent.id}
+                  teamId={teamId}
+                  agent={agent}
+                  appNames={names}
+                  onEdit={() => {
+                    setShown(null);
+                    setMode({ kind: "edit", agent });
+                  }}
+                  onNewKey={(key) => setShown({ name: agent.name, key })}
+                  onChanged={refresh}
                 />
-              </div>
-            )}
-
-            {canAdmin && rows.length > 0 && (
-              <ul className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default bg-surface">
-                {rows.map((agent) => (
-                  <AgentRow
-                    key={agent.id}
-                    teamId={teamId}
-                    agent={agent}
-                    appNames={names}
-                    onEdit={() => {
-                      setShown(null);
-                      setMode({ kind: "edit", agent });
-                    }}
-                    onNewKey={(key) => setShown({ name: agent.name, key })}
-                    onChanged={refresh}
-                  />
-                ))}
-              </ul>
-            )}
-            {canAdmin && (
-              <Pager
-                page={page}
-                total={all.length}
-                noun="agents"
-                all={all.length}
-                onPage={(n) => list.set({ page: String(n) })}
-              />
-            )}
-          </div>
+              ))}
+            </ul>
+          )}
+          {canAdmin && (
+            <Pager
+              page={page}
+              total={all.length}
+              noun="agents"
+              all={all.length}
+              onPage={(n) => list.set({ page: String(n) })}
+            />
+          )}
         </div>
-      </div>
+      </PageBody>
     </AppShell>
   );
 }
@@ -302,7 +306,7 @@ function AgentRow({
             {asks.length > 0 ? ` · asks before: ${asks.join(", ")}` : ""}
             {" · "}
             {agent.lastUsedAt
-              ? `last used ${new Date(agent.lastUsedAt).toLocaleString()} from ${agent.lastUsedIp}`
+              ? `last used ${formatDateTime(agent.lastUsedAt)} from ${agent.lastUsedIp}`
               : "never used"}
           </p>
           {signedIn.length > 0 && (

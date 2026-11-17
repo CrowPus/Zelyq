@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { PasswordInput, Spinner } from "./ui";
+import { NativeSelect, PasswordInput, Spinner } from "./ui";
 
 export type SecretFrom = "type" | "vault";
 
@@ -76,12 +76,11 @@ export function SecretSource({
             , then choose it here.
           </span>
         ) : (
-          <select
+          <NativeSelect
             id={id}
             aria-label={`${label} from Vault`}
             value={vaultName}
             onChange={(event) => onVaultName(event.target.value)}
-            className="h-[30px] rounded-md border border-border-strong bg-surface px-2 text-sm text-fg"
           >
             <option value="">Choose the secret…</option>
             {usable.map((choice) => (
@@ -90,7 +89,7 @@ export function SecretSource({
                 {choice.protected ? " · Protected" : ""}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         )
       ) : (
         <PasswordInput

@@ -15,7 +15,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Rocket,
   RotateCcw,
   Snowflake,
   Trash2,
@@ -35,14 +34,20 @@ import {
 import {
   Badge,
   Button,
+  confirmAction,
   EmptyState,
   FieldLabel,
   IconButton,
   Input,
+  NativeSelect,
+  PageBody,
+  PageHeader,
+  promptAction,
   Spinner,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { teamHref } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
 export const STATUS: Record<
@@ -75,45 +80,44 @@ export function DeploymentsPage() {
 
   return (
     <AppShell crumbs={[{ label: "Deployments" }]}>
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl px-4 py-6">
-          <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="flex items-center gap-2 text-lg font-semibold">
-                <Rocket size={18} strokeWidth={1.75} /> Deployments
-              </h1>
-              <p className="mt-1 max-w-xl text-xs text-fg-secondary">
-                Where your apps run. A pipeline deploys an app to an environment once its tests
-                pass; if the new version does not come up, the previous one is put back by itself.
-              </p>
-            </div>
-            {isAdmin && !adding && (
+      <PageBody width="standard">
+        <PageHeader
+          title="Deployments"
+          description={
+            <>
+              Where your apps run. A pipeline deploys an app to an environment once its tests pass;
+              if the new version does not come up, the previous one is put back by itself.
+            </>
+          }
+          actions={
+            isAdmin &&
+            !adding && (
               <Button variant="primary" icon={<Plus size={14} />} onClick={() => setAdding(true)}>
                 New environment
               </Button>
-            )}
-          </header>
+            )
+          }
+        />
 
-          {!team ? null : (
-            <>
-              {adding && <EnvironmentForm team={team} onDone={() => setAdding(false)} />}
-              {environments.isLoading ? (
-                <Spinner />
-              ) : (environments.data?.environments.length ?? 0) === 0 ? (
-                !adding && (
-                  <EmptyState
-                    title="No environments yet"
-                    description="An environment is a place your apps run, like staging or production: one of your machines with Docker. Add a machine in Pipelines → Runners first."
-                  />
-                )
-              ) : (
-                <EnvironmentList team={team} environments={environments.data?.environments ?? []} />
-              )}
-              <HowTo />
-            </>
-          )}
-        </div>
-      </div>
+        {!team ? null : (
+          <>
+            {adding && <EnvironmentForm team={team} onDone={() => setAdding(false)} />}
+            {environments.isLoading ? (
+              <Spinner />
+            ) : (environments.data?.environments.length ?? 0) === 0 ? (
+              !adding && (
+                <EmptyState
+                  title="No environments yet"
+                  description="An environment is a place your apps run, like staging or production: one of your machines with Docker. Add a machine in Pipelines → Runners first."
+                />
+              )
+            ) : (
+              <EnvironmentList team={team} environments={environments.data?.environments ?? []} />
+            )}
+            <HowTo />
+          </>
+        )}
+      </PageBody>
     </AppShell>
   );
 }
@@ -245,13 +249,15 @@ function EnvironmentCard({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => {
+              onClick={async () => {
                 if (environment.frozen) update.mutate({ frozen: false });
                 else {
-                  const reason = window.prompt(
-                    "Freeze: no deploys until it is unfrozen. Why?",
-                    "release freeze",
-                  );
+                  const reason = await promptAction({
+                    title: `Freeze ${environment.name}?`,
+                    description: "No deploys reach it until it is unfrozen.",
+                    input: { label: "Why", defaultValue: "release freeze" },
+                    confirmLabel: "Freeze",
+                  });
                   if (reason !== null)
                     update.mutate({ frozen: true, frozenReason: reason || null });
                 }
@@ -266,14 +272,19 @@ function EnvironmentCard({
               size="sm"
               variant="danger"
               label="Remove environment"
-              onClick={() => {
+              onClick={async () => {
                 const apps = environment.live.map((deployment) => deployment.app);
                 if (
-                  window.confirm(
-                    apps.length > 0
-                      ? `Remove ${environment.name} and its ${apps.length === 1 ? "app" : "apps"} (${apps.join(", ")})? Zelyq stops ${apps.length === 1 ? "it" : "them"} and removes ${apps.length === 1 ? "its containers and images" : "their containers and images"} from the machine.`
-                      : `Remove ${environment.name}?`,
-                  )
+                  await confirmAction({
+                    title: `Remove ${environment.name}?`,
+                    description:
+                      apps.length > 0
+                        ? `Zelyq stops ${apps.length === 1 ? "its app" : `its ${apps.length} apps`} (${apps.join(", ")}) and removes ${apps.length === 1 ? "its containers and images" : "their containers and images"} from the machine.`
+                        : undefined,
+                    confirmLabel: "Remove environment",
+                    danger: true,
+                    typeToConfirm: apps.length > 0 ? environment.name : undefined,
+                  })
                 )
                   remove.mutate();
               }}
@@ -359,7 +370,7 @@ function LiveApp({
     <li className="px-3 py-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Link
-          to={`/deployments/${environment.id}/apps/${encodeURIComponent(deployment.app)}`}
+          to={teamHref(`/deployments/${environment.id}/apps/${encodeURIComponent(deployment.app)}`)}
           className="font-medium hover:underline"
         >
           {deployment.app}
@@ -380,7 +391,9 @@ function LiveApp({
             {open ? "Hide history" : "History"}
           </Button>
           <Link
-            to={`/deployments/${environment.id}/apps/${encodeURIComponent(deployment.app)}`}
+            to={teamHref(
+              `/deployments/${environment.id}/apps/${encodeURIComponent(deployment.app)}`,
+            )}
             className="inline-flex h-6 items-center gap-1 rounded-md border border-border-default px-2 text-xs font-medium hover:bg-surface-hover"
           >
             <Activity size={12} /> Logs · manage
@@ -512,7 +525,7 @@ export function HistoryList({
             </span>
             {deployment.run && (
               <Link
-                to={`/pipelines/${deployment.run.pipelineId}/runs/${deployment.run.id}`}
+                to={teamHref(`/pipelines/${deployment.run.pipelineId}/runs/${deployment.run.id}`)}
                 className="text-info hover:underline"
               >
                 run #{deployment.run.number}
@@ -532,8 +545,13 @@ export function HistoryList({
                 className="ml-auto"
                 icon={<RotateCcw size={12} />}
                 disabled={rollBack.isPending}
-                onClick={() => {
-                  if (window.confirm(`Put #${deployment.number} back on ${environment.name}?`)) {
+                onClick={async () => {
+                  if (
+                    await confirmAction({
+                      title: `Put #${deployment.number} back on ${environment.name}?`,
+                      confirmLabel: "Roll back",
+                    })
+                  ) {
                     rollBack.mutate({ id: deployment.id, number: deployment.number });
                   }
                 }}
@@ -643,9 +661,9 @@ function EnvironmentForm({
         </div>
         <div className="grid gap-1">
           <FieldLabel>Machine (with Docker)</FieldLabel>
-          <select
+          <NativeSelect
             aria-label="Machine"
-            className="h-[30px] w-full min-w-0 rounded-md border border-border-default bg-surface px-2 text-sm"
+            className="w-full min-w-0"
             value={runnerId}
             onChange={(event) => setRunnerId(event.target.value)}
           >
@@ -655,7 +673,7 @@ function EnvironmentForm({
                 {runner.name} ({runner.host})
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="grid gap-1">
           <FieldLabel>Public address</FieldLabel>
@@ -857,9 +875,9 @@ function WebAddresses({
         <label className="text-xs" htmlFor="environment-https">
           HTTPS
         </label>
-        <select
+        <NativeSelect
           id="environment-https"
-          className="h-[30px] w-full min-w-0 rounded-md border border-border-default bg-surface px-2 text-sm"
+          className="w-full min-w-0"
           value={https}
           onChange={(event) => onHttps(event.target.value as EnvironmentHttps)}
         >
@@ -868,7 +886,7 @@ function WebAddresses({
               {choice.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <p className="text-2xs text-fg-muted">
           {behind
             ? "For a machine whose web server already serves other sites on ports 80 and 443. Zelyq's proxy listens on a private port; each app's page shows the few lines to add to your web server."

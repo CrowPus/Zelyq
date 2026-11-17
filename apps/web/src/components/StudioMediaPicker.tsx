@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../lib/api";
 import { uploadTargetPath } from "../lib/files";
+import { teamHref } from "../lib/routes";
 import { Button, Input, Spinner } from "./ui";
 
 type Picked = { kind: "image"; item: ImageGeneration } | { kind: "video"; item: VideoGeneration };
@@ -141,7 +142,7 @@ export function StudioMediaPicker({
           ) : (tab === "image" ? imageItems : videoItems).length === 0 ? (
             <p className="text-xs text-fg-secondary">
               Nothing here yet.{" "}
-              <Link to={`/studio/${tab}`} className="underline underline-offset-2">
+              <Link to={teamHref(`/studio/${tab}`)} className="underline underline-offset-2">
                 Make one in {tab === "image" ? "Image" : "Video"} Studio
               </Link>
               .
@@ -282,7 +283,7 @@ function Tile({
         )}
       </div>
       <p className="line-clamp-2 px-2 pt-1.5 text-2xs text-fg-secondary">{label}</p>
-      {detail && <p className="px-2 pb-1.5 text-[10px] text-fg-muted">{detail}</p>}
+      {detail && <p className="px-2 pb-1.5 text-2xs text-fg-muted">{detail}</p>}
       {!detail && <div className="pb-1.5" />}
     </button>
   );

@@ -3,7 +3,8 @@ import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { Badge, Button, PasswordInput, Spinner } from "./ui";
+import { teamHref } from "../lib/routes";
+import { Badge, Button, confirmAction, NativeSelect, PasswordInput, Spinner } from "./ui";
 
 /**
  * The team's own AI keys. Each team brings its own: they are used first for
@@ -112,8 +113,14 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                     size="sm"
                     variant="ghost"
                     disabled={remove.isPending}
-                    onClick={() => {
-                      if (window.confirm(`Remove the team's ${key.label} key?`))
+                    onClick={async () => {
+                      if (
+                        await confirmAction({
+                          title: `Remove the team's ${key.label} key?`,
+                          confirmLabel: "Remove key",
+                          danger: true,
+                        })
+                      )
                         remove.mutate(key.provider);
                     }}
                   >
@@ -160,17 +167,20 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                   ) : usable.length === 0 ? (
                     <span className="min-w-0 flex-1 text-2xs text-fg-secondary">
                       The team's Vault has no secret to choose yet.{" "}
-                      <Link to={`/vault?scope=${teamId}`} className="underline underline-offset-2">
+                      <Link
+                        to={teamHref(`/vault?scope=${teamId}`)}
+                        className="underline underline-offset-2"
+                      >
                         Add the key to the Vault
                       </Link>
                       , then choose it here.
                     </span>
                   ) : (
-                    <select
+                    <NativeSelect
                       aria-label={`${key.label} key from Vault`}
                       value={vaultName}
                       onChange={(event) => setVaultName(event.target.value)}
-                      className="h-[30px] min-w-0 flex-1 rounded-md border border-border-default bg-surface px-2 text-sm text-fg"
+                      className="min-w-0 flex-1"
                     >
                       <option value="">Choose the secret holding the key…</option>
                       {usable.map((choice) => (
@@ -179,7 +189,7 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                           {choice.protected ? " · Protected" : ""}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   )
                 ) : (
                   <PasswordInput

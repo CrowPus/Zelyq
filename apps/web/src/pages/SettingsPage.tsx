@@ -32,11 +32,51 @@ import { FigmaIntegration } from "../components/FigmaIntegration";
 import { PlansPanel } from "../components/PlansPanel";
 import { SkillUploadControl } from "../components/SkillUploadControl";
 import { SupabaseIntegration } from "../components/SupabaseIntegration";
-import { Badge, Button, IconButton, Input, Spinner, StatusDot } from "../components/ui";
+import {
+  Badge,
+  Button,
+  confirmAction,
+  IconButton,
+  Input,
+  NativeSelect,
+  PageBody,
+  PageHeader,
+  Spinner,
+  StatusDot,
+} from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { formatDate } from "../lib/format";
+import { teamHref } from "../lib/routes";
 
 export type Draft = Record<string, string | number | boolean>;
+
+/** The sections, grouped the way an administrator thinks about them. */
+const SECTION_GROUPS = [
+  "Models and AI",
+  "Runtime and preview",
+  "Identity and access",
+  "Communication",
+  "Plans and status",
+  "Other",
+] as const;
+const GROUP_OF: Record<string, (typeof SECTION_GROUPS)[number]> = {
+  model: "Models and AI",
+  "image-generation": "Models and AI",
+  "video-generation": "Models and AI",
+  "voice-input": "Models and AI",
+  ops: "Models and AI",
+  runtime: "Runtime and preview",
+  preview: "Runtime and preview",
+  pipelines: "Runtime and preview",
+  access: "Identity and access",
+  users: "Identity and access",
+  "api-keys": "Identity and access",
+  email: "Communication",
+  integrations: "Communication",
+  plans: "Plans and status",
+  status: "Plans and status",
+};
 
 /**
  * Everything that can be set through the environment can be set here instead,
@@ -156,7 +196,7 @@ export function SettingsPage() {
 
   const [active, setActive] = useState<string>("model");
   // A deep link picks the section instead of scrolling to it, which is the
-  // whole point: `/settings#video-generation` should land on video settings.
+  // whole point: `/admin#video-generation` should land on video settings.
   //
   // The fallback waits for the data. Before it arrives there are no groups, so
   // the section list is just the three static ones — and "correct an unknown
@@ -210,7 +250,7 @@ export function SettingsPage() {
         <p className="mt-0.5 text-xs text-fg-secondary">{group.description}</p>
         {group.name === "Video Studio" && (
           <Link
-            to="/studio/video"
+            to={teamHref("/studio/video")}
             className="mt-2 inline-block text-xs text-fg underline underline-offset-4"
           >
             Open Studio — Video
@@ -218,7 +258,7 @@ export function SettingsPage() {
         )}
         {group.name === "Image Studio" && (
           <Link
-            to="/studio/image"
+            to={teamHref("/studio/image")}
             className="mt-2 inline-block text-xs text-fg underline underline-offset-4"
           >
             Open Studio — Image
@@ -266,7 +306,7 @@ export function SettingsPage() {
 
   if (settings.isLoading) {
     return (
-      <AppShell crumbs={[{ label: "Server settings" }]}>
+      <AppShell crumbs={[{ label: "Server administration" }]}>
         <div className="grid h-full place-items-center">
           <Spinner />
         </div>
@@ -276,7 +316,7 @@ export function SettingsPage() {
 
   if (settings.isError) {
     return (
-      <AppShell crumbs={[{ label: "Server settings" }]}>
+      <AppShell crumbs={[{ label: "Server administration" }]}>
         <div className="grid h-full place-items-center px-6 text-center">
           <div>
             <p className="text-sm text-fg">{(settings.error as Error).message}</p>
@@ -290,304 +330,308 @@ export function SettingsPage() {
   }
 
   return (
-    <AppShell crumbs={[{ label: "Server settings" }]}>
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-          <header>
-            <h1 className="text-xl font-semibold text-fg">Server settings</h1>
-            <p className="mt-1 text-xs leading-relaxed text-fg">
-              These run the whole server, and only a server administrator sees them. What a team
-              decides for itself (its AI keys, model, Studio, voice and Ops) each team sets on its
-              own Team settings; the choices here are only the defaults a team starts from.
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
-              API keys live here — typed, or taken from the instance Vault — and are never read from
-              the environment. Other settings can also be set as environment variables; one the
-              environment provides is shown locked here, because the environment takes precedence.
-            </p>
-          </header>
+    <AppShell crumbs={[{ label: "Server administration" }]}>
+      <PageBody>
+        <PageHeader
+          title="Server administration"
+          description="What runs the whole server, and the defaults every team starts from. Only server admins see this page."
+        />
 
-          <div className="mt-6 gap-8 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:items-start">
-            {/* The menu. A row that scrolls sideways on a phone, a column
+        <div className="gap-8 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start">
+          {/* The menu. A row that scrolls sideways on a phone, a column
                 beside the content on a desktop — the same list either way, so
                 there is one idea to learn rather than two. */}
-            <nav
-              aria-label="Settings sections"
-              className="-mx-4 mb-5 flex gap-1 overflow-x-auto px-4 pb-2 md:sticky md:top-4 md:mx-0 md:mb-0 md:flex-col md:overflow-visible md:px-0 md:pb-0"
-            >
-              {sections.map((id) => {
-                const meta = SECTION_META[id] ?? {
-                  label: id.replace(/-/g, " "),
-                  icon: Puzzle,
-                  blurb: "",
-                };
-                const Icon = meta.icon;
-                const current = active === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-current={current ? "page" : undefined}
-                    onClick={() => setActive(id)}
-                    title={meta.blurb}
-                    className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors md:w-full ${
-                      current
-                        ? "bg-surface-hover font-medium text-fg"
-                        : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
-                    }`}
-                  >
-                    <Icon size={14} strokeWidth={1.75} className="shrink-0" />
-                    <span className="whitespace-nowrap md:whitespace-normal">{meta.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
+          <nav
+            aria-label="Settings sections"
+            className="-mx-4 mb-5 flex gap-1 overflow-x-auto px-4 pb-2 md:sticky md:top-4 md:mx-0 md:mb-0 md:flex-col md:overflow-visible md:px-0 md:pb-0"
+          >
+            {SECTION_GROUPS.map((group) => {
+              const ids = sections.filter((id) => (GROUP_OF[id] ?? "Other") === group);
+              if (ids.length === 0) return null;
+              return (
+                <div key={group} className="contents md:mb-4 md:block">
+                  <p className="hidden px-3 pb-1 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase md:block">
+                    {group}
+                  </p>
+                  {ids.map((id) => {
+                    const meta = SECTION_META[id] ?? {
+                      label: id.replace(/-/g, " "),
+                      icon: Puzzle,
+                      blurb: "",
+                    };
+                    const Icon = meta.icon;
+                    const current = active === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        aria-current={current ? "page" : undefined}
+                        onClick={() => {
+                          setActive(id);
+                          // The address names the section, so it can be shared.
+                          window.history.replaceState(null, "", `#${id}`);
+                        }}
+                        title={meta.blurb}
+                        className={`relative flex h-8 shrink-0 items-center gap-2 rounded-md px-3 text-left text-sm transition-colors md:w-full ${
+                          current
+                            ? "bg-accent-subtle font-medium text-fg"
+                            : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
+                        }`}
+                      >
+                        <Icon
+                          size={15}
+                          strokeWidth={1.75}
+                          className={`shrink-0 ${current ? "text-accent" : ""}`}
+                        />
+                        <span className="whitespace-nowrap md:whitespace-normal">{meta.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </nav>
 
-            <fieldset disabled={Boolean(runFrom)} className="m-0 min-w-0 border-0 p-0">
-              {runFrom && (
-                <p className="mb-4 rounded-md border border-info/25 bg-info-subtle px-3 py-2 text-xs text-info">
-                  This server is connected to {runFrom} and is run from its admin. Everything here
-                  is shown as it is set; changes are made in the admin, behind its own sign-in, so
-                  nothing that runs the whole server can be changed from inside it.
+          <fieldset disabled={Boolean(runFrom)} className="m-0 min-w-0 border-0 p-0">
+            {runFrom && (
+              <p className="mb-4 rounded-md border border-info/25 bg-info-subtle px-3 py-2 text-xs text-info">
+                This server is connected to {runFrom} and is run from its admin. Everything here is
+                shown as it is set; changes are made in the admin, behind its own sign-in, so
+                nothing that runs the whole server can be changed from inside it.
+              </p>
+            )}
+            {settings.data?.restartPending && (
+              <p className="mt-5 flex items-start gap-2 rounded-md border border-warning/25 bg-warning-subtle px-2.5 py-2 text-xs text-warning">
+                <RotateCw size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+                Some changes need the server restarted before they take effect.
+              </p>
+            )}
+
+            {active === "image-generation" &&
+              settings.data?.groups.filter((g) => g.name === "Image Studio").map(renderGroup)}
+            {active === "video-generation" &&
+              settings.data?.groups.filter((g) => g.name === "Video Studio").map(renderGroup)}
+            {settings.data?.groups
+              .filter((g) => !["Image Studio", "Video Studio"].includes(g.name))
+              .filter((g) => sectionId(g.name) === active)
+              .map(renderGroup)}
+
+            {active === "email" && <MailTest />}
+
+            {active === "integrations" && (
+              <>
+                <FigmaIntegration />
+                {user?.instanceRole === "admin" && <SupabaseIntegration />}
+              </>
+            )}
+
+            {active === "status" && (
+              <section className="mt-7">
+                <h2 className="text-sm font-medium text-fg">Instance status</h2>
+                <p className="mt-0.5 text-xs text-fg-secondary">
+                  What's actually running right now — reflects the last restart, not this page.
                 </p>
-              )}
-              {settings.data?.restartPending && (
-                <p className="mt-5 flex items-start gap-2 rounded-md border border-warning/25 bg-warning-subtle px-2.5 py-2 text-xs text-warning">
-                  <RotateCw size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-                  Some changes need the server restarted before they take effect.
-                </p>
-              )}
 
-              {active === "image-generation" &&
-                settings.data?.groups.filter((g) => g.name === "Image Studio").map(renderGroup)}
-              {active === "video-generation" &&
-                settings.data?.groups.filter((g) => g.name === "Video Studio").map(renderGroup)}
-              {settings.data?.groups
-                .filter((g) => !["Image Studio", "Video Studio"].includes(g.name))
-                .filter((g) => sectionId(g.name) === active)
-                .map(renderGroup)}
-
-              {active === "email" && <MailTest />}
-
-              {active === "integrations" && (
-                <>
-                  <FigmaIntegration />
-                  {user?.instanceRole === "admin" && <SupabaseIntegration />}
-                </>
-              )}
-
-              {active === "status" && (
-                <>
-                  <section className="mt-7">
-                    <h2 className="text-sm font-medium text-fg">Instance status</h2>
-                    <p className="mt-0.5 text-xs text-fg-secondary">
-                      What's actually running right now — reflects the last restart, not this page.
-                    </p>
-
-                    <div className="mt-3 divide-y divide-border-default overflow-hidden rounded-lg border border-border-default bg-surface">
-                      {health.isLoading && (
-                        <div className="flex items-center gap-2 px-4 py-3 text-xs text-fg-muted">
-                          <Spinner /> Checking…
-                        </div>
-                      )}
-                      {health.isError && (
-                        <p className="px-4 py-3 text-xs text-danger">
-                          Could not reach the server to check status.
-                        </p>
-                      )}
-                      {health.data && (
-                        <>
-                          <StatusRow
-                            label="Model"
-                            ok={health.data.agent.status === "ok"}
-                            detail={
-                              health.data.agent.model
-                                ? `${health.data.agent.provider ?? health.data.provider} · ${health.data.agent.model}`
-                                : "not configured"
-                            }
-                          />
-                          <StatusRow
-                            label="Runtime"
-                            ok={health.data.runtime.ok}
-                            detail={
-                              health.data.runtime.detail ??
-                              (health.data.runtime.ok ? "ok" : "degraded")
-                            }
-                          />
-                          <div className="flex items-start gap-3 px-3 py-3">
-                            <Puzzle
-                              size={14}
-                              strokeWidth={1.75}
-                              className="mt-0.5 shrink-0 text-fg-muted"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm text-fg">Plugin tools</p>
-                              {health.data.agent.plugins?.length ? (
-                                <p className="mt-0.5 flex flex-wrap gap-1.5">
-                                  {health.data.agent.plugins.map((name) => (
-                                    <Badge key={name} tone="success">
-                                      {name}
-                                    </Badge>
-                                  ))}
-                                </p>
-                              ) : (
-                                <p className="mt-0.5 text-xs text-fg-secondary">
-                                  None loaded. Set{" "}
-                                  <code className="font-mono">ZELYQ_PLUGIN_DIR</code> and restart
-                                  the agent — see{" "}
-                                  <a
-                                    href="https://github.com/CrowPus/Zelyq/blob/main/docs/plugins.md"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="underline underline-offset-2 hover:text-fg"
-                                  >
-                                    docs/plugins.md
-                                  </a>
-                                  .
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-3 px-3 py-3">
-                            <GraduationCap
-                              size={14}
-                              strokeWidth={1.75}
-                              className="mt-0.5 shrink-0 text-fg-muted"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm text-fg">Skills</p>
-                              {health.data.agent.skills?.length ? (
-                                <p className="mt-0.5 flex flex-wrap gap-1.5">
-                                  {health.data.agent.skills.map((skill) => (
-                                    <span key={skill.name} title={skill.description}>
-                                      <Badge tone="success">{skill.name}</Badge>
-                                    </span>
-                                  ))}
-                                </p>
-                              ) : (
-                                <p className="mt-0.5 text-xs text-fg-secondary">
-                                  None loaded. See{" "}
-                                  <a
-                                    href="https://github.com/CrowPus/Zelyq/blob/main/docs/skills.md"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="underline underline-offset-2 hover:text-fg"
-                                  >
-                                    docs/skills.md
-                                  </a>
-                                  .
-                                </p>
-                              )}
-                              <div className="mt-2">
-                                <SkillUploadControl />
-                              </div>
-                            </div>
-                          </div>
-                        </>
-                      )}
+                <div className="mt-3 divide-y divide-border-default overflow-hidden rounded-lg border border-border-default bg-surface">
+                  {health.isLoading && (
+                    <div className="flex items-center gap-2 px-4 py-3 text-xs text-fg-muted">
+                      <Spinner /> Checking…
                     </div>
-                  </section>
-                </>
-              )}
-
-              {active === "plans" && <PlansPanel />}
-              {active === "api-keys" && <AdminKeysPanel />}
-
-              {active === "users" && (
-                <>
-                  <section className="mt-7">
-                    <h2 className="text-sm font-medium text-fg">Users</h2>
-                    <p className="mt-0.5 text-xs text-fg-secondary">
-                      Everyone with an account on this instance, across every team.
+                  )}
+                  {health.isError && (
+                    <p className="px-4 py-3 text-xs text-danger">
+                      Could not reach the server to check status.
                     </p>
-
-                    <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
-                      {users.isLoading && (
-                        <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-muted">
-                          <Spinner /> Loading users…
-                        </div>
-                      )}
-                      {users.data?.users.map((account) => (
-                        <div
-                          key={account.id}
-                          className="flex items-center gap-3 border-b border-border-default px-4 py-2.5 last:border-b-0"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm text-fg">
-                              {account.name}
-                              {account.id === user?.id && (
-                                <span className="ml-1.5 text-xs text-fg-muted">(you)</span>
-                              )}
-                              {account.instanceRole === "admin" && (
-                                <span className="ml-1.5 inline-block">
-                                  <Badge tone="neutral">instance admin</Badge>
-                                </span>
-                              )}
+                  )}
+                  {health.data && (
+                    <>
+                      <StatusRow
+                        label="Model"
+                        ok={health.data.agent.status === "ok"}
+                        detail={
+                          health.data.agent.model
+                            ? `${health.data.agent.provider ?? health.data.provider} · ${health.data.agent.model}`
+                            : "not configured"
+                        }
+                      />
+                      <StatusRow
+                        label="Runtime"
+                        ok={health.data.runtime.ok}
+                        detail={
+                          health.data.runtime.detail ?? (health.data.runtime.ok ? "ok" : "degraded")
+                        }
+                      />
+                      <div className="flex items-start gap-3 px-3 py-3">
+                        <Puzzle
+                          size={14}
+                          strokeWidth={1.75}
+                          className="mt-0.5 shrink-0 text-fg-muted"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-fg">Plugin tools</p>
+                          {health.data.agent.plugins?.length ? (
+                            <p className="mt-0.5 flex flex-wrap gap-1.5">
+                              {health.data.agent.plugins.map((name) => (
+                                <Badge key={name} tone="success">
+                                  {name}
+                                </Badge>
+                              ))}
                             </p>
-                            <p className="truncate font-mono text-2xs text-fg-muted">
-                              {account.email}
+                          ) : (
+                            <p className="mt-0.5 text-xs text-fg-secondary">
+                              None loaded. Set <code className="font-mono">ZELYQ_PLUGIN_DIR</code>{" "}
+                              and restart the agent — see{" "}
+                              <a
+                                href="https://github.com/CrowPus/Zelyq/blob/main/docs/plugins.md"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline underline-offset-2 hover:text-fg"
+                              >
+                                docs/plugins.md
+                              </a>
+                              .
                             </p>
-                          </div>
-                          <span className="shrink-0 text-2xs text-fg-muted">
-                            joined {new Date(account.createdAt).toLocaleDateString()}
-                          </span>
-                          {account.id !== user?.id && (
-                            <IconButton
-                              size="sm"
-                              variant="danger"
-                              label={`Delete ${account.name}`}
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Delete ${account.name} (${account.email})? This removes their account and anything only they could reach. This cannot be undone.`,
-                                  )
-                                ) {
-                                  deleteUser.mutate(account.id);
-                                }
-                              }}
-                            >
-                              <Trash2 size={13} strokeWidth={1.75} />
-                            </IconButton>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  </section>
-                </>
-              )}
-
-              {error && (
-                <p className="mt-5 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
-                  <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-                  {error}
-                </p>
-              )}
-
-              {editable && (
-                <div className="mt-6 flex items-center gap-3">
-                  <Button
-                    variant="primary"
-                    onClick={() => save.mutate()}
-                    disabled={!dirty || save.isPending}
-                  >
-                    {save.isPending ? "Saving…" : "Save changes"}
-                  </Button>
-                  {dirty && (
-                    <Button variant="ghost" onClick={() => setDraft({})}>
-                      Discard
-                    </Button>
-                  )}
-                  {saved && (
-                    <span className="flex items-center gap-1.5 text-xs text-success">
-                      <ShieldCheck size={13} strokeWidth={1.75} /> Saved
-                    </span>
+                      </div>
+                      <div className="flex items-start gap-3 px-3 py-3">
+                        <GraduationCap
+                          size={14}
+                          strokeWidth={1.75}
+                          className="mt-0.5 shrink-0 text-fg-muted"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-fg">Skills</p>
+                          {health.data.agent.skills?.length ? (
+                            <p className="mt-0.5 flex flex-wrap gap-1.5">
+                              {health.data.agent.skills.map((skill) => (
+                                <span key={skill.name} title={skill.description}>
+                                  <Badge tone="success">{skill.name}</Badge>
+                                </span>
+                              ))}
+                            </p>
+                          ) : (
+                            <p className="mt-0.5 text-xs text-fg-secondary">
+                              None loaded. See{" "}
+                              <a
+                                href="https://github.com/CrowPus/Zelyq/blob/main/docs/skills.md"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline underline-offset-2 hover:text-fg"
+                              >
+                                docs/skills.md
+                              </a>
+                              .
+                            </p>
+                          )}
+                          <div className="mt-2">
+                            <SkillUploadControl />
+                          </div>
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
-              )}
-            </fieldset>
-          </div>
+              </section>
+            )}
+
+            {active === "plans" && <PlansPanel />}
+            {active === "api-keys" && <AdminKeysPanel />}
+
+            {active === "users" && (
+              <section className="mt-7">
+                <h2 className="text-sm font-medium text-fg">Users</h2>
+                <p className="mt-0.5 text-xs text-fg-secondary">
+                  Everyone with an account on this instance, across every team.
+                </p>
+
+                <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
+                  {users.isLoading && (
+                    <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-muted">
+                      <Spinner /> Loading users…
+                    </div>
+                  )}
+                  {users.data?.users.map((account) => (
+                    <div
+                      key={account.id}
+                      className="flex items-center gap-3 border-b border-border-default px-4 py-2.5 last:border-b-0"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-fg">
+                          {account.name}
+                          {account.id === user?.id && (
+                            <span className="ml-1.5 text-xs text-fg-muted">(you)</span>
+                          )}
+                          {account.instanceRole === "admin" && (
+                            <span className="ml-1.5 inline-block">
+                              <Badge tone="neutral">instance admin</Badge>
+                            </span>
+                          )}
+                        </p>
+                        <p className="truncate font-mono text-2xs text-fg-muted">{account.email}</p>
+                      </div>
+                      <span className="shrink-0 text-2xs text-fg-muted">
+                        joined {formatDate(account.createdAt)}
+                      </span>
+                      {account.id !== user?.id && (
+                        <IconButton
+                          size="sm"
+                          variant="danger"
+                          label={`Delete ${account.name}`}
+                          onClick={async () => {
+                            if (
+                              await confirmAction({
+                                title: `Delete ${account.name} (${account.email})?`,
+                                description: `This removes their account and anything only they could reach. This cannot be undone.`,
+                                confirmLabel: "Delete account",
+                                danger: true,
+                                typeToConfirm: account.email,
+                              })
+                            ) {
+                              deleteUser.mutate(account.id);
+                            }
+                          }}
+                        >
+                          <Trash2 size={13} strokeWidth={1.75} />
+                        </IconButton>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {error && (
+              <p className="mt-5 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
+                <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+                {error}
+              </p>
+            )}
+
+            {editable && (
+              <div className="mt-6 flex items-center gap-3">
+                <Button
+                  variant="primary"
+                  onClick={() => save.mutate()}
+                  disabled={!dirty || save.isPending}
+                >
+                  {save.isPending ? "Saving…" : "Save changes"}
+                </Button>
+                {dirty && (
+                  <Button variant="ghost" onClick={() => setDraft({})}>
+                    Discard
+                  </Button>
+                )}
+                {saved && (
+                  <span className="flex items-center gap-1.5 text-xs text-success">
+                    <ShieldCheck size={13} strokeWidth={1.75} /> Saved
+                  </span>
+                )}
+              </div>
+            )}
+          </fieldset>
         </div>
-      </div>
+      </PageBody>
     </AppShell>
   );
 }
@@ -623,7 +667,7 @@ function ModelChoice({
   const other = typing || !listed;
   return (
     <div className="space-y-2">
-      <select
+      <NativeSelect
         aria-label={field.label}
         value={other ? "__other__" : value}
         disabled={providerChanged}
@@ -635,7 +679,6 @@ function ModelChoice({
           setTyping(false);
           onChange(event.target.value);
         }}
-        className="h-[30px] w-full rounded-md border border-border-default bg-surface px-2 text-sm text-fg disabled:opacity-60"
       >
         <option value="">{field.placeholder ?? "Provider default"}</option>
         {(["recommended", "previous", "legacy"] as const).map((group) => {
@@ -662,7 +705,7 @@ function ModelChoice({
           );
         })}
         <option value="__other__">Other model…</option>
-      </select>
+      </NativeSelect>
       {other && !providerChanged && (
         <Input
           aria-label={`${field.label}, typed`}
@@ -733,18 +776,18 @@ export function FieldRow({
             onChange={onChange}
           />
         ) : field.kind === "select" ? (
-          <select
+          <NativeSelect
             value={String(pending ?? field.value ?? "")}
             onChange={(event) => onChange(event.target.value)}
             aria-label={field.label}
-            className="h-[30px] w-full rounded-md border border-border-default bg-surface px-2 text-sm text-fg"
+            className="w-full"
           >
             {field.options?.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         ) : field.kind === "secret" ? (
           <CredentialInput field={field} pending={pending} onChange={onChange} />
         ) : field.kind === "boolean" ? (
@@ -854,9 +897,9 @@ function CredentialInput({
         />
       ) : (
         <>
-          <select
+          <NativeSelect
             aria-label={`${field.label} from Vault`}
-            className="h-[30px] w-full rounded-md border border-border-default bg-surface px-2 font-mono text-sm"
+            className="w-full font-mono"
             value={current}
             disabled={point.isPending}
             onChange={(event) => point.mutate(event.target.value)}
@@ -879,11 +922,11 @@ function CredentialInput({
                   group.scope === (field.vaultScope ?? "instance") &&
                   group.names.includes(field.vaultName ?? ""),
               ) && <option value={current}>{field.vaultName} (missing)</option>}
-          </select>
+          </NativeSelect>
           {choices.data && !anyChoices && (
             <p className="text-2xs text-fg-muted">
               Your Vault is empty.{" "}
-              <Link to="/vault" className="underline underline-offset-2">
+              <Link to={teamHref("/vault")} className="underline underline-offset-2">
                 Add a key in Vault
               </Link>{" "}
               first.
