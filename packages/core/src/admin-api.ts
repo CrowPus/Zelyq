@@ -21,6 +21,8 @@ export const ADMIN_SCOPES = {
   notify: "Send announcements and notifications to people",
   features: "Turn features on or off for everyone, a plan, a team or a person",
   audit: "Read the audit log",
+  settings:
+    "Read and change the server's settings (on a managed server, the only way to change them)",
 } as const;
 
 export type AdminScope = keyof typeof ADMIN_SCOPES;

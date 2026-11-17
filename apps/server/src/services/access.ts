@@ -22,6 +22,10 @@ import type { ProductActivity } from "./product-activity.js";
  * Failures are deliberately shaped so a non-member cannot tell a project they
  * cannot see from one that does not exist.
  */
+const READS = new Set(["GET", "HEAD", "OPTIONS"]);
+/** Server-admin calls that change nothing: still allowed on a managed server. */
+const READ_ONLY_EXEMPT = new Set(["/api/settings/mail/test"]);
+
 export class AccessControl {
   /** Product activity: audit entries that also count as what people do. */
   activity?: ProductActivity;
@@ -30,6 +34,9 @@ export class AccessControl {
     action: AuditAction,
     entry: { userId: string; teamId: string | null; detail: Record<string, unknown> },
   ) => void;
+
+  /** Managed mode: the account service's name; server-wide changes are refused here. */
+  managed: string | null = null;
 
   constructor(private readonly store: Store) {}
 
@@ -51,6 +58,19 @@ export class AccessControl {
     const user = this.requireUser(request);
     if (user.instanceRole !== "admin") {
       throw new ZelyqError("forbidden", "Only an instance administrator can do this.");
+    }
+    // Managed: what is server-wide changes only from the admin (through the admin API,
+    // behind its own sign-in), never from a session here. Looking stays possible.
+    if (
+      this.managed &&
+      !READS.has(request.method) &&
+      !READ_ONLY_EXEMPT.has(request.routeOptions.url ?? "")
+    ) {
+      throw new ZelyqError(
+        "forbidden",
+        `This server is connected to ${this.managed}: its settings change only from the admin.`,
+        { reason: "managed_read_only" },
+      );
     }
     return user;
   }

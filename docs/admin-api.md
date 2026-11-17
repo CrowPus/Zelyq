@@ -42,6 +42,7 @@ A caller is a key, never a person's session.
 | `notify` | Announcements and notifications to people |
 | `features` | Turn features on or off for everyone, a plan, a team or a person |
 | `audit` | The audit log |
+| `settings` | Read and change the server's settings (`GET /settings`, `PUT /settings` with `{ "key": value }`; secrets are never sent back). On a managed server the only way to change them |
 
 A call outside the key's scopes is refused with `403`.
 

@@ -83,6 +83,8 @@ export interface AuthConfig {
   allowRegistration: () => Promise<boolean>;
   /** Managed mode: people come from this account service (see @zelyq/core account-service). */
   accounts?: AccountService;
+  /** Managed mode: the server's own administrators may sign in with a password (off unless set). */
+  localSignIn?: boolean;
   sessionTtlDays: () => Promise<number>;
   oidc?: {
     issuer?: string;
@@ -157,9 +159,29 @@ export class AuthService {
     }
   }
 
+  /**
+   * Managed: a password sign-in here (even the server's own administrator's) only
+   * while `ZELYQ_LOCAL_SIGNIN=on`. The server is run from the admin, so by default
+   * there is no password here for anyone to guess.
+   */
+  localSignInOpen(): boolean {
+    return !this.config.accounts || this.config.localSignIn === true;
+  }
+
+  private requireLocalSignIn(): void {
+    if (!this.localSignInOpen()) {
+      throw new ZelyqError(
+        "forbidden",
+        "Signing in with a password is switched off on this server. It is run from the admin.",
+        { reason: "local_signin_off" },
+      );
+    }
+  }
+
   /** A reset email goes out only for an account whose password lives here. */
   async mayResetPassword(email: string): Promise<boolean> {
     if (!this.config.accounts) return true;
+    if (!this.localSignInOpen()) return false;
     const user = await this.store.users.findByEmail(email.trim().toLowerCase());
     return user?.instanceRole === "admin";
   }
@@ -365,9 +387,12 @@ export class AuthService {
       });
       return existing;
     }
-    const firstRun = await this.isFirstRun();
-    // A managed server is set up by its own administrator first (the setup form),
-    // so the first person through the account service never becomes its owner.
+    // Managed with password sign-in off, nobody sets the server up here: it is run
+    // from the admin, and everyone who comes through the service is a member.
+    const firstRun = (await this.isFirstRun()) && this.localSignInOpen();
+    // A managed server with password sign-in on is set up by its own administrator
+    // first (the setup form), so the first person through the account service never
+    // becomes its owner.
     if (firstRun && this.config.accounts) {
       throw new ZelyqError("forbidden", "This server is not set up yet.");
     }
@@ -411,7 +436,8 @@ export class AuthService {
 
   /** What this server offers at sign-in: the sign-in screen shows only this. */
   async instanceStatus(passwordReset: boolean): Promise<InstanceStatus> {
-    const firstRun = await this.isFirstRun();
+    // Managed with password sign-in off there is no setup form: the server is run from the admin.
+    const firstRun = (await this.isFirstRun()) && this.localSignInOpen();
     const accounts = this.config.accounts ?? null;
     const oidc = this.oidcEnabled();
     const managed = accounts !== null;
@@ -442,6 +468,13 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<{ user: User; token: string }> {
     const firstRun = await this.isFirstRun();
+    // Managed with password sign-in off: nobody signs up here, not even first.
+    // The server is set up from its command line (an admin key) and run from the admin.
+    if (this.config.accounts && !this.localSignInOpen()) {
+      throw new ZelyqError("forbidden", `Create your account at ${this.config.accounts.name}.`, {
+        reason: "managed",
+      });
+    }
     // Managed: people sign up with the account service; this form only sets the server up.
     if (!firstRun && this.config.accounts) {
       throw new ZelyqError("forbidden", `Create your account at ${this.config.accounts.name}.`, {
@@ -517,8 +550,10 @@ export class AuthService {
     }
 
     const { passwordHash: _ignored, kind: _kind, ...user } = record;
-    // Managed: only the server's own administrators sign in with a password here.
+    // Managed: only the server's own administrators sign in with a password here,
+    // and only when that is switched on on the server itself.
     this.requireLocal(user, "Sign in with your account");
+    this.requireLocalSignIn();
     const token = await this.createSession(user.id);
     this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "password" } });
     return { user, token };

@@ -1,4 +1,4 @@
-import { type AdminScope, ZelyqError } from "@zelyq/core";
+import { type AdminScope, updateSettingsSchema, ZelyqError } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type {
   FastifyInstance,
@@ -15,6 +15,7 @@ import type { EventsOut } from "../services/events-out.js";
 import type { MessagesToPeople } from "../services/messages-to-people.js";
 import type { ErrorTracker, RequestStats } from "../services/observability.js";
 import type { ProductActivity } from "../services/product-activity.js";
+import type { SettingsService } from "../services/settings.js";
 import type { SupportService } from "../services/support.js";
 import type { UsageService } from "../services/usage.js";
 
@@ -58,6 +59,7 @@ export function registerAdminApi(
     activity: ProductActivity;
     errors: ErrorTracker;
     requestStats: RequestStats;
+    settings: SettingsService;
     /** Every part of the server, checked now. */
     health: () => Promise<{ status: string }>;
   },
@@ -187,6 +189,13 @@ export function registerAdminApi(
           scopes: [...caller.scopes].sort(),
           mode: deps.usage.managed ? "managed" : "self_hosted",
         };
+      });
+
+      // Server settings: on a managed server, the only way to change them.
+      route("GET", "/settings", "settings", async () => await deps.settings.describe());
+      route("PUT", "/settings", "settings", async (request) => {
+        await deps.settings.update(updateSettingsSchema.parse(request.body));
+        return await deps.settings.describe();
       });
 
       // Plans: the account service pushes them; this server enforces them.

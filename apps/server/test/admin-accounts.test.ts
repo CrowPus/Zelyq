@@ -8,6 +8,7 @@ import { after, before, test } from "node:test";
 import { runMigrations } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
+import { AdminKeyService } from "../src/services/admin-keys.js";
 
 /**
  * People and teams through the admin API, on a managed server: what an
@@ -105,6 +106,8 @@ before(async () => {
       redirectUri: "http://localhost/api/auth/oidc/callback",
     },
     accounts: { name: "Example Cloud", url: "https://accounts.example.com" },
+    // The server's own administrator signs in here in these tests.
+    localSignIn: true,
     templatesDir: path.join(repoRoot, "templates"),
     webDir: null,
     secretKey: randomBytes(32).toString("base64"),
@@ -128,13 +131,13 @@ before(async () => {
     payload: { email: "admin@example.com", name: "Admin", password: "a-long-password-1" },
   });
   adminCookie = cookieOf(setup)!;
-  const made = await server.app.inject({
-    method: "POST",
-    url: "/api/admin-keys",
-    headers: { cookie: adminCookie },
-    payload: { name: "Example Cloud", scopes: ["accounts", "teams", "plans", "usage"] },
-  });
-  key = made.json().key;
+  // Managed: keys are made on the server (its command line), not from a session.
+  key = (
+    await new AdminKeyService(server.store).create(null, {
+      name: "Example Cloud",
+      scopes: ["accounts", "teams", "plans", "usage"],
+    })
+  ).key;
   const plans = await api("PUT", "/plans", {
     plans: [
       { id: "free", name: "Free", limits: { apps: 3 } },
@@ -422,13 +425,20 @@ test("usage for every team, a page at a time", async () => {
 });
 
 test("each call needs its scope", async () => {
-  const made = await server.app.inject({
+  const narrow = (
+    await new AdminKeyService(server.store).create(null, {
+      name: "Only accounts",
+      scopes: ["accounts"],
+    })
+  ).key;
+  // From a session, a managed server makes no keys at all.
+  const fromSession = await server.app.inject({
     method: "POST",
     url: "/api/admin-keys",
     headers: { cookie: adminCookie },
-    payload: { name: "Only accounts", scopes: ["accounts"] },
+    payload: { name: "Sneaky", scopes: ["accounts"] },
   });
-  const narrow = made.json().key;
+  assert.equal(fromSession.statusCode, 403);
   assert.equal((await api("GET", "/teams", undefined, narrow)).statusCode, 403);
   assert.equal((await api("GET", "/usage", undefined, narrow)).statusCode, 403);
   assert.equal(

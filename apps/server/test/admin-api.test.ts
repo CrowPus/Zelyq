@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { ALL_ADMIN_SCOPES } from "@zelyq/core";
 import { runMigrations } from "@zelyq/db";
 import { adminKeyCommand } from "../src/admin-key-cli.js";
 import { buildServer, type ZelyqServer } from "../src/app.js";
@@ -289,7 +290,7 @@ test("the server's command line makes a key before anyone has signed in", async 
   assert.match(key, /^zlq_admin_/);
   const whoami = await call(key, "GET", "/whoami");
   assert.equal(whoami.statusCode, 200, whoami.body);
-  assert.equal(whoami.json().scopes.length, 13);
+  assert.equal(whoami.json().scopes.length, ALL_ADMIN_SCOPES.length);
   assert.ok(whoami.json().scopes.includes("accounts"));
 });
 

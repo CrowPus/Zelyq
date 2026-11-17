@@ -34,6 +34,12 @@ export interface ServerConfig {
   provider: "anthropic" | "google";
   /** After the first account exists, whether strangers may still sign up. */
   allowRegistration: boolean;
+  /**
+   * Managed mode: whether the server's own administrators may sign in here with a
+   * password (`ZELYQ_LOCAL_SIGNIN=on`). Off by default when managed: the server is
+   * run from the admin, so there is no password here to guess. Self-hosted: always on.
+   */
+  localSignIn?: boolean;
   sessionTtlDays: number;
   /**
    * Managed mode: the outside account service that owns sign-up, sign-in,
@@ -247,6 +253,7 @@ export function loadServerConfig(): ServerConfig {
     // was created with. An empty model means "let the agent decide".
     provider: (process.env.ZELYQ_PROVIDER ?? "anthropic") as ServerConfig["provider"],
     allowRegistration: (process.env.ZELYQ_ALLOW_REGISTRATION ?? "true") !== "false",
+    localSignIn: process.env.ZELYQ_LOCAL_SIGNIN === "on",
     sessionTtlDays: intFromEnv("ZELYQ_SESSION_TTL_DAYS", 30),
     oidc,
     supabaseOAuth:

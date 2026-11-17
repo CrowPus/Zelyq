@@ -245,6 +245,7 @@ refuses to start without them). Then:
 | --- | --- | --- |
 | `ZELYQ_ACCOUNTS_URL` | — | The account service's address, for example `https://accounts.example.com`. `https://` only (`http://` for localhost). Empty = self-hosted. |
 | `ZELYQ_ACCOUNTS_NAME` | the address's host | Shown on buttons: "Continue with *name*". |
+| `ZELYQ_LOCAL_SIGNIN` | off | Managed only. `on` lets the server's own administrators sign in here with a password (`/signin?local=1`). Off by default: a managed server is run from the admin, so there is no password here to guess, and its server-wide settings, plans, keys and server Vault are read-only for every session (they change through the admin API). Make admin keys with `pnpm --filter @zelyq/server admin-key create`. |
 
 The service's pages are reached by fixed paths on that address, so any service can implement them:
 

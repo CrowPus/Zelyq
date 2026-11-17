@@ -100,7 +100,9 @@ function sectionId(groupName: string): string {
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const { user } = useSession();
+  const { user, session } = useSession();
+  // Managed: this server is run from the admin; here everything is shown, nothing changes.
+  const runFrom = session?.accounts?.name ?? null;
   const { hash } = useLocation();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
   const users = useQuery({ queryKey: ["users"], queryFn: api.listUsers });
@@ -341,7 +343,14 @@ export function SettingsPage() {
               })}
             </nav>
 
-            <div className="min-w-0">
+            <fieldset disabled={Boolean(runFrom)} className="m-0 min-w-0 border-0 p-0">
+              {runFrom && (
+                <p className="mb-4 rounded-md border border-info/25 bg-info-subtle px-3 py-2 text-xs text-info">
+                  This server is connected to {runFrom} and is run from its admin. Everything here
+                  is shown as it is set; changes are made in the admin, behind its own sign-in, so
+                  nothing that runs the whole server can be changed from inside it.
+                </p>
+              )}
               {settings.data?.restartPending && (
                 <p className="mt-5 flex items-start gap-2 rounded-md border border-warning/25 bg-warning-subtle px-2.5 py-2 text-xs text-warning">
                   <RotateCw size={14} strokeWidth={1.75} className="mt-px shrink-0" />
@@ -575,7 +584,7 @@ export function SettingsPage() {
                   )}
                 </div>
               )}
-            </div>
+            </fieldset>
           </div>
         </div>
       </div>

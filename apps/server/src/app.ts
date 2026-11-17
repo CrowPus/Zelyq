@@ -220,8 +220,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
     oidc: config.oidc,
     accounts: config.accounts,
+    ...(config.localSignIn !== undefined ? { localSignIn: config.localSignIn } : {}),
   });
   const access = new AccessControl(store);
+  // Managed: server-wide changes only from the admin (through the admin API).
+  access.managed = config.accounts?.name ?? null;
   // Product activity: what people do here, for this server's own administrators.
   const activity = new ProductActivity(store, {
     enabled: process.env.ZELYQ_PRODUCT_EVENTS !== "off",
@@ -578,6 +581,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const adminKeys = new AdminKeyService(store);
   adminKeys.onKeysChanged = () => eventsOut.keysChanged();
   registerAdminApi(app, {
+    settings,
     adminKeys,
     eventsOut,
     messages,

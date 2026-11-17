@@ -23,10 +23,9 @@ and one setting that switches the screens: `ZELYQ_ACCOUNTS_URL` (+ `ZELYQ_ACCOUN
 
 ## Setting a server up
 
-1. Start Zelyq and make the first account on its set-up form: that is the server's own
-   administrator, who can always sign in with a password at `/signin?local=1`.
-2. Make the service's key: `pnpm --filter @zelyq/server admin-key create --name "Account service" --scopes accounts,teams,plans,usage,events`
-   (or in Server settings → API keys). Keep it in the service's secret store.
+1. Start Zelyq. There is no set-up form: a managed server is run from the admin.
+2. Make the service's key on the server: `pnpm --filter @zelyq/server admin-key create --name "Account service" --scopes accounts,teams,plans,usage,events`
+   Keep it in the service's secret store. Make the admin's key the same way, with every scope (`--scopes all`).
 3. Register Zelyq with the service as an OIDC client (callback
    `https://<zelyq>/api/auth/oidc/callback`), and set `ZELYQ_OIDC_ISSUER`, `ZELYQ_OIDC_CLIENT_ID`,
    `ZELYQ_OIDC_CLIENT_SECRET`, `ZELYQ_OIDC_REDIRECT_URI`.
@@ -77,6 +76,14 @@ Zelyq links to these paths on `ZELYQ_ACCOUNTS_URL`; the service provides them:
 - A team's **Usage and plan** shows the plan, with **Change plan** for its owner.
 - A paused, read-only or suspended team shows a banner saying why, and what to do.
 - Announcements and maintenance from the operators appear as banners; messages in the bell.
+
+## Run from the admin, locked here
+
+A managed server has no password sign-in by default (`ZELYQ_LOCAL_SIGNIN` is off), and nothing
+server-wide changes from inside it: server settings, plans, admin keys and the server Vault are
+read-only for every session, even a server administrator's. They change only through the admin API
+(`settings`, `plans` and the rest), from the admin, behind its own sign-in. A guessed password here
+opens nothing. Keys are made on the server: `pnpm --filter @zelyq/server admin-key create`.
 
 ## What stays private
 

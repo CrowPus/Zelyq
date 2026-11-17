@@ -282,6 +282,9 @@ describe("managed: connected to an account service", () => {
       redirectUri: "http://localhost/api/auth/oidc/callback",
     };
     config.accounts = { name: "Example Cloud", url: "https://accounts.example.com" };
+    // These tests: password sign-in for the server's own administrators switched on
+    // (ZELYQ_LOCAL_SIGNIN=on). The default, off, is the next group.
+    config.localSignIn = true;
     server = await start(config);
   });
   after(async () => server.close());
@@ -479,4 +482,118 @@ test("return_to only ever names a path on this server", () => {
   ]) {
     assert.equal(safeReturnTo(bad), null, String(bad));
   }
+});
+
+describe("managed, the default: run from the admin, nothing to guess here", () => {
+  let server: ZelyqServer;
+  const adminCookie = "";
+  before(async () => {
+    const config = baseConfig("managed-locked");
+    config.oidc = {
+      issuer: idpBase,
+      clientId: "c",
+      clientSecret: "s",
+      redirectUri: "http://localhost/api/auth/oidc/callback",
+    };
+    config.accounts = { name: "Example Cloud", url: "https://accounts.example.com" };
+    server = await start(config);
+  });
+  after(async () => server.close());
+
+  test("no setup form and no password sign-in, not even for the first person", async () => {
+    const status = (await server.app.inject({ method: "GET", url: "/api/auth/status" })).json();
+    assert.equal(status.firstRun, false, "nothing to set up here");
+    assert.equal(status.signIn.password, false);
+    assert.equal(status.signIn.oidcOnly, true);
+    const register = await server.app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { email: "first@example.com", name: "First", password: "a-long-password-1" },
+    });
+    assert.equal(register.statusCode, 403);
+  });
+
+  test("the first customer through the service is a member, never the server's owner", async () => {
+    const response = await oidcSignIn(server, {
+      sub: "c1",
+      email: "c1@example.com",
+      email_verified: true,
+      name: "C One",
+    });
+    assert.ok(cookieOf(response));
+    const user = await server.store.users.findByEmail("c1@example.com");
+    assert.equal(user?.instanceRole, "member");
+  });
+
+  test("a server administrator's password is refused here, even when right", async () => {
+    const { hashPassword } = await import("../src/services/auth.js");
+    await server.store.users.create({
+      id: "usr_admin_locked",
+      email: "root@example.com",
+      name: "Root",
+      passwordHash: await hashPassword("the-right-password-1"),
+      instanceRole: "admin",
+    });
+    const login = await server.app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "root@example.com", password: "the-right-password-1" },
+    });
+    assert.equal(login.statusCode, 403, login.body);
+    assert.equal(login.json().error.details.reason, "local_signin_off");
+    assert.equal(cookieOf(login), null);
+  });
+
+  test("server settings, plans, keys and the server Vault: read here, changed only from the admin", async () => {
+    // A server administrator's session (one made before the switch was turned off).
+    const { randomBytes, randomUUID } = await import("node:crypto");
+    const { hashToken } = await import("../src/services/auth.js");
+    const token = randomBytes(32).toString("base64url");
+    await server.store.authSessions.create({
+      id: randomUUID(),
+      userId: "usr_admin_locked",
+      tokenHash: hashToken(token),
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    const as = (method: "GET" | "PUT" | "POST", url: string, payload?: unknown) =>
+      server.app.inject({
+        method,
+        url,
+        headers: { cookie: `zelyq_session=${token}` },
+        ...(payload ? { payload: payload as object } : {}),
+      });
+
+    assert.equal((await as("GET", "/api/settings")).statusCode, 200, "looking is fine");
+    for (const [method, url, payload] of [
+      ["PUT", "/api/settings", { sessionTtlDays: 1 }],
+      ["PUT", "/api/plans", { plans: [], defaultPlan: "unlimited" }],
+      ["POST", "/api/admin-keys", { name: "Sneaky", scopes: ["accounts"] }],
+      ["POST", "/api/instance/vault", { name: "STOLEN", value: "x" }],
+    ] as const) {
+      const refused = await as(method, url, payload);
+      assert.equal(refused.statusCode, 403, `${method} ${url}: ${refused.body}`);
+    }
+    const settings = await as("PUT", "/api/settings", { sessionTtlDays: 1 });
+    assert.equal(settings.json().error.details.reason, "managed_read_only");
+  });
+
+  test("the admin changes server settings through the admin API", async () => {
+    const { AdminKeyService } = await import("../src/services/admin-keys.js");
+    const { key } = await new AdminKeyService(server.store).create(null, {
+      name: "Admin",
+      scopes: ["settings"],
+    });
+    const api = (method: "GET" | "PUT", payload?: unknown) =>
+      server.app.inject({
+        method,
+        url: "/api/admin/v1/settings",
+        headers: { authorization: `Bearer ${key}` },
+        ...(payload ? { payload: payload as object } : {}),
+      });
+    const before = await api("GET");
+    assert.equal(before.statusCode, 200, before.body);
+    const changed = await api("PUT", { sessionTtlDays: 7 });
+    assert.equal(changed.statusCode, 200, changed.body);
+    assert.ok(JSON.stringify(changed.json()).includes("sessionTtlDays"));
+  });
 });
