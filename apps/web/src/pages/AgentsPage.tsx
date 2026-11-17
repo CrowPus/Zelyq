@@ -48,10 +48,11 @@ export function AgentsPage() {
   });
   const vaultChoices = useQuery({
     queryKey: ["vault-choices", teamId],
-    queryFn: () => api.vault.choices({ kind: "team", teamId }),
+    // The same shape every screen keeps under this key: the list itself.
+    queryFn: () => api.vault.choices({ kind: "team", teamId }).then((r) => r.choices),
     enabled: Boolean(teamId) && canAdmin,
   });
-  const secrets = (vaultChoices.data?.choices ?? []).map((choice) => choice.name);
+  const secrets = (vaultChoices.data ?? []).map((choice) => choice.name);
   const pipelines = (pipelineList.data?.pipelines ?? []).map((p) => ({ id: p.id, name: p.name }));
   const environments = (environmentList.data?.environments ?? []).map((e) => ({
     id: e.id,
