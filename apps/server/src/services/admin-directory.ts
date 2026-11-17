@@ -4,6 +4,7 @@ import type { Store } from "@zelyq/db";
 import { z } from "zod";
 import type { AccountService } from "./accounts.js";
 import { type AuthService, isServiceEmail } from "./auth.js";
+import type { ProductActivity } from "./product-activity.js";
 import type { UsageService } from "./usage.js";
 
 /**
@@ -85,6 +86,9 @@ export interface TeamSummary {
 }
 
 export class AdminDirectory {
+  /** Product activity: people and teams made through the API count as sign-ups. */
+  activity?: ProductActivity;
+
   constructor(
     private readonly store: Store,
     private readonly auth: AuthService,
@@ -163,6 +167,12 @@ export class AdminDirectory {
       );
       team = { id: made.id, name: made.name, plan: made.plan };
     }
+    // With the team they start in: what the activation funnel follows.
+    this.activity?.record("account.created", {
+      userId: user.id,
+      teamId: team?.id ?? null,
+      detail: { via: "admin_api" },
+    });
     return { created: true, account: await this.account(user.id), team };
   }
 
@@ -359,6 +369,11 @@ export class AdminDirectory {
     });
     await this.store.teams.addMember(team.id, ownerId, "owner");
     if (plan) await this.usage.setPlan(team.id, plan);
+    this.activity?.record("team.created", {
+      userId: ownerId,
+      teamId: team.id,
+      detail: { via: "admin_api" },
+    });
     const chosen = await this.usage.planOf(team.id);
     return { id: team.id, name: team.name, plan: { id: chosen.id, name: chosen.name } };
   }

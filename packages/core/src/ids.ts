@@ -33,6 +33,7 @@ export const ID_PREFIXES = {
   tool: "tol",
   audit: "adt",
   adminKey: "adk",
+  productEvent: "pev",
   attachment: "atc",
   imageGeneration: "img",
   videoGeneration: "vid",

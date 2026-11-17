@@ -1807,6 +1807,49 @@ export const adminIdempotency = sqliteTable(
   }),
 );
 
+/**
+ * Product activity (see `PRODUCT_EVENTS` in @zelyq/core): one row per thing a
+ * person did. No foreign keys, like the audit log: the record of what
+ * happened outlives what it was about. `detail` holds only short facts,
+ * never content.
+ */
+export const productEvents = sqliteTable(
+  "product_events",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    userId: text("user_id"),
+    teamId: text("team_id"),
+    projectId: text("project_id"),
+    detail: text("detail").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    nameIdx: index("product_events_name_created_idx").on(table.name, table.createdAt),
+    createdIdx: index("product_events_created_idx").on(table.createdAt),
+    teamIdx: index("product_events_team_created_idx").on(table.teamId, table.createdAt),
+    userIdx: index("product_events_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
+/**
+ * Daily totals of product activity older than the server keeps one row per
+ * event for (`keepProductEventsMonths`): the long view, without the rows.
+ */
+export const productDaily = sqliteTable(
+  "product_daily",
+  {
+    day: text("day").notNull(),
+    name: text("name").notNull(),
+    count: integer("count").notNull(),
+    people: integer("people").notNull(),
+    teams: integer("teams").notNull(),
+  },
+  (table) => ({
+    dayNameIdx: uniqueIndex("product_daily_day_name_idx").on(table.day, table.name),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1874,4 +1917,6 @@ export const schema = {
   opsNotifyPrefs,
   adminKeys,
   adminIdempotency,
+  productEvents,
+  productDaily,
 };

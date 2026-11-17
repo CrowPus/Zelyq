@@ -386,6 +386,13 @@
       "when": 1794909202742,
       "tag": "0054_account_status",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794910697115,
+      "tag": "0055_product_events",
+      "breakpoints": true
     }
   ]
 }

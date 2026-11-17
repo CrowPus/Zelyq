@@ -269,3 +269,39 @@ test("two turns leave the session total at their sum, not at a compounded runnin
     [1, 1],
   );
 });
+
+test("each message to the agent, and how its work ended, is recorded as product activity", async () => {
+  // The finished-work record is written in the turn's `finally`, just after `turn.end`.
+  const from = "2000-01-01T00:00:00.000Z";
+  const to = "2100-01-01T00:00:00.000Z";
+  let builds: Awaited<ReturnType<typeof server.store.productEvents.list>> = [];
+  for (let attempt = 0; attempt < 100 && builds.length < 2; attempt++) {
+    await server.activity.settled();
+    builds = await server.store.productEvents.list({
+      from,
+      to,
+      name: "agent.build_finished",
+      limit: 10,
+    });
+    if (builds.length < 2) await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const messages = await server.store.productEvents.list({
+    from,
+    to,
+    name: "agent.message",
+    limit: 10,
+  });
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0]!.detail.mode, "chat");
+  assert.equal(builds.length, 2);
+  for (const build of builds) {
+    assert.equal(build.detail.ok, true);
+    assert.equal(build.detail.provider, "google");
+    assert.equal(typeof build.detail.seconds, "number");
+    assert.ok(build.teamId, "the app's team is filled in");
+    // Never what was typed.
+    assert.ok(!JSON.stringify(build).includes("first"));
+  }
+  const apps = await server.store.productEvents.list({ from, to, name: "app.created", limit: 10 });
+  assert.equal(apps.length, 1);
+});

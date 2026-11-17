@@ -46,6 +46,11 @@ export function registerTeamRoutes(
 
     const team = await store.teams.create({ id: newId("team"), name: input.name.trim(), slug });
     await store.teams.addMember(team.id, user.id, "owner");
+    access.activity?.record("team.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "app" },
+    });
 
     reply.status(201);
     return { team: { ...team, role: "owner" as const } };

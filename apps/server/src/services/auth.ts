@@ -19,6 +19,7 @@ import {
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
+import type { ProductActivity } from "./product-activity.js";
 
 const scryptAsync = promisify(scrypt) as (
   password: string,
@@ -113,6 +114,9 @@ interface OidcClaims {
 }
 
 export class AuthService {
+  /** Product activity: sign-ups and sign-ins. */
+  activity?: ProductActivity;
+
   constructor(
     private readonly store: Store,
     private readonly config: AuthConfig,
@@ -221,7 +225,9 @@ export class AuthService {
       throw new ZelyqError("unauthorized", "The identity provider returned an invalid profile.");
     }
     const user = await this.findOrCreateOidcUser(metadata.issuer, claims);
-    return { user, token: await this.createSession(user.id) };
+    const session = await this.createSession(user.id);
+    this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "sso" } });
+    return { user, token: session };
   }
 
   private requireOidc(): {
@@ -362,6 +368,16 @@ export class AuthService {
       issuer,
       subject: claims.sub,
     });
+    this.activity?.record("account.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "sso" },
+    });
+    this.activity?.record("team.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "signup" },
+    });
     return user;
   }
 
@@ -437,7 +453,19 @@ export class AuthService {
       }
     }
 
-    return { user, token: await this.createSession(user.id) };
+    const token = await this.createSession(user.id);
+    this.activity?.record("account.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "password" },
+    });
+    this.activity?.record("team.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "signup" },
+    });
+    this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "password" } });
+    return { user, token };
   }
 
   async login(input: LoginInput): Promise<{ user: User; token: string }> {
@@ -455,7 +483,9 @@ export class AuthService {
     }
 
     const { passwordHash: _ignored, kind: _kind, ...user } = record;
-    return { user, token: await this.createSession(user.id) };
+    const token = await this.createSession(user.id);
+    this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "password" } });
+    return { user, token };
   }
 
   /**
@@ -588,7 +618,9 @@ export class AuthService {
 
   /** A fresh session for an account that proved itself another way: a reset or invitation link. */
   async startSession(userId: string): Promise<string> {
-    return await this.createSession(userId);
+    const token = await this.createSession(userId);
+    this.activity?.record("account.signed_in", { userId, detail: { method: "link" } });
+    return token;
   }
 
   async describe(user: User): Promise<SessionResponse> {

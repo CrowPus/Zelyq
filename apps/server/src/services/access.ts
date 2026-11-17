@@ -9,6 +9,7 @@ import {
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { FastifyRequest } from "fastify";
+import type { ProductActivity } from "./product-activity.js";
 
 /**
  * Every authorization decision in the application goes through this class.
@@ -22,6 +23,9 @@ import type { FastifyRequest } from "fastify";
  * cannot see from one that does not exist.
  */
 export class AccessControl {
+  /** Product activity: audit entries that also count as what people do. */
+  activity?: ProductActivity;
+
   constructor(private readonly store: Store) {}
 
   requireUser(request: FastifyRequest): User {
@@ -119,6 +123,12 @@ export class AccessControl {
       detail?: Record<string, unknown>;
     },
   ): Promise<void> {
+    this.activity?.fromAudit(entry.action, {
+      userId: user.id,
+      teamId: entry.teamId,
+      projectId: entry.projectId ?? null,
+      detail: entry.detail,
+    });
     await this.store.auditLog.record({
       id: newId("audit"),
       teamId: entry.teamId,

@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { AdminDirectory } from "../services/admin-directory.js";
 import { type AdminCaller, type AdminKeyService, requestHash } from "../services/admin-keys.js";
+import type { ProductActivity } from "../services/product-activity.js";
 import type { UsageService } from "../services/usage.js";
 
 declare module "fastify" {
@@ -47,9 +48,10 @@ export function registerAdminApi(
     store: Store;
     access: AccessControl;
     directory: AdminDirectory;
+    activity: ProductActivity;
   },
 ): void {
-  const { adminKeys, usage, store, directory } = deps;
+  const { adminKeys, usage, store, directory, activity } = deps;
 
   // ------------------------------------------------- the keys themselves (a person)
 
@@ -248,6 +250,36 @@ export function registerAdminApi(
 
       route("GET", "/usage", "usage", async (request) =>
         directory.listUsage(request.query as { cursor?: string; limit?: string }),
+      );
+
+      // ------------------------------------------- product activity
+
+      type Range = { from?: string; to?: string };
+      route("GET", "/product-events", "analytics", async (request) =>
+        activity.events(
+          request.query as Range & {
+            name?: string;
+            team?: string;
+            user?: string;
+            cursor?: string;
+            limit?: string;
+          },
+        ),
+      );
+      route("GET", "/metrics/overview", "analytics", async (request) =>
+        activity.overview(request.query as Range),
+      );
+      route("GET", "/metrics/funnel", "analytics", async (request) =>
+        activity.funnel(request.query as Range),
+      );
+      route("GET", "/metrics/retention", "analytics", async (request) =>
+        activity.retention(request.query as { weeks?: string }),
+      );
+      route("GET", "/metrics/features", "analytics", async (request) =>
+        activity.features(request.query as Range),
+      );
+      route("GET", "/metrics/plans", "analytics", async (request) =>
+        activity.plans(request.query as Range),
       );
 
       // Anything else under the prefix is an unknown call, answered in the API's own shape.

@@ -96,6 +96,32 @@ team's Ops engineer is never an account here.
 | `GET /teams/:id/usage` | `usage` | What a team uses against its plan |
 | `GET /usage` | `usage` | Every team's use against its plan, paged like `GET /teams`: for a daily run |
 
+### Product activity (`analytics`)
+
+What people do on this server is recorded where it happens, for this server's own administrators.
+It never leaves the server by itself: only a key with the `analytics` scope can read it.
+
+| Call | What it gives |
+| --- | --- |
+| `GET /product-events` | The raw events, oldest first: `?from=&to=` (dates or times; default the last 30 days, at most 800 days), `?name=`, `?team=`, `?user=`, `?limit=` (up to 2000), `?cursor=` (the `nextCursor` of the page before) |
+| `GET /metrics/overview` | Per day: sign-ups, active people and teams, apps made, messages to the agent, builds (and how many failed), previews, deploys (and failed), pipeline runs, limits reached. Totals for the range, and the people and teams active in the last day, 7 days and 30 days |
+| `GET /metrics/funnel` | Activation: of the teams that signed up in the range, how many made an app, had the agent build something, opened a preview, deployed, invited someone (at any time since), with the share at each step |
+| `GET /metrics/retention?weeks=8` | Of the people who signed up in each of the last weeks, the share who did anything 1, 2, … weeks after signing up (`null` for a week not over yet) |
+| `GET /metrics/features` | For each feature (Studio images and video, voice, Vault, pipelines, deploy environments, outside agents, Ops, git, Supabase, Figma): uses, teams, and uses by plan |
+| `GET /metrics/plans` | Teams per plan, teams at 80% or more of a limit, and which limits stopped people, how often, in how many teams |
+
+**The events:** `account.created`, `account.signed_in`, `team.created`, `member.invited`,
+`member.joined`, `app.created`, `app.deleted`, `agent.message`, `agent.build_finished`,
+`preview.started`, `preview.failed`, `pipeline.run_finished`, `deploy.finished`, `limit.reached`,
+`feature.used`. Each has the time, the person, the team, the app when there is one, and a few short
+facts: how someone signed in, the template, whether a build or deploy worked and how long it
+took, which limit or feature. **Never** what anyone typed, code, files, names of secrets or keys:
+anything else is dropped before it is stored.
+
+**Keeping it:** one row per event is kept for 13 months (`ZELYQ_PRODUCT_EVENTS_MONTHS`); older
+rows are folded into daily totals, which the overview still counts. `ZELYQ_PRODUCT_EVENTS=off`
+records nothing.
+
 More calls (team status, last activity, health, events) come in later versions of this page.
 
 ## Rules every call follows

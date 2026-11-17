@@ -16,6 +16,7 @@ import {
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
+import type { ProductActivity } from "./product-activity.js";
 
 /**
  * What each team uses, and what its plan allows.
@@ -195,6 +196,8 @@ export class UsageService {
   private readonly touched = new Map<string, number>();
   /** Whether an app's agent is working now (its status says building). */
   appBusy?: (projectId: string) => Promise<boolean>;
+  /** Product activity: a plan limit that stopped someone. */
+  activity?: ProductActivity;
   /** Managed by an account service: plans are what people pay for, so always shown. */
   managed = false;
   /** How many idle days before clearing (Server settings); 0: never. */
@@ -516,6 +519,7 @@ export class UsageService {
     if (used + adding <= limit) return;
     const words = PLAN_LIMITS[key];
     const amount = (value: number) => `${value}${words.unit ? ` ${words.unit}` : ""}`;
+    this.activity?.record("limit.reached", { teamId, detail: { limit: key, plan: plan.id } });
     throw new ZelyqError(
       "forbidden",
       key === "storageMb"

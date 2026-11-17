@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
+import type { ProductFeature } from "@zelyq/core";
 import { isZelyqError, toError, type User, ZelyqError } from "@zelyq/core";
 import { resolveFromRepoRoot } from "@zelyq/core/node";
 import { createStore, type Store } from "@zelyq/db";
@@ -83,6 +84,7 @@ import { PipelineService } from "./services/pipelines/service.js";
 import { ToolService } from "./services/pipelines/tools.js";
 import { PipelineTriggerService } from "./services/pipelines/triggers.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
+import { ProductActivity } from "./services/product-activity.js";
 import { ProjectBackendService } from "./services/project-backend.js";
 import { ProjectVariableService } from "./services/project-variables.js";
 import { ProjectService } from "./services/projects.js";
@@ -111,6 +113,8 @@ declare module "fastify" {
 
 export interface ZelyqServer {
   app: FastifyInstance;
+  /** Product activity: exposed so tests can wait for recordings to land. */
+  activity: ProductActivity;
   store: Store;
   runtime: RuntimeDriver;
   /** What each team uses, and its plan: exposed so tests measure when they choose. */
@@ -203,6 +207,17 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     accounts: config.accounts,
   });
   const access = new AccessControl(store);
+  // Product activity: what people do here, for this server's own administrators.
+  const activity = new ProductActivity(store, {
+    enabled: process.env.ZELYQ_PRODUCT_EVENTS !== "off",
+    keepMonths: Math.max(
+      1,
+      Number.parseInt(process.env.ZELYQ_PRODUCT_EVENTS_MONTHS ?? "13", 10) || 13,
+    ),
+    log: (error, message) => app.log.warn({ error }, message),
+  });
+  auth.activity = activity;
+  access.activity = activity;
   const vault = new VaultService(store, secrets, access);
   const variables = new ProjectVariableService(store, secrets, access, vault, runtime);
   vault.listeners.teamEntryChanged = (teamId, name) => variables.vaultEntryChanged(teamId, name);
@@ -212,6 +227,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const sshKeys = new TeamSshKeyService(store, access, secrets);
   const runners = new RunnerService(store, access, sshKeys);
   const deploys = new DeployService(store, access, secrets, vault, runners);
+  deploys.activity = activity;
   const pipelinePlugins = new PipelinePluginService(
     store,
     access,
@@ -336,6 +352,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     (await store.projects.findById(projectId))?.status === "building";
   usage.idleDays = () => settings.numberValue("cleanIdleAfterDays");
   usage.managed = Boolean(config.accounts);
+  usage.activity = activity;
+  activity.usage = usage;
   // Undo points: only the newest are kept; a team member frees more from its Usage panel.
   projects.keepSnapshots = () => settings.numberValue("keepUndoPoints");
   usage.pruneUndo = (projectId, keep) => projects.pruneSnapshots(projectId, keep);
@@ -443,12 +461,15 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerPlanRoutes(app, { usage, access, store });
+  const directory = new AdminDirectory(store, auth, accounts, usage);
+  directory.activity = activity;
   registerAdminApi(app, {
     adminKeys: new AdminKeyService(store),
     usage,
     store,
     access,
-    directory: new AdminDirectory(store, auth, accounts, usage),
+    directory,
+    activity,
   });
   registerTeamRoutes(app, {
     limits: usage,
@@ -477,6 +498,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     resolvePreviewEnv,
     backend: projectBackend,
     thumbnails,
+    activity,
   });
   registerSupabaseConnectionRoutes(app, { supabase: supabaseConnections, access, runtime });
   registerFigmaRoutes(app, { figma: figmaConnections, access });
@@ -627,6 +649,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     videos.start();
     // Measures every team's files in the background; under the test runner only when asked.
     if (!process.env.NODE_TEST_CONTEXT) usage.start();
+    activity.start();
     await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
@@ -670,12 +693,46 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
   gateway.limits = usage;
+  gateway.activity = activity;
+
+  // Features counted where they are asked for: a successful call is one use.
+  const featureRoutes: Record<string, ProductFeature> = {
+    "/api/images/generations": "studio_image",
+    "/api/videos/generations": "studio_video",
+    "/api/projects/:id/voice/transcriptions": "voice",
+    "/api/teams/:teamId/voice/transcriptions": "voice",
+  };
+  app.addHook("onResponse", async (request, reply) => {
+    if (request.method !== "POST" || reply.statusCode >= 400) return;
+    const feature = featureRoutes[request.routeOptions.url ?? ""];
+    if (!feature) return;
+    const params = (request.params ?? {}) as { id?: string; teamId?: string };
+    const query = (request.query ?? {}) as { teamId?: string };
+    activity.feature(feature, {
+      userId: request.zelyqUser?.id ?? null,
+      teamId: params.teamId ?? query.teamId ?? null,
+      projectId: params.id ?? null,
+    });
+  });
   agentFilesChanged = (projectId, paths) => gateway.notifyFilesChanged(projectId, paths);
 
   // Pipelines starting other pipelines: a `pipeline` step, and "after another pipeline" triggers.
   pipelineEngine.hooks = {
     startChild: (parent, name, inputs) => pipelines.startChild(parent, name, inputs),
     runFinished: async (run) => {
+      activity.record("pipeline.run_finished", {
+        userId: run.triggeredBy,
+        teamId: run.teamId,
+        detail: {
+          ok: run.status === "passed",
+          status: run.status,
+          trigger: run.trigger,
+          seconds:
+            run.startedAt && run.finishedAt
+              ? (Date.parse(run.finishedAt) - Date.parse(run.startedAt)) / 1000
+              : undefined,
+        },
+      });
       // The watch hears every finished run: a deploying pipeline that failed is an alert.
       await watch
         .runFinished(run.teamId, run.pipelineId, run.status, `#${run.number}`)
@@ -766,6 +823,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
 
   return {
     app,
+    activity,
     imageBridge,
     videoBridge,
     previewGrants: projectBackend,
@@ -787,6 +845,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     },
     async close() {
       await app.close();
+      activity.stop();
+      await activity.settled();
       await runtime.dispose();
       await store.close();
     },

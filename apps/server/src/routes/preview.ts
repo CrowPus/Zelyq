@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import { ensureInspectorScript } from "../services/inspector-script.js";
 import type { PreviewEnvResolver } from "../services/preview-env.js";
+import type { ProductActivity } from "../services/product-activity.js";
 import type { ProjectBackendService } from "../services/project-backend.js";
 import type { ProjectService } from "../services/projects.js";
 import type { ThumbnailStore } from "../services/thumbnails.js";
@@ -25,6 +26,7 @@ export function registerPreviewRoutes(
     resolvePreviewEnv: PreviewEnvResolver;
     backend?: ProjectBackendService;
     thumbnails?: ThumbnailStore;
+    activity?: ProductActivity;
   },
 ): void {
   const { access } = deps;
@@ -39,11 +41,8 @@ export function registerPreviewRoutes(
   });
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/preview/start", async (request) => {
-    const project = await access.requireProject(
-      access.requireUser(request),
-      request.params.id,
-      "editor",
-    );
+    const user = access.requireUser(request);
+    const project = await access.requireProject(user, request.params.id, "editor");
     // One more preview running at once, unless this one already is.
     const already = await deps.runtime
       .previewStatus(request.params.id)
@@ -57,12 +56,26 @@ export function registerPreviewRoutes(
     // preview starts serving the file: never a reason starting it fails.
     await ensureInspectorScript(deps.runtime, deps.templatesDir, request.params.id);
     const env = await deps.resolvePreviewEnv(request.params.id);
-    return {
-      preview: await deps.runtime.startPreview(
+    const where = { userId: user.id, teamId: project.project.teamId, projectId: request.params.id };
+    try {
+      const preview = await deps.runtime.startPreview(
         request.params.id,
         deps.backend ? await deps.backend.previewOptions(request.params.id, env) : { env },
-      ),
-    };
+      );
+      if (!already) {
+        deps.activity?.record(
+          preview.status === "crashed" ? "preview.failed" : "preview.started",
+          where,
+        );
+      }
+      return { preview };
+    } catch (error) {
+      deps.activity?.record("preview.failed", {
+        ...where,
+        detail: { reason: (error as { code?: string }).code ?? "error" },
+      });
+      throw error;
+    }
   });
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/preview/stop", async (request) => {
