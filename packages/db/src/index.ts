@@ -1,4 +1,5 @@
 import { createDatabase, type DatabaseHandle } from "./client.js";
+import { adminKeyRepository } from "./repositories/admin-keys.js";
 import { agentRepository } from "./repositories/agents.js";
 import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
@@ -109,6 +110,7 @@ export interface Store extends DatabaseHandle {
   deploy: ReturnType<typeof deployRepository>;
   agents: ReturnType<typeof agentRepository>;
   ops: ReturnType<typeof opsRepository>;
+  adminKeys: ReturnType<typeof adminKeyRepository>;
 }
 
 /**
@@ -139,9 +141,11 @@ export function createStore(url: string): Store {
     deploy: deployRepository(handle.db),
     agents: agentRepository(handle.db),
     ops: opsRepository(handle.db),
+    adminKeys: adminKeyRepository(handle.db),
   };
 }
 
+export type { AdminIdempotencyRow, AdminKeyRow } from "./repositories/admin-keys.js";
 export type {
   AgentOauthClientRow,
   AgentOauthGrantRow,

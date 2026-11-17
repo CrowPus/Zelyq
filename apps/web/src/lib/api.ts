@@ -1,5 +1,7 @@
 import type {
   AddMemberInput,
+  AdminKeySummary,
+  AdminScope,
   Agent,
   AgentCreate,
   AgentCreated,
@@ -14,6 +16,7 @@ import type {
   BackendConfiguration,
   BackendConfigurationInput,
   ChangePasswordInput,
+  CreatedAdminKey,
   CreateProjectInput,
   CreatePullRequestRequest,
   DeploymentDetail,
@@ -977,6 +980,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
+  adminKeys: () => request<{ keys: AdminKeySummary[] }>("/admin-keys"),
+  createAdminKey: (input: { name: string; scopes: AdminScope[] }) =>
+    request<CreatedAdminKey>("/admin-keys", { method: "POST", body: JSON.stringify(input) }),
+  revokeAdminKey: (id: string) =>
+    request<{ key: AdminKeySummary }>(`/admin-keys/${id}`, { method: "DELETE" }),
   planTeams: () =>
     request<{
       teams: Array<{

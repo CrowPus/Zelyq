@@ -32,6 +32,7 @@ export const ID_PREFIXES = {
   snapshot: "snp",
   tool: "tol",
   audit: "adt",
+  adminKey: "adk",
   attachment: "atc",
   imageGeneration: "img",
   videoGeneration: "vid",

@@ -13,6 +13,7 @@ import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { ServerConfig } from "./config.js";
 import { registerAccountRoutes } from "./routes/accounts.js";
+import { registerAdminApi } from "./routes/admin-api.js";
 import { registerAgentOAuthRoutes } from "./routes/agent-oauth.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
@@ -45,6 +46,7 @@ import { registerVideoRoutes } from "./routes/videos.js";
 import { registerVoiceRoutes } from "./routes/voice.js";
 import { AccessControl } from "./services/access.js";
 import { AccountService } from "./services/accounts.js";
+import { AdminKeyService } from "./services/admin-keys.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AgentGateway, pipelineGuide } from "./services/agent-gateway.js";
 import { AgentOAuthService } from "./services/agent-oauth.js";
@@ -440,6 +442,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerPlanRoutes(app, { usage, access, store });
+  registerAdminApi(app, { adminKeys: new AdminKeyService(store), usage, store, access });
   registerTeamRoutes(app, {
     limits: usage,
     store,

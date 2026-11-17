@@ -8,6 +8,7 @@ import {
   Gauge,
   GraduationCap,
   Image as ImageIcon,
+  KeyRound,
   Lock,
   LockKeyhole,
   Mail,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { AdminKeysPanel } from "../components/AdminKeysPanel";
 import { AppShell } from "../components/AppShell";
 import { CliSessionControl } from "../components/CliSessionControl";
 import { FigmaIntegration } from "../components/FigmaIntegration";
@@ -82,6 +84,11 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
   status: { label: "Instance status", icon: Activity, blurb: "Health, migrations and diagnostics" },
   users: { label: "Users", icon: Users, blurb: "Accounts on this instance" },
   plans: { label: "Plans", icon: Gauge, blurb: "What each team may use" },
+  "api-keys": {
+    label: "API keys",
+    icon: KeyRound,
+    blurb: "Keys for your own systems that run this server",
+  },
 };
 
 /** A group's name as it arrives from the API, as a section id. */
@@ -142,7 +149,7 @@ export function SettingsPage() {
     // Anything the server adds later still gets a menu entry rather than
     // silently disappearing from the page.
     const extra = fromGroups.filter((id) => !ordered.includes(id));
-    return [...ordered, ...extra, "integrations", "status", "users", "plans"];
+    return [...ordered, ...extra, "integrations", "status", "users", "plans", "api-keys"];
   }, [settings.data]);
 
   const [active, setActive] = useState<string>("model");
@@ -475,6 +482,7 @@ export function SettingsPage() {
               )}
 
               {active === "plans" && <PlansPanel />}
+              {active === "api-keys" && <AdminKeysPanel />}
 
               {active === "users" && (
                 <>

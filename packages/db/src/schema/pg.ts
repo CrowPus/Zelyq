@@ -1740,6 +1740,55 @@ export const opsNotifyPrefs = pgTable(
   }),
 );
 
+/**
+ * Keys an outside system (an account service, monitoring, analytics) uses on
+ * `/api/admin/v1`. Made by the server's administrator; the key is shown once
+ * and stored only as a SHA-256 hash. `scopes` is a JSON array of what it may
+ * reach (see `adminScopeSchema` in @zelyq/core).
+ */
+export const adminKeys = pgTable(
+  "admin_keys",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    scopes: text("scopes").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    lastUsedAt: text("last_used_at"),
+    lastUsedIp: text("last_used_ip"),
+    revokedAt: text("revoked_at"),
+  },
+  (table) => ({
+    hashIdx: uniqueIndex("admin_keys_key_hash_idx").on(table.keyHash),
+  }),
+);
+
+/**
+ * A change sent to `/api/admin/v1` with an `Idempotency-Key` header, and the
+ * answer it got: the same request sent again (a retry after a timeout) gets
+ * the same answer and changes nothing twice. Kept for a day.
+ */
+export const adminIdempotency = pgTable(
+  "admin_idempotency",
+  {
+    keyId: text("key_id")
+      .notNull()
+      .references(() => adminKeys.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    /** "PUT /api/admin/v1/plans" + a hash of the body: the same key with another request is refused. */
+    requestHash: text("request_hash").notNull(),
+    statusCode: integer("status_code").notNull(),
+    response: text("response").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    keyIdx: uniqueIndex("admin_idempotency_key_idx").on(table.keyId, table.idempotencyKey),
+    createdIdx: index("admin_idempotency_created_idx").on(table.createdAt),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1805,4 +1854,6 @@ export const schema = {
   opsAccess,
   opsLinkCodes,
   opsNotifyPrefs,
+  adminKeys,
+  adminIdempotency,
 };

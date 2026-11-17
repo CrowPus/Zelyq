@@ -247,6 +247,9 @@ The service's pages are reached by fixed paths on that address, so any service c
 `GET /api/auth/status` says which mode a server is in (`mode`, `accounts`, `signIn`); the browser
 shows only what it says.
 
+The account service manages this server through the [admin API](admin-api.md), with a key made in
+**Server settings → API keys**.
+
 ### Supabase integration
 
 A team can connect a Supabase account so a project's preview points at a real backend. The
