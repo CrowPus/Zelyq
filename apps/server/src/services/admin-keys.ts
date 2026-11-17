@@ -111,17 +111,25 @@ export class AdminKeyService {
   /** A change made with a key, for the audit log. Nothing from the request body. */
   async recordCall(
     caller: AdminCaller,
-    detail: { method: string; path: string; status: number; teamId?: string | null },
+    detail: { method: string; path: string; status: number; target?: string | null },
   ): Promise<void> {
+    const target = detail.target ?? null;
     await this.store.auditLog.record({
       id: newId("audit"),
-      teamId: detail.teamId ?? null,
+      // A change to a team shows in that team's own activity too.
+      teamId: target?.startsWith("tem_") ? target : null,
       projectId: null,
       userId: null,
       actorName: `Admin key "${caller.name}"`,
       actorEmail: `${caller.prefix}…`,
       action: "admin_api.call",
-      detail: { method: detail.method, path: detail.path, status: detail.status, key: caller.name },
+      detail: {
+        method: detail.method,
+        path: detail.path,
+        status: detail.status,
+        key: caller.name,
+        ...(target ? { target } : {}),
+      },
       createdAt: new Date().toISOString(),
     });
   }

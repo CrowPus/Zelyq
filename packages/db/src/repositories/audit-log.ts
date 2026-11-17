@@ -9,6 +9,17 @@ export function auditLogRepository(db: ZelyqDb) {
       await db.insert(auditLog).values({ ...entry, detail: JSON.stringify(entry.detail) });
     },
 
+    /** The newest entries of one kind, across the whole server. */
+    async listByAction(action: AuditAction, limit = 200): Promise<AuditLogEntry[]> {
+      const rows = await db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, action))
+        .orderBy(desc(auditLog.createdAt))
+        .limit(limit);
+      return rows.map(parse);
+    },
+
     async listForTeam(teamId: string, limit = 200): Promise<AuditLogEntry[]> {
       const rows = await db
         .select()

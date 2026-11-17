@@ -9,6 +9,7 @@ import type {
 } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
+import type { AdminDirectory } from "../services/admin-directory.js";
 import { type AdminCaller, type AdminKeyService, requestHash } from "../services/admin-keys.js";
 import type { UsageService } from "../services/usage.js";
 
@@ -40,9 +41,15 @@ const CALLS_PER_MINUTE = 600;
  */
 export function registerAdminApi(
   app: FastifyInstance,
-  deps: { adminKeys: AdminKeyService; usage: UsageService; store: Store; access: AccessControl },
+  deps: {
+    adminKeys: AdminKeyService;
+    usage: UsageService;
+    store: Store;
+    access: AccessControl;
+    directory: AdminDirectory;
+  },
 ): void {
-  const { adminKeys, usage, store } = deps;
+  const { adminKeys, usage, store, directory } = deps;
 
   // ------------------------------------------------- the keys themselves (a person)
 
@@ -107,33 +114,27 @@ export function registerAdminApi(
         request.adminIdempotency = { key, hash };
       });
 
+      // Before the answer leaves: a caller told "done" can rely on the change
+      // being recorded, and on a retry being answered the same way.
       admin.addHook("onSend", async (request, reply, payload) => {
+        const caller = request.adminCaller;
+        if (!caller || request.method === "GET" || request.method === "HEAD") return payload;
+        if (reply.getHeader("idempotent-replayed")) return payload;
+
         const kept = request.adminIdempotency;
         // Failures of our own (5xx) are not kept: a retry should really retry.
         if (kept && reply.statusCode < 500 && typeof payload === "string") {
-          await adminKeys.saveAnswer(
-            request.adminCaller!,
-            kept.key,
-            kept.hash,
-            reply.statusCode,
-            payload,
-          );
+          await adminKeys.saveAnswer(caller, kept.key, kept.hash, reply.statusCode, payload);
+        }
+        if (reply.statusCode < 400) {
+          await adminKeys.recordCall(caller, {
+            method: request.method,
+            path: request.routeOptions.url ?? request.url,
+            status: reply.statusCode,
+            target: (request.params as { id?: string } | undefined)?.id ?? null,
+          });
         }
         return payload;
-      });
-
-      admin.addHook("onResponse", async (request, reply) => {
-        const caller = request.adminCaller;
-        if (!caller || request.method === "GET" || request.method === "HEAD") return;
-        if (reply.statusCode >= 400 || reply.getHeader("idempotent-replayed")) return;
-        await adminKeys.recordCall(caller, {
-          method: request.method,
-          path: request.routeOptions.url ?? request.url,
-          status: reply.statusCode,
-          teamId: (request.params as { id?: string } | undefined)?.id?.startsWith("tem_")
-            ? (request.params as { id: string }).id
-            : null,
-        });
       });
 
       /** A route that needs `scope`, rate limited per key. */
@@ -201,6 +202,53 @@ export function registerAdminApi(
         await usage.setPlan(id, plan);
         return await usage.usage(id);
       });
+
+      // ------------------------------------------- people
+
+      type Id = { id: string };
+      const idOf = (request: FastifyRequest) => (request.params as Id).id;
+      const look = (request: FastifyRequest) => (request.query as { look?: string }).look === "1";
+
+      route("POST", "/accounts", "accounts", async (request, reply) => {
+        const result = await directory.ensureAccount(request.body);
+        reply.status(result.created ? 201 : 200);
+        return result;
+      });
+      route("GET", "/accounts", "accounts", async (request) =>
+        directory.findAccount(
+          request.query as { email?: string; externalId?: string; issuer?: string },
+        ),
+      );
+      route("GET", "/accounts/:id", "accounts", async (request) =>
+        directory.account(idOf(request)),
+      );
+      route("PATCH", "/accounts/:id", "accounts", async (request) =>
+        directory.updateAccount(idOf(request), request.body),
+      );
+      route("POST", "/accounts/:id/sign-out", "accounts", async (request) =>
+        directory.signOut(idOf(request)),
+      );
+      route("PUT", "/accounts/:id/status", "accounts", async (request) =>
+        directory.setAccountStatus(idOf(request), request.body),
+      );
+      route("DELETE", "/accounts/:id", "accounts", async (request) =>
+        directory.deleteAccount(idOf(request), look(request)),
+      );
+
+      // ------------------------------------------- teams
+
+      route("POST", "/teams", "teams", async (request, reply) => {
+        reply.status(201);
+        return await directory.createTeam(request.body);
+      });
+      route("GET", "/teams", "teams", async (request) =>
+        directory.listTeams(request.query as { cursor?: string; limit?: string; plan?: string }),
+      );
+      route("GET", "/teams/:id", "teams", async (request) => directory.teamDetail(idOf(request)));
+
+      route("GET", "/usage", "usage", async (request) =>
+        directory.listUsage(request.query as { cursor?: string; limit?: string }),
+      );
 
       // Anything else under the prefix is an unknown call, answered in the API's own shape.
       admin.setNotFoundHandler(async (request) => {

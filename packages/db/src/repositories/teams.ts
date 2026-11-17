@@ -1,5 +1,5 @@
 import type { Role, Team, TeamMember, TeamMembership } from "@zelyq/core";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, gt, ne, or } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { teamMembers, teams, users } from "../schema/sqlite.js";
 
@@ -19,6 +19,29 @@ export function teamRepository(db: ZelyqDb) {
     /** Every team on the server, oldest first: for its administrator's plans page. */
     async listAll(): Promise<Team[]> {
       return await db.select().from(teams).orderBy(asc(teams.createdAt));
+    },
+
+    /**
+     * A page of every team, oldest first, after the team `after` (its id and
+     * creation time): stable while teams are added, for the admin API.
+     */
+    async listPage(
+      after: { id: string; createdAt: string } | null,
+      limit: number,
+    ): Promise<Team[]> {
+      return await db
+        .select()
+        .from(teams)
+        .where(
+          after
+            ? or(
+                gt(teams.createdAt, after.createdAt),
+                and(eq(teams.createdAt, after.createdAt), gt(teams.id, after.id)),
+              )
+            : undefined,
+        )
+        .orderBy(asc(teams.createdAt), asc(teams.id))
+        .limit(limit);
     },
 
     async findBySlug(slug: string): Promise<Team | null> {

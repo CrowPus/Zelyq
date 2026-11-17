@@ -48,13 +48,55 @@ A call outside the key's scopes is refused with `403`.
 | Call | Scope | What it does |
 | --- | --- | --- |
 | `GET /whoami` | — | This key's name and scopes, and whether the server is `self_hosted` or `managed` |
+
+### People
+
+| Call | Scope | What it does |
+| --- | --- | --- |
+| `POST /accounts` | `accounts` | **Make sure a person exists** (see below). `201` when made, `200` when they already were |
+| `GET /accounts?email=` · `?externalId=` | `accounts` | Find a person by email, or by the service's id for them |
+| `GET /accounts/:id` | `accounts` | One person: email, name, status, the service ids linked to them, their teams with role and plan |
+| `PATCH /accounts/:id` | `accounts` | Change `email` and/or `name`. An email another account has is refused (`409`) |
+| `POST /accounts/:id/sign-out` | `accounts` | End every session the person has on this server |
+| `PUT /accounts/:id/status` | `accounts` | `{ "status": "suspended", "reason": "…" }` or `{ "status": "active" }`. Suspending ends their sessions; they cannot sign in again (password or single sign-on) until made active. Signing in with a password shows the reason; through the service, "this account is suspended" (the reason never goes in a link) |
+| `DELETE /accounts/:id` | `accounts` | Delete the person. `?look=1` first: says which teams go with them (teams where they are the only member, with their apps) and which stay. Refused (`409`) when they are the last owner of a team that has other members |
+
+`POST /accounts` takes:
+
+```json
+{
+  "email": "ama@example.com",
+  "name": "Ama",
+  "externalId": "the service's id for the person (the sub it signs them in with)",
+  "team": { "name": "Ama's studio", "plan": "free" }
+}
+```
+
+- `externalId` is linked to the server's single sign-on issuer (`ZELYQ_OIDC_ISSUER`; or send
+  `issuer`), so when the person later signs in through the service they arrive in this account.
+  The same `externalId` again returns the same person.
+- An account that already has the email (made on this server before) is **linked**, not duplicated.
+- `team` makes their first team, on that plan (or the plan new teams start on). `"team": false`:
+  no team. The answer has `account`, `team` and `created`.
+- People made here have no password: they sign in only through the service.
+
+The server's own administrators cannot be suspended or deleted through the API (`403`), and a
+team's Ops engineer is never an account here.
+
+### Teams, plans and usage
+
+| Call | Scope | What it does |
+| --- | --- | --- |
+| `POST /teams` | `teams` | A new team: `{ "ownerId", "name", "plan" }` |
+| `GET /teams` | `teams` | Every team, oldest first: plan, members, owners, apps, storage. `?limit=` (1–500, default 100), `?cursor=` (the `nextCursor` of the page before), `?plan=` |
+| `GET /teams/:id` | `teams` | One team, with its members and their roles |
+| `PUT /teams/:id/plan` | `teams` | Move a team to a plan: `{ "plan": "pro" }` |
 | `GET /plans` | `plans` | The plans, the plan new teams start on, and every plan including Unlimited |
 | `PUT /plans` | `plans` | Replace the plans: `{ "plans": [{ "id", "name", "limits" }], "defaultPlan" }` |
 | `GET /teams/:id/usage` | `usage` | What a team uses against its plan |
-| `PUT /teams/:id/plan` | `teams` | Move a team to a plan: `{ "plan": "pro" }` |
+| `GET /usage` | `usage` | Every team's use against its plan, paged like `GET /teams`: for a daily run |
 
-More calls (people, teams, status, activity, health, events) are added in later versions of this
-page.
+More calls (team status, last activity, health, events) come in later versions of this page.
 
 ## Rules every call follows
 
@@ -67,4 +109,6 @@ page.
   `idempotent-replayed: true`, and changes nothing twice. The same key with a different request is
   refused with `409`. Server failures (`5xx`) are not remembered, so a retry really retries.
 - **Audit:** every change made with a key is in the audit log as *Admin key "name"*, with the
-  method, the call and the result. Request bodies are not logged.
+  method, the call, the result and who or which team it was about (a change to a team also shows
+  in that team's own activity). It is written before the answer is sent. Request bodies are not
+  logged.

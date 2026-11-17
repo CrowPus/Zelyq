@@ -20,6 +20,13 @@ export const users = pgTable(
     instanceRole: text("instance_role").notNull().default("member"),
     /** "person", or "service" for a team's Ops engineer: never able to sign in. */
     kind: text("kind").notNull().default("person"),
+    /**
+     * "active", or "suspended" (by the server's administrator or an account
+     * service, through the admin API): a suspended account cannot sign in.
+     */
+    status: text("status").notNull().default("active"),
+    /** Why, in words the person may be shown. */
+    statusReason: text("status_reason"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

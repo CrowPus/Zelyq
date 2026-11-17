@@ -2,6 +2,7 @@ import {
   acceptInviteSchema,
   changePasswordSchema,
   forgotPasswordSchema,
+  isZelyqError,
   loginSchema,
   registerSchema,
   resetPasswordSchema,
@@ -133,6 +134,11 @@ export function registerAuthRoutes(
         return reply.redirect("/signin");
       } catch (error) {
         request.log.warn({ error }, "OIDC sign-in failed");
+        // Said plainly, but the reason itself never rides in the address: a link
+        // with words of someone else's choosing on our sign-in page is a phishing tool.
+        if (isZelyqError(error) && error.details?.reason === "suspended") {
+          return reply.redirect("/signin?error=suspended");
+        }
         return reply.redirect("/signin?error=oidc");
       }
     },

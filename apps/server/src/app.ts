@@ -46,6 +46,7 @@ import { registerVideoRoutes } from "./routes/videos.js";
 import { registerVoiceRoutes } from "./routes/voice.js";
 import { AccessControl } from "./services/access.js";
 import { AccountService } from "./services/accounts.js";
+import { AdminDirectory } from "./services/admin-directory.js";
 import { AdminKeyService } from "./services/admin-keys.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AgentGateway, pipelineGuide } from "./services/agent-gateway.js";
@@ -442,7 +443,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerPlanRoutes(app, { usage, access, store });
-  registerAdminApi(app, { adminKeys: new AdminKeyService(store), usage, store, access });
+  registerAdminApi(app, {
+    adminKeys: new AdminKeyService(store),
+    usage,
+    store,
+    access,
+    directory: new AdminDirectory(store, auth, accounts, usage),
+  });
   registerTeamRoutes(app, {
     limits: usage,
     store,

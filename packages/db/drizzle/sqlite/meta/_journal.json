@@ -379,6 +379,13 @@
       "when": 1794907499183,
       "tag": "0053_admin_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1794909201318,
+      "tag": "0054_account_status",
+      "breakpoints": true
     }
   ]
 }

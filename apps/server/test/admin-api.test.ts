@@ -232,6 +232,7 @@ test("every change by a key is in the audit log under its name, once", async () 
     path: "/api/admin/v1/teams/:id/plan",
     status: 200,
     key: "Billing",
+    target: teamId,
   });
 });
 
@@ -302,4 +303,34 @@ test("a key is rate limited on its own, not with everyone else", async () => {
   }
   assert.ok(limited >= 5, `expected the busy key to be limited, got ${limited}`);
   assert.equal((await call(calm.key, "GET", `/teams/${teamId}/usage`)).statusCode, 200);
+});
+
+test("a suspended account cannot sign in with its password, and is told why", async () => {
+  const { key } = await makeKey("Abuse desk", ["accounts"]);
+  const member = (await server.store.users.findByEmail("member@example.com"))!;
+  const suspended = await call(key, "PUT", `/accounts/${member.id}/status`, {
+    payload: { status: "suspended", reason: "Too many crypto miners" },
+  });
+  assert.equal(suspended.statusCode, 200, suspended.body);
+  const login = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "member@example.com", password: "a-long-password-1" },
+  });
+  assert.equal(login.statusCode, 403);
+  assert.match(login.json().error.message, /suspended: Too many crypto miners/);
+  // A wrong password says nothing about the account.
+  const wrong = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "member@example.com", password: "not-the-password" },
+  });
+  assert.equal(wrong.statusCode, 401);
+  await call(key, "PUT", `/accounts/${member.id}/status`, { payload: { status: "active" } });
+  const back = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "member@example.com", password: "a-long-password-1" },
+  });
+  assert.equal(back.statusCode, 200);
 });

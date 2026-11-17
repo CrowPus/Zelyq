@@ -61,6 +61,23 @@ export function userRepository(db: ZelyqDb) {
       return row ? { ...toUser(row), passwordHash: row.passwordHash, kind: row.kind } : null;
     },
 
+    /** "active" or "suspended"; null when there is no such account. */
+    async statusOf(id: string): Promise<{ status: string; reason: string | null } | null> {
+      const rows = await db
+        .select({ status: users.status, reason: users.statusReason })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+
+    async setStatus(id: string, status: string, reason: string | null): Promise<void> {
+      await db
+        .update(users)
+        .set({ status, statusReason: reason, updatedAt: new Date().toISOString() })
+        .where(eq(users.id, id));
+    },
+
     async findById(id: string): Promise<User | null> {
       const rows = await db.select().from(users).where(eq(users.id, id)).limit(1);
       return rows[0] ? toUser(rows[0]) : null;

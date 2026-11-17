@@ -26,6 +26,7 @@ export function SignInPage() {
   const [busy, setBusy] = useState(false);
   const query = new URLSearchParams(window.location.search);
   const oidcError = query.has("error");
+  const suspended = query.get("error") === "suspended";
   const signIn = status.data?.signIn;
   const accounts = status.data?.accounts ?? null;
   // Managed: the account service is the way in. `?local=1` keeps the form for
@@ -82,7 +83,9 @@ export function SignInPage() {
           {oidcError && (
             <p className="mb-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
               <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-              Signing in could not be completed. Please try again.
+              {suspended
+                ? `This account is suspended. Contact ${accounts.name} for help.`
+                : "Signing in could not be completed. Please try again."}
             </p>
           )}
           <Button
@@ -215,7 +218,9 @@ export function SignInPage() {
           {oidcError && !error && (
             <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
               <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-              Single sign-on could not be completed. Please try again.
+              {suspended
+                ? "This account is suspended. Contact the server's administrator for help."
+                : "Single sign-on could not be completed. Please try again."}
             </p>
           )}
 

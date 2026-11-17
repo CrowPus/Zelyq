@@ -132,6 +132,16 @@ export class AuthService {
    */
   private readonly oidcStates = new Map<string, number>();
 
+  /** The single sign-on issuer as configured, for linking people ahead of their first sign-in. */
+  oidcIssuer(): string | null {
+    return this.oidcEnabled() ? (this.config.oidc?.issuer ?? null) : null;
+  }
+
+  /** A team name nobody else has, as a slug. */
+  async freeTeamSlug(name: string): Promise<string> {
+    return await this.uniqueSlug(slugify(name, "team"));
+  }
+
   oidcEnabled(): boolean {
     const oidc = this.config.oidc;
     return Boolean(oidc?.issuer && oidc.clientId && oidc.clientSecret && oidc.redirectUri);
@@ -283,7 +293,14 @@ export class AuthService {
   }
 
   private async findOrCreateOidcUser(issuer: string, claims: OidcClaims): Promise<User> {
-    const linked = await this.store.oidcIdentities.find(issuer, claims.sub);
+    // An account service may have linked the person already (admin API), under
+    // the issuer as configured: with or without a trailing slash, it is the same.
+    const linked =
+      (await this.store.oidcIdentities.find(issuer, claims.sub)) ??
+      (await this.store.oidcIdentities.find(
+        issuer.endsWith("/") ? issuer.replace(/\/+$/, "") : `${issuer}/`,
+        claims.sub,
+      ));
     if (linked) {
       if (await this.store.users.isService(linked.userId)) throw serviceAccount();
       return (await this.store.users.findById(linked.userId))!;
@@ -582,7 +599,20 @@ export class AuthService {
     };
   }
 
+  /**
+   * Every way in ends here (password, single sign-on, reset and invitation
+   * links), so a suspended account is refused at this one place. Suspending
+   * also ends the sessions it already had.
+   */
   private async createSession(userId: string): Promise<string> {
+    const state = await this.store.users.statusOf(userId);
+    if (state?.status === "suspended") {
+      throw new ZelyqError(
+        "forbidden",
+        state.reason ? `This account is suspended: ${state.reason}` : "This account is suspended.",
+        { reason: "suspended" },
+      );
+    }
     const token = randomBytes(32).toString("base64url");
     const ttlDays = await this.config.sessionTtlDays();
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
