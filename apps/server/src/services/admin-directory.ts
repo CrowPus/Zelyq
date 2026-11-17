@@ -1,10 +1,18 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { newId, type Role, type Team, ZelyqError } from "@zelyq/core";
+import {
+  newId,
+  type Role,
+  type Team,
+  type TeamStatus,
+  teamStatusSchema,
+  ZelyqError,
+} from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import { z } from "zod";
 import type { AccountService } from "./accounts.js";
 import { type AuthService, isServiceEmail } from "./auth.js";
 import type { ProductActivity } from "./product-activity.js";
+import type { TeamStatusService } from "./team-status.js";
 import type { UsageService } from "./usage.js";
 
 /**
@@ -69,6 +77,8 @@ export interface AccountSummary {
   status: "active" | "suspended";
   statusReason: string | null;
   createdAt: string;
+  /** When the person last signed in or did something. */
+  lastSeenAt: string | null;
   externalIds: Array<{ issuer: string; subject: string }>;
   teams: Array<{ id: string; name: string; role: Role; plan: { id: string; name: string } }>;
 }
@@ -78,6 +88,12 @@ export interface TeamSummary {
   name: string;
   slug: string;
   createdAt: string;
+  status: TeamStatus;
+  statusReason: string | null;
+  statusMessage: string | null;
+  statusChangedAt: string | null;
+  /** When a person last did something in the team. */
+  lastActiveAt: string | null;
   plan: { id: string; name: string };
   members: number;
   owners: Array<{ id: string; email: string }>;
@@ -88,6 +104,7 @@ export interface TeamSummary {
 export class AdminDirectory {
   /** Product activity: people and teams made through the API count as sign-ups. */
   activity?: ProductActivity;
+  teamStatus?: TeamStatusService;
 
   constructor(
     private readonly store: Store,
@@ -189,6 +206,7 @@ export class AdminDirectory {
       status: state?.status === "suspended" ? "suspended" : "active",
       statusReason: state?.reason ?? null,
       createdAt: user.createdAt,
+      lastSeenAt: await this.store.users.lastSeenOf(id),
       externalIds: await this.store.oidcIdentities.listForUser(id),
       teams: await Promise.all(
         teams.map(async (team) => {
@@ -318,7 +336,25 @@ export class AdminDirectory {
   }
 
   /** Every team, oldest first, a page at a time. `cursor` is the last id of the page before. */
-  async listTeams(query: { cursor?: string; limit?: string; plan?: string }) {
+  async listTeams(query: {
+    cursor?: string;
+    limit?: string;
+    plan?: string;
+    status?: string;
+    /** Teams nobody has used since this date. */
+    inactiveSince?: string;
+  }) {
+    if (query.status && !teamStatusSchema.safeParse(query.status).success) {
+      throw ZelyqError.badRequest("`status` is active, paused, read_only or suspended.");
+    }
+    const quiet = query.inactiveSince ? new Date(query.inactiveSince) : null;
+    if (quiet && Number.isNaN(quiet.getTime())) {
+      throw ZelyqError.badRequest("`inactiveSince` must be a date.");
+    }
+    const matches = (summary: TeamSummary) =>
+      (!query.plan || summary.plan.id === query.plan) &&
+      (!query.status || summary.status === query.status) &&
+      (!quiet || !summary.lastActiveAt || summary.lastActiveAt < quiet.toISOString());
     const limit = Math.min(Math.max(Number.parseInt(query.limit ?? "100", 10) || 100, 1), 500);
     let after: Team | null = null;
     if (query.cursor) {
@@ -333,7 +369,7 @@ export class AdminDirectory {
       for (const team of page) {
         last = team;
         const summary = await this.summarize(team);
-        if (!query.plan || summary.plan.id === query.plan) teams.push(summary);
+        if (matches(summary)) teams.push(summary);
         if (teams.length === limit) break;
       }
       if (page.length < limit) break;
@@ -343,7 +379,12 @@ export class AdminDirectory {
   }
 
   /** Every team's use against its plan, a page at a time: for a daily run. */
-  async listUsage(query: { cursor?: string; limit?: string }) {
+  async listUsage(query: {
+    cursor?: string;
+    limit?: string;
+    status?: string;
+    inactiveSince?: string;
+  }) {
     const page = await this.listTeams(query);
     const usage = await Promise.all(
       page.teams.map(async (team) => {
@@ -352,11 +393,46 @@ export class AdminDirectory {
           teamId: team.id,
           plan: used.plan,
           lines: used.lines.map((line) => ({ key: line.key, used: line.used, limit: line.limit })),
+          status: team.status,
+          lastActiveAt: team.lastActiveAt,
           measuredAt: used.measuredAt,
         };
       }),
     );
     return { usage, nextCursor: page.nextCursor };
+  }
+
+  /** Set by an account service: paused, read-only, suspended, or active again. */
+  async setTeamStatus(id: string, raw: unknown) {
+    if (!this.teamStatus) throw new ZelyqError("internal", "Team status is not available.");
+    await this.team(id);
+    await this.teamStatus.set(id, raw);
+    return await this.team(id);
+  }
+
+  /**
+   * Deletes a whole team, its apps and their files. Refused while the team is
+   * active (pause, make read-only or suspend it first), so a live team is never
+   * deleted by one mistaken call. `look`: only what would go.
+   */
+  async deleteTeam(id: string, look: boolean) {
+    const summary = await this.team(id);
+    if (summary.status === "active") {
+      throw new ZelyqError(
+        "conflict",
+        "This team is active. Pause it, make it read-only or suspend it before deleting it.",
+      );
+    }
+    const members = await this.store.teams.listMembers(id);
+    const apps = (await this.store.projects.listForTeams([id])).length;
+    if (!look) await this.accounts.removeTeam(id);
+    return {
+      deleted: !look,
+      team: { id: summary.id, name: summary.name },
+      apps,
+      members: members.length,
+      storageMb: summary.storageMb,
+    };
   }
 
   // ------------------------------------------------------------------ inside
@@ -380,6 +456,7 @@ export class AdminDirectory {
 
   private async summarize(team: Team): Promise<TeamSummary> {
     const members = await this.store.teams.listMembers(team.id);
+    const state = await this.store.teams.stateOf(team.id);
     const used = await this.usage.usage(team.id);
     const line = (key: string) => used.lines.find((entry) => entry.key === key)?.used ?? 0;
     return {
@@ -387,6 +464,11 @@ export class AdminDirectory {
       name: team.name,
       slug: team.slug,
       createdAt: team.createdAt,
+      status: state?.status ?? "active",
+      statusReason: state?.reason ?? null,
+      statusMessage: state?.message ?? null,
+      statusChangedAt: state?.changedAt ?? null,
+      lastActiveAt: state?.lastActiveAt ?? null,
       plan: used.plan,
       members: members.length,
       owners: members

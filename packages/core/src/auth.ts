@@ -113,11 +113,18 @@ export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
 // Team
 // ---------------------------------------------------------------------------
 
+export const teamStatusSchema = z.enum(["active", "paused", "read_only", "suspended"]);
+export type TeamStatus = z.infer<typeof teamStatusSchema>;
+
 export const teamSchema = z.object({
   id: z.string(),
   name: z.string(),
   slug: z.string(),
   createdAt: z.string().datetime(),
+  /** Missing on older answers: active. */
+  status: teamStatusSchema.optional(),
+  /** What the team's members are shown while it is not active. */
+  statusMessage: z.string().nullable().optional(),
 });
 export type Team = z.infer<typeof teamSchema>;
 

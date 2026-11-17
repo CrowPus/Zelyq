@@ -96,6 +96,8 @@ export class ChatGateway {
   limits?: Pick<UsageService, "check" | "touch">;
   /** Product activity: messages to the agent, and how its work ended. */
   activity?: ProductActivity;
+  /** A team that is not active builds nothing. */
+  teamStatus?: { requireRunnable(teamId: string): Promise<void> };
   /** Server errors, grouped: a turn that broke on our side. */
   errors?: { capture(error: unknown, context?: { route?: string; userId?: string }): void };
   private readonly rooms = new Map<string, Room>();
@@ -406,6 +408,8 @@ export class ChatGateway {
       // Over the team's storage: the agent writes no more until it has room again.
       if (teamId) await this.limits?.check(teamId, "storageMb", 0);
       this.limits?.touch(room.projectId);
+      // A paused, read-only or suspended team builds nothing.
+      if (teamId) await this.teamStatus?.requireRunnable(teamId);
       const settingsProvider = await this.settings.value("provider");
       // A pick from the chat's own model control wins over the instance
       // default for this turn onward. Omitted means what it always meant:

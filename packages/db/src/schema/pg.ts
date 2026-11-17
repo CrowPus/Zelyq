@@ -27,6 +27,8 @@ export const users = pgTable(
     status: text("status").notNull().default("active"),
     /** Why, in words the person may be shown. */
     statusReason: text("status_reason"),
+    /** When the person last signed in or did something (written at most every ten minutes). */
+    lastSeenAt: text("last_seen_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -42,6 +44,19 @@ export const teams = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     createdAt: text("created_at").notNull(),
+    /**
+     * "active"; "paused" (unused: the owner resumes it); "read_only" (nothing
+     * new can be added or run); "suspended" (nothing at all). Set by the
+     * server's administrator or an account service through the admin API.
+     */
+    status: text("status").notNull().default("active"),
+    /** Why, for the record: "unused", "cancelled", "abuse"… */
+    statusReason: text("status_reason"),
+    /** What the team's members are shown. */
+    statusMessage: text("status_message"),
+    statusChangedAt: text("status_changed_at"),
+    /** When a person last did something in the team (written at most every ten minutes). */
+    lastActiveAt: text("last_active_at"),
   },
   (table) => ({
     slugIdx: uniqueIndex("teams_slug_idx").on(table.slug),

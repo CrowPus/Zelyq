@@ -27,6 +27,7 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { useTheme } from "../hooks/useTheme";
 import { Inbox } from "./Inbox";
+import { TeamStatusBanner } from "./TeamStatusBanner";
 import { Button, IconButton } from "./ui";
 
 export interface Crumb {
@@ -81,8 +82,11 @@ export function AppShell({
       }`}
     >
       <Rail open={railOpen} onToggle={() => setRailOpen((value) => !value)} />
-      <div className="grid min-w-0 grid-rows-[40px_minmax(0,1fr)] overflow-hidden">
+      <div className="grid min-w-0 grid-rows-[40px_auto_minmax(0,1fr)] overflow-hidden">
         <TopBar crumbs={crumbs} actions={actions} />
+        <div>
+          <TeamStatusBanner />
+        </div>
         <main className="min-h-0 overflow-hidden">{children}</main>
       </div>
     </div>

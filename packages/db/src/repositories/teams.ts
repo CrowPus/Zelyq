@@ -1,24 +1,81 @@
-import type { Role, Team, TeamMember, TeamMembership } from "@zelyq/core";
+import type { Role, Team, TeamMember, TeamMembership, TeamStatus } from "@zelyq/core";
 import { and, asc, eq, gt, ne, or } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { teamMembers, teams, users } from "../schema/sqlite.js";
 
+/** What a team is to the rest of the server: never its private status reason. */
+const teamColumns = {
+  id: teams.id,
+  name: teams.name,
+  slug: teams.slug,
+  createdAt: teams.createdAt,
+  status: teams.status,
+  statusMessage: teams.statusMessage,
+};
+
+function toTeam(row: { status: string } & Omit<Team, "status">): Team {
+  return { ...row, status: row.status as TeamStatus };
+}
+
 export function teamRepository(db: ZelyqDb) {
   return {
     async create(input: { id: string; name: string; slug: string }): Promise<Team> {
-      const row = { ...input, createdAt: new Date().toISOString() };
-      await db.insert(teams).values(row);
-      return row;
+      const now = new Date().toISOString();
+      const row = { ...input, createdAt: now };
+      await db.insert(teams).values({ ...row, lastActiveAt: now });
+      return { ...row, status: "active", statusMessage: null };
+    },
+
+    /** The team's status, why, what its members are told, and when it was last active. */
+    async stateOf(id: string): Promise<{
+      status: TeamStatus;
+      reason: string | null;
+      message: string | null;
+      changedAt: string | null;
+      lastActiveAt: string | null;
+    } | null> {
+      const rows = await db
+        .select({
+          status: teams.status,
+          reason: teams.statusReason,
+          message: teams.statusMessage,
+          changedAt: teams.statusChangedAt,
+          lastActiveAt: teams.lastActiveAt,
+        })
+        .from(teams)
+        .where(eq(teams.id, id))
+        .limit(1);
+      const row = rows[0];
+      return row ? { ...row, status: row.status as TeamStatus } : null;
+    },
+
+    async setStatus(
+      id: string,
+      state: { status: TeamStatus; reason: string | null; message: string | null },
+    ): Promise<void> {
+      await db
+        .update(teams)
+        .set({
+          status: state.status,
+          statusReason: state.reason,
+          statusMessage: state.message,
+          statusChangedAt: new Date().toISOString(),
+        })
+        .where(eq(teams.id, id));
+    },
+
+    async touch(id: string, at: string): Promise<void> {
+      await db.update(teams).set({ lastActiveAt: at }).where(eq(teams.id, id));
     },
 
     async findById(id: string): Promise<Team | null> {
-      const rows = await db.select().from(teams).where(eq(teams.id, id)).limit(1);
-      return rows[0] ?? null;
+      const rows = await db.select(teamColumns).from(teams).where(eq(teams.id, id)).limit(1);
+      return rows[0] ? toTeam(rows[0]) : null;
     },
 
     /** Every team on the server, oldest first: for its administrator's plans page. */
     async listAll(): Promise<Team[]> {
-      return await db.select().from(teams).orderBy(asc(teams.createdAt));
+      return (await db.select(teamColumns).from(teams).orderBy(asc(teams.createdAt))).map(toTeam);
     },
 
     /**
@@ -29,8 +86,8 @@ export function teamRepository(db: ZelyqDb) {
       after: { id: string; createdAt: string } | null,
       limit: number,
     ): Promise<Team[]> {
-      return await db
-        .select()
+      const rows = await db
+        .select(teamColumns)
         .from(teams)
         .where(
           after
@@ -42,11 +99,12 @@ export function teamRepository(db: ZelyqDb) {
         )
         .orderBy(asc(teams.createdAt), asc(teams.id))
         .limit(limit);
+      return rows.map(toTeam);
     },
 
     async findBySlug(slug: string): Promise<Team | null> {
-      const rows = await db.select().from(teams).where(eq(teams.slug, slug)).limit(1);
-      return rows[0] ?? null;
+      const rows = await db.select(teamColumns).from(teams).where(eq(teams.slug, slug)).limit(1);
+      return rows[0] ? toTeam(rows[0]) : null;
     },
 
     async addMember(teamId: string, userId: string, role: Role): Promise<void> {
@@ -85,13 +143,19 @@ export function teamRepository(db: ZelyqDb) {
           name: teams.name,
           slug: teams.slug,
           createdAt: teams.createdAt,
+          status: teams.status,
+          statusMessage: teams.statusMessage,
           role: teamMembers.role,
         })
         .from(teamMembers)
         .innerJoin(teams, eq(teams.id, teamMembers.teamId))
         .where(eq(teamMembers.userId, userId))
         .orderBy(asc(teams.createdAt));
-      return rows.map((row) => ({ ...row, role: row.role as Role }));
+      return rows.map((row) => ({
+        ...row,
+        status: row.status as TeamStatus,
+        role: row.role as Role,
+      }));
     },
 
     async listMembers(teamId: string): Promise<TeamMember[]> {

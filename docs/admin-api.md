@@ -88,13 +88,32 @@ team's Ops engineer is never an account here.
 | Call | Scope | What it does |
 | --- | --- | --- |
 | `POST /teams` | `teams` | A new team: `{ "ownerId", "name", "plan" }` |
-| `GET /teams` | `teams` | Every team, oldest first: plan, members, owners, apps, storage. `?limit=` (1–500, default 100), `?cursor=` (the `nextCursor` of the page before), `?plan=` |
+| `GET /teams` | `teams` | Every team, oldest first: plan, status, when a person last used it, members, owners, apps, storage. `?limit=` (1–500, default 100), `?cursor=` (the `nextCursor` of the page before), `?plan=`, `?status=`, `?inactiveSince=` (teams nobody used since that date) |
+| `PUT /teams/:id/status` | `teams` | `{ "status": "paused" \| "read_only" \| "suspended" \| "active", "reason": "unused", "message": "shown to the team" }` (see below) |
+| `DELETE /teams/:id` | `teams` | Delete the team, its apps and their files. Refused (`409`) while the team is active: pause, make read-only or suspend it first. `?look=1` first: its apps, members and storage |
 | `GET /teams/:id` | `teams` | One team, with its members and their roles |
 | `PUT /teams/:id/plan` | `teams` | Move a team to a plan: `{ "plan": "pro" }` |
 | `GET /plans` | `plans` | The plans, the plan new teams start on, and every plan including Unlimited |
 | `PUT /plans` | `plans` | Replace the plans: `{ "plans": [{ "id", "name", "limits" }], "defaultPlan" }` |
 | `GET /teams/:id/usage` | `usage` | What a team uses against its plan |
-| `GET /usage` | `usage` | Every team's use against its plan, paged like `GET /teams`: for a daily run |
+| `GET /usage` | `usage` | Every team's use against its plan, with its status and last activity, paged and filtered like `GET /teams`: for a daily run |
+
+### Team status
+
+| Status | Still works | Stops | Lifted by |
+| --- | --- | --- | --- |
+| `active` | everything | — | — |
+| `paused` (unused) | looking, downloading, deleting, *Free up space* | building, previews (stopped at once), pipeline runs (people's and scheduled), outside agents, anything new or changed | the team's owner or an admin, with **Resume** on the banner; or the API |
+| `read_only` (e.g. cancelled, over its plan) | the same as paused | the same as paused | the API only |
+| `suspended` (abuse) | nothing: members see why | everything, even looking | the API only |
+
+Nothing is deleted by any status. Members see a banner with the message (or a plain default),
+and *Resume* (paused), *Change plan* (read-only, managed) or *Contact …* (suspended, managed).
+The server's own administrators are not held by a team's status.
+
+**Last activity:** a team counts as used when a person does something in it (opens it, builds,
+previews, runs a pipeline, an outside agent works), written at most every ten minutes. Work
+nobody started (a schedule) does not count. A person's `lastSeenAt` is in `GET /accounts/:id`.
 
 ### Product activity (`analytics`)
 
@@ -141,8 +160,7 @@ error. **Secrets are taken out** before anything is stored: keys (Anthropic, Ope
 GitHub, Slack, Zelyq's own), tokens, passwords, `user:password@` in addresses, and email
 addresses. Who was hit is kept 90 days; the groups and their totals stay.
 
-More calls (team status, last activity, events sent to your systems) come in later versions of
-this page.
+More calls (events sent to your systems) come in later versions of this page.
 
 ## Rules every call follows
 

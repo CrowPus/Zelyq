@@ -97,6 +97,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "team.member_removed": "removed a member",
   "team.settings_changed": "changed the team's settings",
   "team.plan_changed": "moved the team to another plan",
+  "team.resumed": "resumed the paused team",
   "admin_key.created": "made an admin API key",
   "admin_key.revoked": "revoked an admin API key",
   "admin_api.call": "made a change through the admin API",

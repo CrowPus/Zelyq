@@ -248,13 +248,26 @@ export function registerAdminApi(
         reply.status(201);
         return await directory.createTeam(request.body);
       });
+      type TeamQuery = {
+        cursor?: string;
+        limit?: string;
+        plan?: string;
+        status?: string;
+        inactiveSince?: string;
+      };
       route("GET", "/teams", "teams", async (request) =>
-        directory.listTeams(request.query as { cursor?: string; limit?: string; plan?: string }),
+        directory.listTeams(request.query as TeamQuery),
+      );
+      route("PUT", "/teams/:id/status", "teams", async (request) =>
+        directory.setTeamStatus(idOf(request), request.body),
+      );
+      route("DELETE", "/teams/:id", "teams", async (request) =>
+        directory.deleteTeam(idOf(request), look(request)),
       );
       route("GET", "/teams/:id", "teams", async (request) => directory.teamDetail(idOf(request)));
 
       route("GET", "/usage", "usage", async (request) =>
-        directory.listUsage(request.query as { cursor?: string; limit?: string }),
+        directory.listUsage(request.query as TeamQuery),
       );
 
       // ------------------------------------------- product activity

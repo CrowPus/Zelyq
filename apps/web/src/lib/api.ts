@@ -980,6 +980,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
+  /** The owner brings back a team paused because it was not used. */
+  resumeTeam: (teamId: string) =>
+    request<{ status: string }>(`/teams/${teamId}/resume`, { method: "POST" }),
   adminKeys: () => request<{ keys: AdminKeySummary[] }>("/admin-keys"),
   createAdminKey: (input: { name: string; scopes: AdminScope[] }) =>
     request<CreatedAdminKey>("/admin-keys", { method: "POST", body: JSON.stringify(input) }),

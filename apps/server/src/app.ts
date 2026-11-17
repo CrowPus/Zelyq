@@ -96,6 +96,7 @@ import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
 import { TeamKeys } from "./services/team-keys.js";
+import { TeamStatusService } from "./services/team-status.js";
 import { ThumbnailStore } from "./services/thumbnails.js";
 import { UsageService } from "./services/usage.js";
 import { VaultService } from "./services/vault.js";
@@ -118,6 +119,8 @@ export interface ZelyqServer {
   activity: ProductActivity;
   /** Server errors, grouped: exposed so tests can wait for them to land. */
   errors: ErrorTracker;
+  /** Paused, read-only, suspended: exposed so tests can see what it stops. */
+  teamStatus: TeamStatusService;
   store: Store;
   runtime: RuntimeDriver;
   /** What each team uses, and its plan: exposed so tests measure when they choose. */
@@ -224,6 +227,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // What developers need: errors grouped (secrets taken out), and how long calls take.
   const errors = new ErrorTracker(store, (error, message) => app.log.warn({ error }, message));
   const requestStats = new RequestStats();
+  // Paused, read-only, suspended: one check, used by every way into a team.
+  const teamStatus = new TeamStatusService(store);
+  activity.touch = (teamId, userId) => teamStatus.touch(teamId, userId);
   const vault = new VaultService(store, secrets, access);
   const variables = new ProjectVariableService(store, secrets, access, vault, runtime);
   vault.listeners.teamEntryChanged = (teamId, name) => variables.vaultEntryChanged(teamId, name);
@@ -257,6 +263,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     plugins: pipelinePlugins,
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
+  pipelines.teamStatus = teamStatus;
   pipelines.plugins = pipelinePlugins;
   const pipelineTriggers = new PipelineTriggerService(
     store,
@@ -476,6 +483,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerPlanRoutes(app, { usage, access, store });
   const directory = new AdminDirectory(store, auth, accounts, usage);
   directory.activity = activity;
+  directory.teamStatus = teamStatus;
   registerAdminApi(app, {
     adminKeys: new AdminKeyService(store),
     usage,
@@ -721,6 +729,45 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   gateway.limits = usage;
   gateway.activity = activity;
   gateway.errors = errors;
+  gateway.teamStatus = teamStatus;
+  teamStatus.stopPreview = (projectId) => runtime.stopPreview(projectId);
+  agents.teamStatus = teamStatus;
+
+  /**
+   * A person's call into a team obeys the team's status: a suspended team is
+   * closed; a paused or read-only one may be looked at, downloaded and
+   * cleared, not changed. The team is found from the address: a team, an app
+   * in it, or Studio's `?teamId=`. The server's administrators are not held.
+   */
+  app.addHook("preHandler", async (request) => {
+    const user = request.zelyqUser;
+    if (!user || user.instanceRole === "admin") return;
+    const route = request.routeOptions.url ?? "";
+    const params = (request.params ?? {}) as { id?: string; teamId?: string };
+    let teamId: string | null = params.teamId ?? null;
+    if (!teamId && route.startsWith("/api/teams/:id") && params.id) teamId = params.id;
+    if (!teamId && route.startsWith("/api/projects/:id") && params.id) {
+      teamId = (await store.projects.findById(params.id))?.teamId ?? null;
+    }
+    // A new app names its team in the body (or goes to the person's own team).
+    if (!teamId && route === "/api/projects" && request.method === "POST") {
+      const wanted = (request.body as { teamId?: unknown } | undefined)?.teamId;
+      teamId = typeof wanted === "string" ? wanted : await access.defaultTeamFor(user);
+    }
+    if (!teamId && (route.startsWith("/api/images/") || route.startsWith("/api/videos/"))) {
+      teamId = (request.query as { teamId?: string } | undefined)?.teamId ?? null;
+    }
+    if (!teamId) return;
+    // Resuming is how a paused team comes back: the one change it always allows.
+    await teamStatus.enforce(teamId, request.method, route);
+    void teamStatus.touch(teamId, user.id).catch(() => undefined);
+  });
+
+  /** The owner brings back a team paused because it was not used. */
+  app.post<{ Params: { id: string } }>("/api/teams/:id/resume", async (request) => {
+    const user = access.requireUser(request);
+    return await teamStatus.resume(user, request.params.id);
+  });
 
   app.addHook("onResponse", async (request, reply) => {
     requestStats.record(
@@ -861,6 +908,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     app,
     activity,
     errors,
+    teamStatus,
     imageBridge,
     videoBridge,
     previewGrants: projectBackend,

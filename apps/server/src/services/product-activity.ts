@@ -50,6 +50,8 @@ export class ProductActivity {
   private readonly pending = new Set<Promise<void>>();
   private timer: NodeJS.Timeout | null = null;
   usage?: UsageService;
+  /** Marks a team (and the person) as used: see TeamStatusService.touch. */
+  touch?: (teamId: string | null, userId: string) => Promise<void>;
 
   constructor(
     private readonly store: Store,
@@ -113,6 +115,8 @@ export class ProductActivity {
       detail: cleanProductDetail(name, context.detail),
       createdAt: new Date().toISOString(),
     });
+    // Something a person did: the team was used, and the person was here.
+    if (context.userId) await this.touch?.(teamId, context.userId);
   }
 
   // ------------------------------------------------------------------ keeping

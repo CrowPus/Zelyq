@@ -90,6 +90,16 @@ export class AccountService {
     return { user: target, teamsRemoved, teamsKept };
   }
 
+  /** A whole team: its apps (with their files on disk) and then the team itself. */
+  async removeTeam(teamId: string): Promise<{ apps: number }> {
+    const projects = await this.store.projects.listForTeams([teamId]);
+    for (const project of projects) {
+      await this.projects.remove(project.id).catch(() => undefined);
+    }
+    await this.store.teams.remove(teamId);
+    return { apps: projects.length };
+  }
+
   /** Deletes the account and the teams only it was in, with their apps and files. */
   async removeAccount(
     targetId: string,

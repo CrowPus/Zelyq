@@ -71,6 +71,19 @@ export function userRepository(db: ZelyqDb) {
       return rows[0] ?? null;
     },
 
+    async touch(id: string, at: string): Promise<void> {
+      await db.update(users).set({ lastSeenAt: at }).where(eq(users.id, id));
+    },
+
+    async lastSeenOf(id: string): Promise<string | null> {
+      const rows = await db
+        .select({ at: users.lastSeenAt })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      return rows[0]?.at ?? null;
+    },
+
     async setStatus(id: string, status: string, reason: string | null): Promise<void> {
       await db
         .update(users)
