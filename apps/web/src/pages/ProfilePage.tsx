@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, ShieldCheck } from "lucide-react";
+import { type AccountService, accountServiceLinks } from "@zelyq/core";
+import { CircleAlert, ExternalLink, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { Badge, Button, Input, PasswordInput } from "../components/ui";
@@ -7,10 +8,13 @@ import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 
 export function ProfilePage() {
-  const { user, teams, refresh } = useSession();
+  const { user, teams, session, refresh } = useSession();
   const queryClient = useQueryClient();
 
   if (!user) return null;
+  // Managed: a person's email, password and account live with the account
+  // service. The server's own administrators keep their local account here.
+  const accounts = user.instanceRole === "admin" ? null : (session?.accounts ?? null);
 
   return (
     <AppShell crumbs={[{ label: "Account" }]}>
@@ -19,18 +23,26 @@ export function ProfilePage() {
           <header>
             <h1 className="text-xl font-semibold text-fg">Account</h1>
             <p className="mt-1 text-xs text-fg-secondary">
-              Your details and password. Changing your password signs you out everywhere else.
+              {accounts
+                ? `Your details and teams. Your email, password and account are managed at ${accounts.name}.`
+                : "Your details and password. Changing your password signs you out everywhere else."}
             </p>
           </header>
 
-          <ProfileSection
-            user={user}
-            onSaved={() => {
-              refresh();
-              queryClient.invalidateQueries({ queryKey: ["session"] });
-            }}
-          />
-          <PasswordSection />
+          {accounts ? (
+            <ManagedProfileSection user={user} accounts={accounts} />
+          ) : (
+            <>
+              <ProfileSection
+                user={user}
+                onSaved={() => {
+                  refresh();
+                  queryClient.invalidateQueries({ queryKey: ["session"] });
+                }}
+              />
+              <PasswordSection />
+            </>
+          )}
 
           <section className="mt-8">
             <h2 className="text-sm font-medium text-fg">Membership</h2>
@@ -53,7 +65,7 @@ export function ProfilePage() {
             </div>
           </section>
 
-          <DeleteAccountSection />
+          {!accounts && <DeleteAccountSection />}
         </div>
       </div>
     </AppShell>
@@ -136,6 +148,43 @@ function DeleteAccountSection() {
             Delete account…
           </Button>
         )}
+      </div>
+    </section>
+  );
+}
+
+/** Managed mode: shown, not edited here; changes are made at the account service. */
+function ManagedProfileSection({
+  user,
+  accounts,
+}: {
+  user: { name: string; email: string };
+  accounts: AccountService;
+}) {
+  return (
+    <section className="mt-7">
+      <h2 className="text-sm font-medium text-fg">Profile</h2>
+      <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
+        <div className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5">
+          <span className="text-xs text-fg-secondary">Name</span>
+          <span className="truncate text-sm text-fg">{user.name}</span>
+        </div>
+        <div className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5">
+          <span className="text-xs text-fg-secondary">Email</span>
+          <span className="truncate text-sm text-fg">{user.email}</span>
+        </div>
+        <div className="px-3 py-2.5">
+          <a
+            href={accountServiceLinks(accounts).account()}
+            className="inline-flex items-center gap-1.5 text-xs text-info underline-offset-2 hover:underline"
+          >
+            Manage your account at {accounts.name}
+            <ExternalLink size={12} aria-hidden />
+          </a>
+          <p className="mt-1 text-xs text-fg-muted">
+            Change your name, email or password, or delete your account, there.
+          </p>
+        </div>
       </div>
     </section>
   );

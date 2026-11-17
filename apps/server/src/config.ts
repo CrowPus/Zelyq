@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { AccountService } from "@zelyq/core";
 import { resolveFromRepoRoot } from "@zelyq/core/node";
 import type { RuntimeConfig } from "@zelyq/runtime";
 import type { FastifyServerOptions } from "fastify";
@@ -34,6 +35,11 @@ export interface ServerConfig {
   /** After the first account exists, whether strangers may still sign up. */
   allowRegistration: boolean;
   sessionTtlDays: number;
+  /**
+   * Managed mode: the outside account service that owns sign-up, sign-in,
+   * profile and billing (`ZELYQ_ACCOUNTS_URL`). Unset = self-hosted, as always.
+   */
+  accounts?: AccountService;
   oidc?: {
     issuer: string | undefined;
     clientId: string | undefined;
@@ -207,7 +213,15 @@ export function loadServerConfig(): ServerConfig {
     throw new Error("ZELYQ_RUNTIME=remote requires ZELYQ_RUNTIME_URL");
   }
 
+  const oidc = {
+    issuer: process.env.ZELYQ_OIDC_ISSUER,
+    clientId: process.env.ZELYQ_OIDC_CLIENT_ID,
+    clientSecret: process.env.ZELYQ_OIDC_CLIENT_SECRET,
+    redirectUri: process.env.ZELYQ_OIDC_REDIRECT_URI,
+  };
+
   return {
+    accounts: accountServiceFromEnv(process.env, oidc),
     host: process.env.ZELYQ_SERVER_HOST ?? "127.0.0.1",
     port: intFromEnv("ZELYQ_SERVER_PORT", 8787),
     logLevel: process.env.LOG_LEVEL ?? "info",
@@ -227,12 +241,7 @@ export function loadServerConfig(): ServerConfig {
     provider: (process.env.ZELYQ_PROVIDER ?? "anthropic") as ServerConfig["provider"],
     allowRegistration: (process.env.ZELYQ_ALLOW_REGISTRATION ?? "true") !== "false",
     sessionTtlDays: intFromEnv("ZELYQ_SESSION_TTL_DAYS", 30),
-    oidc: {
-      issuer: process.env.ZELYQ_OIDC_ISSUER,
-      clientId: process.env.ZELYQ_OIDC_CLIENT_ID,
-      clientSecret: process.env.ZELYQ_OIDC_CLIENT_SECRET,
-      redirectUri: process.env.ZELYQ_OIDC_REDIRECT_URI,
-    },
+    oidc,
     supabaseOAuth:
       process.env.ZELYQ_SUPABASE_OAUTH_CLIENT_ID && process.env.ZELYQ_SUPABASE_OAUTH_CLIENT_SECRET
         ? {
@@ -305,5 +314,41 @@ export function loadServerConfig(): ServerConfig {
       previewUrlTemplate: process.env.ZELYQ_PREVIEW_URL_TEMPLATE || undefined,
       container: containerOptionsFromEnv(),
     },
+  };
+}
+
+/**
+ * `ZELYQ_ACCOUNTS_URL` (+ `ZELYQ_ACCOUNTS_NAME`) turns managed mode on. People
+ * then sign in through the account service, so single sign-on must be set up
+ * too: a managed server nobody could sign in to is refused at start, not
+ * discovered by its first visitor.
+ */
+export function accountServiceFromEnv(
+  env: NodeJS.ProcessEnv,
+  oidc: { issuer?: string; clientId?: string; clientSecret?: string; redirectUri?: string },
+): AccountService | undefined {
+  const raw = env.ZELYQ_ACCOUNTS_URL?.trim();
+  if (!raw) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`ZELYQ_ACCOUNTS_URL is not an address: ${raw}`);
+  }
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
+    throw new Error("ZELYQ_ACCOUNTS_URL must start with https:// (http:// only for localhost)");
+  }
+  if (url.search || url.hash || url.username || url.password) {
+    throw new Error("ZELYQ_ACCOUNTS_URL must be a plain address, without ?, # or a user name");
+  }
+  if (!(oidc.issuer && oidc.clientId && oidc.clientSecret && oidc.redirectUri)) {
+    throw new Error(
+      "ZELYQ_ACCOUNTS_URL needs single sign-on with the account service: set ZELYQ_OIDC_ISSUER, ZELYQ_OIDC_CLIENT_ID, ZELYQ_OIDC_CLIENT_SECRET and ZELYQ_OIDC_REDIRECT_URI",
+    );
+  }
+  return {
+    name: env.ZELYQ_ACCOUNTS_NAME?.trim().slice(0, 60) || url.hostname,
+    url: `${url.origin}${url.pathname}`.replace(/\/+$/, ""),
   };
 }

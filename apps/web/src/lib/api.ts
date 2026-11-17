@@ -33,6 +33,7 @@ import type {
   ImageGeneration,
   ImageGenerationInput,
   ImageHistory,
+  InstanceStatus,
   LocalRunnerStatus,
   OpsAccessChange,
   OpsAccessItem,
@@ -844,8 +845,8 @@ export const api = {
     }),
   deleteImage: (id: string) => request<void>(`/images/generations/${id}`, { method: "DELETE" }),
 
-  authStatus: () =>
-    request<{ firstRun: boolean; oidcEnabled: boolean; passwordReset?: boolean }>("/auth/status"),
+  /** What this server offers at sign-in: self-hosted, or managed by an account service. */
+  authStatus: () => request<InstanceStatus>("/auth/status"),
 
   forgotPassword: (email: string) =>
     request<{ sent: boolean }>("/auth/forgot-password", {

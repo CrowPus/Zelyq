@@ -8,6 +8,8 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 import {
+  type AccountService,
+  type InstanceStatus,
   type LoginInput,
   newId,
   type RegisterInput,
@@ -78,6 +80,8 @@ export function hashToken(token: string): string {
  */
 export interface AuthConfig {
   allowRegistration: () => Promise<boolean>;
+  /** Managed mode: people come from this account service (see @zelyq/core account-service). */
+  accounts?: AccountService;
   sessionTtlDays: () => Promise<number>;
   oidc?: {
     issuer?: string;
@@ -310,10 +314,17 @@ export class AuthService {
       });
       return existing;
     }
-    if (!(await this.isFirstRun()) && !(await this.config.allowRegistration())) {
+    const firstRun = await this.isFirstRun();
+    // A managed server is set up by its own administrator first (the setup form),
+    // so the first person through the account service never becomes its owner.
+    if (firstRun && this.config.accounts) {
+      throw new ZelyqError("forbidden", "This server is not set up yet.");
+    }
+    // In managed mode the account service decides who may have an account;
+    // this server's "Open registration" is about its own sign-up form.
+    if (!firstRun && !this.config.accounts && !(await this.config.allowRegistration())) {
       throw new ZelyqError("forbidden", "Registration is closed on this instance.");
     }
-    const firstRun = await this.isFirstRun();
     const user = await this.store.users.create({
       id: newId("user"),
       email,
@@ -335,6 +346,32 @@ export class AuthService {
       subject: claims.sub,
     });
     return user;
+  }
+
+  /** What this server offers at sign-in: the sign-in screen shows only this. */
+  async instanceStatus(passwordReset: boolean): Promise<InstanceStatus> {
+    const firstRun = await this.isFirstRun();
+    const accounts = this.config.accounts ?? null;
+    const oidc = this.oidcEnabled();
+    const managed = accounts !== null;
+    const reset = passwordReset && !managed;
+    return {
+      firstRun,
+      oidcEnabled: oidc,
+      passwordReset: reset,
+      mode: managed ? "managed" : "self_hosted",
+      accounts,
+      signIn: {
+        // Managed: the form is for setting the server up, and for its administrators
+        // (who can always reach it, even with the account service down).
+        password: !managed || firstRun,
+        register: firstRun || (!managed && (await this.config.allowRegistration())),
+        passwordReset: reset,
+        oidc,
+        oidcOnly: managed && !firstRun,
+        oidcLabel: accounts ? `Continue with ${accounts.name}` : "Continue with single sign-on",
+      },
+    };
   }
 
   /** True when nobody has signed up yet — the UI shows first-run setup. */
@@ -538,7 +575,11 @@ export class AuthService {
   }
 
   async describe(user: User): Promise<SessionResponse> {
-    return { user, teams: await this.store.teams.listForUser(user.id) };
+    return {
+      user,
+      teams: await this.store.teams.listForUser(user.id),
+      accounts: this.config.accounts ?? null,
+    };
   }
 
   private async createSession(userId: string): Promise<string> {

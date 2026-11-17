@@ -1,3 +1,4 @@
+export * from "./account-service.js";
 export * from "./agents.js";
 export * from "./anthropic-models.js";
 export * from "./auth.js";

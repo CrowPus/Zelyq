@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { accountServiceSchema } from "./account-service.js";
 
 /**
  * Roles are ordered, and every permission check is "at least this role".
@@ -150,5 +151,10 @@ export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 export const sessionResponseSchema = z.object({
   user: userSchema,
   teams: z.array(teamMembershipSchema),
+  /**
+   * The account service this server is managed by, or null when self-hosted.
+   * When set, the person's email, password, account and billing live there.
+   */
+  accounts: accountServiceSchema.nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;

@@ -195,6 +195,8 @@ export class UsageService {
   private readonly touched = new Map<string, number>();
   /** Whether an app's agent is working now (its status says building). */
   appBusy?: (projectId: string) => Promise<boolean>;
+  /** Managed by an account service: plans are what people pay for, so always shown. */
+  managed = false;
   /** How many idle days before clearing (Server settings); 0: never. */
   idleDays?: () => Promise<number>;
 
@@ -417,6 +419,9 @@ export class UsageService {
     };
     return {
       plan: { id: plan.id, name: plan.name },
+      // Self-hosted with no plans made, every team is Unlimited: nothing to show.
+      plansVisible:
+        this.managed || plan.id !== UNLIMITED_PLAN.id || (await this.plans()).plans.length > 0,
       lines: PLAN_LIMIT_KEYS.map((key) => ({
         key,
         label: PLAN_LIMITS[key].label,

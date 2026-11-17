@@ -197,6 +197,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     allowRegistration: () => settings.booleanValue("allowRegistration"),
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
     oidc: config.oidc,
+    accounts: config.accounts,
   });
   const access = new AccessControl(store);
   const vault = new VaultService(store, secrets, access);
@@ -331,6 +332,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   usage.appBusy = async (projectId) =>
     (await store.projects.findById(projectId))?.status === "building";
   usage.idleDays = () => settings.numberValue("cleanIdleAfterDays");
+  usage.managed = Boolean(config.accounts);
   // Undo points: only the newest are kept; a team member frees more from its Usage panel.
   projects.keepSnapshots = () => settings.numberValue("keepUndoPoints");
   usage.pruneUndo = (projectId, keep) => projects.pruneSnapshots(projectId, keep);

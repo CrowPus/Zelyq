@@ -46,12 +46,11 @@ export function registerAuthRoutes(
   };
 
   /** Lets the sign-in screen offer "create the first account" on a fresh install. */
-  app.get("/api/auth/status", async () => ({
-    firstRun: await deps.auth.isFirstRun(),
-    oidcEnabled: deps.auth.oidcEnabled(),
-    // "Forgot password?" shows only when a reset email could actually arrive and lead back here.
-    passwordReset: (await deps.links.availability()).available,
-  }));
+  // "Forgot password?" shows only when a reset email could actually arrive and lead back here.
+  // Self-hosted or managed (connected to an account service) — see AuthService.instanceStatus.
+  app.get("/api/auth/status", async () =>
+    deps.auth.instanceStatus((await deps.links.availability()).available),
+  );
 
   /**
    * The same answer whether or not the address has an account: nobody learns

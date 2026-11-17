@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AppUsage, UsageLine } from "@zelyq/core";
-import { RefreshCw } from "lucide-react";
+import { type AppUsage, accountServiceLinks, type UsageLine } from "@zelyq/core";
+import { ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { Badge, Button, Spinner } from "./ui";
 
@@ -23,6 +24,7 @@ function amount(line: UsageLine, value: number): string {
  */
 export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdit?: boolean }) {
   const queryClient = useQueryClient();
+  const { session, teams } = useSession();
   const usage = useQuery({
     queryKey: ["team-usage", teamId],
     queryFn: () => api.teamUsage(teamId),
@@ -35,14 +37,25 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
   const data = usage.data;
   if (!data) return null;
   const near = data.lines.filter((line) => line.limit !== null && line.used >= line.limit * 0.8);
+  const accounts = session?.accounts ?? null;
+  // Changing the plan is paying for it: the team's owner does that, at the account service.
+  const isOwner = teams.find((team) => team.id === teamId)?.role === "owner";
+  const title = data.plansVisible ? "Usage and plan" : "Usage";
 
   return (
-    <section className="mt-8" aria-label="Usage and plan">
+    <section className="mt-8" aria-label={title}>
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-          Usage and plan
-        </h2>
-        <Badge tone="neutral">{data.plan.name}</Badge>
+        <h2 className="text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">{title}</h2>
+        {data.plansVisible && <Badge tone="neutral">{data.plan.name}</Badge>}
+        {data.plansVisible && accounts && isOwner && (
+          <a
+            href={accountServiceLinks(accounts).billing(teamId)}
+            className="inline-flex items-center gap-1 text-xs text-info underline-offset-2 hover:underline"
+          >
+            Change plan
+            <ExternalLink size={11} aria-hidden />
+          </a>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -75,7 +88,11 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
                 <span className="text-fg">{line.label}</span>
                 <span className="text-xs text-fg-secondary">
                   {amount(line, line.used)}
-                  {line.limit !== null ? ` of ${amount(line, line.limit)}` : " · no limit"}
+                  {line.limit !== null
+                    ? ` of ${amount(line, line.limit)}`
+                    : data.plansVisible
+                      ? " · no limit"
+                      : ""}
                 </span>
               </div>
               {line.limit !== null && (

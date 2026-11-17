@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { accountServiceLinks } from "@zelyq/core";
 import { CircleAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { AuthNotice } from "../components/AuthCard";
@@ -23,11 +24,18 @@ export function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const oidcError = new URLSearchParams(window.location.search).has("error");
+  const query = new URLSearchParams(window.location.search);
+  const oidcError = query.has("error");
+  const signIn = status.data?.signIn;
+  const accounts = status.data?.accounts ?? null;
+  // Managed: the account service is the way in. `?local=1` keeps the form for
+  // the server's own administrators, so they can always reach it.
+  const local = query.get("local") === "1";
+  const serviceOnly = Boolean(signIn?.oidcOnly) && !local;
 
-  const registering = firstRun || mode === "register";
+  const registering = firstRun || (mode === "register" && Boolean(signIn?.register));
   const forgot = !firstRun && mode === "forgot";
-  const canReset = Boolean(status.data?.passwordReset);
+  const canReset = Boolean(signIn?.passwordReset);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -54,6 +62,47 @@ export function SignInPage() {
     return (
       <div className="grid h-dvh place-items-center bg-canvas">
         <Spinner />
+      </div>
+    );
+  }
+
+  if (serviceOnly && accounts) {
+    return (
+      <div className="grid h-dvh place-items-center bg-canvas px-4">
+        <div className="w-full max-w-[340px]">
+          <div className="mb-7 flex flex-col items-center gap-3 text-center">
+            <img src="/zelyq-mark-64.png" alt="" width={32} height={32} className="size-8" />
+            <div>
+              <h1 className="text-lg font-semibold text-fg">Sign in to Zelyq</h1>
+              <p className="mt-1 text-xs text-fg-secondary">
+                Your account is with {accounts.name}.
+              </p>
+            </div>
+          </div>
+          {oidcError && (
+            <p className="mb-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
+              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+              Signing in could not be completed. Please try again.
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="primary"
+            className="w-full"
+            onClick={() => window.location.assign("/api/auth/oidc/start")}
+          >
+            {signIn?.oidcLabel}
+          </Button>
+          <p className="mt-4 text-center text-xs text-fg-muted">
+            No account?{" "}
+            <a
+              href={accountServiceLinks(accounts).signup(`${window.location.origin}/`)}
+              className="text-info underline underline-offset-2 hover:no-underline"
+            >
+              Create one at {accounts.name}
+            </a>
+          </p>
+        </div>
       </div>
     );
   }
@@ -185,14 +234,14 @@ export function SignInPage() {
           </Button>
         </form>
 
-        {status.data?.oidcEnabled && !registering && !forgot && (
+        {signIn?.oidc && !registering && !forgot && !firstRun && (
           <Button
             type="button"
             variant="secondary"
             className="mt-3 w-full"
             onClick={() => window.location.assign("/api/auth/oidc/start")}
           >
-            Continue with single sign-on
+            {signIn.oidcLabel}
           </Button>
         )}
 
@@ -212,7 +261,7 @@ export function SignInPage() {
           </p>
         )}
 
-        {!firstRun && !forgot && (
+        {!firstRun && !forgot && (registering || signIn?.register) && (
           <p className="mt-4 text-center text-xs text-fg-muted">
             {registering ? "Already have an account?" : "No account?"}{" "}
             <button
