@@ -77,6 +77,24 @@ Zelyq links to these paths on `ZELYQ_ACCOUNTS_URL`; the service provides them:
 - A paused, read-only or suspended team shows a banner saying why, and what to do.
 - Announcements and maintenance from the operators appear as banners; messages in the bell.
 
+## What each team brings
+
+On a managed server the operator need not provide email or outside accounts: each team sets
+its own in **Team settings**.
+
+- **Email:** the team's own mail server (address, port, security, username, password, sender).
+  Its invitations and Ops's messages go out through it. All or nothing: a team's email never
+  borrows any detail of the server's (the server's password never goes to a team's server), and
+  its address may not be this server, a private network or a cloud metadata address. Without one,
+  an invitation gives a link to copy. Admin API: none (the team's own).
+- **Integrations:** Figma is each person's own account. Supabase is the team's: its admins connect
+  the team's Supabase account, and only the team's apps can link to its databases. A team never
+  sees, uses or links another team's connection. The server's own Supabase connection (Server
+  settings) is usable by every team only when self-hosted.
+- The **Connect** buttons for Figma and Supabase need Zelyq registered once as an OAuth app with
+  each (`ZELYQ_FIGMA_CLIENT_ID`/`_SECRET`, `ZELYQ_SUPABASE_OAUTH_CLIENT_ID`/`_SECRET`); without
+  that, a team can still paste a Supabase access token.
+
 ## Run from the admin, locked here
 
 A managed server has no password sign-in by default (`ZELYQ_LOCAL_SIGNIN` is off), and nothing

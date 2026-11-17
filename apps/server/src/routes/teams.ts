@@ -12,6 +12,7 @@ import type { Store } from "@zelyq/db";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
 import type { EmailLinkService } from "../services/email-links.js";
+import type { MailService } from "../services/mail.js";
 import type { SettingsService } from "../services/settings.js";
 import type { TeamKeys } from "../services/team-keys.js";
 import type { UsageService } from "../services/usage.js";
@@ -24,11 +25,12 @@ export function registerTeamRoutes(
     links: EmailLinkService;
     keys: TeamKeys;
     settings: SettingsService;
+    mail: MailService;
     /** What the team's plan allows; none: no limits. */
     limits?: Pick<UsageService, "check">;
   },
 ): void {
-  const { store, access, links, keys, settings } = deps;
+  const { store, access, links, keys, settings, mail } = deps;
 
   app.get("/api/teams", async (request) => {
     const user = access.requireUser(request);
@@ -104,7 +106,7 @@ export function registerTeamRoutes(
         throw new ZelyqError("not_found", `No account for ${input.email}.`);
       }
       if (!invitee) {
-        const state = await links.availability();
+        const state = await links.availability(request.params.id);
         if (!state.available) {
           throw new ZelyqError(
             "not_found",
@@ -164,6 +166,52 @@ export function registerTeamRoutes(
     return settings.describeForTeam(request.params.id);
   });
 
+  /**
+   * The team's own mail server (Team settings → Email): its invitations and Ops's
+   * messages go out through it. Any member may see it (never the password); a team
+   * admin sets it, tests it or removes it.
+   */
+  app.get<{ Params: { id: string } }>("/api/teams/:id/mail", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "viewer");
+    return { mail: await settings.teamMailView(request.params.id) };
+  });
+  app.put<{ Params: { id: string } }>("/api/teams/:id/mail", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "admin");
+    const host = (request.body as { host?: unknown } | null)?.host;
+    const refused = typeof host === "string" ? await mail.refusedTeamHost(host.trim()) : null;
+    if (refused)
+      throw ZelyqError.badRequest(`That mail server can't be used: ${refused.replace(/\.$/, "")}.`);
+    await settings.setTeamMail(request.params.id, request.body);
+    await access.recordChange(user, {
+      teamId: request.params.id,
+      action: "team.settings_changed",
+      detail: { fields: ["email"] },
+    });
+    return { mail: await settings.teamMailView(request.params.id) };
+  });
+  app.delete<{ Params: { id: string } }>("/api/teams/:id/mail", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "admin");
+    await settings.clearTeamMail(request.params.id);
+    await access.recordChange(user, {
+      teamId: request.params.id,
+      action: "team.settings_changed",
+      detail: { fields: ["email"], removed: true },
+    });
+    return { mail: null };
+  });
+  app.post<{ Params: { id: string } }>("/api/teams/:id/mail/test", async (request) => {
+    const user = access.requireUser(request);
+    await access.requireTeamRole(user, request.params.id, "admin");
+    if (!(await settings.teamMail(request.params.id))) {
+      throw ZelyqError.badRequest("Save the team's mail server first, then send a test.");
+    }
+    await mail.test(user.email, request.params.id);
+    return { ok: true, to: user.email };
+  });
+
   /** The team's own AI keys: which it has, and where each provider's key comes from. */
   app.get<{ Params: { id: string } }>("/api/teams/:id/ai-keys", async (request) =>
     keys.status(access.requireUser(request), request.params.id),
@@ -204,7 +252,7 @@ export function registerTeamRoutes(
   app.get<{ Params: { id: string } }>("/api/teams/:id/invites", async (request) => {
     const user = access.requireUser(request);
     await access.requireTeamRole(user, request.params.id, "admin");
-    const state = await links.availability();
+    const state = await links.availability(request.params.id);
     return {
       canInvite: state.available,
       ...(state.missing ? { missing: state.missing } : {}),

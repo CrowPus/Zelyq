@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Frame, Lock, Plug, Unplug } from "lucide-react";
 import { useState } from "react";
+import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { Badge, Button, Spinner } from "./ui";
 
@@ -12,6 +13,8 @@ import { Badge, Button, Spinner } from "./ui";
  */
 export function FigmaIntegration() {
   const qc = useQueryClient();
+  // Only the server's administrator can do anything about a missing Figma app.
+  const operator = useSession().user?.instanceRole === "admin";
   const [error, setError] = useState<string | null>(null);
 
   const config = useQuery({ queryKey: ["figma-config"], queryFn: api.figmaConfig });
@@ -50,7 +53,12 @@ export function FigmaIntegration() {
         frame as a website in your project. Read-only; the token stays on the server.
       </p>
 
-      {!configured ? (
+      {!configured && !operator ? (
+        <p className="mt-3 flex items-start gap-2 rounded-md border border-border-default bg-surface-subtle px-2.5 py-2 text-xs text-fg-secondary">
+          <Lock size={13} strokeWidth={1.75} className="mt-px shrink-0 text-fg-muted" />
+          <span>Figma isn't available here yet.</span>
+        </p>
+      ) : !configured ? (
         <p className="mt-3 flex items-start gap-2 rounded-md border border-border-default bg-surface-subtle px-2.5 py-2 text-xs text-fg-secondary">
           <Lock size={13} strokeWidth={1.75} className="mt-px shrink-0 text-fg-muted" />
           <span>

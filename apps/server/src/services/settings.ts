@@ -19,6 +19,7 @@ import {
   ZelyqError,
 } from "@zelyq/core";
 import { resolveSetting, type Store } from "@zelyq/db";
+import { z } from "zod";
 import { AnthropicModelDiscovery, type AnthropicModelList } from "./anthropic-models.js";
 import {
   DEFAULT_CLAUDE_CREDENTIALS_PATH,
@@ -855,6 +856,39 @@ const teamContext = new AsyncLocalStorage<string>();
  * brain and voice. Everything else runs the server, and is the server
  * admin's alone.
  */
+/** A team's own mail server (Team settings → Email). */
+export interface TeamMail {
+  host: string;
+  port: number;
+  security: "starttls" | "tls" | "none";
+  username: string;
+  password: string;
+  from: string;
+}
+export type TeamMailView = Omit<TeamMail, "password"> & { passwordSet: boolean };
+
+export const teamMailInputSchema = z
+  .object({
+    host: z
+      .string()
+      .trim()
+      .min(1, "The mail server's address, such as smtp.example.com.")
+      .max(255)
+      .regex(/^[A-Za-z0-9.-]+$/, "Only the server's name, such as smtp.example.com."),
+    port: z.number().int().min(1).max(65535).default(587),
+    security: z.enum(["starttls", "tls", "none"]).default("starttls"),
+    username: z.string().trim().max(255).default(""),
+    password: z.string().max(1000).optional(),
+    from: z.string().trim().min(3).max(320),
+  })
+  .strict();
+
+function addressIn(from: string): string | null {
+  const inside = /<([^>]+)>\s*$/.exec(from.trim());
+  const address = (inside?.[1] ?? from).trim();
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(address) ? address : null;
+}
+
 export const TEAM_SETTINGS = new Set([
   "provider",
   "model",
@@ -1035,6 +1069,72 @@ export class SettingsService {
 
   private teamSettingKey(teamId: string, key: string): string {
     return `team:${teamId}:${key}`;
+  }
+
+  // ---------------------------------------------------------------- a team's own email
+
+  /**
+   * A team's own mail server (Team settings → Email), all or nothing: when a team
+   * has one, every mail detail is the team's, and none is ever taken from the
+   * server's (the server's password must never go to a server a team chose).
+   * The password is stored encrypted. Null: the team has none.
+   */
+  async teamMail(teamId: string): Promise<TeamMail | null> {
+    const raw = await this.store.settings.get(this.teamSettingKey(teamId, "mail"));
+    if (!raw) return null;
+    try {
+      const stored = JSON.parse(raw) as Omit<TeamMail, "password"> & { password?: string };
+      if (!stored.host) return null;
+      return {
+        host: stored.host,
+        port: stored.port,
+        security: stored.security,
+        username: stored.username ?? "",
+        from: stored.from,
+        password: stored.password ? (this.secrets.decrypt(stored.password) ?? "") : "",
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** What the team's page shows: everything but the password, which is only "set" or not. */
+  async teamMailView(teamId: string): Promise<TeamMailView | null> {
+    const mail = await this.teamMail(teamId);
+    if (!mail) return null;
+    const { password, ...rest } = mail;
+    return { ...rest, passwordSet: password !== "" };
+  }
+
+  /** Saves a team's mail server. `password` left out keeps the one stored; "" clears it. */
+  async setTeamMail(teamId: string, raw: unknown): Promise<void> {
+    const input = teamMailInputSchema.parse(raw);
+    if (!addressIn(input.from)) {
+      throw ZelyqError.badRequest("Say who email is sent as, such as Acme <hello@acme.com>.");
+    }
+    const current = await this.store.settings.get(this.teamSettingKey(teamId, "mail"));
+    const kept = current ? ((JSON.parse(current) as { password?: string }).password ?? "") : "";
+    const password =
+      input.password === undefined
+        ? kept
+        : input.password === ""
+          ? ""
+          : this.secrets.encrypt(input.password);
+    await this.store.settings.set(
+      this.teamSettingKey(teamId, "mail"),
+      JSON.stringify({
+        host: input.host,
+        port: input.port,
+        security: input.security,
+        username: input.username,
+        from: input.from,
+        password,
+      }),
+    );
+  }
+
+  async clearTeamMail(teamId: string): Promise<void> {
+    await this.store.settings.remove(this.teamSettingKey(teamId, "mail"));
   }
 
   /** Only the team's own choices, for the team's settings page. */

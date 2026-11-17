@@ -28,11 +28,13 @@ async function columns(url: string, table: string): Promise<string[]> {
   }
 }
 
-test("a fresh database ends with the instance-wide provider_connections shape", async () => {
+test("a fresh database ends with the provider_connections shape: the server's own or a team's", async () => {
   const url = `file:${path.join(tmp, "fresh.db")}`;
   await runMigrations(url);
   const cols = await columns(url, "provider_connections");
-  assert.ok(!cols.includes("team_id"), `team_id should be gone, got: ${cols.join(",")}`);
+  // 0010 made the connection the server's; 0060 lets a team own one again
+  // (team_id nullable: null is the server's own).
+  assert.ok(cols.includes("team_id"), `team_id should be back, got: ${cols.join(",")}`);
   assert.deepEqual(cols, [
     "created_at",
     "created_by",
@@ -44,6 +46,7 @@ test("a fresh database ends with the instance-wide provider_connections shape", 
     "last_used_at",
     "provider",
     "status",
+    "team_id",
   ]);
 });
 
@@ -89,6 +92,15 @@ test("a database that already ran the team-scoped 0009 is reconciled by 0010", a
   await runMigrations(url);
 
   const cols = await columns(url, "provider_connections");
-  assert.ok(!cols.includes("team_id"), `0010 should have dropped team_id, got: ${cols.join(",")}`);
+  // 0010 dropped 0009's required team_id; 0060 brings it back optional.
+  assert.ok(cols.includes("team_id"), `team_id should be back, got: ${cols.join(",")}`);
   assert.ok(cols.includes("provider"));
+  const c2 = createClient({ url });
+  try {
+    const info = await c2.execute(`PRAGMA table_info(provider_connections)`);
+    const teamId = info.rows.find((r) => String(r.name) === "team_id");
+    assert.equal(Number(teamId?.notnull), 0, "team_id is optional: null is the server's own");
+  } finally {
+    c2.close();
+  }
 });

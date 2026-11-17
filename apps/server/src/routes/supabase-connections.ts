@@ -1,5 +1,6 @@
+import type { User } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { SupabaseConnectionService } from "../services/supabase-connections.js";
@@ -40,30 +41,96 @@ export function registerSupabaseConnectionRoutes(
     return { oauthConfigured: supabase.oauthConfigured };
   });
 
-  // — instance-wide connection management (instance administrator) —
+  // — connection management: the server's own (instance administrator, Server
+  // settings) and a team's own (its admins, Team settings → Integrations). The
+  // same actions in both places; each only ever sees its own connections. —
 
-  app.get("/api/integrations/supabase/connections", async (request) => {
-    access.requireInstanceAdmin(request);
-    return { connections: await supabase.listConnections() };
-  });
+  type Owner = { user: User; teamId: string | null };
+  const places: Array<{ prefix: string; owner: (request: FastifyRequest) => Promise<Owner> }> = [
+    {
+      prefix: "/api/integrations/supabase",
+      owner: async (request) => ({ user: access.requireInstanceAdmin(request), teamId: null }),
+    },
+    {
+      prefix: "/api/teams/:teamId/integrations/supabase",
+      owner: async (request) => {
+        const user = access.requireUser(request);
+        const { teamId } = request.params as { teamId: string };
+        await access.requireTeamRole(user, teamId, "admin");
+        return { user, teamId };
+      },
+    },
+  ];
 
-  app.post<{ Body: unknown }>(
-    "/api/integrations/supabase/connections/pat",
-    async (request, reply) => {
-      const user = access.requireInstanceAdmin(request);
+  for (const { prefix, owner } of places) {
+    app.get(`${prefix}/connections`, async (request) => {
+      const { teamId } = await owner(request);
+      return { connections: await supabase.listConnections(teamId) };
+    });
+
+    app.post(`${prefix}/connections/pat`, async (request, reply) => {
+      const { user, teamId } = await owner(request);
       const { pat } = patSchema.parse(request.body);
-      const connection = await supabase.connectWithPat(user, pat);
+      const connection = await supabase.connectWithPat(user, pat, teamId);
       reply.status(201);
       return { connection };
-    },
-  );
+    });
 
-  app.post("/api/integrations/supabase/connections/oauth/start", async (request) => {
-    const user = access.requireInstanceAdmin(request);
-    return { url: supabase.beginOAuth(user).url };
-  });
+    app.post(`${prefix}/connections/oauth/start`, async (request) => {
+      const { user, teamId } = await owner(request);
+      return { url: supabase.beginOAuth(user, teamId).url };
+    });
 
-  // The provider redirects the browser here. `state` carries the pending auth.
+    app.delete(`${prefix}/connections/:connectionId`, async (request) => {
+      const { user, teamId } = await owner(request);
+      const { connectionId } = request.params as { connectionId: string };
+      await supabase.revoke(user, connectionId, teamId);
+      return { ok: true };
+    });
+
+    // — resources —
+
+    app.get(`${prefix}/connections/:connectionId/resources`, async (request) => {
+      const { teamId } = await owner(request);
+      const { connectionId } = request.params as { connectionId: string };
+      return { resources: await supabase.listResources(connectionId, teamId) };
+    });
+
+    app.get(`${prefix}/connections/:connectionId/org-projects`, async (request) => {
+      const { teamId } = await owner(request);
+      const { connectionId } = request.params as { connectionId: string };
+      return { projects: await supabase.listOrgProjects(connectionId, teamId) };
+    });
+
+    app.post(`${prefix}/connections/:connectionId/resources/link`, async (request, reply) => {
+      const { user, teamId } = await owner(request);
+      const { connectionId } = request.params as { connectionId: string };
+      const input = linkExistingSchema.parse(request.body);
+      const resource = await supabase.linkExistingResource(user, connectionId, input, teamId);
+      reply.status(201);
+      return { resource };
+    });
+
+    app.post(`${prefix}/connections/:connectionId/resources/provision`, async (request, reply) => {
+      const { user, teamId } = await owner(request);
+      const { connectionId } = request.params as { connectionId: string };
+      const input = provisionSchema.parse(request.body);
+      const resource = await supabase.provisionProject(user, connectionId, input, teamId);
+      reply.status(201);
+      return { resource };
+    });
+
+    app.delete(`${prefix}/resources/:resourceId`, async (request) => {
+      const { user, teamId } = await owner(request);
+      const { resourceId } = request.params as { resourceId: string };
+      const input = confirmedSchema.parse(request.body ?? {});
+      await supabase.deleteResource(user, resourceId, input, teamId);
+      return { ok: true };
+    });
+  }
+
+  // The provider sends the browser back here; `state` carries the pending auth
+  // and which team (or the server) it was for.
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     "/api/integrations/supabase/oauth/callback",
     async (request, reply) => {
@@ -73,71 +140,12 @@ export function registerSupabaseConnectionRoutes(
         reply.redirect("/settings?supabase=error");
         return;
       }
-      await supabase.completeOAuth(state, code);
-      reply.redirect("/settings?supabase=connected");
-    },
-  );
-
-  app.delete<{ Params: { connectionId: string } }>(
-    "/api/integrations/supabase/connections/:connectionId",
-    async (request) => {
-      const user = access.requireInstanceAdmin(request);
-      await supabase.revoke(user, request.params.connectionId);
-      return { ok: true };
-    },
-  );
-
-  // — resources —
-
-  app.get<{ Params: { connectionId: string } }>(
-    "/api/integrations/supabase/connections/:connectionId/resources",
-    async (request) => {
-      access.requireInstanceAdmin(request);
-      return { resources: await supabase.listResources(request.params.connectionId) };
-    },
-  );
-
-  app.get<{ Params: { connectionId: string } }>(
-    "/api/integrations/supabase/connections/:connectionId/org-projects",
-    async (request) => {
-      access.requireInstanceAdmin(request);
-      return { projects: await supabase.listOrgProjects(request.params.connectionId) };
-    },
-  );
-
-  app.post<{ Params: { connectionId: string }; Body: unknown }>(
-    "/api/integrations/supabase/connections/:connectionId/resources/link",
-    async (request, reply) => {
-      const user = access.requireInstanceAdmin(request);
-      const input = linkExistingSchema.parse(request.body);
-      const resource = await supabase.linkExistingResource(
-        user,
-        request.params.connectionId,
-        input,
+      const connection = await supabase.completeOAuth(state, code);
+      reply.redirect(
+        connection.teamId
+          ? `/teams/${connection.teamId}/settings?supabase=connected#integrations`
+          : "/settings?supabase=connected",
       );
-      reply.status(201);
-      return { resource };
-    },
-  );
-
-  app.post<{ Params: { connectionId: string }; Body: unknown }>(
-    "/api/integrations/supabase/connections/:connectionId/resources/provision",
-    async (request, reply) => {
-      const user = access.requireInstanceAdmin(request);
-      const input = provisionSchema.parse(request.body);
-      const resource = await supabase.provisionProject(user, request.params.connectionId, input);
-      reply.status(201);
-      return { resource };
-    },
-  );
-
-  app.delete<{ Params: { resourceId: string }; Body: unknown }>(
-    "/api/integrations/supabase/resources/:resourceId",
-    async (request) => {
-      const user = access.requireInstanceAdmin(request);
-      const input = confirmedSchema.parse(request.body ?? {});
-      await supabase.deleteResource(user, request.params.resourceId, input);
-      return { ok: true };
     },
   );
 

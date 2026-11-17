@@ -42,17 +42,20 @@ const messageMe: OpsAction<z.infer<typeof tellInput>> = {
       inputs.subject || (inputs.message.split("\n")[0] ?? "").slice(0, 80) || "A message from Ops";
 
     const byEmail = async () => {
-      if (!(await ctx.services.mail.configured()))
+      if (!(await ctx.services.mail.configured(ctx.teamId)))
         throw new Error(
-          "Email is not set up yet: a Zelyq admin fills in Settings → Email and sends a test there.",
+          "Email is not set up yet: a team admin fills in Team settings → Email (or, for the whole server, a Zelyq admin in Settings → Email) and sends a test there.",
         );
       const user = await ctx.services.store.users.findById(askedBy);
       if (!user?.email) throw new Error("Your account has no email address.");
-      const result = await ctx.services.mail.send({
-        to: [user.email],
-        subject: `Ops: ${subject}`,
-        text: `${inputs.message}\n\n— Ops, your DevOps engineer in Zelyq`,
-      });
+      const result = await ctx.services.mail.send(
+        {
+          to: [user.email],
+          subject: `Ops: ${subject}`,
+          text: `${inputs.message}\n\n— Ops, your DevOps engineer in Zelyq`,
+        },
+        ctx.teamId,
+      );
       if (result.sent === 0) throw new Error("The mail server did not take it; try again later.");
     };
     const byChat = (where: "telegram" | "slack" | "any") =>
