@@ -85,7 +85,10 @@ export class OpsMailer {
     const email = async () => {
       const to = await this.emailsOf(event.teamId, event.to, audience);
       if (to.length > 0)
-        await this.mail.send({ to, subject, text: [...lines, "", `Status: ${status}`].join("\n") });
+        await this.mail.send(
+          { to, subject, text: [...lines, "", `Status: ${status}`].join("\n") },
+          event.teamId,
+        );
     };
     await Promise.all([
       this.tell(event.teamId, event.to, {
@@ -156,7 +159,7 @@ export class OpsMailer {
     // Ops's own messages go to the people concerned only, never to a shared channel.
     const email = async () => {
       const to = await this.emailsOf(teamId, userIds, "approval");
-      if (to.length > 0) await this.mail.send({ to, subject, text: lines.join("\n") });
+      if (to.length > 0) await this.mail.send({ to, subject, text: lines.join("\n") }, teamId);
     };
     await Promise.all([
       this.tell(teamId, userIds, {

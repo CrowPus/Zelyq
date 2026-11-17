@@ -344,6 +344,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // Telegram, Slack and Discord: each person's own chats, and the team's shared place.
   const opsChannels = new ChannelService(store, secrets);
   const mail = new MailService(settings);
+  // Many teams on one server: a team's own mail server may not be one of ours.
+  if (config.accounts) mail.teamGuard = "strict";
   // Password reset and team invitations by emailed link, once an admin turns them on.
   const emailLinks = new EmailLinkService(store, settings, mail, auth, {
     warn: (object, message) => app.log.warn(object, message),
@@ -602,6 +604,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     links: emailLinks,
     keys: new TeamKeys(settings, vault, access),
     settings,
+    mail,
   });
   registerProjectRoutes(app, {
     limits: usage,

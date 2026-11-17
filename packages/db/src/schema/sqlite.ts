@@ -865,10 +865,17 @@ export const providerConnections = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     createdAt: text("created_at").notNull(),
     lastUsedAt: text("last_used_at"),
+    /**
+     * The team that owns this connection (Team settings → Integrations): only its
+     * admins manage it and only its apps use it. Null: the server's own (Server
+     * settings), as before teams could connect their own.
+     */
+    teamId: text("team_id").references(() => teams.id, { onDelete: "cascade" }),
   },
   (table) => ({
     providerIdx: index("provider_connections_provider_idx").on(table.provider),
     createdByIdx: index("provider_connections_created_by_idx").on(table.createdBy),
+    teamIdx: index("provider_connections_team_idx").on(table.teamId),
   }),
 );
 

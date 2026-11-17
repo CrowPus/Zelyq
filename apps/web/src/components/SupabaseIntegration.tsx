@@ -10,15 +10,19 @@ import { Badge, Button, Input, Spinner } from "./ui";
  * Management credential is handled entirely server-side — this UI never sees a
  * token, only the public project URL + publishable key on a linked resource.
  */
-export function SupabaseIntegration() {
+/**
+ * Supabase: the server's own connection (Server settings), or with `teamId` the
+ * team's own (Team settings → Integrations), linked only to that team's apps.
+ */
+export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [pat, setPat] = useState("");
 
   const config = useQuery({ queryKey: ["supabase-config"], queryFn: api.supabaseConfig });
   const connections = useQuery({
-    queryKey: ["supabase-connections"],
-    queryFn: api.listSupabaseConnections,
+    queryKey: ["supabase-connections", teamId ?? "server"],
+    queryFn: () => api.listSupabaseConnections(teamId),
   });
   const connection = connections.data?.connections[0];
 
@@ -29,7 +33,7 @@ export function SupabaseIntegration() {
   const fail = (caught: unknown) => setError((caught as Error).message);
 
   const connectPat = useMutation({
-    mutationFn: () => api.connectSupabasePat(pat.trim()),
+    mutationFn: () => api.connectSupabasePat(pat.trim(), teamId),
     onSuccess: () => {
       setPat("");
       setError(null);
@@ -39,7 +43,7 @@ export function SupabaseIntegration() {
   });
 
   const startOAuth = useMutation({
-    mutationFn: () => api.startSupabaseOAuth(),
+    mutationFn: () => api.startSupabaseOAuth(teamId),
     onSuccess: ({ url }) => {
       window.location.href = url;
     },
@@ -47,7 +51,7 @@ export function SupabaseIntegration() {
   });
 
   const disconnect = useMutation({
-    mutationFn: (connectionId: string) => api.revokeSupabaseConnection(connectionId),
+    mutationFn: (connectionId: string) => api.revokeSupabaseConnection(connectionId, teamId),
     onSuccess: () => {
       setError(null);
       invalidate();
@@ -141,8 +145,8 @@ export function SupabaseIntegration() {
               </Button>
             </div>
 
-            <ResourceManager connectionId={connection.id} onError={fail} />
-            <ProjectLinker connectionId={connection.id} onError={fail} />
+            <ResourceManager connectionId={connection.id} teamId={teamId} onError={fail} />
+            <ProjectLinker connectionId={connection.id} teamId={teamId} onError={fail} />
           </div>
         )}
       </div>
@@ -152,9 +156,11 @@ export function SupabaseIntegration() {
 
 function ResourceManager({
   connectionId,
+  teamId,
   onError,
 }: {
   connectionId: string;
+  teamId?: string | undefined;
   onError: (caught: unknown) => void;
 }) {
   const qc = useQueryClient();
@@ -163,16 +169,17 @@ function ResourceManager({
 
   const resources = useQuery({
     queryKey: ["supabase-resources", connectionId],
-    queryFn: () => api.listSupabaseResources(connectionId),
+    queryFn: () => api.listSupabaseResources(connectionId, teamId),
   });
   const orgProjects = useQuery({
     queryKey: ["supabase-org-projects", connectionId],
-    queryFn: () => api.listSupabaseOrgProjects(connectionId),
+    queryFn: () => api.listSupabaseOrgProjects(connectionId, teamId),
     retry: false,
   });
 
   const link = useMutation({
-    mutationFn: () => api.linkSupabaseResource(connectionId, { projectRef: ref, environment }),
+    mutationFn: () =>
+      api.linkSupabaseResource(connectionId, { projectRef: ref, environment }, teamId),
     onSuccess: () => {
       setRef("");
       qc.invalidateQueries({ queryKey: ["supabase-resources", connectionId] });
@@ -247,16 +254,18 @@ function ResourceManager({
 
 function ProjectLinker({
   connectionId,
+  teamId,
   onError,
 }: {
   connectionId: string;
+  teamId?: string | undefined;
   onError: (caught: unknown) => void;
 }) {
   const qc = useQueryClient();
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.listProjects });
   const resources = useQuery({
     queryKey: ["supabase-resources", connectionId],
-    queryFn: () => api.listSupabaseResources(connectionId),
+    queryFn: () => api.listSupabaseResources(connectionId, teamId),
   });
 
   const setLink = useMutation({
@@ -269,6 +278,11 @@ function ProjectLinker({
     onError,
   });
 
+  // A team's databases are for that team's apps only.
+  const teamApps = (projects.data?.projects ?? []).filter(
+    (project) => !teamId || project.teamId === teamId,
+  );
+
   if (!resources.data || resources.data.resources.length === 0) return null;
 
   return (
@@ -276,11 +290,9 @@ function ProjectLinker({
       <p className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
         Linked to an app
       </p>
-      {(projects.data?.projects ?? []).length === 0 && (
-        <p className="mt-1.5 text-xs text-fg-muted">No apps yet.</p>
-      )}
+      {teamApps.length === 0 && <p className="mt-1.5 text-xs text-fg-muted">No apps yet.</p>}
       <ul className="mt-1.5 flex flex-col gap-1.5">
-        {(projects.data?.projects ?? []).map((project) => (
+        {teamApps.map((project) => (
           <ProjectLinkRow
             key={project.id}
             projectId={project.id}

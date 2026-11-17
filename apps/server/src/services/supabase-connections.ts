@@ -43,6 +43,8 @@ export interface ConnectionSummary {
   grantedScopes: string[];
   createdBy: string;
   createdAt: string;
+  /** The team that owns it; null: the server's own. */
+  teamId: string | null;
 }
 
 export interface ResourceSummary {
@@ -104,7 +106,7 @@ export class SupabaseConnectionService {
   private readonly verifyEmailDomain: string;
   private readonly oauthStates = new Map<
     string,
-    { userId: string; verifier: string; at: number }
+    { userId: string; verifier: string; at: number; teamId: string | null }
   >();
 
   constructor(
@@ -131,7 +133,11 @@ export class SupabaseConnectionService {
   // ─────────────────────────── credential lifecycle ───────────────────────────
 
   /** Validate a pasted PAT against Supabase, then store it encrypted. */
-  async connectWithPat(actor: User, pat: string): Promise<ConnectionSummary> {
+  async connectWithPat(
+    actor: User,
+    pat: string,
+    teamId: string | null = null,
+  ): Promise<ConnectionSummary> {
     const trimmed = pat.trim();
     if (!trimmed) throw new ZelyqError("bad_request", "Paste a Supabase access token.");
 
@@ -154,13 +160,14 @@ export class SupabaseConnectionService {
       credentialType: "pat",
       encryptedBlob: this.seal({ kind: "pat", token: trimmed }),
       createdBy: actor.id,
+      teamId,
     });
     await this.audit(actor, "connect", { connectionId: id, credentialType: "pat" });
     return this.summariseConnection(id);
   }
 
   /** Build the Supabase OAuth authorize URL and remember the PKCE verifier. */
-  beginOAuth(actor: User): { url: string; state: string } {
+  beginOAuth(actor: User, teamId: string | null = null): { url: string; state: string } {
     if (!this.oauth) {
       throw new ZelyqError(
         "bad_request",
@@ -171,7 +178,7 @@ export class SupabaseConnectionService {
     const state = base64url(randomBytes(24));
     const verifier = base64url(randomBytes(32));
     const challenge = base64url(createHash("sha256").update(verifier).digest());
-    this.oauthStates.set(state, { userId: actor.id, verifier, at: this.now() });
+    this.oauthStates.set(state, { userId: actor.id, verifier, at: this.now(), teamId });
 
     const url = new URL(`${SUPABASE_API}/v1/oauth/authorize`);
     url.searchParams.set("client_id", this.oauth.clientId);
@@ -212,6 +219,7 @@ export class SupabaseConnectionService {
       grantedScopes: token.scope ?? OAUTH_SCOPES.join(" "),
       expiresAt: this.expiryFrom(token.expires_in),
       createdBy: pending.userId,
+      teamId: pending.teamId,
     });
     const actor = await this.userById(pending.userId);
     await this.audit(actor, "connect", { connectionId: id, credentialType: "oauth" });
@@ -219,8 +227,8 @@ export class SupabaseConnectionService {
   }
 
   /** Mark a connection revoked. The row stays for history; resources cascade. */
-  async revoke(actor: User, connectionId: string): Promise<void> {
-    const conn = await this.requireConnection(connectionId);
+  async revoke(actor: User, connectionId: string, teamId: string | null = null): Promise<void> {
+    const conn = await this.requireConnection(connectionId, teamId);
     await this.store.providerConnections.setConnectionStatus(conn.id, "revoked");
     await this.store.providerConnections.recordOperation({
       id: newId("providerOperation"),
@@ -231,7 +239,7 @@ export class SupabaseConnectionService {
       actorUserId: actor.id,
     });
     await this.access.recordChange(actor, {
-      teamId: null,
+      teamId,
       action: "provider.disconnected",
       detail: { connectionId: conn.id },
     });
@@ -249,20 +257,23 @@ export class SupabaseConnectionService {
 
   // ─────────────────────────────── resources ────────────────────────────────
 
-  async listConnections(): Promise<ConnectionSummary[]> {
-    const rows = await this.store.providerConnections.listConnections();
+  async listConnections(teamId: string | null = null): Promise<ConnectionSummary[]> {
+    const rows = await this.store.providerConnections.listConnections("supabase", teamId);
     return rows.map((row) => this.rowToConnectionSummary(row));
   }
 
-  async listResources(connectionId: string): Promise<ResourceSummary[]> {
-    await this.requireConnection(connectionId);
+  async listResources(
+    connectionId: string,
+    teamId: string | null = null,
+  ): Promise<ResourceSummary[]> {
+    await this.requireConnection(connectionId, teamId);
     const rows = await this.store.providerConnections.listResourcesForConnection(connectionId);
     return rows.map(rowToResourceSummary);
   }
 
   /** Projects visible to the connection's Supabase account. Metadata only. */
-  async listOrgProjects(connectionId: string): Promise<OrgProject[]> {
-    const conn = await this.requireConnection(connectionId);
+  async listOrgProjects(connectionId: string, teamId: string | null = null): Promise<OrgProject[]> {
+    const conn = await this.requireConnection(connectionId, teamId);
     const body = await this.management<
       Array<{ id: string; name: string; organization_id: string; region: string }>
     >(conn.id, "GET", "/v1/projects");
@@ -279,8 +290,9 @@ export class SupabaseConnectionService {
     actor: User,
     connectionId: string,
     input: { projectRef: string; environment?: ResourceSummary["environment"] },
+    teamId: string | null = null,
   ): Promise<ResourceSummary> {
-    const conn = await this.requireConnection(connectionId);
+    const conn = await this.requireConnection(connectionId, teamId);
     const project = await this.management<{
       id: string;
       name: string;
@@ -319,6 +331,7 @@ export class SupabaseConnectionService {
     actor: User,
     connectionId: string,
     input: { organizationId: string; region: string; name: string; confirmed: boolean },
+    teamId: string | null = null,
   ): Promise<ResourceSummary> {
     if (!input.confirmed) {
       throw new ZelyqError(
@@ -326,7 +339,7 @@ export class SupabaseConnectionService {
         "Provisioning a Supabase project needs explicit confirmation.",
       );
     }
-    const conn = await this.requireConnection(connectionId);
+    const conn = await this.requireConnection(connectionId, teamId);
     const dbPass = base64url(randomBytes(24));
     const created = await this.management<{ id: string; name: string; region: string }>(
       conn.id,
@@ -375,6 +388,7 @@ export class SupabaseConnectionService {
     actor: User,
     resourceId: string,
     input: { confirmed: boolean },
+    teamId: string | null = null,
   ): Promise<void> {
     if (!input.confirmed) {
       throw new ZelyqError(
@@ -384,7 +398,7 @@ export class SupabaseConnectionService {
     }
     const resource = await this.store.providerConnections.getResource(resourceId);
     if (!resource) throw ZelyqError.notFound("Provider resource", resourceId);
-    const conn = await this.requireConnection(resource.connectionId);
+    const conn = await this.requireConnection(resource.connectionId, teamId);
 
     if (resource.provisionedByZelyq) {
       await this.management(
@@ -423,7 +437,16 @@ export class SupabaseConnectionService {
   ): Promise<void> {
     const resource = await this.store.providerConnections.getResource(resourceId);
     if (!resource) throw ZelyqError.notFound("Provider resource", resourceId);
-    await this.requireConnection(resource.connectionId);
+    // An app uses its own team's databases, or (self-hosted) the server's. Never
+    // another team's: on a shared server that would be someone else's data.
+    const conn = await this.store.providerConnections.getConnection(resource.connectionId);
+    const owner = conn?.teamId ?? null;
+    if (
+      conn?.provider !== "supabase" ||
+      !(owner === teamId || (owner === null && !this.access.managed))
+    ) {
+      throw ZelyqError.notFound("Provider resource", resourceId);
+    }
     await this.store.providerConnections.linkProject({
       zelyqProjectId,
       providerResourceId: resourceId,
@@ -1085,9 +1108,13 @@ export class SupabaseConnectionService {
     }
   }
 
-  private async requireConnection(connectionId: string) {
+  /**
+   * The connection, when it belongs to `owner` (a team id, or null: the server's
+   * own). Another owner's connection is "not found", never named.
+   */
+  private async requireConnection(connectionId: string, owner: string | null) {
     const conn = await this.store.providerConnections.getConnection(connectionId);
-    if (conn?.provider !== "supabase") {
+    if (conn?.provider !== "supabase" || (conn.teamId ?? null) !== owner) {
       throw ZelyqError.notFound("Provider connection", connectionId);
     }
     return conn;
@@ -1106,8 +1133,10 @@ export class SupabaseConnectionService {
     grantedScopes: string;
     createdBy: string;
     createdAt: string;
+    teamId?: string | null;
   }): ConnectionSummary {
     return {
+      teamId: row.teamId ?? null,
       id: row.id,
       credentialType: row.credentialType as "oauth" | "pat",
       status: row.status,

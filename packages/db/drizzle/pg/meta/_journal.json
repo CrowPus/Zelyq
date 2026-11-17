@@ -421,6 +421,13 @@
       "when": 1794915022711,
       "tag": "0059_announcements",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794949942556,
+      "tag": "0060_team_connections",
+      "breakpoints": true
     }
   ]
 }

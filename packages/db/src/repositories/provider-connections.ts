@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import {
   projectProviderLinks,
@@ -25,6 +25,8 @@ export function providerConnectionRepository(db: ZelyqDb) {
       grantedScopes?: string;
       expiresAt?: string | null;
       createdBy: string;
+      /** The owning team; null or left out: the server's own. */
+      teamId?: string | null;
     }): Promise<void> {
       await db.insert(providerConnections).values({
         id: input.id,
@@ -37,6 +39,7 @@ export function providerConnectionRepository(db: ZelyqDb) {
         createdBy: input.createdBy,
         createdAt: new Date().toISOString(),
         lastUsedAt: null,
+        teamId: input.teamId ?? null,
       });
     },
 
@@ -49,11 +52,19 @@ export function providerConnectionRepository(db: ZelyqDb) {
       return rows[0] ?? null;
     },
 
-    async listConnections(provider = "supabase") {
+    /** A team's connections, or (teamId null) the server's own. */
+    async listConnections(provider = "supabase", teamId: string | null = null) {
       return db
         .select()
         .from(providerConnections)
-        .where(eq(providerConnections.provider, provider))
+        .where(
+          and(
+            eq(providerConnections.provider, provider),
+            teamId === null
+              ? isNull(providerConnections.teamId)
+              : eq(providerConnections.teamId, teamId),
+          ),
+        )
         .orderBy(desc(providerConnections.createdAt));
     },
 

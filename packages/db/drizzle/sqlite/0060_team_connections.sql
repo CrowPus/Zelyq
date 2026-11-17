@@ -1,0 +1,2 @@
+ALTER TABLE `provider_connections` ADD `team_id` text REFERENCES teams(id) ON DELETE cascade;--> statement-breakpoint
+CREATE INDEX `provider_connections_team_idx` ON `provider_connections` (`team_id`);

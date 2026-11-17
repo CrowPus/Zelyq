@@ -257,6 +257,31 @@ function vaultPath(scope: VaultScope): string {
   return scope.kind === "instance" ? "/instance/vault" : `/teams/${scope.teamId}/vault`;
 }
 
+/** Where Supabase connections are managed: a team's own, or the server's. */
+function supabaseBase(teamId?: string): string {
+  return teamId ? `/teams/${teamId}/integrations/supabase` : "/integrations/supabase";
+}
+
+/** A team's own mail server, as its page shows it (never the password). */
+export interface TeamMail {
+  host: string;
+  port: number;
+  security: "starttls" | "tls" | "none";
+  username: string;
+  from: string;
+  passwordSet: boolean;
+}
+
+export interface TeamMailInput {
+  host: string;
+  port: number;
+  security: "starttls" | "tls" | "none";
+  username: string;
+  from: string;
+  /** Left out: keep the stored one. "": remove it. */
+  password?: string;
+}
+
 export const api = {
   getBackend: (id: string, environment = "development") =>
     request<{ configuration: BackendConfiguration }>(
@@ -1124,39 +1149,60 @@ export const api = {
 
   supabaseConfig: () => request<{ oauthConfigured: boolean }>("/integrations/supabase/config"),
 
-  listSupabaseConnections: () =>
-    request<{ connections: SupabaseConnection[] }>("/integrations/supabase/connections"),
+  // Each takes the team for a team's own connections (Team settings → Integrations);
+  // without one, the server's own (Server settings).
+  listSupabaseConnections: (teamId?: string) =>
+    request<{ connections: SupabaseConnection[] }>(`${supabaseBase(teamId)}/connections`),
 
-  connectSupabasePat: (pat: string) =>
-    request<{ connection: SupabaseConnection }>("/integrations/supabase/connections/pat", {
+  connectSupabasePat: (pat: string, teamId?: string) =>
+    request<{ connection: SupabaseConnection }>(`${supabaseBase(teamId)}/connections/pat`, {
       method: "POST",
       body: JSON.stringify({ pat }),
     }),
 
-  startSupabaseOAuth: () =>
-    request<{ url: string }>("/integrations/supabase/connections/oauth/start", { method: "POST" }),
+  startSupabaseOAuth: (teamId?: string) =>
+    request<{ url: string }>(`${supabaseBase(teamId)}/connections/oauth/start`, {
+      method: "POST",
+    }),
 
-  revokeSupabaseConnection: (connectionId: string) =>
-    request<void>(`/integrations/supabase/connections/${connectionId}`, { method: "DELETE" }),
+  revokeSupabaseConnection: (connectionId: string, teamId?: string) =>
+    request<void>(`${supabaseBase(teamId)}/connections/${connectionId}`, { method: "DELETE" }),
 
-  listSupabaseResources: (connectionId: string) =>
+  listSupabaseResources: (connectionId: string, teamId?: string) =>
     request<{ resources: SupabaseResource[] }>(
-      `/integrations/supabase/connections/${connectionId}/resources`,
+      `${supabaseBase(teamId)}/connections/${connectionId}/resources`,
     ),
 
-  listSupabaseOrgProjects: (connectionId: string) =>
+  listSupabaseOrgProjects: (connectionId: string, teamId?: string) =>
     request<{ projects: SupabaseOrgProject[] }>(
-      `/integrations/supabase/connections/${connectionId}/org-projects`,
+      `${supabaseBase(teamId)}/connections/${connectionId}/org-projects`,
     ),
 
   linkSupabaseResource: (
     connectionId: string,
     input: { projectRef: string; environment?: "development" | "staging" | "production" },
+    teamId?: string,
   ) =>
     request<{ resource: SupabaseResource }>(
-      `/integrations/supabase/connections/${connectionId}/resources/link`,
+      `${supabaseBase(teamId)}/connections/${connectionId}/resources/link`,
       { method: "POST", body: JSON.stringify(input) },
     ),
+
+  // — a team's own email (Team settings → Email) —
+
+  teamMail: (teamId: string) => request<{ mail: TeamMail | null }>(`/teams/${teamId}/mail`),
+
+  saveTeamMail: (teamId: string, mail: TeamMailInput) =>
+    request<{ mail: TeamMail | null }>(`/teams/${teamId}/mail`, {
+      method: "PUT",
+      body: JSON.stringify(mail),
+    }),
+
+  removeTeamMail: (teamId: string) =>
+    request<{ mail: null }>(`/teams/${teamId}/mail`, { method: "DELETE" }),
+
+  testTeamMail: (teamId: string) =>
+    request<{ ok: true; to: string }>(`/teams/${teamId}/mail/test`, { method: "POST" }),
 
   getProjectSupabaseLink: (projectId: string) =>
     request<{ resource: SupabaseResource | null }>(`/projects/${projectId}/supabase-link`),

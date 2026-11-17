@@ -58,7 +58,8 @@ export class EmailLinkService {
     private readonly log: Logger = { warn: () => {} },
   ) {}
 
-  async availability(): Promise<LinkAvailability> {
+  /** Whether links can be emailed (for a team: through its own mail server, or the server's). */
+  async availability(teamId?: string | null): Promise<LinkAvailability> {
     if (!(await this.settings.booleanValue("emailSignInLinks"))) {
       return {
         available: false,
@@ -66,8 +67,13 @@ export class EmailLinkService {
           "Password reset and invitations by email are off. Turn them on in Settings → Email, only when this Zelyq runs on a server people can reach.",
       };
     }
-    if (!(await this.mail.configured())) {
-      return { available: false, missing: "No mail server is set (Settings → Email)." };
+    if (!(await this.mail.configured(teamId))) {
+      return {
+        available: false,
+        missing: teamId
+          ? "No mail server is set for this team (Team settings → Email)."
+          : "No mail server is set (Settings → Email).",
+      };
     }
     if (!(await this.base())) {
       return {
@@ -82,8 +88,8 @@ export class EmailLinkService {
     return publicAddress(await this.settings.value("publicUrl"));
   }
 
-  private async requireAvailable(): Promise<string> {
-    const state = await this.availability();
+  private async requireAvailable(teamId?: string): Promise<string> {
+    const state = await this.availability(teamId);
     const base = await this.base();
     if (!state.available || !base) {
       throw new ZelyqError("not_found", state.missing ?? "Email links are not available.");
@@ -148,7 +154,7 @@ export class EmailLinkService {
 
   /** Emails an invitation to someone with no account yet. Sending again replaces the earlier link. */
   async invite(actor: User, teamId: string, rawEmail: string, role: Role): Promise<void> {
-    const base = await this.requireAvailable();
+    const base = await this.requireAvailable(teamId);
     const email = rawEmail.trim().toLowerCase();
     if (isServiceEmail(email)) {
       throw ZelyqError.badRequest("That address is reserved for Zelyq's own accounts.");
@@ -174,39 +180,49 @@ export class EmailLinkService {
       ttl: INVITE_TTL_MS,
     });
     const link = `${base}/invite#token=${token}`;
-    const sent = await this.deliver(email, `${actor.name} invited you to ${team.name} on Zelyq`, [
-      "Hello,",
-      "",
-      `${actor.name} (${actor.email}) invited you to join the team "${team.name}" on Zelyq as ${article(role)} ${role}.`,
-      "",
-      "To accept, open this link within 7 days. You will choose your name and a password:",
-      "",
-      link,
-      "",
-      "If you were not expecting this, ignore this email.",
-    ]);
+    const sent = await this.deliver(
+      email,
+      `${actor.name} invited you to ${team.name} on Zelyq`,
+      [
+        "Hello,",
+        "",
+        `${actor.name} (${actor.email}) invited you to join the team "${team.name}" on Zelyq as ${article(role)} ${role}.`,
+        "",
+        "To accept, open this link within 7 days. You will choose your name and a password:",
+        "",
+        link,
+        "",
+        "If you were not expecting this, ignore this email.",
+      ],
+      teamId,
+    );
     if (!sent) {
       const pending = await this.store.emailLinks.pendingInvite(teamId, email);
       if (pending) await this.store.emailLinks.voidInvite(teamId, pending.id);
       throw ZelyqError.badRequest(
-        `The invitation email to ${email} was not sent. Check Settings → Email and send a test.`,
+        `The invitation email to ${email} was not sent. Check the team's Email settings and send a test.`,
       );
     }
   }
 
   /** Tells someone who already has an account that they were added. Best effort: a failure is only logged. */
   async notifyAdded(actor: User, teamId: string, member: User, role: Role): Promise<void> {
-    if (!(await this.availability()).available) return;
+    if (!(await this.availability(teamId)).available) return;
     const base = await this.base();
     const team = await this.store.teams.findById(teamId);
     if (!base || !team) return;
-    void this.deliver(member.email, `${actor.name} added you to ${team.name} on Zelyq`, [
-      `Hello ${member.name},`,
-      "",
-      `${actor.name} added you to the team "${team.name}" on Zelyq as ${article(role)} ${role}.`,
-      "",
-      `Open it here: ${base}/teams/${team.id}`,
-    ]);
+    void this.deliver(
+      member.email,
+      `${actor.name} added you to ${team.name} on Zelyq`,
+      [
+        `Hello ${member.name},`,
+        "",
+        `${actor.name} added you to the team "${team.name}" on Zelyq as ${article(role)} ${role}.`,
+        "",
+        `Open it here: ${base}/teams/${team.id}`,
+      ],
+      teamId,
+    );
   }
 
   async pendingInvites(teamId: string): Promise<PendingInviteRow[]> {
@@ -355,9 +371,14 @@ export class EmailLinkService {
     return link;
   }
 
-  private async deliver(to: string, subject: string, lines: string[]): Promise<boolean> {
+  private async deliver(
+    to: string,
+    subject: string,
+    lines: string[],
+    teamId?: string,
+  ): Promise<boolean> {
     try {
-      const result = await this.mail.send({ to: [to], subject, text: lines.join("\n") });
+      const result = await this.mail.send({ to: [to], subject, text: lines.join("\n") }, teamId);
       if (result.failed.length > 0 || result.sent === 0) {
         this.log.warn({ failed: result.failed.length }, "An email link was not sent");
         return false;
