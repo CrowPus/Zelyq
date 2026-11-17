@@ -32,7 +32,8 @@ export interface AccountServiceLinks {
 
 /** The service's pages, from its address. */
 export function accountServiceLinks(service: AccountService): AccountServiceLinks {
-  const base = service.url.replace(/\/+$/, "");
+  let base = service.url;
+  while (base.endsWith("/")) base = base.slice(0, -1);
   const at = (path: string, query: Record<string, string | undefined> = {}) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value) params.set(key, value);
