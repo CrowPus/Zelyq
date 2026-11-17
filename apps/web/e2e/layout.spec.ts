@@ -138,7 +138,7 @@ test("the composer's controls never overlap the send button", async ({ page }) =
   if (!sendBox) return;
 
   // Every control that shares the row with Send.
-  const controls = ["Attach a file", "Keyboard shortcuts", "Turn on Engineer Mode"];
+  const controls = ["Add or change how the agent works", "Start voice input", "choose a model"];
   for (const name of controls) {
     const control = page.getByRole("button", { name, exact: false }).first();
     if ((await control.count()) === 0) continue;

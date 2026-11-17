@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, CheckCircle2, Copy, Info, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Copy, Info, X, XCircle } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { formatDateTime, formatRelative } from "../../lib/format.js";
 import { Tooltip } from "./Tooltip.js";
@@ -221,5 +221,32 @@ export function DescriptionList({
         </div>
       ))}
     </dl>
+  );
+}
+
+/** A small removable token: an active filter, a mode that is on. */
+export function Chip({
+  children,
+  onRemove,
+  removeLabel,
+}: {
+  children: ReactNode;
+  onRemove?(): void;
+  removeLabel?: string;
+}) {
+  return (
+    <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-subtle pr-1 pl-2 text-xs font-medium text-accent">
+      {children}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={removeLabel ?? "Remove"}
+          className="grid size-4 place-items-center rounded-full hover:bg-accent/15"
+        >
+          <X size={10} strokeWidth={2.5} />
+        </button>
+      )}
+    </span>
   );
 }

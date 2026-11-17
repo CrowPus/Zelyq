@@ -12,6 +12,7 @@ export { type Column, DataTable } from "./DataTable.js";
 export { Dialog, DialogClose, Drawer } from "./Dialog.js";
 export {
   Avatar,
+  Chip,
   CopyButton,
   DescriptionList,
   InlineAlert,

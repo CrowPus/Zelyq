@@ -107,7 +107,7 @@ export function TeamPage() {
           description={`Everyone in ${team?.name ?? "this team"} sees every app in it. What they may change depends on their role.`}
           meta={
             team && (
-              <Badge tone="neutral">{`You are ${team.role === "admin" ? "an" : "a"} ${team.role}`}</Badge>
+              <Badge tone="neutral">{`You are ${/^[aeiou]/.test(team.role) ? "an" : "a"} ${team.role}`}</Badge>
             )
           }
         />
@@ -129,6 +129,7 @@ export function TeamPage() {
               value={role}
               onChange={(event) => setRole(event.target.value as Role)}
               aria-label="Role"
+              className="w-auto shrink-0"
             >
               {ROLES.map((option) => (
                 <option key={option} value={option}>
@@ -197,7 +198,7 @@ export function TeamPage() {
                     <span className="ml-1.5 text-xs text-fg-muted">(you)</span>
                   )}
                 </p>
-                <p className="truncate font-mono text-2xs text-fg-muted">{member.email}</p>
+                <p className="truncate text-xs text-fg-muted">{member.email}</p>
               </div>
 
               {canManage ? (
@@ -207,6 +208,7 @@ export function TeamPage() {
                     changeRole.mutate({ userId: member.userId, next: event.target.value as Role })
                   }
                   aria-label={`Role for ${member.name}`}
+                  className="w-auto"
                   title={ROLE_DESCRIPTIONS[member.role]}
                 >
                   {ROLES.map((option) => (
@@ -265,7 +267,7 @@ export function TeamPage() {
                 >
                   <Mail size={14} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-xs text-fg">{invite.email}</p>
+                    <p className="truncate text-sm text-fg">{invite.email}</p>
                     <p className="truncate text-2xs text-fg-muted">
                       {invite.role} · invited
                       {invite.invitedBy ? ` by ${invite.invitedBy}` : ""} · link works until{" "}
@@ -310,7 +312,7 @@ export function TeamPage() {
                     <span className="font-medium text-fg">{entry.actorName}</span>
                     <span className="text-fg-secondary">{AUDIT_ACTION_LABELS[entry.action]}</span>
                     {detail && (
-                      <span className="truncate font-mono text-2xs text-fg-muted">{detail}</span>
+                      <span className="truncate text-xs font-medium text-fg">{detail}</span>
                     )}
                     <span className="ml-auto shrink-0 text-2xs text-fg-muted">
                       <RelativeTime value={entry.createdAt} />
