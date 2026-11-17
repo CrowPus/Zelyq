@@ -1,5 +1,7 @@
 # Admin API
 
+(For how an account service uses all of this together, see [managed mode](managed-mode.md).)
+
 The admin API is how your own systems run a Zelyq server: an account service (see
 [managed mode](configuration.md#managed-mode-an-outside-account-service)), monitoring, analytics
 or support tools. It lives under `/api/admin/v1` and is versioned: a change that would break a
@@ -160,7 +162,82 @@ error. **Secrets are taken out** before anything is stored: keys (Anthropic, Ope
 GitHub, Slack, Zelyq's own), tokens, passwords, `user:password@` in addresses, and email
 addresses. Who was hit is kept 90 days; the groups and their totals stay.
 
-More calls (events sent to your systems) come in later versions of this page.
+### Talking to people (`notify`)
+
+| Call | What it does |
+| --- | --- |
+| `POST /announcements` | A message inside Zelyq: `{ "title", "body", "level": "info"\|"warning"\|"urgent", "display": "banner"\|"inbox", "audience": { "kind": "everyone" } \| { "kind": "plan"\|"team"\|"person", "value": "<id>" }, "link": { "url", "label" }, "startsAt", "endsAt" }`. A banner runs across the top of every page (the most urgent one at a time); an inbox item is in the bell. Shown only between its start and end |
+| `GET /announcements` | All of them, with whether each is showing now and how many people saw, dismissed and followed it |
+| `PATCH /announcements/:id` · `DELETE /announcements/:id` | Change or remove one (ending it early is setting `endsAt`) |
+| `POST /notifications` | A message to one or more people, in their bell: `{ "accountIds": [...], "title", "body", "level", "link" }` (up to 1000 at once) |
+| `PUT /maintenance` | `{ "message", "startsAt", "endsAt", "pauseBuilds" }`: a banner for everyone from now until it ends ("planned", then "now"); with `pauseBuilds`, new agent building and new previews wait during the window, saying the message |
+| `GET /maintenance` · `DELETE /maintenance` | What is set; clear it |
+
+Links are a path on this server (`/docs`) or an `https://` address, nothing else. Each person
+dismisses or reads their own; a dismissed banner stays dismissed. Marketing email is not sent from
+here: that belongs to whoever keeps people's consent (the account service).
+
+### Support (`support`), feature switches (`features`) and the audit log (`audit`)
+
+| Call | Scope | What it does |
+| --- | --- | --- |
+| `GET /support/teams/:id` | `support` | One page of facts about a team: members and roles, plan and usage, status and last activity, its apps, what failed in the last week (builds, previews, runs, deploys, limits), and whether it has let support look inside |
+| `GET /support/teams/:id/apps/:appId/logs` | `support` | The app's preview logs (`?lines=`, up to 2000) |
+| `GET /support/teams/:id/apps/:appId/files?path=` · `…/file?path=` | `support` | What is inside an app: its files, and one file. **Only while the team allows it** (see below); otherwise `403` |
+| `POST /support/accounts/:id/end-sessions` | `support` | Sign someone out everywhere (a common fix) |
+| `GET /features` | `features` | Each feature that can be switched, and how it is set |
+| `PUT /features/:name` | `features` | `{ "enabled": false, "plans": { "pro": true }, "teams": { "tem_…": true }, "people": { "usr_…": false } }`: for everyone, then a plan, a team, or a person (the most specific wins) |
+| `DELETE /features/:name` | `features` | Back to on for everyone |
+| `GET /audit` | `audit` | The audit log: `?team=`, `?action=`, or everything lately (`?since=`, `?limit=` up to 1000) |
+
+**Looking inside an app needs the team's permission.** One of the team's admins clicks *Let support
+look for 48 hours* in **Team settings → Support access** (and can take it back at any time). Every
+look is in the team's own activity as *Support (admin key "…")*, with the app and the file: there is
+no silent access. A paused or read-only team can still ask for help.
+
+**Features that can be switched:** `studio_image`, `studio_video`, `voice`, `ops`, `outside_agents`,
+`pipelines`, `deploy`, `figma`, `supabase`. Switched off, its calls answer `403` ("… is switched
+off here for now"), outside agents are not let in, and the screens hide its pages. For a beta, a
+slow roll-out, or taking something broken out of use without a release. The server's own
+administrators are not held by switches.
+
+### Events (`events`)
+
+Instead of asking all the time, your system can be told what happened.
+
+**Sent to you:** set `ZELYQ_EVENTS_URL` (your receiver; `https://`, or `http://` for localhost) and
+`ZELYQ_EVENTS_SECRET` (at least 24 characters). Each event is a `POST` of JSON:
+
+```json
+{ "id": "obx_…", "type": "account.created", "createdAt": "2026-11-17T10:00:00.000Z",
+  "data": { "accountId": "usr_…", "teamId": "tem_…", "via": "sso" } }
+```
+
+with the headers `zelyq-event-id`, `zelyq-event-type` and
+`zelyq-signature: t=<unix seconds>,v1=<signature>`, where the signature is the hex HMAC-SHA256,
+with your secret, of `<t>.<the raw body>`. **Check it** (and that `t` is within five minutes)
+before trusting an event, and handle each `id` once. Answer `2xx` to take it; anything else (or no
+answer within 10 seconds) is tried again after 30 s, 1 min, 2 min … up to every 6 hours, for three
+days, then marked failed. Events are written before they are sent, so a receiver that is down
+misses nothing.
+
+**Read back:** `GET /events?after=<id>` (oldest first, `?limit=` up to 1000, `?type=a,b`) gives
+every event after the one named, with how its delivery went: for catching up after an outage, or
+instead of a receiver. Events are kept 30 days. A server with no receiver and no key with the
+`events` scope keeps none.
+
+| Event | When | `data` |
+| --- | --- | --- |
+| `account.created` | A person's account was made (sign-up, single sign-on, the admin API) | `accountId`, `teamId`, `via` |
+| `team.created` | A team was made | `teamId`, `accountId` (its owner), `via` |
+| `team.deleted` | A team is gone, however it went | `teamId` |
+| `team.member_added` | Someone was added to a team, or joined through an invitation | `teamId`, `accountId`, `role`, `via` |
+| `team.member_removed` | Someone left or was removed | `teamId`, `accountId`, `byThemselves` |
+| `team.resumed` | The owner resumed a paused team | `teamId` |
+| `team.status_changed` | A team's status was set through the admin API | `teamId`, `status` |
+| `team.limit_reached` | A plan limit stopped someone: a moment to offer a bigger plan | `teamId`, `limit`, `plan` |
+| `error.new` · `error.regressed` | A new kind of server error, or a resolved one back | `groupId`, `kind`, `message`, `location`, `route` |
+| `health.down` · `health.recovered` | The server went down (checked every 5 minutes), or came back | `checks` (the parts down) |
 
 ## Rules every call follows
 

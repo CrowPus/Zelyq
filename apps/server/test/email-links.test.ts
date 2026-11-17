@@ -278,6 +278,15 @@ test("inviting someone with no account emails a link; accepting creates the acco
     me.teams.map((team: { id: string; role: string }) => [team.id, team.role]),
     [[teamId, "editor"]],
   );
+  // Joining is recorded as the person who joined, not the one who invited.
+  await server.activity.settled();
+  const joined = await server.store.productEvents.list({
+    from: "2000-01-01T00:00:00.000Z",
+    to: "2100-01-01T00:00:00.000Z",
+    name: "member.joined",
+    limit: 100,
+  });
+  assert.ok(joined.some((event) => event.userId === me.user.id && event.teamId === teamId));
   assert.equal(
     (await call("POST", "/api/auth/invite/accept", { token, name: "X", password: PASSWORD }, ""))
       .statusCode,

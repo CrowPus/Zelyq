@@ -12,7 +12,7 @@ import { z } from "zod";
  *   /account                                 the person's own account page
  *   /billing?team=<teamId>                   change a team's plan
  *   /upgrade?team=<teamId>&limit=<key>       after a plan limit stopped something
- *   /signout                                 sign out of the service as well
+ *   /signout?return_to=…                     sign out of the service as well
  */
 export const accountServiceSchema = z.object({
   /** Shown on buttons: "Continue with <name>". */
@@ -27,7 +27,7 @@ export interface AccountServiceLinks {
   account(): string;
   billing(teamId: string): string;
   upgrade(teamId: string, limit?: string): string;
-  signout(): string;
+  signout(returnTo?: string): string;
 }
 
 /** The service's pages, from its address. */
@@ -44,7 +44,7 @@ export function accountServiceLinks(service: AccountService): AccountServiceLink
     account: () => at("/account"),
     billing: (teamId) => at("/billing", { team: teamId }),
     upgrade: (teamId, limit) => at("/upgrade", { team: teamId, limit }),
-    signout: () => at("/signout"),
+    signout: (returnTo) => at("/signout", { return_to: returnTo }),
   };
 }
 

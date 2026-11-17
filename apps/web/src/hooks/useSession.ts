@@ -1,5 +1,5 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SessionResponse } from "@zelyq/core";
+import { accountServiceLinks, type SessionResponse } from "@zelyq/core";
 import { useCallback } from "react";
 import { ApiError, api } from "../lib/api";
 
@@ -48,13 +48,29 @@ export function useSession() {
     queryClient.invalidateQueries({ queryKey: ["session"] });
   }, [queryClient]);
 
-  const signOut = useCallback(async () => {
-    // Even if the request fails, the local session must end — otherwise a
-    // network blip leaves someone looking at a signed-in interface they can no
-    // longer use.
-    await api.logout().catch(() => undefined);
-    clearSessionCache(queryClient);
-  }, [queryClient]);
+  /**
+   * Managed: signing out here signs out of the account service too, so the
+   * next person at this computer is not let straight back in.
+   * `returnTo`: where the service sends them afterwards (a path here).
+   */
+  const signOut = useCallback(
+    async (returnTo?: string) => {
+      const session = queryClient.getQueryData<SessionResponse | null>(["session"]);
+      const accounts =
+        session?.accounts && session.user.instanceRole !== "admin" ? session.accounts : null;
+      // Even if the request fails, the local session must end — otherwise a
+      // network blip leaves someone looking at a signed-in interface they can no
+      // longer use.
+      await api.logout().catch(() => undefined);
+      clearSessionCache(queryClient);
+      if (accounts) {
+        window.location.assign(
+          accountServiceLinks(accounts).signout(`${window.location.origin}${returnTo ?? "/"}`),
+        );
+      }
+    },
+    [queryClient],
+  );
 
   return {
     session: query.data ?? null,

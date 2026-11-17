@@ -25,6 +25,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerGuideRoutes } from "./routes/guide.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
+import { registerMessageRoutes } from "./routes/messages.js";
 import { registerOpsRoutes } from "./routes/ops.js";
 import { registerPipelineRoutes } from "./routes/pipelines.js";
 import { registerPlanRoutes } from "./routes/plans.js";
@@ -39,6 +40,7 @@ import { registerSkillRoutes } from "./routes/skills.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerSupabaseBridgeRoutes } from "./routes/supabase-bridge.js";
 import { registerSupabaseConnectionRoutes } from "./routes/supabase-connections.js";
+import { registerSupportRoutes } from "./routes/support.js";
 import { registerTeamRoutes } from "./routes/teams.js";
 import { registerVaultRoutes } from "./routes/vault.js";
 import { registerVaultKeyRoutes } from "./routes/vault-keys.js";
@@ -58,6 +60,7 @@ import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
 import { DeployService } from "./services/deploy.js";
 import { EmailLinkService } from "./services/email-links.js";
+import { EventsOut } from "./services/events-out.js";
 import { FigmaConnectionService } from "./services/figma-connections.js";
 import { FigmaExtractService } from "./services/figma-extract.js";
 import { FunctionSecretSync } from "./services/function-secrets.js";
@@ -66,7 +69,8 @@ import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
 import { MailService } from "./services/mail.js";
-import { deepHealth, ErrorTracker, RequestStats } from "./services/observability.js";
+import { MessagesToPeople } from "./services/messages-to-people.js";
+import { deepHealth, ErrorTracker, HealthWatch, RequestStats } from "./services/observability.js";
 import { missingAccess } from "./services/ops/access.js";
 import { ActionList } from "./services/ops/actions.js";
 import { OpsBrain } from "./services/ops/brain.js";
@@ -95,6 +99,7 @@ import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
+import { SupportService } from "./services/support.js";
 import { TeamKeys } from "./services/team-keys.js";
 import { TeamStatusService } from "./services/team-status.js";
 import { ThumbnailStore } from "./services/thumbnails.js";
@@ -121,6 +126,10 @@ export interface ZelyqServer {
   errors: ErrorTracker;
   /** Paused, read-only, suspended: exposed so tests can see what it stops. */
   teamStatus: TeamStatusService;
+  /** Events for an account service: exposed so tests can deliver and wait. */
+  eventsOut: EventsOut;
+  /** Says when the server goes down and comes back (events). */
+  healthWatch: HealthWatch;
   store: Store;
   runtime: RuntimeDriver;
   /** What each team uses, and its plan: exposed so tests measure when they choose. */
@@ -230,6 +239,60 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // Paused, read-only, suspended: one check, used by every way into a team.
   const teamStatus = new TeamStatusService(store);
   activity.touch = (teamId, userId) => teamStatus.touch(teamId, userId);
+
+  // Events for an account service: what happened, signed and sent (or read back).
+  const eventsOut = new EventsOut(store, {
+    target: config.events,
+    log: (error, message) => app.log.warn({ error }, message),
+  });
+  activity.onRecorded = (event) => {
+    const base = { teamId: event.teamId, accountId: event.userId };
+    if (event.name === "account.created") {
+      eventsOut.emit("account.created", { ...base, via: event.detail.via ?? null });
+    } else if (event.name === "team.created") {
+      eventsOut.emit("team.created", { ...base, via: event.detail.via ?? null });
+    } else if (event.name === "limit.reached") {
+      eventsOut.emit("team.limit_reached", {
+        teamId: event.teamId,
+        limit: event.detail.limit ?? null,
+        plan: event.detail.plan ?? null,
+      });
+    }
+  };
+  access.onChange = (action, entry) => {
+    if (action === "team.member_added") {
+      eventsOut.emit("team.member_added", {
+        teamId: entry.teamId,
+        accountId: entry.detail.memberId ?? null,
+        role: entry.detail.role ?? null,
+        via: "added",
+      });
+    } else if (action === "team.member_removed") {
+      eventsOut.emit("team.member_removed", {
+        teamId: entry.teamId,
+        accountId: entry.detail.memberId ?? null,
+        byThemselves: entry.detail.self === true,
+      });
+    }
+  };
+  teamStatus.onChange = (teamId, status, by) =>
+    by === "owner"
+      ? eventsOut.emit("team.resumed", { teamId })
+      : eventsOut.emit("team.status_changed", { teamId, status });
+  errors.onNewGroup = (group, regressed) =>
+    eventsOut.emit(regressed ? "error.regressed" : "error.new", {
+      groupId: group.id,
+      kind: group.kind,
+      message: group.message,
+      location: group.location,
+      route: group.route,
+    });
+  // However a team goes (its last member leaving, the admin API, an account deleted), it is said.
+  const removeTeam = store.teams.remove.bind(store.teams);
+  store.teams.remove = async (teamId) => {
+    await removeTeam(teamId);
+    eventsOut.emit("team.deleted", { teamId });
+  };
   const vault = new VaultService(store, secrets, access);
   const variables = new ProjectVariableService(store, secrets, access, vault, runtime);
   vault.listeners.teamEntryChanged = (teamId, name) => variables.vaultEntryChanged(teamId, name);
@@ -282,6 +345,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const emailLinks = new EmailLinkService(store, settings, mail, auth, {
     warn: (object, message) => app.log.warn(object, message),
   });
+  // Joining through an invitation counts like being added: activity and an event.
+  emailLinks.onJoined = (teamId, userId, role) => {
+    activity.record("member.joined", { userId, teamId, detail: { role } });
+    eventsOut.emit("team.member_added", { teamId, accountId: userId, role, via: "invitation" });
+  };
   // Ops, the team's DevOps engineer: one list of actions, one gate in front of it.
   const ops = new OpsService(store, access, new ActionList(OPS_ACTIONS), {
     deploys,
@@ -365,6 +433,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     (await store.projects.findById(projectId))?.status === "building";
   usage.idleDays = () => settings.numberValue("cleanIdleAfterDays");
   usage.managed = Boolean(config.accounts);
+  // Announcements, messages to one person, maintenance: from the server's operators.
+  const messages = new MessagesToPeople(store, usage);
   usage.activity = activity;
   activity.usage = usage;
   // Undo points: only the newest are kept; a team member frees more from its Usage panel.
@@ -482,10 +552,36 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerProviderRoutes(app, { agent, access, settings });
   registerPlanRoutes(app, { usage, access, store });
   const directory = new AdminDirectory(store, auth, accounts, usage);
+  // Support (with the team's permission to look inside) and feature switches.
+  const support = new SupportService(store, runtime, directory);
+  support.planOf = async (teamId) => (await usage.planOf(teamId)).id;
+  auth.switchedOff = (userId, teamId) => support.switchedOff(userId, teamId);
+  registerSupportRoutes(app, { support, access });
   directory.activity = activity;
   directory.teamStatus = teamStatus;
+  const checkHealth = () =>
+    deepHealth({
+      store,
+      dataDir: config.attachmentsDir,
+      runtime: () => runtime.health(),
+      agent: () => agent.health(),
+      mailConfigured: () => mail.configured(),
+      lastCleanup: () => usage.lastCleanup(),
+      stats: requestStats,
+    });
+  const healthWatch = new HealthWatch(checkHealth, {
+    listening: () => eventsOut.anyoneListening(),
+    changed: (down, checks) =>
+      eventsOut.emit(down ? "health.down" : "health.recovered", { checks }),
+  });
+  registerMessageRoutes(app, { messages, access });
+  const adminKeys = new AdminKeyService(store);
+  adminKeys.onKeysChanged = () => eventsOut.keysChanged();
   registerAdminApi(app, {
-    adminKeys: new AdminKeyService(store),
+    adminKeys,
+    eventsOut,
+    messages,
+    support,
     usage,
     store,
     access,
@@ -493,16 +589,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     activity,
     errors,
     requestStats,
-    health: () =>
-      deepHealth({
-        store,
-        dataDir: config.attachmentsDir,
-        runtime: () => runtime.health(),
-        agent: () => agent.health(),
-        mailConfigured: () => mail.configured(),
-        lastCleanup: () => usage.lastCleanup(),
-        stats: requestStats,
-      }),
+    health: checkHealth,
   });
   registerTeamRoutes(app, {
     limits: usage,
@@ -532,6 +619,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     backend: projectBackend,
     thumbnails,
     activity,
+    maintenance: messages,
   });
   registerSupabaseConnectionRoutes(app, { supabase: supabaseConnections, access, runtime });
   registerFigmaRoutes(app, { figma: figmaConnections, access });
@@ -684,6 +772,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     if (!process.env.NODE_TEST_CONTEXT) usage.start();
     activity.start();
     errors.start();
+    eventsOut.start();
+    healthWatch.start();
     await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
@@ -730,8 +820,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   gateway.activity = activity;
   gateway.errors = errors;
   gateway.teamStatus = teamStatus;
+  gateway.maintenance = messages;
   teamStatus.stopPreview = (projectId) => runtime.stopPreview(projectId);
   agents.teamStatus = teamStatus;
+  agents.features = support;
 
   /**
    * A person's call into a team obeys the team's status: a suspended team is
@@ -757,6 +849,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     if (!teamId && (route.startsWith("/api/images/") || route.startsWith("/api/videos/"))) {
       teamId = (request.query as { teamId?: string } | undefined)?.teamId ?? null;
     }
+    // A feature switched off (for everyone, this plan, this team or this person) is not there.
+    await support.requireEnabled(route, user.id, teamId);
     if (!teamId) return;
     // Resuming is how a paused team comes back: the one change it always allows.
     await teamStatus.enforce(teamId, request.method, route);
@@ -908,6 +1002,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     app,
     activity,
     errors,
+    eventsOut,
+    healthWatch,
     teamStatus,
     imageBridge,
     videoBridge,
@@ -932,8 +1028,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       await app.close();
       activity.stop();
       errors.stop();
+      eventsOut.stop();
+      healthWatch.stop();
       await activity.settled();
       await errors.settled();
+      await eventsOut.settled();
       await runtime.dispose();
       await store.close();
     },

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { accountServiceLinks } from "@zelyq/core";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthCard, AuthError } from "../components/AuthCard";
@@ -130,6 +131,7 @@ export function InvitePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const status = useQuery({ queryKey: ["auth-status"], queryFn: api.authStatus });
   const invite = useQuery({
     queryKey: ["invite", token],
     queryFn: () => api.lookupInvite(token),
@@ -169,6 +171,10 @@ export function InvitePage() {
   const details = invite.data;
   const signedInAsOther = user && user.email !== details.email;
   const needsSignIn = details.accountExists && !user;
+  // Managed: everyone signs in (or signs up) with the account service, then
+  // comes straight back here to accept.
+  const accounts = status.data?.signIn.oidcOnly ? (status.data.accounts ?? null) : null;
+  const throughService = `/api/auth/oidc/start?return_to=${encodeURIComponent(`/invite#token=${token}`)}`;
 
   async function accept(event?: FormEvent) {
     event?.preventDefault();
@@ -206,12 +212,42 @@ export function InvitePage() {
           variant="primary"
           className="mt-4 w-full"
           onClick={async () => {
-            await signOut();
+            await signOut(`/invite#token=${token}`);
             navigate("/signin", backHere);
           }}
         >
           Sign out and continue as {details.email}
         </Button>
+      </AuthCard>
+    );
+  }
+
+  if (accounts && !user) {
+    return (
+      <AuthCard title={`Join ${details.teamName}`} subtitle={subtitle}>
+        <p className="text-center text-xs text-fg-secondary">
+          Sign in with {accounts.name} as {details.email}, or create your account there, and you
+          will come straight back here to join.
+        </p>
+        <Button
+          type="button"
+          variant="primary"
+          className="mt-4 w-full"
+          onClick={() => window.location.assign(throughService)}
+        >
+          Continue with {accounts.name}
+        </Button>
+        <p className="mt-3 text-center text-xs text-fg-muted">
+          No account?{" "}
+          <a
+            href={accountServiceLinks(accounts).signup(
+              `${window.location.origin}${throughService}`,
+            )}
+            className="text-info underline underline-offset-2 hover:no-underline"
+          >
+            Create one at {accounts.name}
+          </a>
+        </p>
       </AuthCard>
     );
   }

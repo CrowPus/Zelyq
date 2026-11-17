@@ -27,6 +27,7 @@ export function registerAccountRoutes(
    */
   app.delete("/api/auth/me", async (request, reply) => {
     const user = deps.access.requireUser(request);
+    deps.auth.requireLocal(user, "Delete your account");
     const { password } = deleteSelfSchema.parse(request.body ?? {});
     await deps.auth.confirmPassword(user, password);
     await deps.accounts.deleteUser(user, user.id);

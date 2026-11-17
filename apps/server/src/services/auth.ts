@@ -116,6 +116,8 @@ interface OidcClaims {
 export class AuthService {
   /** Product activity: sign-ups and sign-ins. */
   activity?: ProductActivity;
+  /** Features switched off for a person in a team (feature switches). */
+  switchedOff?: (userId: string, teamId: string) => Promise<string[]>;
 
   constructor(
     private readonly store: Store,
@@ -135,6 +137,32 @@ export class AuthService {
    * than accumulating for the life of the process.
    */
   private readonly oidcStates = new Map<string, number>();
+
+  /**
+   * Managed mode, for this person: their email, password and account belong to
+   * the account service. The server's own administrators keep theirs here, so
+   * they can always reach it. Null when self-hosted.
+   */
+  managedFor(user: User | null): AccountService | null {
+    const accounts = this.config.accounts ?? null;
+    if (!accounts || user?.instanceRole === "admin") return null;
+    return accounts;
+  }
+
+  /** Refuses, in plain words, something the account service does for this person. */
+  requireLocal(user: User | null, what: string): void {
+    const accounts = this.managedFor(user);
+    if (accounts) {
+      throw new ZelyqError("forbidden", `${what} at ${accounts.name}.`, { reason: "managed" });
+    }
+  }
+
+  /** A reset email goes out only for an account whose password lives here. */
+  async mayResetPassword(email: string): Promise<boolean> {
+    if (!this.config.accounts) return true;
+    const user = await this.store.users.findByEmail(email.trim().toLowerCase());
+    return user?.instanceRole === "admin";
+  }
 
   /** The single sign-on issuer as configured, for linking people ahead of their first sign-in. */
   oidcIssuer(): string | null {
@@ -414,6 +442,12 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<{ user: User; token: string }> {
     const firstRun = await this.isFirstRun();
+    // Managed: people sign up with the account service; this form only sets the server up.
+    if (!firstRun && this.config.accounts) {
+      throw new ZelyqError("forbidden", `Create your account at ${this.config.accounts.name}.`, {
+        reason: "managed",
+      });
+    }
     if (!firstRun && !(await this.config.allowRegistration())) {
       throw new ZelyqError(
         "forbidden",
@@ -483,6 +517,8 @@ export class AuthService {
     }
 
     const { passwordHash: _ignored, kind: _kind, ...user } = record;
+    // Managed: only the server's own administrators sign in with a password here.
+    this.requireLocal(user, "Sign in with your account");
     const token = await this.createSession(user.id);
     this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "password" } });
     return { user, token };
@@ -624,9 +660,15 @@ export class AuthService {
   }
 
   async describe(user: User): Promise<SessionResponse> {
+    const teams = await this.store.teams.listForUser(user.id);
     return {
       user,
-      teams: await this.store.teams.listForUser(user.id),
+      teams: await Promise.all(
+        teams.map(async (team) => ({
+          ...team,
+          switchedOff: (await this.switchedOff?.(user.id, team.id)) ?? [],
+        })),
+      ),
       accounts: this.config.accounts ?? null,
     };
   }

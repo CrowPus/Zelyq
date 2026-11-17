@@ -4,6 +4,7 @@ import { CircleAlert } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { SupportAccessPanel } from "../components/SupportAccessPanel";
 import { TeamKeys } from "../components/TeamKeys";
 import { UsagePanel } from "../components/UsagePanel";
 import { Badge, Button, Spinner } from "../components/ui";
@@ -165,6 +166,8 @@ export function TeamSettingsPage() {
           <UsagePanel teamId={id} canEdit={team ? roleAtLeast(team.role, "editor") : false} />
 
           <TeamKeys teamId={id} canManage={canManage} />
+
+          <SupportAccessPanel teamId={id} canManage={canManage} />
 
           {settings.isLoading && (
             <div className="mt-8 grid place-items-center">

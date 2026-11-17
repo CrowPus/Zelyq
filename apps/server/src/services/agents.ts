@@ -77,6 +77,10 @@ function newKey(): { key: string; prefix: string; hash: string } {
  * human who said yes.
  */
 export class AgentService {
+  /** Outside agents switched off (feature switches) let none in. */
+  features?: {
+    requireEnabled(route: string, userId: string | null, teamId: string | null): Promise<void>;
+  };
   /** A team that is not active lets no outside agent in. */
   teamStatus?: { requireRunnable(teamId: string): Promise<void> };
   constructor(
@@ -295,6 +299,7 @@ export class AgentService {
     }
     // An outside agent works only for a team that is active.
     await this.teamStatus?.requireRunnable(row.teamId);
+    await this.features?.requireEnabled("/api/teams/:teamId/agents", null, row.teamId);
     await this.store.agents.touch(row.id, new Date().toISOString(), ip);
     return {
       agent: row,

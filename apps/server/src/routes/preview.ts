@@ -27,6 +27,8 @@ export function registerPreviewRoutes(
     backend?: ProjectBackendService;
     thumbnails?: ThumbnailStore;
     activity?: ProductActivity;
+    /** Maintenance that pauses building also holds new previews. */
+    maintenance?: { requireBuildsAllowed(): Promise<void> };
   },
 ): void {
   const { access } = deps;
@@ -49,6 +51,7 @@ export function registerPreviewRoutes(
       .then((preview) => preview.status === "running")
       .catch(() => false);
     if (!already) await deps.limits?.check(project.project.teamId, "previews");
+    if (!already) await deps.maintenance?.requireBuildsAllowed();
     deps.limits?.touch(request.params.id);
     // A project made before the element inspector shipped, or not started
     // from Zelyq's own template at all, gets patched with the same bridge

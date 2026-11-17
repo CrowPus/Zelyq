@@ -520,13 +520,19 @@ export class UsageService {
     const words = PLAN_LIMITS[key];
     const amount = (value: number) => `${value}${words.unit ? ` ${words.unit}` : ""}`;
     this.activity?.record("limit.reached", { teamId, detail: { limit: key, plan: plan.id } });
+    // Who moves a team to a bigger plan: the server's admin, or (managed) its owner, by paying.
+    const upgrade = this.managed
+      ? "The team's owner can choose a bigger plan."
+      : "A server admin can move the team to a bigger plan.";
+    const details = { reason: "plan_limit", teamId, limit: key, plan: plan.id };
     throw new ZelyqError(
       "forbidden",
       key === "storageMb"
-        ? `Your team's plan (${plan.name}) has ${amount(limit)} of storage, and the team uses ${amount(used)}. Delete what it no longer needs (old images, videos, apps), or a server admin moves the team to a bigger plan.`
+        ? `Your team's plan (${plan.name}) has ${amount(limit)} of storage, and the team uses ${amount(used)}. Delete what it no longer needs (old images, videos, apps). ${upgrade}`
         : key === "runnerMinutes"
-          ? `Your team's plan (${plan.name}) has ${amount(limit)} on this server's runner this month, and they are used. Run on one of the team's own machines (free), or a server admin moves the team to a bigger plan.`
-          : `Your team's plan (${plan.name}) allows ${limit} ${limit === 1 && "one" in words ? words.one : words.label.toLowerCase()}, and the team has ${used}. A server admin can move the team to a bigger plan.`,
+          ? `Your team's plan (${plan.name}) has ${amount(limit)} on this server's runner this month, and they are used. Run on one of the team's own machines (free). ${upgrade}`
+          : `Your team's plan (${plan.name}) allows ${limit} ${limit === 1 && "one" in words ? words.one : words.label.toLowerCase()}, and the team has ${used}. ${upgrade}`,
+      details,
     );
   }
 

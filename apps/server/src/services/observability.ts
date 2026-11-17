@@ -471,3 +471,47 @@ export async function deepHealth(probes: HealthProbes) {
     checks,
   };
 }
+
+/**
+ * Checks the server every few minutes, only while someone listens for events,
+ * and says when it goes down and when it comes back: not every check, just
+ * the change.
+ */
+export class HealthWatch {
+  private timer: NodeJS.Timeout | null = null;
+  private down = false;
+
+  constructor(
+    private readonly check: () => Promise<{ status: string; checks: HealthCheck[] }>,
+    private readonly hooks: {
+      listening: () => Promise<boolean>;
+      changed: (down: boolean, checks: Array<{ name: string; detail: string }>) => void;
+    },
+    private readonly everyMs = 5 * 60 * 1000,
+  ) {}
+
+  start(): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => void this.tick().catch(() => undefined), this.everyMs);
+    this.timer.unref();
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  async tick(): Promise<void> {
+    if (!(await this.hooks.listening())) return;
+    const report = await this.check();
+    const down = report.status === "down";
+    if (down === this.down) return;
+    this.down = down;
+    this.hooks.changed(
+      down,
+      report.checks
+        .filter((entry) => entry.status === "down")
+        .map((entry) => ({ name: entry.name, detail: entry.detail })),
+    );
+  }
+}

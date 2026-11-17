@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { accountServiceLinks } from "@zelyq/core";
 import { CircleAlert } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { AuthNotice } from "../components/AuthCard";
 import { Button, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
@@ -33,6 +34,17 @@ export function SignInPage() {
   // the server's own administrators, so they can always reach it.
   const local = query.get("local") === "1";
   const serviceOnly = Boolean(signIn?.oidcOnly) && !local;
+  // Where they were going (a shared link): signing in brings them back there.
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from;
+  const startUrl = `/api/auth/oidc/start${from && from !== "/" ? `?return_to=${encodeURIComponent(from)}` : ""}`;
+  // Managed: straight to the account service. Someone already signed in there
+  // comes back signed in here without typing anything. Not after a failure,
+  // which would loop.
+  const goStraight = serviceOnly && Boolean(accounts) && !oidcError;
+  useEffect(() => {
+    if (goStraight) window.location.replace(startUrl);
+  }, [goStraight, startUrl]);
 
   const registering = firstRun || (mode === "register" && Boolean(signIn?.register));
   const forgot = !firstRun && mode === "forgot";
@@ -67,6 +79,17 @@ export function SignInPage() {
     );
   }
 
+  if (goStraight) {
+    return (
+      <div className="grid h-dvh place-items-center bg-canvas">
+        <div className="flex flex-col items-center gap-3 text-xs text-fg-secondary">
+          <Spinner />
+          Taking you to {accounts?.name}…
+        </div>
+      </div>
+    );
+  }
+
   if (serviceOnly && accounts) {
     return (
       <div className="grid h-dvh place-items-center bg-canvas px-4">
@@ -92,7 +115,7 @@ export function SignInPage() {
             type="button"
             variant="primary"
             className="w-full"
-            onClick={() => window.location.assign("/api/auth/oidc/start")}
+            onClick={() => window.location.assign(startUrl)}
           >
             {signIn?.oidcLabel}
           </Button>
@@ -244,7 +267,7 @@ export function SignInPage() {
             type="button"
             variant="secondary"
             className="mt-3 w-full"
-            onClick={() => window.location.assign("/api/auth/oidc/start")}
+            onClick={() => window.location.assign(startUrl)}
           >
             {signIn.oidcLabel}
           </Button>

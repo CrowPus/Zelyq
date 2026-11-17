@@ -26,7 +26,9 @@ import { Link, useLocation } from "react-router-dom";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { useTheme } from "../hooks/useTheme";
+import { AnnouncementBanner } from "./AnnouncementBanner";
 import { Inbox } from "./Inbox";
+import { PlanLimitBanner } from "./PlanLimitBanner";
 import { TeamStatusBanner } from "./TeamStatusBanner";
 import { Button, IconButton } from "./ui";
 
@@ -85,7 +87,9 @@ export function AppShell({
       <div className="grid min-w-0 grid-rows-[40px_auto_minmax(0,1fr)] overflow-hidden">
         <TopBar crumbs={crumbs} actions={actions} />
         <div>
+          <AnnouncementBanner />
           <TeamStatusBanner />
+          <PlanLimitBanner />
         </div>
         <main className="min-h-0 overflow-hidden">{children}</main>
       </div>
@@ -202,9 +206,22 @@ const SECTIONS: {
   },
 ];
 
+/** Which page a switched-off feature takes away (Studio only once both its halves are off). */
+function hiddenPages(switchedOff: string[] | undefined): Set<string> {
+  const off = new Set(switchedOff ?? []);
+  const hidden = new Set<string>();
+  if (off.has("studio_image") && off.has("studio_video")) hidden.add("/studio");
+  if (off.has("outside_agents")) hidden.add("/agents");
+  if (off.has("pipelines")) hidden.add("/pipelines");
+  if (off.has("deploy")) hidden.add("/deployments");
+  if (off.has("ops")) hidden.add("/ops");
+  return hidden;
+}
+
 function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const { pathname } = useLocation();
   const { team } = useActiveTeam();
+  const hidden = hiddenPages(team?.switchedOff);
 
   return (
     <nav
@@ -245,16 +262,18 @@ function Rail({ open, onToggle }: { open: boolean; onToggle: () => void }) {
           ) : (
             <span aria-hidden className="mx-auto mb-1 h-px w-5 bg-border-default" />
           )}
-          {section.items.map((item) => (
-            <RailLink
-              key={item.to}
-              to={item.to}
-              label={item.label}
-              icon={item.icon}
-              active={item.match(pathname)}
-              open={open}
-            />
-          ))}
+          {section.items
+            .filter((item) => !hidden.has(item.to))
+            .map((item) => (
+              <RailLink
+                key={item.to}
+                to={item.to}
+                label={item.label}
+                icon={item.icon}
+                active={item.match(pathname)}
+                open={open}
+              />
+            ))}
         </div>
       ))}
       <div className="flex-1" />
@@ -472,6 +491,8 @@ function initials(name: string): string {
 }
 
 function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
+  const { team } = useActiveTeam();
+  const hidden = hiddenPages(team?.switchedOff);
   return (
     <header className="flex min-w-0 items-center gap-2 border-b border-border-default bg-surface px-2 md:px-3">
       <Link to="/" aria-label="Zelyq home" className="shrink-0 md:hidden">
@@ -502,14 +523,16 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
 
       <div className="ml-auto flex items-center gap-1">
         {actions}
-        <Link
-          to="/studio"
-          aria-label="Studio"
-          title="Studio"
-          className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
-        >
-          <Palette size={16} />
-        </Link>
+        {!hidden.has("/studio") && (
+          <Link
+            to="/studio"
+            aria-label="Studio"
+            title="Studio"
+            className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
+          >
+            <Palette size={16} />
+          </Link>
+        )}
         <Inbox />
         <ThemeToggle />
         <Link
@@ -520,22 +543,26 @@ function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
         >
           <KeyRound size={16} />
         </Link>
-        <Link
-          to="/pipelines"
-          aria-label="Pipelines"
-          title="Pipelines"
-          className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
-        >
-          <Workflow size={16} />
-        </Link>
-        <Link
-          to="/ops"
-          aria-label="Ops"
-          title="Ops"
-          className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
-        >
-          <ServerCog size={16} />
-        </Link>
+        {!hidden.has("/pipelines") && (
+          <Link
+            to="/pipelines"
+            aria-label="Pipelines"
+            title="Pipelines"
+            className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
+          >
+            <Workflow size={16} />
+          </Link>
+        )}
+        {!hidden.has("/ops") && (
+          <Link
+            to="/ops"
+            aria-label="Ops"
+            title="Ops"
+            className="grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
+          >
+            <ServerCog size={16} />
+          </Link>
+        )}
         <AccountMenu />
       </div>
     </header>

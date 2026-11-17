@@ -3,6 +3,7 @@ import {
   cleanProductDetail,
   newId,
   PRODUCT_FEATURES,
+  type ProductEvent,
   type ProductEventName,
   type ProductFeature,
   productEventNameSchema,
@@ -50,6 +51,8 @@ export class ProductActivity {
   private readonly pending = new Set<Promise<void>>();
   private timer: NodeJS.Timeout | null = null;
   usage?: UsageService;
+  /** Told about each event recorded (events to an account service). */
+  onRecorded?: (event: ProductEvent) => void;
   /** Marks a team (and the person) as used: see TeamStatusService.touch. */
   touch?: (teamId: string | null, userId: string) => Promise<void>;
 
@@ -106,7 +109,7 @@ export class ProductActivity {
     if (!teamId && context.projectId) {
       teamId = (await this.store.projects.findById(context.projectId))?.teamId ?? null;
     }
-    await this.store.productEvents.record({
+    const event = {
       id: newId("productEvent"),
       name,
       userId: context.userId ?? null,
@@ -114,7 +117,9 @@ export class ProductActivity {
       projectId: context.projectId ?? null,
       detail: cleanProductDetail(name, context.detail),
       createdAt: new Date().toISOString(),
-    });
+    };
+    await this.store.productEvents.record(event);
+    this.onRecorded?.(event);
     // Something a person did: the team was used, and the person was here.
     if (context.userId) await this.touch?.(teamId, context.userId);
   }

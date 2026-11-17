@@ -210,6 +210,9 @@ the clear where TLS is available.
 
 ### Managed mode (an outside account service)
 
+The whole picture (setting a server up, what the service does day to day) is in
+[managed mode](managed-mode.md); this section is the settings.
+
 A server can be connected to an outside account service that owns sign-up, sign-in, profile and
 billing for its people: a hosted offering, or a company's own portal. With nothing set, a server is
 self-hosted and nothing below applies.
@@ -217,8 +220,17 @@ self-hosted and nothing below applies.
 Set `ZELYQ_ACCOUNTS_URL`, and point the four OIDC variables above at the same service (the server
 refuses to start without them). Then:
 
-- The sign-in screen offers one button, "Continue with *name*", and "Create one at *name*" for
-  people without an account. This server's own sign-up form and password reset are not offered.
+- Opening the server signed out goes **straight to the service**; someone already signed in there
+  comes back signed in here without typing anything, on the page they were going to (a shared link
+  or an invitation). After a failed attempt the sign-in screen shows one button, "Continue with
+  *name*", and "Create one at *name*", instead of going round again.
+- People of the service have **no password here**: sign-up, password, email changes, password
+  reset and deleting the account are refused in plain words ("Change your password at *name*.").
+  A display name can still be changed here.
+- **Signing out** ends the session here and then sends the browser to the service's `/signout`,
+  so the next person at that computer is not let straight back in.
+- **Invitations:** someone invited by email signs in (or signs up) with the service and comes back
+  to the invitation to accept it.
 - People the service vouches for (verified email) get an account and a team on first sign-in, even
   with `ZELYQ_ALLOW_REGISTRATION=false`: that setting is about this server's own form.
 - The server is still set up by its own administrator first, on the set-up form. Until then nobody
@@ -242,7 +254,7 @@ The service's pages are reached by fixed paths on that address, so any service c
 | The person's account | `/account` |
 | Change a team's plan | `/billing?team=<team id>` |
 | After a plan limit | `/upgrade?team=<team id>&limit=<limit>` |
-| Sign out there too | `/signout` |
+| Sign out there too | `/signout?return_to=<this server>` |
 
 `GET /api/auth/status` says which mode a server is in (`mode`, `accounts`, `signIn`); the browser
 shows only what it says.

@@ -38,7 +38,8 @@ const DEFAULT_MESSAGE: Record<Exclude<TeamStatus, "active">, string> = {
 /** Changes allowed while a team is paused or read-only: taking away, stopping, resuming. */
 function allowedWhileFrozen(method: string, route: string): boolean {
   if (method === "DELETE") return true;
-  return /\/(resume|free-space|stop|cancel)$/.test(route);
+  // Asking support for help is allowed too: a team in trouble is the one that needs it.
+  return /\/(resume|free-space|stop|cancel|support-access)$/.test(route);
 }
 
 const TOUCH_EVERY_MS = 10 * 60 * 1000;

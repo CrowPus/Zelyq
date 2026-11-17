@@ -63,7 +63,8 @@ export function registerAuthRoutes(
     { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
     async (request, reply) => {
       const input = forgotPasswordSchema.parse(request.body);
-      await deps.links.requestReset(input.email);
+      // The same answer either way; managed, a reset goes out only for an administrator.
+      if (await deps.auth.mayResetPassword(input.email)) await deps.links.requestReset(input.email);
       reply.status(202);
       return { sent: true };
     },
@@ -95,6 +96,8 @@ export function registerAuthRoutes(
     { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } },
     async (request, reply) => {
       const input = acceptInviteSchema.parse(request.body);
+      // Managed: a new person signs in through the account service first, then accepts.
+      if (!request.zelyqUser) deps.auth.requireLocal(null, "Sign in or create your account");
       const accepted = await deps.links.acceptInvite(
         input.token,
         { name: input.name, password: input.password },
@@ -107,11 +110,23 @@ export function registerAuthRoutes(
     },
   );
 
-  app.get("/api/auth/oidc/start", async (request, reply) => {
-    const started = await deps.auth.oidcStart();
-    setOidcStateCookie(request, reply, `${started.state}|${started.verifier}`);
-    return reply.redirect(started.authorizationUrl);
-  });
+  /**
+   * `?return_to=/a/path`: where to land once signed in (a shared link, an
+   * invitation). Only a path on this server; anything else lands on the start.
+   */
+  app.get<{ Querystring: { return_to?: string } }>(
+    "/api/auth/oidc/start",
+    async (request, reply) => {
+      const started = await deps.auth.oidcStart();
+      const back = safeReturnTo(request.query.return_to);
+      setOidcStateCookie(
+        request,
+        reply,
+        `${started.state}|${started.verifier}${back ? `|${Buffer.from(back).toString("base64url")}` : ""}`,
+      );
+      return reply.redirect(started.authorizationUrl);
+    },
+  );
 
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     "/api/auth/oidc/callback",
@@ -121,7 +136,10 @@ export function registerAuthRoutes(
       if (request.query.error || !request.query.code || !request.query.state || !stateCookie) {
         return reply.redirect("/signin?error=oidc");
       }
-      const [signedState, verifier] = stateCookie.split("|");
+      const [signedState, verifier, encodedBack] = stateCookie.split("|");
+      const back = encodedBack
+        ? safeReturnTo(Buffer.from(encodedBack, "base64url").toString())
+        : null;
       if (request.query.state !== signedState || !verifier)
         return reply.redirect("/signin?error=oidc");
       try {
@@ -131,7 +149,7 @@ export function registerAuthRoutes(
           verifier,
         });
         await setSessionCookie(request, reply, result.token);
-        return reply.redirect("/signin");
+        return reply.redirect(back ?? "/signin");
       } catch (error) {
         request.log.warn({ error }, "OIDC sign-in failed");
         // Said plainly, but the reason itself never rides in the address: a link
@@ -170,6 +188,9 @@ export function registerAuthRoutes(
     if (!user) throw new ZelyqError("unauthorized", "Sign in to continue.");
 
     const input = updateProfileSchema.parse(request.body);
+    if (input.email !== undefined && input.email.trim().toLowerCase() !== user.email) {
+      deps.auth.requireLocal(user, "Change your email");
+    }
     const updated = await deps.auth.updateProfile(user, input);
     return await deps.auth.describe(updated);
   });
@@ -178,6 +199,7 @@ export function registerAuthRoutes(
     const user = request.zelyqUser;
     if (!user) throw new ZelyqError("unauthorized", "Sign in to continue.");
 
+    deps.auth.requireLocal(user, "Change your password");
     const input = changePasswordSchema.parse(request.body);
     const { token } = await deps.auth.changePassword(user, input);
 
@@ -195,4 +217,19 @@ export function registerAuthRoutes(
     }
     return await deps.auth.describe(user);
   });
+}
+
+/**
+ * A path on this server to go back to after signing in, or null. Never
+ * another site: no scheme, no `//host`, no backslash tricks, nothing odd.
+ */
+export function safeReturnTo(value: string | undefined): string | null {
+  if (!value || value.length > 2000) return null;
+  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return null;
+  for (const ch of value) {
+    const code = ch.charCodeAt(0);
+    if (code < 32 || code === 127 || ch === "\\") return null;
+  }
+  if (value.startsWith("/api/") || value.startsWith("/signin")) return null;
+  return value;
 }

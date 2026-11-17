@@ -40,6 +40,12 @@ export interface ServerConfig {
    * profile and billing (`ZELYQ_ACCOUNTS_URL`). Unset = self-hosted, as always.
    */
   accounts?: AccountService;
+  /**
+   * Where events are sent (`ZELYQ_EVENTS_URL`) and the secret they are signed
+   * with (`ZELYQ_EVENTS_SECRET`). Unset: nothing is sent; a key with the
+   * `events` scope can still read them.
+   */
+  events?: { url: string; secret: string };
   oidc?: {
     issuer: string | undefined;
     clientId: string | undefined;
@@ -222,6 +228,7 @@ export function loadServerConfig(): ServerConfig {
 
   return {
     accounts: accountServiceFromEnv(process.env, oidc),
+    events: eventsFromEnv(process.env),
     host: process.env.ZELYQ_SERVER_HOST ?? "127.0.0.1",
     port: intFromEnv("ZELYQ_SERVER_PORT", 8787),
     logLevel: process.env.LOG_LEVEL ?? "info",
@@ -351,4 +358,27 @@ export function accountServiceFromEnv(
     name: env.ZELYQ_ACCOUNTS_NAME?.trim().slice(0, 60) || url.hostname,
     url: `${url.origin}${url.pathname}`.replace(/\/+$/, ""),
   };
+}
+
+/** `ZELYQ_EVENTS_URL` + `ZELYQ_EVENTS_SECRET`: both, or neither. */
+export function eventsFromEnv(env: NodeJS.ProcessEnv): { url: string; secret: string } | undefined {
+  const raw = env.ZELYQ_EVENTS_URL?.trim();
+  if (!raw) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`ZELYQ_EVENTS_URL is not an address: ${raw}`);
+  }
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
+    throw new Error("ZELYQ_EVENTS_URL must start with https:// (http:// only for localhost)");
+  }
+  const secret = env.ZELYQ_EVENTS_SECRET?.trim() ?? "";
+  if (secret.length < 24) {
+    throw new Error(
+      "ZELYQ_EVENTS_URL needs ZELYQ_EVENTS_SECRET (at least 24 characters) to sign what it sends",
+    );
+  }
+  return { url: url.toString(), secret };
 }

@@ -11,8 +11,11 @@ import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { AdminDirectory } from "../services/admin-directory.js";
 import { type AdminCaller, type AdminKeyService, requestHash } from "../services/admin-keys.js";
+import type { EventsOut } from "../services/events-out.js";
+import type { MessagesToPeople } from "../services/messages-to-people.js";
 import type { ErrorTracker, RequestStats } from "../services/observability.js";
 import type { ProductActivity } from "../services/product-activity.js";
+import type { SupportService } from "../services/support.js";
 import type { UsageService } from "../services/usage.js";
 
 declare module "fastify" {
@@ -45,6 +48,9 @@ export function registerAdminApi(
   app: FastifyInstance,
   deps: {
     adminKeys: AdminKeyService;
+    eventsOut: EventsOut;
+    messages: MessagesToPeople;
+    support: SupportService;
     usage: UsageService;
     store: Store;
     access: AccessControl;
@@ -334,6 +340,101 @@ export function registerAdminApi(
       route("GET", "/prometheus", "metrics", async (_request, reply) => {
         reply.type("text/plain; version=0.0.4; charset=utf-8");
         return requestStats.prometheus();
+      });
+
+      // ------------------------------------------- events
+
+      /** What happened, after the last event already read: for catching up, or instead of a URL. */
+      route("GET", "/events", "events", async (request) =>
+        deps.eventsOut.list(request.query as { after?: string; limit?: string; type?: string }),
+      );
+
+      // ------------------------------------------- talking to people
+
+      const sender = (request: FastifyRequest) => `admin key "${request.adminCaller!.name}"`;
+      route("POST", "/announcements", "notify", async (request, reply) => {
+        reply.status(201);
+        return await deps.messages.createAnnouncement(sender(request), request.body);
+      });
+      route("GET", "/announcements", "notify", async () => deps.messages.listAnnouncements());
+      route("PATCH", "/announcements/:id", "notify", async (request) =>
+        deps.messages.updateAnnouncement(idOf(request), request.body),
+      );
+      route("DELETE", "/announcements/:id", "notify", async (request) =>
+        deps.messages.removeAnnouncement(idOf(request)),
+      );
+      route("POST", "/notifications", "notify", async (request, reply) => {
+        reply.status(201);
+        return await deps.messages.notify(sender(request), request.body);
+      });
+      route("GET", "/maintenance", "notify", async () => ({
+        maintenance: await deps.messages.currentMaintenance(),
+      }));
+      route("PUT", "/maintenance", "notify", async (request) => ({
+        maintenance: await deps.messages.setMaintenance(request.body),
+      }));
+      route("DELETE", "/maintenance", "notify", async () => deps.messages.clearMaintenance());
+
+      // ------------------------------------------- support
+
+      type AppParams = { id: string; appId: string };
+      route("GET", "/support/teams/:id", "support", async (request) =>
+        deps.support.teamFacts(idOf(request)),
+      );
+      route("GET", "/support/teams/:id/apps/:appId/logs", "support", async (request) => {
+        const params = request.params as AppParams;
+        const lines = Number.parseInt((request.query as { lines?: string }).lines ?? "300", 10);
+        return await deps.support.previewLogs(params.id, params.appId, lines || 300);
+      });
+      route("GET", "/support/teams/:id/apps/:appId/files", "support", async (request) => {
+        const params = request.params as AppParams;
+        return await deps.support.files(
+          request.adminCaller!.name,
+          params.id,
+          params.appId,
+          (request.query as { path?: string }).path,
+        );
+      });
+      route("GET", "/support/teams/:id/apps/:appId/file", "support", async (request) => {
+        const params = request.params as AppParams;
+        return await deps.support.file(
+          request.adminCaller!.name,
+          params.id,
+          params.appId,
+          (request.query as { path?: string }).path ?? "",
+        );
+      });
+      route("POST", "/support/accounts/:id/end-sessions", "support", async (request) =>
+        directory.signOut(idOf(request)),
+      );
+
+      // ------------------------------------------- feature switches
+
+      route("GET", "/features", "features", async () => deps.support.listFeatures());
+      route("PUT", "/features/:id", "features", async (request) =>
+        deps.support.setFeature(idOf(request), request.body),
+      );
+      route("DELETE", "/features/:id", "features", async (request) =>
+        deps.support.resetFeature(idOf(request)),
+      );
+
+      // ------------------------------------------- audit
+
+      route("GET", "/audit", "audit", async (request) => {
+        const query = request.query as {
+          team?: string;
+          action?: string;
+          since?: string;
+          limit?: string;
+        };
+        const limit = Math.min(Math.max(Number.parseInt(query.limit ?? "200", 10) || 200, 1), 1000);
+        if (query.team) return { entries: await store.auditLog.listForTeam(query.team, limit) };
+        if (query.action) {
+          return {
+            entries: await store.auditLog.listByAction(query.action as never, limit),
+          };
+        }
+        return { entries: await store.auditLog.listRecent(limit, query.since) };
       });
 
       // Anything else under the prefix is an unknown call, answered in the API's own shape.

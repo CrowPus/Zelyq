@@ -125,6 +125,8 @@ export const teamSchema = z.object({
   status: teamStatusSchema.optional(),
   /** What the team's members are shown while it is not active. */
   statusMessage: z.string().nullable().optional(),
+  /** Features switched off for this person in this team: the screens hide them. */
+  switchedOff: z.array(z.string()).optional(),
 });
 export type Team = z.infer<typeof teamSchema>;
 

@@ -407,6 +407,20 @@
       "when": 1794913284655,
       "tag": "0057_team_status",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794914654363,
+      "tag": "0058_outbox_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794915022711,
+      "tag": "0059_announcements",
+      "breakpoints": true
     }
   ]
 }

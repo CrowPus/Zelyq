@@ -38,6 +38,8 @@ function hashKey(key: string): string {
  */
 export class AdminKeyService {
   private readonly touched = new Map<string, number>();
+  /** Told when a key is made or revoked (who may read events changes). */
+  onKeysChanged?: () => void;
   private lastPrune = 0;
 
   constructor(private readonly store: Store) {}
@@ -58,6 +60,7 @@ export class AdminKeyService {
       revokedAt: null,
     };
     await this.store.adminKeys.create(row);
+    this.onKeysChanged?.();
     await this.audit(by, "admin_key.created", {
       key: row.name,
       prefix: row.keyPrefix,
@@ -76,6 +79,7 @@ export class AdminKeyService {
     if (!row.revokedAt) {
       const at = new Date().toISOString();
       await this.store.adminKeys.revoke(id, at);
+      this.onKeysChanged?.();
       row.revokedAt = at;
       await this.audit(by, "admin_key.revoked", { key: row.name, prefix: row.keyPrefix });
     }

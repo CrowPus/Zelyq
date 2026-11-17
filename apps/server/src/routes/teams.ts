@@ -133,7 +133,7 @@ export function registerTeamRoutes(
       await access.recordChange(user, {
         teamId,
         action: "team.member_added",
-        detail: { email: input.email, role: input.role },
+        detail: { email: input.email, memberId: invitee.id, role: input.role },
       });
       const { passwordHash: _hash, kind: _kind, ...member } = invitee;
       await links.notifyAdded(user, teamId, member, input.role);
@@ -301,7 +301,7 @@ export function registerTeamRoutes(
       await access.recordChange(user, {
         teamId,
         action: "team.member_removed",
-        detail: { email: target?.email ?? userId, self: isSelf },
+        detail: { email: target?.email ?? userId, memberId: userId, self: isSelf },
       });
       reply.status(204);
     },

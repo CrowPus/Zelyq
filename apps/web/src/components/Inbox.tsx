@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
-import { Bell, ServerCog, Workflow } from "lucide-react";
+import { Bell, Megaphone, ServerCog, Workflow } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useActiveTeam } from "../hooks/useActiveTeam";
@@ -40,6 +40,21 @@ export function Inbox() {
     queryFn: () => api.ops.waiting(teamId),
     ...every,
   });
+  // From the server's operators: announcements for the bell, and messages to this person.
+  const messages = useQuery({
+    queryKey: ["inbox-messages"],
+    queryFn: api.inboxMessages,
+    refetchInterval: 60_000,
+    retry: false,
+  });
+  const read = useMutation({
+    mutationFn: async (input: { kind: "announcement" | "message" | "all"; id?: string }) => {
+      if (input.kind === "announcement") await api.markAnnouncement(input.id!, "dismiss");
+      else if (input.kind === "message") await api.markMessageRead(input.id!);
+      else await api.markAllMessagesRead();
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["inbox-messages"] }),
+  });
 
   const answer = useMutation({
     mutationFn: (input: { runId: string; approvalId: string; decision: "approved" | "rejected" }) =>
@@ -57,11 +72,20 @@ export function Inbox() {
   const runQuestions = runs.data?.approvals ?? [];
   const opsWaiting = ops.data?.waiting ?? [];
   // Counted only what this person can answer: a bell nobody can answer is noise.
+  const fromOperators = [
+    ...(messages.data?.announcements ?? []).map((item) => ({
+      ...item,
+      kind: "announcement" as const,
+    })),
+    ...(messages.data?.notifications ?? []).map((item) => ({ ...item, kind: "message" as const })),
+  ];
   const count =
+    (messages.data?.unread ?? 0) +
     (isAdmin ? agentWaiting.length : 0) +
     runQuestions.filter((one) => one.canDecide).length +
     opsWaiting.filter((one) => one.canDecide).length;
-  const nothing = agentWaiting.length + runQuestions.length + opsWaiting.length === 0;
+  const nothing =
+    agentWaiting.length + runQuestions.length + opsWaiting.length + fromOperators.length === 0;
 
   // Moving to another page closes it; so do Escape and a click outside.
   // biome-ignore lint/correctness/useExhaustiveDependencies: closes on every change of page
@@ -191,6 +215,49 @@ export function Inbox() {
           )}
 
           <AgentRequests teamId={teamId} canDecide={isAdmin} waitingOnly title="From agents" />
+
+          {fromOperators.length > 0 && (
+            <Group title="Messages">
+              {fromOperators.map((item) => (
+                <Item
+                  key={`${item.kind}:${item.id}`}
+                  icon={<Megaphone size={15} strokeWidth={1.75} />}
+                  title={item.read ? item.title : `● ${item.title}`}
+                  detail={
+                    <>
+                      {item.body}
+                      {item.link && (
+                        <>
+                          {" "}
+                          <a
+                            href={item.link.url}
+                            className="underline underline-offset-2 hover:text-fg"
+                            {...(item.link.url.startsWith("https://")
+                              ? { target: "_blank", rel: "noreferrer" }
+                              : {})}
+                          >
+                            {item.link.label}
+                          </a>
+                        </>
+                      )}
+                    </>
+                  }
+                  actions={
+                    item.read ? null : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={read.isPending}
+                        onClick={() => read.mutate({ kind: item.kind, id: item.id })}
+                      >
+                        Mark read
+                      </Button>
+                    )
+                  }
+                />
+              ))}
+            </Group>
+          )}
 
           {nothing && (
             <p className="py-6 text-center text-xs text-fg-muted">Nothing waits for you.</p>

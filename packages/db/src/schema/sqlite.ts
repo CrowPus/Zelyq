@@ -1910,6 +1910,106 @@ export const errorHits = sqliteTable(
   }),
 );
 
+/**
+ * Events for an outside system (an account service): written when something
+ * happens, then sent to `ZELYQ_EVENTS_URL`, signed, and retried until it is
+ * taken. Also read back through the admin API (`GET /events`), so nothing is
+ * lost while the receiver is down. Kept 30 days.
+ */
+export const outboxEvents = sqliteTable(
+  "outbox_events",
+  {
+    id: text("id").primaryKey(),
+    type: text("type").notNull(),
+    data: text("data").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+    /** "pending", "delivered", or "failed" (gave up after three days). */
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at").notNull(),
+    deliveredAt: text("delivered_at"),
+    lastError: text("last_error"),
+  },
+  (table) => ({
+    createdIdx: index("outbox_events_created_idx").on(table.createdAt, table.id),
+    dueIdx: index("outbox_events_due_idx").on(table.status, table.nextAttemptAt),
+  }),
+);
+
+/**
+ * Messages inside Zelyq from the server's operators: a banner across the top,
+ * or an item in the bell. To everyone, a plan, a team or one person, between
+ * two times.
+ */
+export const announcements = sqliteTable(
+  "announcements",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    /** "info", "warning" or "urgent". */
+    level: text("level").notNull().default("info"),
+    /** "banner" (across the top) or "inbox" (in the bell). */
+    display: text("display").notNull().default("banner"),
+    /** "everyone", "plan", "team" or "person". */
+    audienceKind: text("audience_kind").notNull().default("everyone"),
+    /** The plan, team or person id; null for everyone. */
+    audienceValue: text("audience_value"),
+    linkUrl: text("link_url"),
+    linkLabel: text("link_label"),
+    startsAt: text("starts_at").notNull(),
+    endsAt: text("ends_at"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    windowIdx: index("announcements_window_idx").on(table.startsAt, table.endsAt),
+  }),
+);
+
+/** Who saw, dismissed or followed an announcement: for the counts, and so it stays dismissed. */
+export const announcementViews = sqliteTable(
+  "announcement_views",
+  {
+    announcementId: text("announcement_id")
+      .notNull()
+      .references(() => announcements.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seenAt: text("seen_at"),
+    dismissedAt: text("dismissed_at"),
+    clickedAt: text("clicked_at"),
+  },
+  (table) => ({
+    pairIdx: uniqueIndex("announcement_views_pair_idx").on(table.announcementId, table.userId),
+  }),
+);
+
+/** A message to one person, in their bell: read or not. */
+export const userNotifications = sqliteTable(
+  "user_notifications",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    level: text("level").notNull().default("info"),
+    linkUrl: text("link_url"),
+    linkLabel: text("link_label"),
+    /** Who sent it: an admin key's name, or "system". */
+    source: text("source").notNull(),
+    createdAt: text("created_at").notNull(),
+    readAt: text("read_at"),
+  },
+  (table) => ({
+    userIdx: index("user_notifications_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1981,4 +2081,8 @@ export const schema = {
   productDaily,
   errorGroups,
   errorHits,
+  outboxEvents,
+  announcements,
+  announcementViews,
+  userNotifications,
 };

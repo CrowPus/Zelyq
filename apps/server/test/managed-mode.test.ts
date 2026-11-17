@@ -9,6 +9,8 @@ import { accountServiceLinks } from "@zelyq/core";
 import { runMigrations } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import { accountServiceFromEnv, type ServerConfig } from "../src/config.js";
+import { safeReturnTo } from "../src/routes/auth.js";
+import { hashPassword } from "../src/services/auth.js";
 
 /**
  * Managed mode (docs/managed-mode.md): one setting connects a server to an
@@ -93,9 +95,12 @@ async function register(server: ZelyqServer, email: string): Promise<string> {
   return cookieOf(response)!;
 }
 
-async function oidcSignIn(server: ZelyqServer, claims: Record<string, unknown>) {
+async function oidcSignIn(server: ZelyqServer, claims: Record<string, unknown>, returnTo?: string) {
   nextClaims = claims;
-  const started = await server.app.inject({ method: "GET", url: "/api/auth/oidc/start" });
+  const started = await server.app.inject({
+    method: "GET",
+    url: `/api/auth/oidc/start${returnTo !== undefined ? `?return_to=${encodeURIComponent(returnTo)}` : ""}`,
+  });
   assert.equal(started.statusCode, 302, started.body);
   const state = new URL(started.headers.location as string).searchParams.get("state")!;
   const stateCookie = started.cookies.find((c) => c.name === "zelyq_oidc_state")!;
@@ -348,4 +353,130 @@ describe("managed: connected to an account service", () => {
     });
     assert.equal(response.headers.location, "/signin?error=oidc");
   });
+
+  test("signing in through the service comes back to the page they wanted; never to another site", async () => {
+    const claims = { sub: "cust-1", email: "customer@example.com", email_verified: true };
+    const back = await oidcSignIn(server, claims, "/projects/prj_123?tab=files");
+    assert.equal(back.headers.location, "/projects/prj_123?tab=files");
+    const invite = await oidcSignIn(server, claims, "/invite#token=abc");
+    assert.equal(invite.headers.location, "/invite#token=abc");
+    for (const bad of [
+      "//evil.example.com/x",
+      "https://evil.example.com",
+      "/\\evil.example.com",
+      "/api/auth/logout",
+      "javascript:alert(1)",
+    ]) {
+      const response = await oidcSignIn(server, claims, bad);
+      assert.equal(response.headers.location, "/signin", bad);
+    }
+  });
+
+  test("a person of the service has no password here: sign-up, password, email and deleting are the service's", async () => {
+    const signedIn = await oidcSignIn(server, {
+      sub: "cust-1",
+      email: "customer@example.com",
+      email_verified: true,
+    });
+    const cookie = cookieOf(signedIn)!;
+    const call = (method: "POST" | "PATCH" | "DELETE", url: string, payload: object) =>
+      server.app.inject({ method, url, headers: { cookie }, payload });
+
+    const password = await call("POST", "/api/auth/password", {
+      currentPassword: "x".repeat(12),
+      newPassword: "y".repeat(12),
+    });
+    assert.equal(password.statusCode, 403);
+    assert.equal(password.json().error.message, "Change your password at Example Cloud.");
+    const email = await call("PATCH", "/api/auth/profile", { email: "new@example.com" });
+    assert.equal(email.statusCode, 403);
+    const name = await call("PATCH", "/api/auth/profile", { name: "Customer Renamed" });
+    assert.equal(name.statusCode, 200, "a display name is fine to change here");
+    const removed = await call("DELETE", "/api/auth/me", { password: "anything" });
+    assert.equal(removed.statusCode, 403);
+    assert.match(removed.json().error.message, /Delete your account at Example Cloud/);
+
+    const signUp = await server.app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { email: "late@example.com", name: "Late", password: "a-long-password-1" },
+    });
+    assert.equal(signUp.statusCode, 403);
+    assert.equal(signUp.json().error.message, "Create your account at Example Cloud.");
+
+    const invite = await server.app.inject({
+      method: "POST",
+      url: "/api/auth/invite/accept",
+      payload: { token: "x".repeat(43), name: "New", password: "a-long-password-1" },
+    });
+    assert.equal(invite.statusCode, 403, invite.body);
+  });
+
+  test("only the server's own administrators sign in with a password; a wrong password says nothing", async () => {
+    await server.store.users.create({
+      id: "usr_pw_member",
+      email: "member-with-password@example.com",
+      name: "Old member",
+      passwordHash: await hashPassword("a-long-password-1"),
+    });
+    const login = (email: string, password: string) =>
+      server.app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
+    const member = await login("member-with-password@example.com", "a-long-password-1");
+    assert.equal(member.statusCode, 403);
+    assert.equal(member.json().error.message, "Sign in with your account at Example Cloud.");
+    assert.equal(
+      (await login("member-with-password@example.com", "wrong-password-1")).statusCode,
+      401,
+    );
+    const admin = await login("admin@example.com", "a-long-password-1");
+    assert.equal(admin.statusCode, 200, "the way in when the service is down");
+  });
+
+  test("a plan limit says the owner can upgrade, and carries what the Upgrade button needs", async () => {
+    const signedIn = await oidcSignIn(server, {
+      sub: "cust-limit",
+      email: "limited@example.com",
+      email_verified: true,
+    });
+    const cookie = cookieOf(signedIn)!;
+    const me = (
+      await server.app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie } })
+    ).json();
+    const teamId = me.teams[0].id;
+    await server.usage.savePlans({
+      plans: [{ id: "free", name: "Free", limits: { apps: 0 } }],
+      defaultPlan: "free",
+    });
+    await server.usage.setPlan(teamId, "free");
+    const refused = await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "One too many" },
+    });
+    assert.equal(refused.statusCode, 403, refused.body);
+    const error = refused.json().error;
+    assert.match(error.message, /The team's owner can choose a bigger plan\./);
+    assert.ok(!error.message.includes("server admin"));
+    assert.deepEqual(error.details, { reason: "plan_limit", teamId, limit: "apps", plan: "free" });
+  });
+});
+
+test("return_to only ever names a path on this server", () => {
+  assert.equal(safeReturnTo("/teams/tem_1/settings"), "/teams/tem_1/settings");
+  assert.equal(safeReturnTo("/invite#token=abc"), "/invite#token=abc");
+  for (const bad of [
+    undefined,
+    "",
+    "teams",
+    "//evil.example.com",
+    "/\\evil.example.com",
+    "https://evil.example.com/",
+    "/api/admin/v1/whoami",
+    "/signin?x=1",
+    "/a\nb",
+    `/${"a".repeat(2001)}`,
+  ]) {
+    assert.equal(safeReturnTo(bad), null, String(bad));
+  }
 });

@@ -25,6 +25,11 @@ import type { ProductActivity } from "./product-activity.js";
 export class AccessControl {
   /** Product activity: audit entries that also count as what people do. */
   activity?: ProductActivity;
+  /** Told about every recorded change (events to an account service). */
+  onChange?: (
+    action: AuditAction,
+    entry: { userId: string; teamId: string | null; detail: Record<string, unknown> },
+  ) => void;
 
   constructor(private readonly store: Store) {}
 
@@ -123,6 +128,11 @@ export class AccessControl {
       detail?: Record<string, unknown>;
     },
   ): Promise<void> {
+    this.onChange?.(entry.action, {
+      userId: user.id,
+      teamId: entry.teamId,
+      detail: entry.detail ?? {},
+    });
     this.activity?.fromAudit(entry.action, {
       userId: user.id,
       teamId: entry.teamId,
