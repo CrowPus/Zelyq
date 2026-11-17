@@ -217,7 +217,30 @@ test("find a person by email or by the service's id; unknown is 404", async () =
   );
   assert.equal((await api("GET", "/accounts?email=nobody@example.com")).statusCode, 404);
   assert.equal((await api("GET", "/accounts/usr_nope")).statusCode, 404);
-  assert.equal((await api("GET", "/accounts")).statusCode, 400);
+  assert.ok(Array.isArray((await api("GET", "/accounts")).json().accounts), "no filter: the list");
+});
+
+test("everyone, newest first, a page at a time; found by part of a name or email", async () => {
+  const all = (await api("GET", "/accounts?limit=200")).json();
+  assert.ok(all.accounts.length >= 2);
+  const times = all.accounts.map((a: { createdAt: string }) => a.createdAt);
+  assert.deepEqual([...times].sort().reverse(), times, "newest first");
+  assert.equal(all.nextCursor, null);
+
+  const first = (await api("GET", "/accounts?limit=1")).json();
+  assert.equal(first.accounts.length, 1);
+  assert.ok(first.nextCursor);
+  const second = (await api("GET", `/accounts?limit=1&cursor=${first.nextCursor}`)).json();
+  assert.notEqual(second.accounts[0].id, first.accounts[0].id);
+
+  const found = (await api("GET", "/accounts?q=KOFI")).json();
+  assert.ok(found.accounts.length >= 1);
+  assert.ok(
+    found.accounts.every((a: { email: string; name: string }) => /kofi/i.test(a.email + a.name)),
+  );
+  // % and _ are letters here, not patterns.
+  assert.equal((await api("GET", "/accounts?q=%25")).json().accounts.length, 0);
+  assert.equal((await api("GET", "/accounts?status=gone")).statusCode, 400);
 });
 
 test("the service changes email and name; a taken or reserved email is refused", async () => {

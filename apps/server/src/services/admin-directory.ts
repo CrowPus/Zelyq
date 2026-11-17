@@ -223,6 +223,33 @@ export class AdminDirectory {
   }
 
   /** By email, or by the service's id (with this server's issuer, or the one given). */
+  /** Everyone, newest first, a page at a time; `q` finds a part of a name or email. */
+  async listAccounts(query: { cursor?: string; limit?: string; q?: string; status?: string }) {
+    if (query.status && query.status !== "active" && query.status !== "suspended") {
+      throw ZelyqError.badRequest("`status` is active or suspended.");
+    }
+    const limit = Math.min(Math.max(Number.parseInt(query.limit ?? "50", 10) || 50, 1), 200);
+    let last: { id: string; createdAt: string } | null = null;
+    if (query.cursor) {
+      const after = await this.store.users.findById(query.cursor);
+      if (!after) throw ZelyqError.badRequest("That cursor is not a person on this server.");
+      last = after;
+    }
+    const accounts: AccountSummary[] = [];
+    while (accounts.length < limit) {
+      const page = await this.store.users.listPage(last, limit, query.q);
+      for (const user of page) {
+        last = user;
+        const summary = await this.account(user.id);
+        if (!query.status || summary.status === query.status) accounts.push(summary);
+        if (accounts.length === limit) break;
+      }
+      if (page.length < limit) break;
+    }
+    const more = last !== null && (await this.store.users.listPage(last, 1, query.q)).length > 0;
+    return { accounts, nextCursor: more ? last!.id : null };
+  }
+
   async findAccount(query: {
     email?: string;
     externalId?: string;

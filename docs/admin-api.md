@@ -56,6 +56,7 @@ A call outside the key's scopes is refused with `403`.
 | Call | Scope | What it does |
 | --- | --- | --- |
 | `POST /accounts` | `accounts` | **Make sure a person exists** (see below). `201` when made, `200` when they already were |
+| `GET /accounts` | `accounts` | Everyone, newest first: `?q=` (part of a name or email), `?status=active\|suspended`, `?limit=` (1–200, default 50), `?cursor=` (the `nextCursor` of the page before) |
 | `GET /accounts?email=` · `?externalId=` | `accounts` | Find a person by email, or by the service's id for them |
 | `GET /accounts/:id` | `accounts` | One person: email, name, status, the service ids linked to them, their teams with role and plan |
 | `PATCH /accounts/:id` | `accounts` | Change `email` and/or `name`. An email another account has is refused (`409`) |

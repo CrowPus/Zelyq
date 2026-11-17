@@ -1,5 +1,5 @@
 import type { InstanceRole, User } from "@zelyq/core";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { users } from "../schema/sqlite.js";
 
@@ -138,6 +138,39 @@ export function userRepository(db: ZelyqDb) {
         .from(users)
         .where(ne(users.kind, "service"))
         .orderBy(users.createdAt)
+        .limit(limit);
+      return rows.map(toUser);
+    },
+
+    /**
+     * People, newest first, a page at a time (after the person named by `after`). `q` finds a
+     * part of the name or email.
+     */
+    async listPage(
+      after: { id: string; createdAt: string } | null,
+      limit: number,
+      q?: string,
+    ): Promise<User[]> {
+      const needle = q?.trim().toLowerCase();
+      const pattern = needle ? `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+      const rows = await db
+        .select()
+        .from(users)
+        .where(
+          and(
+            ne(users.kind, "service"),
+            after
+              ? or(
+                  lt(users.createdAt, after.createdAt),
+                  and(eq(users.createdAt, after.createdAt), lt(users.id, after.id)),
+                )
+              : undefined,
+            pattern
+              ? sql`(lower(${users.email}) like ${pattern} escape '\\' or lower(${users.name}) like ${pattern} escape '\\')`
+              : undefined,
+          ),
+        )
+        .orderBy(desc(users.createdAt), desc(users.id))
         .limit(limit);
       return rows.map(toUser);
     },

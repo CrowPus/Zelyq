@@ -227,11 +227,20 @@ export function registerAdminApi(
         reply.status(result.created ? 201 : 200);
         return result;
       });
-      route("GET", "/accounts", "accounts", async (request) =>
-        directory.findAccount(
-          request.query as { email?: string; externalId?: string; issuer?: string },
-        ),
-      );
+      route("GET", "/accounts", "accounts", async (request) => {
+        const query = request.query as {
+          email?: string;
+          externalId?: string;
+          issuer?: string;
+          cursor?: string;
+          limit?: string;
+          q?: string;
+          status?: string;
+        };
+        // One person by email or the service's id; otherwise everyone, a page at a time.
+        if (query.email || query.externalId) return directory.findAccount(query);
+        return directory.listAccounts(query);
+      });
       route("GET", "/accounts/:id", "accounts", async (request) =>
         directory.account(idOf(request)),
       );
