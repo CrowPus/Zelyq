@@ -46,6 +46,14 @@ export function SignInPage() {
   useEffect(() => {
     if (goStraight) window.location.replace(startUrl);
   }, [goStraight, startUrl]);
+  // The account service couldn't be reached: the message stays on the page, not in
+  // the address (so reopening or reloading tries again), and it tries again by itself.
+  useEffect(() => {
+    if (!unavailable || !serviceOnly) return;
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+    const retry = window.setTimeout(() => window.location.replace(startUrl), 15_000);
+    return () => window.clearTimeout(retry);
+  }, [unavailable, serviceOnly, startUrl]);
 
   const registering = firstRun || (mode === "register" && Boolean(signIn?.register));
   const forgot = !firstRun && mode === "forgot";
