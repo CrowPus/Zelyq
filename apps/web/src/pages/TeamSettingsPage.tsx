@@ -144,6 +144,14 @@ export function TeamSettingsPage() {
       setActive(wanted);
     }
   }, [hash, sections]);
+  // On a phone the menu is a row that scrolls sideways: keep the chosen one in
+  // sight, again when the menu grows (the team's setting groups arrive later).
+  useEffect(() => {
+    if (!sections.includes(active)) return;
+    document
+      .querySelector(`nav[aria-label="Team settings sections"] [data-section="${slug(active)}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active, sections]);
   function open(id: string) {
     setActive(id);
     window.history.replaceState(window.history.state, "", `#${slug(id)}`);
@@ -218,10 +226,10 @@ export function TeamSettingsPage() {
           <header>
             <h1 className="text-xl font-semibold text-fg">{team?.name ?? "Team"} settings</h1>
             <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
-              Everything this team decides for itself: its AI keys, how its apps are built, Studio,
-              voice and Ops. {canManage ? "As a team admin you" : "A team admin"} can change all of
-              it; anything left alone uses the server's default. Members, Ops access and alerts are
-              on the{" "}
+              Everything this team decides for itself: its plan, AI keys, how its apps are built,
+              Studio, voice, Ops, its own email and its integrations.{" "}
+              {canManage ? "As a team admin you" : "A team admin"} can change all of it; anything
+              left alone uses the server's default. Members, Ops access and alerts are on the{" "}
               <Link to={`/teams/${id}`} className="underline underline-offset-2">
                 team page
               </Link>{" "}
@@ -248,6 +256,7 @@ export function TeamSettingsPage() {
                     key={section}
                     type="button"
                     aria-current={current ? "page" : undefined}
+                    data-section={slug(section)}
                     onClick={() => open(section)}
                     className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors md:w-full ${
                       current
