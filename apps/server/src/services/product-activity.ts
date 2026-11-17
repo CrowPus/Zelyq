@@ -414,6 +414,105 @@ export class ProductActivity {
     return { from, to, teamsPerPlan: perPlan, nearLimit, limitsReached };
   }
 
+  /** Every event of one kind in a range (detail included), for failure and timing reports. */
+  private async all(name: ProductEventName, from: string, to: string) {
+    return await this.store.productEvents.list({ from, to, name, limit: 200_000 });
+  }
+
+  /**
+   * Why agent work failed, by reason and AI provider. Customers bring their
+   * own keys: a wave of `no_key` or a provider's errors is a sign for better
+   * help text, not an outage of ours.
+   */
+  async agentFailures(query: { from?: string; to?: string }) {
+    const { from, to } = this.range(query, 7);
+    const builds = await this.all("agent.build_finished", from, to);
+    const failed = builds.filter((build) => build.detail.ok === false);
+    const byReason: Record<string, number> = {};
+    const byProvider: Record<string, { builds: number; failed: number }> = {};
+    for (const build of builds) {
+      const provider = String(build.detail.provider ?? "unknown");
+      const entry = byProvider[provider] ?? { builds: 0, failed: 0 };
+      entry.builds += 1;
+      if (build.detail.ok === false) {
+        entry.failed += 1;
+        const reason = String(build.detail.reason ?? "unknown");
+        byReason[reason] = (byReason[reason] ?? 0) + 1;
+      }
+      byProvider[provider] = entry;
+    }
+    return {
+      from,
+      to,
+      builds: builds.length,
+      failed: failed.length,
+      failureRate: builds.length ? Math.round((failed.length / builds.length) * 1000) / 10 : 0,
+      byReason,
+      byProvider,
+      teamsHit: new Set(failed.map((build) => build.teamId).filter(Boolean)).size,
+    };
+  }
+
+  /** Failed previews (by reason), pipeline runs (by how they ended) and deploys. */
+  async buildFailures(query: { from?: string; to?: string }) {
+    const { from, to } = this.range(query, 7);
+    const count = (values: string[]) => {
+      const counts: Record<string, number> = {};
+      for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
+      return counts;
+    };
+    const previewsOk = await this.all("preview.started", from, to);
+    const previewsFailed = await this.all("preview.failed", from, to);
+    const runs = await this.all("pipeline.run_finished", from, to);
+    const deploys = await this.all("deploy.finished", from, to);
+    const failedRuns = runs.filter((run) => run.detail.ok === false);
+    const failedDeploys = deploys.filter((deploy) => deploy.detail.ok === false);
+    return {
+      from,
+      to,
+      previews: {
+        started: previewsOk.length,
+        failed: previewsFailed.length,
+        byReason: count(previewsFailed.map((event) => String(event.detail.reason ?? "unknown"))),
+      },
+      pipelineRuns: {
+        finished: runs.length,
+        failed: failedRuns.length,
+        byStatus: count(failedRuns.map((event) => String(event.detail.status ?? "unknown"))),
+      },
+      deploys: {
+        finished: deploys.length,
+        failed: failedDeploys.length,
+        byKind: count(failedDeploys.map((event) => String(event.detail.kind ?? "unknown"))),
+      },
+    };
+  }
+
+  /** How long the main work takes: typical (p50) and slow (p95) seconds. */
+  async timings(query: { from?: string; to?: string }) {
+    const { from, to } = this.range(query, 7);
+    const spread = (values: number[]) => {
+      const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+      const at = (share: number) =>
+        sorted.length
+          ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))]!
+          : null;
+      return { samples: sorted.length, p50: at(0.5), p95: at(0.95), max: sorted.at(-1) ?? null };
+    };
+    const seconds = (events: Array<{ detail: Record<string, unknown> }>) =>
+      events.map((event) => Number(event.detail.seconds));
+    const builds = (await this.all("agent.build_finished", from, to)).filter(
+      (build) => build.detail.ok === true,
+    );
+    return {
+      from,
+      to,
+      agentTurnSeconds: spread(seconds(builds)),
+      previewStartSeconds: spread(seconds(await this.all("preview.started", from, to))),
+      pipelineRunSeconds: spread(seconds(await this.all("pipeline.run_finished", from, to))),
+    };
+  }
+
   private async failuresByDay(from: string, to: string) {
     return await this.store.productEvents.failuresByDay(from, to);
   }

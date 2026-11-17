@@ -393,6 +393,13 @@
       "when": 1794910697115,
       "tag": "0055_product_events",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794911947494,
+      "tag": "0056_error_groups",
+      "breakpoints": true
     }
   ]
 }

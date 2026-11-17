@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { AdminDirectory } from "../services/admin-directory.js";
 import { type AdminCaller, type AdminKeyService, requestHash } from "../services/admin-keys.js";
+import type { ErrorTracker, RequestStats } from "../services/observability.js";
 import type { ProductActivity } from "../services/product-activity.js";
 import type { UsageService } from "../services/usage.js";
 
@@ -49,9 +50,13 @@ export function registerAdminApi(
     access: AccessControl;
     directory: AdminDirectory;
     activity: ProductActivity;
+    errors: ErrorTracker;
+    requestStats: RequestStats;
+    /** Every part of the server, checked now. */
+    health: () => Promise<{ status: string }>;
   },
 ): void {
-  const { adminKeys, usage, store, directory, activity } = deps;
+  const { adminKeys, usage, store, directory, activity, errors, requestStats } = deps;
 
   // ------------------------------------------------- the keys themselves (a person)
 
@@ -281,6 +286,42 @@ export function registerAdminApi(
       route("GET", "/metrics/plans", "analytics", async (request) =>
         activity.plans(request.query as Range),
       );
+
+      // ------------------------------------------- health, errors, performance
+
+      route("GET", "/health/deep", "health", async (_request, reply) => {
+        const report = await deps.health();
+        // A monitor can alert on the status code alone.
+        if (report.status === "down") reply.status(503);
+        return report;
+      });
+      route("GET", "/errors", "errors", async (request) =>
+        errors.list(
+          request.query as { from?: string; to?: string; status?: string; limit?: string },
+        ),
+      );
+      route("GET", "/errors/:id", "errors", async (request) => errors.detail(idOf(request)));
+      route("PATCH", "/errors/:id", "errors", async (request) =>
+        errors.setStatus(idOf(request), request.body),
+      );
+      route("GET", "/failures/agent", "errors", async (request) =>
+        activity.agentFailures(request.query as Range),
+      );
+      route("GET", "/failures/builds", "errors", async (request) =>
+        activity.buildFailures(request.query as Range),
+      );
+      route("GET", "/performance", "metrics", async (request) => ({
+        uptimeSeconds: Math.round((Date.now() - requestStats.startedAt) / 1000),
+        eventLoopDelayMs: requestStats.loopDelayMs(),
+        memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        routes: requestStats.routesReport(),
+        work: await activity.timings(request.query as Range),
+      }));
+      /** For Prometheus, Grafana or Google Cloud Monitoring: send the key as a bearer token. */
+      route("GET", "/prometheus", "metrics", async (_request, reply) => {
+        reply.type("text/plain; version=0.0.4; charset=utf-8");
+        return requestStats.prometheus();
+      });
 
       // Anything else under the prefix is an unknown call, answered in the API's own shape.
       admin.setNotFoundHandler(async (request) => {

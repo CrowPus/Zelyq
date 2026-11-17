@@ -34,6 +34,7 @@ export const ID_PREFIXES = {
   audit: "adt",
   adminKey: "adk",
   productEvent: "pev",
+  errorGroup: "egr",
   attachment: "atc",
   imageGeneration: "img",
   videoGeneration: "vid",

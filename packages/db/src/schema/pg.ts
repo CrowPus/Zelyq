@@ -1839,6 +1839,51 @@ export const productDaily = pgTable(
   }),
 );
 
+/**
+ * Server errors, grouped: the same kind of failure in the same place is one
+ * group, however often it happens. Messages and stacks are stored with
+ * anything that looks like a key, token, password or email taken out.
+ */
+export const errorGroups = pgTable(
+  "error_groups",
+  {
+    id: text("id").primaryKey(),
+    fingerprint: text("fingerprint").notNull(),
+    kind: text("kind").notNull(),
+    message: text("message").notNull(),
+    location: text("location").notNull(),
+    route: text("route"),
+    count: integer("count").notNull().default(0),
+    firstSeen: text("first_seen").notNull(),
+    lastSeen: text("last_seen").notNull(),
+    /** "open", "resolved" (opens again if it comes back) or "ignored". */
+    status: text("status").notNull().default("open"),
+    resolvedAt: text("resolved_at"),
+    sampleStack: text("sample_stack").notNull().default(""),
+  },
+  (table) => ({
+    fingerprintIdx: uniqueIndex("error_groups_fingerprint_idx").on(table.fingerprint),
+    lastSeenIdx: index("error_groups_last_seen_idx").on(table.lastSeen),
+  }),
+);
+
+/** Each time an error group happened, and to whom: for counts in a range and people hit. */
+export const errorHits = pgTable(
+  "error_hits",
+  {
+    groupId: text("group_id")
+      .notNull()
+      .references(() => errorGroups.id, { onDelete: "cascade" }),
+    userId: text("user_id"),
+    teamId: text("team_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    groupIdx: index("error_hits_group_created_idx").on(table.groupId, table.createdAt),
+    createdIdx: index("error_hits_created_idx").on(table.createdAt),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1908,4 +1953,6 @@ export const schema = {
   adminIdempotency,
   productEvents,
   productDaily,
+  errorGroups,
+  errorHits,
 };

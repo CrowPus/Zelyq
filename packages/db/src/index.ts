@@ -5,6 +5,7 @@ import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { deployRepository } from "./repositories/deploy.js";
 import { emailLinkRepository } from "./repositories/email-links.js";
+import { errorRepository } from "./repositories/errors.js";
 import { imageRepository } from "./repositories/images.js";
 import { messageRepository } from "./repositories/messages.js";
 import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
@@ -113,6 +114,7 @@ export interface Store extends DatabaseHandle {
   ops: ReturnType<typeof opsRepository>;
   adminKeys: ReturnType<typeof adminKeyRepository>;
   productEvents: ReturnType<typeof productEventRepository>;
+  errors: ReturnType<typeof errorRepository>;
 }
 
 /**
@@ -145,6 +147,7 @@ export function createStore(url: string): Store {
     ops: opsRepository(handle.db),
     adminKeys: adminKeyRepository(handle.db),
     productEvents: productEventRepository(handle.db),
+    errors: errorRepository(handle.db),
   };
 }
 
@@ -157,4 +160,5 @@ export type {
   AgentRow,
 } from "./repositories/agents.js";
 export type { DeployAppRow, DeployEnvironmentRow, DeploymentRow } from "./repositories/deploy.js";
+export type { ErrorGroupRow } from "./repositories/errors.js";
 export type { DailyCount } from "./repositories/product-events.js";

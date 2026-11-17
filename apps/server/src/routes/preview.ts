@@ -57,16 +57,17 @@ export function registerPreviewRoutes(
     await ensureInspectorScript(deps.runtime, deps.templatesDir, request.params.id);
     const env = await deps.resolvePreviewEnv(request.params.id);
     const where = { userId: user.id, teamId: project.project.teamId, projectId: request.params.id };
+    const started = Date.now();
     try {
       const preview = await deps.runtime.startPreview(
         request.params.id,
         deps.backend ? await deps.backend.previewOptions(request.params.id, env) : { env },
       );
       if (!already) {
-        deps.activity?.record(
-          preview.status === "crashed" ? "preview.failed" : "preview.started",
-          where,
-        );
+        deps.activity?.record(preview.status === "crashed" ? "preview.failed" : "preview.started", {
+          ...where,
+          detail: { seconds: (Date.now() - started) / 1000 },
+        });
       }
       return { preview };
     } catch (error) {

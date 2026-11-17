@@ -96,6 +96,8 @@ export class ChatGateway {
   limits?: Pick<UsageService, "check" | "touch">;
   /** Product activity: messages to the agent, and how its work ended. */
   activity?: ProductActivity;
+  /** Server errors, grouped: a turn that broke on our side. */
+  errors?: { capture(error: unknown, context?: { route?: string; userId?: string }): void };
   private readonly rooms = new Map<string, Room>();
 
   constructor(
@@ -417,6 +419,7 @@ export class ChatGateway {
         throw new ZelyqError(
           "model_error",
           `Your team has no ${PROVIDER_WORDS[provider] ?? provider} key yet. A team admin adds one on the Team page, under AI keys.`,
+          { reason: "no_key" },
         );
       }
       // Settings' own `model` and `modelBaseUrl` were configured for
@@ -554,6 +557,17 @@ export class ChatGateway {
       // Setup failures are the ones users actually hit (no API key, agent
       // down). Reporting the agent's own message beats letting the turn fail
       // later with a misleading 404 from a session that was never created.
+      this.activity?.record("agent.build_finished", {
+        userId,
+        projectId: room.projectId,
+        detail: {
+          ok: false,
+          reason:
+            (error as { details?: { reason?: string } }).details?.reason ??
+            (error as { code?: string }).code ??
+            "setup_failed",
+        },
+      });
       this.broadcast(room, {
         type: "error",
         sessionId: room.sessionId,
@@ -579,6 +593,7 @@ export class ChatGateway {
           : "chat";
     let turnOk = true;
     let turnEnded = false;
+    let turnReason: string | undefined;
     this.activity?.record("agent.message", {
       userId,
       projectId: room.projectId,
@@ -683,7 +698,10 @@ export class ChatGateway {
         snapshotId ?? undefined,
       )) {
         if (event.type === "turn.end") turnEnded = true;
-        if (event.type === "error") turnOk = false;
+        if (event.type === "error") {
+          turnOk = false;
+          turnReason ??= (event as { code?: string }).code;
+        }
         // The agent builds its own copy of the finished message, and it does not
         // know about the snapshot this server took before the turn. Broadcasting
         // the agent's copy meant the undo control only appeared after a reload.
@@ -752,6 +770,8 @@ export class ChatGateway {
       }
     } catch (error) {
       turnOk = false;
+      turnReason ??= "internal";
+      this.errors?.capture(error, { route: "agent turn", userId });
       this.broadcast(room, {
         type: "error",
         sessionId: room.sessionId,
@@ -775,6 +795,11 @@ export class ChatGateway {
             seconds: (Date.now() - turnStarted) / 1000,
             provider: session?.provider,
             mode: turnMode,
+            reason: room.turn?.signal.aborted
+              ? "stopped"
+              : turnOk && turnEnded
+                ? undefined
+                : (turnReason ?? "no_end"),
           },
         });
       }

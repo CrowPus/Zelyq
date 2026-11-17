@@ -66,6 +66,7 @@ import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
 import { MailService } from "./services/mail.js";
+import { deepHealth, ErrorTracker, RequestStats } from "./services/observability.js";
 import { missingAccess } from "./services/ops/access.js";
 import { ActionList } from "./services/ops/actions.js";
 import { OpsBrain } from "./services/ops/brain.js";
@@ -115,6 +116,8 @@ export interface ZelyqServer {
   app: FastifyInstance;
   /** Product activity: exposed so tests can wait for recordings to land. */
   activity: ProductActivity;
+  /** Server errors, grouped: exposed so tests can wait for them to land. */
+  errors: ErrorTracker;
   store: Store;
   runtime: RuntimeDriver;
   /** What each team uses, and its plan: exposed so tests measure when they choose. */
@@ -218,6 +221,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   auth.activity = activity;
   access.activity = activity;
+  // What developers need: errors grouped (secrets taken out), and how long calls take.
+  const errors = new ErrorTracker(store, (error, message) => app.log.warn({ error }, message));
+  const requestStats = new RequestStats();
   const vault = new VaultService(store, secrets, access);
   const variables = new ProjectVariableService(store, secrets, access, vault, runtime);
   vault.listeners.teamEntryChanged = (teamId, name) => variables.vaultEntryChanged(teamId, name);
@@ -385,7 +391,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // One error shape for every route: `{ error: { code, message } }`. The UI
   // branches on `code`, never on the message text.
   app.setErrorHandler((error, request, reply) => {
+    const where = {
+      route: `${request.method} ${request.routeOptions.url ?? "unmatched"}`,
+      userId: request.zelyqUser?.id ?? null,
+    };
     if (isZelyqError(error)) {
+      // Our own "something broke" is a server error; the rest are answers.
+      if (error.code === "internal") errors.capture(error, where);
       reply.status(error.status).send(error.toJSON());
       return;
     }
@@ -402,6 +414,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     }
     request.log.error(error);
     const failure = toError(error);
+    if (((error as { statusCode?: number }).statusCode ?? 500) >= 500) errors.capture(error, where);
     reply
       .status((error as { statusCode?: number }).statusCode ?? 500)
       .send({ error: { code: "internal", message: failure.message } });
@@ -470,6 +483,18 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     access,
     directory,
     activity,
+    errors,
+    requestStats,
+    health: () =>
+      deepHealth({
+        store,
+        dataDir: config.attachmentsDir,
+        runtime: () => runtime.health(),
+        agent: () => agent.health(),
+        mailConfigured: () => mail.configured(),
+        lastCleanup: () => usage.lastCleanup(),
+        stats: requestStats,
+      }),
   });
   registerTeamRoutes(app, {
     limits: usage,
@@ -650,6 +675,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     // Measures every team's files in the background; under the test runner only when asked.
     if (!process.env.NODE_TEST_CONTEXT) usage.start();
     activity.start();
+    errors.start();
     await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
@@ -694,6 +720,16 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   );
   gateway.limits = usage;
   gateway.activity = activity;
+  gateway.errors = errors;
+
+  app.addHook("onResponse", async (request, reply) => {
+    requestStats.record(
+      request.method,
+      request.routeOptions.url ?? "unmatched",
+      reply.statusCode,
+      reply.elapsedTime,
+    );
+  });
 
   // Features counted where they are asked for: a successful call is one use.
   const featureRoutes: Record<string, ProductFeature> = {
@@ -824,6 +860,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   return {
     app,
     activity,
+    errors,
     imageBridge,
     videoBridge,
     previewGrants: projectBackend,
@@ -846,7 +883,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     async close() {
       await app.close();
       activity.stop();
+      errors.stop();
       await activity.settled();
+      await errors.settled();
       await runtime.dispose();
       await store.close();
     },

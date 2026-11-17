@@ -122,7 +122,27 @@ anything else is dropped before it is stored.
 rows are folded into daily totals, which the overview still counts. `ZELYQ_PRODUCT_EVENTS=off`
 records nothing.
 
-More calls (team status, last activity, health, events) come in later versions of this page.
+### Health, errors and performance (`health`, `errors`, `metrics`)
+
+| Call | Scope | What it gives |
+| --- | --- | --- |
+| `GET /health/deep` | `health` | Every part, checked now, each `ok`, `slow`, `down` or `off` with the reason: database (and how fast), disk space, the agent service, the container runtime, mail, the event loop, memory, the idle clean-up. Answers `503` when anything is down, so a monitor can alert on the status alone. (The public `/api/health` stays the short one.) |
+| `GET /errors` | `errors` | Server errors, **grouped**: the same kind of failure in the same place is one group, whatever ids or numbers its message had. Each: kind, message, where in the code, the call it happened in, count, first and last seen, status, and how often and to how many people and teams in the range. `?from=&to=` (default the last 7 days), `?status=open\|resolved\|ignored`, `?limit=` |
+| `GET /errors/:id` | `errors` | One group: an example stack, the last 30 days, and per day |
+| `PATCH /errors/:id` | `errors` | `{ "status": "resolved" }` (or `ignored`, `open`). A resolved group that happens again opens again |
+| `GET /failures/agent` | `errors` | Agent work that failed, by reason (`no_key`, `rate_limited`, `model_error`, `stopped`, …) and by AI provider, with the failure rate and how many teams were hit. Customers bring their own keys: a wave of `no_key` is a sign for better help text, not an outage |
+| `GET /failures/builds` | `errors` | Failed previews (by reason), pipeline runs (by how they ended) and deploys |
+| `GET /performance` | `metrics` | Each call's timing since the server started (typical, 95%, worst; slowest first), the event loop, memory, and how long agent work, preview starts and pipeline runs take |
+| `GET /prometheus` | `metrics` | The same as a Prometheus feed (uptime, memory, event loop, calls and time per route): for Prometheus, Grafana or Google Cloud Monitoring, with the key as a bearer token |
+
+**What counts as an error:** a call that broke on the server's side (a bug, a crash), and agent
+work that broke on this server's side. A refusal (`403`, `404`, a plan limit) is an answer, not an
+error. **Secrets are taken out** before anything is stored: keys (Anthropic, OpenAI, Gemini,
+GitHub, Slack, Zelyq's own), tokens, passwords, `user:password@` in addresses, and email
+addresses. Who was hit is kept 90 days; the groups and their totals stay.
+
+More calls (team status, last activity, events sent to your systems) come in later versions of
+this page.
 
 ## Rules every call follows
 
