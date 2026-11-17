@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type TeamMailInput } from "../lib/api";
-import { Button, FieldLabel, Input, PasswordInput, Spinner } from "./ui";
+import { type SecretFrom, SecretSource } from "./SecretSource";
+import { Button, FieldLabel, Input, Spinner } from "./ui";
 
 /**
  * The team's own email (Team settings → Email): its invitations and Ops's
@@ -26,12 +27,16 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
   const [form, setForm] = useState<TeamMailInput>(empty);
   const [password, setPassword] = useState("");
   const [editing, setEditing] = useState(false);
+  const [from, setFrom] = useState<SecretFrom>("type");
+  const [vaultName, setVaultName] = useState("");
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     if (mail) {
-      const { passwordSet: _set, ...rest } = mail;
+      const { passwordSet: _set, passwordVault, ...rest } = mail;
       setForm(rest);
+      setFrom(passwordVault ? "vault" : "type");
+      setVaultName(passwordVault ?? "");
     }
   }, [mail]);
 
@@ -43,7 +48,12 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
   const failed = (caught: unknown) => setNotice({ ok: false, text: (caught as Error).message });
 
   const save = useMutation({
-    mutationFn: () => api.saveTeamMail(teamId, { ...form, ...(password ? { password } : {}) }),
+    mutationFn: () =>
+      api.saveTeamMail(teamId, {
+        ...form,
+        ...(from === "vault" && vaultName ? { passwordVault: vaultName } : {}),
+        ...(from === "type" && password ? { password } : {}),
+      }),
     onSuccess: () => {
       setPassword("");
       setEditing(false);
@@ -106,7 +116,11 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
                 ? "STARTTLS"
                 : "no encryption"}
             {mail.username ? ` · signs in as ${mail.username}` : ""}
-            {mail.passwordSet ? " · password saved" : ""}
+            {mail.passwordVault
+              ? ` · password from Vault: ${mail.passwordVault}`
+              : mail.passwordSet
+                ? " · password saved"
+                : ""}
           </p>
           {canManage && (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -213,12 +227,17 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
             <label htmlFor="team-mail-password">
               <FieldLabel>Password</FieldLabel>
             </label>
-            <PasswordInput
+            <SecretSource
               id="team-mail-password"
+              teamId={teamId}
+              label="Mail server password"
+              placeholder={mail?.passwordSet && !mail.passwordVault ? "Saved: type to replace" : ""}
+              from={from}
+              onFrom={setFrom}
               value={password}
-              autoComplete="new-password"
-              placeholder={mail?.passwordSet ? "Saved: type to replace" : ""}
-              onChange={(e) => setPassword(e.target.value)}
+              onValue={setPassword}
+              vaultName={vaultName}
+              onVaultName={setVaultName}
             />
           </div>
           <div className="flex flex-wrap gap-2 sm:col-span-2">

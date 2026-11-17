@@ -115,6 +115,8 @@ export interface SupabaseConnection {
   grantedScopes: string[];
   createdBy: string;
   createdAt: string;
+  /** When its token is a secret in the Vault: that secret's name. */
+  vaultName?: string | null;
 }
 export interface SupabaseResource {
   id: string;
@@ -270,6 +272,8 @@ export interface TeamMail {
   username: string;
   from: string;
   passwordSet: boolean;
+  /** When the password is a secret in the team's Vault: its name. */
+  passwordVault: string | null;
 }
 
 export interface TeamMailInput {
@@ -280,6 +284,8 @@ export interface TeamMailInput {
   from: string;
   /** Left out: keep the stored one. "": remove it. */
   password?: string;
+  /** Take the password from this secret in the team's Vault instead. */
+  passwordVault?: string;
 }
 
 export const api = {
@@ -1158,6 +1164,12 @@ export const api = {
     request<{ connection: SupabaseConnection }>(`${supabaseBase(teamId)}/connections/pat`, {
       method: "POST",
       body: JSON.stringify({ pat }),
+    }),
+
+  connectSupabaseVault: (vaultName: string, teamId?: string) =>
+    request<{ connection: SupabaseConnection }>(`${supabaseBase(teamId)}/connections/vault`, {
+      method: "POST",
+      body: JSON.stringify({ vaultName }),
     }),
 
   startSupabaseOAuth: (teamId?: string) =>

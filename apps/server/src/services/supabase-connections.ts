@@ -45,6 +45,8 @@ export interface ConnectionSummary {
   createdAt: string;
   /** The team that owns it; null: the server's own. */
   teamId: string | null;
+  /** When its token is a Vault secret: that secret's name. */
+  vaultName: string | null;
 }
 
 export interface ResourceSummary {
@@ -84,6 +86,8 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 /** Stored credential shapes (encrypted as JSON in `encryptedBlob`). */
 type Blob =
   | { kind: "pat"; token: string }
+  /** A token kept in a Vault (a team's id, or "instance"), read each time it is used. */
+  | { kind: "pat-vault"; vault: string; name: string }
   | { kind: "oauth"; accessToken: string; refreshToken: string };
 
 /**
@@ -132,6 +136,22 @@ export class SupabaseConnectionService {
 
   // ─────────────────────────── credential lifecycle ───────────────────────────
 
+  /** Reads a secret from a Vault (a team's id, or "instance"); set at start-up. */
+  vaultValue?: (scopeKey: string, name: string) => Promise<string | null>;
+
+  /** The lightest authenticated call: proves a token works, reveals nothing we keep. */
+  private async validateToken(token: string): Promise<void> {
+    const res = await this.fetch(`${SUPABASE_API}/v1/organizations`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ZelyqError("bad_request", "Supabase rejected that access token.");
+    }
+    if (!res.ok) {
+      throw new ZelyqError("bad_request", `Supabase returned ${res.status} validating the token.`);
+    }
+  }
+
   /** Validate a pasted PAT against Supabase, then store it encrypted. */
   async connectWithPat(
     actor: User,
@@ -140,30 +160,69 @@ export class SupabaseConnectionService {
   ): Promise<ConnectionSummary> {
     const trimmed = pat.trim();
     if (!trimmed) throw new ZelyqError("bad_request", "Paste a Supabase access token.");
+    await this.validateToken(trimmed);
+    return await this.saveConnection(actor, this.seal({ kind: "pat", token: trimmed }), teamId);
+  }
 
-    // The lightest authenticated call — proves the token works, reveals nothing
-    // we keep.
-    const res = await this.fetch(`${SUPABASE_API}/v1/organizations`, {
-      headers: { Authorization: `Bearer ${trimmed}` },
-    });
-    if (res.status === 401 || res.status === 403) {
-      throw new ZelyqError("bad_request", "Supabase rejected that access token.");
-    }
-    if (!res.ok) {
-      throw new ZelyqError("bad_request", `Supabase returned ${res.status} validating the token.`);
-    }
+  /**
+   * Connect with a token kept in the Vault (the team's, or the server's for
+   * teamId null): only the secret's name is stored; the token is read from the
+   * Vault each time it is used, so changing it there changes it here.
+   */
+  async connectWithVault(
+    actor: User,
+    vaultName: string,
+    teamId: string | null = null,
+  ): Promise<ConnectionSummary> {
+    const vault = teamId ?? "instance";
+    const token = (await this.vaultValue?.(vault, vaultName))?.trim();
+    if (!token) throw new ZelyqError("bad_request", `${vaultName} is empty or not in the Vault.`);
+    await this.validateToken(token);
+    return await this.saveConnection(
+      actor,
+      this.seal({ kind: "pat-vault", vault, name: vaultName }),
+      teamId,
+    );
+  }
 
+  private async saveConnection(actor: User, encryptedBlob: string, teamId: string | null) {
     const id = newId("providerConnection");
     await this.store.providerConnections.createConnection({
       id,
       provider: "supabase",
       credentialType: "pat",
-      encryptedBlob: this.seal({ kind: "pat", token: trimmed }),
+      encryptedBlob,
       createdBy: actor.id,
       teamId,
     });
     await this.audit(actor, "connect", { connectionId: id, credentialType: "pat" });
     return this.summariseConnection(id);
+  }
+
+  /** Every connection whose token is a secret in this Vault, for the Vault page. */
+  async vaultUsages(
+    scopeKey: string,
+  ): Promise<{ key: string; label: string; vaultName: string }[]> {
+    const rows = await this.store.providerConnections.listConnections(
+      "supabase",
+      scopeKey === "instance" ? null : scopeKey,
+    );
+    return rows.flatMap((row) => {
+      if (row.status === "revoked") return [];
+      const name = this.vaultNameOf(row.encryptedBlob);
+      return name
+        ? [{ key: `supabase:${row.id}`, label: "Supabase connection", vaultName: name }]
+        : [];
+    });
+  }
+
+  private vaultNameOf(encrypted: string): string | null {
+    try {
+      const blob = this.open(encrypted);
+      return blob.kind === "pat-vault" ? blob.name : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Build the Supabase OAuth authorize URL and remember the PKCE verifier. */
@@ -1005,6 +1064,16 @@ export class SupabaseConnectionService {
       }
     }
     await this.store.providerConnections.markConnectionUsed(conn.id);
+    if (blob.kind === "pat-vault") {
+      const token = (await this.vaultValue?.(blob.vault, blob.name))?.trim();
+      if (!token) {
+        throw new ZelyqError(
+          "conflict",
+          `This Supabase connection's token comes from ${blob.name} in the Vault, which is gone or empty.`,
+        );
+      }
+      return token;
+    }
     return blob.kind === "pat" ? blob.token : blob.accessToken;
   }
 
@@ -1134,9 +1203,11 @@ export class SupabaseConnectionService {
     createdBy: string;
     createdAt: string;
     teamId?: string | null;
+    encryptedBlob?: string;
   }): ConnectionSummary {
     return {
       teamId: row.teamId ?? null,
+      vaultName: row.encryptedBlob ? this.vaultNameOf(row.encryptedBlob) : null,
       id: row.id,
       credentialType: row.credentialType as "oauth" | "pat",
       status: row.status,

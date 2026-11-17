@@ -49,6 +49,9 @@ export class MailService {
    */
   teamGuard: GuardLevel = "normal";
 
+  /** Reads a secret from a Vault (the team's id, or "instance"); set at start-up. */
+  vaultValue?: (scopeKey: string, name: string) => Promise<string | null>;
+
   constructor(
     private readonly settings: SettingsService,
     private readonly createTransport: TransportFactory = (options) =>
@@ -75,12 +78,21 @@ export class MailService {
         throw ZelyqError.badRequest(
           `That mail server can't be used: ${refused.replace(/\.$/, "")}.`,
         );
+      let pass = own.password;
+      if (own.passwordVault && teamId) {
+        pass = (await this.vaultValue?.(teamId, own.passwordVault)) ?? "";
+        if (!pass) {
+          throw ZelyqError.badRequest(
+            `The team's email password comes from ${own.passwordVault} in its Vault, which is gone or empty.`,
+          );
+        }
+      }
       return {
         host: own.host,
         port: own.port,
         security: own.security,
         user: own.username,
-        pass: own.password,
+        pass,
         from: own.from,
         where: "Team settings → Email",
       };

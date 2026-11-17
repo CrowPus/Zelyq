@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, Plug, Unplug } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { api, type SupabaseResource } from "../lib/api";
+import { type SecretFrom, SecretSource } from "./SecretSource";
 import { Badge, Button, Input, Spinner } from "./ui";
 
 /**
@@ -18,6 +19,9 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [pat, setPat] = useState("");
+  // A team's token can also be a secret in its Vault (only the name is kept).
+  const [from, setFrom] = useState<SecretFrom>("type");
+  const [vaultName, setVaultName] = useState("");
 
   const config = useQuery({ queryKey: ["supabase-config"], queryFn: api.supabaseConfig });
   const connections = useQuery({
@@ -33,7 +37,10 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
   const fail = (caught: unknown) => setError((caught as Error).message);
 
   const connectPat = useMutation({
-    mutationFn: () => api.connectSupabasePat(pat.trim(), teamId),
+    mutationFn: () =>
+      teamId && from === "vault"
+        ? api.connectSupabaseVault(vaultName, teamId)
+        : api.connectSupabasePat(pat.trim(), teamId),
     onSuccess: () => {
       setPat("");
       setError(null);
@@ -61,7 +68,7 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
 
   function submitPat(event: FormEvent) {
     event.preventDefault();
-    if (pat.trim()) connectPat.mutate();
+    if (teamId && from === "vault" ? vaultName : pat.trim()) connectPat.mutate();
   }
 
   return (
@@ -89,20 +96,38 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
 
         {!connections.isLoading && !connection && (
           <div className="flex flex-col gap-3">
-            <form onSubmit={submitPat} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Input
-                type="password"
-                value={pat}
-                onChange={(event) => setPat(event.target.value)}
-                placeholder="Personal Access Token (sbp_…)"
-                aria-label="Supabase Personal Access Token"
-                className="sm:flex-1"
-              />
+            <form onSubmit={submitPat} className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              {teamId ? (
+                <div className="sm:flex-1">
+                  <SecretSource
+                    teamId={teamId}
+                    label="Supabase Personal Access Token"
+                    placeholder="Personal Access Token (sbp_…)"
+                    from={from}
+                    onFrom={setFrom}
+                    value={pat}
+                    onValue={setPat}
+                    vaultName={vaultName}
+                    onVaultName={setVaultName}
+                  />
+                </div>
+              ) : (
+                <Input
+                  type="password"
+                  value={pat}
+                  onChange={(event) => setPat(event.target.value)}
+                  placeholder="Personal Access Token (sbp_…)"
+                  aria-label="Supabase Personal Access Token"
+                  className="sm:flex-1"
+                />
+              )}
               <Button
                 type="submit"
                 variant="primary"
                 icon={<Plug size={13} strokeWidth={1.75} />}
-                disabled={connectPat.isPending || !pat.trim()}
+                disabled={
+                  connectPat.isPending || !(teamId && from === "vault" ? vaultName : pat.trim())
+                }
               >
                 Connect
               </Button>
@@ -131,7 +156,11 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
                   {connection.status}
                 </Badge>
                 <span className="text-xs text-fg-secondary">
-                  {connection.credentialType === "oauth" ? "OAuth" : "Access token"}
+                  {connection.credentialType === "oauth"
+                    ? "OAuth"
+                    : connection.vaultName
+                      ? `Access token from Vault: ${connection.vaultName}`
+                      : "Access token"}
                 </span>
               </div>
               <Button

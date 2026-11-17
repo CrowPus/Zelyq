@@ -12,6 +12,7 @@ import {
   imageProviderCatalog,
   OPENAI_DEFAULT_MODEL,
   OPENAI_MODELS,
+  vaultNameSchema,
   videoProviderCatalog,
   withAnthropicAuto,
   withGoogleAuto,
@@ -862,7 +863,10 @@ export interface TeamMail {
   port: number;
   security: "starttls" | "tls" | "none";
   username: string;
+  /** Typed in (stored encrypted); empty when it comes from the team's Vault. */
   password: string;
+  /** The team's Vault secret holding the password, read when mail goes out. */
+  passwordVault: string | null;
   from: string;
 }
 export type TeamMailView = Omit<TeamMail, "password"> & { passwordSet: boolean };
@@ -879,6 +883,8 @@ export const teamMailInputSchema = z
     security: z.enum(["starttls", "tls", "none"]).default("starttls"),
     username: z.string().trim().max(255).default(""),
     password: z.string().max(1000).optional(),
+    /** Take the password from this secret in the team's Vault instead. */
+    passwordVault: vaultNameSchema.optional(),
     from: z.string().trim().min(3).max(320),
   })
   .strict();
@@ -1083,7 +1089,10 @@ export class SettingsService {
     const raw = await this.store.settings.get(this.teamSettingKey(teamId, "mail"));
     if (!raw) return null;
     try {
-      const stored = JSON.parse(raw) as Omit<TeamMail, "password"> & { password?: string };
+      const stored = JSON.parse(raw) as Omit<TeamMail, "password" | "passwordVault"> & {
+        password?: string;
+        passwordVault?: string | null;
+      };
       if (!stored.host) return null;
       return {
         host: stored.host,
@@ -1092,6 +1101,7 @@ export class SettingsService {
         username: stored.username ?? "",
         from: stored.from,
         password: stored.password ? (this.secrets.decrypt(stored.password) ?? "") : "",
+        passwordVault: stored.passwordVault ?? null,
       };
     } catch {
       return null;
@@ -1103,7 +1113,7 @@ export class SettingsService {
     const mail = await this.teamMail(teamId);
     if (!mail) return null;
     const { password, ...rest } = mail;
-    return { ...rest, passwordSet: password !== "" };
+    return { ...rest, passwordSet: password !== "" || mail.passwordVault !== null };
   }
 
   /** Saves a team's mail server. `password` left out keeps the one stored; "" clears it. */
@@ -1113,13 +1123,19 @@ export class SettingsService {
       throw ZelyqError.badRequest("Say who email is sent as, such as Acme <hello@acme.com>.");
     }
     const current = await this.store.settings.get(this.teamSettingKey(teamId, "mail"));
-    const kept = current ? ((JSON.parse(current) as { password?: string }).password ?? "") : "";
-    const password =
-      input.password === undefined
-        ? kept
-        : input.password === ""
-          ? ""
-          : this.secrets.encrypt(input.password);
+    const stored = current
+      ? (JSON.parse(current) as { password?: string; passwordVault?: string | null })
+      : {};
+    // One source for the password: typed in, or a secret in the team's Vault.
+    let password = stored.password ?? "";
+    let passwordVault = stored.passwordVault ?? null;
+    if (input.passwordVault !== undefined) {
+      passwordVault = input.passwordVault;
+      password = "";
+    } else if (input.password !== undefined) {
+      passwordVault = null;
+      password = input.password === "" ? "" : this.secrets.encrypt(input.password);
+    }
     await this.store.settings.set(
       this.teamSettingKey(teamId, "mail"),
       JSON.stringify({
@@ -1129,6 +1145,7 @@ export class SettingsService {
         username: input.username,
         from: input.from,
         password,
+        passwordVault,
       }),
     );
   }
@@ -1273,12 +1290,24 @@ export class SettingsService {
    * id) — for that Vault's "where used". */
   async vaultUsages(scope: string): Promise<{ key: string; label: string; vaultName: string }[]> {
     const stored = await this.store.settings.all();
-    return DEFINITIONS.flatMap((definition) => {
+    const uses = DEFINITIONS.flatMap((definition) => {
       const reference = definition.secret ? vaultReference(stored[definition.key]) : null;
       return reference && reference.scope === scope
         ? [{ key: definition.key, label: definition.label, vaultName: reference.name }]
         : [];
     });
+    // A team's own email can take its password from the team's Vault.
+    if (scope !== "instance") {
+      const mail = await this.teamMail(scope);
+      if (mail?.passwordVault) {
+        uses.push({
+          key: "teamMailPassword",
+          label: "Team email password",
+          vaultName: mail.passwordVault,
+        });
+      }
+    }
+    return uses;
   }
 
   /**

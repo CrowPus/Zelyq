@@ -386,11 +386,20 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // Vault shows which Settings fields use its secrets.
   settings.vaultLookup = async ({ name, scope }) =>
     (await vault.resolve(scope, [name])).get(name) ?? null;
-  vault.listeners.settingUsages = (scope) => settings.vaultUsages(scope);
   const supabaseConnections = new SupabaseConnectionService(store, secrets, access, {
     oauth: config.supabaseOAuth,
     verifyEmailDomain: config.supabaseVerifyEmailDomain,
   });
+  // Where each secret is used, on the Vault page: settings, a team's email, Supabase.
+  vault.listeners.settingUsages = async (scope) => [
+    ...(await settings.vaultUsages(scope)),
+    ...(await supabaseConnections.vaultUsages(scope)),
+  ];
+  // A team's email password and a Supabase token can be Vault secrets, read when used.
+  const vaultValue = async (scope: string, name: string) =>
+    (await vault.resolve(scope, [name])).get(name) ?? null;
+  mail.vaultValue = vaultValue;
+  supabaseConnections.vaultValue = vaultValue;
   const resolvePreviewEnv = makePreviewEnvResolver({ supabaseConnections });
   const functionSecrets = new FunctionSecretSync(store, access, supabaseConnections, variables);
   variables.onChanged = (projectId) => functionSecrets.sync(projectId);
@@ -605,6 +614,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     keys: new TeamKeys(settings, vault, access),
     settings,
     mail,
+    vault,
   });
   registerProjectRoutes(app, {
     limits: usage,
@@ -628,7 +638,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     activity,
     maintenance: messages,
   });
-  registerSupabaseConnectionRoutes(app, { supabase: supabaseConnections, access, runtime });
+  registerSupabaseConnectionRoutes(app, {
+    supabase: supabaseConnections,
+    access,
+    runtime,
+    vault,
+  });
   registerFigmaRoutes(app, { figma: figmaConnections, access });
   registerSupabaseBridgeRoutes(app, {
     bridge: supabaseBridge,

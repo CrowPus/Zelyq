@@ -16,6 +16,7 @@ import type { MailService } from "../services/mail.js";
 import type { SettingsService } from "../services/settings.js";
 import type { TeamKeys } from "../services/team-keys.js";
 import type { UsageService } from "../services/usage.js";
+import type { VaultService } from "../services/vault.js";
 
 export function registerTeamRoutes(
   app: FastifyInstance,
@@ -26,11 +27,12 @@ export function registerTeamRoutes(
     keys: TeamKeys;
     settings: SettingsService;
     mail: MailService;
+    vault: VaultService;
     /** What the team's plan allows; none: no limits. */
     limits?: Pick<UsageService, "check">;
   },
 ): void {
-  const { store, access, links, keys, settings, mail } = deps;
+  const { store, access, links, keys, settings, mail, vault } = deps;
 
   app.get("/api/teams", async (request) => {
     const user = access.requireUser(request);
@@ -183,6 +185,13 @@ export function registerTeamRoutes(
     const refused = typeof host === "string" ? await mail.refusedTeamHost(host.trim()) : null;
     if (refused)
       throw ZelyqError.badRequest(`That mail server can't be used: ${refused.replace(/\.$/, "")}.`);
+    // The password from the team's Vault: the person must be allowed to use that secret.
+    const fromVault = (request.body as { passwordVault?: unknown } | null)?.passwordVault;
+    if (typeof fromVault === "string" && fromVault) {
+      await vault.requireUse(user, { kind: "team", teamId: request.params.id }, fromVault);
+      const value = (await vault.resolve(request.params.id, [fromVault])).get(fromVault);
+      if (!value?.trim()) throw ZelyqError.badRequest(`${fromVault} is empty in the team's Vault.`);
+    }
     await settings.setTeamMail(request.params.id, request.body);
     await access.recordChange(user, {
       teamId: request.params.id,
