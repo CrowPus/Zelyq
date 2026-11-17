@@ -597,3 +597,22 @@ describe("managed, the default: run from the admin, nothing to guess here", () =
     assert.ok(JSON.stringify(changed.json()).includes("sessionTtlDays"));
   });
 });
+
+test("when the account service can't be reached, people see a page saying so, not an error", async () => {
+  const config = baseConfig("unreachable");
+  config.oidc = {
+    issuer: "http://127.0.0.1:9",
+    clientId: "c",
+    clientSecret: "s",
+    redirectUri: "http://localhost/api/auth/oidc/callback",
+  };
+  config.accounts = { name: "Example Cloud", url: "https://accounts.example.com" };
+  const server = await start(config);
+  try {
+    const started = await server.app.inject({ method: "GET", url: "/api/auth/oidc/start" });
+    assert.equal(started.statusCode, 302, started.body);
+    assert.equal(started.headers.location, "/signin?error=unavailable");
+  } finally {
+    await server.close();
+  }
+});

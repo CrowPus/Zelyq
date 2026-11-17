@@ -117,7 +117,16 @@ export function registerAuthRoutes(
   app.get<{ Querystring: { return_to?: string } }>(
     "/api/auth/oidc/start",
     async (request, reply) => {
-      const started = await deps.auth.oidcStart();
+      let started: Awaited<ReturnType<typeof deps.auth.oidcStart>>;
+      try {
+        started = await deps.auth.oidcStart();
+      } catch (error) {
+        // The sign-in service could not be reached (down, or its address not set up):
+        // a page that says so, not an error in the browser.
+        if (error instanceof ZelyqError && error.code !== "internal") throw error;
+        request.log.warn({ err: error }, "single sign-on could not start");
+        return reply.redirect("/signin?error=unavailable");
+      }
       const back = safeReturnTo(request.query.return_to);
       setOidcStateCookie(
         request,

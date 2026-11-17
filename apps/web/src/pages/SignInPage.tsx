@@ -28,6 +28,7 @@ export function SignInPage() {
   const query = new URLSearchParams(window.location.search);
   const oidcError = query.has("error");
   const suspended = query.get("error") === "suspended";
+  const unavailable = query.get("error") === "unavailable";
   const signIn = status.data?.signIn;
   const accounts = status.data?.accounts ?? null;
   // Managed: the account service is the way in. `?local=1` keeps the form for
@@ -243,7 +244,9 @@ export function SignInPage() {
               <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
               {suspended
                 ? "This account is suspended. Contact the server's administrator for help."
-                : "Single sign-on could not be completed. Please try again."}
+                : unavailable
+                  ? `${accounts?.name ?? "The sign-in service"} can't be reached right now. Try again in a minute.`
+                  : "Single sign-on could not be completed. Please try again."}
             </p>
           )}
 
