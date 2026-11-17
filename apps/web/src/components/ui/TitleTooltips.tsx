@@ -73,6 +73,14 @@ export function TitleTooltips() {
       if (event.key === "Escape") restore();
     };
 
+    // A click means the person is acting, not reading: the tooltip goes, and
+    // the title stays set aside until the pointer leaves, so the browser's own
+    // does not appear in its place.
+    const down = () => {
+      window.clearTimeout(timer.current);
+      setTip(null);
+    };
+    document.addEventListener("pointerdown", down, true);
     document.addEventListener("pointerover", over);
     document.addEventListener("pointerout", out);
     document.addEventListener("focusin", focus);
@@ -80,6 +88,7 @@ export function TitleTooltips() {
     document.addEventListener("keydown", key);
     window.addEventListener("scroll", restore, true);
     return () => {
+      document.removeEventListener("pointerdown", down, true);
       document.removeEventListener("pointerover", over);
       document.removeEventListener("pointerout", out);
       document.removeEventListener("focusin", focus);

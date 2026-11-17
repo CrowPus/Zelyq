@@ -742,3 +742,8 @@ input[type="radio"] {
   width: 16px;
   height: 16px;
 }
+
+/* The palette's search field is the dialog's own focus; a ring inside it is noise. */
+[cmdk-input]:focus-visible {
+  outline: none;
+}
