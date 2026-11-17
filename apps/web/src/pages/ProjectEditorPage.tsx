@@ -39,8 +39,10 @@ import {
   Menu,
   MenuItem,
   MenuSeparator,
+  Popover,
   SegmentedControl,
   Spinner,
+  StatusBadge,
   statusOf,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
@@ -309,9 +311,7 @@ export function ProjectEditorPage() {
             onOverview={() => navigate(p.app(id, "overview"))}
             onSettings={() => navigate(p.app(id, "settings"))}
           />
-          <Link to={p.deployments} className={buttonClass("primary", "sm")}>
-            <Rocket size={13} /> Deploy
-          </Link>
+          <DeployPopover appName={current.name} appSlug={current.slug} teamId={current.teamId} />
         </div>
         <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] md:grid-rows-[minmax(0,1fr)]">
           <div
@@ -671,5 +671,103 @@ function PaneBar({
         </MenuItem>
       </Menu>
     </nav>
+  );
+}
+
+/**
+ * Where this app is live, per environment, one click from the builder. Deploys
+ * themselves run through a pipeline, so this shows the state and the way there
+ * rather than pretending to deploy on its own.
+ */
+function DeployPopover({
+  appName,
+  appSlug,
+  teamId,
+}: {
+  appName: string;
+  appSlug: string;
+  teamId: string;
+}) {
+  const p = useTeamPaths();
+  const [open, setOpen] = useState(false);
+  const environments = useQuery({
+    queryKey: ["environments", teamId],
+    queryFn: () => api.deploys.environments(teamId),
+    enabled: open,
+    retry: false,
+  });
+  const list = environments.data?.environments ?? [];
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      align="end"
+      className="w-80"
+      trigger={
+        <Button size="sm" variant="primary" icon={<Rocket size={13} />}>
+          Deploy
+        </Button>
+      }
+    >
+      <div className="border-b border-border-default px-4 py-3">
+        <p className="text-sm font-semibold text-fg">Deploy {appName}</p>
+        <p className="mt-0.5 text-xs text-fg-secondary">
+          A pipeline puts the app on an environment once its tests pass.
+        </p>
+      </div>
+      {environments.isLoading ? (
+        <div className="p-4">
+          <Spinner label="Reading environments" />
+        </div>
+      ) : list.length === 0 ? (
+        <div className="px-4 py-4 text-sm text-fg-secondary">
+          No environments yet. Add one, then a pipeline that deploys this app.
+        </div>
+      ) : (
+        <ul className="max-h-64 divide-y divide-border-default overflow-y-auto">
+          {list.map((env) => {
+            const live = env.live.find((d) => d.app === appName || d.app === appSlug);
+            return (
+              <li key={env.id}>
+                <Link
+                  to={live ? p.deployedApp(env.id, live.app) : p.deployments}
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-hover"
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+                    {env.name}
+                  </span>
+                  {live ? (
+                    <StatusBadge
+                      status={statusOf(live.status)}
+                      label={live.status === "live" ? `Live #${live.number}` : undefined}
+                      variant="inline"
+                    />
+                  ) : (
+                    <span className="text-xs text-fg-muted">Not deployed</span>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="flex items-center justify-end gap-2 border-t border-border-default bg-surface-subtle px-3 py-2">
+        <Link
+          to={p.pipelines}
+          onClick={() => setOpen(false)}
+          className={buttonClass("ghost", "sm")}
+        >
+          Pipelines
+        </Link>
+        <Link
+          to={p.deployments}
+          onClick={() => setOpen(false)}
+          className={buttonClass("secondary", "sm")}
+        >
+          {list.length === 0 ? "Set up deployments" : "All deployments"}
+        </Link>
+      </div>
+    </Popover>
   );
 }
