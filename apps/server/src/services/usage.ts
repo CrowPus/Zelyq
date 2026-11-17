@@ -16,6 +16,7 @@ import {
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
+import type { ProductActivity } from "./product-activity.js";
 
 /**
  * What each team uses, and what its plan allows.
@@ -195,6 +196,10 @@ export class UsageService {
   private readonly touched = new Map<string, number>();
   /** Whether an app's agent is working now (its status says building). */
   appBusy?: (projectId: string) => Promise<boolean>;
+  /** Product activity: a plan limit that stopped someone. */
+  activity?: ProductActivity;
+  /** Managed by an account service: plans are what people pay for, so always shown. */
+  managed = false;
   /** How many idle days before clearing (Server settings); 0: never. */
   idleDays?: () => Promise<number>;
 
@@ -417,6 +422,9 @@ export class UsageService {
     };
     return {
       plan: { id: plan.id, name: plan.name },
+      // Self-hosted with no plans made, every team is Unlimited: nothing to show.
+      plansVisible:
+        this.managed || plan.id !== UNLIMITED_PLAN.id || (await this.plans()).plans.length > 0,
       lines: PLAN_LIMIT_KEYS.map((key) => ({
         key,
         label: PLAN_LIMITS[key].label,
@@ -511,13 +519,20 @@ export class UsageService {
     if (used + adding <= limit) return;
     const words = PLAN_LIMITS[key];
     const amount = (value: number) => `${value}${words.unit ? ` ${words.unit}` : ""}`;
+    this.activity?.record("limit.reached", { teamId, detail: { limit: key, plan: plan.id } });
+    // Who moves a team to a bigger plan: the server's admin, or (managed) its owner, by paying.
+    const upgrade = this.managed
+      ? "The team's owner can choose a bigger plan."
+      : "A server admin can move the team to a bigger plan.";
+    const details = { reason: "plan_limit", teamId, limit: key, plan: plan.id };
     throw new ZelyqError(
       "forbidden",
       key === "storageMb"
-        ? `Your team's plan (${plan.name}) has ${amount(limit)} of storage, and the team uses ${amount(used)}. Delete what it no longer needs (old images, videos, apps), or a server admin moves the team to a bigger plan.`
+        ? `Your team's plan (${plan.name}) has ${amount(limit)} of storage, and the team uses ${amount(used)}. Delete what it no longer needs (old images, videos, apps). ${upgrade}`
         : key === "runnerMinutes"
-          ? `Your team's plan (${plan.name}) has ${amount(limit)} on this server's runner this month, and they are used. Run on one of the team's own machines (free), or a server admin moves the team to a bigger plan.`
-          : `Your team's plan (${plan.name}) allows ${limit} ${limit === 1 && "one" in words ? words.one : words.label.toLowerCase()}, and the team has ${used}. A server admin can move the team to a bigger plan.`,
+          ? `Your team's plan (${plan.name}) has ${amount(limit)} on this server's runner this month, and they are used. Run on one of the team's own machines (free). ${upgrade}`
+          : `Your team's plan (${plan.name}) allows ${limit} ${limit === 1 && "one" in words ? words.one : words.label.toLowerCase()}, and the team has ${used}. ${upgrade}`,
+      details,
     );
   }
 

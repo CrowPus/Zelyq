@@ -34,6 +34,7 @@ import { Masker } from "./pipelines/mask.js";
 import type { RunnerService } from "./pipelines/runners.js";
 import { shellCommand } from "./pipelines/scripts.js";
 import { SshSession } from "./pipelines/ssh.js";
+import type { ProductActivity } from "./product-activity.js";
 import type { SecretBox } from "./secrets.js";
 import type { UsageService } from "./usage.js";
 import type { VaultService } from "./vault.js";
@@ -95,6 +96,8 @@ function sq(value: string): string {
 export class DeployService {
   /** What the team's plan allows (set by the app); none: no limits. */
   limits?: Pick<UsageService, "check">;
+  /** Product activity: every deploy and how it ended. */
+  activity?: ProductActivity;
   /** One deploy at a time per environment and app. */
   private readonly locks = new Map<string, Promise<unknown>>();
   /** A machine's connection, kept for a minute while its app page is open. */
@@ -708,7 +711,25 @@ export class DeployService {
    * and puts the previous container back if it does not.
    */
   async deploy(request: DeployRequest): Promise<{ ok: boolean; deployment: DeploymentRow }> {
-    return this.locked(`${request.environment.id}/${request.app}`, () => this.deployNow(request));
+    const kind = request.reuse ? "rollback_or_promote" : "deploy";
+    try {
+      const result = await this.locked(`${request.environment.id}/${request.app}`, () =>
+        this.deployNow(request),
+      );
+      this.activity?.record("deploy.finished", {
+        userId: request.triggeredBy,
+        teamId: request.teamId,
+        detail: { ok: result.ok, kind },
+      });
+      return result;
+    } catch (error) {
+      this.activity?.record("deploy.finished", {
+        userId: request.triggeredBy,
+        teamId: request.teamId,
+        detail: { ok: false, kind },
+      });
+      throw error;
+    }
   }
 
   private async deployNow(

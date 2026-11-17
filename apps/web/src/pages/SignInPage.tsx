@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import { accountServiceLinks } from "@zelyq/core";
 import { CircleAlert } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { AuthNotice } from "../components/AuthCard";
 import { Button, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
@@ -23,11 +25,39 @@ export function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const oidcError = new URLSearchParams(window.location.search).has("error");
+  const query = new URLSearchParams(window.location.search);
+  const oidcError = query.has("error");
+  const suspended = query.get("error") === "suspended";
+  const unavailable = query.get("error") === "unavailable";
+  const signIn = status.data?.signIn;
+  const accounts = status.data?.accounts ?? null;
+  // Managed: the account service is the way in. `?local=1` keeps the form for
+  // the server's own administrators, so they can always reach it.
+  const local = query.get("local") === "1";
+  const serviceOnly = Boolean(signIn?.oidcOnly) && !local;
+  // Where they were going (a shared link): signing in brings them back there.
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from;
+  const startUrl = `/api/auth/oidc/start${from && from !== "/" ? `?return_to=${encodeURIComponent(from)}` : ""}`;
+  // Managed: straight to the account service. Someone already signed in there
+  // comes back signed in here without typing anything. Not after a failure,
+  // which would loop.
+  const goStraight = serviceOnly && Boolean(accounts) && !oidcError;
+  useEffect(() => {
+    if (goStraight) window.location.replace(startUrl);
+  }, [goStraight, startUrl]);
+  // The account service couldn't be reached: the message stays on the page, not in
+  // the address (so reopening or reloading tries again), and it tries again by itself.
+  useEffect(() => {
+    if (!unavailable || !serviceOnly) return;
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+    const retry = window.setTimeout(() => window.location.replace(startUrl), 15_000);
+    return () => window.clearTimeout(retry);
+  }, [unavailable, serviceOnly, startUrl]);
 
-  const registering = firstRun || mode === "register";
+  const registering = firstRun || (mode === "register" && Boolean(signIn?.register));
   const forgot = !firstRun && mode === "forgot";
-  const canReset = Boolean(status.data?.passwordReset);
+  const canReset = Boolean(signIn?.passwordReset);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -54,6 +84,62 @@ export function SignInPage() {
     return (
       <div className="grid h-dvh place-items-center bg-canvas">
         <Spinner />
+      </div>
+    );
+  }
+
+  if (goStraight) {
+    return (
+      <div className="grid h-dvh place-items-center bg-canvas">
+        <div className="flex flex-col items-center gap-3 text-xs text-fg-secondary">
+          <Spinner />
+          Taking you to {accounts?.name}…
+        </div>
+      </div>
+    );
+  }
+
+  if (serviceOnly && accounts) {
+    return (
+      <div className="grid h-dvh place-items-center bg-canvas px-4">
+        <div className="w-full max-w-[340px]">
+          <div className="mb-7 flex flex-col items-center gap-3 text-center">
+            <img src="/zelyq-mark-64.png" alt="" width={32} height={32} className="size-8" />
+            <div>
+              <h1 className="text-lg font-semibold text-fg">Sign in to Zelyq</h1>
+              <p className="mt-1 text-xs text-fg-secondary">
+                Your account is with {accounts.name}.
+              </p>
+            </div>
+          </div>
+          {oidcError && (
+            <p className="mb-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
+              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+              {suspended
+                ? `This account is suspended. Contact ${accounts.name} for help.`
+                : unavailable
+                  ? `${accounts.name} can't be reached right now. Try again in a minute.`
+                  : "Signing in could not be completed. Please try again."}
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="primary"
+            className="w-full"
+            onClick={() => window.location.assign(startUrl)}
+          >
+            {signIn?.oidcLabel}
+          </Button>
+          <p className="mt-4 text-center text-xs text-fg-muted">
+            No account?{" "}
+            <a
+              href={accountServiceLinks(accounts).signup(`${window.location.origin}/`)}
+              className="text-info underline underline-offset-2 hover:no-underline"
+            >
+              Create one at {accounts.name}
+            </a>
+          </p>
+        </div>
       </div>
     );
   }
@@ -166,7 +252,11 @@ export function SignInPage() {
           {oidcError && !error && (
             <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
               <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-              Single sign-on could not be completed. Please try again.
+              {suspended
+                ? "This account is suspended. Contact the server's administrator for help."
+                : unavailable
+                  ? `${accounts?.name ?? "The sign-in service"} can't be reached right now. Try again in a minute.`
+                  : "Single sign-on could not be completed. Please try again."}
             </p>
           )}
 
@@ -185,14 +275,14 @@ export function SignInPage() {
           </Button>
         </form>
 
-        {status.data?.oidcEnabled && !registering && !forgot && (
+        {signIn?.oidc && !registering && !forgot && !firstRun && (
           <Button
             type="button"
             variant="secondary"
             className="mt-3 w-full"
-            onClick={() => window.location.assign("/api/auth/oidc/start")}
+            onClick={() => window.location.assign(startUrl)}
           >
-            Continue with single sign-on
+            {signIn.oidcLabel}
           </Button>
         )}
 
@@ -212,7 +302,7 @@ export function SignInPage() {
           </p>
         )}
 
-        {!firstRun && !forgot && (
+        {!firstRun && !forgot && (registering || signIn?.register) && (
           <p className="mt-4 text-center text-xs text-fg-muted">
             {registering ? "Already have an account?" : "No account?"}{" "}
             <button

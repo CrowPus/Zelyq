@@ -1,5 +1,5 @@
 import type { AuditAction, AuditLogEntry } from "@zelyq/core";
-import { and, desc, eq, isNull, like, or } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, like, or } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { auditLog } from "../schema/sqlite.js";
 
@@ -7,6 +7,28 @@ export function auditLogRepository(db: ZelyqDb) {
   return {
     async record(entry: AuditLogEntry): Promise<void> {
       await db.insert(auditLog).values({ ...entry, detail: JSON.stringify(entry.detail) });
+    },
+
+    /** The newest entries across the whole server, after an optional time. */
+    async listRecent(limit = 200, since?: string): Promise<AuditLogEntry[]> {
+      const rows = await db
+        .select()
+        .from(auditLog)
+        .where(since ? gte(auditLog.createdAt, since) : undefined)
+        .orderBy(desc(auditLog.createdAt))
+        .limit(limit);
+      return rows.map(parse);
+    },
+
+    /** The newest entries of one kind, across the whole server. */
+    async listByAction(action: AuditAction, limit = 200): Promise<AuditLogEntry[]> {
+      const rows = await db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, action))
+        .orderBy(desc(auditLog.createdAt))
+        .limit(limit);
+      return rows.map(parse);
     },
 
     async listForTeam(teamId: string, limit = 200): Promise<AuditLogEntry[]> {

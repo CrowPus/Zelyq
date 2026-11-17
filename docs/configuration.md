@@ -208,6 +208,61 @@ The session cookie is marked `Secure` automatically when the request arrives ove
 it does not — so sign-in still works on a plain-HTTP instance without silently sending the cookie in
 the clear where TLS is available.
 
+### Managed mode (an outside account service)
+
+The whole picture (setting a server up, what the service does day to day) is in
+[managed mode](managed-mode.md); this section is the settings.
+
+A server can be connected to an outside account service that owns sign-up, sign-in, profile and
+billing for its people: a hosted offering, or a company's own portal. With nothing set, a server is
+self-hosted and nothing below applies.
+
+Set `ZELYQ_ACCOUNTS_URL`, and point the four OIDC variables above at the same service (the server
+refuses to start without them). Then:
+
+- Opening the server signed out goes **straight to the service**; someone already signed in there
+  comes back signed in here without typing anything, on the page they were going to (a shared link
+  or an invitation). After a failed attempt the sign-in screen shows one button, "Continue with
+  *name*", and "Create one at *name*", instead of going round again.
+- People of the service have **no password here**: sign-up, password, email changes, password
+  reset and deleting the account are refused in plain words ("Change your password at *name*.").
+  A display name can still be changed here.
+- **Signing out** ends the session here and then sends the browser to the service's `/signout`,
+  so the next person at that computer is not let straight back in.
+- **Invitations:** someone invited by email signs in (or signs up) with the service and comes back
+  to the invitation to accept it.
+- People the service vouches for (verified email) get an account and a team on first sign-in, even
+  with `ZELYQ_ALLOW_REGISTRATION=false`: that setting is about this server's own form.
+- The server is still set up by its own administrator first, on the set-up form. Until then nobody
+  can sign in through the service, so its first visitor can never become the server's owner. The
+  administrators keep their password sign-in at `/signin?local=1`, so they can reach the server
+  even when the service is down.
+- **Account** shows name and email, and links to the service to change them, the password, or to
+  delete the account. A team's **Usage and plan** always shows the plan; its owner gets
+  **Change plan**, which goes to the service.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ZELYQ_ACCOUNTS_URL` | — | The account service's address, for example `https://accounts.example.com`. `https://` only (`http://` for localhost). Empty = self-hosted. |
+| `ZELYQ_ACCOUNTS_NAME` | the address's host | Shown on buttons: "Continue with *name*". |
+| `ZELYQ_LOCAL_SIGNIN` | off | Managed only. `on` lets the server's own administrators sign in here with a password (`/signin?local=1`). Off by default: a managed server is run from the admin, so there is no password here to guess, and its server-wide settings, plans, keys and server Vault are read-only for every session (they change through the admin API). Make admin keys with `pnpm --filter @zelyq/server admin-key create`. |
+
+The service's pages are reached by fixed paths on that address, so any service can implement them:
+
+| Page | Path |
+| --- | --- |
+| Create an account | `/signup?return_to=<this server>` |
+| The person's account | `/account` |
+| Change a team's plan | `/billing?team=<team id>` |
+| After a plan limit | `/upgrade?team=<team id>&limit=<limit>` |
+| Sign out there too | `/signout?return_to=<this server>` |
+
+`GET /api/auth/status` says which mode a server is in (`mode`, `accounts`, `signIn`); the browser
+shows only what it says.
+
+The account service manages this server through the [admin API](admin-api.md), with a key made in
+**Server settings → API keys**.
+
 ### Supabase integration
 
 A team can connect a Supabase account so a project's preview points at a real backend. The

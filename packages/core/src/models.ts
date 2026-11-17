@@ -632,6 +632,17 @@ export const auditActionSchema = z.enum([
   "team.member_removed",
   "team.settings_changed",
   "team.plan_changed",
+  /** A paused team brought back by its owner. */
+  "team.resumed",
+  /** A team admin let support look inside the team's apps for a while. */
+  "support.access_given",
+  "support.access_withdrawn",
+  /** Support looked inside an app, with the team's permission. */
+  "support.looked",
+  "admin_key.created",
+  "admin_key.revoked",
+  /** A change made through the admin API; `detail.method`, `detail.path`, `detail.key`. */
+  "admin_api.call",
   "project.space_freed",
   "provider.connected",
   "provider.disconnected",

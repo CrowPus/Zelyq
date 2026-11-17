@@ -13,6 +13,14 @@ export function oidcIdentityRepository(db: ZelyqDb) {
       return rows[0] ?? null;
     },
 
+    /** Every outside identity linked to an account: the ids an account service knows it by. */
+    async listForUser(userId: string): Promise<Array<{ issuer: string; subject: string }>> {
+      return await db
+        .select({ issuer: oidcIdentities.issuer, subject: oidcIdentities.subject })
+        .from(oidcIdentities)
+        .where(eq(oidcIdentities.userId, userId));
+    },
+
     async create(input: {
       id: string;
       userId: string;

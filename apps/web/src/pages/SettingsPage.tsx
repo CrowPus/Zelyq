@@ -8,6 +8,7 @@ import {
   Gauge,
   GraduationCap,
   Image as ImageIcon,
+  KeyRound,
   Lock,
   LockKeyhole,
   Mail,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { AdminKeysPanel } from "../components/AdminKeysPanel";
 import { AppShell } from "../components/AppShell";
 import { CliSessionControl } from "../components/CliSessionControl";
 import { FigmaIntegration } from "../components/FigmaIntegration";
@@ -82,6 +84,11 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
   status: { label: "Instance status", icon: Activity, blurb: "Health, migrations and diagnostics" },
   users: { label: "Users", icon: Users, blurb: "Accounts on this instance" },
   plans: { label: "Plans", icon: Gauge, blurb: "What each team may use" },
+  "api-keys": {
+    label: "API keys",
+    icon: KeyRound,
+    blurb: "Keys for your own systems that run this server",
+  },
 };
 
 /** A group's name as it arrives from the API, as a section id. */
@@ -93,7 +100,9 @@ function sectionId(groupName: string): string {
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const { user } = useSession();
+  const { user, session } = useSession();
+  // Managed: this server is run from the admin; here everything is shown, nothing changes.
+  const runFrom = session?.accounts?.name ?? null;
   const { hash } = useLocation();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
   const users = useQuery({ queryKey: ["users"], queryFn: api.listUsers });
@@ -142,7 +151,7 @@ export function SettingsPage() {
     // Anything the server adds later still gets a menu entry rather than
     // silently disappearing from the page.
     const extra = fromGroups.filter((id) => !ordered.includes(id));
-    return [...ordered, ...extra, "integrations", "status", "users", "plans"];
+    return [...ordered, ...extra, "integrations", "status", "users", "plans", "api-keys"];
   }, [settings.data]);
 
   const [active, setActive] = useState<string>("model");
@@ -334,7 +343,14 @@ export function SettingsPage() {
               })}
             </nav>
 
-            <div className="min-w-0">
+            <fieldset disabled={Boolean(runFrom)} className="m-0 min-w-0 border-0 p-0">
+              {runFrom && (
+                <p className="mb-4 rounded-md border border-info/25 bg-info-subtle px-3 py-2 text-xs text-info">
+                  This server is connected to {runFrom} and is run from its admin. Everything here
+                  is shown as it is set; changes are made in the admin, behind its own sign-in, so
+                  nothing that runs the whole server can be changed from inside it.
+                </p>
+              )}
               {settings.data?.restartPending && (
                 <p className="mt-5 flex items-start gap-2 rounded-md border border-warning/25 bg-warning-subtle px-2.5 py-2 text-xs text-warning">
                   <RotateCw size={14} strokeWidth={1.75} className="mt-px shrink-0" />
@@ -475,6 +491,7 @@ export function SettingsPage() {
               )}
 
               {active === "plans" && <PlansPanel />}
+              {active === "api-keys" && <AdminKeysPanel />}
 
               {active === "users" && (
                 <>
@@ -567,7 +584,7 @@ export function SettingsPage() {
                   )}
                 </div>
               )}
-            </div>
+            </fieldset>
           </div>
         </div>
       </div>

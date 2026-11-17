@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { accountServiceSchema } from "./account-service.js";
 
 /**
  * Roles are ordered, and every permission check is "at least this role".
@@ -112,11 +113,20 @@ export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
 // Team
 // ---------------------------------------------------------------------------
 
+export const teamStatusSchema = z.enum(["active", "paused", "read_only", "suspended"]);
+export type TeamStatus = z.infer<typeof teamStatusSchema>;
+
 export const teamSchema = z.object({
   id: z.string(),
   name: z.string(),
   slug: z.string(),
   createdAt: z.string().datetime(),
+  /** Missing on older answers: active. */
+  status: teamStatusSchema.optional(),
+  /** What the team's members are shown while it is not active. */
+  statusMessage: z.string().nullable().optional(),
+  /** Features switched off for this person in this team: the screens hide them. */
+  switchedOff: z.array(z.string()).optional(),
 });
 export type Team = z.infer<typeof teamSchema>;
 
@@ -150,5 +160,10 @@ export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 export const sessionResponseSchema = z.object({
   user: userSchema,
   teams: z.array(teamMembershipSchema),
+  /**
+   * The account service this server is managed by, or null when self-hosted.
+   * When set, the person's email, password, account and billing live there.
+   */
+  accounts: accountServiceSchema.nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;

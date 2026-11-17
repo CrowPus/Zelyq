@@ -1,5 +1,7 @@
 import type {
   AddMemberInput,
+  AdminKeySummary,
+  AdminScope,
   Agent,
   AgentCreate,
   AgentCreated,
@@ -14,6 +16,7 @@ import type {
   BackendConfiguration,
   BackendConfigurationInput,
   ChangePasswordInput,
+  CreatedAdminKey,
   CreateProjectInput,
   CreatePullRequestRequest,
   DeploymentDetail,
@@ -33,6 +36,7 @@ import type {
   ImageGeneration,
   ImageGenerationInput,
   ImageHistory,
+  InstanceStatus,
   LocalRunnerStatus,
   OpsAccessChange,
   OpsAccessItem,
@@ -134,6 +138,31 @@ export interface SupabaseOrgProject {
  * Every call goes through `request`, so error handling, JSON parsing, and the
  * server's `{ error: { code, message } }` envelope are handled once.
  */
+export interface InboxItem {
+  id: string;
+  title: string;
+  body: string;
+  level: "info" | "warning" | "urgent";
+  link: { url: string; label: string } | null;
+  read: boolean;
+}
+export interface InboxMessages {
+  banners: InboxItem[];
+  announcements: InboxItem[];
+  notifications: Array<InboxItem & { createdAt: string }>;
+  unread: number;
+  maintenance: {
+    message: string;
+    startsAt: string;
+    endsAt: string;
+    pauseBuilds: boolean;
+    underway: boolean;
+  } | null;
+}
+
+/** Fired when a plan limit stopped a call: `detail` is `{ teamId, limit, plan }`. */
+export const PLAN_LIMIT_EVENT = "zelyq:plan-limit";
+
 export class ApiError extends Error {
   constructor(
     readonly code: string,
@@ -194,6 +223,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         error?: { code?: string; message?: string; details?: Record<string, unknown> };
       } | null
     )?.error;
+    // A plan limit stopped something: the shell offers the way up, wherever it happened.
+    if (error?.details?.reason === "plan_limit" && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(PLAN_LIMIT_EVENT, { detail: error.details }));
+    }
     throw new ApiError(
       error?.code ?? "internal",
       error?.message ?? `Request failed with ${response.status}`,
@@ -844,8 +877,8 @@ export const api = {
     }),
   deleteImage: (id: string) => request<void>(`/images/generations/${id}`, { method: "DELETE" }),
 
-  authStatus: () =>
-    request<{ firstRun: boolean; oidcEnabled: boolean; passwordReset?: boolean }>("/auth/status"),
+  /** What this server offers at sign-in: self-hosted, or managed by an account service. */
+  authStatus: () => request<InstanceStatus>("/auth/status"),
 
   forgotPassword: (email: string) =>
     request<{ sent: boolean }>("/auth/forgot-password", {
@@ -976,6 +1009,32 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
+  /** Banners, the bell's announcements and messages, and maintenance: this person's own. */
+  inboxMessages: () => request<InboxMessages>("/inbox/messages"),
+  markAnnouncement: (id: string, what: "seen" | "dismiss" | "click") =>
+    request<{ ok: true }>(`/inbox/announcements/${id}/${what}`, { method: "POST" }),
+  markMessageRead: (id: string) =>
+    request<{ ok: true }>(`/inbox/notifications/${id}/read`, { method: "POST" }),
+  markAllMessagesRead: () =>
+    request<{ ok: true }>("/inbox/notifications/read-all", { method: "POST" }),
+  /** Whether support may look inside the team's apps, and until when. */
+  supportAccess: (teamId: string) =>
+    request<{ access: { until: string; by: string } | null }>(`/teams/${teamId}/support-access`),
+  allowSupport: (teamId: string, hours: number) =>
+    request<{ access: { until: string; by: string } }>(`/teams/${teamId}/support-access`, {
+      method: "POST",
+      body: JSON.stringify({ hours }),
+    }),
+  withdrawSupport: (teamId: string) =>
+    request<{ access: null }>(`/teams/${teamId}/support-access`, { method: "DELETE" }),
+  /** The owner brings back a team paused because it was not used. */
+  resumeTeam: (teamId: string) =>
+    request<{ status: string }>(`/teams/${teamId}/resume`, { method: "POST" }),
+  adminKeys: () => request<{ keys: AdminKeySummary[] }>("/admin-keys"),
+  createAdminKey: (input: { name: string; scopes: AdminScope[] }) =>
+    request<CreatedAdminKey>("/admin-keys", { method: "POST", body: JSON.stringify(input) }),
+  revokeAdminKey: (id: string) =>
+    request<{ key: AdminKeySummary }>(`/admin-keys/${id}`, { method: "DELETE" }),
   planTeams: () =>
     request<{
       teams: Array<{

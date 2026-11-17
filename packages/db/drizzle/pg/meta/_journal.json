@@ -372,6 +372,55 @@
       "when": 1794813947600,
       "tag": "0052_studio_teams",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794907500741,
+      "tag": "0053_admin_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794909202742,
+      "tag": "0054_account_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794910697115,
+      "tag": "0055_product_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794911947494,
+      "tag": "0056_error_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794913284655,
+      "tag": "0057_team_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794914654363,
+      "tag": "0058_outbox_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794915022711,
+      "tag": "0059_announcements",
+      "breakpoints": true
     }
   ]
 }

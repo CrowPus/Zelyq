@@ -36,10 +36,21 @@ export class AccountService {
     if (actor.id !== targetId && actor.instanceRole !== "admin") {
       throw new ZelyqError("forbidden", "Only an instance administrator can delete another user.");
     }
+    await this.removeAccount(targetId);
+  }
 
+  /**
+   * What deleting this account would do, without doing it: the teams that go
+   * with it (it is their only member) and the teams that stay. Refuses, as the
+   * deletion would, when it would leave something nobody can administer.
+   */
+  async deletionPlan(targetId: string): Promise<{
+    user: User;
+    teamsRemoved: Array<{ id: string; name: string; apps: number }>;
+    teamsKept: Array<{ id: string; name: string }>;
+  }> {
     const target = await this.store.users.findById(targetId);
     if (!target) throw ZelyqError.notFound("User", targetId);
-    // A team's Ops engineer is not a person's account: deleting it would take the team with it.
     if (await this.store.users.isService(target.id)) {
       throw new ZelyqError(
         "conflict",
@@ -55,9 +66,8 @@ export class AccountService {
     }
 
     const teams = await this.store.teams.listForUser(targetId);
-
-    // Check every team before deleting anything: a refusal halfway through
-    // would leave the account partly dismantled.
+    const teamsRemoved: Array<{ id: string; name: string; apps: number }> = [];
+    const teamsKept: Array<{ id: string; name: string }> = [];
     for (const team of teams) {
       const members = await this.store.teams.countMembers(team.id);
       if (
@@ -70,13 +80,32 @@ export class AccountService {
           `You are the last owner of "${team.name}". Promote another owner before deleting this account.`,
         );
       }
+      if (members > 1) {
+        teamsKept.push({ id: team.id, name: team.name });
+      } else {
+        const apps = (await this.store.projects.listForTeams([team.id])).length;
+        teamsRemoved.push({ id: team.id, name: team.name, apps });
+      }
     }
+    return { user: target, teamsRemoved, teamsKept };
+  }
 
-    for (const team of teams) {
-      if ((await this.store.teams.countMembers(team.id)) > 1) continue;
+  /** A whole team: its apps (with their files on disk) and then the team itself. */
+  async removeTeam(teamId: string): Promise<{ apps: number }> {
+    const projects = await this.store.projects.listForTeams([teamId]);
+    for (const project of projects) {
+      await this.projects.remove(project.id).catch(() => undefined);
+    }
+    await this.store.teams.remove(teamId);
+    return { apps: projects.length };
+  }
 
-      // Nobody else can reach these once the account is gone. ProjectService
-      // removes the files as well as the row.
+  /** Deletes the account and the teams only it was in, with their apps and files. */
+  async removeAccount(
+    targetId: string,
+  ): Promise<Awaited<ReturnType<AccountService["deletionPlan"]>>> {
+    const plan = await this.deletionPlan(targetId);
+    for (const team of plan.teamsRemoved) {
       for (const project of await this.store.projects.listForTeams([team.id])) {
         await this.projects.remove(project.id).catch(() => undefined);
       }
@@ -85,5 +114,6 @@ export class AccountService {
 
     await this.store.users.remove(targetId);
     await this.removeImageAssets?.(targetId);
+    return plan;
   }
 }

@@ -20,6 +20,15 @@ export const users = pgTable(
     instanceRole: text("instance_role").notNull().default("member"),
     /** "person", or "service" for a team's Ops engineer: never able to sign in. */
     kind: text("kind").notNull().default("person"),
+    /**
+     * "active", or "suspended" (by the server's administrator or an account
+     * service, through the admin API): a suspended account cannot sign in.
+     */
+    status: text("status").notNull().default("active"),
+    /** Why, in words the person may be shown. */
+    statusReason: text("status_reason"),
+    /** When the person last signed in or did something (written at most every ten minutes). */
+    lastSeenAt: text("last_seen_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -35,6 +44,19 @@ export const teams = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     createdAt: text("created_at").notNull(),
+    /**
+     * "active"; "paused" (unused: the owner resumes it); "read_only" (nothing
+     * new can be added or run); "suspended" (nothing at all). Set by the
+     * server's administrator or an account service through the admin API.
+     */
+    status: text("status").notNull().default("active"),
+    /** Why, for the record: "unused", "cancelled", "abuse"… */
+    statusReason: text("status_reason"),
+    /** What the team's members are shown. */
+    statusMessage: text("status_message"),
+    statusChangedAt: text("status_changed_at"),
+    /** When a person last did something in the team (written at most every ten minutes). */
+    lastActiveAt: text("last_active_at"),
   },
   (table) => ({
     slugIdx: uniqueIndex("teams_slug_idx").on(table.slug),
@@ -1740,6 +1762,243 @@ export const opsNotifyPrefs = pgTable(
   }),
 );
 
+/**
+ * Keys an outside system (an account service, monitoring, analytics) uses on
+ * `/api/admin/v1`. Made by the server's administrator; the key is shown once
+ * and stored only as a SHA-256 hash. `scopes` is a JSON array of what it may
+ * reach (see `adminScopeSchema` in @zelyq/core).
+ */
+export const adminKeys = pgTable(
+  "admin_keys",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    scopes: text("scopes").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull(),
+    lastUsedAt: text("last_used_at"),
+    lastUsedIp: text("last_used_ip"),
+    revokedAt: text("revoked_at"),
+  },
+  (table) => ({
+    hashIdx: uniqueIndex("admin_keys_key_hash_idx").on(table.keyHash),
+  }),
+);
+
+/**
+ * A change sent to `/api/admin/v1` with an `Idempotency-Key` header, and the
+ * answer it got: the same request sent again (a retry after a timeout) gets
+ * the same answer and changes nothing twice. Kept for a day.
+ */
+export const adminIdempotency = pgTable(
+  "admin_idempotency",
+  {
+    keyId: text("key_id")
+      .notNull()
+      .references(() => adminKeys.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    /** "PUT /api/admin/v1/plans" + a hash of the body: the same key with another request is refused. */
+    requestHash: text("request_hash").notNull(),
+    statusCode: integer("status_code").notNull(),
+    response: text("response").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    keyIdx: uniqueIndex("admin_idempotency_key_idx").on(table.keyId, table.idempotencyKey),
+    createdIdx: index("admin_idempotency_created_idx").on(table.createdAt),
+  }),
+);
+
+/**
+ * Product activity (see `PRODUCT_EVENTS` in @zelyq/core): one row per thing a
+ * person did. No foreign keys, like the audit log: the record of what
+ * happened outlives what it was about. `detail` holds only short facts,
+ * never content.
+ */
+export const productEvents = pgTable(
+  "product_events",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    userId: text("user_id"),
+    teamId: text("team_id"),
+    projectId: text("project_id"),
+    detail: text("detail").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    nameIdx: index("product_events_name_created_idx").on(table.name, table.createdAt),
+    createdIdx: index("product_events_created_idx").on(table.createdAt),
+    teamIdx: index("product_events_team_created_idx").on(table.teamId, table.createdAt),
+    userIdx: index("product_events_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
+/**
+ * Daily totals of product activity older than the server keeps one row per
+ * event for (`keepProductEventsMonths`): the long view, without the rows.
+ */
+export const productDaily = pgTable(
+  "product_daily",
+  {
+    day: text("day").notNull(),
+    name: text("name").notNull(),
+    count: integer("count").notNull(),
+    people: integer("people").notNull(),
+    teams: integer("teams").notNull(),
+  },
+  (table) => ({
+    dayNameIdx: uniqueIndex("product_daily_day_name_idx").on(table.day, table.name),
+  }),
+);
+
+/**
+ * Server errors, grouped: the same kind of failure in the same place is one
+ * group, however often it happens. Messages and stacks are stored with
+ * anything that looks like a key, token, password or email taken out.
+ */
+export const errorGroups = pgTable(
+  "error_groups",
+  {
+    id: text("id").primaryKey(),
+    fingerprint: text("fingerprint").notNull(),
+    kind: text("kind").notNull(),
+    message: text("message").notNull(),
+    location: text("location").notNull(),
+    route: text("route"),
+    count: integer("count").notNull().default(0),
+    firstSeen: text("first_seen").notNull(),
+    lastSeen: text("last_seen").notNull(),
+    /** "open", "resolved" (opens again if it comes back) or "ignored". */
+    status: text("status").notNull().default("open"),
+    resolvedAt: text("resolved_at"),
+    sampleStack: text("sample_stack").notNull().default(""),
+  },
+  (table) => ({
+    fingerprintIdx: uniqueIndex("error_groups_fingerprint_idx").on(table.fingerprint),
+    lastSeenIdx: index("error_groups_last_seen_idx").on(table.lastSeen),
+  }),
+);
+
+/** Each time an error group happened, and to whom: for counts in a range and people hit. */
+export const errorHits = pgTable(
+  "error_hits",
+  {
+    groupId: text("group_id")
+      .notNull()
+      .references(() => errorGroups.id, { onDelete: "cascade" }),
+    userId: text("user_id"),
+    teamId: text("team_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    groupIdx: index("error_hits_group_created_idx").on(table.groupId, table.createdAt),
+    createdIdx: index("error_hits_created_idx").on(table.createdAt),
+  }),
+);
+
+/**
+ * Events for an outside system (an account service): written when something
+ * happens, then sent to `ZELYQ_EVENTS_URL`, signed, and retried until it is
+ * taken. Also read back through the admin API (`GET /events`), so nothing is
+ * lost while the receiver is down. Kept 30 days.
+ */
+export const outboxEvents = pgTable(
+  "outbox_events",
+  {
+    id: text("id").primaryKey(),
+    type: text("type").notNull(),
+    data: text("data").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+    /** "pending", "delivered", or "failed" (gave up after three days). */
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at").notNull(),
+    deliveredAt: text("delivered_at"),
+    lastError: text("last_error"),
+  },
+  (table) => ({
+    createdIdx: index("outbox_events_created_idx").on(table.createdAt, table.id),
+    dueIdx: index("outbox_events_due_idx").on(table.status, table.nextAttemptAt),
+  }),
+);
+
+/**
+ * Messages inside Zelyq from the server's operators: a banner across the top,
+ * or an item in the bell. To everyone, a plan, a team or one person, between
+ * two times.
+ */
+export const announcements = pgTable(
+  "announcements",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    /** "info", "warning" or "urgent". */
+    level: text("level").notNull().default("info"),
+    /** "banner" (across the top) or "inbox" (in the bell). */
+    display: text("display").notNull().default("banner"),
+    /** "everyone", "plan", "team" or "person". */
+    audienceKind: text("audience_kind").notNull().default("everyone"),
+    /** The plan, team or person id; null for everyone. */
+    audienceValue: text("audience_value"),
+    linkUrl: text("link_url"),
+    linkLabel: text("link_label"),
+    startsAt: text("starts_at").notNull(),
+    endsAt: text("ends_at"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    windowIdx: index("announcements_window_idx").on(table.startsAt, table.endsAt),
+  }),
+);
+
+/** Who saw, dismissed or followed an announcement: for the counts, and so it stays dismissed. */
+export const announcementViews = pgTable(
+  "announcement_views",
+  {
+    announcementId: text("announcement_id")
+      .notNull()
+      .references(() => announcements.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seenAt: text("seen_at"),
+    dismissedAt: text("dismissed_at"),
+    clickedAt: text("clicked_at"),
+  },
+  (table) => ({
+    pairIdx: uniqueIndex("announcement_views_pair_idx").on(table.announcementId, table.userId),
+  }),
+);
+
+/** A message to one person, in their bell: read or not. */
+export const userNotifications = pgTable(
+  "user_notifications",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    level: text("level").notNull().default("info"),
+    linkUrl: text("link_url"),
+    linkLabel: text("link_label"),
+    /** Who sent it: an admin key's name, or "system". */
+    source: text("source").notNull(),
+    createdAt: text("created_at").notNull(),
+    readAt: text("read_at"),
+  },
+  (table) => ({
+    userIdx: index("user_notifications_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
 export const schema = {
   videoAccounts,
   videoFrameSets,
@@ -1805,4 +2064,14 @@ export const schema = {
   opsAccess,
   opsLinkCodes,
   opsNotifyPrefs,
+  adminKeys,
+  adminIdempotency,
+  productEvents,
+  productDaily,
+  errorGroups,
+  errorHits,
+  outboxEvents,
+  announcements,
+  announcementViews,
+  userNotifications,
 };

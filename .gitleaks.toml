@@ -25,11 +25,15 @@ in its Vault and never shown again.
 
 The Ops tests (ops-actions, ops-brain, ops-memory) hand Ops a made-up Stripe-
 shaped value to check it refuses to put a raw secret into an app's settings.
+apps/server/test/events-out.test.ts signs events with a made-up secret
+("test-secret-that-is-long-enough-1234") to check a receiver can verify them.
+
 Only those exact made-up values are allowed (the regexes below), not the
 files, so a real key added there is still caught.
 """
 regexes = [
   '''^sk_live_(0123456789abcdefghijk?|9876543210abcdefghijk|a{21}[1-4])$''',
+  '''^test-secret-that-is-long-enough-1234$''',
 ]
 paths = [
   '''^apps/agent/evals/cases\.ts$''',

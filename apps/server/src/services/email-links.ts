@@ -48,6 +48,8 @@ export interface Logger {
 }
 
 export class EmailLinkService {
+  /** Told when an invitation makes someone a member (activity and events). */
+  onJoined?: (teamId: string, userId: string, role: Role) => void;
   constructor(
     private readonly store: Store,
     private readonly settings: SettingsService,
@@ -302,6 +304,7 @@ export class EmailLinkService {
     // job on the team page, not something an old email does.
     if (!(await this.store.teams.roleOf(link.teamId, userId))) {
       await this.store.teams.addMember(link.teamId, userId, role);
+      this.onJoined?.(link.teamId, userId, role);
     }
   }
 

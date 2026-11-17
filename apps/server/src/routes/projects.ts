@@ -117,7 +117,11 @@ export function registerProjectRoutes(
       teamId,
       projectId: project.id,
       action: "project.created",
-      detail: { name: project.name },
+      detail: {
+        name: project.name,
+        template: project.template,
+        from: input.gitUrl ? "git" : "template",
+      },
     });
     reply.status(201);
     return { project };

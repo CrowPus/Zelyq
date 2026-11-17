@@ -1,14 +1,19 @@
 import { createDatabase, type DatabaseHandle } from "./client.js";
+import { adminKeyRepository } from "./repositories/admin-keys.js";
 import { agentRepository } from "./repositories/agents.js";
 import { auditLogRepository } from "./repositories/audit-log.js";
 import { authSessionRepository } from "./repositories/auth-sessions.js";
 import { deployRepository } from "./repositories/deploy.js";
 import { emailLinkRepository } from "./repositories/email-links.js";
+import { errorRepository } from "./repositories/errors.js";
 import { imageRepository } from "./repositories/images.js";
 import { messageRepository } from "./repositories/messages.js";
+import { messagesToPeopleRepository } from "./repositories/messages-to-people.js";
 import { oidcIdentityRepository } from "./repositories/oidc-identities.js";
 import { opsRepository } from "./repositories/ops.js";
+import { outboxRepository } from "./repositories/outbox.js";
 import { pipelineRepository } from "./repositories/pipelines.js";
+import { productEventRepository } from "./repositories/product-events.js";
 import { projectRepository } from "./repositories/projects.js";
 import { providerConnectionRepository } from "./repositories/provider-connections.js";
 import { sessionRepository } from "./repositories/sessions.js";
@@ -109,6 +114,11 @@ export interface Store extends DatabaseHandle {
   deploy: ReturnType<typeof deployRepository>;
   agents: ReturnType<typeof agentRepository>;
   ops: ReturnType<typeof opsRepository>;
+  adminKeys: ReturnType<typeof adminKeyRepository>;
+  productEvents: ReturnType<typeof productEventRepository>;
+  errors: ReturnType<typeof errorRepository>;
+  outbox: ReturnType<typeof outboxRepository>;
+  messagesToPeople: ReturnType<typeof messagesToPeopleRepository>;
 }
 
 /**
@@ -139,9 +149,15 @@ export function createStore(url: string): Store {
     deploy: deployRepository(handle.db),
     agents: agentRepository(handle.db),
     ops: opsRepository(handle.db),
+    adminKeys: adminKeyRepository(handle.db),
+    productEvents: productEventRepository(handle.db),
+    errors: errorRepository(handle.db),
+    outbox: outboxRepository(handle.db),
+    messagesToPeople: messagesToPeopleRepository(handle.db),
   };
 }
 
+export type { AdminIdempotencyRow, AdminKeyRow } from "./repositories/admin-keys.js";
 export type {
   AgentOauthClientRow,
   AgentOauthGrantRow,
@@ -150,3 +166,7 @@ export type {
   AgentRow,
 } from "./repositories/agents.js";
 export type { DeployAppRow, DeployEnvironmentRow, DeploymentRow } from "./repositories/deploy.js";
+export type { ErrorGroupRow } from "./repositories/errors.js";
+export type { AnnouncementRow, UserNotificationRow } from "./repositories/messages-to-people.js";
+export type { OutboxEventRow } from "./repositories/outbox.js";
+export type { DailyCount } from "./repositories/product-events.js";

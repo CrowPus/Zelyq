@@ -22,6 +22,7 @@ import type { FigmaExtractService } from "../services/figma-extract.js";
 import { parseFigmaLink } from "../services/figma-link.js";
 import type { ImageBridge } from "../services/image-bridge.js";
 import type { PreviewEnvResolver } from "../services/preview-env.js";
+import type { ProductActivity } from "../services/product-activity.js";
 import type { ProjectBackendService } from "../services/project-backend.js";
 import type { ProjectService } from "../services/projects.js";
 import type { SettingsService } from "../services/settings.js";
@@ -93,6 +94,14 @@ const PROVIDER_WORDS: Record<string, string> = {
 export class ChatGateway {
   /** What the team's plan allows (set by the app); none: no limits. */
   limits?: Pick<UsageService, "check" | "touch">;
+  /** Product activity: messages to the agent, and how its work ended. */
+  activity?: ProductActivity;
+  /** Maintenance that pauses building. */
+  maintenance?: { requireBuildsAllowed(): Promise<void> };
+  /** A team that is not active builds nothing. */
+  teamStatus?: { requireRunnable(teamId: string): Promise<void> };
+  /** Server errors, grouped: a turn that broke on our side. */
+  errors?: { capture(error: unknown, context?: { route?: string; userId?: string }): void };
   private readonly rooms = new Map<string, Room>();
 
   constructor(
@@ -345,6 +354,7 @@ export class ChatGateway {
         ? `${result.directive}\n\n${figmaLink.rest}`
         : result.directive;
       figmaSkill = "complete-replica-engineering";
+      this.activity?.feature("figma", { userId, projectId: room.projectId });
       this.log.info(result.summary ?? "figma extract ok");
     }
 
@@ -400,6 +410,10 @@ export class ChatGateway {
       // Over the team's storage: the agent writes no more until it has room again.
       if (teamId) await this.limits?.check(teamId, "storageMb", 0);
       this.limits?.touch(room.projectId);
+      // A paused, read-only or suspended team builds nothing.
+      if (teamId) await this.teamStatus?.requireRunnable(teamId);
+      // A maintenance window that pauses building: said in its own words.
+      await this.maintenance?.requireBuildsAllowed();
       const settingsProvider = await this.settings.value("provider");
       // A pick from the chat's own model control wins over the instance
       // default for this turn onward. Omitted means what it always meant:
@@ -413,6 +427,7 @@ export class ChatGateway {
         throw new ZelyqError(
           "model_error",
           `Your team has no ${PROVIDER_WORDS[provider] ?? provider} key yet. A team admin adds one on the Team page, under AI keys.`,
+          { reason: "no_key" },
         );
       }
       // Settings' own `model` and `modelBaseUrl` were configured for
@@ -550,6 +565,17 @@ export class ChatGateway {
       // Setup failures are the ones users actually hit (no API key, agent
       // down). Reporting the agent's own message beats letting the turn fail
       // later with a misleading 404 from a session that was never created.
+      this.activity?.record("agent.build_finished", {
+        userId,
+        projectId: room.projectId,
+        detail: {
+          ok: false,
+          reason:
+            (error as { details?: { reason?: string } }).details?.reason ??
+            (error as { code?: string }).code ??
+            "setup_failed",
+        },
+      });
       this.broadcast(room, {
         type: "error",
         sessionId: room.sessionId,
@@ -563,6 +589,24 @@ export class ChatGateway {
     room.turn = new AbortController();
     await this.store.sessions.setStatus(room.sessionId, "running");
     await this.store.projects.setStatus(room.projectId, "building");
+
+    // Product activity: a message to the agent, and later how the work ended.
+    const turnStarted = Date.now();
+    const turnMode = override.autoMode
+      ? "auto"
+      : override.architectMode
+        ? "architect"
+        : override.engineerMode
+          ? "engineer"
+          : "chat";
+    let turnOk = true;
+    let turnEnded = false;
+    let turnReason: string | undefined;
+    this.activity?.record("agent.message", {
+      userId,
+      projectId: room.projectId,
+      detail: { mode: turnMode },
+    });
 
     // Copy the project before the agent touches it, so this turn can be undone.
     // A failure here must not stop the turn — the user asked for work, not for a
@@ -661,6 +705,11 @@ export class ChatGateway {
         bridgeTokens,
         snapshotId ?? undefined,
       )) {
+        if (event.type === "turn.end") turnEnded = true;
+        if (event.type === "error") {
+          turnOk = false;
+          turnReason ??= (event as { code?: string }).code;
+        }
         // The agent builds its own copy of the finished message, and it does not
         // know about the snapshot this server took before the turn. Broadcasting
         // the agent's copy meant the undo control only appeared after a reload.
@@ -728,6 +777,9 @@ export class ChatGateway {
         }
       }
     } catch (error) {
+      turnOk = false;
+      turnReason ??= "internal";
+      this.errors?.capture(error, { route: "agent turn", userId });
       this.broadcast(room, {
         type: "error",
         sessionId: room.sessionId,
@@ -741,6 +793,24 @@ export class ChatGateway {
       await save();
       await this.store.sessions.setStatus(room.sessionId, "idle");
       await this.store.projects.setStatus(room.projectId, "ready");
+      if (this.activity) {
+        const session = await this.store.sessions.findById(room.sessionId).catch(() => null);
+        this.activity.record("agent.build_finished", {
+          userId,
+          projectId: room.projectId,
+          detail: {
+            ok: turnOk && turnEnded && !room.turn?.signal.aborted,
+            seconds: (Date.now() - turnStarted) / 1000,
+            provider: session?.provider,
+            mode: turnMode,
+            reason: room.turn?.signal.aborted
+              ? "stopped"
+              : turnOk && turnEnded
+                ? undefined
+                : (turnReason ?? "no_end"),
+          },
+        });
+      }
       // Best-effort, same as ensureGitRepo above — a commit is a courtesy
       // on top of the turn, never a reason to have failed it.
       try {

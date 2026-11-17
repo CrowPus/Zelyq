@@ -1,5 +1,5 @@
 import type { InstanceRole, User } from "@zelyq/core";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { users } from "../schema/sqlite.js";
 
@@ -61,6 +61,36 @@ export function userRepository(db: ZelyqDb) {
       return row ? { ...toUser(row), passwordHash: row.passwordHash, kind: row.kind } : null;
     },
 
+    /** "active" or "suspended"; null when there is no such account. */
+    async statusOf(id: string): Promise<{ status: string; reason: string | null } | null> {
+      const rows = await db
+        .select({ status: users.status, reason: users.statusReason })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+
+    async touch(id: string, at: string): Promise<void> {
+      await db.update(users).set({ lastSeenAt: at }).where(eq(users.id, id));
+    },
+
+    async lastSeenOf(id: string): Promise<string | null> {
+      const rows = await db
+        .select({ at: users.lastSeenAt })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      return rows[0]?.at ?? null;
+    },
+
+    async setStatus(id: string, status: string, reason: string | null): Promise<void> {
+      await db
+        .update(users)
+        .set({ status, statusReason: reason, updatedAt: new Date().toISOString() })
+        .where(eq(users.id, id));
+    },
+
     async findById(id: string): Promise<User | null> {
       const rows = await db.select().from(users).where(eq(users.id, id)).limit(1);
       return rows[0] ? toUser(rows[0]) : null;
@@ -108,6 +138,39 @@ export function userRepository(db: ZelyqDb) {
         .from(users)
         .where(ne(users.kind, "service"))
         .orderBy(users.createdAt)
+        .limit(limit);
+      return rows.map(toUser);
+    },
+
+    /**
+     * People, newest first, a page at a time (after the person named by `after`). `q` finds a
+     * part of the name or email.
+     */
+    async listPage(
+      after: { id: string; createdAt: string } | null,
+      limit: number,
+      q?: string,
+    ): Promise<User[]> {
+      const needle = q?.trim().toLowerCase();
+      const pattern = needle ? `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+      const rows = await db
+        .select()
+        .from(users)
+        .where(
+          and(
+            ne(users.kind, "service"),
+            after
+              ? or(
+                  lt(users.createdAt, after.createdAt),
+                  and(eq(users.createdAt, after.createdAt), lt(users.id, after.id)),
+                )
+              : undefined,
+            pattern
+              ? sql`(lower(${users.email}) like ${pattern} escape '\\' or lower(${users.name}) like ${pattern} escape '\\')`
+              : undefined,
+          ),
+        )
+        .orderBy(desc(users.createdAt), desc(users.id))
         .limit(limit);
       return rows.map(toUser);
     },

@@ -8,6 +8,8 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 import {
+  type AccountService,
+  type InstanceStatus,
   type LoginInput,
   newId,
   type RegisterInput,
@@ -17,6 +19,7 @@ import {
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
+import type { ProductActivity } from "./product-activity.js";
 
 const scryptAsync = promisify(scrypt) as (
   password: string,
@@ -78,6 +81,10 @@ export function hashToken(token: string): string {
  */
 export interface AuthConfig {
   allowRegistration: () => Promise<boolean>;
+  /** Managed mode: people come from this account service (see @zelyq/core account-service). */
+  accounts?: AccountService;
+  /** Managed mode: the server's own administrators may sign in with a password (off unless set). */
+  localSignIn?: boolean;
   sessionTtlDays: () => Promise<number>;
   oidc?: {
     issuer?: string;
@@ -109,6 +116,11 @@ interface OidcClaims {
 }
 
 export class AuthService {
+  /** Product activity: sign-ups and sign-ins. */
+  activity?: ProductActivity;
+  /** Features switched off for a person in a team (feature switches). */
+  switchedOff?: (userId: string, teamId: string) => Promise<string[]>;
+
   constructor(
     private readonly store: Store,
     private readonly config: AuthConfig,
@@ -127,6 +139,62 @@ export class AuthService {
    * than accumulating for the life of the process.
    */
   private readonly oidcStates = new Map<string, number>();
+
+  /**
+   * Managed mode, for this person: their email, password and account belong to
+   * the account service. The server's own administrators keep theirs here, so
+   * they can always reach it. Null when self-hosted.
+   */
+  managedFor(user: User | null): AccountService | null {
+    const accounts = this.config.accounts ?? null;
+    if (!accounts || user?.instanceRole === "admin") return null;
+    return accounts;
+  }
+
+  /** Refuses, in plain words, something the account service does for this person. */
+  requireLocal(user: User | null, what: string): void {
+    const accounts = this.managedFor(user);
+    if (accounts) {
+      throw new ZelyqError("forbidden", `${what} at ${accounts.name}.`, { reason: "managed" });
+    }
+  }
+
+  /**
+   * Managed: a password sign-in here (even the server's own administrator's) only
+   * while `ZELYQ_LOCAL_SIGNIN=on`. The server is run from the admin, so by default
+   * there is no password here for anyone to guess.
+   */
+  localSignInOpen(): boolean {
+    return !this.config.accounts || this.config.localSignIn === true;
+  }
+
+  private requireLocalSignIn(): void {
+    if (!this.localSignInOpen()) {
+      throw new ZelyqError(
+        "forbidden",
+        "Signing in with a password is switched off on this server. It is run from the admin.",
+        { reason: "local_signin_off" },
+      );
+    }
+  }
+
+  /** A reset email goes out only for an account whose password lives here. */
+  async mayResetPassword(email: string): Promise<boolean> {
+    if (!this.config.accounts) return true;
+    if (!this.localSignInOpen()) return false;
+    const user = await this.store.users.findByEmail(email.trim().toLowerCase());
+    return user?.instanceRole === "admin";
+  }
+
+  /** The single sign-on issuer as configured, for linking people ahead of their first sign-in. */
+  oidcIssuer(): string | null {
+    return this.oidcEnabled() ? (this.config.oidc?.issuer ?? null) : null;
+  }
+
+  /** A team name nobody else has, as a slug. */
+  async freeTeamSlug(name: string): Promise<string> {
+    return await this.uniqueSlug(slugify(name, "team"));
+  }
 
   oidcEnabled(): boolean {
     const oidc = this.config.oidc;
@@ -207,7 +275,9 @@ export class AuthService {
       throw new ZelyqError("unauthorized", "The identity provider returned an invalid profile.");
     }
     const user = await this.findOrCreateOidcUser(metadata.issuer, claims);
-    return { user, token: await this.createSession(user.id) };
+    const session = await this.createSession(user.id);
+    this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "sso" } });
+    return { user, token: session };
   }
 
   private requireOidc(): {
@@ -279,7 +349,14 @@ export class AuthService {
   }
 
   private async findOrCreateOidcUser(issuer: string, claims: OidcClaims): Promise<User> {
-    const linked = await this.store.oidcIdentities.find(issuer, claims.sub);
+    // An account service may have linked the person already (admin API), under
+    // the issuer as configured: with or without a trailing slash, it is the same.
+    const linked =
+      (await this.store.oidcIdentities.find(issuer, claims.sub)) ??
+      (await this.store.oidcIdentities.find(
+        issuer.endsWith("/") ? issuer.replace(/\/+$/, "") : `${issuer}/`,
+        claims.sub,
+      ));
     if (linked) {
       if (await this.store.users.isService(linked.userId)) throw serviceAccount();
       return (await this.store.users.findById(linked.userId))!;
@@ -310,10 +387,20 @@ export class AuthService {
       });
       return existing;
     }
-    if (!(await this.isFirstRun()) && !(await this.config.allowRegistration())) {
+    // Managed with password sign-in off, nobody sets the server up here: it is run
+    // from the admin, and everyone who comes through the service is a member.
+    const firstRun = (await this.isFirstRun()) && this.localSignInOpen();
+    // A managed server with password sign-in on is set up by its own administrator
+    // first (the setup form), so the first person through the account service never
+    // becomes its owner.
+    if (firstRun && this.config.accounts) {
+      throw new ZelyqError("forbidden", "This server is not set up yet.");
+    }
+    // In managed mode the account service decides who may have an account;
+    // this server's "Open registration" is about its own sign-up form.
+    if (!firstRun && !this.config.accounts && !(await this.config.allowRegistration())) {
       throw new ZelyqError("forbidden", "Registration is closed on this instance.");
     }
-    const firstRun = await this.isFirstRun();
     const user = await this.store.users.create({
       id: newId("user"),
       email,
@@ -334,7 +421,44 @@ export class AuthService {
       issuer,
       subject: claims.sub,
     });
+    this.activity?.record("account.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "sso" },
+    });
+    this.activity?.record("team.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "signup" },
+    });
     return user;
+  }
+
+  /** What this server offers at sign-in: the sign-in screen shows only this. */
+  async instanceStatus(passwordReset: boolean): Promise<InstanceStatus> {
+    // Managed with password sign-in off there is no setup form: the server is run from the admin.
+    const firstRun = (await this.isFirstRun()) && this.localSignInOpen();
+    const accounts = this.config.accounts ?? null;
+    const oidc = this.oidcEnabled();
+    const managed = accounts !== null;
+    const reset = passwordReset && !managed;
+    return {
+      firstRun,
+      oidcEnabled: oidc,
+      passwordReset: reset,
+      mode: managed ? "managed" : "self_hosted",
+      accounts,
+      signIn: {
+        // Managed: the form is for setting the server up, and for its administrators
+        // (who can always reach it, even with the account service down).
+        password: !managed || firstRun,
+        register: firstRun || (!managed && (await this.config.allowRegistration())),
+        passwordReset: reset,
+        oidc,
+        oidcOnly: managed && !firstRun,
+        oidcLabel: accounts ? `Continue with ${accounts.name}` : "Continue with single sign-on",
+      },
+    };
   }
 
   /** True when nobody has signed up yet — the UI shows first-run setup. */
@@ -344,6 +468,19 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<{ user: User; token: string }> {
     const firstRun = await this.isFirstRun();
+    // Managed with password sign-in off: nobody signs up here, not even first.
+    // The server is set up from its command line (an admin key) and run from the admin.
+    if (this.config.accounts && !this.localSignInOpen()) {
+      throw new ZelyqError("forbidden", `Create your account at ${this.config.accounts.name}.`, {
+        reason: "managed",
+      });
+    }
+    // Managed: people sign up with the account service; this form only sets the server up.
+    if (!firstRun && this.config.accounts) {
+      throw new ZelyqError("forbidden", `Create your account at ${this.config.accounts.name}.`, {
+        reason: "managed",
+      });
+    }
     if (!firstRun && !(await this.config.allowRegistration())) {
       throw new ZelyqError(
         "forbidden",
@@ -383,7 +520,19 @@ export class AuthService {
       }
     }
 
-    return { user, token: await this.createSession(user.id) };
+    const token = await this.createSession(user.id);
+    this.activity?.record("account.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "password" },
+    });
+    this.activity?.record("team.created", {
+      userId: user.id,
+      teamId: team.id,
+      detail: { via: "signup" },
+    });
+    this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "password" } });
+    return { user, token };
   }
 
   async login(input: LoginInput): Promise<{ user: User; token: string }> {
@@ -401,7 +550,13 @@ export class AuthService {
     }
 
     const { passwordHash: _ignored, kind: _kind, ...user } = record;
-    return { user, token: await this.createSession(user.id) };
+    // Managed: only the server's own administrators sign in with a password here,
+    // and only when that is switched on on the server itself.
+    this.requireLocal(user, "Sign in with your account");
+    this.requireLocalSignIn();
+    const token = await this.createSession(user.id);
+    this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "password" } });
+    return { user, token };
   }
 
   /**
@@ -534,14 +689,39 @@ export class AuthService {
 
   /** A fresh session for an account that proved itself another way: a reset or invitation link. */
   async startSession(userId: string): Promise<string> {
-    return await this.createSession(userId);
+    const token = await this.createSession(userId);
+    this.activity?.record("account.signed_in", { userId, detail: { method: "link" } });
+    return token;
   }
 
   async describe(user: User): Promise<SessionResponse> {
-    return { user, teams: await this.store.teams.listForUser(user.id) };
+    const teams = await this.store.teams.listForUser(user.id);
+    return {
+      user,
+      teams: await Promise.all(
+        teams.map(async (team) => ({
+          ...team,
+          switchedOff: (await this.switchedOff?.(user.id, team.id)) ?? [],
+        })),
+      ),
+      accounts: this.config.accounts ?? null,
+    };
   }
 
+  /**
+   * Every way in ends here (password, single sign-on, reset and invitation
+   * links), so a suspended account is refused at this one place. Suspending
+   * also ends the sessions it already had.
+   */
   private async createSession(userId: string): Promise<string> {
+    const state = await this.store.users.statusOf(userId);
+    if (state?.status === "suspended") {
+      throw new ZelyqError(
+        "forbidden",
+        state.reason ? `This account is suspended: ${state.reason}` : "This account is suspended.",
+        { reason: "suspended" },
+      );
+    }
     const token = randomBytes(32).toString("base64url");
     const ttlDays = await this.config.sessionTtlDays();
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();

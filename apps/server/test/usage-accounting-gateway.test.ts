@@ -269,3 +269,79 @@ test("two turns leave the session total at their sum, not at a compounded runnin
     [1, 1],
   );
 });
+
+test("each message to the agent, and how its work ended, is recorded as product activity", async () => {
+  // The finished-work record is written in the turn's `finally`, just after `turn.end`.
+  const from = "2000-01-01T00:00:00.000Z";
+  const to = "2100-01-01T00:00:00.000Z";
+  let builds: Awaited<ReturnType<typeof server.store.productEvents.list>> = [];
+  for (let attempt = 0; attempt < 100 && builds.length < 2; attempt++) {
+    await server.activity.settled();
+    builds = await server.store.productEvents.list({
+      from,
+      to,
+      name: "agent.build_finished",
+      limit: 10,
+    });
+    if (builds.length < 2) await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const messages = await server.store.productEvents.list({
+    from,
+    to,
+    name: "agent.message",
+    limit: 10,
+  });
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0]!.detail.mode, "chat");
+  assert.equal(builds.length, 2);
+  for (const build of builds) {
+    assert.equal(build.detail.ok, true);
+    assert.equal(build.detail.provider, "google");
+    assert.equal(typeof build.detail.seconds, "number");
+    assert.ok(build.teamId, "the app's team is filled in");
+    // Never what was typed.
+    assert.ok(!JSON.stringify(build).includes("first"));
+  }
+  const apps = await server.store.productEvents.list({ from, to, name: "app.created", limit: 10 });
+  assert.equal(apps.length, 1);
+});
+
+test("a paused team's app builds nothing: the agent is not asked, and the person is told why", async () => {
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Paused app" },
+    })
+  ).json().project;
+  await server.teamStatus.set(project.teamId, { status: "paused", reason: "unused" });
+
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${project.id}`, {
+    headers: { cookie },
+  });
+  const refusal = await new Promise<{ message: string }>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected")
+        ws.send(JSON.stringify({ type: "prompt", message: "build it" }));
+      if (msg.type === "error") resolve(msg);
+      if (msg.type === "turn.end") reject(new Error("the agent built for a paused team"));
+    });
+  });
+  ws.close();
+  assert.match(refusal.message, /paused/);
+
+  await server.activity.settled();
+  const builds = await server.store.productEvents.list({
+    from: "2000-01-01T00:00:00.000Z",
+    to: "2100-01-01T00:00:00.000Z",
+    name: "agent.build_finished",
+    limit: 100,
+  });
+  assert.equal(builds.at(-1)!.detail.reason, "team_paused");
+  await server.teamStatus.set(project.teamId, { status: "active" });
+});

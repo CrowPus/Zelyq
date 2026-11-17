@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
+import type { ProductFeature } from "@zelyq/core";
 import { isZelyqError, toError, type User, ZelyqError } from "@zelyq/core";
 import { resolveFromRepoRoot } from "@zelyq/core/node";
 import { createStore, type Store } from "@zelyq/db";
@@ -13,6 +14,7 @@ import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import type { ServerConfig } from "./config.js";
 import { registerAccountRoutes } from "./routes/accounts.js";
+import { registerAdminApi } from "./routes/admin-api.js";
 import { registerAgentOAuthRoutes } from "./routes/agent-oauth.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
@@ -23,6 +25,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerGuideRoutes } from "./routes/guide.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
+import { registerMessageRoutes } from "./routes/messages.js";
 import { registerOpsRoutes } from "./routes/ops.js";
 import { registerPipelineRoutes } from "./routes/pipelines.js";
 import { registerPlanRoutes } from "./routes/plans.js";
@@ -37,6 +40,7 @@ import { registerSkillRoutes } from "./routes/skills.js";
 import { registerSnapshotRoutes } from "./routes/snapshots.js";
 import { registerSupabaseBridgeRoutes } from "./routes/supabase-bridge.js";
 import { registerSupabaseConnectionRoutes } from "./routes/supabase-connections.js";
+import { registerSupportRoutes } from "./routes/support.js";
 import { registerTeamRoutes } from "./routes/teams.js";
 import { registerVaultRoutes } from "./routes/vault.js";
 import { registerVaultKeyRoutes } from "./routes/vault-keys.js";
@@ -45,6 +49,8 @@ import { registerVideoRoutes } from "./routes/videos.js";
 import { registerVoiceRoutes } from "./routes/voice.js";
 import { AccessControl } from "./services/access.js";
 import { AccountService } from "./services/accounts.js";
+import { AdminDirectory } from "./services/admin-directory.js";
+import { AdminKeyService } from "./services/admin-keys.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AgentGateway, pipelineGuide } from "./services/agent-gateway.js";
 import { AgentOAuthService } from "./services/agent-oauth.js";
@@ -54,6 +60,7 @@ import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
 import { DeployService } from "./services/deploy.js";
 import { EmailLinkService } from "./services/email-links.js";
+import { EventsOut } from "./services/events-out.js";
 import { FigmaConnectionService } from "./services/figma-connections.js";
 import { FigmaExtractService } from "./services/figma-extract.js";
 import { FunctionSecretSync } from "./services/function-secrets.js";
@@ -62,6 +69,8 @@ import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
 import { ensureInspectorScript } from "./services/inspector-script.js";
 import { MailService } from "./services/mail.js";
+import { MessagesToPeople } from "./services/messages-to-people.js";
+import { deepHealth, ErrorTracker, HealthWatch, RequestStats } from "./services/observability.js";
 import { missingAccess } from "./services/ops/access.js";
 import { ActionList } from "./services/ops/actions.js";
 import { OpsBrain } from "./services/ops/brain.js";
@@ -80,6 +89,7 @@ import { PipelineService } from "./services/pipelines/service.js";
 import { ToolService } from "./services/pipelines/tools.js";
 import { PipelineTriggerService } from "./services/pipelines/triggers.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
+import { ProductActivity } from "./services/product-activity.js";
 import { ProjectBackendService } from "./services/project-backend.js";
 import { ProjectVariableService } from "./services/project-variables.js";
 import { ProjectService } from "./services/projects.js";
@@ -89,7 +99,9 @@ import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
+import { SupportService } from "./services/support.js";
 import { TeamKeys } from "./services/team-keys.js";
+import { TeamStatusService } from "./services/team-status.js";
 import { ThumbnailStore } from "./services/thumbnails.js";
 import { UsageService } from "./services/usage.js";
 import { VaultService } from "./services/vault.js";
@@ -108,6 +120,16 @@ declare module "fastify" {
 
 export interface ZelyqServer {
   app: FastifyInstance;
+  /** Product activity: exposed so tests can wait for recordings to land. */
+  activity: ProductActivity;
+  /** Server errors, grouped: exposed so tests can wait for them to land. */
+  errors: ErrorTracker;
+  /** Paused, read-only, suspended: exposed so tests can see what it stops. */
+  teamStatus: TeamStatusService;
+  /** Events for an account service: exposed so tests can deliver and wait. */
+  eventsOut: EventsOut;
+  /** Says when the server goes down and comes back (events). */
+  healthWatch: HealthWatch;
   store: Store;
   runtime: RuntimeDriver;
   /** What each team uses, and its plan: exposed so tests measure when they choose. */
@@ -197,8 +219,83 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     allowRegistration: () => settings.booleanValue("allowRegistration"),
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
     oidc: config.oidc,
+    accounts: config.accounts,
+    ...(config.localSignIn !== undefined ? { localSignIn: config.localSignIn } : {}),
   });
   const access = new AccessControl(store);
+  // Managed: server-wide changes only from the admin (through the admin API).
+  access.managed = config.accounts?.name ?? null;
+  // Product activity: what people do here, for this server's own administrators.
+  const activity = new ProductActivity(store, {
+    enabled: process.env.ZELYQ_PRODUCT_EVENTS !== "off",
+    keepMonths: Math.max(
+      1,
+      Number.parseInt(process.env.ZELYQ_PRODUCT_EVENTS_MONTHS ?? "13", 10) || 13,
+    ),
+    log: (error, message) => app.log.warn({ error }, message),
+  });
+  auth.activity = activity;
+  access.activity = activity;
+  // What developers need: errors grouped (secrets taken out), and how long calls take.
+  const errors = new ErrorTracker(store, (error, message) => app.log.warn({ error }, message));
+  const requestStats = new RequestStats();
+  // Paused, read-only, suspended: one check, used by every way into a team.
+  const teamStatus = new TeamStatusService(store);
+  activity.touch = (teamId, userId) => teamStatus.touch(teamId, userId);
+
+  // Events for an account service: what happened, signed and sent (or read back).
+  const eventsOut = new EventsOut(store, {
+    target: config.events,
+    log: (error, message) => app.log.warn({ error }, message),
+  });
+  activity.onRecorded = (event) => {
+    const base = { teamId: event.teamId, accountId: event.userId };
+    if (event.name === "account.created") {
+      eventsOut.emit("account.created", { ...base, via: event.detail.via ?? null });
+    } else if (event.name === "team.created") {
+      eventsOut.emit("team.created", { ...base, via: event.detail.via ?? null });
+    } else if (event.name === "limit.reached") {
+      eventsOut.emit("team.limit_reached", {
+        teamId: event.teamId,
+        limit: event.detail.limit ?? null,
+        plan: event.detail.plan ?? null,
+      });
+    }
+  };
+  access.onChange = (action, entry) => {
+    if (action === "team.member_added") {
+      eventsOut.emit("team.member_added", {
+        teamId: entry.teamId,
+        accountId: entry.detail.memberId ?? null,
+        role: entry.detail.role ?? null,
+        via: "added",
+      });
+    } else if (action === "team.member_removed") {
+      eventsOut.emit("team.member_removed", {
+        teamId: entry.teamId,
+        accountId: entry.detail.memberId ?? null,
+        byThemselves: entry.detail.self === true,
+      });
+    }
+  };
+  teamStatus.onChange = (teamId, status, by) =>
+    by === "owner"
+      ? eventsOut.emit("team.resumed", { teamId })
+      : eventsOut.emit("team.status_changed", { teamId, status });
+  errors.onNewGroup = (group, regressed) =>
+    eventsOut.emit(regressed ? "error.regressed" : "error.new", {
+      groupId: group.id,
+      kind: group.kind,
+      message: group.message,
+      location: group.location,
+      route: group.route,
+    });
+  // However a team goes (its last member leaving, the admin API, an account deleted), it is said.
+  const removeTeam = store.teams.remove.bind(store.teams);
+  store.teams.remove = async (teamId) => {
+    await removeTeam(teamId);
+    eventsOut.emit("team.deleted", { teamId });
+  };
   const vault = new VaultService(store, secrets, access);
   const variables = new ProjectVariableService(store, secrets, access, vault, runtime);
   vault.listeners.teamEntryChanged = (teamId, name) => variables.vaultEntryChanged(teamId, name);
@@ -208,6 +305,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const sshKeys = new TeamSshKeyService(store, access, secrets);
   const runners = new RunnerService(store, access, sshKeys);
   const deploys = new DeployService(store, access, secrets, vault, runners);
+  deploys.activity = activity;
   const pipelinePlugins = new PipelinePluginService(
     store,
     access,
@@ -231,6 +329,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     plugins: pipelinePlugins,
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
+  pipelines.teamStatus = teamStatus;
   pipelines.plugins = pipelinePlugins;
   const pipelineTriggers = new PipelineTriggerService(
     store,
@@ -249,6 +348,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const emailLinks = new EmailLinkService(store, settings, mail, auth, {
     warn: (object, message) => app.log.warn(object, message),
   });
+  // Joining through an invitation counts like being added: activity and an event.
+  emailLinks.onJoined = (teamId, userId, role) => {
+    activity.record("member.joined", { userId, teamId, detail: { role } });
+    eventsOut.emit("team.member_added", { teamId, accountId: userId, role, via: "invitation" });
+  };
   // Ops, the team's DevOps engineer: one list of actions, one gate in front of it.
   const ops = new OpsService(store, access, new ActionList(OPS_ACTIONS), {
     deploys,
@@ -331,6 +435,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   usage.appBusy = async (projectId) =>
     (await store.projects.findById(projectId))?.status === "building";
   usage.idleDays = () => settings.numberValue("cleanIdleAfterDays");
+  usage.managed = Boolean(config.accounts);
+  // Announcements, messages to one person, maintenance: from the server's operators.
+  const messages = new MessagesToPeople(store, usage);
+  usage.activity = activity;
+  activity.usage = usage;
   // Undo points: only the newest are kept; a team member frees more from its Usage panel.
   projects.keepSnapshots = () => settings.numberValue("keepUndoPoints");
   usage.pruneUndo = (projectId, keep) => projects.pruneSnapshots(projectId, keep);
@@ -362,7 +471,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // One error shape for every route: `{ error: { code, message } }`. The UI
   // branches on `code`, never on the message text.
   app.setErrorHandler((error, request, reply) => {
+    const where = {
+      route: `${request.method} ${request.routeOptions.url ?? "unmatched"}`,
+      userId: request.zelyqUser?.id ?? null,
+    };
     if (isZelyqError(error)) {
+      // Our own "something broke" is a server error; the rest are answers.
+      if (error.code === "internal") errors.capture(error, where);
       reply.status(error.status).send(error.toJSON());
       return;
     }
@@ -379,6 +494,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     }
     request.log.error(error);
     const failure = toError(error);
+    if (((error as { statusCode?: number }).statusCode ?? 500) >= 500) errors.capture(error, where);
     reply
       .status((error as { statusCode?: number }).statusCode ?? 500)
       .send({ error: { code: "internal", message: failure.message } });
@@ -438,6 +554,47 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerPlanRoutes(app, { usage, access, store });
+  const directory = new AdminDirectory(store, auth, accounts, usage);
+  // Support (with the team's permission to look inside) and feature switches.
+  const support = new SupportService(store, runtime, directory);
+  support.planOf = async (teamId) => (await usage.planOf(teamId)).id;
+  auth.switchedOff = (userId, teamId) => support.switchedOff(userId, teamId);
+  registerSupportRoutes(app, { support, access });
+  directory.activity = activity;
+  directory.teamStatus = teamStatus;
+  const checkHealth = () =>
+    deepHealth({
+      store,
+      dataDir: config.attachmentsDir,
+      runtime: () => runtime.health(),
+      agent: () => agent.health(),
+      mailConfigured: () => mail.configured(),
+      lastCleanup: () => usage.lastCleanup(),
+      stats: requestStats,
+    });
+  const healthWatch = new HealthWatch(checkHealth, {
+    listening: () => eventsOut.anyoneListening(),
+    changed: (down, checks) =>
+      eventsOut.emit(down ? "health.down" : "health.recovered", { checks }),
+  });
+  registerMessageRoutes(app, { messages, access });
+  const adminKeys = new AdminKeyService(store);
+  adminKeys.onKeysChanged = () => eventsOut.keysChanged();
+  registerAdminApi(app, {
+    settings,
+    adminKeys,
+    eventsOut,
+    messages,
+    support,
+    usage,
+    store,
+    access,
+    directory,
+    activity,
+    errors,
+    requestStats,
+    health: checkHealth,
+  });
   registerTeamRoutes(app, {
     limits: usage,
     store,
@@ -465,6 +622,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     resolvePreviewEnv,
     backend: projectBackend,
     thumbnails,
+    activity,
+    maintenance: messages,
   });
   registerSupabaseConnectionRoutes(app, { supabase: supabaseConnections, access, runtime });
   registerFigmaRoutes(app, { figma: figmaConnections, access });
@@ -615,6 +774,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     videos.start();
     // Measures every team's files in the background; under the test runner only when asked.
     if (!process.env.NODE_TEST_CONTEXT) usage.start();
+    activity.start();
+    errors.start();
+    eventsOut.start();
+    healthWatch.start();
     await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
@@ -658,12 +821,99 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
   gateway.limits = usage;
+  gateway.activity = activity;
+  gateway.errors = errors;
+  gateway.teamStatus = teamStatus;
+  gateway.maintenance = messages;
+  teamStatus.stopPreview = (projectId) => runtime.stopPreview(projectId);
+  agents.teamStatus = teamStatus;
+  agents.features = support;
+
+  /**
+   * A person's call into a team obeys the team's status: a suspended team is
+   * closed; a paused or read-only one may be looked at, downloaded and
+   * cleared, not changed. The team is found from the address: a team, an app
+   * in it, or Studio's `?teamId=`. The server's administrators are not held.
+   */
+  app.addHook("preHandler", async (request) => {
+    const user = request.zelyqUser;
+    if (!user || user.instanceRole === "admin") return;
+    const route = request.routeOptions.url ?? "";
+    const params = (request.params ?? {}) as { id?: string; teamId?: string };
+    let teamId: string | null = params.teamId ?? null;
+    if (!teamId && route.startsWith("/api/teams/:id") && params.id) teamId = params.id;
+    if (!teamId && route.startsWith("/api/projects/:id") && params.id) {
+      teamId = (await store.projects.findById(params.id))?.teamId ?? null;
+    }
+    // A new app names its team in the body (or goes to the person's own team).
+    if (!teamId && route === "/api/projects" && request.method === "POST") {
+      const wanted = (request.body as { teamId?: unknown } | undefined)?.teamId;
+      teamId = typeof wanted === "string" ? wanted : await access.defaultTeamFor(user);
+    }
+    if (!teamId && (route.startsWith("/api/images/") || route.startsWith("/api/videos/"))) {
+      teamId = (request.query as { teamId?: string } | undefined)?.teamId ?? null;
+    }
+    // A feature switched off (for everyone, this plan, this team or this person) is not there.
+    await support.requireEnabled(route, user.id, teamId);
+    if (!teamId) return;
+    // Resuming is how a paused team comes back: the one change it always allows.
+    await teamStatus.enforce(teamId, request.method, route);
+    void teamStatus.touch(teamId, user.id).catch(() => undefined);
+  });
+
+  /** The owner brings back a team paused because it was not used. */
+  app.post<{ Params: { id: string } }>("/api/teams/:id/resume", async (request) => {
+    const user = access.requireUser(request);
+    return await teamStatus.resume(user, request.params.id);
+  });
+
+  app.addHook("onResponse", async (request, reply) => {
+    requestStats.record(
+      request.method,
+      request.routeOptions.url ?? "unmatched",
+      reply.statusCode,
+      reply.elapsedTime,
+    );
+  });
+
+  // Features counted where they are asked for: a successful call is one use.
+  const featureRoutes: Record<string, ProductFeature> = {
+    "/api/images/generations": "studio_image",
+    "/api/videos/generations": "studio_video",
+    "/api/projects/:id/voice/transcriptions": "voice",
+    "/api/teams/:teamId/voice/transcriptions": "voice",
+  };
+  app.addHook("onResponse", async (request, reply) => {
+    if (request.method !== "POST" || reply.statusCode >= 400) return;
+    const feature = featureRoutes[request.routeOptions.url ?? ""];
+    if (!feature) return;
+    const params = (request.params ?? {}) as { id?: string; teamId?: string };
+    const query = (request.query ?? {}) as { teamId?: string };
+    activity.feature(feature, {
+      userId: request.zelyqUser?.id ?? null,
+      teamId: params.teamId ?? query.teamId ?? null,
+      projectId: params.id ?? null,
+    });
+  });
   agentFilesChanged = (projectId, paths) => gateway.notifyFilesChanged(projectId, paths);
 
   // Pipelines starting other pipelines: a `pipeline` step, and "after another pipeline" triggers.
   pipelineEngine.hooks = {
     startChild: (parent, name, inputs) => pipelines.startChild(parent, name, inputs),
     runFinished: async (run) => {
+      activity.record("pipeline.run_finished", {
+        userId: run.triggeredBy,
+        teamId: run.teamId,
+        detail: {
+          ok: run.status === "passed",
+          status: run.status,
+          trigger: run.trigger,
+          seconds:
+            run.startedAt && run.finishedAt
+              ? (Date.parse(run.finishedAt) - Date.parse(run.startedAt)) / 1000
+              : undefined,
+        },
+      });
       // The watch hears every finished run: a deploying pipeline that failed is an alert.
       await watch
         .runFinished(run.teamId, run.pipelineId, run.status, `#${run.number}`)
@@ -754,6 +1004,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
 
   return {
     app,
+    activity,
+    errors,
+    eventsOut,
+    healthWatch,
+    teamStatus,
     imageBridge,
     videoBridge,
     previewGrants: projectBackend,
@@ -775,6 +1030,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     },
     async close() {
       await app.close();
+      activity.stop();
+      errors.stop();
+      eventsOut.stop();
+      healthWatch.stop();
+      await activity.settled();
+      await errors.settled();
+      await eventsOut.settled();
       await runtime.dispose();
       await store.close();
     },

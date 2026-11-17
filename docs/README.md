@@ -12,6 +12,8 @@ and test, build and deploy them on your own machines. These pages follow the sid
 | [**Tutorial: from an app to production**](./tutorial.md) | Step by step: a secret in Vault, a pipeline, your own machine, a deploy and a roll back, GitHub pushes and pull requests, parallel stages, matrix and templates |
 | [Self-hosting](./self-hosting.md) | Running Zelyq for a team: Docker, a VM, HTTPS, backups, what to keep safe |
 | [Configuration](./configuration.md) | Every setting and environment variable |
+| [Managed mode](./managed-mode.md) | Running Zelyq for other people: one login through your own account service, plans, and everything that service can do |
+| [Admin API](./admin-api.md) | How your own systems run a server: people and teams, plans, product numbers, health and errors, events, announcements, support |
 
 ## Build
 

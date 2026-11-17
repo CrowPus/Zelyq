@@ -110,6 +110,11 @@ export interface UsageLine {
 
 export interface TeamUsage {
   plan: { id: string; name: string };
+  /**
+   * Whether plans mean anything on this server. A self-hosted server where every
+   * team is Unlimited shows usage only, no plan; a managed one always shows it.
+   */
+  plansVisible: boolean;
   lines: UsageLine[];
   /** What the storage total is made of, in MB. */
   storage: {

@@ -326,7 +326,17 @@ export class VaultService {
           "Only an instance administrator can use the instance Vault.",
         );
       }
-      return { scopeKey: "instance", teamId: null, canWrite: true, canAdmin: true };
+      // Managed: the server's own Vault is read-only here (names only, no values);
+      // it is run from the admin.
+      if (this.access.managed && minimum !== "viewer") {
+        throw new ZelyqError(
+          "forbidden",
+          `This server is connected to ${this.access.managed}: its Vault changes only from the admin.`,
+          { reason: "managed_read_only" },
+        );
+      }
+      const open = !this.access.managed;
+      return { scopeKey: "instance", teamId: null, canWrite: open, canAdmin: open };
     }
     const role = await this.access.requireTeamRole(user, scope.teamId, minimum);
     return {

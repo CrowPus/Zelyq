@@ -711,6 +711,8 @@ export class PipelineService {
   limits?: Pick<UsageService, "check" | "usesLocalRunner">;
   /** Set by the app: a reason a triggered run must not start (Ops's access, 076), or null. */
   mayStartTriggered?: (pipeline: PipelineRow) => Promise<string | null>;
+  /** A team that is not active runs nothing by itself (schedules, webhooks, "after" triggers). */
+  teamStatus?: { whyNotRunnable(teamId: string): Promise<string | null> };
 
   async startTriggered(
     pipelineId: string,
@@ -737,7 +739,9 @@ export class PipelineService {
       pullRequest: options.pullRequest ?? null,
     };
     // A pipeline Ops wrote starts by itself only while Ops still has it and where it deploys.
-    const refused = await this.mayStartTriggered?.(pipeline);
+    const refused =
+      (await this.teamStatus?.whyNotRunnable(pipeline.teamId)) ??
+      (await this.mayStartTriggered?.(pipeline));
     if (refused) return this.failedAtStart(pipeline, input, refused);
     if (this.limits?.usesLocalRunner(pipeline.source)) {
       const over = await this.limits
