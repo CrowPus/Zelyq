@@ -181,7 +181,8 @@ export function registerTeamRoutes(
     await access.requireTeamRole(user, request.params.id, "admin");
     const host = (request.body as { host?: unknown } | null)?.host;
     const refused = typeof host === "string" ? await mail.refusedTeamHost(host.trim()) : null;
-    if (refused) throw ZelyqError.badRequest(`That mail server can't be used: ${refused}.`);
+    if (refused)
+      throw ZelyqError.badRequest(`That mail server can't be used: ${refused.replace(/\.$/, "")}.`);
     await settings.setTeamMail(request.params.id, request.body);
     await access.recordChange(user, {
       teamId: request.params.id,

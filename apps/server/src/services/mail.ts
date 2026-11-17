@@ -71,7 +71,10 @@ export class MailService {
     const own = teamId ? await this.settings.teamMail(teamId) : null;
     if (own) {
       const refused = await this.refusedTeamHost(own.host);
-      if (refused) throw ZelyqError.badRequest(`That mail server can't be used: ${refused}.`);
+      if (refused)
+        throw ZelyqError.badRequest(
+          `That mail server can't be used: ${refused.replace(/\.$/, "")}.`,
+        );
       return {
         host: own.host,
         port: own.port,
