@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PipelineSummary } from "@zelyq/core";
 import { roleAtLeast } from "@zelyq/core";
-import { GitBranch, Plus, Star, Workflow } from "lucide-react";
+import { GitBranch, Plus, Star } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import {
@@ -19,10 +19,19 @@ import { OverviewTab } from "../components/pipelines/OverviewTab";
 import { PluginsTab } from "../components/pipelines/PluginsTab";
 import { RunnersTab } from "../components/pipelines/RunnersTab";
 import { StageStrip } from "../components/pipelines/Stages";
-import { Badge, buttonClass, EmptyState, Spinner } from "../components/ui";
+import {
+  Badge,
+  buttonClass,
+  EmptyState,
+  PageBody,
+  PageHeader,
+  Spinner,
+  Tabs,
+} from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { RUN_STATUS } from "../lib/pipelines";
+import { teamHref, useTeamPaths } from "../lib/routes";
 import { formatRelative } from "../lib/vault";
 
 type Tab = "pipelines" | "overview" | "runners" | "plugins";
@@ -37,6 +46,7 @@ export function PipelinesPage() {
   const { team } = useActiveTeam();
   const [params, setParams] = useSearchParams();
   const asked = params.get("tab");
+  const paths = useTeamPaths();
   const tab: Tab =
     asked === "runners" || asked === "plugins" || asked === "overview" ? asked : "pipelines";
   const canWrite = team ? roleAtLeast(team.role, "editor") : false;
@@ -50,71 +60,54 @@ export function PipelinesPage() {
 
   return (
     <AppShell crumbs={[{ label: "Pipelines" }]}>
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl px-4 py-6">
-          <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="flex items-center gap-2 text-lg font-semibold">
-                <Workflow size={18} strokeWidth={1.75} /> Pipelines
-              </h1>
-              <p className="mt-1 max-w-xl text-xs text-fg-secondary">
-                Test, build and deploy the same way every time — on this server, or on your own
-                machines over SSH. Secrets come from the team's Vault and never appear in a log.
-              </p>
-            </div>
-            {/* With no pipelines, the empty list's own "New pipeline" is the one button. */}
-            {tab === "pipelines" && canWrite && pipelineCount > 0 && (
-              <Link to="/pipelines/new" className={buttonClass("primary")}>
-                <Plus size={14} />
+      <PageBody width="standard">
+        <PageHeader
+          title="Pipelines"
+          description="Test, build and deploy the same way every time, on this server or on your own machines over SSH. Secrets come from the team's Vault and never appear in a log."
+          actions={
+            tab === "pipelines" &&
+            canWrite &&
+            pipelineCount > 0 && (
+              <Link to={paths.pipeline("new")} className={buttonClass("primary")}>
+                <Plus size={15} />
                 New pipeline
               </Link>
-            )}
-          </header>
+            )
+          }
+        />
 
-          <div role="tablist" className="mb-4 flex gap-1 border-b border-border-default">
-            {(["pipelines", "overview", "runners", "plugins"] as const).map((name) => (
-              <button
-                key={name}
-                type="button"
-                role="tab"
-                aria-selected={tab === name}
-                onClick={() =>
-                  // Each tab starts without the list's search and filters.
-                  setParams(name === "pipelines" ? {} : { tab: name }, { replace: true })
-                }
-                className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${
-                  tab === name
-                    ? "border-primary font-medium text-fg"
-                    : "border-transparent text-fg-secondary hover:text-fg"
-                }`}
-              >
-                {name === "pipelines"
-                  ? "Pipelines"
-                  : name === "overview"
-                    ? "Overview"
-                    : name === "runners"
-                      ? "Runners"
-                      : "Plugins"}
-              </button>
-            ))}
-          </div>
-
-          {!team ? (
-            <EmptyState
-              title="No team"
-              description="Pipelines belong to a team. Create or join one first."
-            />
-          ) : tab === "runners" ? (
-            <RunnersTab team={team} />
-          ) : tab === "plugins" ? (
-            <PluginsTab team={team} />
-          ) : tab === "overview" ? (
-            <OverviewTab teamId={team.id} />
-          ) : (
-            <PipelineList teamId={team.id} canWrite={canWrite} />
-          )}
+        <div className="mb-6">
+          <Tabs
+            label="Pipelines sections"
+            value={tab}
+            onChange={(name) =>
+              // Each tab starts without the list's search and filters.
+              setParams(name === "pipelines" ? {} : { tab: name }, { replace: true })
+            }
+            items={[
+              { id: "pipelines", label: "Pipelines", count: pipelineCount || undefined },
+              { id: "overview", label: "Overview" },
+              { id: "runners", label: "Runners" },
+              { id: "plugins", label: "Plugins" },
+            ]}
+          />
         </div>
-      </div>
+
+        {!team ? (
+          <EmptyState
+            title="No team"
+            description="Pipelines belong to a team. Create or join one first."
+          />
+        ) : tab === "runners" ? (
+          <RunnersTab team={team} />
+        ) : tab === "plugins" ? (
+          <PluginsTab team={team} />
+        ) : tab === "overview" ? (
+          <OverviewTab teamId={team.id} />
+        ) : (
+          <PipelineList teamId={team.id} canWrite={canWrite} />
+        )}
+      </PageBody>
     </AppShell>
   );
 }
@@ -169,7 +162,7 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
         description="A pipeline is a short file: stages, and the commands in each. Start from a template — Node, Python or Docker."
         action={
           canWrite && (
-            <Link to="/pipelines/new" className={buttonClass("primary")}>
+            <Link to={teamHref("/pipelines/new")} className={buttonClass("primary")}>
               <Plus size={14} />
               New pipeline
             </Link>
@@ -271,7 +264,7 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
                   />
                 </button>
                 <Link
-                  to={`/pipelines/${pipeline.id}`}
+                  to={teamHref(`/pipelines/${pipeline.id}`)}
                   className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-3 pl-2"
                 >
                   <div className="min-w-0 flex-1">

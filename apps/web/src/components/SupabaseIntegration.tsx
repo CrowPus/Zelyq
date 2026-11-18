@@ -3,7 +3,7 @@ import { Database, Plug, Unplug } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { api, type SupabaseResource } from "../lib/api";
 import { type SecretFrom, SecretSource } from "./SecretSource";
-import { Badge, Button, Input, Spinner } from "./ui";
+import { Badge, Button, Input, NativeSelect, Spinner } from "./ui";
 
 /**
  * Instance-admin surface (Settings) for connecting
@@ -235,11 +235,11 @@ function ResourceManager({
 
       <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
         {orgProjects.data && orgProjects.data.projects.length > 0 ? (
-          <select
+          <NativeSelect
             value={ref}
             onChange={(event) => setRef(event.target.value)}
             aria-label="Supabase project"
-            className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm text-fg sm:flex-1"
+            className="sm:flex-1"
           >
             <option value="">Choose a project…</option>
             {orgProjects.data.projects.map((project) => (
@@ -247,7 +247,7 @@ function ResourceManager({
                 {project.name} ({project.ref})
               </option>
             ))}
-          </select>
+          </NativeSelect>
         ) : (
           <Input
             value={ref}
@@ -257,18 +257,17 @@ function ResourceManager({
             className="sm:flex-1"
           />
         )}
-        <select
+        <NativeSelect
           value={environment}
           onChange={(event) =>
             setEnvironment(event.target.value as SupabaseResource["environment"])
           }
           aria-label="Environment"
-          className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm text-fg"
         >
           <option value="development">development</option>
           <option value="staging">staging</option>
           <option value="production">production</option>
-        </select>
+        </NativeSelect>
         <Button
           variant="secondary"
           onClick={() => ref.trim() && link.mutate()}
@@ -363,12 +362,12 @@ function ProjectLinkRow({
     <li className="flex flex-col gap-1.5 text-xs">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-fg">{projectName}</span>
-        <select
+        <NativeSelect
           value={current}
           onChange={(event) => onChange(event.target.value)}
           aria-label={`Supabase backend for ${projectName}`}
           disabled={pending || link.isLoading}
-          className="h-[26px] max-w-[45%] rounded-md border border-border-default bg-surface px-1.5 text-xs text-fg"
+          className="max-w-[45%]"
         >
           <option value="">Not linked</option>
           {resources.map((resource) => (
@@ -376,7 +375,7 @@ function ProjectLinkRow({
               {resource.displayName} ({resource.environment})
             </option>
           ))}
-        </select>
+        </NativeSelect>
         {current && (
           <Button
             size="sm"

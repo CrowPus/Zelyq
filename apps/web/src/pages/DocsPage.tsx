@@ -16,6 +16,7 @@ export function DocsPage() {
   return (
     <AppShell
       crumbs={[{ label: "Docs" }]}
+      scope="global"
       actions={
         <a href={DOWNLOAD_URL} className={buttonClass("primary", "sm")}>
           <Download size={13} strokeWidth={1.75} />

@@ -17,6 +17,7 @@ import {
   Info,
   Mic,
   Paperclip,
+  Plus,
   Puzzle,
   Sparkles,
   Square,
@@ -73,7 +74,18 @@ import {
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { AgentPresence } from "./AgentPresence";
 import { type ModelChoice, ModelPicker } from "./ModelPicker";
-import { IconButton, Kbd, Spinner, StatusDot } from "./ui";
+import {
+  Chip,
+  IconButton,
+  Kbd,
+  Menu,
+  MenuCheckItem,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  Spinner,
+  StatusDot,
+} from "./ui";
 
 /**
  * The markdown parser is ~170 KB — larger than the rest of the application put
@@ -461,7 +473,9 @@ export function ChatPanel({
         return;
       }
       if (figmaConnection.data && !figmaConnection.data.connection) {
-        setCommandError("Connect Figma in Settings first, then try /figma again.");
+        setCommandError(
+          "Connect Figma in Team settings → Integrations first, then try /figma again.",
+        );
         return;
       }
     }
@@ -1242,13 +1256,111 @@ export function ChatPanel({
                 line keeps every control reachable at any panel width, which
                 hiding or scrolling them would not. */}
             <div className="flex min-w-0 flex-wrap items-center gap-1">
-              <IconButton
-                size="sm"
-                label="Attach a file"
-                onClick={() => fileInputRef.current?.click()}
+              {/* One labelled menu for everything that is not typing: attach,
+                  how the agent works, and what it may spend money on. */}
+              <Menu
+                align="start"
+                side="top"
+                width="w-72"
+                trigger={
+                  <IconButton size="sm" label="Add or change how the agent works">
+                    <Plus size={14} strokeWidth={2} />
+                  </IconButton>
+                }
               >
-                <Paperclip size={13} strokeWidth={2} />
-              </IconButton>
+                <MenuItem
+                  icon={<Paperclip size={14} />}
+                  onSelect={() => fileInputRef.current?.click()}
+                >
+                  Attach a file
+                </MenuItem>
+                <MenuSeparator />
+                <MenuLabel>How the agent works</MenuLabel>
+                <MenuCheckItem
+                  checked={engineerMode}
+                  hint="Builds"
+                  onSelect={() =>
+                    setEngineerMode((value) => {
+                      if (!value) setArchitectMode(false);
+                      else setAutoMode(false);
+                      return !value;
+                    })
+                  }
+                >
+                  <span className="flex items-center gap-2">
+                    <HardHat size={14} className="text-fg-muted" /> Engineer Mode
+                  </span>
+                </MenuCheckItem>
+                <MenuCheckItem
+                  checked={architectMode}
+                  hint="Plans first"
+                  onSelect={() =>
+                    setArchitectMode((value) => {
+                      if (!value) setEngineerMode(false);
+                      else setAutoMode(false);
+                      return !value;
+                    })
+                  }
+                >
+                  <span className="flex items-center gap-2">
+                    <Compass size={14} className="text-fg-muted" /> Architect Mode
+                  </span>
+                </MenuCheckItem>
+                <MenuCheckItem
+                  checked={autoMode}
+                  hint="No step limit"
+                  onSelect={() =>
+                    setAutoMode((value) => {
+                      // Needs a building mode. Keep whichever is on; with
+                      // neither, Engineer is the one that builds straight away.
+                      if (!value && !architectMode && !engineerMode) setEngineerMode(true);
+                      return !value;
+                    })
+                  }
+                >
+                  <span className="flex items-center gap-2">
+                    <InfinityIcon size={14} className="text-fg-muted" /> Auto Mode
+                  </span>
+                </MenuCheckItem>
+                {(imageGeneration.available || videoGeneration.available) && (
+                  <>
+                    <MenuSeparator />
+                    <MenuLabel>May spend money on</MenuLabel>
+                    {/* Persisted per app, unlike the modes: turning it on
+                        lets the agent spend against the team's key. */}
+                    {imageGeneration.available && (
+                      <MenuCheckItem
+                        checked={imageGeneration.enabled}
+                        hint={canEdit ? undefined : "Editors only"}
+                        onSelect={() => {
+                          if (canEdit) void imageGeneration.onToggle(!imageGeneration.enabled);
+                        }}
+                      >
+                        <span className="flex items-center gap-2">
+                          <ImageIcon size={14} className="text-fg-muted" /> Generating images
+                        </span>
+                      </MenuCheckItem>
+                    )}
+                    {videoGeneration.available && (
+                      <MenuCheckItem
+                        checked={videoGeneration.enabled}
+                        hint={canEdit ? undefined : "Editors only"}
+                        onSelect={() => {
+                          if (canEdit) void videoGeneration.onToggle(!videoGeneration.enabled);
+                        }}
+                      >
+                        <span className="flex items-center gap-2">
+                          <Clapperboard size={14} className="text-fg-muted" /> Generating video
+                        </span>
+                      </MenuCheckItem>
+                    )}
+                  </>
+                )}
+                <MenuSeparator />
+                <MenuItem icon={<Info size={14} />} onSelect={() => setShortcutsOpen(true)}>
+                  Keyboard shortcuts
+                </MenuItem>
+              </Menu>
               <IconButton
                 size="sm"
                 variant={voiceState === "recording" ? "danger" : "ghost"}
@@ -1275,131 +1387,27 @@ export function ChatPanel({
                 )}
               </IconButton>
               <ModelPicker value={modelChoice} onChange={setModelChoice} />
-              {/* Persisted per project, unlike the mode toggles beside it:
-                  turning this on lets the agent spend real money against the
-                  instance's image key, so it should not silently reset.
-
-                  Absent, not disabled, when the instance has no image provider
-                  configured. This row has very little spare width, and a
-                  permanently dead control on every instance without an image
-                  key — which is most of them — is not worth a slot. The place
-                  that explains how to configure it is Settings. */}
-              {imageGeneration.available && (
-                <IconButton
-                  size="sm"
-                  variant={imageGeneration.enabled ? "primary" : "ghost"}
-                  disabled={!canEdit}
-                  label={
-                    imageGeneration.enabled
-                      ? "The agent may generate images for this app — click to turn off"
-                      : "Let the agent generate images for this app (this spends money)"
-                  }
-                  aria-pressed={imageGeneration.enabled}
-                  onClick={() => void imageGeneration.onToggle(!imageGeneration.enabled)}
-                  className="shrink-0"
-                >
-                  <ImageIcon size={13} strokeWidth={2} />
-                </IconButton>
+              {/* What is on, said in words, each one a click from off. */}
+              {engineerMode && (
+                <ModeChip
+                  label="Engineer"
+                  onClear={() => {
+                    setEngineerMode(false);
+                    setAutoMode(false);
+                  }}
+                />
               )}
-              {videoGeneration.available && (
-                <IconButton
-                  size="sm"
-                  variant={videoGeneration.enabled ? "primary" : "ghost"}
-                  disabled={!canEdit}
-                  label={
-                    videoGeneration.enabled
-                      ? "The agent may generate video for this app — click to turn off"
-                      : "Let the agent generate video for this app (a clip costs far more than an image)"
-                  }
-                  aria-pressed={videoGeneration.enabled}
-                  onClick={() => void videoGeneration.onToggle(!videoGeneration.enabled)}
-                  className="shrink-0"
-                >
-                  <Clapperboard size={13} strokeWidth={2} />
-                </IconButton>
+              {architectMode && (
+                <ModeChip
+                  label="Architect"
+                  onClear={() => {
+                    setArchitectMode(false);
+                    setAutoMode(false);
+                  }}
+                />
               )}
-              {/* Per-conversation, not persisted — see the engineerMode
-                  state declaration above. */}
-              <IconButton
-                size="sm"
-                variant={engineerMode ? "primary" : "ghost"}
-                label={
-                  engineerMode ? "Engineer Mode is on — click to turn off" : "Turn on Engineer Mode"
-                }
-                aria-pressed={engineerMode}
-                onClick={() =>
-                  setEngineerMode((value) => {
-                    if (!value) setArchitectMode(false);
-                    else setAutoMode(false);
-                    return !value;
-                  })
-                }
-                className="shrink-0"
-              >
-                <HardHat size={13} strokeWidth={2} />
-              </IconButton>
-              {/* Architect Mode. Interviews and plans, writes no code. */}
-              <IconButton
-                size="sm"
-                variant={architectMode ? "primary" : "ghost"}
-                label={
-                  architectMode
-                    ? "Architect Mode is on — click to turn off"
-                    : "Turn on Architect Mode"
-                }
-                aria-pressed={architectMode}
-                onClick={() =>
-                  setArchitectMode((value) => {
-                    if (!value) setEngineerMode(false);
-                    else setAutoMode(false);
-                    return !value;
-                  })
-                }
-                className="shrink-0"
-              >
-                <Compass size={13} strokeWidth={2} />
-              </IconButton>
-              {/* Auto Mode. Keeps building on its own instead of stopping at
-                  a turn's step limit, until the work is done or a ceiling is
-                  hit. Works with Architect or Engineer. */}
-              <IconButton
-                size="sm"
-                variant={autoMode ? "primary" : "ghost"}
-                label={
-                  !autoMode
-                    ? "Turn on Auto Mode — keep building without stopping at the step limit"
-                    : architectMode
-                      ? "Auto Mode is on — the Architect builds the whole plan without stopping; click to turn off"
-                      : "Auto Mode is on — the Engineer keeps working until it is done; click to turn off"
-                }
-                aria-pressed={autoMode}
-                onClick={() =>
-                  setAutoMode((value) => {
-                    // Needs a building mode. Keep whichever is on; with
-                    // neither, Engineer is the one that builds straight away.
-                    if (!value && !architectMode && !engineerMode) setEngineerMode(true);
-                    return !value;
-                  })
-                }
-                className="shrink-0"
-              >
-                <InfinityIcon size={13} strokeWidth={2} />
-              </IconButton>
-              {/* The keyboard hints used to sit inline here and ate the
-                  row's width. This button row is for controls; the hints
-                  live behind an info popover, rendered in a portal so no
-                  `overflow-hidden` ancestor can clip it. */}
-              <div className="shrink-0" ref={shortcutsBtnRef}>
-                <IconButton
-                  size="sm"
-                  variant={shortcutsOpen ? "primary" : "ghost"}
-                  label="Keyboard shortcuts"
-                  aria-expanded={shortcutsOpen}
-                  onClick={() => setShortcutsOpen((v) => !v)}
-                >
-                  <Info size={13} strokeWidth={2} />
-                </IconButton>
-              </div>
+              {autoMode && <ModeChip label="Auto" onClear={() => setAutoMode(false)} />}
+              <div className="shrink-0" ref={shortcutsBtnRef} />
             </div>
             {chat.busy ? (
               <IconButton
@@ -1994,5 +2002,14 @@ function SlashSection({ title, children }: { title: string; children: React.Reac
       </p>
       {children}
     </div>
+  );
+}
+
+/** A mode that is on, shown in words beside the composer, with a way to turn it off. */
+function ModeChip({ label, onClear }: { label: string; onClear(): void }) {
+  return (
+    <Chip onRemove={onClear} removeLabel={`Turn off ${label} Mode`}>
+      {label}
+    </Chip>
   );
 }

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type CleanupReportView } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 import { sizeWords } from "./UsagePanel";
 import { Button } from "./ui";
 
@@ -44,7 +45,7 @@ export function IdleCleanup() {
       </p>
       <p className="mt-2 text-xs text-fg">
         {done
-          ? `Last cleared ${new Date(done.at).toLocaleString()}: ${done.apps} app${done.apps === 1 ? "" : "s"}, ${mb(done.freedBytes)} freed.`
+          ? `Last cleared ${formatDateTime(done.at)}: ${done.apps} app${done.apps === 1 ? "" : "s"}, ${mb(done.freedBytes)} freed.`
           : "Not run yet."}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">

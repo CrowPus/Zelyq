@@ -19,7 +19,7 @@ import {
   type SelectedElement,
 } from "../lib/inspector";
 import { resolvePreviewUrl } from "../lib/preview-url";
-import { Button, EmptyState, IconButton, Spinner, StatusDot } from "./ui";
+import { Button, EmptyState, IconButton, Spinner, StatusBadge } from "./ui";
 
 interface Props {
   preview: Preview | null;
@@ -167,21 +167,37 @@ export function PreviewPanel({
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas">
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border-default bg-surface px-2.5">
-        <StatusDot
-          tone={
+        <StatusBadge
+          variant="inline"
+          status={
             preview?.status === "running"
-              ? "success"
+              ? "succeeded"
               : preview?.status === "crashed"
-                ? "danger"
+                ? "failed"
                 : busy
-                  ? "warning"
-                  : "neutral"
+                  ? "running"
+                  : "stopped"
           }
-          pulse={busy}
+          label={
+            preview?.status === "running"
+              ? "Running"
+              : preview?.status === "crashed"
+                ? "Crashed"
+                : busy
+                  ? "Starting"
+                  : "Stopped"
+          }
         />
-        <span className="truncate font-mono text-2xs text-fg-muted">
-          {running ? previewUrl : (preview?.status ?? "stopped")}
-        </span>
+        {running && previewUrl && (
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="min-w-0 truncate font-mono text-xs text-fg-secondary hover:text-accent hover:underline"
+          >
+            {previewUrl.replace(/^https?:\/\//, "")}
+          </a>
+        )}
 
         <div className="ml-auto flex items-center gap-0.5">
           {running && (

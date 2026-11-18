@@ -24,8 +24,18 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
+import { formatDate } from "../../lib/format";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
-import { Badge, Button, EmptyState, FieldLabel, IconButton, Input, Spinner } from "../ui";
+import {
+  Badge,
+  Button,
+  confirmAction,
+  EmptyState,
+  FieldLabel,
+  IconButton,
+  Input,
+  Spinner,
+} from "../ui";
 
 const OS_LABEL: Record<string, string> = { linux: "Linux", macos: "macOS", windows: "Windows" };
 
@@ -92,7 +102,7 @@ function LocalRunnerNote({ status }: { status: LocalRunnerStatus | null }) {
         <p>
           <span className="font-medium text-fg">Local runner</span> — always here. A pipeline with{" "}
           <code className="font-mono">runs-on: local</code> runs on this Zelyq server, in a fresh
-          container that is thrown away afterwards. An instance admin can change this in Settings →
+          container that is thrown away afterwards. A server admin can change this in Server admin →
           Pipelines.
         </p>
         {status && !status.off && (
@@ -177,11 +187,14 @@ function TeamKey({ teamId }: { teamId: string }) {
             variant="ghost"
             icon={<RotateCw size={13} />}
             disabled={rotate.isPending}
-            onClick={() => {
+            onClick={async () => {
               if (
-                window.confirm(
-                  "Make a new key? The current one keeps working for 7 days while you add the new one to each machine.",
-                )
+                await confirmAction({
+                  title: "Make a new key?",
+                  description:
+                    "The current one keeps working for 7 days while you add the new one to each machine.",
+                  confirmLabel: "Make a new key",
+                })
               ) {
                 rotate.mutate(current.algorithm);
               }
@@ -257,8 +270,8 @@ function TeamKey({ teamId }: { teamId: string }) {
       {older.map((key) => (
         <div key={key.id} className="mt-3 rounded bg-warning-subtle p-2 text-xs">
           The previous key ({key.fingerprint}) still works until{" "}
-          {key.retiresAt ? new Date(key.retiresAt).toLocaleDateString() : "removed"}. Add the new
-          key to every machine, then{" "}
+          {key.retiresAt ? formatDate(key.retiresAt) : "removed"}. Add the new key to every machine,
+          then{" "}
           <button type="button" className="underline" onClick={() => retire.mutate()}>
             stop the old key now
           </button>
@@ -477,11 +490,14 @@ function RunnerRow({
                 size="sm"
                 variant="danger"
                 label="Remove runner"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    window.confirm(
-                      `Remove ${runner.name}? Pipelines that name it will fail until another runner matches.`,
-                    )
+                    await confirmAction({
+                      title: `Remove ${runner.name}?`,
+                      description: `Pipelines that name it will fail until another runner matches.`,
+                      confirmLabel: "Remove machine",
+                      danger: true,
+                    })
                   ) {
                     remove.mutate();
                   }
@@ -604,11 +620,14 @@ function DiskUse({ teamId, runnerId }: { teamId: string; runnerId: string }) {
                 disabled={
                   clear.isPending || (what === "tools" ? data.toolsBytes : data.cacheBytes) === 0
                 }
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    window.confirm(
-                      `Remove all ${what === "tools" ? "tools" : "caches"} from this machine? The next run fetches them again.`,
-                    )
+                    await confirmAction({
+                      title: `Remove all ${what === "tools" ? "tools" : "caches"} from this machine?`,
+                      description: "The next run fetches them again.",
+                      confirmLabel: "Remove",
+                      danger: true,
+                    })
                   ) {
                     clear.mutate(what);
                   }

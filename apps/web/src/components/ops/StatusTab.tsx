@@ -3,8 +3,9 @@ import type { OpsAlertView, OpsCheckView, OpsStatusApp, OpsStatusView } from "@z
 import { BellOff, CheckCircle2, Eye } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
+import { formatTime } from "../../lib/format";
 import { formatRelative } from "../../lib/vault";
-import { Badge, Button, EmptyState, Spinner } from "../ui";
+import { Badge, Button, EmptyState, NativeSelect, Spinner } from "../ui";
 
 /**
  * The watch, on the Ops page (072 §4): one honest light per app, its uptime
@@ -191,9 +192,7 @@ function AlertRow({
         <p className="text-xs text-fg-secondary">
           {alert.detail} · since {formatRelative(alert.openedAt)}
           {alert.acknowledgedAt ? " · someone is on it" : ""}
-          {silenced
-            ? ` · silenced until ${new Date(alert.silencedUntil as string).toLocaleTimeString()}`
-            : ""}
+          {silenced ? ` · silenced until ${formatTime(alert.silencedUntil as string)}` : ""}
         </p>
       </div>
       {canAnswer && (
@@ -210,9 +209,8 @@ function AlertRow({
             </Button>
           )}
           {!silenced && (
-            <select
+            <NativeSelect
               aria-label="Silence for planned work"
-              className="h-6 rounded-md border border-border-default bg-surface px-1.5 text-xs"
               value=""
               disabled={busy}
               onChange={(event) => {
@@ -224,7 +222,7 @@ function AlertRow({
               <option value="60">for 1 hour</option>
               <option value="240">for 4 hours</option>
               <option value="1440">for a day</option>
-            </select>
+            </NativeSelect>
           )}
           {silenced && <BellOff size={14} className="text-fg-muted" aria-label="Silenced" />}
         </div>

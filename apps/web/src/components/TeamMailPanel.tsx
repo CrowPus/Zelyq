@@ -3,7 +3,7 @@ import { Mail } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type TeamMailInput } from "../lib/api";
 import { type SecretFrom, SecretSource } from "./SecretSource";
-import { Button, FieldLabel, Input, Spinner } from "./ui";
+import { Button, confirmAction, FieldLabel, Input, NativeSelect, Spinner } from "./ui";
 
 /**
  * The team's own email (Team settings → Email): its invitations and Ops's
@@ -140,8 +140,15 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
                 size="sm"
                 variant="ghost"
                 disabled={remove.isPending}
-                onClick={() => {
-                  if (window.confirm("Remove the team's mail server?")) remove.mutate();
+                onClick={async () => {
+                  if (
+                    await confirmAction({
+                      title: "Remove the team's mail server?",
+                      confirmLabel: "Remove",
+                      danger: true,
+                    })
+                  )
+                    remove.mutate();
                 }}
               >
                 Remove
@@ -199,16 +206,15 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
               <label htmlFor="team-mail-security">
                 <FieldLabel>Security</FieldLabel>
               </label>
-              <select
+              <NativeSelect
                 id="team-mail-security"
-                className="h-[30px] rounded-md border border-border-strong bg-surface px-2 text-sm text-fg"
                 value={form.security}
                 onChange={(e) => set({ security: e.target.value as TeamMailInput["security"] })}
               >
                 <option value="starttls">STARTTLS (587)</option>
                 <option value="tls">TLS (465)</option>
                 <option value="none">None</option>
-              </select>
+              </NativeSelect>
             </div>
           </div>
           <div className="flex flex-col gap-1">

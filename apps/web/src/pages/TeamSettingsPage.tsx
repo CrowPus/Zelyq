@@ -14,16 +14,17 @@ import {
   Puzzle,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { SupportAccessPanel } from "../components/SupportAccessPanel";
 import { TeamIntegrations } from "../components/TeamIntegrations";
 import { TeamKeys } from "../components/TeamKeys";
 import { TeamMailPanel } from "../components/TeamMailPanel";
 import { UsagePanel } from "../components/UsagePanel";
-import { Badge, Button, Spinner } from "../components/ui";
+import { Badge, Button, PageBody, PageHeader, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { useRouteTeam } from "../lib/routes";
 import { type Draft, FieldRow } from "./SettingsPage";
 
 /** What each group is called on a team's page. */
@@ -85,7 +86,7 @@ function groupOrder(name: string): number {
  * server's administrator.
  */
 export function TeamSettingsPage() {
-  const { id = "" } = useParams();
+  const id = useRouteTeam()?.id ?? "";
   const queryClient = useQueryClient();
   const { teams } = useSession();
   const team = teams.find((candidate) => candidate.id === id);
@@ -214,96 +215,76 @@ export function TeamSettingsPage() {
   }
 
   return (
-    <AppShell
-      crumbs={[
-        { label: "Teams", to: "/" },
-        { label: team?.name ?? "Team", to: `/teams/${id}` },
-        { label: "Settings" },
-      ]}
-    >
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-4 py-6 pb-28 sm:px-6 sm:py-8">
-          <header>
-            <h1 className="text-xl font-semibold text-fg">{team?.name ?? "Team"} settings</h1>
-            <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
-              Everything this team decides for itself: its plan, AI keys, how its apps are built,
-              Studio, voice, Ops, its own email and its integrations.{" "}
-              {canManage ? "As a team admin you" : "A team admin"} can change all of it; anything
-              left alone uses the server's default. Members, Ops access and alerts are on the{" "}
-              <Link to={`/teams/${id}`} className="underline underline-offset-2">
-                team page
-              </Link>{" "}
-              and the{" "}
-              <Link to="/ops" className="underline underline-offset-2">
-                Ops page
-              </Link>
-              .
-            </p>
-          </header>
+    <AppShell crumbs={[{ label: "Team settings" }]}>
+      <PageBody>
+        <PageHeader
+          title="Team settings"
+          description={`What ${team?.name ?? "this team"} decides for itself. Anything left alone uses the server's default.`}
+          meta={!canManage && <Badge tone="neutral">Only a team admin can change these</Badge>}
+        />
 
-          <div className="mt-6 gap-8 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:items-start">
-            {/* The menu: a row that scrolls sideways on a phone, a column on a desktop. */}
-            <nav
-              aria-label="Team settings sections"
-              className="-mx-4 mb-5 flex gap-1 overflow-x-auto px-4 pb-2 md:sticky md:top-4 md:mx-0 md:mb-0 md:flex-col md:overflow-visible md:px-0 md:pb-0"
-            >
-              {sections.map((section) => {
-                const meta = SECTIONS[section] ?? { label: section, icon: Puzzle };
-                const Icon = meta.icon;
-                const current = active === section;
-                return (
-                  <button
-                    key={section}
-                    type="button"
-                    aria-current={current ? "page" : undefined}
-                    data-section={slug(section)}
-                    onClick={() => open(section)}
-                    className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors md:w-full ${
-                      current
-                        ? "bg-surface-hover font-medium text-fg"
-                        : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
-                    }`}
-                  >
-                    <Icon size={14} strokeWidth={1.75} className="shrink-0" />
-                    <span className="whitespace-nowrap md:whitespace-normal">{meta.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
+        <div className="mt-6 gap-8 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:items-start">
+          {/* The menu: a row that scrolls sideways on a phone, a column on a desktop. */}
+          <nav
+            aria-label="Team settings sections"
+            className="-mx-4 mb-5 flex gap-1 overflow-x-auto px-4 pb-2 md:sticky md:top-4 md:mx-0 md:mb-0 md:flex-col md:overflow-visible md:px-0 md:pb-0"
+          >
+            {sections.map((section) => {
+              const meta = SECTIONS[section] ?? { label: section, icon: Puzzle };
+              const Icon = meta.icon;
+              const current = active === section;
+              return (
+                <button
+                  key={section}
+                  type="button"
+                  aria-current={current ? "page" : undefined}
+                  data-section={slug(section)}
+                  onClick={() => open(section)}
+                  className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors md:w-full ${
+                    current
+                      ? "bg-surface-hover font-medium text-fg"
+                      : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
+                  }`}
+                >
+                  <Icon size={14} strokeWidth={1.75} className="shrink-0" />
+                  <span className="whitespace-nowrap md:whitespace-normal">{meta.label}</span>
+                </button>
+              );
+            })}
+          </nav>
 
-            <div className="min-w-0 [&>section:first-child]:mt-0">
-              {active === "plan" && (
-                <UsagePanel teamId={id} canEdit={team ? roleAtLeast(team.role, "editor") : false} />
-              )}
-              {active === "ai-keys" && <TeamKeys teamId={id} canManage={canManage} />}
-              {active === "email" && <TeamMailPanel teamId={id} canManage={canManage} />}
-              {active === "integrations" && <TeamIntegrations teamId={id} canManage={canManage} />}
-              {active === "support" && <SupportAccessPanel teamId={id} canManage={canManage} />}
-              {activeGroup && renderGroup(activeGroup)}
-              {!activeGroup && settings.isLoading && !PANELS.includes(active) && (
-                <div className="mt-8 grid place-items-center">
-                  <Spinner />
-                </div>
-              )}
-              {settings.isError && (
-                <p className="mt-6 text-sm text-danger">{(settings.error as Error).message}</p>
-              )}
-            </div>
+          <div className="min-w-0 [&>section:first-child]:mt-0">
+            {active === "plan" && (
+              <UsagePanel teamId={id} canEdit={team ? roleAtLeast(team.role, "editor") : false} />
+            )}
+            {active === "ai-keys" && <TeamKeys teamId={id} canManage={canManage} />}
+            {active === "email" && <TeamMailPanel teamId={id} canManage={canManage} />}
+            {active === "integrations" && <TeamIntegrations teamId={id} canManage={canManage} />}
+            {active === "support" && <SupportAccessPanel teamId={id} canManage={canManage} />}
+            {activeGroup && renderGroup(activeGroup)}
+            {!activeGroup && settings.isLoading && !PANELS.includes(active) && (
+              <div className="mt-8 grid place-items-center">
+                <Spinner />
+              </div>
+            )}
+            {settings.isError && (
+              <p className="mt-6 text-sm text-danger">{(settings.error as Error).message}</p>
+            )}
           </div>
-
-          {error && (
-            <p
-              role="alert"
-              className="mt-4 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger"
-            >
-              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-              {error}
-            </p>
-          )}
         </div>
-      </div>
+
+        {error && (
+          <p
+            role="alert"
+            className="mt-4 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger"
+          >
+            <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+            {error}
+          </p>
+        )}
+      </PageBody>
       {canManage && (dirty || saved) && (
-        <div className="fixed right-4 bottom-4 left-4 z-40 mx-auto flex max-w-5xl items-center justify-end gap-2 rounded-lg border border-border-default bg-surface px-3 py-2 shadow-lg">
+        <div className="fixed right-4 bottom-4 left-4 z-30 mx-auto flex max-w-3xl items-center justify-end gap-2 rounded-lg border border-border-default bg-overlay px-4 py-2.5 shadow-overlay md:left-[16rem]">
           {saved && !dirty ? (
             <span className="text-xs text-success">Saved.</span>
           ) : (

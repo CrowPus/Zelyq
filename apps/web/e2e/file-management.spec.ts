@@ -37,7 +37,7 @@ test("an editor can create a file from the tree and it lands on disk", async ({ 
   const projectId = await createProject(page, "create-file");
 
   await page.goto(`/projects/${projectId}`);
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   await expect(page.getByText("App.tsx", { exact: false }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "New file" }).click();
@@ -61,7 +61,7 @@ test("an editor can create a folder and it exists on disk", async ({ page }) => 
   const projectId = await createProject(page, "create-folder");
 
   await page.goto(`/projects/${projectId}`);
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   await expect(page.getByText("App.tsx", { exact: false }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "New folder" }).click();
@@ -87,7 +87,7 @@ test("an editor can delete a file from the tree", async ({ page }) => {
   });
 
   await page.goto(`/projects/${projectId}`);
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   const row = page.getByRole("button", { name: "Doomed.tsx", exact: true });
   await expect(row).toBeVisible();
 
@@ -116,7 +116,7 @@ test("a viewer is offered no create or delete controls", async ({ page, browser,
   });
 
   await guestPage.goto(`/projects/${projectId}`);
-  await guestPage.getByRole("button", { name: "Code" }).click();
+  await guestPage.getByRole("radio", { name: "Code" }).click();
   await expect(guestPage.getByText("App.tsx", { exact: false }).first()).toBeVisible();
 
   await expect(guestPage.getByRole("button", { name: "New file" })).toHaveCount(0);

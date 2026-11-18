@@ -3,7 +3,7 @@ import { accountServiceLinks } from "@zelyq/core";
 import { CircleAlert } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { AuthNotice } from "../components/AuthCard";
+import { AuthHeading, AuthLayout, AuthNotice } from "../components/AuthCard";
 import { Button, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -101,223 +101,208 @@ export function SignInPage() {
 
   if (serviceOnly && accounts) {
     return (
-      <div className="grid h-dvh place-items-center bg-canvas px-4">
-        <div className="w-full max-w-[340px]">
-          <div className="mb-7 flex flex-col items-center gap-3 text-center">
-            <img src="/zelyq-mark-64.png" alt="" width={32} height={32} className="size-8" />
-            <div>
-              <h1 className="text-lg font-semibold text-fg">Sign in to Zelyq</h1>
-              <p className="mt-1 text-xs text-fg-secondary">
-                Your account is with {accounts.name}.
-              </p>
-            </div>
-          </div>
-          {oidcError && (
-            <p className="mb-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
-              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-              {suspended
-                ? `This account is suspended. Contact ${accounts.name} for help.`
-                : unavailable
-                  ? `${accounts.name} can't be reached right now. Try again in a minute.`
-                  : "Signing in could not be completed. Please try again."}
-            </p>
-          )}
-          <Button
-            type="button"
-            variant="primary"
-            className="w-full"
-            onClick={() => window.location.assign(startUrl)}
-          >
-            {signIn?.oidcLabel}
-          </Button>
-          <p className="mt-4 text-center text-xs text-fg-muted">
-            No account?{" "}
-            <a
-              href={accountServiceLinks(accounts).signup(`${window.location.origin}/`)}
-              className="text-info underline underline-offset-2 hover:no-underline"
-            >
-              Create one at {accounts.name}
-            </a>
+      <AuthLayout>
+        <AuthHeading title="Sign in to Zelyq" subtitle={`Your account is with ${accounts.name}.`} />
+        {oidcError && (
+          <p className="mb-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
+            <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+            {suspended
+              ? `This account is suspended. Contact ${accounts.name} for help.`
+              : unavailable
+                ? `${accounts.name} can't be reached right now. Try again in a minute.`
+                : "Signing in could not be completed. Please try again."}
           </p>
-        </div>
-      </div>
+        )}
+        <Button
+          type="button"
+          variant="primary"
+          className="w-full"
+          onClick={() => window.location.assign(startUrl)}
+        >
+          {signIn?.oidcLabel}
+        </Button>
+        <p className="mt-4 text-center text-xs text-fg-muted">
+          No account?{" "}
+          <a
+            href={accountServiceLinks(accounts).signup(`${window.location.origin}/`)}
+            className="text-info underline underline-offset-2 hover:no-underline"
+          >
+            Create one at {accounts.name}
+          </a>
+        </p>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="grid h-dvh place-items-center bg-canvas px-4">
-      <div className="w-full max-w-[340px]">
-        <div className="mb-7 flex flex-col items-center gap-3 text-center">
-          <img src="/zelyq-mark-64.png" alt="" width={32} height={32} className="size-8" />
-          <div>
-            <h1 className="text-lg font-semibold text-fg">
-              {firstRun
-                ? "Set up Zelyq"
-                : registering
-                  ? "Create an account"
-                  : forgot
-                    ? "Reset your password"
-                    : "Sign in to Zelyq"}
-            </h1>
-            <p className="mt-1 text-xs text-fg-secondary">
-              {firstRun
-                ? "This instance has no accounts yet. The first one owns it."
-                : registering
-                  ? "You will get a team of your own."
-                  : forgot
-                    ? "Enter your account's email. We will send a link to choose a new password."
-                    : "Use the account an administrator set up for you."}
-            </p>
-          </div>
-        </div>
+    <AuthLayout>
+      <AuthHeading
+        title={
+          firstRun
+            ? "Set up Zelyq"
+            : registering
+              ? "Create an account"
+              : forgot
+                ? "Reset your password"
+                : "Sign in to Zelyq"
+        }
+        subtitle={
+          firstRun
+            ? "This instance has no accounts yet. The first one owns it."
+            : registering
+              ? "You will get a team of your own."
+              : forgot
+                ? "Enter your account's email. We will send a link to choose a new password."
+                : "Use the account an administrator set up for you."
+        }
+      />
 
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          {registering && (
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="signin-name" className="text-xs font-medium text-fg-secondary">
-                Name
-              </label>
-              <Input
-                id="signin-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                autoComplete="name"
-                required
-                placeholder="Ada Lovelace"
-              />
-            </div>
-          )}
-
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        {registering && (
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="signin-email" className="text-xs font-medium text-fg-secondary">
-              Email
+            <label htmlFor="signin-name" className="text-xs font-medium text-fg-secondary">
+              Name
             </label>
             <Input
-              id="signin-email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
+              id="signin-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              autoComplete="name"
               required
-              placeholder="you@example.com"
+              placeholder="Ada Lovelace"
             />
           </div>
+        )}
 
-          {!forgot && (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-baseline justify-between">
-                <label htmlFor="signin-password" className="text-xs font-medium text-fg-secondary">
-                  Password
-                </label>
-                {canReset && !registering && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode("forgot");
-                      setError(null);
-                      setSent(false);
-                    }}
-                    className="text-xs text-info underline-offset-2 hover:underline"
-                  >
-                    Forgot password?
-                  </button>
-                )}
-              </div>
-              <PasswordInput
-                id="signin-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={registering ? "new-password" : "current-password"}
-                required
-                minLength={registering ? 10 : undefined}
-                placeholder={registering ? "At least 10 characters" : ""}
-              />
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="signin-email" className="text-xs font-medium text-fg-secondary">
+            Email
+          </label>
+          <Input
+            id="signin-email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            required
+            placeholder="you@example.com"
+          />
+        </div>
+
+        {!forgot && (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between">
+              <label htmlFor="signin-password" className="text-xs font-medium text-fg-secondary">
+                Password
+              </label>
+              {canReset && !registering && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("forgot");
+                    setError(null);
+                    setSent(false);
+                  }}
+                  className="text-xs text-info underline-offset-2 hover:underline"
+                >
+                  Forgot password?
+                </button>
+              )}
             </div>
-          )}
+            <PasswordInput
+              id="signin-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete={registering ? "new-password" : "current-password"}
+              required
+              minLength={registering ? 10 : undefined}
+              placeholder={registering ? "At least 10 characters" : ""}
+            />
+          </div>
+        )}
 
-          {forgot && sent && (
-            <AuthNotice>
-              If an account uses {email}, a link is on its way. It works for one hour. Check spam if
-              it does not arrive in a few minutes.
-            </AuthNotice>
-          )}
+        {forgot && sent && (
+          <AuthNotice>
+            If an account uses {email}, a link is on its way. It works for one hour. Check spam if
+            it does not arrive in a few minutes.
+          </AuthNotice>
+        )}
 
-          {error && (
-            <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
-              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-              {error}
-            </p>
-          )}
+        {error && (
+          <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
+            <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+            {error}
+          </p>
+        )}
 
-          {oidcError && !error && (
-            <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
-              <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-              {suspended
-                ? "This account is suspended. Contact the server's administrator for help."
-                : unavailable
-                  ? `${accounts?.name ?? "The sign-in service"} can't be reached right now. Try again in a minute.`
-                  : "Single sign-on could not be completed. Please try again."}
-            </p>
-          )}
+        {oidcError && !error && (
+          <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
+            <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
+            {suspended
+              ? "This account is suspended. Contact the server's administrator for help."
+              : unavailable
+                ? `${accounts?.name ?? "The sign-in service"} can't be reached right now. Try again in a minute.`
+                : "Single sign-on could not be completed. Please try again."}
+          </p>
+        )}
 
-          <Button type="submit" variant="primary" disabled={busy} className="mt-1 w-full">
-            {busy
-              ? "Working…"
-              : forgot
-                ? sent
-                  ? "Send again"
-                  : "Send reset link"
-                : firstRun
-                  ? "Create owner account"
-                  : registering
-                    ? "Create account"
-                    : "Sign in"}
-          </Button>
-        </form>
+        <Button type="submit" variant="primary" disabled={busy} className="mt-1 w-full">
+          {busy
+            ? "Working…"
+            : forgot
+              ? sent
+                ? "Send again"
+                : "Send reset link"
+              : firstRun
+                ? "Create owner account"
+                : registering
+                  ? "Create account"
+                  : "Sign in"}
+        </Button>
+      </form>
 
-        {signIn?.oidc && !registering && !forgot && !firstRun && (
-          <Button
+      {signIn?.oidc && !registering && !forgot && !firstRun && (
+        <Button
+          type="button"
+          variant="secondary"
+          className="mt-3 w-full"
+          onClick={() => window.location.assign(startUrl)}
+        >
+          {signIn.oidcLabel}
+        </Button>
+      )}
+
+      {forgot && (
+        <p className="mt-4 text-center text-xs text-fg-muted">
+          Remembered it?{" "}
+          <button
             type="button"
-            variant="secondary"
-            className="mt-3 w-full"
-            onClick={() => window.location.assign(startUrl)}
+            onClick={() => {
+              setMode("signin");
+              setError(null);
+            }}
+            className="text-info underline underline-offset-2 hover:no-underline"
           >
-            {signIn.oidcLabel}
-          </Button>
-        )}
+            Sign in
+          </button>
+        </p>
+      )}
 
-        {forgot && (
-          <p className="mt-4 text-center text-xs text-fg-muted">
-            Remembered it?{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setMode("signin");
-                setError(null);
-              }}
-              className="text-info underline underline-offset-2 hover:no-underline"
-            >
-              Sign in
-            </button>
-          </p>
-        )}
-
-        {!firstRun && !forgot && (registering || signIn?.register) && (
-          <p className="mt-4 text-center text-xs text-fg-muted">
-            {registering ? "Already have an account?" : "No account?"}{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setMode(registering ? "signin" : "register");
-                setError(null);
-              }}
-              className="text-info underline underline-offset-2 hover:no-underline"
-            >
-              {registering ? "Sign in" : "Create one"}
-            </button>
-          </p>
-        )}
-      </div>
-    </div>
+      {!firstRun && !forgot && (registering || signIn?.register) && (
+        <p className="mt-4 text-center text-xs text-fg-muted">
+          {registering ? "Already have an account?" : "No account?"}{" "}
+          <button
+            type="button"
+            onClick={() => {
+              setMode(registering ? "signin" : "register");
+              setError(null);
+            }}
+            className="text-info underline underline-offset-2 hover:no-underline"
+          >
+            {registering ? "Sign in" : "Create one"}
+          </button>
+        </p>
+      )}
+    </AuthLayout>
   );
 }

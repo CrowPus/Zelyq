@@ -6,6 +6,7 @@ import { AuthCard, AuthError } from "../components/AuthCard";
 import { Button, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { teamKey, teamPaths } from "../lib/routes";
 
 /**
  * The pages an emailed link opens. The token rides in the address's #fragment,
@@ -185,7 +186,9 @@ export function InvitePage() {
         details.accountExists ? { token } : { token, name, password },
       );
       refresh();
-      navigate(`/teams/${accepted.teamId}`, { replace: true });
+      // Straight into the team just joined, by its own address.
+      const joined = accepted.teams.find((t) => t.id === accepted.teamId);
+      navigate(joined ? teamPaths(teamKey(joined)).members : "/", { replace: true });
     } catch (caught) {
       setError((caught as Error).message);
     } finally {

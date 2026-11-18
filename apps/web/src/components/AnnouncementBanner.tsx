@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Info, Megaphone, Wrench, X } from "lucide-react";
 import { useEffect } from "react";
 import { api, type InboxItem } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 
 /**
  * What the server's operators want everyone (or this plan, team or person) to
@@ -48,8 +49,8 @@ export function AnnouncementBanner() {
           <span className="font-medium">
             {maintenance.underway ? "Maintenance now" : "Maintenance planned"}:{" "}
           </span>
-          {maintenance.message} ({new Date(maintenance.startsAt).toLocaleString()} –{" "}
-          {new Date(maintenance.endsAt).toLocaleString()})
+          {maintenance.message} ({formatDateTime(maintenance.startsAt)} –{" "}
+          {formatDateTime(maintenance.endsAt)})
           {maintenance.pauseBuilds ? ". New building waits until it is over." : ""}
         </span>
       </div>

@@ -4,7 +4,7 @@ import { History, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { TextDiff } from "../DiffView";
-import { Badge, Button, EmptyState, Spinner } from "../ui";
+import { Badge, Button, EmptyState, RelativeTime, Spinner } from "../ui";
 
 /**
  * A pipeline's history: every saved version — by a person, an agent, a
@@ -189,7 +189,7 @@ export function HistoryTab({
 function VersionMeta({ version }: { version: PipelineVersionSummary }) {
   return (
     <span className="mt-0.5 block text-2xs leading-snug text-fg-muted">
-      {new Date(version.createdAt).toLocaleString()}
+      <RelativeTime value={version.createdAt} />
       {version.by ? ` · ${version.by.name}` : ""}
       {version.note ? <span className="block text-fg-secondary">{version.note}</span> : null}
     </span>

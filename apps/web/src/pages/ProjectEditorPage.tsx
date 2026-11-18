@@ -1,16 +1,24 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast } from "@zelyq/core";
 import {
+  Camera,
   Code2,
   Columns2,
   Compass,
+  Database,
+  GitBranch,
+  LayoutDashboard,
   MessageSquare,
   Monitor,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Rocket,
+  Settings,
+  Variable,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { BackendPanel } from "../components/BackendPanel";
 import { ChatPanel } from "../components/ChatPanel";
@@ -23,30 +31,52 @@ import { PreviewPanel } from "../components/PreviewPanel";
 import { ProjectVariablesPanel } from "../components/ProjectVariablesPanel";
 import { SnapshotPanel } from "../components/SnapshotPanel";
 import { StudioMediaPicker } from "../components/StudioMediaPicker";
-import { Badge, IconButton, Spinner } from "../components/ui";
+import {
+  Button,
+  buttonClass,
+  ErrorState,
+  IconButton,
+  Menu,
+  MenuItem,
+  MenuSeparator,
+  Popover,
+  SegmentedControl,
+  Spinner,
+  StatusBadge,
+  statusOf,
+} from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useChatSocket } from "../hooks/useChatSocket";
-import { api } from "../lib/api";
+import { ApiError, api } from "../lib/api";
 import { MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
 import type { SelectedElement } from "../lib/inspector";
+import { type AppPanel, useTeamPaths } from "../lib/routes";
 
 /** One value drives both layouts: the right-hand pane on desktop, the only
  * pane on a phone. */
 type Pane = "chat" | "preview" | "code" | "plan";
-
-const STATUS_TONE = {
-  ready: "success",
-  building: "warning",
-  creating: "warning",
-  error: "danger",
-  archived: "neutral",
-} as const;
 
 export function ProjectEditorPage() {
   // Studio and the model list use the team's own AI keys first.
   const { team: activeTeam } = useActiveTeam();
   const { id = "" } = useParams();
   const queryClient = useQueryClient();
+  const p = useTeamPaths();
+  const navigate = useNavigate();
+  // Git, Variables, Snapshots and Backend open beside the work, from the
+  // address — so the app's sidebar can link to them and a reload keeps them.
+  const [params, setParams] = useSearchParams();
+  const panel = params.get("panel") as AppPanel | null;
+  const setPanel = (next: AppPanel | null) =>
+    setParams(
+      (current) => {
+        const copy = new URLSearchParams(current);
+        if (next) copy.set("panel", next);
+        else copy.delete("panel");
+        return copy;
+      },
+      { replace: !next },
+    );
   const [pane, setPane] = useState<Pane>("preview");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   /** Set when a file was opened from a turn, to show what that turn changed. */
@@ -136,10 +166,6 @@ export function ProjectEditorPage() {
 
   const chat = useChatSocket(id, onFilesChanged);
 
-  useEffect(() => {
-    document.title = project.data ? `${project.data.project.name} — Zelyq` : "Zelyq";
-  }, [project.data]);
-
   async function startPreview() {
     setStarting(true);
     try {
@@ -162,9 +188,9 @@ export function ProjectEditorPage() {
 
   if (project.isLoading) {
     return (
-      <AppShell crumbs={[{ label: "Apps", to: "/" }, { label: "…" }]}>
+      <AppShell crumbs={[{ label: "Build" }]} app={{ id, name: "…" }}>
         <div className="grid h-full place-items-center">
-          <Spinner />
+          <Spinner label="Opening the app" />
         </div>
       </AppShell>
     );
@@ -172,13 +198,21 @@ export function ProjectEditorPage() {
 
   if (project.isError) {
     return (
-      <AppShell crumbs={[{ label: "Apps", to: "/" }, { label: "Not found" }]}>
-        <div className="grid h-full place-items-center gap-2 text-center">
-          <p className="text-sm text-fg-secondary">{(project.error as Error).message}</p>
-          <Link to="/" className="text-xs text-info hover:underline">
-            Back to projects
-          </Link>
-        </div>
+      <AppShell crumbs={[{ label: "Not found" }]}>
+        <ErrorState
+          title="This app could not be opened"
+          error={
+            project.error instanceof ApiError && project.error.status === 404
+              ? "It may have been deleted, or it belongs to a team you are not in."
+              : project.error
+          }
+          onRetry={() => project.refetch()}
+          action={
+            <Link to={p.apps} className={buttonClass("secondary")}>
+              All apps
+            </Link>
+          }
+        />
       </AppShell>
     );
   }
@@ -188,95 +222,110 @@ export function ProjectEditorPage() {
   const rightPane: "preview" | "code" | "plan" =
     pane === "code" ? "code" : pane === "plan" ? "plan" : "preview";
 
+  const shellApp = {
+    id,
+    name: current.name,
+    status: statusOf(current.status),
+    statusLabel: current.status === "ready" ? "Ready" : undefined,
+  };
+
   return (
-    <AppShell
-      crumbs={[
-        { label: "Apps", to: "/" },
-        {
-          label: current.name,
-          badge: <Badge tone={STATUS_TONE[current.status] ?? "neutral"}>{current.status}</Badge>,
-        },
-      ]}
-      actions={
-        <>
-          {/* Desktop-only layout toggles: hide the chat, hide the file tree. */}
-          <div className="mr-1 hidden items-center gap-0.5 md:flex">
+    <AppShell crumbs={[{ label: "Build" }]} app={shellApp}>
+      {canEdit && (
+        <GitPanel
+          projectId={id}
+          teamId={current.teamId}
+          open={panel === "git"}
+          onOpenChange={(open) => setPanel(open ? "git" : null)}
+        />
+      )}
+      {canEdit && hasBackend && (
+        <BackendPanel
+          projectId={id}
+          open={panel === "backend"}
+          onOpenChange={(open) => setPanel(open ? "backend" : null)}
+        />
+      )}
+      <SnapshotPanel
+        projectId={id}
+        canEdit={canEdit}
+        onRestored={afterFilesMoved}
+        open={panel === "snapshots"}
+        onOpenChange={(open) => setPanel(open ? "snapshots" : null)}
+      />
+      {/* Every member sees the variables — viewers read names and history;
+          the panel itself hides what only an editor may do. */}
+      {role !== undefined && (
+        <ProjectVariablesPanel
+          projectId={id}
+          teamId={current.teamId}
+          canEdit={canEdit}
+          hasBackend={hasBackend}
+          open={panel === "variables"}
+          onOpenChange={(open) => setPanel(open ? "variables" : null)}
+        />
+      )}
+      <div className="flex h-full min-h-0 flex-col">
+        {/* The builder's own toolbar: layout, what the right pane shows, and
+            the app's actions. Desktop only; phones use the bottom bar. */}
+        <div className="hidden h-11 items-center gap-2 border-b border-border-default bg-surface px-2 md:flex">
+          <IconButton
+            size="sm"
+            label={chatCollapsed ? "Show chat" : "Hide chat"}
+            aria-pressed={chatCollapsed}
+            onClick={() => setChatCollapsed((v) => !v)}
+          >
+            {chatCollapsed ? (
+              <PanelLeftOpen size={15} strokeWidth={1.75} />
+            ) : (
+              <PanelLeftClose size={15} strokeWidth={1.75} />
+            )}
+          </IconButton>
+          {rightPane === "code" && (
             <IconButton
               size="sm"
-              variant={chatCollapsed ? "primary" : "ghost"}
-              label={chatCollapsed ? "Show chat" : "Hide chat"}
-              aria-pressed={chatCollapsed}
-              onClick={() => setChatCollapsed((v) => !v)}
+              label={treeCollapsed ? "Show file tree" : "Hide file tree"}
+              aria-pressed={treeCollapsed}
+              onClick={() => setTreeCollapsed((v) => !v)}
             >
-              {chatCollapsed ? (
-                <PanelLeftOpen size={14} strokeWidth={1.75} />
-              ) : (
-                <PanelLeftClose size={14} strokeWidth={1.75} />
-              )}
+              <Columns2 size={15} strokeWidth={1.75} />
             </IconButton>
-            {rightPane === "code" && (
-              <IconButton
-                size="sm"
-                variant={treeCollapsed ? "primary" : "ghost"}
-                label={treeCollapsed ? "Show file tree" : "Hide file tree"}
-                aria-pressed={treeCollapsed}
-                onClick={() => setTreeCollapsed((v) => !v)}
-              >
-                <Columns2 size={14} strokeWidth={1.75} />
-              </IconButton>
-            )}
-          </div>
-          {/* The bottom bar handles pane switching on phones. */}
-          <div className="mr-1 hidden items-center gap-0.5 rounded-md border border-border-default bg-surface-subtle p-0.5 md:flex">
-            <TabButton
-              active={rightPane === "preview"}
-              onClick={() => setPane("preview")}
-              icon={<Monitor size={13} strokeWidth={1.75} />}
-            >
-              Preview
-            </TabButton>
-            <TabButton
-              active={rightPane === "code"}
-              onClick={() => setPane("code")}
-              icon={<Code2 size={13} strokeWidth={1.75} />}
-            >
-              Code
-            </TabButton>
-            <TabButton
-              active={rightPane === "plan"}
-              onClick={() => setPane("plan")}
-              icon={<Compass size={13} strokeWidth={1.75} />}
-            >
-              Plan
-            </TabButton>
-          </div>
-          <SnapshotPanel projectId={id} canEdit={canEdit} onRestored={afterFilesMoved} />
-          {/* Same role the route itself already requires — editing and
-              pushing are the same trust level. */}
-          {canEdit && <GitPanel projectId={id} teamId={current.teamId} />}
-          {canEdit && hasBackend && <BackendPanel projectId={id} />}
-          {/* Every member sees the variables — viewers read names and history;
-              the panel itself hides what only an editor may do. */}
-          {role !== undefined && project.data && (
-            <ProjectVariablesPanel
-              projectId={id}
-              teamId={project.data.project.teamId}
-              canEdit={canEdit}
-              hasBackend={hasBackend}
-            />
           )}
-        </>
-      }
-    >
-      <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] md:grid-rows-[minmax(0,1fr)]">
-        <div
-          className={`grid min-h-0 grid-cols-[minmax(0,1fr)] ${
-            chatCollapsed
-              ? "md:grid-cols-[minmax(0,1fr)]"
-              : "md:grid-cols-[minmax(300px,24rem)_minmax(0,1fr)]"
-          }`}
-        >
-          {/*
+          <div className="flex flex-1 justify-center">
+            <SegmentedControl
+              label="Show"
+              size="sm"
+              value={rightPane}
+              onValueChange={(next) => setPane(next)}
+              options={[
+                {
+                  value: "preview",
+                  label: "Preview",
+                  icon: <Monitor size={13} strokeWidth={1.75} />,
+                },
+                { value: "code", label: "Code", icon: <Code2 size={13} strokeWidth={1.75} /> },
+                { value: "plan", label: "Plan", icon: <Compass size={13} strokeWidth={1.75} /> },
+              ]}
+            />
+          </div>
+          <AppMenu
+            canEdit={canEdit}
+            hasBackend={hasBackend}
+            onPanel={setPanel}
+            onOverview={() => navigate(p.app(id, "overview"))}
+            onSettings={() => navigate(p.app(id, "settings"))}
+          />
+          <DeployPopover appName={current.name} appSlug={current.slug} teamId={current.teamId} />
+        </div>
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] md:grid-rows-[minmax(0,1fr)]">
+          <div
+            className={`grid min-h-0 grid-cols-[minmax(0,1fr)] ${
+              chatCollapsed
+                ? "md:grid-cols-[minmax(0,1fr)]"
+                : "md:grid-cols-[minmax(300px,24rem)_minmax(0,1fr)]"
+            }`}
+          >
+            {/*
             Panes are hidden, not unmounted. The chat holds a live WebSocket and
             a scroll position; tearing it down whenever the user glances at the
             preview would drop both.
@@ -285,239 +334,305 @@ export function ProjectEditorPage() {
             from a template string — Tailwind extracts class names statically,
             so an interpolated `md:${x}` produces no CSS at all.
           */}
-          <div
-            className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 min-w-0 ${
-              chatCollapsed ? "md:hidden" : "md:grid"
-            }`}
-          >
-            <ChatPanel
-              chat={chat}
-              model={health.data?.agent.model}
-              skills={health.data?.agent.skills ?? []}
-              plugins={health.data?.agent.plugins ?? []}
-              projectId={id}
-              canEdit={canEdit}
-              videoGeneration={{
-                enabled: current.videoGenerationEnabled,
-                available: videoCapabilities.data?.providers.some((p) => p.configured) ?? false,
-                async onToggle(next) {
-                  await api.updateProject(id, { videoGenerationEnabled: next });
-                  await queryClient.invalidateQueries({ queryKey: ["project", id] });
-                },
-              }}
-              imageGeneration={{
-                enabled: current.imageGenerationEnabled,
-                // No provider key on the instance means the permission can be
-                // set but nothing could come of it; say so instead of offering
-                // a switch that does nothing.
-                available: imageCapabilities.data?.configured ?? false,
-                async onToggle(next) {
-                  await api.updateProject(id, { imageGenerationEnabled: next });
-                  await queryClient.invalidateQueries({ queryKey: ["project", id] });
-                },
-              }}
-              pointedElement={pointedElement}
-              onClearPointedElement={() => setPointedElement(null)}
-              onOpenDiff={(diffPath, before, after) => {
-                setSelectedPath(diffPath);
-                setCompareSnapshotId(before);
-                setCompareAfterSnapshotId(after);
-                setPane("code");
-              }}
-              onReverted={afterFilesMoved}
-            />
-          </div>
-
-          <div
-            // Rows, not one cell: the live browser takes the space it needs
-            // under the preview and collapses to nothing when no tool is
-            // driving one, which is most of the time.
-            className={`${pane === "preview" ? "grid" : "hidden"} min-h-0 grid-rows-[minmax(0,1fr)_auto] ${
-              rightPane === "preview" ? "md:grid" : "md:hidden"
-            }`}
-          >
-            <PreviewPanel
-              preview={preview.data?.preview ?? null}
-              logs={logs}
-              starting={starting}
-              onStart={startPreview}
-              onStop={stopPreview}
-              onRefreshLogs={refreshLogs}
-              reloadToken={reloadToken}
-              onElementSelected={(element) => {
-                setPointedElement(element);
-                // Only matters on a phone, where panes are exclusive tabs —
-                // pointing at something is what you do right before typing
-                // about it.
-                setPane("chat");
-              }}
-            />
-            <LiveBrowser browser={chat.browser} />
-          </div>
-
-          <div
-            className={`${pane === "code" ? "grid" : "hidden"} min-h-0 ${
-              treeCollapsed
-                ? "grid-cols-[minmax(0,1fr)]"
-                : "grid-cols-[9rem_minmax(0,1fr)] sm:grid-cols-[15rem_minmax(0,1fr)]"
-            } ${rightPane === "code" ? "md:grid" : "md:hidden"}`}
-          >
             <div
-              className={`${
-                treeCollapsed ? "hidden" : ""
-              } min-h-0 overflow-hidden border-r border-border-default bg-surface`}
+              className={`${pane === "chat" ? "grid" : "hidden"} min-h-0 min-w-0 ${
+                chatCollapsed ? "md:hidden" : "md:grid"
+              }`}
             >
-              <FileExplorer
-                entries={files.data?.entries ?? []}
-                selected={selectedPath}
-                loading={files.isLoading}
+              <ChatPanel
+                chat={chat}
+                model={health.data?.agent.model}
+                skills={health.data?.agent.skills ?? []}
+                plugins={health.data?.agent.plugins ?? []}
+                projectId={id}
                 canEdit={canEdit}
-                onSelect={(next) => {
-                  // Picking a file from the tree means "show me the file", not
-                  // "show me what some turn did to it".
-                  setCompareSnapshotId(null);
-                  setCompareAfterSnapshotId(null);
-                  setSelectedPath(next);
+                videoGeneration={{
+                  enabled: current.videoGenerationEnabled,
+                  available: videoCapabilities.data?.providers.some((p) => p.configured) ?? false,
+                  async onToggle(next) {
+                    await api.updateProject(id, { videoGenerationEnabled: next });
+                    await queryClient.invalidateQueries({ queryKey: ["project", id] });
+                  },
                 }}
-                onCreate={async (path, isDir) => {
-                  // A folder is an empty file at `<path>/.gitkeep` — the runtime
-                  // makes intermediate directories on write either way.
-                  const target = isDir ? `${path}/.gitkeep` : path;
-                  await api.writeFile(id, target, "");
-                  await queryClient.invalidateQueries({ queryKey: ["files", id] });
-                  if (!isDir) {
-                    setCompareSnapshotId(null);
-                    setCompareAfterSnapshotId(null);
-                    setSelectedPath(path);
-                  }
+                imageGeneration={{
+                  enabled: current.imageGenerationEnabled,
+                  // No provider key on the instance means the permission can be
+                  // set but nothing could come of it; say so instead of offering
+                  // a switch that does nothing.
+                  available: imageCapabilities.data?.configured ?? false,
+                  async onToggle(next) {
+                    await api.updateProject(id, { imageGenerationEnabled: next });
+                    await queryClient.invalidateQueries({ queryKey: ["project", id] });
+                  },
                 }}
-                onDelete={async (path) => {
-                  await api.deleteFile(id, path);
-                  await queryClient.invalidateQueries({ queryKey: ["files", id] });
-                  if (selectedPath === path || selectedPath?.startsWith(`${path}/`)) {
-                    setSelectedPath(null);
-                  }
+                pointedElement={pointedElement}
+                onClearPointedElement={() => setPointedElement(null)}
+                onOpenDiff={(diffPath, before, after) => {
+                  setSelectedPath(diffPath);
+                  setCompareSnapshotId(before);
+                  setCompareAfterSnapshotId(after);
+                  setPane("code");
                 }}
-                uploading={uploading}
-                onAddFromStudio={(destDir) => setStudioDir(destDir)}
-                onUpload={async (dropped, destDir) => {
-                  const tooBig = dropped.filter((d) => d.file.size > MAX_UPLOAD_BYTES);
-                  if (tooBig.length > 0) {
-                    setUploadError(
-                      `${tooBig.length === 1 ? tooBig[0]!.relativePath : `${tooBig.length} files`} ` +
-                        `exceeded the ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB limit and ` +
-                        "was not uploaded.",
-                    );
-                  }
-                  const queue = dropped
-                    .filter((d) => d.file.size <= MAX_UPLOAD_BYTES)
-                    .map((d) => ({
-                      target: uploadTargetPath(destDir, d.relativePath),
-                      file: d.file,
-                    }))
-                    .filter((d) => d.target);
-                  if (queue.length === 0) return;
+                onReverted={afterFilesMoved}
+              />
+            </div>
 
-                  setUploading(true);
-                  try {
-                    // Sequential on purpose: the runtime writes into one
-                    // project directory, and a browser drag can be hundreds of
-                    // files. Firing them all at once buys nothing and risks
-                    // burying the server under a folder drop.
-                    for (const item of queue) {
-                      await api.uploadFile(id, item.target, item.file);
-                    }
-                    await queryClient.invalidateQueries({ queryKey: ["files", id] });
-                    // Land on the thing just added, so it is obvious it worked.
-                    const last = queue[queue.length - 1]?.target;
-                    if (last && queue.length === 1) {
-                      setCompareSnapshotId(null);
-                      setCompareAfterSnapshotId(null);
-                      setSelectedPath(last);
-                    }
-                  } catch (error) {
-                    setUploadError((error as Error).message || "Upload failed.");
-                  } finally {
-                    setUploading(false);
-                  }
+            <div
+              // Rows, not one cell: the live browser takes the space it needs
+              // under the preview and collapses to nothing when no tool is
+              // driving one, which is most of the time.
+              className={`${pane === "preview" ? "grid" : "hidden"} min-h-0 grid-rows-[minmax(0,1fr)_auto] ${
+                rightPane === "preview" ? "md:grid" : "md:hidden"
+              }`}
+            >
+              <PreviewPanel
+                preview={preview.data?.preview ?? null}
+                logs={logs}
+                starting={starting}
+                onStart={startPreview}
+                onStop={stopPreview}
+                onRefreshLogs={refreshLogs}
+                reloadToken={reloadToken}
+                onElementSelected={(element) => {
+                  setPointedElement(element);
+                  // Only matters on a phone, where panes are exclusive tabs —
+                  // pointing at something is what you do right before typing
+                  // about it.
+                  setPane("chat");
                 }}
               />
-              {studioDir !== null && (
-                <StudioMediaPicker
-                  teamId={appTeam}
-                  projectId={id}
-                  destDir={studioDir}
-                  onClose={() => setStudioDir(null)}
-                  onPlaced={async (path) => {
-                    setStudioDir(null);
-                    await queryClient.invalidateQueries({ queryKey: ["files", id] });
+              <LiveBrowser browser={chat.browser} />
+            </div>
+
+            <div
+              className={`${pane === "code" ? "grid" : "hidden"} min-h-0 ${
+                treeCollapsed
+                  ? "grid-cols-[minmax(0,1fr)]"
+                  : "grid-cols-[9rem_minmax(0,1fr)] sm:grid-cols-[15rem_minmax(0,1fr)]"
+              } ${rightPane === "code" ? "md:grid" : "md:hidden"}`}
+            >
+              <div
+                className={`${
+                  treeCollapsed ? "hidden" : ""
+                } min-h-0 overflow-hidden border-r border-border-default bg-surface`}
+              >
+                <FileExplorer
+                  entries={files.data?.entries ?? []}
+                  selected={selectedPath}
+                  loading={files.isLoading}
+                  canEdit={canEdit}
+                  onSelect={(next) => {
+                    // Picking a file from the tree means "show me the file", not
+                    // "show me what some turn did to it".
                     setCompareSnapshotId(null);
                     setCompareAfterSnapshotId(null);
-                    setSelectedPath(path);
+                    setSelectedPath(next);
+                  }}
+                  onCreate={async (path, isDir) => {
+                    // A folder is an empty file at `<path>/.gitkeep` — the runtime
+                    // makes intermediate directories on write either way.
+                    const target = isDir ? `${path}/.gitkeep` : path;
+                    await api.writeFile(id, target, "");
+                    await queryClient.invalidateQueries({ queryKey: ["files", id] });
+                    if (!isDir) {
+                      setCompareSnapshotId(null);
+                      setCompareAfterSnapshotId(null);
+                      setSelectedPath(path);
+                    }
+                  }}
+                  onDelete={async (path) => {
+                    await api.deleteFile(id, path);
+                    await queryClient.invalidateQueries({ queryKey: ["files", id] });
+                    if (selectedPath === path || selectedPath?.startsWith(`${path}/`)) {
+                      setSelectedPath(null);
+                    }
+                  }}
+                  uploading={uploading}
+                  onAddFromStudio={(destDir) => setStudioDir(destDir)}
+                  onUpload={async (dropped, destDir) => {
+                    const tooBig = dropped.filter((d) => d.file.size > MAX_UPLOAD_BYTES);
+                    if (tooBig.length > 0) {
+                      setUploadError(
+                        `${tooBig.length === 1 ? tooBig[0]!.relativePath : `${tooBig.length} files`} ` +
+                          `exceeded the ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB limit and ` +
+                          "was not uploaded.",
+                      );
+                    }
+                    const queue = dropped
+                      .filter((d) => d.file.size <= MAX_UPLOAD_BYTES)
+                      .map((d) => ({
+                        target: uploadTargetPath(destDir, d.relativePath),
+                        file: d.file,
+                      }))
+                      .filter((d) => d.target);
+                    if (queue.length === 0) return;
+
+                    setUploading(true);
+                    try {
+                      // Sequential on purpose: the runtime writes into one
+                      // project directory, and a browser drag can be hundreds of
+                      // files. Firing them all at once buys nothing and risks
+                      // burying the server under a folder drop.
+                      for (const item of queue) {
+                        await api.uploadFile(id, item.target, item.file);
+                      }
+                      await queryClient.invalidateQueries({ queryKey: ["files", id] });
+                      // Land on the thing just added, so it is obvious it worked.
+                      const last = queue[queue.length - 1]?.target;
+                      if (last && queue.length === 1) {
+                        setCompareSnapshotId(null);
+                        setCompareAfterSnapshotId(null);
+                        setSelectedPath(last);
+                      }
+                    } catch (error) {
+                      setUploadError((error as Error).message || "Upload failed.");
+                    } finally {
+                      setUploading(false);
+                    }
                   }}
                 />
-              )}
-              {uploadError && (
-                <p className="border-t border-border-default px-3 py-2 text-2xs text-danger">
-                  {uploadError}{" "}
-                  <button
-                    type="button"
-                    className="underline hover:no-underline"
-                    onClick={() => setUploadError(null)}
-                  >
-                    dismiss
-                  </button>
-                </p>
-              )}
+                {studioDir !== null && (
+                  <StudioMediaPicker
+                    teamId={appTeam}
+                    projectId={id}
+                    destDir={studioDir}
+                    onClose={() => setStudioDir(null)}
+                    onPlaced={async (path) => {
+                      setStudioDir(null);
+                      await queryClient.invalidateQueries({ queryKey: ["files", id] });
+                      setCompareSnapshotId(null);
+                      setCompareAfterSnapshotId(null);
+                      setSelectedPath(path);
+                    }}
+                  />
+                )}
+                {uploadError && (
+                  <p className="border-t border-border-default px-3 py-2 text-2xs text-danger">
+                    {uploadError}{" "}
+                    <button
+                      type="button"
+                      className="underline hover:no-underline"
+                      onClick={() => setUploadError(null)}
+                    >
+                      dismiss
+                    </button>
+                  </p>
+                )}
+              </div>
+              <CodeViewer
+                projectId={id}
+                path={selectedPath}
+                file={file.data ?? null}
+                loading={file.isLoading}
+                canEdit={canEdit}
+                compareSnapshotId={compareSnapshotId}
+                compareAfterSnapshotId={compareAfterSnapshotId}
+                onCloseCompare={() => {
+                  setCompareSnapshotId(null);
+                  setCompareAfterSnapshotId(null);
+                }}
+                onSaved={(saved) => {
+                  queryClient.invalidateQueries({ queryKey: ["file", id, saved] });
+                  queryClient.invalidateQueries({ queryKey: ["files", id] });
+                  setReloadToken((token) => token + 1);
+                }}
+              />
             </div>
-            <CodeViewer
-              projectId={id}
-              path={selectedPath}
-              file={file.data ?? null}
-              loading={file.isLoading}
-              canEdit={canEdit}
-              compareSnapshotId={compareSnapshotId}
-              compareAfterSnapshotId={compareAfterSnapshotId}
-              onCloseCompare={() => {
-                setCompareSnapshotId(null);
-                setCompareAfterSnapshotId(null);
-              }}
-              onSaved={(saved) => {
-                queryClient.invalidateQueries({ queryKey: ["file", id, saved] });
-                queryClient.invalidateQueries({ queryKey: ["files", id] });
-                setReloadToken((token) => token + 1);
-              }}
-            />
+
+            <div
+              className={`${pane === "plan" ? "grid" : "hidden"} min-h-0 ${
+                rightPane === "plan" ? "md:grid" : "md:hidden"
+              }`}
+            >
+              <PlanPanel projectId={id} />
+            </div>
           </div>
 
-          <div
-            className={`${pane === "plan" ? "grid" : "hidden"} min-h-0 ${
-              rightPane === "plan" ? "md:grid" : "md:hidden"
-            }`}
-          >
-            <PlanPanel projectId={id} />
-          </div>
+          <PaneBar pane={pane} onChange={setPane} onMore={setPanel} canEdit={canEdit} />
         </div>
-
-        <PaneBar pane={pane} onChange={setPane} />
       </div>
     </AppShell>
   );
 }
 
-/** Phone-only pane switcher, at the bottom where a thumb reaches. */
-function PaneBar({ pane, onChange }: { pane: Pane; onChange(next: Pane): void }) {
+/** The app's other tools, in one labelled menu instead of a row of buttons. */
+function AppMenu({
+  canEdit,
+  hasBackend,
+  onPanel,
+  onOverview,
+  onSettings,
+}: {
+  canEdit: boolean;
+  hasBackend: boolean;
+  onPanel(panel: AppPanel): void;
+  onOverview(): void;
+  onSettings(): void;
+}) {
+  return (
+    <Menu
+      trigger={
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<MoreHorizontal size={14} />}
+          aria-label="More app tools"
+        >
+          More
+        </Button>
+      }
+    >
+      <MenuItem icon={<Variable size={14} />} onSelect={() => onPanel("variables")}>
+        Variables
+      </MenuItem>
+      {canEdit && (
+        <MenuItem icon={<GitBranch size={14} />} onSelect={() => onPanel("git")}>
+          Git
+        </MenuItem>
+      )}
+      <MenuItem icon={<Camera size={14} />} onSelect={() => onPanel("snapshots")}>
+        Snapshots
+      </MenuItem>
+      {canEdit && hasBackend && (
+        <MenuItem icon={<Database size={14} />} onSelect={() => onPanel("backend")}>
+          Backend
+        </MenuItem>
+      )}
+      <MenuSeparator />
+      <MenuItem icon={<LayoutDashboard size={14} />} onSelect={onOverview}>
+        Overview
+      </MenuItem>
+      <MenuItem icon={<Settings size={14} />} onSelect={onSettings}>
+        App settings
+      </MenuItem>
+    </Menu>
+  );
+}
+
+/** Phone-only pane switcher, at the bottom where a thumb reaches. Four even tabs: nothing wraps. */
+function PaneBar({
+  pane,
+  onChange,
+  onMore,
+  canEdit,
+}: {
+  pane: Pane;
+  onChange(next: Pane): void;
+  onMore(panel: AppPanel): void;
+  canEdit: boolean;
+}) {
   const items: Array<{ id: Pane; label: string; icon: React.ReactNode }> = [
-    { id: "chat", label: "Agent", icon: <MessageSquare size={15} strokeWidth={1.75} /> },
-    { id: "preview", label: "Preview", icon: <Monitor size={15} strokeWidth={1.75} /> },
-    { id: "code", label: "Code", icon: <Code2 size={15} strokeWidth={1.75} /> },
-    { id: "plan", label: "Plan", icon: <Compass size={15} strokeWidth={1.75} /> },
+    { id: "chat", label: "Chat", icon: <MessageSquare size={18} strokeWidth={1.75} /> },
+    { id: "preview", label: "Preview", icon: <Monitor size={18} strokeWidth={1.75} /> },
+    { id: "code", label: "Code", icon: <Code2 size={18} strokeWidth={1.75} /> },
   ];
+  const tab =
+    "flex flex-col items-center justify-center gap-0.5 py-2 text-2xs font-medium transition-colors";
 
   return (
     <nav
       aria-label="Panes"
-      className="grid grid-cols-3 border-t border-border-default bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="grid grid-cols-4 border-t border-border-default bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       {items.map((item) => (
         <button
@@ -525,42 +640,138 @@ function PaneBar({ pane, onChange }: { pane: Pane; onChange(next: Pane): void })
           type="button"
           onClick={() => onChange(item.id)}
           aria-current={pane === item.id ? "page" : undefined}
-          className={`flex flex-col items-center gap-0.5 py-1.5 text-2xs font-medium transition-colors ${
-            pane === item.id ? "text-fg" : "text-fg-muted hover:text-fg-secondary"
-          }`}
+          className={`${tab} ${pane === item.id ? "text-accent" : "text-fg-muted hover:text-fg-secondary"}`}
         >
           {item.icon}
           {item.label}
         </button>
       ))}
+      <Menu
+        side="top"
+        trigger={
+          <button
+            type="button"
+            className={`${tab} ${pane === "plan" ? "text-accent" : "text-fg-muted hover:text-fg-secondary"}`}
+          >
+            <MoreHorizontal size={18} strokeWidth={1.75} />
+            More
+          </button>
+        }
+      >
+        <MenuItem icon={<Compass size={14} />} onSelect={() => onChange("plan")}>
+          Plan
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem icon={<Variable size={14} />} onSelect={() => onMore("variables")}>
+          Variables
+        </MenuItem>
+        {canEdit && (
+          <MenuItem icon={<GitBranch size={14} />} onSelect={() => onMore("git")}>
+            Git
+          </MenuItem>
+        )}
+        <MenuItem icon={<Camera size={14} />} onSelect={() => onMore("snapshots")}>
+          Snapshots
+        </MenuItem>
+      </Menu>
     </nav>
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  icon,
-  children,
+/**
+ * Where this app is live, per environment, one click from the builder. Deploys
+ * themselves run through a pipeline, so this shows the state and the way there
+ * rather than pretending to deploy on its own.
+ */
+function DeployPopover({
+  appName,
+  appSlug,
+  teamId,
 }: {
-  active: boolean;
-  onClick(): void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
+  appName: string;
+  appSlug: string;
+  teamId: string;
 }) {
+  const p = useTeamPaths();
+  const [open, setOpen] = useState(false);
+  const environments = useQuery({
+    queryKey: ["environments", teamId],
+    queryFn: () => api.deploys.environments(teamId),
+    enabled: open,
+    retry: false,
+  });
+  const list = environments.data?.environments ?? [];
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`inline-flex h-[22px] items-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors ${
-        active
-          ? "bg-surface text-fg shadow-[0_1px_2px_rgb(0_0_0/0.06)]"
-          : "text-fg-muted hover:text-fg"
-      }`}
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      align="end"
+      className="w-80"
+      trigger={
+        <Button size="sm" variant="primary" icon={<Rocket size={13} />}>
+          Deploy
+        </Button>
+      }
     >
-      {icon}
-      {children}
-    </button>
+      <div className="border-b border-border-default px-4 py-3">
+        <p className="text-sm font-semibold text-fg">Deploy {appName}</p>
+        <p className="mt-0.5 text-xs text-fg-secondary">
+          A pipeline puts the app on an environment once its tests pass.
+        </p>
+      </div>
+      {environments.isLoading ? (
+        <div className="p-4">
+          <Spinner label="Reading environments" />
+        </div>
+      ) : list.length === 0 ? (
+        <div className="px-4 py-4 text-sm text-fg-secondary">
+          No environments yet. Add one, then a pipeline that deploys this app.
+        </div>
+      ) : (
+        <ul className="max-h-64 divide-y divide-border-default overflow-y-auto">
+          {list.map((env) => {
+            const live = env.live.find((d) => d.app === appName || d.app === appSlug);
+            return (
+              <li key={env.id}>
+                <Link
+                  to={live ? p.deployedApp(env.id, live.app) : p.deployments}
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-hover"
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+                    {env.name}
+                  </span>
+                  {live ? (
+                    <StatusBadge
+                      status={statusOf(live.status)}
+                      label={live.status === "live" ? `Live #${live.number}` : undefined}
+                      variant="inline"
+                    />
+                  ) : (
+                    <span className="text-xs text-fg-muted">Not deployed</span>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="flex items-center justify-end gap-2 border-t border-border-default bg-surface-subtle px-3 py-2">
+        <Link
+          to={p.pipelines}
+          onClick={() => setOpen(false)}
+          className={buttonClass("ghost", "sm")}
+        >
+          Pipelines
+        </Link>
+        <Link
+          to={p.deployments}
+          onClick={() => setOpen(false)}
+          className={buttonClass("secondary", "sm")}
+        >
+          {list.length === 0 ? "Set up deployments" : "All deployments"}
+        </Link>
+      </div>
+    </Popover>
   );
 }

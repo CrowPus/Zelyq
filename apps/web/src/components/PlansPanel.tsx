@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { IdleCleanup } from "./IdleCleanup";
 import { sizeWords } from "./UsagePanel";
-import { Button, Input, Spinner } from "./ui";
+import { Button, Input, NativeSelect, Spinner } from "./ui";
 
 /**
  * The server's plans: what each lets a team use, which a new team starts on,
@@ -172,18 +172,17 @@ export function PlansPanel() {
         </Button>
         <label className="flex items-center gap-2 text-xs text-fg-secondary">
           New teams start on
-          <select
+          <NativeSelect
             aria-label="Plan new teams start on"
             value={defaultPlan}
             onChange={(event) => setDefaultPlan(event.target.value)}
-            className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm text-fg"
           >
             {choices.map((plan) => (
               <option key={plan.id} value={plan.id}>
                 {plan.name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         <Button
           size="sm"
@@ -208,19 +207,18 @@ export function PlansPanel() {
             <span className="text-2xs text-fg-muted">
               {sizeWords(team.storageMb)} · {team.apps} apps · {team.members} members
             </span>
-            <select
+            <NativeSelect
               aria-label={`Plan for ${team.name}`}
               value={team.plan.id}
               disabled={move.isPending}
               onChange={(event) => move.mutate({ teamId: team.id, plan: event.target.value })}
-              className="h-[28px] rounded-md border border-border-default bg-surface px-2 text-xs text-fg"
             >
               {(plans.data?.all ?? choices).map((plan) => (
                 <option key={plan.id} value={plan.id}>
                   {plan.name}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         ))}
         {teams.isLoading && (

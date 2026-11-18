@@ -4,7 +4,7 @@ import { Clapperboard, FilePen, GitBranchPlus, Rocket, RotateCcw, Workflow } fro
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { TextDiff } from "../DiffView";
-import { Badge, Button } from "../ui";
+import { Badge, Button, RelativeTime } from "../ui";
 
 const STATUS = {
   pending: { label: "Waiting", tone: "warning" },
@@ -208,7 +208,7 @@ function RequestRow({
           </span>
           <span className="block text-2xs text-fg-muted">
             asked by {request.agentName}
-            {appName ? ` · ${appName}` : ""} · {new Date(request.createdAt).toLocaleString()}
+            {appName ? ` · ${appName}` : ""} · <RelativeTime value={request.createdAt} />
           </span>
           {request.reason && (
             <span className="mt-1 block text-xs text-fg-secondary">“{request.reason}”</span>

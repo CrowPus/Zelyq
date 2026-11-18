@@ -3,7 +3,7 @@ import { type AccountService, accountServiceLinks } from "@zelyq/core";
 import { CircleAlert, ExternalLink, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, Input, PasswordInput } from "../components/ui";
+import { Badge, Button, Input, PageBody, PageHeader, PasswordInput } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 
@@ -17,57 +17,55 @@ export function ProfilePage() {
   const accounts = user.instanceRole === "admin" ? null : (session?.accounts ?? null);
 
   return (
-    <AppShell crumbs={[{ label: "Account" }]}>
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-8">
-          <header>
-            <h1 className="text-xl font-semibold text-fg">Account</h1>
-            <p className="mt-1 text-xs text-fg-secondary">
-              {accounts
-                ? `Your details and teams. Your email, password and account are managed at ${accounts.name}.`
-                : "Your details and password. Changing your password signs you out everywhere else."}
-            </p>
-          </header>
+    <AppShell crumbs={[{ label: "Account" }]} scope="global">
+      <PageBody width="narrow">
+        <PageHeader
+          title="Account"
+          description={
+            accounts
+              ? `Your details and teams. Your email, password and account are managed at ${accounts.name}.`
+              : "Your details and password. Changing your password signs you out everywhere else."
+          }
+        />
 
-          {accounts ? (
-            <ManagedProfileSection user={user} accounts={accounts} />
-          ) : (
-            <>
-              <ProfileSection
-                user={user}
-                onSaved={() => {
-                  refresh();
-                  queryClient.invalidateQueries({ queryKey: ["session"] });
-                }}
-              />
-              <PasswordSection />
-            </>
-          )}
+        {accounts ? (
+          <ManagedProfileSection user={user} accounts={accounts} />
+        ) : (
+          <>
+            <ProfileSection
+              user={user}
+              onSaved={() => {
+                refresh();
+                queryClient.invalidateQueries({ queryKey: ["session"] });
+              }}
+            />
+            <PasswordSection />
+          </>
+        )}
 
-          <section className="mt-8">
-            <h2 className="text-sm font-medium text-fg">Membership</h2>
-            <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
-              <div className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5 last:border-b-0">
-                <span className="text-sm text-fg">Instance role</span>
-                <Badge tone={user.instanceRole === "admin" ? "info" : "neutral"}>
-                  {user.instanceRole}
-                </Badge>
-              </div>
-              {teams.map((team) => (
-                <div
-                  key={team.id}
-                  className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5 last:border-b-0"
-                >
-                  <span className="truncate text-sm text-fg">{team.name}</span>
-                  <Badge tone="neutral">{team.role}</Badge>
-                </div>
-              ))}
+        <section className="mt-8">
+          <h2 className="text-sm font-medium text-fg">Membership</h2>
+          <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
+            <div className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5 last:border-b-0">
+              <span className="text-sm text-fg">Instance role</span>
+              <Badge tone={user.instanceRole === "admin" ? "info" : "neutral"}>
+                {user.instanceRole}
+              </Badge>
             </div>
-          </section>
+            {teams.map((team) => (
+              <div
+                key={team.id}
+                className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5 last:border-b-0"
+              >
+                <span className="truncate text-sm text-fg">{team.name}</span>
+                <Badge tone="neutral">{team.role}</Badge>
+              </div>
+            ))}
+          </div>
+        </section>
 
-          {!accounts && <DeleteAccountSection />}
-        </div>
-      </div>
+        {!accounts && <DeleteAccountSection />}
+      </PageBody>
     </AppShell>
   );
 }

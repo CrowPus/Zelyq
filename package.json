@@ -2,7 +2,7 @@
   "name": "zelyq",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-source AI app builder \u2014 describe an app, watch an agent build it, edit it live.",
+  "description": "Open-source AI app builder — describe an app, watch an agent build it, edit it live.",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/CrowPus/Zelyq#readme",
   "repository": {
@@ -26,7 +26,7 @@
     "dev:web": "pnpm --filter @zelyq/web dev",
     "start": "pnpm --filter @zelyq/server start",
     "typecheck": "pnpm -r typecheck",
-    "lint": "biome check .",
+    "lint": "biome check . && node scripts/check-ui.mjs",
     "format": "biome format --write .",
     "test": "pnpm -r test",
     "db:generate": "pnpm --filter @zelyq/db generate",
@@ -34,9 +34,11 @@
     "db:backup": "pnpm --filter @zelyq/db backup",
     "clean": "pnpm -r exec rm -rf dist node_modules/.cache && rm -rf node_modules",
     "eval": "pnpm --filter @zelyq/agent eval",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "check:ui": "node scripts/check-ui.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@biomejs/biome": "^2.5.9",
     "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",

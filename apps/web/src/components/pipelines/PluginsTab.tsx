@@ -14,8 +14,9 @@ import {
 import { type ReactNode, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
+import { teamHref } from "../../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
-import { Button, EmptyState, Input, Spinner } from "../ui";
+import { Button, EmptyState, Input, NativeSelect, Spinner } from "../ui";
 import { RegistrySection } from "./RegistrySection";
 
 const OS_LABEL: Record<string, string> = { linux: "Linux", macos: "macOS", windows: "Windows" };
@@ -200,11 +201,10 @@ function PluginList({
             className="pl-7"
           />
         </div>
-        <select
+        <NativeSelect
           aria-label="Category"
           value={category}
           onChange={(event) => setCategory(event.target.value)}
-          className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
         >
           <option value="">All categories</option>
           {categories.map((name) => (
@@ -213,7 +213,7 @@ function PluginList({
               {name.slice(1)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <span className="text-xs text-fg-muted">
           {shown.length === plugins.length
             ? `${plugins.length} installed`
@@ -421,7 +421,10 @@ function PluginDetails({
             {plugin.usedBy.map((pipeline, index) => (
               <span key={pipeline.id}>
                 {index > 0 && ", "}
-                <Link className="underline hover:text-fg" to={`/pipelines/${pipeline.id}`}>
+                <Link
+                  className="underline hover:text-fg"
+                  to={teamHref(`/pipelines/${pipeline.id}`)}
+                >
                   {pipeline.name}
                 </Link>
               </span>

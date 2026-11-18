@@ -1,8 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { roleAtLeast } from "@zelyq/core";
-import { Box, CircleAlert, Plus, Trash2 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { type Project, roleAtLeast } from "@zelyq/core";
+import {
+  ArrowLeft,
+  ExternalLink,
+  GitBranch,
+  LayoutDashboard,
+  LayoutGrid,
+  List,
+  MoreHorizontal,
+  Plus,
+  Settings,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { AppCardThumb } from "../components/AppCardThumb";
 import { AppShell } from "../components/AppShell";
 import { TokenField } from "../components/GitPanel";
 import {
@@ -15,114 +28,79 @@ import {
   SearchBox,
   useListParams,
 } from "../components/ListControls";
-import { Badge, Button, EmptyState, IconButton, Input, Spinner, StatusDot } from "../components/ui";
+import {
+  Button,
+  Card,
+  type Column,
+  confirmAction,
+  DataTable,
+  Dialog,
+  EmptyState,
+  Field,
+  IconButton,
+  InlineAlert,
+  Input,
+  Menu,
+  MenuItem,
+  MenuSeparator,
+  PageBody,
+  PageHeader,
+  RelativeTime,
+  SegmentedControl,
+  Skeleton,
+  StatusBadge,
+  statusOf,
+  toast,
+} from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
-
-const STATUS_TONE = {
-  ready: "success",
-  building: "warning",
-  creating: "warning",
-  error: "danger",
-  archived: "neutral",
-} as const;
+import { useTeamPaths } from "../lib/routes";
 
 /** Cards sit three to a row on a wide screen and two on a narrower one: 12
- *  fills whole rows in both, where the usual 10 left one card alone. */
+ *  fills whole rows in both. */
 const APPS_PER_PAGE = 12;
+const VIEW_KEY = "zelyq.apps.view";
+
+type Template = Awaited<ReturnType<typeof api.listTemplates>>["templates"][number];
 
 export function ProjectListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [gitUrl, setGitUrl] = useState("");
-  const [gitToken, setGitToken] = useState("");
-  const [tokenSource, setTokenSource] = useState<"paste" | "vault">("paste");
-  const [tokenVault, setTokenVault] = useState("");
-  /** Which starter stack a new (non-clone) project scaffolds from. */
-  const [template, setTemplate] = useState("vite-react");
-  const [composing, setComposing] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const [confirming, setConfirming] = useState<string | null>(null);
+  const p = useTeamPaths();
+  const [params, setParams] = useSearchParams();
+  const creating = params.get("new") === "1";
+  const setCreating = (open: boolean) =>
+    setParams(
+      (current) => {
+        const copy = new URLSearchParams(current);
+        if (open) copy.set("new", "1");
+        else copy.delete("new");
+        return copy;
+      },
+      { replace: true },
+    );
+  const [view, setViewState] = useState<"grid" | "list">(() => {
+    try {
+      return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "grid";
+    } catch {
+      return "grid";
+    }
+  });
+  const setView = (next: "grid" | "list") => {
+    setViewState(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // A remembered view is a convenience.
+    }
+  };
 
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.listProjects });
-  // The team chosen at the top of the sidebar: its apps are the ones listed,
-  // and a new app goes into it.
   const { team } = useActiveTeam();
   const templates = useQuery({ queryKey: ["templates"], queryFn: api.listTemplates });
-  // Deleting takes admin on the project's team. The server decides for real;
-  // this only keeps a button nobody may press off the screen.
   const teams = useQuery({ queryKey: ["teams"], queryFn: api.listTeams });
-  const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 30_000 });
 
-  /** Template name → its icon, for the rows in the project list. */
-  const templateIcons = useMemo(
-    () =>
-      new Map(
-        (templates.data?.templates ?? [])
-          .filter((option) => option.icon)
-          .map((option) => [option.name, option.icon as string]),
-      ),
-    [templates.data],
-  );
-
-  const createProject = useMutation({
-    mutationFn: (input: {
-      name: string;
-      gitUrl?: string;
-      gitToken?: string;
-      gitTokenVault?: string;
-      template?: string;
-    }) =>
-      api.createProject({
-        template: "vite-react",
-        ...input,
-        ...(team ? { teamId: team.id } : {}),
-      }),
-    // Whatever happens, the token does not linger in the page.
-    onSettled: () => setGitToken(""),
-    onSuccess: ({ project }) => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate(`/projects/${project.id}`);
-    },
-  });
-
-  const deleteProject = useMutation({
-    mutationFn: (id: string) => api.deleteProject(id),
-    onSuccess: () => {
-      setConfirming(null);
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
-
-  useEffect(() => {
-    if (composing) inputRef.current?.focus();
-  }, [composing]);
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = name.trim();
-    const repository = gitUrl.trim();
-    const token = gitToken.trim();
-    if (!trimmed) return;
-    if (!repository) {
-      // Template only applies to a fresh scaffold; a clone brings its own files.
-      createProject.mutate({ name: trimmed, template });
-      return;
-    }
-    createProject.mutate({
-      name: trimmed,
-      gitUrl: repository,
-      ...(tokenSource === "vault"
-        ? tokenVault
-          ? { gitTokenVault: tokenVault }
-          : {}
-        : token
-          ? { gitToken: token }
-          : {}),
-    });
-  }
+  const templateByName = new Map((templates.data?.templates ?? []).map((t) => [t.name, t]));
 
   const filters = useListParams(`apps.${team?.id ?? "all"}`, ["q", "status", "stack", "sort"]);
   const q = filters.get("q");
@@ -131,9 +109,6 @@ export function ProjectListPage() {
   const sort = filters.get("sort");
   const all = (projects.data?.projects ?? []).filter(
     (project) => !team || project.teamId === team.id,
-  );
-  const stackTitles = new Map(
-    (templates.data?.templates ?? []).map((option) => [option.name, option.title]),
   );
   const statuses = [...new Set(all.map((project) => project.status))].sort();
   const stacks = [...new Set(all.map((project) => project.template))].sort();
@@ -152,182 +127,144 @@ export function ProjectListPage() {
           : b.updatedAt.localeCompare(a.updatedAt),
     );
   const { rows: list, page } = pageOf(shown, filters.page, APPS_PER_PAGE);
-  const agent = health.data?.agent;
-  const roleByTeam = new Map((teams.data?.teams ?? []).map((team) => [team.id, team.role]));
+  const roleByTeam = new Map((teams.data?.teams ?? []).map((t) => [t.id, t.role]));
   const canDelete = (teamId: string): boolean => {
     const role = roleByTeam.get(teamId);
     return role !== undefined && roleAtLeast(role, "admin");
   };
 
-  return (
-    <AppShell
-      crumbs={[{ label: "Apps" }]}
-      actions={
-        // With no apps yet, the empty list's own "New app" is the one button.
-        all.length > 0 ? (
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Plus size={13} strokeWidth={2} />}
-            onClick={() => setComposing(true)}
-          >
-            New app
-          </Button>
-        ) : undefined
+  async function remove(project: Project) {
+    const ok = await confirmAction({
+      title: `Delete ${project.name}?`,
+      description:
+        "Its files, conversation, snapshots and preview are deleted for everyone in the team. This cannot be undone.",
+      confirmLabel: "Delete app",
+      danger: true,
+      typeToConfirm: project.name,
+    });
+    if (!ok) return;
+    try {
+      await api.deleteProject(project.id);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      toast.success(`${project.name} was deleted`);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  }
+
+  const appMenu = (project: Project) => (
+    <Menu
+      trigger={
+        <IconButton size="sm" label={`Actions for ${project.name}`}>
+          <MoreHorizontal size={15} />
+        </IconButton>
       }
     >
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-semibold text-fg">Apps</h1>
-              <p className="mt-1 text-xs text-fg-secondary">
-                Build an app by describing it. Each one is a real directory of files you can open,
-                edit, and take with you.
-              </p>
-            </div>
-            {agent && (
-              <div className="flex items-center gap-1.5 text-xs text-fg-muted">
-                <StatusDot tone={agent.status === "ok" ? "success" : "danger"} />
-                <span className="font-mono">{agent.model ?? "agent"}</span>
-              </div>
-            )}
-          </div>
+      <MenuItem icon={<Sparkles size={14} />} onSelect={() => navigate(p.app(project.id))}>
+        Open builder
+      </MenuItem>
+      <MenuItem
+        icon={<LayoutDashboard size={14} />}
+        onSelect={() => navigate(p.app(project.id, "overview"))}
+      >
+        Overview
+      </MenuItem>
+      <MenuItem
+        icon={<Settings size={14} />}
+        onSelect={() => navigate(p.app(project.id, "settings"))}
+      >
+        Settings
+      </MenuItem>
+      {canDelete(project.teamId) && (
+        <>
+          <MenuSeparator />
+          <MenuItem icon={<Trash2 size={14} />} danger onSelect={() => void remove(project)}>
+            Delete app
+          </MenuItem>
+        </>
+      )}
+    </Menu>
+  );
 
-          {composing && (
-            <form onSubmit={submit} className="mt-6 flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <Input
-                  ref={inputRef}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  onKeyDown={(event) => event.key === "Escape" && setComposing(false)}
-                  placeholder="App name"
-                  aria-label="App name"
-                  className="max-w-xs"
-                />
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={createProject.isPending || !name.trim()}
-                >
-                  {createProject.isPending ? "Creating…" : "Create"}
-                </Button>
-                <Button variant="ghost" onClick={() => setComposing(false)}>
-                  Cancel
-                </Button>
-              </div>
-
-              {!gitUrl.trim() && (templates.data?.templates.length ?? 0) > 1 && (
-                <fieldset className="mt-1 flex flex-col gap-1.5">
-                  <legend className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-                    Stack
-                  </legend>
-                  {/* A card per stack rather than a row of text: the icon is
-                      what someone recognises, and it is doing the work the
-                      title used to do on its own. */}
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {templates.data?.templates.map((option) => {
-                      const active = option.name === template;
-                      return (
-                        <button
-                          key={option.name}
-                          type="button"
-                          aria-pressed={active}
-                          onClick={() => setTemplate(option.name)}
-                          className={`group flex items-start gap-3 rounded-lg border p-3 text-left transition-all ${
-                            active
-                              ? "border-focus bg-surface-subtle shadow-[0_0_0_3px_color-mix(in_srgb,var(--focus)_20%,transparent)]"
-                              : "border-border-default bg-surface hover:border-border-strong hover:bg-surface-subtle"
-                          }`}
-                        >
-                          {option.icon ? (
-                            <img
-                              src={`/${option.icon}`}
-                              alt=""
-                              width={40}
-                              height={40}
-                              loading="lazy"
-                              decoding="async"
-                              className={`size-10 shrink-0 object-contain transition-transform duration-200 group-hover:scale-105 ${
-                                active ? "" : "opacity-85 group-hover:opacity-100"
-                              }`}
-                            />
-                          ) : (
-                            // A stack with no icon still lines up with the rest.
-                            <span
-                              aria-hidden
-                              className="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-strong text-sm font-semibold text-fg-secondary"
-                            >
-                              {option.title.slice(0, 1)}
-                            </span>
-                          )}
-                          <span className="min-w-0">
-                            <span className="block text-xs font-medium text-fg">
-                              {option.title}
-                            </span>
-                            <span className="mt-0.5 block text-2xs leading-4 text-fg-secondary">
-                              {option.description}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </fieldset>
-              )}
-
-              <Input
-                value={gitUrl}
-                onChange={(event) => setGitUrl(event.target.value)}
-                onKeyDown={(event) => event.key === "Escape" && setComposing(false)}
-                placeholder="https://github.com/you/your-repo.git — or leave empty for a new app"
-                aria-label="Repository URL"
-                className="max-w-xl"
-              />
-              {gitUrl.trim() && team && (
-                <div className="max-w-xl">
-                  {/* Pasted, or a secret from the team's Vault (read on the server). */}
-                  <TokenField
-                    value={gitToken}
-                    onChange={setGitToken}
-                    teamId={team.id}
-                    source={tokenSource}
-                    onSource={setTokenSource}
-                    vaultName={tokenVault}
-                    onVaultName={setTokenVault}
-                  />
-                </div>
-              )}
-
-              <p className="text-2xs text-fg-muted">
-                {gitUrl.trim()
-                  ? "Zelyq clones the repository and works on a copy — it never pushes, so a " +
-                    "read-only token is enough. The token is used once and never stored. Cloning " +
-                    "can take a minute."
-                  : (templates.data?.templates.length ?? 0) > 1
-                    ? "Leave the address empty and Zelyq scaffolds a new app in the stack you pick above."
-                    : "Leave the address empty and Zelyq starts a new React app instead."}
-              </p>
-            </form>
+  const columns: Column<Project>[] = [
+    {
+      id: "name",
+      header: "Name",
+      sortValue: (project) => project.name.toLowerCase(),
+      cell: (project) => (
+        <Link
+          to={p.app(project.id)}
+          className="flex items-center gap-2.5 font-medium text-fg hover:underline"
+        >
+          <span className="size-8 shrink-0 overflow-hidden rounded-md border border-border-default">
+            <AppCardThumb project={project} height="size-8" />
+          </span>
+          {project.name}
+        </Link>
+      ),
+    },
+    {
+      id: "stack",
+      header: "Stack",
+      hideBelow: "md",
+      sortValue: (project) => templateByName.get(project.template)?.title ?? project.template,
+      cell: (project) => (
+        <span className="flex items-center gap-1.5 text-fg-secondary">
+          {templateByName.get(project.template)?.icon && (
+            <img src={`/${templateByName.get(project.template)!.icon}`} alt="" className="size-4" />
           )}
+          {templateByName.get(project.template)?.title ?? project.template}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      hideBelow: "sm",
+      sortValue: (project) => project.status,
+      cell: (project) => (
+        <StatusBadge
+          status={statusOf(project.status)}
+          label={project.status === "ready" ? "Ready" : undefined}
+          variant="inline"
+        />
+      ),
+    },
+    {
+      id: "updated",
+      header: "Updated",
+      sortValue: (project) => project.updatedAt,
+      cell: (project) => <RelativeTime value={project.updatedAt} className="text-fg-secondary" />,
+    },
+    {
+      id: "actions",
+      header: <span className="sr-only">Actions</span>,
+      align: "end",
+      width: "w-12",
+      cell: appMenu,
+    },
+  ];
 
-          {deleteProject.isError && (
-            <p className="mt-4 flex items-center gap-2 rounded-md border border-danger/25 bg-danger-subtle px-3 py-2 text-xs text-danger">
-              <CircleAlert size={14} strokeWidth={1.75} />
-              {(deleteProject.error as Error).message}
-            </p>
-          )}
+  return (
+    <AppShell crumbs={[{ label: "Apps" }]}>
+      <PageBody>
+        <PageHeader
+          title="Apps"
+          description="Describe an app and the agent builds it. Each one is a real folder of files you can open, edit, and take with you."
+          actions={
+            <Button
+              variant="primary"
+              icon={<Plus size={15} strokeWidth={2} />}
+              onClick={() => setCreating(true)}
+            >
+              New app
+            </Button>
+          }
+        />
 
-          {createProject.isError && (
-            <p className="mt-4 flex items-center gap-2 rounded-md border border-danger/25 bg-danger-subtle px-3 py-2 text-xs text-danger">
-              <CircleAlert size={14} strokeWidth={1.75} />
-              {(createProject.error as Error).message}
-            </p>
-          )}
-
-          {all.length > 0 && (
-            <div className="mt-6">
+        {all.length > 0 && (
+          <div className="mb-5 flex flex-wrap items-center gap-2">
+            <div className="min-w-0 flex-1">
               <ListToolbar>
                 <SearchBox
                   value={q}
@@ -357,7 +294,7 @@ export function ProjectListPage() {
                       { value: "", label: "Any stack" },
                       ...stacks.map((value) => ({
                         value,
-                        label: `${stackTitles.get(value) ?? value} (${all.filter((project) => project.template === value).length})`,
+                        label: `${templateByName.get(value)?.title ?? value} (${all.filter((project) => project.template === value).length})`,
                       })),
                     ]}
                   />
@@ -374,185 +311,379 @@ export function ProjectListPage() {
                 />
               </ListToolbar>
             </div>
-          )}
+            <SegmentedControl
+              label="View"
+              value={view}
+              onValueChange={setView}
+              options={[
+                {
+                  value: "grid",
+                  label: <span className="sr-only">Grid</span>,
+                  icon: <LayoutGrid size={14} />,
+                },
+                {
+                  value: "list",
+                  label: <span className="sr-only">List</span>,
+                  icon: <List size={14} />,
+                },
+              ]}
+            />
+          </div>
+        )}
 
-          {all.length > 0 && shown.length === 0 && <NothingMatches onClear={filters.clear} />}
+        {projects.isLoading && (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="aspect-[16/12]" />
+            ))}
+          </div>
+        )}
 
-          {all.length === 0 && (
-            <div className="mt-6 overflow-hidden rounded-lg border border-border-default bg-surface">
-              {projects.isLoading && (
-                <div className="flex items-center gap-2 px-4 py-8 text-xs text-fg-muted">
-                  <Spinner /> Loading apps…
-                </div>
-              )}
+        {!projects.isLoading && all.length === 0 && (
+          <Card padded={false}>
+            <EmptyState
+              icon={<LayoutGrid size={20} />}
+              title={team ? `No apps in ${team.name} yet` : "No apps yet"}
+              description="Create one and describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read."
+              action={
+                <Button
+                  variant="primary"
+                  icon={<Plus size={15} strokeWidth={2} />}
+                  onClick={() => setCreating(true)}
+                >
+                  New app
+                </Button>
+              }
+            />
+          </Card>
+        )}
 
-              {!projects.isLoading && all.length === 0 && (
-                <EmptyState
-                  title={team ? `No apps in ${team.name} yet` : "No apps yet"}
-                  description="Create one and describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read."
-                  action={
-                    <Button
-                      variant="primary"
-                      icon={<Plus size={13} strokeWidth={2} />}
-                      onClick={() => setComposing(true)}
-                    >
-                      New app
-                    </Button>
-                  }
-                />
-              )}
-            </div>
-          )}
+        {all.length > 0 && shown.length === 0 && <NothingMatches onClear={filters.clear} />}
 
-          {list.length > 0 && (
-            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {list.map((project) => (
+        {list.length > 0 && view === "list" && (
+          <DataTable
+            caption="Apps"
+            rows={list}
+            columns={columns}
+            rowKey={(project) => project.id}
+          />
+        )}
+
+        {list.length > 0 && view === "grid" && (
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {list.map((project) => {
+              const stackOf = templateByName.get(project.template);
+              return (
                 <li
                   key={project.id}
-                  className="group relative overflow-hidden rounded-xl border border-border-default bg-surface transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-[var(--shadow-overlay)]"
+                  className="group relative overflow-hidden rounded-lg border border-border-default bg-surface transition-[border-color,box-shadow] focus-within:border-border-strong hover:border-border-strong hover:shadow-[0_4px_16px_-4px_rgb(0_0_0/0.1)]"
                 >
-                  <Link to={`/projects/${project.id}`} className="block">
-                    <span className="relative block aspect-[16/10] overflow-hidden border-b border-border-default bg-surface-subtle">
-                      {project.thumbnailAt ? (
-                        <img
-                          src={`/api/projects/${project.id}/thumbnail?v=${encodeURIComponent(project.thumbnailAt)}`}
-                          alt=""
-                          loading="lazy"
-                          decoding="async"
-                          className="size-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.03]"
-                        />
-                      ) : (
-                        // No picture yet: it is taken from the running preview,
-                        // the first time the app is opened or after the agent
-                        // changes it.
-                        <span className="flex size-full flex-col items-center justify-center gap-2 bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:14px_14px]">
-                          {templateIcons.get(project.template) ? (
-                            <img
-                              src={`/${templateIcons.get(project.template)}`}
-                              alt=""
-                              width={40}
-                              height={40}
-                              loading="lazy"
-                              decoding="async"
-                              className="size-10 object-contain opacity-80"
-                            />
-                          ) : (
-                            <Box size={32} strokeWidth={1.5} className="text-fg-muted" />
-                          )}
-                          <span className="text-2xs text-fg-muted">Open it to take a preview</span>
-                        </span>
-                      )}
-                      {project.status !== "ready" && (
-                        <span className="absolute top-2 left-2">
-                          <Badge tone={STATUS_TONE[project.status] ?? "neutral"}>
-                            {project.status}
-                          </Badge>
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex items-start gap-2.5 px-3.5 py-3">
-                      {/* The stack's own mark, so the cards are scannable by
-                        what each app is. Falls back to the generic box for a
-                        cloned repository, or a stack this runtime no longer
-                        offers. */}
-                      {templateIcons.get(project.template) ? (
-                        <img
-                          src={`/${templateIcons.get(project.template)}`}
-                          alt=""
-                          width={18}
-                          height={18}
-                          loading="lazy"
-                          decoding="async"
-                          className="mt-px size-[18px] shrink-0 object-contain"
-                        />
-                      ) : (
-                        <Box
-                          size={15}
-                          strokeWidth={1.75}
-                          className="mt-0.5 shrink-0 text-fg-muted"
-                        />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-fg">
-                          {project.name}
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-2xs text-fg-muted">
-                          <span className="min-w-0 truncate font-mono">
-                            {project.description ??
-                              stackTitles.get(project.template) ??
-                              project.template}
-                          </span>
-                          <span aria-hidden>·</span>
-                          <time dateTime={project.updatedAt} className="shrink-0 tabular-nums">
-                            {formatRelative(project.updatedAt)}
-                          </time>
-                        </span>
-                      </span>
-                    </span>
+                  <Link
+                    to={p.app(project.id)}
+                    className="block"
+                    // The name below is the link people read and tab to; the
+                    // picture is the same link for the mouse.
+                    tabIndex={-1}
+                    aria-hidden
+                  >
+                    <AppCardThumb project={project} stackIcon={stackOf?.icon} />
                   </Link>
-
-                  {/* Over the picture's corner, shown on hover or keyboard
-                    focus, so the card stays a clean picture otherwise. */}
-                  {canDelete(project.teamId) && confirming !== project.id && (
-                    <span className="absolute top-2 right-2 rounded-md bg-surface/90 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-                      <IconButton
-                        size="sm"
-                        variant="danger"
-                        label={`Delete ${project.name}`}
-                        onClick={() => setConfirming(project.id)}
+                  <div className="flex items-center gap-2 border-t border-border-default px-3.5 py-3">
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        to={p.app(project.id)}
+                        className="block truncate text-sm font-medium text-fg hover:underline"
                       >
-                        <Trash2 size={13} strokeWidth={1.75} />
-                      </IconButton>
-                    </span>
-                  )}
-
-                  {confirming === project.id && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/95 p-4 text-center backdrop-blur-sm">
-                      <span className="text-xs text-fg-secondary">
-                        Delete <span className="text-fg">{project.name}</span> and its files? This
-                        cannot be undone.
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          disabled={deleteProject.isPending}
-                          onClick={() => deleteProject.mutate(project.id)}
-                        >
-                          {deleteProject.isPending ? "Deleting…" : "Delete"}
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
-                          Cancel
-                        </Button>
-                      </span>
+                        {project.name}
+                      </Link>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-fg-muted">
+                        {project.status !== "ready" ? (
+                          <StatusBadge status={statusOf(project.status)} variant="inline" />
+                        ) : (
+                          <span className="truncate">{stackOf?.title ?? project.template}</span>
+                        )}
+                        <span aria-hidden>·</span>
+                        <RelativeTime value={project.updatedAt} className="shrink-0" />
+                      </div>
                     </div>
-                  )}
+                    {appMenu(project)}
+                  </div>
                 </li>
-              ))}
-            </ul>
-          )}
-          <Pager
-            page={page}
-            total={shown.length}
-            size={APPS_PER_PAGE}
-            noun="apps"
-            all={all.length}
-            onPage={(n) => filters.set({ page: String(n) })}
-          />
-        </div>
-      </div>
+              );
+            })}
+          </ul>
+        )}
+        <Pager
+          page={page}
+          total={shown.length}
+          size={APPS_PER_PAGE}
+          noun="apps"
+          all={all.length}
+          onPage={(n) => filters.set({ page: String(n) })}
+        />
+      </PageBody>
+
+      <NewAppDialog
+        open={creating}
+        onOpenChange={setCreating}
+        templates={templates.data?.templates ?? []}
+        teamId={team?.id}
+        onCreated={async (project) => {
+          await queryClient.invalidateQueries({ queryKey: ["projects"] });
+          navigate(p.app(project.id));
+        }}
+      />
     </AppShell>
   );
 }
 
-/** Relative for the recent past, absolute once "3 days ago" stops helping. */
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  const seconds = Math.round((Date.now() - then) / 1000);
+/**
+ * Two steps, the way people actually decide: first how to start (a stack, or
+ * an existing repository), then what to call it. Create comes last.
+ */
+function NewAppDialog({
+  open,
+  onOpenChange,
+  templates,
+  teamId,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  templates: Template[];
+  teamId?: string;
+  onCreated(project: Project): void | Promise<void>;
+}) {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [source, setSource] = useState<"stack" | "git">("stack");
+  const [template, setTemplate] = useState("vite-react");
+  const [name, setName] = useState("");
+  const [gitUrl, setGitUrl] = useState("");
+  const [gitToken, setGitToken] = useState("");
+  const [tokenSource, setTokenSource] = useState<"paste" | "vault">("paste");
+  const [tokenVault, setTokenVault] = useState("");
 
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604_800) return `${Math.floor(seconds / 86_400)}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  useEffect(() => {
+    if (!open) {
+      setStep(1);
+      setName("");
+      setGitUrl("");
+      setGitToken("");
+    }
+  }, [open]);
+
+  const create = useMutation({
+    mutationFn: () =>
+      api.createProject({
+        name: name.trim(),
+        template: source === "stack" ? template : "vite-react",
+        ...(teamId ? { teamId } : {}),
+        ...(source === "git"
+          ? {
+              gitUrl: gitUrl.trim(),
+              ...(tokenSource === "vault"
+                ? tokenVault
+                  ? { gitTokenVault: tokenVault }
+                  : {}
+                : gitToken.trim()
+                  ? { gitToken: gitToken.trim() }
+                  : {}),
+            }
+          : {}),
+      }),
+    // Whatever happens, the token does not linger in the page.
+    onSettled: () => setGitToken(""),
+    onSuccess: async ({ project }) => {
+      onOpenChange(false);
+      toast.success(`${project.name} is ready`);
+      await onCreated(project);
+    },
+  });
+
+  const canContinue = source === "stack" ? Boolean(template) : /^https?:\/\//.test(gitUrl.trim());
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (step === 1) {
+      if (canContinue) setStep(2);
+      return;
+    }
+    if (name.trim()) create.mutate();
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      size="lg"
+      title={step === 1 ? "New app" : "Name your app"}
+      description={
+        step === 1
+          ? "Step 1 of 2 · Choose how to start."
+          : `Step 2 of 2 · ${source === "stack" ? (templates.find((t) => t.name === template)?.title ?? template) : "From a Git repository"}`
+      }
+      footer={
+        <>
+          {step === 2 && (
+            <Button
+              variant="ghost"
+              icon={<ArrowLeft size={14} />}
+              onClick={() => setStep(1)}
+              className="mr-auto"
+            >
+              Back
+            </Button>
+          )}
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          {step === 1 ? (
+            <Button variant="primary" disabled={!canContinue} onClick={() => setStep(2)}>
+              Continue
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              loading={create.isPending}
+              disabled={!name.trim()}
+              onClick={() => create.mutate()}
+            >
+              {source === "git" ? "Import app" : "Create app"}
+            </Button>
+          )}
+        </>
+      }
+    >
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        {step === 1 ? (
+          <>
+            <SegmentedControl
+              label="Start from"
+              value={source}
+              onValueChange={(v) => setSource(v as "stack" | "git")}
+              options={[
+                { value: "stack", label: "Start from a stack", icon: <Sparkles size={14} /> },
+                { value: "git", label: "Import from Git", icon: <GitBranch size={14} /> },
+              ]}
+              className="w-full"
+            />
+            {source === "stack" ? (
+              <div role="radiogroup" aria-label="Stack" className="grid gap-2 sm:grid-cols-2">
+                {/* The default stack first: it is the one already chosen. */}
+                {[...templates]
+                  .sort((a, b) => Number(b.name === "vite-react") - Number(a.name === "vite-react"))
+                  .map((option) => {
+                    const active = option.name === template;
+                    return (
+                      // biome-ignore lint/a11y/useSemanticElements: a card radio, roles set explicitly.
+                      <button
+                        key={option.name}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setTemplate(option.name)}
+                        onDoubleClick={() => {
+                          setTemplate(option.name);
+                          setStep(2);
+                        }}
+                        className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-[border-color,box-shadow,background-color] ${
+                          active
+                            ? "border-accent bg-accent-subtle shadow-[0_0_0_1px_var(--accent)]"
+                            : "border-border-default bg-surface hover:border-border-strong hover:bg-surface-hover"
+                        }`}
+                      >
+                        {option.icon ? (
+                          <img
+                            src={`/${option.icon}`}
+                            alt=""
+                            width={36}
+                            height={36}
+                            className="size-9 shrink-0 object-contain"
+                          />
+                        ) : (
+                          <span
+                            aria-hidden
+                            className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-active text-sm font-semibold text-fg-secondary"
+                          >
+                            {option.title.slice(0, 1)}
+                          </span>
+                        )}
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium text-fg">{option.title}</span>
+                          <span className="mt-0.5 block text-xs leading-4 text-fg-secondary">
+                            {option.description}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <Field
+                  label="Repository address"
+                  help="Zelyq clones it and works on a copy. It never pushes, so a read-only token is enough."
+                >
+                  <Input
+                    autoFocus
+                    value={gitUrl}
+                    onChange={(event) => setGitUrl(event.target.value)}
+                    placeholder="https://github.com/you/your-repo.git"
+                    inputMode="url"
+                  />
+                </Field>
+                {teamId && (
+                  <TokenField
+                    value={gitToken}
+                    onChange={setGitToken}
+                    teamId={teamId}
+                    source={tokenSource}
+                    onSource={setTokenSource}
+                    vaultName={tokenVault}
+                    onVaultName={setTokenVault}
+                  />
+                )}
+                <p className="text-xs text-fg-muted">
+                  The token is used once and never stored. Cloning can take a minute.
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <Field
+              label="App name"
+              required
+              help={slug ? `Its folder will be called ${slug}.` : "You can rename it later."}
+            >
+              <Input
+                autoFocus
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Customer portal"
+                maxLength={120}
+              />
+            </Field>
+            {source === "git" && (
+              <p className="flex items-center gap-1.5 text-xs text-fg-secondary">
+                <ExternalLink size={12} /> {gitUrl.trim()}
+              </p>
+            )}
+            {create.isError && (
+              <InlineAlert tone="danger" title="The app could not be created">
+                {(create.error as Error).message}
+              </InlineAlert>
+            )}
+          </>
+        )}
+        {/* Enter submits the step. */}
+        <button type="submit" hidden aria-hidden tabIndex={-1} />
+      </form>
+    </Dialog>
+  );
 }

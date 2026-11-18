@@ -3,7 +3,8 @@ import { ADMIN_SCOPES, type AdminScope, ALL_ADMIN_SCOPES } from "@zelyq/core";
 import { Check, CircleAlert, Copy, KeyRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
-import { Badge, Button, IconButton, Input, Spinner } from "./ui";
+import { formatDate, formatDateTime } from "../lib/format";
+import { Badge, Button, confirmAction, IconButton, Input, Spinner } from "./ui";
 
 /**
  * Admin API keys: how an outside system (an account service, monitoring,
@@ -175,9 +176,9 @@ export function AdminKeysPanel() {
                     {key.revokedAt && <Badge tone="danger">revoked</Badge>}
                   </div>
                   <p className="mt-0.5 text-2xs text-fg-muted">
-                    {key.scopes.join(", ")} · made {new Date(key.createdAt).toLocaleDateString()} ·{" "}
+                    {key.scopes.join(", ")} · made {formatDate(key.createdAt)} ·{" "}
                     {key.lastUsedAt
-                      ? `last used ${new Date(key.lastUsedAt).toLocaleString()}${key.lastUsedIp ? ` from ${key.lastUsedIp}` : ""}`
+                      ? `last used ${formatDateTime(key.lastUsedAt)}${key.lastUsedIp ? ` from ${key.lastUsedIp}` : ""}`
                       : "never used"}
                   </p>
                 </div>
@@ -186,8 +187,15 @@ export function AdminKeysPanel() {
                     size="sm"
                     variant="ghost"
                     disabled={revoke.isPending}
-                    onClick={() => {
-                      if (window.confirm(`Revoke “${key.name}”? It stops working at once.`)) {
+                    onClick={async () => {
+                      if (
+                        await confirmAction({
+                          title: `Revoke “${key.name}”?`,
+                          description: `It stops working at once.`,
+                          confirmLabel: "Revoke key",
+                          danger: true,
+                        })
+                      ) {
                         revoke.mutate(key.id);
                       }
                     }}

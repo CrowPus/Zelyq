@@ -1,73 +1,126 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { type ButtonHTMLAttributes, forwardRef, type ReactNode } from "react";
+import { Tooltip } from "./Tooltip.js";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
-type Size = "sm" | "md";
+export type ButtonVariant =
+  | "primary"
+  | "secondary"
+  | "ghost"
+  | "danger"
+  | "danger-solid"
+  | "strong";
+export type ButtonSize = "sm" | "md" | "lg";
 
 /*
- * Three sizes would be two too many. `sm` (24px) sits in toolbars and table
- * rows; `md` (30px) is everything else. Both are deliberately shorter than the
- * 40px default that makes an interface feel like a landing page.
+ * Three heights on the 4px grid: `sm` (24) for toolbars and table rows, `md`
+ * (32) for everything else, `lg` (40) for sign-in and first-run screens only.
  */
-const SIZES: Record<Size, string> = {
+const SIZES: Record<ButtonSize, string> = {
   sm: "h-6 gap-1.5 px-2 text-xs",
-  md: "h-[30px] gap-1.5 px-2.5 text-sm",
+  md: "h-8 gap-1.5 px-3 text-sm",
+  lg: "h-10 gap-2 px-4 text-base",
 };
 
-const VARIANTS: Record<Variant, string> = {
-  primary: "bg-primary text-primary-fg hover:bg-primary-hover border border-transparent",
+const VARIANTS: Record<ButtonVariant, string> = {
+  primary:
+    "bg-primary text-primary-fg hover:bg-primary-hover border border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/0.12)]",
   secondary:
-    "bg-surface text-fg border border-border-default hover:bg-surface-hover hover:border-border-strong",
+    "bg-surface text-fg border border-border-strong hover:bg-surface-hover hover:border-border-control",
   ghost:
     "bg-transparent text-fg-secondary border border-transparent hover:bg-surface-hover hover:text-fg",
   danger: "bg-transparent text-danger border border-transparent hover:bg-danger-subtle",
+  "danger-solid": "bg-danger text-canvas border border-transparent hover:brightness-110",
+  strong: "bg-strong text-strong-fg hover:bg-strong-hover border border-transparent",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: Variant;
-  size?: Size;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   icon?: ReactNode;
+  /** Shows a spinner in place of the icon and blocks clicks, keeping the width. */
+  loading?: boolean;
 }
 
 /** A button's look, for a link that has to act as one (a download, a new tab). */
-export function buttonClass(variant: Variant = "secondary", size: Size = "md"): string {
-  return `inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap transition-colors duration-75 disabled:pointer-events-none disabled:opacity-40 ${SIZES[size]} ${VARIANTS[variant]}`;
+export function buttonClass(variant: ButtonVariant = "secondary", size: ButtonSize = "md"): string {
+  return `inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap select-none transition-[background-color,border-color,color] duration-100 disabled:pointer-events-none disabled:opacity-45 ${SIZES[size]} ${VARIANTS[variant]}`;
 }
 
-export function Button({
-  variant = "secondary",
-  size = "md",
-  icon,
-  className = "",
-  children,
-  ...props
-}: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = "secondary",
+    size = "md",
+    icon,
+    loading = false,
+    className = "",
+    children,
+    disabled,
+    type = "button",
+    ...props
+  },
+  ref,
+) {
   return (
-    <button type="button" className={`${buttonClass(variant, size)} ${className}`} {...props}>
-      {icon}
+    <button
+      ref={ref}
+      type={type}
+      className={`${buttonClass(variant, size)} ${className}`}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+    >
+      {loading ? <ButtonSpinner /> : icon}
       {children}
     </button>
   );
+});
+
+function ButtonSpinner() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block size-3.5 animate-spin rounded-full border-[1.5px] border-current border-t-transparent opacity-80"
+    />
+  );
 }
 
-/** Square button for a lone icon. Keeps toolbars on a consistent rhythm. */
-export function IconButton({
-  variant = "ghost",
-  size = "md",
-  label,
-  className = "",
-  children,
-  ...props
-}: Omit<ButtonProps, "icon"> & { label: string }) {
-  const box = size === "sm" ? "size-6" : "size-[30px]";
-  return (
+/**
+ * Square button for a lone icon. Always named, always with a real tooltip:
+ * an icon nobody can identify is not a control.
+ */
+export const IconButton = forwardRef<
+  HTMLButtonElement,
+  Omit<ButtonProps, "icon"> & { label: string; tooltip?: boolean; shortcut?: string }
+>(function IconButton(
+  {
+    variant = "ghost",
+    size = "md",
+    label,
+    tooltip = true,
+    shortcut,
+    className = "",
+    children,
+    type = "button",
+    loading: _loading,
+    ...props
+  },
+  ref,
+) {
+  const box = size === "sm" ? "size-6" : size === "lg" ? "size-10" : "size-8";
+  const button = (
     <button
-      type="button"
+      ref={ref}
+      type={type}
       aria-label={label}
-      title={label}
-      className={`inline-flex shrink-0 items-center justify-center rounded-md transition-colors duration-75 disabled:pointer-events-none disabled:opacity-40 ${box} ${VARIANTS[variant]} ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-md transition-colors duration-100 disabled:pointer-events-none disabled:opacity-45 ${box} ${VARIANTS[variant]} ${className}`}
       {...props}
     >
       {children}
     </button>
   );
-}
+  if (!tooltip) return button;
+  return (
+    <Tooltip content={label} shortcut={shortcut}>
+      {button}
+    </Tooltip>
+  );
+});

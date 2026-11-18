@@ -4,7 +4,6 @@ import {
   ArrowDown,
   ArrowUp,
   CircleAlert,
-  GitBranch,
   GitPullRequest,
   RefreshCw,
   TriangleAlert,
@@ -12,7 +11,8 @@ import {
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../lib/api";
-import { Badge, Button, Input, Spinner } from "./ui";
+import { teamHref } from "../lib/routes";
+import { Badge, Button, Drawer, Input, NativeSelect, Spinner } from "./ui";
 
 /**
  * Everything a project's git can do, in one place, showing the real state
@@ -31,9 +31,18 @@ import { Badge, Button, Input, Spinner } from "./ui";
  * same promise the server keeps — or named from the team's Vault, which the
  * server reads itself, so the value never reaches this page at all.
  */
-export function GitPanel({ projectId, teamId }: { projectId: string; teamId: string }) {
-  const [open, setOpen] = useState(false);
-
+export function GitPanel({
+  projectId,
+  teamId,
+  open,
+  onOpenChange,
+}: {
+  projectId: string;
+  teamId: string;
+  /** Opened from the app's sidebar (the address says `?panel=git`). */
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const status = useQuery({
     queryKey: ["git", projectId],
     queryFn: () => api.gitStatus(projectId).then((response) => response.status),
@@ -53,52 +62,41 @@ export function GitPanel({ projectId, teamId }: { projectId: string; teamId: str
     : null;
 
   return (
-    <div className="relative">
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={<GitBranch size={13} strokeWidth={1.75} />}
-        onClick={() => setOpen((current) => !current)}
-        className="max-md:px-1.5"
-      >
-        <span className="max-md:hidden">Git</span>
-        {attention && (
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Git"
+      description="Commit, push and pull this app's code, and switch branches."
+      actions={
+        attention && (
           <span
-            aria-hidden
-            className={`ml-1 size-1.5 rounded-full ${
-              attention === "danger" ? "bg-danger" : "bg-warning"
+            className={`mr-1 inline-flex h-5 items-center rounded-sm px-1.5 text-xs font-medium ${
+              attention === "danger"
+                ? "bg-danger-subtle text-danger"
+                : "bg-warning-subtle text-warning"
             }`}
-          />
+          >
+            {attention === "danger" ? "Needs attention" : "Behind remote"}
+          </span>
+        )
+      }
+    >
+      <div className="px-5 py-4">
+        {status.isPending && (
+          <p className="flex items-center gap-1.5 text-sm text-fg-secondary">
+            <Spinner className="size-3" /> Reading this app's git…
+          </p>
         )}
-      </Button>
-
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            className="fixed inset-0 z-10 cursor-default"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute top-full right-0 z-20 mt-1.5 w-[22rem] rounded-lg border border-border-default bg-overlay p-3 shadow-overlay">
-            {status.isPending && (
-              <p className="flex items-center gap-1.5 text-2xs text-fg-secondary">
-                <Spinner className="size-3" /> Reading this app's git…
-              </p>
-            )}
-            {status.isError && (
-              <Message tone="danger">
-                {status.error instanceof ApiError
-                  ? status.error.message
-                  : "Could not read this app's git."}
-              </Message>
-            )}
-            {state && <GitBody projectId={projectId} teamId={teamId} state={state} />}
-          </div>
-        </>
-      )}
-    </div>
+        {status.isError && (
+          <Message tone="danger">
+            {status.error instanceof ApiError
+              ? status.error.message
+              : "Could not read this app's git."}
+          </Message>
+        )}
+        {state && <GitBody projectId={projectId} teamId={teamId} state={state} />}
+      </div>
+    </Drawer>
   );
 }
 
@@ -642,17 +640,17 @@ export function TokenField({
       ) : usable.length === 0 ? (
         <p className="text-2xs leading-relaxed text-fg-secondary">
           Your team's Vault has no secret you can use here yet.{" "}
-          <Link to={`/vault?scope=${teamId}`} className="underline underline-offset-2">
+          <Link to={teamHref(`/vault?scope=${teamId}`)} className="underline underline-offset-2">
             Add your git token to Vault
           </Link>
           , then choose it here.
         </p>
       ) : (
-        <select
+        <NativeSelect
           aria-label="Repository access token from Vault"
           value={usable.some((choice) => choice.name === vaultName) ? vaultName : ""}
           onChange={(event) => onVaultName(event.target.value)}
-          className="h-8 w-full rounded-md border border-border-default bg-canvas px-2 text-xs text-fg"
+          className="w-full"
         >
           <option value="">Choose the secret holding your token…</option>
           {usable.map((choice) => (
@@ -661,7 +659,7 @@ export function TokenField({
               {choice.protected ? " · Protected" : ""}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       )}
     </div>
   );

@@ -4,7 +4,7 @@ import { Camera } from "lucide-react";
 import { useState } from "react";
 import { api } from "../lib/api";
 import { formatRelative } from "../lib/vault";
-import { Button, Spinner } from "./ui";
+import { Button, Drawer, Spinner } from "./ui";
 
 /**
  * Saved copies of the app, and a way back to any of them.
@@ -19,13 +19,17 @@ export function SnapshotPanel({
   projectId,
   canEdit,
   onRestored,
+  open,
+  onOpenChange,
 }: {
   projectId: string;
   canEdit: boolean;
   onRestored(): void;
+  /** Opened from the app's sidebar (the address says `?panel=snapshots`). */
+  open: boolean;
+  onOpenChange(open: boolean): void;
 }) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
 
   const snapshots = useQuery({
@@ -48,89 +52,66 @@ export function SnapshotPanel({
   });
 
   return (
-    <div className="relative">
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={<Camera size={13} strokeWidth={1.75} />}
-        onClick={() => setOpen((current) => !current)}
-        className="max-md:px-1.5"
-      >
-        <span className="max-md:hidden">Snapshot</span>
-      </Button>
-
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            className="fixed inset-0 z-10 cursor-default"
-            onClick={() => setOpen(false)}
-          />
-          <div
-            role="dialog"
-            aria-label="Snapshots"
-            className="absolute top-full right-0 z-20 mt-1.5 w-[22rem] rounded-lg border border-border-default bg-overlay p-3 shadow-overlay"
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Snapshots"
+      description="Copies of the app's files. One is taken before every turn; save your own any time."
+      actions={
+        canEdit && (
+          <Button
+            size="sm"
+            variant="primary"
+            loading={save.isPending}
+            icon={<Camera size={13} strokeWidth={1.75} />}
+            onClick={() => save.mutate()}
           >
-            <div className="flex items-start justify-between gap-3">
-              <p className="text-2xs leading-relaxed text-fg-secondary">
-                Copies of the app's files. One is taken before every turn; save your own any time.
-              </p>
-              {canEdit && (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={save.isPending}
-                  onClick={() => save.mutate()}
-                  className="shrink-0"
-                >
-                  {save.isPending ? "Saving…" : "Save now"}
-                </Button>
-              )}
-            </div>
-            {save.isError && (
-              <p role="alert" className="mt-2 text-2xs text-danger">
-                {(save.error as Error).message}
-              </p>
-            )}
+            Save now
+          </Button>
+        )
+      }
+    >
+      <div className="px-5 py-3">
+        {save.isError && (
+          <p role="alert" className="mt-2 text-2xs text-danger">
+            {(save.error as Error).message}
+          </p>
+        )}
 
-            <div className="mt-3 max-h-80 overflow-y-auto border-t border-border-default">
-              {snapshots.isPending && (
-                <p className="flex items-center gap-1.5 py-3 text-2xs text-fg-secondary">
-                  <Spinner className="size-3" /> Reading snapshots…
-                </p>
-              )}
-              {snapshots.isError && (
-                <p role="alert" className="py-3 text-2xs text-danger">
-                  {(snapshots.error as Error).message}
-                </p>
-              )}
-              {snapshots.data?.length === 0 && (
-                <p className="py-3 text-2xs text-fg-secondary">No snapshots yet.</p>
-              )}
-              {snapshots.data?.map((snapshot) => (
-                <SnapshotRow
-                  key={snapshot.id}
-                  snapshot={snapshot}
-                  canEdit={canEdit}
-                  confirming={confirming === snapshot.id}
-                  restoring={restore.isPending && restore.variables === snapshot.id}
-                  onAsk={() => setConfirming(snapshot.id)}
-                  onCancel={() => setConfirming(null)}
-                  onRestore={() => restore.mutate(snapshot.id)}
-                />
-              ))}
-            </div>
-            {restore.isError && (
-              <p role="alert" className="mt-2 text-2xs text-danger">
-                {(restore.error as Error).message}
-              </p>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+        <div>
+          {snapshots.isPending && (
+            <p className="flex items-center gap-1.5 py-3 text-2xs text-fg-secondary">
+              <Spinner className="size-3" /> Reading snapshots…
+            </p>
+          )}
+          {snapshots.isError && (
+            <p role="alert" className="py-3 text-2xs text-danger">
+              {(snapshots.error as Error).message}
+            </p>
+          )}
+          {snapshots.data?.length === 0 && (
+            <p className="py-3 text-2xs text-fg-secondary">No snapshots yet.</p>
+          )}
+          {snapshots.data?.map((snapshot) => (
+            <SnapshotRow
+              key={snapshot.id}
+              snapshot={snapshot}
+              canEdit={canEdit}
+              confirming={confirming === snapshot.id}
+              restoring={restore.isPending && restore.variables === snapshot.id}
+              onAsk={() => setConfirming(snapshot.id)}
+              onCancel={() => setConfirming(null)}
+              onRestore={() => restore.mutate(snapshot.id)}
+            />
+          ))}
+        </div>
+        {restore.isError && (
+          <p role="alert" className="mt-2 text-2xs text-danger">
+            {(restore.error as Error).message}
+          </p>
+        )}
+      </div>
+    </Drawer>
   );
 }
 

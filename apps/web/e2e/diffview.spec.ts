@@ -101,7 +101,7 @@ test("opening a file from the tree shows the file, not a diff", async ({ page })
   const projectId = (await created.json()).project.id;
 
   await page.goto(`/projects/${projectId}`);
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   await page.getByText("App.tsx", { exact: false }).first().click();
 
   await expect(page.getByLabel("Edit src/App.tsx")).toBeVisible();

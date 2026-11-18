@@ -10,7 +10,7 @@ import {
   type Project,
 } from "@zelyq/core";
 import { type FormEvent, useId, useState } from "react";
-import { Button, FieldLabel, Input, Textarea } from "../ui";
+import { Button, FieldLabel, Input, NativeSelect, Textarea } from "../ui";
 
 const LEVEL_LABEL: Record<AgentPermissionLevel, string> = {
   off: "Off",
@@ -363,7 +363,7 @@ function MediaKey<P extends string>({
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="w-14 text-fg-secondary">{label}</span>
-      <select
+      <NativeSelect
         aria-label={`${label} provider`}
         className={select}
         value={value?.provider ?? ""}
@@ -381,11 +381,11 @@ function MediaKey<P extends string>({
             {provider.label}
           </option>
         ))}
-      </select>
+      </NativeSelect>
       {value && (
         <>
           <span className="text-fg-muted">key from Vault</span>
-          <select
+          <NativeSelect
             aria-label={`${label} key`}
             className={select}
             value={value.secret}
@@ -397,7 +397,7 @@ function MediaKey<P extends string>({
                 {name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </>
       )}
     </div>

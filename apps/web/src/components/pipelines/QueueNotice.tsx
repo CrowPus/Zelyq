@@ -2,6 +2,7 @@ import type { RunQueueInfo } from "@zelyq/core";
 import { Clock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { teamHref } from "../../lib/routes";
 
 /** "next", "2nd", "3rd", "11th": a place in line. */
 export function placeInLine(position: number): string {
@@ -87,7 +88,7 @@ export function QueueNotice({ queue }: { queue: RunQueueInfo | null }) {
               <span key={blocker.id}>
                 {index > 0 && ", "}
                 <Link
-                  to={`/pipelines/${blocker.pipelineId}/runs/${blocker.id}`}
+                  to={teamHref(`/pipelines/${blocker.pipelineId}/runs/${blocker.id}`)}
                   className="text-info hover:underline"
                 >
                   {blocker.pipelineName} #{blocker.number}
@@ -107,7 +108,7 @@ export function QueueNotice({ queue }: { queue: RunQueueInfo | null }) {
                 {" "}
                 To run more at once, raise{" "}
                 {queue.machine === "the local runner" ? (
-                  <Link to="/settings" className="text-info hover:underline">
+                  <Link to="/admin" className="text-info hover:underline">
                     Local runs at once
                   </Link>
                 ) : (

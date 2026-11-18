@@ -100,7 +100,11 @@ export function ModelPicker({ value, onChange }: Props) {
           type="button"
           disabled={!failed}
           onClick={failed ? () => void providers.refetch() : undefined}
-          aria-label={failed ? "Model list unavailable — click to retry" : "Loading the model list"}
+          aria-label={
+            failed
+              ? "Unavailable: model list could not load, click to retry"
+              : "Default: loading the model list"
+          }
           title={
             failed
               ? "Could not load the model list. The agent may be restarting — click to retry."
@@ -129,7 +133,7 @@ export function ModelPicker({ value, onChange }: Props) {
         onClick={() => setOpen((current) => !current)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Choose a model for this conversation"
+        aria-label={`${value?.label ?? "Default"}: choose a model for this conversation`}
         title={value?.label ?? "Default"}
         className="flex w-20 min-w-14 max-w-20 items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
       >

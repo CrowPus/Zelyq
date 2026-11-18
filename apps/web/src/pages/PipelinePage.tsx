@@ -19,7 +19,6 @@ import {
   Sparkles,
   TerminalSquare,
   Trash2,
-  Workflow,
 } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -36,16 +35,20 @@ const YamlEditor = lazy(() => import("../components/pipelines/YamlEditor"));
 import {
   Badge,
   Button,
+  confirmAction,
   EmptyState,
   FieldLabel,
   IconButton,
   Input,
+  NativeSelect,
+  PageBody,
   Spinner,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api, type PipelineCheck } from "../lib/api";
 import { locateWarning } from "../lib/pipeline-yaml";
 import { duration, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
+import { teamHref } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
 type Tab = "runs" | "branches" | "file" | "triggers" | "history";
@@ -69,7 +72,7 @@ export function PipelinePage() {
   const start = useMutation({
     mutationFn: (inputs?: Record<string, string>) =>
       api.pipelines.start(team?.id ?? "", id, inputs),
-    onSuccess: ({ run }) => navigate(`/pipelines/${id}/runs/${run.id}`),
+    onSuccess: ({ run }) => navigate(teamHref(`/pipelines/${id}/runs/${run.id}`)),
   });
   // A pipeline with inputs asks for them first.
   const [asking, setAsking] = useState(false);
@@ -80,119 +83,113 @@ export function PipelinePage() {
 
   const name = isNew ? "New pipeline" : (pipeline.data?.pipeline.name ?? "…");
   return (
-    <AppShell crumbs={[{ label: "Pipelines", to: "/pipelines" }, { label: name }]}>
-      <div className="h-full overflow-y-auto">
-        <div className={`mx-auto w-full px-4 py-6 ${tab === "file" ? "max-w-6xl" : "max-w-4xl"}`}>
-          <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h1 className="flex items-center gap-2 text-lg font-semibold">
-              <Workflow size={18} strokeWidth={1.75} /> {name}
-            </h1>
-            {!isNew && canWrite && (
-              <Button
-                variant="primary"
-                icon={<Play size={14} />}
-                disabled={start.isPending}
-                onClick={() =>
-                  Object.keys(declaredInputs).length > 0 ? setAsking(true) : start.mutate(undefined)
-                }
+    <AppShell crumbs={[{ label: "Pipelines", to: teamHref("/pipelines") }, { label: name }]}>
+      <PageBody>
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-fg">{name}</h1>
+          {!isNew && canWrite && (
+            <Button
+              variant="primary"
+              icon={<Play size={14} />}
+              disabled={start.isPending}
+              onClick={() =>
+                Object.keys(declaredInputs).length > 0 ? setAsking(true) : start.mutate(undefined)
+              }
+            >
+              Run now
+            </Button>
+          )}
+        </header>
+        {start.error && (
+          <p className="mb-3 text-xs text-danger">{vaultErrorMessage(start.error)}</p>
+        )}
+        {asking && (
+          <InputsForm
+            inputs={declaredInputs}
+            busy={start.isPending}
+            onCancel={() => setAsking(false)}
+            onStart={(values) => start.mutate(values)}
+          />
+        )}
+
+        {!isNew && (
+          <div role="tablist" className="mb-4 flex gap-1 border-b border-border-default">
+            {(["runs", "branches", "file", "triggers", "history"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={tab === value}
+                onClick={() => setParams(value === "runs" ? {} : { tab: value }, { replace: true })}
+                className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${
+                  tab === value
+                    ? "border-primary font-medium text-fg"
+                    : "border-transparent text-fg-secondary hover:text-fg"
+                }`}
               >
-                Run now
-              </Button>
-            )}
-          </header>
-          {start.error && (
-            <p className="mb-3 text-xs text-danger">{vaultErrorMessage(start.error)}</p>
-          )}
-          {asking && (
-            <InputsForm
-              inputs={declaredInputs}
-              busy={start.isPending}
-              onCancel={() => setAsking(false)}
-              onStart={(values) => start.mutate(values)}
-            />
-          )}
+                {value === "runs"
+                  ? "Runs"
+                  : value === "branches"
+                    ? "Branches"
+                    : value === "file"
+                      ? "File"
+                      : value === "triggers"
+                        ? "Triggers"
+                        : "History"}
+              </button>
+            ))}
+          </div>
+        )}
 
-          {!isNew && (
-            <div role="tablist" className="mb-4 flex gap-1 border-b border-border-default">
-              {(["runs", "branches", "file", "triggers", "history"] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === value}
-                  onClick={() =>
-                    setParams(value === "runs" ? {} : { tab: value }, { replace: true })
-                  }
-                  className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${
-                    tab === value
-                      ? "border-primary font-medium text-fg"
-                      : "border-transparent text-fg-secondary hover:text-fg"
-                  }`}
-                >
-                  {value === "runs"
-                    ? "Runs"
-                    : value === "branches"
-                      ? "Branches"
-                      : value === "file"
-                        ? "File"
-                        : value === "triggers"
-                          ? "Triggers"
-                          : "History"}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {!team ? null : isNew ? (
-            <FileEditor
-              teamId={team.id}
-              initial={PIPELINE_TEMPLATES[0]?.source ?? ""}
-              isNew
-              canWrite={canWrite}
-              onSaved={(saved) => {
-                void queryClient.invalidateQueries({ queryKey: ["pipelines", team.id] });
-                navigate(`/pipelines/${saved}`);
-              }}
-            />
-          ) : pipeline.isLoading ? (
-            <Spinner />
-          ) : !pipeline.data ? (
-            <EmptyState
-              title="Not found"
-              description="This pipeline is not in the team you have chosen."
-            />
-          ) : tab === "file" ? (
-            <FileEditor
-              key={pipeline.data.pipeline.updatedAt}
-              teamId={team.id}
-              pipelineId={id}
-              initial={pipeline.data.pipeline.source}
-              name={pipeline.data.pipeline.name}
-              repoPath={pipeline.data.pipeline.repoPath}
-              canWrite={canWrite}
-              onSaved={() => {
-                void queryClient.invalidateQueries({ queryKey: ["pipeline", team.id, id] });
-                void queryClient.invalidateQueries({
-                  queryKey: ["pipeline-versions", team.id, id],
-                });
-              }}
-            />
-          ) : tab === "history" ? (
-            <HistoryTab
-              teamId={team.id}
-              pipelineId={id}
-              canWrite={canWrite}
-              inRepository={Boolean(pipeline.data.pipeline.repoPath)}
-            />
-          ) : tab === "triggers" ? (
-            <Triggers teamId={team.id} pipelineId={id} canWrite={canWrite} />
-          ) : tab === "branches" ? (
-            <Branches teamId={team.id} pipelineId={id} />
-          ) : (
-            <Runs teamId={team.id} pipelineId={id} />
-          )}
-        </div>
-      </div>
+        {!team ? null : isNew ? (
+          <FileEditor
+            teamId={team.id}
+            initial={PIPELINE_TEMPLATES[0]?.source ?? ""}
+            isNew
+            canWrite={canWrite}
+            onSaved={(saved) => {
+              void queryClient.invalidateQueries({ queryKey: ["pipelines", team.id] });
+              navigate(teamHref(`/pipelines/${saved}`));
+            }}
+          />
+        ) : pipeline.isLoading ? (
+          <Spinner />
+        ) : !pipeline.data ? (
+          <EmptyState
+            title="Not found"
+            description="This pipeline is not in the team you have chosen."
+          />
+        ) : tab === "file" ? (
+          <FileEditor
+            key={pipeline.data.pipeline.updatedAt}
+            teamId={team.id}
+            pipelineId={id}
+            initial={pipeline.data.pipeline.source}
+            name={pipeline.data.pipeline.name}
+            repoPath={pipeline.data.pipeline.repoPath}
+            canWrite={canWrite}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ["pipeline", team.id, id] });
+              void queryClient.invalidateQueries({
+                queryKey: ["pipeline-versions", team.id, id],
+              });
+            }}
+          />
+        ) : tab === "history" ? (
+          <HistoryTab
+            teamId={team.id}
+            pipelineId={id}
+            canWrite={canWrite}
+            inRepository={Boolean(pipeline.data.pipeline.repoPath)}
+          />
+        ) : tab === "triggers" ? (
+          <Triggers teamId={team.id} pipelineId={id} canWrite={canWrite} />
+        ) : tab === "branches" ? (
+          <Branches teamId={team.id} pipelineId={id} />
+        ) : (
+          <Runs teamId={team.id} pipelineId={id} />
+        )}
+      </PageBody>
     </AppShell>
   );
 }
@@ -214,7 +211,7 @@ function Runs({ teamId, pipelineId }: { teamId: string; pipelineId: string }) {
         return (
           <li key={run.id}>
             <Link
-              to={`/pipelines/${pipelineId}/runs/${run.id}`}
+              to={teamHref(`/pipelines/${pipelineId}/runs/${run.id}`)}
               className="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover"
             >
               <StatusIcon status={run.status} />
@@ -309,7 +306,7 @@ function Branches({ teamId, pipelineId }: { teamId: string; pipelineId: string }
       </span>
       <StageStrip stages={run.stages} />
       <Link
-        to={`/pipelines/${pipelineId}/runs/${run.id}`}
+        to={teamHref(`/pipelines/${pipelineId}/runs/${run.id}`)}
         className="font-mono text-xs text-primary hover:underline"
       >
         #{run.number}
@@ -460,7 +457,7 @@ function FileEditor({
   const navigate = useNavigate();
   const remove = useMutation({
     mutationFn: () => api.pipelines.remove(teamId, pipelineId ?? ""),
-    onSuccess: () => navigate("/pipelines"),
+    onSuccess: () => navigate(teamHref("/pipelines")),
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
 
@@ -584,8 +581,16 @@ function FileEditor({
               variant="danger"
               icon={<Trash2 size={14} />}
               className="ml-auto"
-              onClick={() => {
-                if (window.confirm("Delete this pipeline and all its runs?")) remove.mutate();
+              onClick={async () => {
+                if (
+                  await confirmAction({
+                    title: "Delete this pipeline?",
+                    description: "Its runs are deleted with it. This cannot be undone.",
+                    confirmLabel: "Delete pipeline",
+                    danger: true,
+                  })
+                )
+                  remove.mutate();
               }}
             >
               Delete pipeline
@@ -1006,9 +1011,8 @@ function Triggers({
             {kind === "pipeline" ? (
               <div className="grid gap-2">
                 <FieldLabel>Start this pipeline after</FieldLabel>
-                <select
+                <NativeSelect
                   aria-label="Upstream pipeline"
-                  className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
                   value={upstreamId}
                   onChange={(event) => setUpstreamId(event.target.value)}
                 >
@@ -1020,7 +1024,7 @@ function Triggers({
                         {other.name}
                       </option>
                     ))}
-                </select>
+                </NativeSelect>
                 <label className="flex items-center gap-2 text-xs">
                   <input
                     type="checkbox"
@@ -1152,9 +1156,8 @@ function InputsForm({
         <div key={name} className="grid gap-1">
           <FieldLabel>{name}</FieldLabel>
           {input.choices ? (
-            <select
+            <NativeSelect
               aria-label={name}
-              className="h-[30px] rounded-md border border-border-default bg-surface px-2 text-sm"
               value={values[name]}
               onChange={(event) => setValues({ ...values, [name]: event.target.value })}
             >
@@ -1163,7 +1166,7 @@ function InputsForm({
                   {choice}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           ) : (
             <Input
               aria-label={name}

@@ -5,6 +5,8 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { formatDateTime } from "../lib/format";
+import { teamHref } from "../lib/routes";
 import { AgentRequests } from "./agents/AgentRequests";
 import { Button } from "./ui";
 
@@ -119,7 +121,7 @@ export function Inbox() {
       >
         <Bell size={16} />
         {count > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-danger px-1 text-[10px] leading-none font-semibold text-white">
+          <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-danger px-1 text-2xs leading-none font-semibold text-white">
             {count > 99 ? "99+" : count}
           </span>
         )}
@@ -148,12 +150,12 @@ export function Inbox() {
                   detail={
                     <>
                       <Link
-                        to={`/pipelines/${one.pipelineId}/runs/${one.runId}`}
+                        to={teamHref(`/pipelines/${one.pipelineId}/runs/${one.runId}`)}
                         className="underline underline-offset-2 hover:text-fg"
                       >
                         {one.pipeline} #{one.run}
                       </Link>{" "}
-                      · answer by {new Date(one.deadline).toLocaleString()}
+                      · answer by {formatDateTime(one.deadline)}
                     </>
                   }
                   actions={
@@ -200,7 +202,7 @@ export function Inbox() {
                   actions={
                     one.canDecide ? (
                       <Link
-                        to={`/ops?job=${encodeURIComponent(one.jobId)}`}
+                        to={teamHref(`/ops?job=${encodeURIComponent(one.jobId)}`)}
                         className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg hover:bg-primary-hover"
                       >
                         {one.kind === "plan" ? "Read and approve" : "Read and confirm"}

@@ -3,6 +3,7 @@ import type { PipelineStats } from "@zelyq/core";
 import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
+import { teamHref } from "../../lib/routes";
 import { formatRelative } from "../../lib/vault";
 import { EmptyState, Spinner } from "../ui";
 import { StatusIcon } from "./Stages";
@@ -133,7 +134,10 @@ export function OverviewTab({ teamId }: { teamId: string }) {
                   {data.pipelines.map((pipeline) => (
                     <tr key={pipeline.id} className="border-t border-border-default">
                       <td className="max-w-56 truncate px-4 py-2">
-                        <Link to={`/pipelines/${pipeline.id}`} className="hover:underline">
+                        <Link
+                          to={teamHref(`/pipelines/${pipeline.id}`)}
+                          className="hover:underline"
+                        >
                           {pipeline.name}
                         </Link>
                       </td>
@@ -147,7 +151,7 @@ export function OverviewTab({ teamId }: { teamId: string }) {
                       <td className="px-4 py-2">
                         {pipeline.last ? (
                           <Link
-                            to={`/pipelines/${pipeline.id}/runs/${pipeline.last.id}`}
+                            to={teamHref(`/pipelines/${pipeline.id}/runs/${pipeline.last.id}`)}
                             className="inline-flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg"
                           >
                             <StatusIcon status={pipeline.last.status} size={13} />#
@@ -317,7 +321,7 @@ function RunsChart({ daily }: { daily: PipelineStats["daily"] }) {
                 x={left - 6}
                 y={y(tick) + 3}
                 textAnchor="end"
-                className="fill-fg-muted text-[10px]"
+                className="fill-fg-muted text-2xs"
               >
                 {tick}
               </text>
@@ -349,7 +353,7 @@ function RunsChart({ daily }: { daily: PipelineStats["daily"] }) {
                     x={left + index * slot + slot / 2}
                     y={height + 15}
                     textAnchor="middle"
-                    className="fill-fg-muted text-[10px]"
+                    className="fill-fg-muted text-2xs"
                   >
                     {dayLabel(day.day)}
                   </text>
@@ -409,7 +413,7 @@ function SlowStages({ stages }: { stages: PipelineStats["slowStages"] }) {
           <span className="min-w-0">
             <span className="block truncate font-medium">{stage.stage}</span>
             <Link
-              to={`/pipelines/${stage.pipelineId}`}
+              to={teamHref(`/pipelines/${stage.pipelineId}`)}
               className="block truncate text-fg-muted hover:underline"
             >
               {stage.pipelineName} · {stage.runs} run{stage.runs === 1 ? "" : "s"}

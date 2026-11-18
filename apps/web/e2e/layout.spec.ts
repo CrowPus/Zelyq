@@ -27,7 +27,7 @@ test.afterEach(async ({ page }) => {
     .catch(() => undefined);
 });
 
-test("the delete control never sits on top of the timestamp", async ({ page }) => {
+test("an app card's actions never sit on top of its timestamp", async ({ page }) => {
   await signUp(page);
   await createProject(page, "layout-delete");
 
@@ -35,22 +35,27 @@ test("the delete control never sits on top of the timestamp", async ({ page }) =
   const row = page.locator("li", { hasText: "layout-delete" }).first();
   await expect(row).toBeVisible();
 
-  const trash = row.getByRole("button", { name: /^Delete layout-delete$/ });
+  const menu = row.getByRole("button", { name: /^Actions for layout-delete$/ });
   const stamp = row.locator("time");
-  await expect(trash).toBeVisible();
+  await expect(menu).toBeVisible();
   await expect(stamp).toBeVisible();
 
-  const [button, time] = [await trash.boundingBox(), await stamp.boundingBox()];
+  const [button, time] = [await menu.boundingBox(), await stamp.boundingBox()];
   expect(button).not.toBeNull();
   expect(time).not.toBeNull();
   if (!button || !time) return;
-
-  // The whole bug in one assertion: the timestamp must end before the
-  // delete control begins.
   expect(
     time.x + time.width,
-    `timestamp ends at ${time.x + time.width}, delete starts at ${button.x}`,
+    `timestamp ends at ${time.x + time.width}, the menu starts at ${button.x}`,
   ).toBeLessThanOrEqual(button.x + 0.5);
+
+  // Delete lives in that menu, and asks for the app's name before it acts.
+  await menu.click();
+  await page.getByRole("menuitem", { name: "Delete app" }).click();
+  await expect(page.getByRole("dialog", { name: "Delete layout-delete?" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete app" })).toBeDisabled();
+  await page.getByLabel(/Type .* to confirm/).fill("layout-delete");
+  await expect(page.getByRole("button", { name: "Delete app" })).toBeEnabled();
 });
 
 test("the chat panel never spills under the preview", async ({ page }) => {
@@ -133,7 +138,7 @@ test("the composer's controls never overlap the send button", async ({ page }) =
   if (!sendBox) return;
 
   // Every control that shares the row with Send.
-  const controls = ["Attach a file", "Keyboard shortcuts", "Turn on Engineer Mode"];
+  const controls = ["Add or change how the agent works", "Start voice input", "choose a model"];
   for (const name of controls) {
     const control = page.getByRole("button", { name, exact: false }).first();
     if ((await control.count()) === 0) continue;
@@ -170,7 +175,7 @@ test("the editor's focus ring is not clipped by the window", async ({ page }) =>
   const projectId = await createProject(page, "focus-ring");
 
   await page.goto(`/projects/${projectId}`);
-  await page.getByRole("button", { name: "Code" }).click();
+  await page.getByRole("radio", { name: "Code" }).click();
   await page.getByText("index.html", { exact: false }).first().click();
 
   const editor = page.getByLabel("Edit index.html");

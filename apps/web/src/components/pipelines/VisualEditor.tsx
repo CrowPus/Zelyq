@@ -49,8 +49,9 @@ import {
   setListIn,
 } from "../../lib/pipeline-doc";
 import { duration, RUN_STATUS } from "../../lib/pipelines";
+import { teamHref } from "../../lib/routes";
 import { formatRelative } from "../../lib/vault";
-import { Button, FieldLabel, IconButton, Input, Textarea } from "../ui";
+import { Button, FieldLabel, IconButton, Input, NativeSelect, Textarea } from "../ui";
 import { StatusIcon } from "./Stages";
 
 /**
@@ -771,7 +772,7 @@ function RunStrip({
         <span className="text-fg-muted">· the file has changed since, so steps are not marked</span>
       )}
       <Link
-        to={`/pipelines/${pipelineId}/runs/${run.id}`}
+        to={teamHref(`/pipelines/${pipelineId}/runs/${run.id}`)}
         className="ml-auto font-medium text-fg-secondary underline-offset-2 hover:text-fg hover:underline"
       >
         Open the run
@@ -1238,18 +1239,18 @@ function Select({
   disabled: boolean;
 }) {
   return (
-    <select
+    <NativeSelect
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className="h-[30px] w-full min-w-0 truncate rounded-md border border-border-default bg-surface px-2 text-sm"
+      className="w-full min-w-0"
     >
       {options.map(([option, label]) => (
         <option key={option} value={option}>
           {label}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 }
 

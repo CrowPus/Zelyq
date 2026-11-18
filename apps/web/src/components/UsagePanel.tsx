@@ -4,7 +4,8 @@ import { ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
-import { Badge, Button, Spinner } from "./ui";
+import { formatDateTime } from "../lib/format";
+import { Badge, Button, confirmAction, Spinner } from "./ui";
 
 /** Megabytes in words a person reads: "740 MB", "2.4 GB". */
 export function sizeWords(mb: number): string {
@@ -71,7 +72,7 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
         What this team uses. Storage counts what it made: its apps' own files and history, undo
         points, Studio, attachments and pipeline files. Installed packages and builds are not
         counted.
-        {data.measuredAt ? ` Files measured ${new Date(data.measuredAt).toLocaleString()}.` : ""}
+        {data.measuredAt ? ` Files measured ${formatDateTime(data.measuredAt)}.` : ""}
       </p>
       {near.length > 0 && (
         <p className="mt-2 rounded-md border border-warning/25 bg-warning-subtle px-2.5 py-2 text-xs text-fg">
@@ -148,7 +149,15 @@ function FreeUpSpace({
         input.what === "undo"
           ? `Remove ${look.undoPointsRemoved} older undo point${look.undoPointsRemoved === 1 ? "" : "s"} of ${input.app.name} (the newest ${KEEP_UNDO} stay)? This frees about ${sizeWords(look.freedMb)}. Those points can no longer be gone back to.`
           : `Remove the chat attachments of ${input.app.name}? This frees about ${sizeWords(look.freedMb)}. The chat text stays; the attached files are gone.`;
-      if (!window.confirm(words)) return null;
+      if (
+        !(await confirmAction({
+          title: "Free up this space?",
+          description: words,
+          confirmLabel: "Free up space",
+          danger: true,
+        }))
+      )
+        return null;
       return await api.freeSpace(input.app.id, ask);
     },
     onSuccess: (result) => {
