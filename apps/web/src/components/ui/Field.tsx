@@ -14,6 +14,7 @@ import {
   useId,
   useState,
 } from "react";
+import { t } from "../../lib/i18n";
 
 /** Control edges use `border-control` (3:1), the one border that has to be seen. */
 const BASE =
@@ -96,7 +97,7 @@ export function Field({
             *
           </span>
         )}
-        {optional && <span className="text-xs font-normal text-fg-muted">Optional</span>}
+        {optional && <span className="text-xs font-normal text-fg-muted">{t("Optional")}</span>}
       </label>
       {control}
       {help && !error && (
@@ -134,14 +135,14 @@ export const PasswordInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HT
         <button
           type="button"
           onClick={() => setVisible((current) => !current)}
-          aria-label={visible ? "Hide password" : "Show password"}
+          aria-label={visible ? t("Hide password") : t("Show password")}
           aria-pressed={visible}
           className="absolute top-0 right-0 grid h-8 w-9 place-items-center rounded-r-md text-fg-muted transition-colors hover:text-fg"
         >
           {visible ? <EyeOff size={14} strokeWidth={1.75} /> : <Eye size={14} strokeWidth={1.75} />}
         </button>
         <span id={describedBy} className="sr-only">
-          {visible ? "Password is visible" : "Password is hidden"}
+          {visible ? t("Password is visible") : t("Password is hidden")}
         </span>
       </div>
     );
@@ -175,7 +176,7 @@ export const SearchField = forwardRef<
       {value ? (
         <button
           type="button"
-          aria-label="Clear search"
+          aria-label={t("Clear search")}
           onClick={() => onValueChange("")}
           className="absolute top-1/2 right-1.5 grid size-5 -translate-y-1/2 place-items-center rounded-sm text-fg-muted hover:bg-surface-hover hover:text-fg"
         >

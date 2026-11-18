@@ -3,6 +3,7 @@ import type { Snapshot } from "@zelyq/core";
 import { Camera } from "lucide-react";
 import { useState } from "react";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { formatRelative } from "../lib/vault";
 import { Button, Drawer, Spinner } from "./ui";
 
@@ -55,8 +56,10 @@ export function SnapshotPanel({
     <Drawer
       open={open}
       onOpenChange={onOpenChange}
-      title="Snapshots"
-      description="Copies of the app's files. One is taken before every turn; save your own any time."
+      title={t("Snapshots")}
+      description={t(
+        "Copies of the app’s files. One is taken before every turn; save your own any time.",
+      )}
       actions={
         canEdit && (
           <Button
@@ -66,7 +69,7 @@ export function SnapshotPanel({
             icon={<Camera size={13} strokeWidth={1.75} />}
             onClick={() => save.mutate()}
           >
-            Save now
+            {t("Save now")}
           </Button>
         )
       }
@@ -81,7 +84,7 @@ export function SnapshotPanel({
         <div>
           {snapshots.isPending && (
             <p className="flex items-center gap-1.5 py-3 text-2xs text-fg-secondary">
-              <Spinner className="size-3" /> Reading snapshots…
+              <Spinner className="size-3" /> {t("Reading snapshots…")}
             </p>
           )}
           {snapshots.isError && (
@@ -90,7 +93,7 @@ export function SnapshotPanel({
             </p>
           )}
           {snapshots.data?.length === 0 && (
-            <p className="py-3 text-2xs text-fg-secondary">No snapshots yet.</p>
+            <p className="py-3 text-2xs text-fg-secondary">{t("No snapshots yet.")}</p>
           )}
           {snapshots.data?.map((snapshot) => (
             <SnapshotRow
@@ -140,8 +143,10 @@ function SnapshotRow({
             {snapshot.label}
           </p>
           <p className="text-2xs text-fg-muted">
-            {formatRelative(snapshot.createdAt)} · {snapshot.fileCount} file
-            {snapshot.fileCount === 1 ? "" : "s"}
+            {t("{createdAt} · {fileCount, plural, one {# file} other {# files}}", {
+              createdAt: formatRelative(snapshot.createdAt),
+              fileCount: snapshot.fileCount,
+            })}
           </p>
         </div>
         {canEdit && !confirming && (
@@ -150,15 +155,16 @@ function SnapshotRow({
             onClick={onAsk}
             className="shrink-0 text-2xs text-fg-secondary underline underline-offset-2 hover:text-fg"
           >
-            Restore
+            {t("Restore")}
           </button>
         )}
       </div>
       {confirming && (
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-2xs">
           <span className="text-warning">
-            Put the whole app back as it was then? Every change since is lost — save a snapshot
-            first if you may want it back.
+            {t(
+              "Put the whole app back as it was then? Every change since is lost — save a snapshot first if you may want it back.",
+            )}
           </span>
           <button
             type="button"
@@ -166,10 +172,10 @@ function SnapshotRow({
             onClick={onRestore}
             className="text-danger underline underline-offset-2 disabled:opacity-50"
           >
-            {restoring ? "Restoring…" : "Restore"}
+            {restoring ? t("Restoring…") : t("Restore")}
           </button>
           <button type="button" onClick={onCancel} className="underline underline-offset-2">
-            Cancel
+            {t("Cancel")}
           </button>
         </div>
       )}

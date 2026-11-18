@@ -3,14 +3,15 @@ import type { AgentProposal } from "@zelyq/core";
 import { Clapperboard, FilePen, GitBranchPlus, Rocket, RotateCcw, Workflow } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import { TextDiff } from "../DiffView";
 import { Badge, Button, RelativeTime } from "../ui";
 
 const STATUS = {
-  pending: { label: "Waiting", tone: "warning" },
-  approved: { label: "Done", tone: "success" },
-  declined: { label: "Declined", tone: "neutral" },
-  failed: { label: "Failed", tone: "danger" },
+  pending: { label: t("Waiting"), tone: "warning" },
+  approved: { label: t("Done"), tone: "success" },
+  declined: { label: t("Declined"), tone: "neutral" },
+  failed: { label: t("Failed"), tone: "danger" },
 } as const;
 
 /**
@@ -77,9 +78,11 @@ export function AgentRequests({
     if (history.length === 0) return null;
     return (
       <section className="mb-6">
-        <h2 className="text-sm font-medium text-fg">{title ?? "Earlier requests"}</h2>
+        <h2 className="text-sm font-medium text-fg">{title ?? t("Earlier requests")}</h2>
         <p className="mt-1 text-xs text-fg-secondary">
-          What agents asked for, and how each ended. What still waits is under the bell at the top.
+          {t(
+            "What agents asked for, and how each ended. What still waits is under the bell at the top.",
+          )}
         </p>
         <ul className="mt-2 grid gap-2">
           {history.map((request) => (
@@ -98,11 +101,11 @@ export function AgentRequests({
     <section className="mb-6">
       <h2 className="text-sm font-medium text-fg">
         {waiting.length > 0
-          ? `${title ?? "Waiting for you"} (${waiting.length})`
-          : (title ?? "Requests")}
+          ? `${title ?? t("Waiting for you")} (${waiting.length})`
+          : (title ?? t("Requests"))}
       </h2>
       {waiting.length === 0 && (
-        <p className="mt-1 text-xs text-fg-secondary">Nothing waiting for approval.</p>
+        <p className="mt-1 text-xs text-fg-secondary">{t("Nothing waiting for approval.")}</p>
       )}
       {decide.isError && (
         <p className="mt-2 text-xs text-danger">{(decide.error as Error).message}</p>
@@ -123,7 +126,7 @@ export function AgentRequests({
                       disabled={decide.isPending}
                       onClick={() => decide.mutate({ id: request.id, decision: "approve" })}
                     >
-                      Approve
+                      {t("Approve")}
                     </Button>
                     <Button
                       size="sm"
@@ -131,11 +134,11 @@ export function AgentRequests({
                       disabled={decide.isPending}
                       onClick={() => decide.mutate({ id: request.id, decision: "decline" })}
                     >
-                      Decline
+                      {t("Decline")}
                     </Button>
                   </span>
                 ) : (
-                  <span className="text-2xs text-fg-muted">An admin decides</span>
+                  <span className="text-2xs text-fg-muted">{t("An admin decides")}</span>
                 )
               }
             />
@@ -149,7 +152,9 @@ export function AgentRequests({
             className="text-2xs text-fg-secondary hover:text-fg"
             onClick={() => setShowHistory((open) => !open)}
           >
-            {showHistory ? "Hide earlier requests" : `Earlier requests (${history.length})`}
+            {showHistory
+              ? t("Hide earlier requests")
+              : t("Earlier requests ({historyCount})", { historyCount: history.length })}
           </button>
           {showHistory && (
             <ul className="mt-2 grid gap-2">
@@ -207,7 +212,7 @@ function RequestRow({
             {request.status !== "pending" && <Badge tone={status.tone}>{status.label}</Badge>}
           </span>
           <span className="block text-2xs text-fg-muted">
-            asked by {request.agentName}
+            {t("asked by {agentName}", { agentName: request.agentName })}
             {appName ? ` · ${appName}` : ""} · <RelativeTime value={request.createdAt} />
           </span>
           {request.reason && (
@@ -230,14 +235,14 @@ function RequestRow({
             className="text-2xs text-fg-secondary hover:text-fg"
             onClick={() => setShowChange((open) => !open)}
           >
-            {showChange ? "Hide the change" : "Show the change"}
+            {showChange ? t("Hide the change") : t("Show the change")}
           </button>
           {showChange && (
             <div className="mt-1.5 flex max-h-96 min-h-0 flex-col overflow-hidden rounded-md border border-border-default">
               <TextDiff
                 before={change.before}
                 after={change.after}
-                empty="The file is the same as now."
+                empty={t("The file is the same as now.")}
               />
             </div>
           )}

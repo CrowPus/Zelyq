@@ -18,6 +18,8 @@ import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { AUDIT_ACTION_LABELS, auditDetailSummary } from "../lib/audit";
 import { formatDate } from "../lib/format";
+import { t, translateServerMessage } from "../lib/i18n";
+import { roleName } from "../lib/roles";
 import { teamHref, useRouteTeam } from "../lib/routes";
 
 export function TeamPage() {
@@ -41,7 +43,9 @@ export function TeamPage() {
       setError(null);
       setNotice(
         result.invited
-          ? `Invitation sent to ${result.invited}. They join when they open the link.`
+          ? t("Invitation sent to {invited}. They join when they open the link.", {
+              invited: result.invited,
+            })
           : null,
       );
       invalidate();
@@ -100,14 +104,22 @@ export function TeamPage() {
   }
 
   return (
-    <AppShell crumbs={[{ label: "Members" }]}>
+    <AppShell crumbs={[{ label: t("Members") }]}>
       <PageBody width="narrow">
         <PageHeader
-          title="Members"
-          description={`Everyone in ${team?.name ?? "this team"} sees every app in it. What they may change depends on their role.`}
+          title={t("Members")}
+          description={t(
+            "Everyone in {name} sees every app in it. What they may change depends on their role.",
+            { name: team?.name ?? t("this team") },
+          )}
           meta={
             team && (
-              <Badge tone="neutral">{`You are ${/^[aeiou]/.test(team.role) ? "an" : "a"} ${team.role}`}</Badge>
+              <Badge tone="neutral">
+                {t(
+                  "{role, select, owner {You are the owner} admin {You are an admin} editor {You are an editor} viewer {You are a viewer} other {Your role: {role}}}",
+                  { role: team.role },
+                )}
+              </Badge>
             )
           }
         />
@@ -121,19 +133,19 @@ export function TeamPage() {
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder={canInvite ? "Email address" : "Email of an existing account"}
-              aria-label="Email"
+              placeholder={canInvite ? t("Email address") : t("Email of an existing account")}
+              aria-label={t("Email")}
               className="sm:flex-1"
             />
             <NativeSelect
               value={role}
               onChange={(event) => setRole(event.target.value as Role)}
-              aria-label="Role"
+              aria-label={t("Role")}
               className="w-auto shrink-0"
             >
               {ROLES.map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {roleName(option)}
                 </option>
               ))}
             </NativeSelect>
@@ -143,7 +155,7 @@ export function TeamPage() {
               icon={<UserPlus size={13} strokeWidth={1.75} />}
               disabled={addMember.isPending || !email.trim()}
             >
-              {canInvite ? "Add or invite" : "Add"}
+              {canInvite ? t("Add or invite") : t("Add")}
             </Button>
           </form>
         )}
@@ -151,8 +163,12 @@ export function TeamPage() {
         {canManage && (
           <p className="mt-2 text-2xs text-fg-muted">
             {canInvite
-              ? "Someone with an account joins straight away. Anyone else gets an invitation email, valid for 7 days."
-              : "Only people who already have an account can be added. To invite anyone by email, a server admin turns on invitations in Server admin → Email."}
+              ? t(
+                  "Someone with an account joins straight away. Anyone else gets an invitation email, valid for 7 days.",
+                )
+              : t(
+                  "Only people who already have an account can be added. To invite anyone by email, a server admin turns on invitations in Server admin → Email.",
+                )}
           </p>
         )}
 
@@ -175,14 +191,14 @@ export function TeamPage() {
 
         <div className="mt-6 overflow-hidden rounded-lg border border-border-default bg-surface">
           <div className="grid grid-cols-[minmax(0,1fr)_130px_70px] items-center gap-3 border-b border-border-default bg-surface-subtle px-4 py-2 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-            <span>Member</span>
-            <span>Role</span>
+            <span>{t("Member")}</span>
+            <span>{t("Role")}</span>
             <span />
           </div>
 
           {members.isLoading && (
             <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-muted">
-              <Spinner /> Loading members…
+              <Spinner /> {t("Loading members…")}
             </div>
           )}
 
@@ -195,7 +211,7 @@ export function TeamPage() {
                 <p className="truncate text-sm text-fg">
                   {member.name}
                   {member.userId === user?.id && (
-                    <span className="ml-1.5 text-xs text-fg-muted">(you)</span>
+                    <span className="ml-1.5 text-xs text-fg-muted">{t("(you)")}</span>
                   )}
                 </p>
                 <p className="truncate text-xs text-fg-muted">{member.email}</p>
@@ -207,19 +223,22 @@ export function TeamPage() {
                   onChange={(event) =>
                     changeRole.mutate({ userId: member.userId, next: event.target.value as Role })
                   }
-                  aria-label={`Role for ${member.name}`}
+                  aria-label={t("Role for {name}", { name: member.name })}
                   className="w-auto"
-                  title={ROLE_DESCRIPTIONS[member.role]}
+                  title={translateServerMessage(ROLE_DESCRIPTIONS[member.role])}
                 >
                   {ROLES.map((option) => (
                     <option key={option} value={option}>
-                      {option}
+                      {roleName(option)}
                     </option>
                   ))}
                 </NativeSelect>
               ) : (
-                <span className="text-xs text-fg-secondary" title={ROLE_DESCRIPTIONS[member.role]}>
-                  {member.role}
+                <span
+                  className="text-xs text-fg-secondary"
+                  title={translateServerMessage(ROLE_DESCRIPTIONS[member.role])}
+                >
+                  {roleName(member.role)}
                 </span>
               )}
 
@@ -230,7 +249,7 @@ export function TeamPage() {
                     variant="danger"
                     onClick={() => removeMember.mutate(member.userId)}
                   >
-                    {member.userId === user?.id ? "Leave" : "Remove"}
+                    {member.userId === user?.id ? t("Leave") : t("Remove")}
                   </Button>
                 )}
               </div>
@@ -244,10 +263,11 @@ export function TeamPage() {
             className="mt-8 flex items-center justify-between gap-3 rounded-lg border border-border-default bg-surface px-4 py-3 hover:bg-surface-hover"
           >
             <span>
-              <span className="block text-sm font-medium text-fg">Team settings</span>
+              <span className="block text-sm font-medium text-fg">{t("Team settings")}</span>
               <span className="block text-xs text-fg-secondary">
-                AI keys, how apps are built, Studio, voice and Ops: everything this team decides for
-                itself.
+                {t(
+                  "AI keys, how apps are built, Studio, voice and Ops: everything this team decides for itself.",
+                )}
               </span>
             </span>
             <ChevronRight size={16} className="shrink-0 text-fg-muted" />
@@ -257,7 +277,7 @@ export function TeamPage() {
         {canManage && (invites.data?.invites.length ?? 0) > 0 && (
           <div className="mt-6">
             <h2 className="text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-              Waiting to join
+              {t("Waiting to join")}
             </h2>
             <div className="mt-2 overflow-hidden rounded-lg border border-border-default bg-surface">
               {invites.data?.invites.map((invite) => (
@@ -269,9 +289,16 @@ export function TeamPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-fg">{invite.email}</p>
                     <p className="truncate text-2xs text-fg-muted">
-                      {invite.role} · invited
-                      {invite.invitedBy ? ` by ${invite.invitedBy}` : ""} · link works until{" "}
-                      {formatDate(invite.expiresAt)}
+                      {invite.invitedBy
+                        ? t("{role} · invited by {invitedBy} · link works until {expiresAt}", {
+                            role: roleName(invite.role),
+                            invitedBy: invite.invitedBy,
+                            expiresAt: formatDate(invite.expiresAt),
+                          })
+                        : t("{role} · invited · link works until {expiresAt}", {
+                            role: roleName(invite.role),
+                            expiresAt: formatDate(invite.expiresAt),
+                          })}
                     </p>
                   </div>
                   <Button
@@ -280,7 +307,7 @@ export function TeamPage() {
                     disabled={withdraw.isPending}
                     onClick={() => withdraw.mutate(invite.id)}
                   >
-                    Withdraw
+                    {t("Withdraw")}
                   </Button>
                 </div>
               ))}
@@ -291,16 +318,16 @@ export function TeamPage() {
         {canManage && (
           <div className="mt-6">
             <h2 className="text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-              Who changed what
+              {t("Who changed what")}
             </h2>
             <div className="mt-2 overflow-hidden rounded-lg border border-border-default bg-surface">
               {auditLog.isLoading && (
                 <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-muted">
-                  <Spinner /> Loading history…
+                  <Spinner /> {t("Loading history…")}
                 </div>
               )}
               {auditLog.data && auditLog.data.entries.length === 0 && (
-                <p className="px-4 py-6 text-xs text-fg-muted">Nothing recorded yet.</p>
+                <p className="px-4 py-6 text-xs text-fg-muted">{t("Nothing recorded yet.")}</p>
               )}
               {auditLog.data?.entries.map((entry) => {
                 const detail = auditDetailSummary(entry.detail);
@@ -327,8 +354,10 @@ export function TeamPage() {
         <dl className="mt-6 grid gap-2 text-xs">
           {ROLES.map((option) => (
             <div key={option} className="flex gap-2">
-              <dt className="w-14 shrink-0 font-medium text-fg">{option}</dt>
-              <dd className="text-fg-secondary">{ROLE_DESCRIPTIONS[option]}</dd>
+              <dt className="w-14 shrink-0 font-medium text-fg">{roleName(option)}</dt>
+              <dd className="text-fg-secondary">
+                {translateServerMessage(ROLE_DESCRIPTIONS[option])}
+              </dd>
             </div>
           ))}
         </dl>

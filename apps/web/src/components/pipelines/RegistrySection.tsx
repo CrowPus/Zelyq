@@ -4,6 +4,7 @@ import { AlertTriangle, BadgeCheck, ChevronDown, ChevronRight, Download } from "
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { formatDate } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { vaultErrorMessage } from "../../lib/vault";
 import { Markdown } from "../Markdown";
 import { Badge, Button, Input, Spinner } from "../ui";
@@ -49,7 +50,13 @@ export function RegistrySection({
     mutationFn: (input: { id: string; version: string }) =>
       api.pipelines.registryInstall(team.id, input.id, input.version),
     onSuccess: ({ plugin }) => {
-      setMessage({ ok: true, text: `Installed ${plugin.pluginId}@${plugin.version}.` });
+      setMessage({
+        ok: true,
+        text: t("Installed {pluginId}@{version}.", {
+          pluginId: plugin.pluginId,
+          version: plugin.version,
+        }),
+      });
       void queryClient.invalidateQueries({ queryKey: ["pipeline-plugins", team.id] });
     },
     onError: (caught) => setMessage({ ok: false, text: vaultErrorMessage(caught) }),
@@ -71,19 +78,20 @@ export function RegistrySection({
     <section className="rounded-lg border border-border-default bg-surface p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-fg">
-          <BadgeCheck size={15} className="text-success" /> From the Zelyq registry
+          <BadgeCheck size={15} className="text-success" /> {t("From the Zelyq registry")}
         </h2>
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search plugins"
-          aria-label="Search the registry"
+          placeholder={t("Search plugins")}
+          aria-label={t("Search the registry")}
           className="max-w-xs"
         />
       </div>
       <p className="mt-1 text-2xs text-fg-muted">
-        Zelyq's own plugins, signed by Zelyq. Every package is checked against that signature before
-        it is installed.
+        {t(
+          "Zelyq’s own plugins, signed by Zelyq. Every package is checked against that signature before it is installed.",
+        )}
       </p>
 
       {withdrawn.map((entry) => (
@@ -92,7 +100,11 @@ export function RegistrySection({
           className="mt-3 flex items-start gap-1.5 rounded-md border border-warning/30 bg-warning-subtle px-2.5 py-1.5 text-xs text-warning"
         >
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-          {entry.id}@{entry.version}, installed here, was withdrawn: {entry.reason}
+          {t("{id}@{version}, installed here, was withdrawn: {reason}", {
+            id: entry.id,
+            version: entry.version,
+            reason: entry.reason,
+          })}
         </p>
       ))}
       {message && (
@@ -109,7 +121,7 @@ export function RegistrySection({
         <p className="mt-3 text-xs text-fg-muted">{vaultErrorMessage(list.error)}</p>
       ) : (list.data?.plugins.length ?? 0) === 0 ? (
         <p className="mt-3 text-xs text-fg-muted">
-          {search ? "Nothing matches." : "The registry has no plugins yet."}
+          {search ? t("Nothing matches.") : t("The registry has no plugins yet.")}
         </p>
       ) : (
         <ul className="mt-3 divide-y divide-border-default rounded-md border border-border-default">
@@ -182,7 +194,7 @@ function RegistryRow({
         </button>
         <span className="shrink-0">
           {upToDate ? (
-            <Badge tone="success">Installed v{installedVersion}</Badge>
+            <Badge tone="success">{t("Installed v{installedVersion}", { installedVersion })}</Badge>
           ) : canInstall ? (
             <Button
               size="sm"
@@ -192,15 +204,17 @@ function RegistryRow({
               onClick={onInstall}
             >
               {installing
-                ? "Installing…"
+                ? t("Installing…")
                 : installedVersion
-                  ? `Update to v${plugin.latestVersion}`
-                  : "Install"}
+                  ? t("Update to v{latestVersion}", { latestVersion: plugin.latestVersion })
+                  : t("Install")}
             </Button>
           ) : installedVersion ? (
-            <Badge tone="warning">v{plugin.latestVersion} available</Badge>
+            <Badge tone="warning">
+              {t("v{latestVersion} available", { latestVersion: plugin.latestVersion })}
+            </Badge>
           ) : (
-            <span className="text-2xs text-fg-muted">A team admin installs plugins</span>
+            <span className="text-2xs text-fg-muted">{t("A team admin installs plugins")}</span>
           )}
         </span>
       </div>
@@ -216,33 +230,36 @@ function RegistryRow({
               </div>
               {Object.keys(detail.data.plugin.inputs).length > 0 && (
                 <div className="text-xs">
-                  <p className="mb-1 font-medium text-fg">Inputs</p>
+                  <p className="mb-1 font-medium text-fg">{t("Inputs")}</p>
                   <ul className="grid gap-0.5 text-fg-secondary">
                     {Object.entries(detail.data.plugin.inputs).map(([name, input]) => (
                       <li key={name}>
                         <code className="font-mono text-fg">{name}</code>
-                        {input.required ? " (required)" : ""}
-                        {input.secret ? " · a vault:// secret" : ""} — {input.description}
+                        {input.required ? t(" (required)") : ""}
+                        {input.secret ? t(" · a vault:// secret") : ""} — {input.description}
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
               <div className="text-xs">
-                <p className="mb-1 font-medium text-fg">Use it</p>
+                <p className="mb-1 font-medium text-fg">{t("Use it")}</p>
                 <code className="block rounded bg-surface-subtle p-2 font-mono text-2xs">
                   plugin: {plugin.id}@{plugin.latestVersion}
                 </code>
               </div>
               <div className="text-xs">
-                <p className="mb-1 font-medium text-fg">Versions</p>
+                <p className="mb-1 font-medium text-fg">{t("Versions")}</p>
                 <ul className="grid gap-1 text-fg-secondary">
                   {detail.data.plugin.versions.map((version) => (
                     <li key={version.version}>
                       <span className="text-fg">v{version.version}</span> ·{" "}
                       {formatDate(version.publishedAt)}
                       {version.yanked && (
-                        <span className="text-danger"> · withdrawn: {version.yanked.reason}</span>
+                        <span className="text-danger">
+                          {" "}
+                          {t("· withdrawn: {reason}", { reason: version.yanked.reason })}
+                        </span>
                       )}
                     </li>
                   ))}

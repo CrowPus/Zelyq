@@ -5,13 +5,17 @@ import { useState } from "react";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { formatDateTime, formatNumber } from "../lib/format";
+import { t } from "../lib/i18n";
 import { Badge, Button, confirmAction, Spinner } from "./ui";
 
 /** Megabytes in words a person reads: "740 MB", "2.4 GB". */
 export function sizeWords(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(mb >= 10_240 ? 0 : 1)} GB`;
-  if (mb >= 10) return `${Math.round(mb)} MB`;
-  return `${mb.toFixed(mb >= 1 ? 1 : 2)} MB`;
+  if (mb >= 1024) {
+    return `${formatNumber(mb / 1024, { maximumFractionDigits: mb >= 10_240 ? 0 : 1, minimumFractionDigits: mb >= 10_240 ? 0 : 1 })} ${t("GB")}`;
+  }
+  if (mb >= 10) return `${formatNumber(Math.round(mb))} ${t("MB")}`;
+  const digits = mb >= 1 ? 1 : 2;
+  return `${formatNumber(mb, { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${t("MB")}`;
 }
 
 function amount(line: UsageLine, value: number): string {
@@ -41,7 +45,7 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
   const accounts = session?.accounts ?? null;
   // Changing the plan is paying for it: the team's owner does that, at the account service.
   const isOwner = teams.find((team) => team.id === teamId)?.role === "owner";
-  const title = data.plansVisible ? "Usage and plan" : "Usage";
+  const title = data.plansVisible ? t("Usage and plan") : t("Usage");
 
   return (
     <section className="mt-8" aria-label={title}>
@@ -53,7 +57,7 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
             href={accountServiceLinks(accounts).billing(teamId)}
             className="inline-flex items-center gap-1 text-xs text-info underline-offset-2 hover:underline"
           >
-            Change plan
+            {t("Change plan")}
             <ExternalLink size={11} aria-hidden />
           </a>
         )}
@@ -65,19 +69,26 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
           disabled={measure.isPending}
           onClick={() => measure.mutate()}
         >
-          {measure.isPending ? "Measuring…" : "Measure now"}
+          {measure.isPending ? t("Measuring…") : t("Measure now")}
         </Button>
       </div>
       <p className="mt-1 text-xs text-fg-secondary">
-        What this team uses. Storage counts what it made: its apps' own files and history, undo
-        points, Studio, attachments and pipeline files. Installed packages and builds are not
-        counted.
-        {data.measuredAt ? ` Files measured ${formatDateTime(data.measuredAt)}.` : ""}
+        {data.measuredAt
+          ? t(
+              "What this team uses. Storage counts what it made: its apps’ own files and history, undo points, Studio, attachments and pipeline files. Installed packages and builds are not counted. Files measured {measuredAt}.",
+              { measuredAt: formatDateTime(data.measuredAt) },
+            )
+          : t(
+              "What this team uses. Storage counts what it made: its apps’ own files and history, undo points, Studio, attachments and pipeline files. Installed packages and builds are not counted.",
+            )}
       </p>
       {near.length > 0 && (
         <p className="mt-2 rounded-md border border-warning/25 bg-warning-subtle px-2.5 py-2 text-xs text-fg">
-          Close to the plan's limit: {near.map((line) => line.label.toLowerCase()).join(", ")}. At
-          the limit, nothing new of that kind can be added; nothing that exists is touched.
+          {t("Close to the plan’s limit:")}{" "}
+          {near.map((line) => line.label.toLowerCase()).join(", ")}
+          {t(
+            ". At the limit, nothing new of that kind can be added; nothing that exists is touched.",
+          )}
         </p>
       )}
       <ul className="mt-2 grid gap-px overflow-hidden rounded-lg border border-border-default bg-border-default">
@@ -92,7 +103,7 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
                   {line.limit !== null
                     ? ` of ${amount(line, line.limit)}`
                     : data.plansVisible
-                      ? " · no limit"
+                      ? t(" · no limit")
                       : ""}
                 </span>
               </div>
@@ -106,10 +117,16 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
               )}
               {line.key === "storageMb" && (
                 <p className="mt-1 text-2xs text-fg-muted">
-                  Apps {sizeWords(data.storage.apps)} · undo points{" "}
-                  {sizeWords(data.storage.undoPoints)} · Studio {sizeWords(data.storage.studio)} ·
-                  attachments {sizeWords(data.storage.attachments)} · pipelines{" "}
-                  {sizeWords(data.storage.pipelines)}
+                  {t(
+                    "Apps {apps} · undo points {undoPoints} · Studio {studio} · attachments {attachments} · pipelines {pipelines}",
+                    {
+                      apps: sizeWords(data.storage.apps),
+                      undoPoints: sizeWords(data.storage.undoPoints),
+                      studio: sizeWords(data.storage.studio),
+                      attachments: sizeWords(data.storage.attachments),
+                      pipelines: sizeWords(data.storage.pipelines),
+                    },
+                  )}
                 </p>
               )}
             </li>
@@ -151,9 +168,9 @@ function FreeUpSpace({
           : `Remove the chat attachments of ${input.app.name}? This frees about ${sizeWords(look.freedMb)}. The chat text stays; the attached files are gone.`;
       if (
         !(await confirmAction({
-          title: "Free up this space?",
+          title: t("Free up this space?"),
           description: words,
-          confirmLabel: "Free up space",
+          confirmLabel: t("Free up space"),
           danger: true,
         }))
       )
@@ -162,17 +179,18 @@ function FreeUpSpace({
     },
     onSuccess: (result) => {
       if (!result) return;
-      setNote(`Freed ${sizeWords(result.freedMb)}.`);
+      setNote(t("Freed {freedMb}.", { freedMb: sizeWords(result.freedMb) }));
       void queryClient.invalidateQueries({ queryKey: ["team-usage", teamId] });
     },
     onError: (caught) => setNote((caught as Error).message),
   });
   return (
     <div className="mt-6">
-      <h3 className="text-sm font-medium text-fg">Free up space</h3>
+      <h3 className="text-sm font-medium text-fg">{t("Free up space")}</h3>
       <p className="mt-0.5 text-xs text-fg-secondary">
-        What each app uses, biggest first. Undo points are saved before every AI turn; an app keeps
-        only its newest ones, and you can keep fewer here.
+        {t(
+          "What each app uses, biggest first. Undo points are saved before every AI turn; an app keeps only its newest ones, and you can keep fewer here.",
+        )}
       </p>
       {note && <p className="mt-2 text-xs text-fg">{note}</p>}
       <ul className="mt-2 overflow-hidden rounded-lg border border-border-default bg-surface">
@@ -184,9 +202,15 @@ function FreeUpSpace({
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm text-fg">{app.name}</span>
               <span className="block text-2xs text-fg-muted">
-                files {sizeWords(app.files)} · {app.undoCount} undo point
-                {app.undoCount === 1 ? "" : "s"} {sizeWords(app.undoPoints)} · attachments{" "}
-                {sizeWords(app.attachments)}
+                {t(
+                  "files {files} · {undoCount} undo {undoCount, plural, one {point} other {points}} {undoPoints} · attachments {attachments}",
+                  {
+                    files: sizeWords(app.files),
+                    undoCount: app.undoCount,
+                    undoPoints: sizeWords(app.undoPoints),
+                    attachments: sizeWords(app.attachments),
+                  },
+                )}
               </span>
             </span>
             {canEdit && app.undoCount > KEEP_UNDO && (
@@ -195,7 +219,7 @@ function FreeUpSpace({
                 disabled={free.isPending}
                 onClick={() => free.mutate({ app, what: "undo" })}
               >
-                Keep newest {KEEP_UNDO} undo points
+                {t("Keep newest {KEEP_UNDO} undo points", { KEEP_UNDO })}
               </Button>
             )}
             {canEdit && app.attachments > 0 && (
@@ -205,7 +229,7 @@ function FreeUpSpace({
                 disabled={free.isPending}
                 onClick={() => free.mutate({ app, what: "attachments" })}
               >
-                Remove attachments
+                {t("Remove attachments")}
               </Button>
             )}
           </li>

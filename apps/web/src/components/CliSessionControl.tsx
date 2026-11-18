@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CircleAlert, CircleCheck, KeyRound, TriangleAlert } from "lucide-react";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { Button } from "./ui";
 
 interface Props {
@@ -10,18 +11,19 @@ interface Props {
 
 const COPY: Record<Props["provider"], { cliName: string; found: string; caution?: string }> = {
   anthropic: {
-    cliName: "Claude Code",
-    found: "A Claude Code session was found on this machine.",
+    cliName: t("Claude Code"),
+    found: t("A Claude Code session was found on this machine."),
   },
   openai: {
-    cliName: "Codex",
-    found: "A Codex session was found on this machine.",
+    cliName: t("Codex"),
+    found: t("A Codex session was found on this machine."),
     // Honest, not equal: unlike Claude's proven path, this speaks a private
     // endpoint OpenAI never published
     // for outside use. Real, but not verified against a live account the
     // way Claude's is.
-    caution:
+    caution: t(
       "Unverified: this uses a private OpenAI endpoint, not their public API. It may not work, and could stop working if OpenAI changes it.",
+    ),
   },
 };
 
@@ -61,11 +63,11 @@ export function CliSessionControl({ provider, onUsed }: Props) {
           onClick={() => use.mutate()}
           disabled={use.isPending}
         >
-          {use.isPending ? "Connecting…" : "Use this instead"}
+          {use.isPending ? t("Connecting…") : t("Use this instead")}
         </Button>
         {use.isSuccess && (
           <span className="flex shrink-0 items-center gap-1 text-2xs text-success">
-            <CircleCheck size={12} strokeWidth={1.75} /> Connected
+            <CircleCheck size={12} strokeWidth={1.75} /> {t("Connected")}
           </span>
         )}
         {use.isError && (

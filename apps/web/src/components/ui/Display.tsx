@@ -1,6 +1,7 @@
 import { AlertTriangle, Check, CheckCircle2, Copy, Info, X, XCircle } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { formatDateTime, formatRelative } from "../../lib/format.js";
+import { t } from "../../lib/i18n";
 import { Tooltip } from "./Tooltip.js";
 
 /** A placeholder the size and shape of the content it stands in for. */
@@ -17,7 +18,7 @@ export function Skeleton({ className = "" }: { className?: string }) {
 export function SkeletonRows({ rows = 4 }: { rows?: number }) {
   return (
     <div aria-busy="true" aria-live="polite" className="flex flex-col gap-3 p-4">
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{t("Loading")}</span>
       {Array.from({ length: rows }, (_, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: placeholder rows have no identity.
         <div key={i} className="flex items-center gap-3">
@@ -154,10 +155,10 @@ export function CopyButton({
     return () => clearTimeout(t);
   }, [copied]);
   return (
-    <Tooltip content={copied ? "Copied" : label}>
+    <Tooltip content={copied ? t("Copied") : label}>
       <button
         type="button"
-        aria-label={copied ? "Copied" : label}
+        aria-label={copied ? t("Copied") : label}
         onClick={() => {
           void navigator.clipboard?.writeText(value).then(() => setCopied(true));
         }}
@@ -241,7 +242,7 @@ export function Chip({
         <button
           type="button"
           onClick={onRemove}
-          aria-label={removeLabel ?? "Remove"}
+          aria-label={removeLabel ?? t("Remove")}
           className="grid size-4 place-items-center rounded-full hover:bg-accent/15"
         >
           <X size={10} strokeWidth={2.5} />

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../hooks/useSession";
 import { useTheme } from "../../hooks/useTheme";
 import { api } from "../../lib/api";
+import { currentLanguage, languageOf, switchLanguage, t } from "../../lib/i18n";
 import { Button, Card, Field, NativeSelect, SegmentedControl, toast } from "../ui";
 
 /** Languages offered, each in its own name. */
@@ -50,8 +51,12 @@ export function PreferencesCard() {
   const save = useMutation({
     mutationFn: () => api.setPreferences({ locale: locale || null, timeZone: timeZone || null }),
     onSuccess: () => {
-      toast.success("Preferences saved");
+      toast.success(t("Preferences saved"));
       refresh();
+      // Zelyq's own words follow too, when it speaks the chosen language;
+      // "same as this browser" follows the browser's.
+      const wanted = languageOf(locale || browserLocale) ?? "en";
+      if (wanted !== currentLanguage()) switchLanguage(wanted);
     },
     onError: (error) => toast.error((error as Error).message),
   });
@@ -65,8 +70,10 @@ export function PreferencesCard() {
 
   return (
     <Card
-      title="Language and region"
-      description="How dates, times and numbers are written for you, on every device you sign in on."
+      title={t("Language and region")}
+      description={t(
+        "How dates, times and numbers are written for you, on every device you sign in on.",
+      )}
       footer={
         <>
           {dirty && (
@@ -77,7 +84,7 @@ export function PreferencesCard() {
                 setTimeZone(user?.timeZone ?? "");
               }}
             >
-              Discard
+              {t("Discard")}
             </Button>
           )}
           <Button
@@ -86,18 +93,22 @@ export function PreferencesCard() {
             loading={save.isPending}
             onClick={() => save.mutate()}
           >
-            Save
+            {t("Save")}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
         <Field
-          label="Language"
-          help="Zelyq's own words are in English for now; this sets how dates and numbers are written."
+          label={t("Language")}
+          help={t(
+            "Zelyq is in English, French and German. Other languages set how dates and numbers are written; the screens stay in English.",
+          )}
         >
           <NativeSelect value={locale} onChange={(event) => setLocale(event.target.value)}>
-            <option value="">Same as this browser ({browserLocale})</option>
+            <option value="">
+              {t("Same as this browser ({browserLocale})", { browserLocale })}
+            </option>
             {LANGUAGES.map((language) => (
               <option key={language.tag} value={language.tag}>
                 {language.name}
@@ -105,9 +116,9 @@ export function PreferencesCard() {
             ))}
           </NativeSelect>
         </Field>
-        <Field label="Time zone">
+        <Field label={t("Time zone")}>
           <NativeSelect value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
-            <option value="">Same as this device ({browserZone})</option>
+            <option value="">{t("Same as this device ({browserZone})", { browserZone })}</option>
             {zones.map((zone) => (
               <option key={zone} value={zone}>
                 {zone.replace(/_/g, " ")}
@@ -116,22 +127,24 @@ export function PreferencesCard() {
           </NativeSelect>
         </Field>
         <p className="rounded-md bg-surface-subtle px-3 py-2 text-sm text-fg-secondary">
-          Dates will look like: <span className="font-medium text-fg">{example}</span>
+          {t("Dates will look like: {example}", {
+            example: <span className="font-medium text-fg">{example}</span>,
+          })}
         </p>
       </div>
       <div className="mt-6 border-t border-border-default pt-4">
-        <p className="mb-2 text-sm font-medium text-fg">Theme</p>
+        <p className="mb-2 text-sm font-medium text-fg">{t("Theme")}</p>
         <SegmentedControl
-          label="Theme"
+          label={t("Theme")}
           value={theme}
           onValueChange={(next) => setTheme(next as typeof theme)}
           options={[
-            { value: "light", label: "Light", icon: <Sun size={14} /> },
-            { value: "dark", label: "Dark", icon: <Moon size={14} /> },
-            { value: "system", label: "Match system", icon: <Monitor size={14} /> },
+            { value: "light", label: t("Light"), icon: <Sun size={14} /> },
+            { value: "dark", label: t("Dark"), icon: <Moon size={14} /> },
+            { value: "system", label: t("Match system"), icon: <Monitor size={14} /> },
           ]}
         />
-        <p className="mt-2 text-xs text-fg-muted">The theme is kept on this device only.</p>
+        <p className="mt-2 text-xs text-fg-muted">{t("The theme is kept on this device only.")}</p>
       </div>
     </Card>
   );

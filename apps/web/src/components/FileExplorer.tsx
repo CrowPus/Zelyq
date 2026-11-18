@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { collectDroppedFiles, type DroppedFile } from "../lib/files";
+import { t } from "../lib/i18n";
 import { confirmAction, IconButton, Spinner } from "./ui";
 
 interface Props {
@@ -160,7 +161,7 @@ export function FileExplorer({
   if (loading) {
     return (
       <div className="flex items-center gap-2 px-3 py-3 text-xs text-fg-muted">
-        <Spinner /> Reading files…
+        <Spinner /> {t("Reading files…")}
       </div>
     );
   }
@@ -169,15 +170,15 @@ export function FileExplorer({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border-default px-3">
         <span className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-          Files
+          {t("Files")}
         </span>
         <div className="flex items-center gap-0.5">
           {canManage && (
             <>
-              <IconButton size="sm" label="New file" onClick={() => beginCreate("file")}>
+              <IconButton size="sm" label={t("New file")} onClick={() => beginCreate("file")}>
                 <FilePlus size={13} strokeWidth={1.75} />
               </IconButton>
-              <IconButton size="sm" label="New folder" onClick={() => beginCreate("dir")}>
+              <IconButton size="sm" label={t("New folder")} onClick={() => beginCreate("dir")}>
                 <FolderPlus size={13} strokeWidth={1.75} />
               </IconButton>
             </>
@@ -187,8 +188,10 @@ export function FileExplorer({
               size="sm"
               label={
                 uploading
-                  ? "Uploading…"
-                  : `Upload into ${uploadDirFor(selected, entries) || "the app's root"} — or hover a folder to choose another`
+                  ? t("Uploading…")
+                  : t("Upload into {selected} — or hover a folder to choose another", {
+                      selected: uploadDirFor(selected, entries) || t("the app’s root"),
+                    })
               }
               disabled={uploading}
               onClick={() => {
@@ -202,7 +205,9 @@ export function FileExplorer({
           {canEdit && onAddFromStudio && (
             <IconButton
               size="sm"
-              label={`Add an image or video from Studio into ${uploadDirFor(selected, entries) || "public"}`}
+              label={t("Add an image or video from Studio into {selected}", {
+                selected: uploadDirFor(selected, entries) || "public",
+              })}
               onClick={() => onAddFromStudio(uploadDirFor(selected, entries))}
             >
               <Images size={13} strokeWidth={1.75} />
@@ -211,7 +216,7 @@ export function FileExplorer({
           {allDirectories.length > 0 && (
             <IconButton
               size="sm"
-              label={anyExpanded ? "Collapse all folders" : "Expand all folders"}
+              label={anyExpanded ? t("Collapse all folders") : t("Expand all folders")}
               onClick={() => setExpanded(anyExpanded ? new Set() : new Set(allDirectories))}
             >
               <ChevronRight
@@ -274,7 +279,7 @@ export function FileExplorer({
       )}
 
       <nav
-        aria-label="App files"
+        aria-label={t("App files")}
         onDragEnter={() => {
           if (!canUpload) return;
           dragDepth.current += 1;
@@ -315,7 +320,9 @@ export function FileExplorer({
               : {})}
           />
         ))}
-        {tree.length === 0 && <p className="px-3 py-3 text-xs text-fg-muted">No files yet.</p>}
+        {tree.length === 0 && (
+          <p className="px-3 py-3 text-xs text-fg-muted">{t("No files yet.")}</p>
+        )}
       </nav>
     </div>
   );
@@ -423,7 +430,7 @@ function TreeRow({
             {isDirectory && onUploadHere && (
               <IconButton
                 size="sm"
-                label={`Upload into ${node.path}`}
+                label={t("Upload into {path}", { path: node.path })}
                 onClick={(event) => {
                   // The row's own click toggles the folder open; uploading into
                   // it should not also collapse it.
@@ -437,14 +444,16 @@ function TreeRow({
             {canDelete && onDelete && (
               <IconButton
                 size="sm"
-                label={`Delete ${node.name}`}
+                label={t("Delete {name}", { name: node.name })}
                 onClick={async (event) => {
                   event.stopPropagation();
                   if (
                     await confirmAction({
-                      title: `Delete ${node.path}?`,
-                      description: `${isDirectory ? "Everything in this folder is deleted with it. " : ""}This cannot be undone.`,
-                      confirmLabel: "Delete",
+                      title: t("Delete {path}?", { path: node.path }),
+                      description: isDirectory
+                        ? t("Everything in this folder is deleted with it. This cannot be undone.")
+                        : t("This cannot be undone."),
+                      confirmLabel: t("Delete"),
                       danger: true,
                     })
                   ) {

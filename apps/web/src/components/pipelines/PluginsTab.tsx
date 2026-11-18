@@ -14,12 +14,17 @@ import {
 import { type ReactNode, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import { teamHref } from "../../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
 import { Button, EmptyState, Input, NativeSelect, Spinner } from "../ui";
 import { RegistrySection } from "./RegistrySection";
 
-const OS_LABEL: Record<string, string> = { linux: "Linux", macos: "macOS", windows: "Windows" };
+const OS_LABEL: Record<string, string> = {
+  linux: t("Linux"),
+  macos: "macOS",
+  windows: t("Windows"),
+};
 
 /**
  * Plugins the team installed: ready-made steps a pipeline uses with
@@ -64,9 +69,10 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-xl text-xs text-fg-secondary">
-          A plugin is a ready-made step: a pipeline uses it with{" "}
-          <code className="font-mono">plugin: publisher/name@version</code>. It runs on the runner,
-          like any step, with only the inputs you give it.
+          {t(
+            "A plugin is a ready-made step: a pipeline uses it with {code}. It runs on the runner, like any step, with only the inputs you give it.",
+            { code: <code className="font-mono">plugin: publisher/name@version</code> },
+          )}
         </p>
         {isAdmin && (
           <>
@@ -75,7 +81,7 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
               type="file"
               accept=".tar.gz,.tgz,application/gzip"
               className="hidden"
-              aria-label="Plugin package"
+              aria-label={t("Plugin package")}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
@@ -89,7 +95,7 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
               disabled={install.isPending}
               onClick={() => input.current?.click()}
             >
-              {install.isPending ? "Installing…" : "Install from a file"}
+              {install.isPending ? t("Installing…") : t("Install from a file")}
             </Button>
           </>
         )}
@@ -100,7 +106,7 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
       {error && <p className="text-xs text-danger">{error}</p>}
       {installed && (
         <p className="flex items-center gap-1 text-xs text-success">
-          <Check size={13} /> Installed {installed}.
+          <Check size={13} /> {t("Installed {installed}.", { installed })}
         </p>
       )}
 
@@ -108,11 +114,11 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
         <Spinner />
       ) : (plugins.data?.plugins.length ?? 0) === 0 ? (
         <EmptyState
-          title="No plugins yet"
+          title={t("No plugins yet")}
           description={
             isAdmin
-              ? "Install a plugin package (.tar.gz) to use it in this team's pipelines."
-              : "A team admin installs plugins."
+              ? t("Install a plugin package (.tar.gz) to use it in this team’s pipelines.")
+              : t("A team admin installs plugins.")
           }
         />
       ) : (
@@ -125,11 +131,15 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
       )}
 
       <details className="rounded-md border border-border-default p-3 text-xs text-fg-secondary">
-        <summary className="cursor-pointer font-medium text-fg">Making a plugin</summary>
+        <summary className="cursor-pointer font-medium text-fg">{t("Making a plugin")}</summary>
         <p className="mt-2">
-          A folder with a <code className="font-mono">zelyq-plugin.yml</code> at its top, and any
-          scripts its steps run. Pack it from inside the folder:{" "}
-          <code className="font-mono">tar -czf my-plugin.tar.gz -C my-plugin .</code>
+          {t(
+            "A folder with a {code} at its top, and any scripts its steps run. Pack it from inside the folder: {code2}",
+            {
+              code: <code className="font-mono">zelyq-plugin.yml</code>,
+              code2: <code className="font-mono">tar -czf my-plugin.tar.gz -C my-plugin .</code>,
+            },
+          )}
         </p>
         <pre className="mt-2 overflow-x-auto rounded bg-surface-subtle p-2 font-mono text-2xs leading-5">{`id: acme/hello                # publisher/name
 version: 1.0.0
@@ -149,11 +159,16 @@ steps:
   - name: A script of its own
     run: sh "$ZELYQ_PLUGIN_DIR/scripts/check.sh"`}</pre>
         <p className="mt-2">
-          Steps are <code className="font-mono">run</code>, <code className="font-mono">setup</code>{" "}
-          or <code className="font-mono">cache</code>. Inputs reach them only as{" "}
-          <code className="font-mono">$ZELYQ_INPUT_NAME</code>; a secret input must be given as{" "}
-          <code className="font-mono">vault://NAME</code> and is masked in the log. A version never
-          changes once installed: change the package, raise the version.
+          {t(
+            "Steps are {code}, {code2} or {code3}. Inputs reach them only as {code4}; a secret input must be given as {code5} and is masked in the log. A version never changes once installed: change the package, raise the version.",
+            {
+              code: <code className="font-mono">run</code>,
+              code2: <code className="font-mono">setup</code>,
+              code3: <code className="font-mono">cache</code>,
+              code4: <code className="font-mono">$ZELYQ_INPUT_NAME</code>,
+              code5: <code className="font-mono">vault://NAME</code>,
+            },
+          )}
         </p>
       </details>
     </div>
@@ -196,17 +211,17 @@ function PluginList({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search plugins by name or what they do"
-            aria-label="Search plugins"
+            placeholder={t("Search plugins by name or what they do")}
+            aria-label={t("Search plugins")}
             className="pl-7"
           />
         </div>
         <NativeSelect
-          aria-label="Category"
+          aria-label={t("Category")}
           value={category}
           onChange={(event) => setCategory(event.target.value)}
         >
-          <option value="">All categories</option>
+          <option value="">{t("All categories")}</option>
           {categories.map((name) => (
             <option key={name} value={name}>
               {name[0]?.toUpperCase()}
@@ -216,13 +231,13 @@ function PluginList({
         </NativeSelect>
         <span className="text-xs text-fg-muted">
           {shown.length === plugins.length
-            ? `${plugins.length} installed`
+            ? t("{pluginCount} installed", { pluginCount: plugins.length })
             : `${shown.length} of ${plugins.length}`}
         </span>
       </div>
       {shown.length === 0 ? (
         <p className="rounded-md border border-border-default px-3 py-4 text-center text-xs text-fg-muted">
-          No plugin matches.
+          {t("No plugin matches.")}
         </p>
       ) : (
         <ul className="divide-y divide-border-default rounded-md border border-border-default bg-surface">
@@ -296,7 +311,9 @@ function PluginRow({
           ))}
         </span>
         <span className="w-20 shrink-0 text-right text-2xs text-fg-muted">
-          {plugin.usedBy.length > 0 ? `used by ${plugin.usedBy.length}` : "not used"}
+          {plugin.usedBy.length > 0
+            ? t("used by {usedByCount}", { usedByCount: plugin.usedBy.length })
+            : t("not used")}
         </span>
       </button>
       {open && (
@@ -339,11 +356,16 @@ function PluginDetails({
         <div className="min-w-0 flex-1 text-xs text-fg-secondary">
           <p>{plugin.description}</p>
           <p className="mt-1">
-            Runs on{" "}
+            {t("Runs on ")}
             {(plugin.os ?? ["linux", "macos", "windows"])
               .map((os) => OS_LABEL[os] ?? os)
               .join(", ")}
-            {plugin.needs.length > 0 && <> · needs {plugin.needs.join(", ")}</>}
+            {plugin.needs.length > 0 && (
+              <>
+                {" "}
+                {t("· needs")} {plugin.needs.join(", ")}
+              </>
+            )}
           </p>
         </div>
         {canRemove && (
@@ -354,12 +376,12 @@ function PluginDetails({
             disabled={removing || plugin.usedBy.length > 0}
             title={
               plugin.usedBy.length > 0
-                ? "A pipeline uses it: change that pipeline first"
+                ? t("A pipeline uses it: change that pipeline first")
                 : undefined
             }
             onClick={onRemove}
           >
-            Remove
+            {t("Remove")}
           </Button>
         )}
       </div>
@@ -368,9 +390,9 @@ function PluginDetails({
         <table className="w-full text-xs">
           <thead className="text-left text-fg-muted">
             <tr>
-              <th className="py-1 pr-3 font-medium">Input</th>
-              <th className="py-1 pr-3 font-medium">Default</th>
-              <th className="py-1 font-medium">What it is</th>
+              <th className="py-1 pr-3 font-medium">{t("Input")}</th>
+              <th className="py-1 pr-3 font-medium">{t("Default")}</th>
+              <th className="py-1 font-medium">{t("What it is")}</th>
             </tr>
           </thead>
           <tbody>
@@ -393,7 +415,7 @@ function PluginDetails({
 
       <div className="rounded border border-border-default bg-surface p-2">
         <div className="mb-1 flex items-center justify-between text-2xs text-fg-muted">
-          <span>In a pipeline</span>
+          <span>{t("In a pipeline")}</span>
           <button
             type="button"
             className="flex items-center gap-1 hover:text-fg"
@@ -403,21 +425,30 @@ function PluginDetails({
               setTimeout(() => setCopied(false), 1500);
             }}
           >
-            {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? "Copied" : "Copy"}
+            {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? t("Copied") : t("Copy")}
           </button>
         </div>
         <pre className="overflow-x-auto font-mono text-2xs leading-5">{usage}</pre>
       </div>
 
       <p className="text-2xs text-fg-muted">
-        {plugin.steps.length} step{plugin.steps.length === 1 ? "" : "s"}: {plugin.steps.join(" · ")}
-        {" · "}
-        installed {formatRelative(plugin.installedAt)}
-        {plugin.installedBy ? ` by ${plugin.installedBy.name}` : ""} · sha256{" "}
-        <span className="font-mono">{plugin.sha256.slice(0, 12)}</span>
+        {t("{stepCount, plural, one {# step} other {# steps}}:", {
+          stepCount: plugin.steps.length,
+        })}{" "}
+        {plugin.steps.join(" · ")}
+        {plugin.installedBy
+          ? t(" · installed {installedAt} by {name} · sha256 {part}", {
+              installedAt: formatRelative(plugin.installedAt),
+              name: plugin.installedBy.name,
+              part: <span className="font-mono">{plugin.sha256.slice(0, 12)}</span>,
+            })
+          : t(" · installed {installedAt} · sha256 {part}", {
+              installedAt: formatRelative(plugin.installedAt),
+              part: <span className="font-mono">{plugin.sha256.slice(0, 12)}</span>,
+            })}
         {plugin.usedBy.length > 0 && (
           <>
-            {" · used by "}
+            {t(" · used by ")}
             {plugin.usedBy.map((pipeline, index) => (
               <span key={pipeline.id}>
                 {index > 0 && ", "}

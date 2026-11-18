@@ -28,6 +28,7 @@ import { queueSummary } from "../components/pipelines/QueueNotice";
 import { RepoFileBar } from "../components/pipelines/RepoFile";
 import { StageStrip, StatusIcon } from "../components/pipelines/Stages";
 import { VisualEditor } from "../components/pipelines/VisualEditor";
+import { t } from "../lib/i18n";
 
 // The text editor is a large module; it loads only when the YAML view is opened.
 const YamlEditor = lazy(() => import("../components/pipelines/YamlEditor"));
@@ -81,9 +82,9 @@ export function PipelinePage() {
     return parsed?.ok ? (parsed.file.inputs ?? {}) : {};
   }, [pipeline.data]);
 
-  const name = isNew ? "New pipeline" : (pipeline.data?.pipeline.name ?? "…");
+  const name = isNew ? t("New pipeline") : (pipeline.data?.pipeline.name ?? "…");
   return (
-    <AppShell crumbs={[{ label: "Pipelines", to: teamHref("/pipelines") }, { label: name }]}>
+    <AppShell crumbs={[{ label: t("Pipelines"), to: teamHref("/pipelines") }, { label: name }]}>
       <PageBody>
         <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-fg">{name}</h1>
@@ -96,7 +97,7 @@ export function PipelinePage() {
                 Object.keys(declaredInputs).length > 0 ? setAsking(true) : start.mutate(undefined)
               }
             >
-              Run now
+              {t("Run now")}
             </Button>
           )}
         </header>
@@ -128,14 +129,14 @@ export function PipelinePage() {
                 }`}
               >
                 {value === "runs"
-                  ? "Runs"
+                  ? t("Runs")
                   : value === "branches"
-                    ? "Branches"
+                    ? t("Branches")
                     : value === "file"
-                      ? "File"
+                      ? t("File")
                       : value === "triggers"
-                        ? "Triggers"
-                        : "History"}
+                        ? t("Triggers")
+                        : t("History")}
               </button>
             ))}
           </div>
@@ -156,8 +157,8 @@ export function PipelinePage() {
           <Spinner />
         ) : !pipeline.data ? (
           <EmptyState
-            title="Not found"
-            description="This pipeline is not in the team you have chosen."
+            title={t("Not found")}
+            description={t("This pipeline is not in the team you have chosen.")}
           />
         ) : tab === "file" ? (
           <FileEditor
@@ -202,7 +203,9 @@ function Runs({ teamId, pipelineId }: { teamId: string; pipelineId: string }) {
   });
   if (runs.isLoading) return <Spinner />;
   if ((runs.data?.runs.length ?? 0) === 0) {
-    return <EmptyState title="No runs yet" description="Press Run now, or add a trigger." />;
+    return (
+      <EmptyState title={t("No runs yet")} description={t("Press Run now, or add a trigger.")} />
+    );
   }
   return (
     <ul className="divide-y divide-border-default rounded-md border border-border-default">
@@ -221,7 +224,7 @@ function Runs({ teamId, pipelineId }: { teamId: string; pipelineId: string }) {
               <span className="min-w-0 flex-1 text-xs text-fg-secondary">
                 <span className="block truncate">
                   {run.triggeredBy ? run.triggeredBy.name : TRIGGER_WORDS[run.trigger]}
-                  {run.runner && <> · on {run.runner}</>}
+                  {run.runner && <> {t("· on {runner}", { runner: run.runner })}</>}
                   {run.status === "queued" && <> · {queueSummary(run.queue)}</>}
                   {run.error && <> · {run.error}</>}
                 </span>
@@ -287,8 +290,10 @@ function Branches({ teamId, pipelineId }: { teamId: string; pipelineId: string }
   if (requests.size === 0 && branches.size === 0) {
     return (
       <EmptyState
-        title="No branches yet"
-        description="Runs started by a git push or a pull request show here, one row per branch and pull request, with its latest result."
+        title={t("No branches yet")}
+        description={t(
+          "Runs started by a git push or a pull request show here, one row per branch and pull request, with its latest result.",
+        )}
       />
     );
   }
@@ -319,7 +324,7 @@ function Branches({ teamId, pipelineId }: { teamId: string; pipelineId: string }
       {requests.size > 0 && (
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-            <GitPullRequest size={14} /> Pull requests
+            <GitPullRequest size={14} /> {t("Pull requests")}
           </h2>
           <ul className="divide-y divide-border-default rounded-md border border-border-default">
             {[...requests.values()].map((run) => {
@@ -353,7 +358,7 @@ function Branches({ teamId, pipelineId }: { teamId: string; pipelineId: string }
       {branches.size > 0 && (
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-            <GitBranch size={14} /> Branches
+            <GitBranch size={14} /> {t("Branches")}
           </h2>
           <ul className="divide-y divide-border-default rounded-md border border-border-default">
             {[...branches.entries()].map(([branch, run]) =>
@@ -362,7 +367,7 @@ function Branches({ teamId, pipelineId }: { teamId: string; pipelineId: string }
           </ul>
         </section>
       )}
-      <p className="text-2xs text-fg-muted">From the newest 100 runs.</p>
+      <p className="text-2xs text-fg-muted">{t("From the newest 100 runs.")}</p>
     </div>
   );
 }
@@ -476,7 +481,7 @@ function FileEditor({
       )}
       {isNew && (
         <div className="flex flex-wrap items-center gap-2">
-          <FieldLabel>Start from</FieldLabel>
+          <FieldLabel>{t("Start from")}</FieldLabel>
           {PIPELINE_TEMPLATES.map((template) => (
             <Button key={template.id} size="sm" onClick={() => setSource(template.source)}>
               {template.label}
@@ -487,7 +492,7 @@ function FileEditor({
       <div className="flex flex-wrap items-center gap-2">
         <div
           role="tablist"
-          aria-label="Editor"
+          aria-label={t("Editor")}
           className="inline-flex rounded-md border border-border-default bg-surface p-0.5 text-xs"
         >
           {(["visual", "yaml"] as const).map((option) => (
@@ -503,7 +508,7 @@ function FileEditor({
                   : "text-fg-secondary hover:text-fg"
               }`}
             >
-              {option === "visual" ? "Visual" : "YAML"}
+              {option === "visual" ? t("Visual") : "YAML"}
             </button>
           ))}
         </div>
@@ -511,9 +516,9 @@ function FileEditor({
           <span className="ml-auto flex items-center gap-2">
             {!isNew && source !== initial && (
               <>
-                <span className="text-xs text-warning">Unsaved changes</span>
+                <span className="text-xs text-warning">{t("Unsaved changes")}</span>
                 <Button size="sm" variant="ghost" onClick={() => setSource(initial)}>
-                  Undo all
+                  {t("Undo all")}
                 </Button>
               </>
             )}
@@ -524,7 +529,7 @@ function FileEditor({
               disabled={!canSave}
               onClick={() => save.mutate()}
             >
-              {isNew ? "Create pipeline" : "Save"}
+              {isNew ? t("Create pipeline") : t("Save")}
             </Button>
           </span>
         )}
@@ -561,7 +566,7 @@ function FileEditor({
         <ul className="grid gap-1 rounded-md border border-danger/30 bg-danger-subtle p-2 text-xs text-danger">
           {parsed.issues.map((issue) => (
             <li key={`${issue.path}-${issue.message}`}>
-              {issue.line ? `Line ${issue.line}: ` : ""}
+              {issue.line ? t("Line {line}: ", { line: issue.line }) : ""}
               {issue.message}
             </li>
           ))}
@@ -584,16 +589,16 @@ function FileEditor({
               onClick={async () => {
                 if (
                   await confirmAction({
-                    title: "Delete this pipeline?",
-                    description: "Its runs are deleted with it. This cannot be undone.",
-                    confirmLabel: "Delete pipeline",
+                    title: t("Delete this pipeline?"),
+                    description: t("Its runs are deleted with it. This cannot be undone."),
+                    confirmLabel: t("Delete pipeline"),
                     danger: true,
                   })
                 )
                   remove.mutate();
               }}
             >
-              Delete pipeline
+              {t("Delete pipeline")}
             </Button>
           )}
         </div>
@@ -606,7 +611,9 @@ function FileEditor({
 function Help() {
   return (
     <details className="rounded-md border border-border-default p-3 text-xs text-fg-secondary">
-      <summary className="cursor-pointer font-medium text-fg">What can go in the file?</summary>
+      <summary className="cursor-pointer font-medium text-fg">
+        {t("What can go in the file?")}
+      </summary>
       <pre className="mt-2 overflow-x-auto font-mono text-2xs leading-5">{`name: Deploy                 # shown in the list
 runs-on: local               # or a runner's name (build-01), or labels: [linux, docker]
 source:                      # what checkout: true fetches
@@ -636,7 +643,7 @@ artifacts:
 notify:
   webhook: vault://SLACK_WEBHOOK   # Slack, Discord or any URL
   on: [failed, waiting]`}</pre>
-      <p className="mt-3 font-medium text-fg">Built-in steps</p>
+      <p className="mt-3 font-medium text-fg">{t("Built-in steps")}</p>
       <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`- setup: node@22             # also node@lts, python@3.12, java@21, go@1.26
 - setup: node                # the version in .nvmrc / .node-version
 - cache: node_modules        # kept between runs; also .venv, ~/.m2, …
@@ -659,7 +666,7 @@ notify:
     health: /health          # checked after starting; default /
 - pipeline: {run: Shop deploy, with: {environment: staging}}   # start another; waits by default
 - download: {artifact: dist}  # files the run that started this one kept`}</pre>
-      <p className="mt-3 font-medium text-fg">Inputs, one at a time, retry, keeping runs</p>
+      <p className="mt-3 font-medium text-fg">{t("Inputs, one at a time, retry, keeping runs")}</p>
       <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`inputs:                      # asked for by Run now
   environment: {choices: [staging, production], default: staging}
   version: {}                # no default: required
@@ -672,7 +679,9 @@ stages:
         retry: 2             # try a failed step again, up to 5
       - deploy: {to: "\${{ inputs.environment }}", port: 3000}
       - run: echo "$ZELYQ_INPUT_VERSION"`}</pre>
-      <p className="mt-3 font-medium text-fg">Outputs, services, test reports, commit status</p>
+      <p className="mt-3 font-medium text-fg">
+        {t("Outputs, services, test reports, commit status")}
+      </p>
       <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`source:
   repo: https://github.com/you/shop
   token: vault://GITHUB_TOKEN
@@ -690,7 +699,7 @@ stages:
           DATABASE_URL: postgres://postgres:test@\${{ services.postgres.host }}:\${{ services.postgres.port }}/postgres
       - run: echo "Shipping \${{ steps.meta.outputs.version }}"`}</pre>
       <p className="mt-3 font-medium text-fg">
-        Stages at the same time, a machine per stage, matrix
+        {t("Stages at the same time, a machine per stage, matrix")}
       </p>
       <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`stages:
   - name: Build
@@ -712,7 +721,7 @@ stages:
 
 # A stage with runs-on, or beside another, starts in an empty folder
 # of its own: check out again there. No approvals in such a stage.`}</pre>
-      <p className="mt-3 font-medium text-fg">Say what each stage waits for: needs</p>
+      <p className="mt-3 font-medium text-fg">{t("Say what each stage waits for: needs")}</p>
       <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`stages:
   - name: Build
     steps: [{checkout: true}, {run: npm run build}]
@@ -728,7 +737,7 @@ stages:
 
 # Once one stage has needs:, every stage starts as soon as what it
 # names is done — no more top to bottom. Use it instead of parallel:.`}</pre>
-      <p className="mt-3 font-medium text-fg">Templates: reuse another pipeline's stages</p>
+      <p className="mt-3 font-medium text-fg">{t("Templates: reuse another pipeline’s stages")}</p>
       <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`stages:
   - name: Checks
     uses: Node checks          # another pipeline of this team, by name
@@ -738,7 +747,7 @@ stages:
 
 # Its stages (and env) are copied in when a run starts; the run keeps
 # that copy, so changing the template changes only later runs.`}</pre>
-      <p className="mt-3 font-medium text-fg">Plugins: ready-made steps</p>
+      <p className="mt-3 font-medium text-fg">{t("Plugins: ready-made steps")}</p>
       <pre className="mt-1 overflow-x-auto font-mono text-2xs leading-5">{`- id: hello
   plugin: acme/hello@1.0.0     # installed in Pipelines → Plugins
   with:
@@ -871,23 +880,23 @@ function Triggers({
       {created?.secret && (
         <div className="rounded-md border border-warning/40 bg-warning-subtle p-3 text-xs">
           <p className="font-medium">
-            Add this webhook to your repository — the secret is shown only now.
+            {t("Add this webhook to your repository — the secret is shown only now.")}
           </p>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-            <dt className="text-fg-secondary">Payload URL</dt>
+            <dt className="text-fg-secondary">{t("Payload URL")}</dt>
             <dd className="font-mono break-all">{absolute(created.trigger.webhookUrl)}</dd>
-            <dt className="text-fg-secondary">Secret</dt>
+            <dt className="text-fg-secondary">{t("Secret")}</dt>
             <dd className="font-mono break-all">{created.secret}</dd>
-            <dt className="text-fg-secondary">Content type</dt>
+            <dt className="text-fg-secondary">{t("Content type")}</dt>
             <dd className="font-mono">application/json</dd>
           </dl>
           <p className="mt-2 text-fg-secondary">
-            GitHub: Settings → Webhooks → Add webhook, events "Just the push event" (also "Pull
-            requests" when ticked). GitLab: Settings → Webhooks, put the secret in "Secret token",
-            tick "Push events".
+            {t(
+              'GitHub: Settings → Webhooks → Add webhook, events "Just the push event" (also "Pull requests" when ticked). GitLab: Settings → Webhooks, put the secret in "Secret token", tick "Push events".',
+            )}
           </p>
           <Button size="sm" className="mt-2" onClick={() => setCreated(null)}>
-            I've added it
+            {t("I’ve added it")}
           </Button>
         </div>
       )}
@@ -895,7 +904,9 @@ function Triggers({
       {triggers.isLoading ? (
         <Spinner />
       ) : (triggers.data?.triggers.length ?? 0) === 0 ? (
-        <p className="text-xs text-fg-secondary">Nothing starts this pipeline on its own yet.</p>
+        <p className="text-xs text-fg-secondary">
+          {t("Nothing starts this pipeline on its own yet.")}
+        </p>
       ) : (
         <ul className="divide-y divide-border-default rounded-md border border-border-default">
           {triggers.data?.triggers.map((trigger) => (
@@ -912,56 +923,66 @@ function Triggers({
               <span className="min-w-0 flex-1">
                 {trigger.kind === "push" ? (
                   <>
-                    On a push to <span className="font-mono">{trigger.branches?.join(", ")}</span>
-                    {trigger.paths?.length ? (
-                      <>
-                        {" "}
-                        changing <span className="font-mono">{trigger.paths.join(", ")}</span>
-                      </>
-                    ) : null}
-                    {trigger.pullRequests ? <> · also pull requests</> : null}
+                    {trigger.paths?.length
+                      ? t("On a push to {branches} changing {paths}", {
+                          branches: (
+                            <span className="font-mono">{trigger.branches?.join(", ")}</span>
+                          ),
+                          paths: <span className="font-mono">{trigger.paths.join(", ")}</span>,
+                        })
+                      : t("On a push to {branches}", {
+                          branches: (
+                            <span className="font-mono">{trigger.branches?.join(", ")}</span>
+                          ),
+                        })}
+                    {trigger.pullRequests ? <> {t("· also pull requests")}</> : null}
                     <span className="block truncate font-mono text-2xs text-fg-muted">
                       {absolute(trigger.webhookUrl)}
                     </span>
                   </>
                 ) : trigger.kind === "app" ? (
-                  <>When the agent changes the app</>
+                  t("When the agent changes the app")
                 ) : trigger.kind === "pipeline" ? (
-                  <>
-                    After <span className="font-medium">{trigger.upstream?.name}</span>{" "}
-                    {trigger.upstream?.on.includes("failed") ? "ends (passed or failed)" : "passes"}
-                  </>
+                  trigger.upstream?.on.includes("failed") ? (
+                    t("After {name} ends (passed or failed)", {
+                      name: <span className="font-medium">{trigger.upstream?.name}</span>,
+                    })
+                  ) : (
+                    t("After {name} passes", {
+                      name: <span className="font-medium">{trigger.upstream?.name}</span>,
+                    })
+                  )
                 ) : (
-                  <>
-                    On the schedule <span className="font-mono">{trigger.cron}</span>{" "}
-                    <span className="text-xs text-fg-muted">(UTC)</span>
-                  </>
+                  t("On the schedule {cron} {part}", {
+                    cron: <span className="font-mono">{trigger.cron}</span>,
+                    part: <span className="text-xs text-fg-muted">{t("(UTC)")}</span>,
+                  })
                 )}
               </span>
               {trigger.lastFiredAt && (
                 <span className="text-xs text-fg-muted">
-                  last {formatRelative(trigger.lastFiredAt)}
+                  {t("last {lastFiredAt}", { lastFiredAt: formatRelative(trigger.lastFiredAt) })}
                 </span>
               )}
-              {!trigger.enabled && <Badge>Off</Badge>}
+              {!trigger.enabled && <Badge>{t("Off")}</Badge>}
               {canWrite && (
                 <>
                   {trigger.kind !== "app" && (
                     <IconButton
                       size="sm"
-                      label="Edit trigger"
+                      label={t("Edit trigger")}
                       onClick={() => startEditing(trigger)}
                     >
                       <Pencil size={13} />
                     </IconButton>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => toggle.mutate(trigger)}>
-                    {trigger.enabled ? "Turn off" : "Turn on"}
+                    {trigger.enabled ? t("Turn off") : t("Turn on")}
                   </Button>
                   <IconButton
                     size="sm"
                     variant="danger"
-                    label="Remove trigger"
+                    label={t("Remove trigger")}
                     onClick={() => remove.mutate(trigger.id)}
                   >
                     <Trash2 size={13} />
@@ -977,46 +998,45 @@ function Triggers({
         (kind === null ? (
           <div className="flex gap-2">
             <Button size="sm" icon={<GitBranch size={13} />} onClick={() => setKind("push")}>
-              On a git push
+              {t("On a git push")}
             </Button>
             <Button size="sm" icon={<Clock size={13} />} onClick={() => setKind("schedule")}>
-              On a schedule
+              {t("On a schedule")}
             </Button>
             <Button
               size="sm"
               icon={<Sparkles size={13} />}
               disabled={addApp.isPending}
               onClick={() => addApp.mutate()}
-              title="For pipelines whose source is an app: run whenever the agent changes it"
+              title={t("For pipelines whose source is an app: run whenever the agent changes it")}
             >
-              When the app changes
+              {t("When the app changes")}
             </Button>
             <Button size="sm" icon={<Link2 size={13} />} onClick={() => setKind("pipeline")}>
-              After another pipeline
+              {t("After another pipeline")}
             </Button>
           </div>
         ) : (
           <div className="grid gap-2 rounded-md border border-border-default p-3">
             {editing && (
               <p className="text-xs font-medium">
-                Changing a trigger
+                {t("Changing a trigger")}
                 {kind === "push" && (
                   <span className="font-normal text-fg-secondary">
-                    {" "}
-                    — its webhook address and secret stay the same.
+                    {t(" — its webhook address and secret stay the same.")}
                   </span>
                 )}
               </p>
             )}
             {kind === "pipeline" ? (
               <div className="grid gap-2">
-                <FieldLabel>Start this pipeline after</FieldLabel>
+                <FieldLabel>{t("Start this pipeline after")}</FieldLabel>
                 <NativeSelect
-                  aria-label="Upstream pipeline"
+                  aria-label={t("Upstream pipeline")}
                   value={upstreamId}
                   onChange={(event) => setUpstreamId(event.target.value)}
                 >
-                  <option value="">Choose a pipeline…</option>
+                  <option value="">{t("Choose a pipeline…")}</option>
                   {otherPipelines.data?.pipelines
                     .filter((other) => other.id !== pipelineId)
                     .map((other) => (
@@ -1031,31 +1051,34 @@ function Triggers({
                     checked={onFailed}
                     onChange={(event) => setOnFailed(event.target.checked)}
                   />
-                  Also when it fails (default: only when it passes)
+                  {t("Also when it fails (default: only when it passes)")}
                 </label>
                 <span className="text-2xs text-fg-muted">
-                  It runs with the same commit, and can take that run's artifacts with a download
-                  step.
+                  {t(
+                    "It runs with the same commit, and can take that run’s artifacts with a download step.",
+                  )}
                 </span>
               </div>
             ) : kind === "push" ? (
               <div className="grid gap-1">
-                <FieldLabel>Branches (comma-separated, release/* allowed)</FieldLabel>
+                <FieldLabel>{t("Branches (comma-separated, release/* allowed)")}</FieldLabel>
                 <Input
-                  aria-label="Branches"
+                  aria-label={t("Branches")}
                   value={branches}
                   onChange={(event) => setBranches(event.target.value)}
                 />
-                <FieldLabel>Only when these files change (optional, comma-separated)</FieldLabel>
+                <FieldLabel>
+                  {t("Only when these files change (optional, comma-separated)")}
+                </FieldLabel>
                 <Input
-                  aria-label="Paths"
+                  aria-label={t("Paths")}
                   value={paths}
-                  placeholder="frontend/**, package.json"
+                  placeholder={t("frontend/**, package.json")}
                   onChange={(event) => setPaths(event.target.value)}
                   className="font-mono"
                 />
                 <span className="text-2xs text-fg-muted">
-                  * matches within a folder, ** across folders. Empty: any change.
+                  {t("* matches within a folder, ** across folders. Empty: any change.")}
                 </span>
                 <label className="flex items-center gap-2 text-xs">
                   <input
@@ -1063,25 +1086,27 @@ function Triggers({
                     checked={pullRequests}
                     onChange={(event) => setPullRequests(event.target.checked)}
                   />
-                  Also for pull requests (GitHub) and merge requests (GitLab)
+                  {t("Also for pull requests (GitHub) and merge requests (GitLab)")}
                 </label>
                 <span className="text-2xs text-fg-muted">
-                  Runs on the request's newest commit, when it targets one of the branches. Requests
-                  from forks never run.
+                  {t(
+                    "Runs on the request’s newest commit, when it targets one of the branches. Requests from forks never run.",
+                  )}
                 </span>
               </div>
             ) : (
               <div className="grid gap-1">
-                <FieldLabel>When (cron, UTC): minute hour day month weekday</FieldLabel>
+                <FieldLabel>{t("When (cron, UTC): minute hour day month weekday")}</FieldLabel>
                 <Input
-                  aria-label="Schedule"
+                  aria-label={t("Schedule")}
                   value={cron}
                   onChange={(event) => setCron(event.target.value)}
                   className="font-mono"
                 />
                 <span className="text-2xs text-fg-muted">
-                  0 3 * * * — every day at 03:00 · */15 * * * * — every 15 minutes · 0 9 * * 1-5 —
-                  weekdays at 09:00
+                  {t(
+                    "0 3 * * * — every day at 03:00 · */15 * * * * — every 15 minutes · 0 9 * * 1-5 — weekdays at 09:00",
+                  )}
                 </span>
               </div>
             )}
@@ -1094,10 +1119,10 @@ function Triggers({
                 disabled={add.isPending || save.isPending || (kind === "pipeline" && !upstreamId)}
                 onClick={() => (editing ? save.mutate(editing) : add.mutate())}
               >
-                {editing ? "Save trigger" : "Add trigger"}
+                {editing ? t("Save trigger") : t("Add trigger")}
               </Button>
               <Button size="sm" variant="ghost" onClick={close}>
-                Cancel
+                {t("Cancel")}
               </Button>
             </div>
           </div>
@@ -1105,11 +1130,12 @@ function Triggers({
 
       <details className="rounded-md border border-border-default p-3 text-xs text-fg-secondary">
         <summary className="flex cursor-pointer items-center gap-1 font-medium text-fg">
-          <TerminalSquare size={13} /> Start a run from a script or another CI
+          <TerminalSquare size={13} /> {t("Start a run from a script or another CI")}
         </summary>
         <p className="mt-2">
-          Make a service key with the "Start pipeline runs" permission in Vault → Service keys,
-          then:
+          {t(
+            'Make a service key with the "Start pipeline runs" permission in Vault → Service keys, then:',
+          )}
         </p>
         <pre className="mt-1 overflow-x-auto rounded bg-surface-subtle p-2 font-mono text-2xs">
           {`curl -X POST ${window.location.origin}/api/v1/pipelines/${pipelineId}/runs \\
@@ -1151,7 +1177,7 @@ function InputsForm({
         onStart(values);
       }}
     >
-      <p className="text-sm font-medium">Start with:</p>
+      <p className="text-sm font-medium">{t("Start with:")}</p>
       {Object.entries(inputs).map(([name, input]) => (
         <div key={name} className="grid gap-1">
           <FieldLabel>{name}</FieldLabel>
@@ -1184,10 +1210,10 @@ function InputsForm({
           icon={<Play size={14} />}
           disabled={busy || missing.length > 0}
         >
-          Start the run
+          {t("Start the run")}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </Button>
       </div>
     </form>

@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /**
  * `/figma <share-link>` — proposal 068.
  *
@@ -39,16 +40,20 @@ export function parseFigmaCommand(draft: string): ParsedFigma | { error: string 
   try {
     url = new URL(urlMatch[0]);
   } catch {
-    return { error: `That doesn't look like a URL: ${urlMatch[0]}` };
+    return { error: t("That doesn’t look like a URL: {urlMatch}", { urlMatch: urlMatch[0] }) };
   }
 
   const keyMatch = url.pathname.match(/\/(?:design|file|proto|board)\/([A-Za-z0-9]+)/);
   if (!keyMatch?.[1]) {
-    return { error: "Couldn't find a file key in that link — use the frame's Copy link option." };
+    return {
+      error: t("Couldn’t find a file key in that link — use the frame’s Copy link option."),
+    };
   }
   const rawNode = url.searchParams.get("node-id");
   if (!rawNode) {
-    return { error: "Select the frame in Figma first, then Copy link — the link needs a node-id." };
+    return {
+      error: t("Select the frame in Figma first, then Copy link — the link needs a node-id."),
+    };
   }
   return { fileKey: keyMatch[1], nodeId: decodeURIComponent(rawNode).replace(/-/g, ":") };
 }

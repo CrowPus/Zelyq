@@ -108,6 +108,7 @@ import type {
   VideoHistory,
   VideoReference,
 } from "@zelyq/core";
+import { t, translateDisplayFields, translateServerMessage } from "./i18n";
 
 /** Supabase integration — response shapes. */
 export interface SupabaseConnection {
@@ -233,13 +234,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(
       error?.code ?? "internal",
-      error?.message ?? `Request failed with ${response.status}`,
+      error?.message
+        ? translateServerMessage(error.message)
+        : t("Request failed with {status}", { status: response.status }),
       response.status,
       error?.details,
     );
   }
 
-  return payload as T;
+  return translateDisplayFields(payload as T);
 }
 
 /** What is wrong with a pipeline file, and what will stop it from running. */

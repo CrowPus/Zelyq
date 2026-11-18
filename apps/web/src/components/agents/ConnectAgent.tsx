@@ -1,16 +1,17 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
+import { t } from "../../lib/i18n";
 import { Button, IconButton } from "../ui";
 
 type Client = "claude" | "connector" | "cursor" | "vscode" | "gemini" | "other";
 
 const CLIENTS: { id: Client; label: string }[] = [
-  { id: "claude", label: "Claude Code" },
-  { id: "connector", label: "Claude.ai / ChatGPT" },
-  { id: "cursor", label: "Cursor" },
-  { id: "vscode", label: "VS Code" },
-  { id: "gemini", label: "Gemini CLI" },
-  { id: "other", label: "Any MCP client" },
+  { id: "claude", label: t("Claude Code") },
+  { id: "connector", label: t("Claude.ai / ChatGPT") },
+  { id: "cursor", label: t("Cursor") },
+  { id: "vscode", label: t("VS Code") },
+  { id: "gemini", label: t("Gemini CLI") },
+  { id: "other", label: t("Any MCP client") },
 ];
 
 /** The gateway's address on this instance. */
@@ -36,11 +37,11 @@ export function ConnectAgent({
   const header = `Bearer ${agentKey}`;
   const snippets: Record<Client, { where: string; text: string }> = {
     claude: {
-      where: "Run this once in a terminal:",
+      where: t("Run this once in a terminal:"),
       text: `claude mcp add --transport http zelyq ${url} \\\n  --header "Authorization: ${header}"`,
     },
     cursor: {
-      where: "Add to .cursor/mcp.json (in a project, or in your home folder for all of them):",
+      where: t("Add to .cursor/mcp.json (in a project, or in your home folder for all of them):"),
       text: JSON.stringify(
         { mcpServers: { zelyq: { url, headers: { Authorization: header } } } },
         null,
@@ -48,7 +49,7 @@ export function ConnectAgent({
       ),
     },
     vscode: {
-      where: "Add to .vscode/mcp.json:",
+      where: t("Add to .vscode/mcp.json:"),
       text: JSON.stringify(
         { servers: { zelyq: { type: "http", url, headers: { Authorization: header } } } },
         null,
@@ -56,7 +57,7 @@ export function ConnectAgent({
       ),
     },
     gemini: {
-      where: "Add to ~/.gemini/settings.json:",
+      where: t("Add to ~/.gemini/settings.json:"),
       text: JSON.stringify(
         { mcpServers: { zelyq: { httpUrl: url, headers: { Authorization: header } } } },
         null,
@@ -64,13 +65,14 @@ export function ConnectAgent({
       ),
     },
     connector: {
-      where:
-        "Claude.ai and ChatGPT sign in instead of sending a key. Add a custom connector with this address; when it opens Zelyq's sign-in page, paste the key above.",
+      where: t(
+        "Claude.ai and ChatGPT sign in instead of sending a key. Add a custom connector with this address; when it opens Zelyq’s sign-in page, paste the key above.",
+      ),
       text: url,
     },
     other: {
-      where: "Any client that speaks MCP over HTTP (Streamable HTTP) and can send a header:",
-      text: `URL:     ${url}\nHeader:  Authorization: ${header}`,
+      where: t("Any client that speaks MCP over HTTP (Streamable HTTP) and can send a header:"),
+      text: t("URL:     {url}\nHeader:  Authorization: {header}", { url, header }),
     },
   };
   const snippet = snippets[client];
@@ -82,17 +84,18 @@ export function ConnectAgent({
     >
       <div>
         <p className="text-xs font-medium text-fg">
-          Key for “{name}”. Copy it now — it will not be shown again.
+          {t("Key for “{name}”. Copy it now — it will not be shown again.", { name })}
         </p>
         <p className="mt-0.5 text-2xs text-fg-secondary">
-          The agent uses its own model and subscription. Zelyq only lends it hands on the apps you
-          chose.
+          {t(
+            "The agent uses its own model and subscription. Zelyq only lends it hands on the apps you chose.",
+          )}
         </p>
       </div>
-      <CopyBlock value={agentKey} label="Copy key" />
+      <CopyBlock value={agentKey} label={t("Copy key")} />
 
       <div>
-        <div className="mb-1.5 flex flex-wrap gap-1" role="tablist" aria-label="Agent">
+        <div className="mb-1.5 flex flex-wrap gap-1" role="tablist" aria-label={t("Agent")}>
           {CLIENTS.map((option) => (
             <button
               key={option.id}
@@ -109,15 +112,17 @@ export function ConnectAgent({
           ))}
         </div>
         <p className="mb-1 text-2xs text-fg-secondary">{snippet.where}</p>
-        <CopyBlock value={snippet.text} label="Copy" multiline />
+        <CopyBlock value={snippet.text} label={t("Copy")} multiline />
         <p className="mt-1.5 text-2xs text-fg-muted">
-          Then ask the agent to call <code>my_job</code>: it learns its apps and what it may do.
+          {t("Then ask the agent to call {code}: it learns its apps and what it may do.", {
+            code: <code>my_job</code>,
+          })}
         </p>
       </div>
 
       <div className="flex justify-end">
         <Button size="sm" variant="ghost" onClick={onClose}>
-          I have copied it
+          {t("I have copied it")}
         </Button>
       </div>
     </div>
@@ -145,7 +150,7 @@ export function CopyBlock({
       )}
       <IconButton
         size="sm"
-        label={copied ? "Copied" : label}
+        label={copied ? t("Copied") : label}
         onClick={async () => {
           await navigator.clipboard.writeText(value);
           setCopied(true);

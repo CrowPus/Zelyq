@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { Button } from "./ui";
 
 /**
@@ -62,17 +63,17 @@ export function TeamStatusBanner() {
             disabled={busy}
             onClick={resume}
           >
-            {busy ? "Resuming…" : "Resume"}
+            {busy ? t("Resuming…") : t("Resume")}
           </Button>
         ) : (
-          <span className="text-fg-secondary">Ask the team's owner to resume it.</span>
+          <span className="text-fg-secondary">{t("Ask the team’s owner to resume it.")}</span>
         ))}
       {team.status === "read_only" && accounts && team.role === "owner" && (
         <a
           href={accountServiceLinks(accounts).billing(team.id)}
           className="inline-flex items-center gap-1 text-info underline-offset-2 hover:underline"
         >
-          Change plan
+          {t("Change plan")}
           <ExternalLink size={11} aria-hidden />
         </a>
       )}
@@ -81,7 +82,7 @@ export function TeamStatusBanner() {
           href={accountServiceLinks(accounts).account()}
           className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
         >
-          Contact {accounts.name}
+          {t("Contact {name}", { name: accounts.name })}
           <ExternalLink size={11} aria-hidden />
         </a>
       )}
@@ -92,8 +93,8 @@ export function TeamStatusBanner() {
 
 function defaultMessage(status: "paused" | "read_only" | "suspended"): string {
   return status === "paused"
-    ? "This team is paused because it was not used for a while. Its apps and files are kept."
+    ? t("This team is paused because it was not used for a while. Its apps and files are kept.")
     : status === "read_only"
-      ? "This team is read-only: nothing new can be made or run."
-      : "This team is suspended.";
+      ? t("This team is read-only: nothing new can be made or run.")
+      : t("This team is suspended.");
 }

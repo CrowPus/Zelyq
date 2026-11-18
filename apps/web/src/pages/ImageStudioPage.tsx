@@ -40,40 +40,44 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { formatDateParts, formatNumber } from "../lib/format";
+import { t } from "../lib/i18n";
 import { useTeamPaths } from "../lib/routes";
 
 const examples = [
   {
-    title: "Product photography",
-    detail: "Light, texture, and a little drama.",
-    prompt:
+    title: t("Product photography"),
+    detail: t("Light, texture, and a little drama."),
+    prompt: t(
       "An editorial product photograph of an amber glass perfume bottle on warm travertine, late afternoon sunlight casting long shadows, a single olive branch, restrained composition, tactile natural textures, no text.",
+    ),
   },
   {
-    title: "An imagined world",
-    detail: "Give an impossible place a real atmosphere.",
-    prompt:
+    title: t("An imagined world"),
+    detail: t("Give an impossible place a real atmosphere."),
+    prompt: t(
       "A tiny botanical library floating above a sea of clouds, glass walls glowing warmly at blue hour, overflowing plants, cinematic wide composition, intricate architectural details, dreamy but photorealistic, no text.",
+    ),
   },
   {
-    title: "Something illustrated",
-    detail: "Make a character with a story to tell.",
-    prompt:
+    title: t("Something illustrated"),
+    detail: t("Make a character with a story to tell."),
+    prompt: t(
       "A charming hand-painted illustration of a fox running a little flower shop, loose gouache brushwork on textured ivory paper, terracotta and sage palette, expressive character, storybook composition, no text.",
+    ),
   },
 ];
 const sizeLabels = {
-  "1024x1024": "Square · 1:1",
-  "1536x1024": "Landscape · 3:2",
-  "1024x1536": "Portrait · 2:3",
+  "1024x1024": t("Square · 1:1"),
+  "1536x1024": t("Landscape · 3:2"),
+  "1024x1536": t("Portrait · 2:3"),
 };
 const statusLabels = {
-  queued: "Waiting to generate",
-  generating: "Creating your image",
-  saving: "Saving your image",
-  succeeded: "Ready",
-  failed: "Generation failed",
-  unknown: "Result unconfirmed",
+  queued: t("Waiting to generate"),
+  generating: t("Creating your image"),
+  saving: t("Saving your image"),
+  succeeded: t("Ready"),
+  failed: t("Generation failed"),
+  unknown: t("Result unconfirmed"),
 };
 /** Layout only: the look comes from the shared controls. */
 const controlClass = "mt-2 w-full";
@@ -96,13 +100,13 @@ type UploadedReference = {
 
 async function referenceFromFile(file: File): Promise<UploadedReference> {
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type))
-    throw new Error("Use PNG, JPEG, or WebP reference images.");
+    throw new Error(t("Use PNG, JPEG, or WebP reference images."));
   if (file.size > maxImageReferenceBytes)
-    throw new Error("Reference images must be 8 MB or smaller.");
+    throw new Error(t("Reference images must be 8 MB or smaller."));
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Could not read that reference image."));
+    reader.onerror = () => reject(new Error(t("Could not read that reference image.")));
     reader.readAsDataURL(file);
   });
   return {
@@ -229,9 +233,11 @@ export function ImageStudioPage() {
       const next = await Promise.all([...files].slice(0, openSlots).map(referenceFromFile));
       setReferences((current) => [...current, ...next].slice(0, maxImageReferences));
       if (files.length > openSlots)
-        setReferenceError(`Use up to ${maxImageReferences} references.`);
+        setReferenceError(t("Use up to {maxImageReferences} references.", { maxImageReferences }));
     } catch (error) {
-      setReferenceError(error instanceof Error ? error.message : "Could not add that reference.");
+      setReferenceError(
+        error instanceof Error ? error.message : t("Could not add that reference."),
+      );
     }
   }
   function removeReference(id: string) {
@@ -244,28 +250,32 @@ export function ImageStudioPage() {
   }
 
   return (
-    <AppShell crumbs={[{ label: "Studio" }, { label: "Image" }]}>
+    <AppShell crumbs={[{ label: t("Studio") }, { label: t("Image") }]}>
       <PageBody>
         <PageHeader
-          title="Studio"
-          description="Make images and short videos for your apps. What you make stays in the team's private library."
+          title={t("Studio")}
+          description={t(
+            "Make images and short videos for your apps. What you make stays in the team’s private library.",
+          )}
           meta={
             <>
               <Badge tone="neutral">
-                <LockKeyhole size={11} className="mr-1" /> Private library
+                <LockKeyhole size={11} className="mr-1" /> {t("Private library")}
               </Badge>
               {provider?.modelLabel && (
-                <span className="text-xs text-fg-muted">Model: {provider.modelLabel}</span>
+                <span className="text-xs text-fg-muted">
+                  {t("Model: {modelLabel}", { modelLabel: provider.modelLabel })}
+                </span>
               )}
             </>
           }
           tabs={
             <Tabs
-              label="Studio"
+              label={t("Studio")}
               value={"image" as "image" | "video"}
               items={[
-                { id: "image", label: "Image", to: paths.studioImage },
-                { id: "video", label: "Video", to: paths.studioVideo },
+                { id: "image", label: t("Image"), to: paths.studioImage },
+                { id: "video", label: t("Video"), to: paths.studioVideo },
               ]}
             />
           }
@@ -273,20 +283,22 @@ export function ImageStudioPage() {
 
         {capabilities.isError && (
           <p role="alert" className="mb-5 text-sm text-danger">
-            Could not load image settings.{" "}
+            {t("Could not load image settings. ")}
             <button type="button" className="underline" onClick={() => void capabilities.refetch()}>
-              Try again
+              {t("Try again")}
             </button>
           </p>
         )}
         {capabilities.data && !provider?.configured && (
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-default bg-surface p-4 text-sm">
             <div>
-              <p className="font-medium text-fg">Connect an image model to get started</p>
+              <p className="font-medium text-fg">{t("Connect an image model to get started")}</p>
               <p className="mt-1 text-fg-secondary">
                 {user?.instanceRole === "admin"
-                  ? "Add this provider’s image API key in Server admin. Image generation is billed to that key."
-                  : "Ask your administrator to add an image API key in Server admin."}
+                  ? t(
+                      "Add this provider’s image API key in Server admin. Image generation is billed to that key.",
+                    )
+                  : t("Ask your administrator to add an image API key in Server admin.")}
               </p>
             </div>
             {user?.instanceRole === "admin" && (
@@ -294,7 +306,7 @@ export function ImageStudioPage() {
                 to="/admin#image-generation"
                 className="inline-flex items-center gap-2 font-medium text-fg underline underline-offset-4"
               >
-                Open Settings <ArrowUpRight size={14} />
+                {t("Open Settings")} <ArrowUpRight size={14} />
               </Link>
             )}
           </div>
@@ -310,7 +322,7 @@ export function ImageStudioPage() {
           >
             <div className="mb-5">
               <label htmlFor="image-provider" className="text-xs font-medium text-fg-secondary">
-                Image provider
+                {t("Image provider")}
               </label>
               <NativeSelect
                 id="image-provider"
@@ -327,16 +339,16 @@ export function ImageStudioPage() {
                     {entry.label}
                     {capabilities.data?.providers.find((item) => item.id === id)?.configured
                       ? ""
-                      : " · not configured"}
+                      : t(" · not configured")}
                   </option>
                 ))}
               </NativeSelect>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <span className="rounded-md border border-border-default bg-canvas px-2.5 py-2 text-fg-secondary">
-                  {provider?.referenceImages ? "References enabled" : "Prompt only"}
+                  {provider?.referenceImages ? t("References enabled") : t("Prompt only")}
                 </span>
                 <span className="rounded-md border border-border-default bg-canvas px-2.5 py-2 text-fg-secondary">
-                  {provider?.modelLabel ?? "Choose a model"}
+                  {provider?.modelLabel ?? t("Choose a model")}
                 </span>
               </div>
               {user?.instanceRole === "admin" && (
@@ -344,12 +356,12 @@ export function ImageStudioPage() {
                   to="/admin#image-generation"
                   className="mt-2 inline-block text-xs text-fg-secondary underline underline-offset-4"
                 >
-                  Image generation settings
+                  {t("Image generation settings")}
                 </Link>
               )}
             </div>
             <label htmlFor="image-prompt" className="text-sm font-semibold text-fg">
-              Prompt
+              {t("Prompt")}
             </label>
             <Textarea
               ref={promptRef}
@@ -359,15 +371,17 @@ export function ImageStudioPage() {
               maxLength={8000}
               required
               rows={7}
-              placeholder="A sunlit room overlooking the sea, soft linen curtains, warm film grain…"
+              placeholder={t(
+                "A sunlit room overlooking the sea, soft linen curtains, warm film grain…",
+              )}
               className={`${controlClass} min-h-44 resize-y text-base leading-relaxed`}
             />
             <div className="mt-2 flex justify-between gap-3 text-xs text-fg-muted">
-              <span>Try a subject, a setting, and a style.</span>
+              <span>{t("Try a subject, a setting, and a style.")}</span>
               <span>{formatNumber(prompt.length)}/8,000</span>
             </div>
             <div className="mt-6">
-              <p className="text-xs font-medium text-fg-secondary">Aspect ratio</p>
+              <p className="text-xs font-medium text-fg-secondary">{t("Aspect ratio")}</p>
               <div className="mt-2 grid grid-cols-3 gap-2">
                 {ratios.map((ratio) => (
                   <button
@@ -388,7 +402,7 @@ export function ImageStudioPage() {
             </div>
             <div className="mt-4">
               <label htmlFor="image-quality" className="text-xs font-medium text-fg-secondary">
-                Quality
+                {t("Quality")}
                 <NativeSelect
                   id="image-quality"
                   disabled={supportedQualities.length === 1}
@@ -399,12 +413,12 @@ export function ImageStudioPage() {
                   {supportedQualities.map((value) => (
                     <option key={value} value={value}>
                       {supportedQualities.length === 1
-                        ? "Standard · 1K"
+                        ? t("Standard · 1K")
                         : value === "low"
-                          ? "Quick draft"
+                          ? t("Quick draft")
                           : value === "medium"
-                            ? "Balanced"
-                            : "High detail"}
+                            ? t("Balanced")
+                            : t("High detail")}
                     </option>
                   ))}
                 </NativeSelect>
@@ -413,7 +427,7 @@ export function ImageStudioPage() {
             <div className="mt-5">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <label htmlFor="image-references" className="text-xs font-medium text-fg-secondary">
-                  Reference images
+                  {t("Reference images")}
                 </label>
                 <span className="text-xs text-fg-muted">
                   {references.length}/{maxImageReferences}
@@ -430,10 +444,12 @@ export function ImageStudioPage() {
                 <Images size={22} strokeWidth={1.5} />
                 <span className="mt-2 text-sm">
                   {supportsReferences
-                    ? "Upload style or subject references"
-                    : "Not available for this provider"}
+                    ? t("Upload style or subject references")
+                    : t("Not available for this provider")}
                 </span>
-                <span className="mt-1 text-xs text-fg-muted">PNG, JPEG, or WebP up to 8 MB</span>
+                <span className="mt-1 text-xs text-fg-muted">
+                  {t("PNG, JPEG, or WebP up to 8 MB")}
+                </span>
               </label>
               <input
                 id="image-references"
@@ -461,8 +477,8 @@ export function ImageStudioPage() {
                       />
                       <button
                         type="button"
-                        title="Remove reference"
-                        aria-label="Remove reference"
+                        title={t("Remove reference")}
+                        aria-label={t("Remove reference")}
                         onClick={() => removeReference(reference.id)}
                         className="absolute right-1 top-1 rounded-full bg-surface/90 p-1 text-fg-secondary hover:text-danger"
                       >
@@ -474,7 +490,7 @@ export function ImageStudioPage() {
                     <label
                       htmlFor="image-references"
                       className="grid aspect-square cursor-pointer place-items-center rounded-lg border border-dashed border-border-default bg-canvas text-fg-muted hover:border-border-strong"
-                      title="Add reference"
+                      title={t("Add reference")}
                     >
                       <Plus size={18} />
                     </label>
@@ -489,10 +505,10 @@ export function ImageStudioPage() {
             </div>
             <p className="mt-3 text-xs leading-relaxed text-fg-muted">
               {selectedProviderId === "openai"
-                ? "OpenAI can generate from text or remix your references."
+                ? t("OpenAI can generate from text or remix your references.")
                 : selectedProviderId === "google"
-                  ? "Google can use references and returns native image dimensions."
-                  : "xAI currently generates from the prompt only."}
+                  ? t("Google can use references and returns native image dimensions.")
+                  : t("xAI currently generates from the prompt only.")}
             </p>
             <Button
               type="submit"
@@ -508,12 +524,12 @@ export function ImageStudioPage() {
               icon={generate.isPending || active ? <Spinner /> : <Sparkles size={16} />}
             >
               {generate.isPending
-                ? "Submitting…"
+                ? t("Submitting…")
                 : active
-                  ? "Generation in progress"
+                  ? t("Generation in progress")
                   : generate.isError
-                    ? "Retry request"
-                    : "Generate image"}
+                    ? t("Retry request")
+                    : t("Generate image")}
             </Button>
             {generate.isError && (
               <p role="alert" className="mt-3 text-sm text-danger">
@@ -521,16 +537,16 @@ export function ImageStudioPage() {
               </p>
             )}
             <p className="mt-3 text-center text-xs text-fg-muted">
-              Your images are only visible to you.
+              {t("Your images are only visible to you.")}
             </p>
           </form>
 
           <section
-            aria-label="Image preview"
+            aria-label={t("Image preview")}
             className="min-w-0 overflow-hidden rounded-2xl border border-border-default bg-surface"
           >
             <div className="flex items-center justify-between border-b border-border-default px-5 py-3 text-xs text-fg-secondary">
-              <span>Canvas</span>
+              <span>{t("Canvas")}</span>
               <span>{selected ? statusLabels[selected.status] : ""}</span>
             </div>
             {selectedId && detail.isError ? (
@@ -539,7 +555,7 @@ export function ImageStudioPage() {
                 className="grid min-h-96 place-content-center gap-3 p-8 text-center text-sm text-danger"
               >
                 <p>{detail.error.message}</p>
-                <Button onClick={() => void detail.refetch()}>Try again</Button>
+                <Button onClick={() => void detail.refetch()}>{t("Try again")}</Button>
               </div>
             ) : selectedId && detail.isLoading ? (
               <div className="grid min-h-96 place-items-center">
@@ -566,8 +582,9 @@ export function ImageStudioPage() {
                             {statusLabels[selected.status]}
                           </h2>
                           <p className="mt-2 text-sm leading-relaxed text-fg-secondary">
-                            Good details take a moment. You can leave this page; your image will be
-                            saved here.
+                            {t(
+                              "Good details take a moment. You can leave this page; your image will be saved here.",
+                            )}
                           </p>
                         </>
                       ) : (
@@ -595,11 +612,13 @@ export function ImageStudioPage() {
                         ? `${selected.asset.width}×${selected.asset.height}`
                         : sizeLabels[selected.size]}
                       {selected.referenceCount > 0
-                        ? ` · ${selected.referenceCount} reference${selected.referenceCount === 1 ? "" : "s"}`
+                        ? t(" · {referenceCount, plural, one {# reference} other {# references}}", {
+                            referenceCount: selected.referenceCount,
+                          })
                         : ""}
                     </span>
                     <Button size="sm" onClick={() => reuse(selected)} icon={<RotateCw size={13} />}>
-                      Use prompt
+                      {t("Use prompt")}
                     </Button>
                     {selected.asset && (
                       <a
@@ -607,7 +626,7 @@ export function ImageStudioPage() {
                         download
                         className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-fg"
                       >
-                        <ArrowDownToLine size={13} /> Download PNG
+                        <ArrowDownToLine size={13} /> {t("Download PNG")}
                       </a>
                     )}
                   </div>
@@ -627,9 +646,11 @@ export function ImageStudioPage() {
                   <div className="mx-auto mb-6 grid size-16 rotate-[-8deg] place-items-center rounded-2xl border border-border-default bg-surface">
                     <ImagePlus size={27} strokeWidth={1.3} className="text-fg-secondary" />
                   </div>
-                  <h2 className="text-xl font-medium tracking-tight text-fg">Nothing made yet</h2>
+                  <h2 className="text-xl font-medium tracking-tight text-fg">
+                    {t("Nothing made yet")}
+                  </h2>
                   <p className="mt-3 text-sm leading-relaxed text-fg-muted">
-                    Describe an image on the left and it appears here.
+                    {t("Describe an image on the left and it appears here.")}
                   </p>
                 </div>
               </div>
@@ -639,7 +660,7 @@ export function ImageStudioPage() {
 
         {!generations.length && !history.isLoading && (
           <section className="mt-8">
-            <h2 className="mb-4 text-sm font-medium text-fg">A little inspiration</h2>
+            <h2 className="mb-4 text-sm font-medium text-fg">{t("A little inspiration")}</h2>
             <div className="grid gap-3 md:grid-cols-3">
               {examples.map((example, index) => (
                 <button
@@ -663,17 +684,17 @@ export function ImageStudioPage() {
           </section>
         )}
 
-        <section className="mt-10" aria-label="Image history">
+        <section className="mt-10" aria-label={t("Image history")}>
           <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-lg font-medium tracking-tight text-fg">Your creations</h2>
-            <span className="text-xs text-fg-muted">Saved as you create</span>
+            <h2 className="text-lg font-medium tracking-tight text-fg">{t("Your creations")}</h2>
+            <span className="text-xs text-fg-muted">{t("Saved as you create")}</span>
           </div>
           {history.isLoading && <Spinner />}
           {history.isError && (
             <p role="alert" className="mb-4 text-sm text-danger">
-              Could not load your library.{" "}
+              {t("Could not load your library. ")}
               <button type="button" className="underline" onClick={() => void history.refetch()}>
-                Try again
+                {t("Try again")}
               </button>
             </p>
           )}
@@ -684,7 +705,7 @@ export function ImageStudioPage() {
           )}
           {!generations.length && !history.isLoading && !history.isError && (
             <p className="rounded-xl border border-dashed border-border-default p-7 text-center text-sm text-fg-muted">
-              Your first image is waiting to happen.
+              {t("Your first image is waiting to happen.")}
             </p>
           )}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
@@ -699,7 +720,7 @@ export function ImageStudioPage() {
                     setParams({ image: job.id });
                     setConfirmDelete(null);
                   }}
-                  aria-label={`View image: ${job.prompt}`}
+                  aria-label={t("View image: {prompt}", { prompt: job.prompt })}
                   className="block w-full text-left"
                 >
                   <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-canvas">
@@ -723,7 +744,7 @@ export function ImageStudioPage() {
                     )}
                     {job.referenceCount > 0 && (
                       <span className="absolute left-2 top-2 rounded-full bg-surface/90 px-2 py-1 text-2xs font-medium text-fg-secondary">
-                        {job.referenceCount} ref
+                        {t("{referenceCount} ref", { referenceCount: job.referenceCount })}
                       </span>
                     )}
                     {job.source === "agent" && (
@@ -731,12 +752,14 @@ export function ImageStudioPage() {
                         className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-surface/90 px-2 py-1 text-2xs font-medium text-fg-secondary"
                         title={
                           job.projectName
-                            ? `Made by the agent in ${job.projectName}`
-                            : "Made by the agent"
+                            ? t("Made by the agent in {projectName}", {
+                                projectName: job.projectName,
+                              })
+                            : t("Made by the agent")
                         }
                       >
                         <Bot size={10} />
-                        {job.projectName || "agent"}
+                        {job.projectName || t("agent")}
                       </span>
                     )}
                   </div>
@@ -760,17 +783,17 @@ export function ImageStudioPage() {
                           disabled={remove.isPending}
                           onClick={() => remove.mutate(job.id)}
                         >
-                          Delete
+                          {t("Delete")}
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>
-                          Keep
+                          {t("Keep")}
                         </Button>
                       </div>
                     ) : (
                       <button
                         type="button"
-                        aria-label="Delete generation"
-                        title="Delete generation"
+                        aria-label={t("Delete generation")}
+                        title={t("Delete generation")}
                         onClick={() => setConfirmDelete(job.id)}
                         className="rounded p-1 text-fg-muted hover:bg-danger-subtle hover:text-danger"
                       >
@@ -787,7 +810,7 @@ export function ImageStudioPage() {
                 disabled={history.isFetchingNextPage}
                 onClick={() => void history.fetchNextPage()}
               >
-                {history.isFetchingNextPage ? "Loading…" : "Load more"}
+                {history.isFetchingNextPage ? t("Loading…") : t("Load more")}
               </Button>
             </div>
           )}

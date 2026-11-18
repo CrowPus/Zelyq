@@ -49,6 +49,7 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { ApiError, api } from "../lib/api";
 import { MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
+import { t } from "../lib/i18n";
 import type { SelectedElement } from "../lib/inspector";
 import { type AppPanel, useTeamPaths } from "../lib/routes";
 
@@ -188,9 +189,9 @@ export function ProjectEditorPage() {
 
   if (project.isLoading) {
     return (
-      <AppShell crumbs={[{ label: "Build" }]} app={{ id, name: "…" }}>
+      <AppShell crumbs={[{ label: t("Build") }]} app={{ id, name: "…" }}>
         <div className="grid h-full place-items-center">
-          <Spinner label="Opening the app" />
+          <Spinner label={t("Opening the app")} />
         </div>
       </AppShell>
     );
@@ -198,18 +199,18 @@ export function ProjectEditorPage() {
 
   if (project.isError) {
     return (
-      <AppShell crumbs={[{ label: "Not found" }]}>
+      <AppShell crumbs={[{ label: t("Not found") }]}>
         <ErrorState
-          title="This app could not be opened"
+          title={t("This app could not be opened")}
           error={
             project.error instanceof ApiError && project.error.status === 404
-              ? "It may have been deleted, or it belongs to a team you are not in."
+              ? t("It may have been deleted, or it belongs to a team you are not in.")
               : project.error
           }
           onRetry={() => project.refetch()}
           action={
             <Link to={p.apps} className={buttonClass("secondary")}>
-              All apps
+              {t("All apps")}
             </Link>
           }
         />
@@ -226,11 +227,11 @@ export function ProjectEditorPage() {
     id,
     name: current.name,
     status: statusOf(current.status),
-    statusLabel: current.status === "ready" ? "Ready" : undefined,
+    statusLabel: current.status === "ready" ? t("Ready") : undefined,
   };
 
   return (
-    <AppShell crumbs={[{ label: "Build" }]} app={shellApp}>
+    <AppShell crumbs={[{ label: t("Build") }]} app={shellApp}>
       {canEdit && (
         <GitPanel
           projectId={id}
@@ -271,7 +272,7 @@ export function ProjectEditorPage() {
         <div className="hidden h-11 items-center gap-2 border-b border-border-default bg-surface px-2 md:flex">
           <IconButton
             size="sm"
-            label={chatCollapsed ? "Show chat" : "Hide chat"}
+            label={chatCollapsed ? t("Show chat") : t("Hide chat")}
             aria-pressed={chatCollapsed}
             onClick={() => setChatCollapsed((v) => !v)}
           >
@@ -284,7 +285,7 @@ export function ProjectEditorPage() {
           {rightPane === "code" && (
             <IconButton
               size="sm"
-              label={treeCollapsed ? "Show file tree" : "Hide file tree"}
+              label={treeCollapsed ? t("Show file tree") : t("Hide file tree")}
               aria-pressed={treeCollapsed}
               onClick={() => setTreeCollapsed((v) => !v)}
             >
@@ -293,18 +294,18 @@ export function ProjectEditorPage() {
           )}
           <div className="flex flex-1 justify-center">
             <SegmentedControl
-              label="Show"
+              label={t("Show")}
               size="sm"
               value={rightPane}
               onValueChange={(next) => setPane(next)}
               options={[
                 {
                   value: "preview",
-                  label: "Preview",
+                  label: t("Preview"),
                   icon: <Monitor size={13} strokeWidth={1.75} />,
                 },
-                { value: "code", label: "Code", icon: <Code2 size={13} strokeWidth={1.75} /> },
-                { value: "plan", label: "Plan", icon: <Compass size={13} strokeWidth={1.75} /> },
+                { value: "code", label: t("Code"), icon: <Code2 size={13} strokeWidth={1.75} /> },
+                { value: "plan", label: t("Plan"), icon: <Compass size={13} strokeWidth={1.75} /> },
               ]}
             />
           </div>
@@ -453,8 +454,10 @@ export function ProjectEditorPage() {
                     const tooBig = dropped.filter((d) => d.file.size > MAX_UPLOAD_BYTES);
                     if (tooBig.length > 0) {
                       setUploadError(
-                        `${tooBig.length === 1 ? tooBig[0]!.relativePath : `${tooBig.length} files`} ` +
-                          `exceeded the ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB limit and ` +
+                        `${tooBig.length === 1 ? tooBig[0]!.relativePath : t("{tooBigCount} files", { tooBigCount: tooBig.length })} ` +
+                          t("exceeded the {MAX_UPLOAD_BYTES} MB limit and ", {
+                            MAX_UPLOAD_BYTES: Math.round(MAX_UPLOAD_BYTES / 1024 / 1024),
+                          }) +
                           "was not uploaded.",
                       );
                     }
@@ -485,7 +488,7 @@ export function ProjectEditorPage() {
                         setSelectedPath(last);
                       }
                     } catch (error) {
-                      setUploadError((error as Error).message || "Upload failed.");
+                      setUploadError((error as Error).message || t("Upload failed."));
                     } finally {
                       setUploading(false);
                     }
@@ -514,7 +517,7 @@ export function ProjectEditorPage() {
                       className="underline hover:no-underline"
                       onClick={() => setUploadError(null)}
                     >
-                      dismiss
+                      {t("dismiss")}
                     </button>
                   </p>
                 )}
@@ -576,34 +579,34 @@ function AppMenu({
           size="sm"
           variant="ghost"
           icon={<MoreHorizontal size={14} />}
-          aria-label="More app tools"
+          aria-label={t("More app tools")}
         >
-          More
+          {t("More")}
         </Button>
       }
     >
       <MenuItem icon={<Variable size={14} />} onSelect={() => onPanel("variables")}>
-        Variables
+        {t("Variables")}
       </MenuItem>
       {canEdit && (
         <MenuItem icon={<GitBranch size={14} />} onSelect={() => onPanel("git")}>
-          Git
+          {t("Git")}
         </MenuItem>
       )}
       <MenuItem icon={<Camera size={14} />} onSelect={() => onPanel("snapshots")}>
-        Snapshots
+        {t("Snapshots")}
       </MenuItem>
       {canEdit && hasBackend && (
         <MenuItem icon={<Database size={14} />} onSelect={() => onPanel("backend")}>
-          Backend
+          {t("Backend")}
         </MenuItem>
       )}
       <MenuSeparator />
       <MenuItem icon={<LayoutDashboard size={14} />} onSelect={onOverview}>
-        Overview
+        {t("Overview")}
       </MenuItem>
       <MenuItem icon={<Settings size={14} />} onSelect={onSettings}>
-        App settings
+        {t("App settings")}
       </MenuItem>
     </Menu>
   );
@@ -622,16 +625,16 @@ function PaneBar({
   canEdit: boolean;
 }) {
   const items: Array<{ id: Pane; label: string; icon: React.ReactNode }> = [
-    { id: "chat", label: "Chat", icon: <MessageSquare size={18} strokeWidth={1.75} /> },
-    { id: "preview", label: "Preview", icon: <Monitor size={18} strokeWidth={1.75} /> },
-    { id: "code", label: "Code", icon: <Code2 size={18} strokeWidth={1.75} /> },
+    { id: "chat", label: t("Chat"), icon: <MessageSquare size={18} strokeWidth={1.75} /> },
+    { id: "preview", label: t("Preview"), icon: <Monitor size={18} strokeWidth={1.75} /> },
+    { id: "code", label: t("Code"), icon: <Code2 size={18} strokeWidth={1.75} /> },
   ];
   const tab =
     "flex flex-col items-center justify-center gap-0.5 py-2 text-2xs font-medium transition-colors";
 
   return (
     <nav
-      aria-label="Panes"
+      aria-label={t("Panes")}
       className="grid grid-cols-4 border-t border-border-default bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       {items.map((item) => (
@@ -654,24 +657,24 @@ function PaneBar({
             className={`${tab} ${pane === "plan" ? "text-accent" : "text-fg-muted hover:text-fg-secondary"}`}
           >
             <MoreHorizontal size={18} strokeWidth={1.75} />
-            More
+            {t("More")}
           </button>
         }
       >
         <MenuItem icon={<Compass size={14} />} onSelect={() => onChange("plan")}>
-          Plan
+          {t("Plan")}
         </MenuItem>
         <MenuSeparator />
         <MenuItem icon={<Variable size={14} />} onSelect={() => onMore("variables")}>
-          Variables
+          {t("Variables")}
         </MenuItem>
         {canEdit && (
           <MenuItem icon={<GitBranch size={14} />} onSelect={() => onMore("git")}>
-            Git
+            {t("Git")}
           </MenuItem>
         )}
         <MenuItem icon={<Camera size={14} />} onSelect={() => onMore("snapshots")}>
-          Snapshots
+          {t("Snapshots")}
         </MenuItem>
       </Menu>
     </nav>
@@ -709,23 +712,23 @@ function DeployPopover({
       className="w-80"
       trigger={
         <Button size="sm" variant="primary" icon={<Rocket size={13} />}>
-          Deploy
+          {t("Deploy")}
         </Button>
       }
     >
       <div className="border-b border-border-default px-4 py-3">
-        <p className="text-sm font-semibold text-fg">Deploy {appName}</p>
+        <p className="text-sm font-semibold text-fg">{t("Deploy {appName}", { appName })}</p>
         <p className="mt-0.5 text-xs text-fg-secondary">
-          A pipeline puts the app on an environment once its tests pass.
+          {t("A pipeline puts the app on an environment once its tests pass.")}
         </p>
       </div>
       {environments.isLoading ? (
         <div className="p-4">
-          <Spinner label="Reading environments" />
+          <Spinner label={t("Reading environments")} />
         </div>
       ) : list.length === 0 ? (
         <div className="px-4 py-4 text-sm text-fg-secondary">
-          No environments yet. Add one, then a pipeline that deploys this app.
+          {t("No environments yet. Add one, then a pipeline that deploys this app.")}
         </div>
       ) : (
         <ul className="max-h-64 divide-y divide-border-default overflow-y-auto">
@@ -744,11 +747,15 @@ function DeployPopover({
                   {live ? (
                     <StatusBadge
                       status={statusOf(live.status)}
-                      label={live.status === "live" ? `Live #${live.number}` : undefined}
+                      label={
+                        live.status === "live"
+                          ? t("Live #{number}", { number: live.number })
+                          : undefined
+                      }
                       variant="inline"
                     />
                   ) : (
-                    <span className="text-xs text-fg-muted">Not deployed</span>
+                    <span className="text-xs text-fg-muted">{t("Not deployed")}</span>
                   )}
                 </Link>
               </li>
@@ -762,14 +769,14 @@ function DeployPopover({
           onClick={() => setOpen(false)}
           className={buttonClass("ghost", "sm")}
         >
-          Pipelines
+          {t("Pipelines")}
         </Link>
         <Link
           to={p.deployments}
           onClick={() => setOpen(false)}
           className={buttonClass("secondary", "sm")}
         >
-          {list.length === 0 ? "Set up deployments" : "All deployments"}
+          {list.length === 0 ? t("Set up deployments") : t("All deployments")}
         </Link>
       </div>
     </Popover>

@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { teamKey, teamPaths } from "../lib/routes";
 import { Button, Dialog, Field, Input, toast } from "./ui";
 
@@ -29,7 +30,7 @@ export function NewTeamDialog({
       await queryClient.invalidateQueries({ queryKey: ["teams"] });
       onOpenChange(false);
       setName("");
-      toast.success(`Created ${team.name}`);
+      toast.success(t("Created {name}", { name: team.name }));
       navigate(teamPaths(teamKey(team)).home);
     } catch (err) {
       setError((err as Error).message);
@@ -42,16 +43,18 @@ export function NewTeamDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="New team"
-      description="A team has its own apps, Vault, pipelines and settings. You can invite people once it exists."
+      title={t("New team")}
+      description={t(
+        "A team has its own apps, Vault, pipelines and settings. You can invite people once it exists.",
+      )}
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" loading={busy} disabled={!name.trim()} onClick={create}>
-            Create team
+            {t("Create team")}
           </Button>
         </>
       }
@@ -62,12 +65,12 @@ export function NewTeamDialog({
           void create();
         }}
       >
-        <Field label="Team name" error={error}>
+        <Field label={t("Team name")} error={error}>
           <Input
             autoFocus
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Design team"
+            placeholder={t("Design team")}
             maxLength={80}
           />
         </Field>

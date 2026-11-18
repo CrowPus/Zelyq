@@ -3,6 +3,7 @@ import { CircleAlert, CircleCheck, GraduationCap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../lib/api";
 import { buildSkillUploadFiles } from "../lib/files";
+import { t } from "../lib/i18n";
 import { Button } from "./ui";
 
 /**
@@ -68,7 +69,7 @@ export function SkillUploadControl({ onUploaded }: { onUploaded?: () => void }) 
         onClick={() => inputRef.current?.click()}
         disabled={upload.isPending}
       >
-        {upload.isPending ? "Uploading…" : "Upload a skill"}
+        {upload.isPending ? t("Uploading…") : t("Upload a skill")}
       </Button>
 
       {upload.isError && (
@@ -80,9 +81,10 @@ export function SkillUploadControl({ onUploaded }: { onUploaded?: () => void }) 
       {uploaded && !upload.isPending && !upload.isError && (
         <p className="mt-1.5 flex items-start gap-1 text-2xs text-success">
           <CircleCheck size={12} strokeWidth={1.75} className="mt-px shrink-0" />
-          Uploaded "{uploaded.name}" ({uploaded.fileCount} file{uploaded.fileCount === 1 ? "" : "s"}
-          ). Restart the agent to activate it — uploading never changes what a running turn can
-          already reach.
+          {t(
+            'Uploaded "{name}" ({fileCount, plural, one {# file} other {# files}}). Restart the agent to activate it — uploading never changes what a running turn can already reach.',
+            { name: uploaded.name, fileCount: uploaded.fileCount },
+          )}
         </p>
       )}
     </div>
@@ -94,7 +96,7 @@ export function SkillUploadControl({ onUploaded }: { onUploaded?: () => void }) 
  * Showing the first one is what would have made this bug obvious the
  * moment it happened live, instead of needing to be reproduced by hand. */
 function describeUploadError(error: unknown): string {
-  if (!(error instanceof ApiError)) return "Could not upload that skill.";
+  if (!(error instanceof ApiError)) return t("Could not upload that skill.");
   const issues = error.details?.issues;
   const first = Array.isArray(issues) ? (issues[0] as { path?: string; message?: string }) : null;
   if (first?.message)

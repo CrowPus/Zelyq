@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type TeamMailInput } from "../lib/api";
+import { t } from "../lib/i18n";
 import { type SecretFrom, SecretSource } from "./SecretSource";
 import { Button, confirmAction, FieldLabel, Input, NativeSelect, Spinner } from "./ui";
 
@@ -64,7 +65,7 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
   const test = useMutation({
     mutationFn: () => api.testTeamMail(teamId),
     onSuccess: (result) =>
-      setNotice({ ok: true, text: `Sent to ${result.to}. Check that it arrived.` }),
+      setNotice({ ok: true, text: t("Sent to {to}. Check that it arrived.", { to: result.to }) }),
     onError: failed,
   });
   const remove = useMutation({
@@ -87,14 +88,14 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
   const showForm = canManage && (editing || !mail);
 
   return (
-    <section className="mt-8" id="email" aria-label="Email">
+    <section className="mt-8" id="email" aria-label={t("Email")}>
       <h2 className="flex items-center gap-2 text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-        <Mail size={13} aria-hidden /> Email
+        <Mail size={13} aria-hidden /> {t("Email")}
       </h2>
       <p className="mt-1 text-xs text-fg-secondary">
-        The team's own mail server. Invitations to the team and Ops's messages (plans waiting for
-        approval, alerts) go out through it, from your own address. Without one, an invitation gives
-        a link to copy, and Ops's messages still reach the bell and the team's chats.
+        {t(
+          "The team’s own mail server. Invitations to the team and Ops’s messages (plans waiting for approval, alerts) go out through it, from your own address. Without one, an invitation gives a link to copy, and Ops’s messages still reach the bell and the team’s chats.",
+        )}
       </p>
 
       {current.isLoading && (
@@ -106,7 +107,7 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
       {mail && !editing && (
         <div className="mt-3 rounded-md border border-border-default bg-surface-subtle p-3 text-sm">
           <p className="text-fg">
-            Sending as <strong>{mail.from}</strong>
+            {t("Sending as {strong}", { strong: <strong>{mail.from}</strong> })}
           </p>
           <p className="mt-0.5 text-xs text-fg-muted">
             {mail.host}:{mail.port} ·{" "}
@@ -114,12 +115,12 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
               ? "TLS"
               : mail.security === "starttls"
                 ? "STARTTLS"
-                : "no encryption"}
-            {mail.username ? ` · signs in as ${mail.username}` : ""}
+                : t("no encryption")}
+            {mail.username ? t(" · signs in as {username}", { username: mail.username }) : ""}
             {mail.passwordVault
-              ? ` · password from Vault: ${mail.passwordVault}`
+              ? t(" · password from Vault: {passwordVault}", { passwordVault: mail.passwordVault })
               : mail.passwordSet
-                ? " · password saved"
+                ? t(" · password saved")
                 : ""}
           </p>
           {canManage && (
@@ -131,10 +132,10 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
                 onClick={() => test.mutate()}
               >
                 {test.isPending ? <Spinner /> : null}
-                Send a test
+                {t("Send a test")}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-                Change
+                {t("Change")}
               </Button>
               <Button
                 size="sm"
@@ -143,15 +144,15 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
                 onClick={async () => {
                   if (
                     await confirmAction({
-                      title: "Remove the team's mail server?",
-                      confirmLabel: "Remove",
+                      title: t("Remove the team’s mail server?"),
+                      confirmLabel: t("Remove"),
                       danger: true,
                     })
                   )
                     remove.mutate();
                 }}
               >
-                Remove
+                {t("Remove")}
               </Button>
             </div>
           )}
@@ -159,14 +160,16 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
       )}
 
       {!mail && !current.isLoading && !canManage && (
-        <p className="mt-3 text-xs text-fg-muted">No mail server yet. A team admin can add one.</p>
+        <p className="mt-3 text-xs text-fg-muted">
+          {t("No mail server yet. A team admin can add one.")}
+        </p>
       )}
 
       {showForm && !current.isLoading && (
         <form className="mt-3 grid gap-3 sm:grid-cols-2" onSubmit={submit}>
           <div className="flex flex-col gap-1 sm:col-span-2">
             <label htmlFor="team-mail-from">
-              <FieldLabel>Sent as</FieldLabel>
+              <FieldLabel>{t("Sent as")}</FieldLabel>
             </label>
             <Input
               id="team-mail-from"
@@ -178,7 +181,7 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="team-mail-host">
-              <FieldLabel>Mail server</FieldLabel>
+              <FieldLabel>{t("Mail server")}</FieldLabel>
             </label>
             <Input
               id="team-mail-host"
@@ -191,7 +194,7 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label htmlFor="team-mail-port">
-                <FieldLabel>Port</FieldLabel>
+                <FieldLabel>{t("Port")}</FieldLabel>
               </label>
               <Input
                 id="team-mail-port"
@@ -204,22 +207,22 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor="team-mail-security">
-                <FieldLabel>Security</FieldLabel>
+                <FieldLabel>{t("Security")}</FieldLabel>
               </label>
               <NativeSelect
                 id="team-mail-security"
                 value={form.security}
                 onChange={(e) => set({ security: e.target.value as TeamMailInput["security"] })}
               >
-                <option value="starttls">STARTTLS (587)</option>
-                <option value="tls">TLS (465)</option>
-                <option value="none">None</option>
+                <option value="starttls">{t("STARTTLS (587)")}</option>
+                <option value="tls">{t("TLS (465)")}</option>
+                <option value="none">{t("None")}</option>
               </NativeSelect>
             </div>
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="team-mail-username">
-              <FieldLabel>Username</FieldLabel>
+              <FieldLabel>{t("Username")}</FieldLabel>
             </label>
             <Input
               id="team-mail-username"
@@ -231,13 +234,15 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="team-mail-password">
-              <FieldLabel>Password</FieldLabel>
+              <FieldLabel>{t("Password")}</FieldLabel>
             </label>
             <SecretSource
               id="team-mail-password"
               teamId={teamId}
-              label="Mail server password"
-              placeholder={mail?.passwordSet && !mail.passwordVault ? "Saved: type to replace" : ""}
+              label={t("Mail server password")}
+              placeholder={
+                mail?.passwordSet && !mail.passwordVault ? t("Saved: type to replace") : ""
+              }
               from={from}
               onFrom={setFrom}
               value={password}
@@ -249,11 +254,11 @@ export function TeamMailPanel({ teamId, canManage }: { teamId: string; canManage
           <div className="flex flex-wrap gap-2 sm:col-span-2">
             <Button type="submit" size="sm" variant="primary" disabled={save.isPending}>
               {save.isPending ? <Spinner /> : null}
-              Save
+              {t("Save")}
             </Button>
             {mail && (
               <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
+                {t("Cancel")}
               </Button>
             )}
           </div>

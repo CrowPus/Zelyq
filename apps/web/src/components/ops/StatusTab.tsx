@@ -4,6 +4,7 @@ import { BellOff, CheckCircle2, Eye } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { formatTime } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { formatRelative } from "../../lib/vault";
 import { Badge, Button, EmptyState, NativeSelect, Spinner } from "../ui";
 
@@ -14,16 +15,16 @@ import { Badge, Button, EmptyState, NativeSelect, Spinner } from "../ui";
  */
 
 const LIGHT: Record<OpsStatusApp["light"], { dot: string; words: string }> = {
-  green: { dot: "bg-success", words: "Running well" },
-  amber: { dot: "bg-warning", words: "Slow or needs attention" },
-  red: { dot: "bg-danger", words: "Down" },
-  grey: { dot: "bg-fg-muted", words: "Not checked yet" },
+  green: { dot: "bg-success", words: t("Running well") },
+  amber: { dot: "bg-warning", words: t("Slow or needs attention") },
+  red: { dot: "bg-danger", words: t("Down") },
+  grey: { dot: "bg-fg-muted", words: t("Not checked yet") },
 };
 
 const STATE_WORDS: Record<OpsCheckView["state"], string> = {
   ok: "ok",
   failing: "failing",
-  unknown: "not known yet",
+  unknown: t("not known yet"),
 };
 
 function uptimeWords(value: number | null): string {
@@ -70,27 +71,28 @@ export function StatusTab({
 
   if (status.isLoading) return <Spinner />;
   const view = status.data;
-  if (!view) return <p className="text-sm text-danger">The status could not be read.</p>;
+  if (!view) return <p className="text-sm text-danger">{t("The status could not be read.")}</p>;
   const nothing = view.apps.length === 0 && view.machines.length === 0 && view.other.length === 0;
 
   return (
     <div className="grid gap-6">
       <p className="text-xs text-fg-secondary">
-        Checked by Zelyq every minute, with no AI and whatever the spending limit.{" "}
+        {t("Checked by Zelyq every minute, with no AI and whatever the spending limit. ")}
         {view.watchedFromTwoPlaces ? (
-          "Watched from two places."
+          t("Watched from two places.")
         ) : (
           <span className="text-warning">
-            Watched from one place only: if this server goes down, nobody is told. A second watcher
-            on another machine comes next.
+            {t(
+              "Watched from one place only: if this server goes down, nobody is told. A second watcher on another machine comes next.",
+            )}
           </span>
         )}
       </p>
       {error && <p className="text-xs text-danger">{error}</p>}
 
       {view.open.length > 0 && (
-        <section aria-label="Open alerts" className="grid gap-2">
-          <h2 className="text-sm font-medium">Open now</h2>
+        <section aria-label={t("Open alerts")} className="grid gap-2">
+          <h2 className="text-sm font-medium">{t("Open now")}</h2>
           {view.open.map((alert) => (
             <AlertRow
               key={alert.id}
@@ -106,13 +108,15 @@ export function StatusTab({
 
       {nothing ? (
         <EmptyState
-          title="Nothing to watch yet"
-          description="As soon as an app is live on one of your environments, its address, its speed, its container and its machine are watched here, by themselves."
+          title={t("Nothing to watch yet")}
+          description={t(
+            "As soon as an app is live on one of your environments, its address, its speed, its container and its machine are watched here, by themselves.",
+          )}
         />
       ) : (
         <>
-          <section aria-label="Apps" className="grid gap-3">
-            <h2 className="text-sm font-medium">Apps</h2>
+          <section aria-label={t("Apps")} className="grid gap-3">
+            <h2 className="text-sm font-medium">{t("Apps")}</h2>
             {view.apps.map((app) => (
               <AppCard
                 key={`${app.environment}/${app.app}`}
@@ -123,8 +127,8 @@ export function StatusTab({
             ))}
           </section>
           {view.machines.length + view.other.length > 0 && (
-            <section aria-label="Machines and more" className="grid gap-2">
-              <h2 className="text-sm font-medium">Machines, domains and pipelines</h2>
+            <section aria-label={t("Machines and more")} className="grid gap-2">
+              <h2 className="text-sm font-medium">{t("Machines, domains and pipelines")}</h2>
               <ul className="divide-y divide-border-default rounded-md border border-border-default bg-surface">
                 {[...view.machines, ...view.other].map((check) => (
                   <CheckRow
@@ -141,14 +145,14 @@ export function StatusTab({
       )}
 
       {view.recent.length > 0 && (
-        <section aria-label="Lately" className="grid gap-1">
-          <h2 className="text-sm font-medium">Lately</h2>
+        <section aria-label={t("Lately")} className="grid gap-1">
+          <h2 className="text-sm font-medium">{t("Lately")}</h2>
           <ul className="text-xs text-fg-secondary">
             {view.recent.map((alert) => (
               <li key={alert.id} className="flex gap-2 py-0.5">
                 <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-success" />
                 <span>
-                  {alert.title} — {alert.closedHow ?? "over"},{" "}
+                  {alert.title} — {alert.closedHow ?? t("over")},{" "}
                   {formatRelative(alert.closedAt ?? alert.openedAt)}
                 </span>
               </li>
@@ -186,13 +190,18 @@ function AlertRow({
         <p className="font-medium">
           {alert.title}{" "}
           <Badge tone={alert.severity === "urgent" ? "danger" : "warning"}>
-            {alert.severity === "urgent" ? "urgent" : "warning"}
+            {alert.severity === "urgent" ? t("urgent") : t("warning")}
           </Badge>
         </p>
         <p className="text-xs text-fg-secondary">
-          {alert.detail} · since {formatRelative(alert.openedAt)}
-          {alert.acknowledgedAt ? " · someone is on it" : ""}
-          {silenced ? ` · silenced until ${formatTime(alert.silencedUntil as string)}` : ""}
+          {t("{detail} · since {openedAt}{value}{value2}", {
+            detail: alert.detail,
+            openedAt: formatRelative(alert.openedAt),
+            value: alert.acknowledgedAt ? t(" · someone is on it") : "",
+            value2: silenced
+              ? t(" · silenced until {value}", { value: formatTime(alert.silencedUntil as string) })
+              : "",
+          })}
         </p>
       </div>
       {canAnswer && (
@@ -205,26 +214,26 @@ function AlertRow({
               disabled={busy}
               onClick={onAcknowledge}
             >
-              I'm on it
+              {t("I’m on it")}
             </Button>
           )}
           {!silenced && (
             <NativeSelect
-              aria-label="Silence for planned work"
+              aria-label={t("Silence for planned work")}
               value=""
               disabled={busy}
               onChange={(event) => {
                 if (event.target.value) onSilence(Number(event.target.value));
               }}
             >
-              <option value="">Silence…</option>
-              <option value="30">for 30 minutes</option>
-              <option value="60">for 1 hour</option>
-              <option value="240">for 4 hours</option>
-              <option value="1440">for a day</option>
+              <option value="">{t("Silence…")}</option>
+              <option value="30">{t("for 30 minutes")}</option>
+              <option value="60">{t("for 1 hour")}</option>
+              <option value="240">{t("for 4 hours")}</option>
+              <option value="1440">{t("for a day")}</option>
             </NativeSelect>
           )}
-          {silenced && <BellOff size={14} className="text-fg-muted" aria-label="Silenced" />}
+          {silenced && <BellOff size={14} className="text-fg-muted" aria-label={t("Silenced")} />}
         </div>
       )}
     </div>
@@ -256,11 +265,11 @@ function AppCard({
         </div>
         <dl className="flex gap-4 text-xs">
           <div>
-            <dt className="text-fg-muted">Up, 30 days</dt>
+            <dt className="text-fg-muted">{t("Up, 30 days")}</dt>
             <dd className="font-medium">{uptimeWords(app.uptime30d)}</dd>
           </div>
           <div>
-            <dt className="text-fg-muted">Usually answers in</dt>
+            <dt className="text-fg-muted">{t("Usually answers in")}</dt>
             <dd className="font-medium">{app.normalMs === null ? "—" : `${app.normalMs} ms`}</dd>
           </div>
         </dl>
@@ -298,7 +307,7 @@ function CheckRow({
   return (
     <li className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs">
       <span className={`w-20 shrink-0 ${tone}`}>
-        {check.enabled ? STATE_WORDS[check.state] : "switched off"}
+        {check.enabled ? STATE_WORDS[check.state] : t("switched off")}
       </span>
       <span className="min-w-0 flex-1">
         {check.title}
@@ -315,7 +324,7 @@ function CheckRow({
           onClick={() => onSwitch(!check.enabled)}
           className="text-fg-secondary hover:underline"
         >
-          {check.enabled ? "Switch off" : "Switch on"}
+          {check.enabled ? t("Switch off") : t("Switch on")}
         </button>
       )}
     </li>

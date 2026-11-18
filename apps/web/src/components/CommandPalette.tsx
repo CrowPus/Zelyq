@@ -31,6 +31,7 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { useTheme } from "../hooks/useTheme";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { globalPaths, teamKey, teamPaths, useTeamPaths } from "../lib/routes";
 import { isMac, isTyping } from "./AppShell";
 import { Avatar, Dialog, Kbd } from "./ui";
@@ -137,35 +138,35 @@ function Palette_() {
         <RadixDialog.Portal>
           <RadixDialog.Overlay className="fixed inset-0 z-50 bg-[var(--backdrop)] data-[state=open]:animate-[ui-fade-in_120ms_ease-out]" />
           <RadixDialog.Content className="fixed top-[14vh] left-1/2 z-50 w-[calc(100vw-32px)] max-w-xl -translate-x-1/2 overflow-hidden rounded-xl border border-border-default bg-overlay shadow-dialog focus:outline-none data-[state=open]:animate-[ui-dialog-in_160ms_cubic-bezier(0.16,1,0.3,1)]">
-            <RadixDialog.Title className="sr-only">Search and commands</RadixDialog.Title>
+            <RadixDialog.Title className="sr-only">{t("Search and commands")}</RadixDialog.Title>
             <RadixDialog.Description className="sr-only">
-              Type to find an app, a page or an action.
+              {t("Type to find an app, a page or an action.")}
             </RadixDialog.Description>
-            <Command label="Search and commands" loop>
+            <Command label={t("Search and commands")} loop>
               <div className="flex items-center gap-2 border-b border-border-default px-4">
                 <Search size={16} className="shrink-0 text-fg-muted" />
                 <Command.Input
                   value={search}
                   onValueChange={setSearch}
-                  placeholder="Search apps, pages and actions…"
+                  placeholder={t("Search apps, pages and actions…")}
                   className="h-12 flex-1 bg-transparent text-base text-fg outline-none placeholder:text-fg-muted"
                 />
-                <Kbd>Esc</Kbd>
+                <Kbd>{t("Esc")}</Kbd>
               </div>
               <Command.List className="max-h-[min(60vh,28rem)] overflow-y-auto p-2">
                 <Command.Empty className="px-3 py-8 text-center text-sm text-fg-muted">
-                  Nothing matches “{search}”.
+                  {t("Nothing matches “{search}”.", { search })}
                 </Command.Empty>
 
                 {apps.length > 0 && (
-                  <Group heading="Apps">
+                  <Group heading={t("Apps")}>
                     {apps.slice(0, search ? 50 : 6).map((project) => (
                       <Item
                         key={project.id}
                         value={`app ${project.name} ${project.id}`}
                         icon={<Avatar name={project.name} size={18} shape="square" />}
                         onSelect={() => run(() => navigate(p.app(project.id)))}
-                        hint="App"
+                        hint={t("App")}
                       >
                         {project.name}
                       </Item>
@@ -173,69 +174,69 @@ function Palette_() {
                   </Group>
                 )}
 
-                <Group heading="Go to">
+                <Group heading={t("Go to")}>
                   <Item
                     value="go home"
                     icon={<House size={15} />}
                     onSelect={() => run(() => navigate(p.home))}
                   >
-                    Home
+                    {t("Home")}
                   </Item>
                   <Item
                     value="go apps"
                     icon={<LayoutGrid size={15} />}
                     onSelect={() => run(() => navigate(p.apps))}
                   >
-                    Apps
+                    {t("Apps")}
                   </Item>
                   <Item
                     value="go studio image video"
                     icon={<Palette size={15} />}
                     onSelect={() => run(() => navigate(p.studio))}
                   >
-                    Studio
+                    {t("Studio")}
                   </Item>
                   <Item
                     value="go agents mcp"
                     icon={<Bot size={15} />}
                     onSelect={() => run(() => navigate(p.agents))}
                   >
-                    Agents
+                    {t("Agents")}
                   </Item>
                   <Item
                     value="go pipelines ci"
                     icon={<Workflow size={15} />}
                     onSelect={() => run(() => navigate(p.pipelines))}
                   >
-                    Pipelines
+                    {t("Pipelines")}
                   </Item>
                   <Item
                     value="go deployments environments"
                     icon={<Rocket size={15} />}
                     onSelect={() => run(() => navigate(p.deployments))}
                   >
-                    Deployments
+                    {t("Deployments")}
                   </Item>
                   <Item
                     value="go ops devops"
                     icon={<ServerCog size={15} />}
                     onSelect={() => run(() => navigate(p.ops))}
                   >
-                    Ops
+                    {t("Ops")}
                   </Item>
                   <Item
                     value="go vault secrets keys"
                     icon={<KeyRound size={15} />}
                     onSelect={() => run(() => navigate(p.vault))}
                   >
-                    Vault
+                    {t("Vault")}
                   </Item>
                   <Item
                     value="go members team people invite"
                     icon={<Users size={15} />}
                     onSelect={() => run(() => navigate(p.members))}
                   >
-                    Members
+                    {t("Members")}
                   </Item>
                   {isAdmin && (
                     <Item
@@ -243,7 +244,7 @@ function Palette_() {
                       icon={<SlidersHorizontal size={15} />}
                       onSelect={() => run(() => navigate(p.settings()))}
                     >
-                      Team settings
+                      {t("Team settings")}
                     </Item>
                   )}
                   <Item
@@ -251,7 +252,7 @@ function Palette_() {
                     icon={<UserRound size={15} />}
                     onSelect={() => run(() => navigate(globalPaths.account))}
                   >
-                    Account settings
+                    {t("Account settings")}
                   </Item>
                   {user?.instanceRole === "admin" && (
                     <Item
@@ -259,7 +260,7 @@ function Palette_() {
                       icon={<Shield size={15} />}
                       onSelect={() => run(() => navigate(globalPaths.admin()))}
                     >
-                      Server administration
+                      {t("Server administration")}
                     </Item>
                   )}
                   <Item
@@ -267,19 +268,19 @@ function Palette_() {
                     icon={<BookOpen size={15} />}
                     onSelect={() => run(() => navigate(globalPaths.docs))}
                   >
-                    Documentation
+                    {t("Documentation")}
                   </Item>
                 </Group>
 
                 {search && (pipelines.data?.pipelines.length ?? 0) > 0 && (
-                  <Group heading="Pipelines">
+                  <Group heading={t("Pipelines")}>
                     {pipelines.data!.pipelines.map((pipeline) => (
                       <Item
                         key={pipeline.id}
                         value={`pipeline ${pipeline.name}`}
                         icon={<Workflow size={15} />}
                         onSelect={() => run(() => navigate(p.pipeline(pipeline.id)))}
-                        hint="Pipeline"
+                        hint={t("Pipeline")}
                       >
                         {pipeline.name}
                       </Item>
@@ -288,14 +289,14 @@ function Palette_() {
                 )}
 
                 {search && (environments.data?.environments.length ?? 0) > 0 && (
-                  <Group heading="Environments">
+                  <Group heading={t("Environments")}>
                     {environments.data!.environments.map((env) => (
                       <Item
                         key={env.id}
                         value={`environment ${env.name}`}
                         icon={<Rocket size={15} />}
                         onSelect={() => run(() => navigate(p.deployments))}
-                        hint="Environment"
+                        hint={t("Environment")}
                       >
                         {env.name}
                       </Item>
@@ -303,71 +304,71 @@ function Palette_() {
                   </Group>
                 )}
 
-                <Group heading="Actions">
+                <Group heading={t("Actions")}>
                   <Item
                     value="new app create"
                     icon={<Plus size={15} />}
                     onSelect={() => run(() => navigate(p.newApp))}
                   >
-                    New app
+                    {t("New app")}
                   </Item>
                   <Item
                     value="new pipeline create"
                     icon={<Plus size={15} />}
                     onSelect={() => run(() => navigate(p.pipeline("new")))}
                   >
-                    New pipeline
+                    {t("New pipeline")}
                   </Item>
                   <Item
                     value="theme light"
                     icon={<Sun size={15} />}
                     onSelect={() => run(() => setTheme("light"))}
                   >
-                    Use light theme
+                    {t("Use light theme")}
                   </Item>
                   <Item
                     value="theme dark"
                     icon={<Moon size={15} />}
                     onSelect={() => run(() => setTheme("dark"))}
                   >
-                    Use dark theme
+                    {t("Use dark theme")}
                   </Item>
                   <Item
                     value="theme system"
                     icon={<Monitor size={15} />}
                     onSelect={() => run(() => setTheme("system"))}
                   >
-                    Match system theme
+                    {t("Match system theme")}
                   </Item>
                   <Item
                     value="keyboard shortcuts help"
                     icon={<Keyboard size={15} />}
                     onSelect={() => run(() => setOpen("shortcuts"))}
                   >
-                    Keyboard shortcuts
+                    {t("Keyboard shortcuts")}
                   </Item>
                   <Item
                     value="sign out log out"
                     icon={<LogOut size={15} />}
                     onSelect={() => run(() => void signOut())}
                   >
-                    Sign out
+                    {t("Sign out")}
                   </Item>
                 </Group>
 
                 {teams.length > 1 && (
-                  <Group heading="Switch team">
+                  <Group heading={t("Switch team")}>
                     {teams
-                      .filter((t) => t.id !== teamId)
-                      .map((t) => (
+                      .filter((other) => other.id !== teamId)
+                      .map((other) => (
                         <Item
-                          key={t.id}
-                          value={`team ${t.name}`}
-                          icon={<Avatar name={t.name} size={18} shape="square" />}
-                          onSelect={() => run(() => navigate(teamPaths(teamKey(t)).home))}
-                          hint="Team"
+                          key={other.id}
+                          value={`team ${other.name}`}
+                          icon={<Avatar name={other.name} size={18} shape="square" />}
+                          onSelect={() => run(() => navigate(teamPaths(teamKey(other)).home))}
+                          hint={t("Team")}
                         >
-                          {t.name}
+                          {other.name}
                         </Item>
                       ))}
                   </Group>
@@ -376,10 +377,10 @@ function Palette_() {
               <div className="flex items-center gap-4 border-t border-border-default bg-surface-subtle px-4 py-2 text-xs text-fg-muted">
                 <span className="flex items-center gap-1.5">
                   <Kbd>↑</Kbd>
-                  <Kbd>↓</Kbd> to move
+                  <Kbd>↓</Kbd> {t("to move")}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <Kbd>↵</Kbd> to open
+                  <Kbd>↵</Kbd> {t("to open")}
                 </span>
               </div>
             </Command>
@@ -440,7 +441,7 @@ function ShortcutSheet({
   open: boolean;
   onOpenChange(open: boolean): void;
 }) {
-  const mod = isMac() ? "⌘" : "Ctrl";
+  const mod = isMac() ? "⌘" : t("Ctrl");
   const rows: Array<[string, ReactNode]> = [
     [
       "Search and jump anywhere",
@@ -459,10 +460,10 @@ function ShortcutSheet({
         <Kbd>↵</Kbd>
       </>,
     ],
-    ["Close a dialog or menu", <Kbd key="e">Esc</Kbd>],
+    ["Close a dialog or menu", <Kbd key="e">{t("Esc")}</Kbd>],
   ];
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Keyboard shortcuts" size="md">
+    <Dialog open={open} onOpenChange={onOpenChange} title={t("Keyboard shortcuts")} size="md">
       <dl className="divide-y divide-border-default">
         {rows.map(([label, keys]) => (
           <div key={label} className="flex items-center justify-between gap-4 py-2.5">

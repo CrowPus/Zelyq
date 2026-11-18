@@ -47,6 +47,7 @@ import {
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
@@ -54,12 +55,12 @@ export const STATUS: Record<
   DeploymentSummary["status"],
   { label: string; tone: "success" | "danger" | "info" | "neutral" | "warning" }
 > = {
-  deploying: { label: "Deploying", tone: "info" },
-  live: { label: "Live", tone: "success" },
-  failed: { label: "Failed", tone: "danger" },
-  rolled_back: { label: "Rolled back", tone: "warning" },
-  replaced: { label: "Replaced", tone: "neutral" },
-  removed: { label: "Removed", tone: "neutral" },
+  deploying: { label: t("Deploying"), tone: "info" },
+  live: { label: t("Live"), tone: "success" },
+  failed: { label: t("Failed"), tone: "danger" },
+  rolled_back: { label: t("Rolled back"), tone: "warning" },
+  replaced: { label: t("Replaced"), tone: "neutral" },
+  removed: { label: t("Removed"), tone: "neutral" },
 };
 
 /**
@@ -79,21 +80,18 @@ export function DeploymentsPage() {
   const isAdmin = team ? roleAtLeast(team.role, "admin") : false;
 
   return (
-    <AppShell crumbs={[{ label: "Deployments" }]}>
+    <AppShell crumbs={[{ label: t("Deployments") }]}>
       <PageBody width="standard">
         <PageHeader
-          title="Deployments"
-          description={
-            <>
-              Where your apps run. A pipeline deploys an app to an environment once its tests pass;
-              if the new version does not come up, the previous one is put back by itself.
-            </>
-          }
+          title={t("Deployments")}
+          description={t(
+            "Where your apps run. A pipeline deploys an app to an environment once its tests pass; if the new version does not come up, the previous one is put back by itself.",
+          )}
           actions={
             isAdmin &&
             !adding && (
               <Button variant="primary" icon={<Plus size={14} />} onClick={() => setAdding(true)}>
-                New environment
+                {t("New environment")}
               </Button>
             )
           }
@@ -107,8 +105,10 @@ export function DeploymentsPage() {
             ) : (environments.data?.environments.length ?? 0) === 0 ? (
               !adding && (
                 <EmptyState
-                  title="No environments yet"
-                  description="An environment is a place your apps run, like staging or production: one of your machines with Docker. Add a machine in Pipelines → Runners first."
+                  title={t("No environments yet")}
+                  description={t(
+                    "An environment is a place your apps run, like staging or production: one of your machines with Docker. Add a machine in Pipelines → Runners first.",
+                  )}
                 />
               )
             ) : (
@@ -148,15 +148,15 @@ function EnvironmentList({
           <SearchBox
             value={q}
             onChange={(value) => filters.set({ q: value })}
-            placeholder="Search apps and environments"
+            placeholder={t("Search apps and environments")}
           />
           {environments.length > 1 && (
             <FilterSelect
-              label="Environment"
+              label={t("Environment")}
               value={only}
               onChange={(value) => filters.set({ env: value })}
               options={[
-                { value: "", label: "All environments" },
+                { value: "", label: t("All environments") },
                 ...environments.map((environment) => ({
                   value: environment.id,
                   label: `${environment.name} (${environment.live.length})`,
@@ -231,16 +231,16 @@ function EnvironmentCard({
       <header className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
         <h2 className="text-sm font-semibold">{environment.name}</h2>
         {environment.protected && (
-          <span title="Every deploy needs an admin's approval">
+          <span title={t("Every deploy needs an admin’s approval")}>
             <Badge tone="warning">
-              <Lock size={10} className="mr-1" /> Needs approval
+              <Lock size={10} className="mr-1" /> {t("Needs approval")}
             </Badge>
           </span>
         )}
         {environment.frozen && (
-          <span title={environment.frozenReason ?? "No deploys"}>
+          <span title={environment.frozenReason ?? t("No deploys")}>
             <Badge tone="info">
-              <Snowflake size={10} className="mr-1" /> Frozen
+              <Snowflake size={10} className="mr-1" /> {t("Frozen")}
             </Badge>
           </span>
         )}
@@ -253,35 +253,43 @@ function EnvironmentCard({
                 if (environment.frozen) update.mutate({ frozen: false });
                 else {
                   const reason = await promptAction({
-                    title: `Freeze ${environment.name}?`,
-                    description: "No deploys reach it until it is unfrozen.",
-                    input: { label: "Why", defaultValue: "release freeze" },
-                    confirmLabel: "Freeze",
+                    title: t("Freeze {name}?", { name: environment.name }),
+                    description: t("No deploys reach it until it is unfrozen."),
+                    input: { label: t("Why"), defaultValue: t("release freeze") },
+                    confirmLabel: t("Freeze"),
                   });
                   if (reason !== null)
                     update.mutate({ frozen: true, frozenReason: reason || null });
                 }
               }}
             >
-              {environment.frozen ? "Unfreeze" : "Freeze"}
+              {environment.frozen ? t("Unfreeze") : t("Freeze")}
             </Button>
-            <IconButton size="sm" label="Edit environment" onClick={() => setEditing(true)}>
+            <IconButton size="sm" label={t("Edit environment")} onClick={() => setEditing(true)}>
               <Pencil size={13} />
             </IconButton>
             <IconButton
               size="sm"
               variant="danger"
-              label="Remove environment"
+              label={t("Remove environment")}
               onClick={async () => {
                 const apps = environment.live.map((deployment) => deployment.app);
                 if (
                   await confirmAction({
-                    title: `Remove ${environment.name}?`,
+                    title: t("Remove {name}?", { name: environment.name }),
                     description:
                       apps.length > 0
-                        ? `Zelyq stops ${apps.length === 1 ? "its app" : `its ${apps.length} apps`} (${apps.join(", ")}) and removes ${apps.length === 1 ? "its containers and images" : "their containers and images"} from the machine.`
+                        ? apps.length === 1
+                          ? t(
+                              "Zelyq stops its app ({apps}) and removes {appCount, plural, one {its containers and images} other {their containers and images}} from the machine.",
+                              { apps: apps.join(", "), appCount: apps.length },
+                            )
+                          : t(
+                              "Zelyq stops its {appCount} apps ({apps}) and removes {appCount, plural, one {its containers and images} other {their containers and images}} from the machine.",
+                              { appCount: apps.length, apps: apps.join(", ") },
+                            )
                         : undefined,
-                    confirmLabel: "Remove environment",
+                    confirmLabel: t("Remove environment"),
                     danger: true,
                     typeToConfirm: apps.length > 0 ? environment.name : undefined,
                   })
@@ -299,35 +307,36 @@ function EnvironmentCard({
         {environment.runner ? (
           <span className="font-medium text-fg">{environment.runner.name}</span>
         ) : (
-          "no machine"
+          t("no machine")
         )}
         {environment.address && <> ({environment.address})</>}
         {environment.domain && (
           <>
-            {" "}
-            · new apps at <span className="font-mono text-fg">*.{environment.domain}</span>
+            {t(" · new apps at {part}", {
+              part: <span className="font-mono text-fg">*.{environment.domain}</span>,
+            })}
             {environment.https === "off"
               ? " (HTTP)"
               : environment.https === "internal"
-                ? " (Zelyq's certificate)"
+                ? t(" (Zelyq’s certificate)")
                 : environment.https === "external"
-                  ? " (behind your web server)"
+                  ? t(" (behind your web server)")
                   : " (HTTPS)"}
           </>
         )}
-        {!environment.domain && environment.https === "external" && <> · behind your web server</>}
-        {environment.variables.length > 0 && (
-          <>
-            {" "}
-            · {environment.variables.length} variable{environment.variables.length === 1 ? "" : "s"}
-          </>
+        {!environment.domain && environment.https === "external" && (
+          <> {t("· behind your web server")}</>
         )}
+        {environment.variables.length > 0 &&
+          t(" · {variableCount, plural, one {# variable} other {# variables}}", {
+            variableCount: environment.variables.length,
+          })}
         {environment.frozen && environment.frozenReason && (
-          <> · frozen: {environment.frozenReason}</>
+          <> {t("· frozen: {frozenReason}", { frozenReason: environment.frozenReason })}</>
         )}
       </div>
       {environment.live.length === 0 ? (
-        <p className="px-3 pb-3 text-xs text-fg-muted">Nothing deployed here yet.</p>
+        <p className="px-3 pb-3 text-xs text-fg-muted">{t("Nothing deployed here yet.")}</p>
       ) : (
         <ul className="divide-y divide-border-default border-t border-border-default">
           {listed.map((deployment) => (
@@ -345,7 +354,7 @@ function EnvironmentCard({
                 className="text-xs text-info hover:underline"
                 onClick={() => setShowAll(true)}
               >
-                Show all {apps.length} apps
+                {t("Show all {appCount} apps", { appCount: apps.length })}
               </button>
             </li>
           )}
@@ -378,7 +387,7 @@ function LiveApp({
         <span className="font-mono text-xs text-fg-secondary">#{deployment.number}</span>
         <Badge tone={STATUS[deployment.status].tone}>{STATUS[deployment.status].label}</Badge>
         <span className="text-xs text-fg-muted">
-          {deployment.by ? deployment.by.name : "a pipeline"} ·{" "}
+          {deployment.by ? deployment.by.name : t("a pipeline")} ·{" "}
           {formatRelative(deployment.createdAt)}
         </span>
         <span className="ml-auto flex items-center gap-1">
@@ -388,7 +397,7 @@ function LiveApp({
             icon={<History size={12} />}
             onClick={() => setOpen(!open)}
           >
-            {open ? "Hide history" : "History"}
+            {open ? t("Hide history") : t("History")}
           </Button>
           <Link
             to={teamHref(
@@ -396,7 +405,7 @@ function LiveApp({
             )}
             className="inline-flex h-6 items-center gap-1 rounded-md border border-border-default px-2 text-xs font-medium hover:bg-surface-hover"
           >
-            <Activity size={12} /> Logs · manage
+            <Activity size={12} /> {t("Logs · manage")}
           </Link>
         </span>
       </div>
@@ -431,7 +440,7 @@ export function ReachWarning({
   const check = useMutation({
     mutationFn: () => api.deploys.checkAgain(team.id, deployment.id),
     onSuccess: ({ deployment: checked }) => {
-      setResult(checked.error ? "Still not reachable." : null);
+      setResult(checked.error ? t("Still not reachable.") : null);
       void queryClient.invalidateQueries({ queryKey: ["environments", team.id] });
     },
     onError: (caught) => setResult(vaultErrorMessage(caught)),
@@ -447,7 +456,7 @@ export function ReachWarning({
             disabled={check.isPending}
             onClick={() => check.mutate()}
           >
-            {check.isPending ? "Checking (up to half a minute)…" : "Check again"}
+            {check.isPending ? t("Checking (up to half a minute)…") : t("Check again")}
           </Button>
           {result && !check.isPending && <span className="text-fg-secondary">{result}</span>}
         </div>
@@ -493,7 +502,7 @@ export function HistoryList({
     <div className="mt-2 rounded border border-border-default">
       {rollBack.isPending && (
         <p className="flex items-center gap-2 border-b border-border-default bg-info-subtle px-2 py-2 text-xs">
-          <Spinner /> Starting the roll back…
+          <Spinner /> {t("Starting the roll back…")}
         </p>
       )}
       {following && (
@@ -513,14 +522,17 @@ export function HistoryList({
             <Badge tone={STATUS[deployment.status].tone}>{STATUS[deployment.status].label}</Badge>
             <span className="text-fg-secondary">
               {deployment.kind === "rollback"
-                ? `roll back to #${deployment.rolledBackTo}`
+                ? t("roll back to #{rolledBackTo}", { rolledBackTo: deployment.rolledBackTo })
                 : deployment.kind === "promote"
                   ? deployment.promotedFrom
-                    ? `promoted from ${deployment.promotedFrom.environment} #${deployment.promotedFrom.number}`
-                    : "promoted"
-                  : "deploy"}
+                    ? t("promoted from {environment} #{number}", {
+                        environment: deployment.promotedFrom.environment,
+                        number: deployment.promotedFrom.number,
+                      })
+                    : t("promoted")
+                  : t("deploy")}
               {" · "}
-              {deployment.by ? deployment.by.name : "a pipeline"} ·{" "}
+              {deployment.by ? deployment.by.name : t("a pipeline")} ·{" "}
               {formatRelative(deployment.createdAt)}
             </span>
             {deployment.run && (
@@ -528,7 +540,7 @@ export function HistoryList({
                 to={teamHref(`/pipelines/${deployment.run.pipelineId}/runs/${deployment.run.id}`)}
                 className="text-info hover:underline"
               >
-                run #{deployment.run.number}
+                {t("run #{number}", { number: deployment.run.number })}
               </Link>
             )}
             <button
@@ -536,7 +548,7 @@ export function HistoryList({
               className="text-fg-secondary hover:underline"
               onClick={() => setOpenLog(openLog === deployment.id ? null : deployment.id)}
             >
-              {openLog === deployment.id ? "Hide log" : "Log"}
+              {openLog === deployment.id ? t("Hide log") : t("Log")}
             </button>
             {deployment.canRollBackTo && mayRollBack && (
               <Button
@@ -548,15 +560,18 @@ export function HistoryList({
                 onClick={async () => {
                   if (
                     await confirmAction({
-                      title: `Put #${deployment.number} back on ${environment.name}?`,
-                      confirmLabel: "Roll back",
+                      title: t("Put #{number} back on {name}?", {
+                        number: deployment.number,
+                        name: environment.name,
+                      }),
+                      confirmLabel: t("Roll back"),
                     })
                   ) {
                     rollBack.mutate({ id: deployment.id, number: deployment.number });
                   }
                 }}
               >
-                Roll back to this
+                {t("Roll back to this")}
               </Button>
             )}
             {deployment.error && (
@@ -651,23 +666,23 @@ function EnvironmentForm({
     >
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="grid gap-1">
-          <FieldLabel>Name</FieldLabel>
+          <FieldLabel>{t("Name")}</FieldLabel>
           <Input
-            aria-label="Name"
+            aria-label={t("Name")}
             value={name}
             placeholder="staging"
             onChange={(event) => setName(event.target.value)}
           />
         </div>
         <div className="grid gap-1">
-          <FieldLabel>Machine (with Docker)</FieldLabel>
+          <FieldLabel>{t("Machine (with Docker)")}</FieldLabel>
           <NativeSelect
-            aria-label="Machine"
+            aria-label={t("Machine")}
             className="w-full min-w-0"
             value={runnerId}
             onChange={(event) => setRunnerId(event.target.value)}
           >
-            <option value="">Choose a runner…</option>
+            <option value="">{t("Choose a runner…")}</option>
             {machines.map((runner) => (
               <option key={runner.id} value={runner.id}>
                 {runner.name} ({runner.host})
@@ -676,11 +691,11 @@ function EnvironmentForm({
           </NativeSelect>
         </div>
         <div className="grid gap-1">
-          <FieldLabel>Public address</FieldLabel>
+          <FieldLabel>{t("Public address")}</FieldLabel>
           <Input
-            aria-label="Public address"
+            aria-label={t("Public address")}
             value={address}
-            placeholder="203.0.113.10 or apps.example.com"
+            placeholder={t("203.0.113.10 or apps.example.com")}
             onChange={(event) => setAddress(event.target.value)}
           />
         </div>
@@ -712,18 +727,18 @@ function EnvironmentForm({
           checked={protectedEnv}
           onChange={(event) => setProtected(event.target.checked)}
         />
-        Protected: every deploy needs an admin's approval (use for production)
+        {t("Protected: every deploy needs an admin’s approval (use for production)")}
       </label>
       <div className="grid gap-1">
-        <FieldLabel>Variables the apps get here</FieldLabel>
+        <FieldLabel>{t("Variables the apps get here")}</FieldLabel>
         <p className="text-2xs text-fg-muted">
-          Type a value, or vault://NAME to take it from the team's Vault.
-          {environment && " Leave a value empty to keep the one saved."}
+          {t("Type a value, or vault://NAME to take it from the team’s Vault.")}
+          {environment && t(" Leave a value empty to keep the one saved.")}
         </p>
         {variables.map((variable, index) => (
           <div key={variable.id} className="flex min-w-0 gap-2">
             <Input
-              aria-label="Variable name"
+              aria-label={t("Variable name")}
               className="w-32 shrink-0 font-mono sm:w-56"
               placeholder="STRIPE_KEY"
               value={variable.name}
@@ -734,9 +749,9 @@ function EnvironmentForm({
               }
             />
             <Input
-              aria-label="Variable value"
+              aria-label={t("Variable value")}
               className="min-w-0 font-mono"
-              placeholder={environment ? "(unchanged)" : "value or vault://NAME"}
+              placeholder={environment ? t("(unchanged)") : t("value or vault://NAME")}
               value={variable.value}
               onChange={(event) =>
                 setVariables(
@@ -746,7 +761,7 @@ function EnvironmentForm({
             />
             <IconButton
               size="sm"
-              label="Remove variable"
+              label={t("Remove variable")}
               onClick={() => setVariables(variables.filter((_, i) => i !== index))}
             >
               <Trash2 size={13} />
@@ -765,7 +780,7 @@ function EnvironmentForm({
             ])
           }
         >
-          Add variable
+          {t("Add variable")}
         </Button>
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}
@@ -775,10 +790,10 @@ function EnvironmentForm({
           variant="primary"
           disabled={save.isPending || !name.trim() || !runnerId}
         >
-          {environment ? "Save" : "Add environment"}
+          {environment ? t("Save") : t("Add environment")}
         </Button>
         <Button variant="ghost" onClick={onDone}>
-          Cancel
+          {t("Cancel")}
         </Button>
       </div>
     </form>
@@ -786,13 +801,13 @@ function EnvironmentForm({
 }
 
 const HTTPS_CHOICES: { value: EnvironmentHttps; label: string }[] = [
-  { value: "auto", label: "Automatic: free certificates from Let's Encrypt (recommended)" },
+  { value: "auto", label: t("Automatic: free certificates from Let’s Encrypt (recommended)") },
   {
     value: "external",
-    label: "My own web server is in front (nginx, Apache): it handles HTTPS",
+    label: t("My own web server is in front (nginx, Apache): it handles HTTPS"),
   },
-  { value: "internal", label: "Zelyq's own certificate: for testing or a private network" },
-  { value: "off", label: "Off: plain HTTP" },
+  { value: "internal", label: t("Zelyq’s own certificate: for testing or a private network") },
+  { value: "off", label: t("Off: plain HTTP") },
 ];
 
 /** The DNS record that leads a name to the machine: A for an IP address, CNAME for a name. */
@@ -806,25 +821,26 @@ export function DnsRecord({
   children?: ReactNode;
 }) {
   const record = !pointTo
-    ? { type: "A", value: "the machine's public IP address" }
+    ? { type: "A", value: t("the machine’s public IP address") }
     : /^\d{1,3}(\.\d{1,3}){3}$/.test(pointTo)
       ? { type: "A", value: pointTo }
       : { type: "CNAME", value: pointTo };
   return (
     <div className="min-w-0 rounded-md bg-surface-subtle p-2 text-xs">
-      <p className="mb-1 font-medium">Add this DNS record where your domain is managed:</p>
+      <p className="mb-1 font-medium">{t("Add this DNS record where your domain is managed:")}</p>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-2xs">
-        <dt className="text-fg-muted">Type</dt>
+        <dt className="text-fg-muted">{t("Type")}</dt>
         <dd>{record.type}</dd>
-        <dt className="text-fg-muted">Name</dt>
+        <dt className="text-fg-muted">{t("Name")}</dt>
         <dd className="break-all">{name}</dd>
-        <dt className="text-fg-muted">Value</dt>
+        <dt className="text-fg-muted">{t("Value")}</dt>
         <dd className="break-all">{record.value}</dd>
       </dl>
       {record.type === "CNAME" && (
         <p className="mt-1 text-fg-secondary">
-          Or an A record with the machine's IP address as the value: an A record takes only an IP,
-          and the domain itself (example.com, not a subdomain) needs an A record.
+          {t(
+            "Or an A record with the machine’s IP address as the value: an A record takes only an IP, and the domain itself (example.com, not a subdomain) needs an A record.",
+          )}
         </p>
       )}
       {children}
@@ -864,12 +880,16 @@ function WebAddresses({
   return (
     <fieldset className="grid min-w-0 gap-2 rounded-md border border-border-default p-3">
       <legend className="px-1">
-        <FieldLabel>Web addresses</FieldLabel>
+        <FieldLabel>{t("Web addresses")}</FieldLabel>
       </legend>
       <p className="text-2xs text-fg-muted">
-        Give each app its exact address (example.com, www.example.com, shop.example.com) on its own
-        page: Deployments → <span className="font-medium">Logs · manage</span> →{" "}
-        <span className="font-medium">Address</span>.
+        {t(
+          "Give each app its exact address (example.com, www.example.com, shop.example.com) on its own page: Deployments → {part} → {part2}.",
+          {
+            part: <span className="font-medium">{t("Logs · manage")}</span>,
+            part2: <span className="font-medium">{t("Address")}</span>,
+          },
+        )}
       </p>
       <div className="grid gap-1">
         <label className="text-xs" htmlFor="environment-https">
@@ -889,15 +909,22 @@ function WebAddresses({
         </NativeSelect>
         <p className="text-2xs text-fg-muted">
           {behind
-            ? "For a machine whose web server already serves other sites on ports 80 and 443. Zelyq's proxy listens on a private port; each app's page shows the few lines to add to your web server."
+            ? t(
+                "For a machine whose web server already serves other sites on ports 80 and 443. Zelyq’s proxy listens on a private port; each app’s page shows the few lines to add to your web server.",
+              )
             : https === "auto"
-              ? `Ports ${httpPort} and ${httpsPort} must be open on the machine; certificates then come by themselves.`
-              : `Open port ${https === "off" ? httpPort : httpsPort} on the machine.`}
+              ? t(
+                  "Ports {httpPort} and {httpsPort} must be open on the machine; certificates then come by themselves.",
+                  { httpPort, httpsPort },
+                )
+              : t("Open port {value} on the machine.", {
+                  value: https === "off" ? httpPort : httpsPort,
+                })}
         </p>
       </div>
       {behind ? (
         <div className="grid gap-1 text-xs">
-          <label htmlFor="proxy-httpport">Zelyq's proxy port (on 127.0.0.1 only)</label>
+          <label htmlFor="proxy-httpport">{t("Zelyq’s proxy port (on 127.0.0.1 only)")}</label>
           <Input
             id="proxy-httpport"
             className="w-24"
@@ -906,13 +933,16 @@ function WebAddresses({
             onChange={(event) => onHttpPort(event.target.value)}
           />
           <p className="text-2xs text-fg-muted">
-            Your web server sends each app's name here. Any free port; it is not opened to the
-            internet.
+            {t(
+              "Your web server sends each app’s name here. Any free port; it is not opened to the internet.",
+            )}
           </p>
         </div>
       ) : (
         <details className="text-xs" open={!usual}>
-          <summary className="cursor-pointer text-fg-secondary">Proxy ports (advanced)</summary>
+          <summary className="cursor-pointer text-fg-secondary">
+            {t("Proxy ports (advanced)")}
+          </summary>
           <div className="mt-2 flex flex-wrap gap-3">
             <div className="grid gap-1">
               <label htmlFor="proxy-httpport">HTTP</label>
@@ -937,21 +967,22 @@ function WebAddresses({
           </div>
           {https === "auto" && !usual ? (
             <p className="mt-1 text-warning">
-              Let's Encrypt only checks ports 80 and 443, so with these ports certificates will not
-              come, and addresses carry the port. If another web server uses 80 and 443, choose "My
-              own web server is in front" above instead.
+              {t(
+                'Let’s Encrypt only checks ports 80 and 443, so with these ports certificates will not come, and addresses carry the port. If another web server uses 80 and 443, choose "My own web server is in front" above instead.',
+              )}
             </p>
           ) : (
             <p className="mt-1 text-fg-muted">
-              Change them only if something else must keep 80 and 443; addresses then carry the
-              port.
+              {t(
+                "Change them only if something else must keep 80 and 443; addresses then carry the port.",
+              )}
             </p>
           )}
         </details>
       )}
       <div className="grid gap-1">
         <label className="text-xs" htmlFor="environment-domain">
-          A subdomain for every app (optional)
+          {t("A subdomain for every app (optional)")}
         </label>
         <Input
           id="environment-domain"
@@ -963,7 +994,9 @@ function WebAddresses({
         <p className="text-2xs text-fg-muted">
           {name
             ? `Apps without an address of their own get <app>.${name}, such as shop.${name}.`
-            : "Empty: an app without an address of its own is reached at the machine's address and a port."}
+            : t(
+                "Empty: an app without an address of its own is reached at the machine’s address and a port.",
+              )}
         </p>
       </div>
       {name && <DnsRecord name={`*.${name}`} pointTo={pointTo} />}
@@ -974,11 +1007,17 @@ function WebAddresses({
 function HowTo() {
   return (
     <details className="mt-6 rounded-md border border-border-default p-3 text-xs text-fg-secondary">
-      <summary className="cursor-pointer font-medium text-fg">How do I deploy an app?</summary>
+      <summary className="cursor-pointer font-medium text-fg">
+        {t("How do I deploy an app?")}
+      </summary>
       <p className="mt-2">
-        Add a <code className="font-mono">deploy</code> step to the app's pipeline. No Dockerfile is
-        needed: Zelyq recognises Node, Python, Go and static sites and builds them (the app's own{" "}
-        <code className="font-mono">Dockerfile</code> is used when it has one).
+        {t(
+          "Add a {code} step to the app’s pipeline. No Dockerfile is needed: Zelyq recognises Node, Python, Go and static sites and builds them (the app’s own {code2} is used when it has one).",
+          {
+            code: <code className="font-mono">deploy</code>,
+            code2: <code className="font-mono">Dockerfile</code>,
+          },
+        )}
       </p>
       <pre className="mt-2 overflow-x-auto rounded bg-surface-subtle p-2 font-mono text-2xs leading-5">{`source:
   app: Shop
@@ -994,15 +1033,20 @@ stages:
           port: 3000          # what the app listens on inside its container
           health: /           # checked after starting; default /`}</pre>
       <p className="mt-2">
-        Then give the app its exact address, such as <code className="font-mono">example.com</code>,
-        on its page (<span className="font-medium">Logs · manage</span> → Address): it gets HTTPS,
-        and a new version replaces the old one without downtime. Until then, add{" "}
-        <code className="font-mono">host-port: 8080</code> and it is at the public address and that
-        port.
+        {t(
+          "Then give the app its exact address, such as {code}, on its page ({part} → Address): it gets HTTPS, and a new version replaces the old one without downtime. Until then, add {code2} and it is at the public address and that port.",
+          {
+            code: <code className="font-mono">example.com</code>,
+            part: <span className="font-medium">{t("Logs · manage")}</span>,
+            code2: <code className="font-mono">host-port: 8080</code>,
+          },
+        )}
       </p>
       <p className="mt-2">
-        To deploy every change the agent makes, add the trigger{" "}
-        <span className="font-medium">When the app changes</span> on the pipeline's Triggers tab.
+        {t(
+          "To deploy every change the agent makes, add the trigger {part} on the pipeline’s Triggers tab.",
+          { part: <span className="font-medium">{t("When the app changes")}</span> },
+        )}
       </p>
     </details>
   );
@@ -1017,9 +1061,9 @@ export function RollBackProgress({
   onFinished,
   onClose,
   words = {
-    running: `Rolling back ${app} to #${to}…`,
-    ok: `${app} #${to} is live again.`,
-    failed: "The roll back did not go through.",
+    running: t("Rolling back {app} to #{to}…", { app, to }),
+    ok: t("{app} #{to} is live again.", { app, to }),
+    failed: t("The roll back did not go through."),
   },
 }: {
   teamId: string;
@@ -1074,7 +1118,7 @@ export function RollBackProgress({
             className="ml-auto text-fg-secondary hover:underline"
             onClick={onClose}
           >
-            Close
+            {t("Close")}
           </button>
         )}
       </p>
@@ -1104,7 +1148,7 @@ function DeploymentLog({
   if (lines.length === 0) {
     return (
       <p className="mt-1 text-fg-muted">
-        No log was kept for this one (it is from before logs were kept).
+        {t("No log was kept for this one (it is from before logs were kept).")}
       </p>
     );
   }

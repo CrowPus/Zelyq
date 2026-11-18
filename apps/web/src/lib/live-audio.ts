@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /**
  * The microphone and the speaker for talking to Ops live: the microphone as
  * 16 kHz 16-bit PCM in 50 ms frames (an AudioWorklet, public/ops-capture.js),
@@ -33,8 +34,10 @@ export class LiveAudio {
     } catch (error) {
       throw new Error(
         error instanceof DOMException && error.name === "NotAllowedError"
-          ? "Microphone access was refused. Allow it in the browser's site settings and try again."
-          : "Could not use the microphone.",
+          ? t(
+              "Microphone access was refused. Allow it in the browser’s site settings and try again.",
+            )
+          : t("Could not use the microphone."),
       );
     }
     if (this.closed) {

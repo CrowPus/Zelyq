@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../lib/api";
 import { uploadTargetPath } from "../lib/files";
+import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
 import { Button, Input, Spinner } from "./ui";
 
@@ -84,20 +85,21 @@ export function StudioMediaPicker({
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Add from Studio"
+        aria-label={t("Add from Studio")}
         className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border-default bg-overlay text-fg shadow-overlay"
       >
         <header className="flex items-start justify-between gap-4 border-b border-border-default p-4">
           <div>
-            <h2 className="text-sm font-semibold">Add from Studio</h2>
+            <h2 className="text-sm font-semibold">{t("Add from Studio")}</h2>
             <p className="mt-1 text-2xs text-fg-secondary">
-              Copy an image or video you made into this app. Nothing is uploaded from your browser,
-              so size is no problem.
+              {t(
+                "Copy an image or video you made into this app. Nothing is uploaded from your browser, so size is no problem.",
+              )}
             </p>
           </div>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t("Close")}
             onClick={onClose}
             className="rounded p-1 text-fg-muted hover:text-fg"
           >
@@ -133,17 +135,19 @@ export function StudioMediaPicker({
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {list.isPending ? (
             <p className="flex items-center gap-2 text-xs text-fg-secondary">
-              <Spinner /> Reading your library…
+              <Spinner /> {t("Reading your library…")}
             </p>
           ) : list.isError ? (
             <p role="alert" className="text-xs text-danger">
-              {list.error instanceof ApiError ? list.error.message : "Could not read your library."}
+              {list.error instanceof ApiError
+                ? list.error.message
+                : t("Could not read your library.")}
             </p>
           ) : (tab === "image" ? imageItems : videoItems).length === 0 ? (
             <p className="text-xs text-fg-secondary">
-              Nothing here yet.{" "}
+              {t("Nothing here yet. ")}
               <Link to={teamHref(`/studio/${tab}`)} className="underline underline-offset-2">
-                Make one in {tab === "image" ? "Image" : "Video"} Studio
+                {tab === "image" ? t("Make one in Image Studio") : t("Make one in Video Studio")}
               </Link>
               .
             </p>
@@ -170,7 +174,10 @@ export function StudioMediaPicker({
                       key={item.id}
                       selected={picked?.item.id === item.id}
                       label={item.input.prompt}
-                      detail={`${item.asset!.durationSeconds.toFixed(0)}s · ${(item.asset!.sizeBytes / 1024 / 1024).toFixed(1)} MB`}
+                      detail={t("{value}s · {value2} MB", {
+                        value: item.asset!.durationSeconds.toFixed(0),
+                        value2: (item.asset!.sizeBytes / 1024 / 1024).toFixed(1),
+                      })}
                       onClick={() => choose({ kind: "video", item })}
                     >
                       <img
@@ -190,7 +197,7 @@ export function StudioMediaPicker({
                 disabled={list.isFetchingNextPage}
                 onClick={() => void list.fetchNextPage()}
               >
-                {list.isFetchingNextPage ? "Loading…" : "Load more"}
+                {list.isFetchingNextPage ? t("Loading…") : t("Load more")}
               </Button>
             </div>
           )}
@@ -209,7 +216,7 @@ export function StudioMediaPicker({
                 htmlFor="studio-folder"
                 className="flex flex-1 flex-col gap-1 text-2xs text-fg-secondary"
               >
-                Folder
+                {t("Folder")}
                 <Input
                   id="studio-folder"
                   value={folder}
@@ -221,7 +228,7 @@ export function StudioMediaPicker({
                 htmlFor="studio-name"
                 className="flex flex-1 flex-col gap-1 text-2xs text-fg-secondary"
               >
-                File name
+                {t("File name")}
                 <Input
                   id="studio-name"
                   value={name}
@@ -229,20 +236,22 @@ export function StudioMediaPicker({
                 />
               </label>
               <Button type="submit" variant="primary" disabled={!target || place.isPending}>
-                {place.isPending ? "Adding…" : "Add to app"}
+                {place.isPending ? t("Adding…") : t("Add to app")}
               </Button>
             </form>
           ) : (
-            <p className="text-2xs text-fg-muted">Choose an image or a video above.</p>
+            <p className="text-2xs text-fg-muted">{t("Choose an image or a video above.")}</p>
           )}
           {target && !place.isError && (
             <p className="text-2xs text-fg-muted">
-              Will be written to <span className="font-mono">{target}</span>
+              {t("Will be written to {target}", {
+                target: <span className="font-mono">{target}</span>,
+              })}
             </p>
           )}
           {place.isError && (
             <p role="alert" className="text-2xs text-danger">
-              {place.error instanceof ApiError ? place.error.message : "Could not add it."}
+              {place.error instanceof ApiError ? place.error.message : t("Could not add it.")}
             </p>
           )}
         </footer>

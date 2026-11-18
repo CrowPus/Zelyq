@@ -15,6 +15,7 @@ import QRCode from "qrcode";
 import { type FormEvent, useEffect, useState } from "react";
 import { useSession } from "../../hooks/useSession";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import {
   Badge,
   Button,
@@ -54,13 +55,15 @@ export function TwoFactorCard() {
 
   return (
     <Card
-      title="Two-factor sign-in"
-      description="After your password, Zelyq also asks for a code from an authenticator app on your phone, such as 1Password, Google Authenticator or Microsoft Authenticator."
+      title={t("Two-factor sign-in")}
+      description={t(
+        "After your password, Zelyq also asks for a code from an authenticator app on your phone, such as 1Password, Google Authenticator or Microsoft Authenticator.",
+      )}
       actions={
         status.isLoading ? null : enabled ? (
-          <Badge tone="success">On</Badge>
+          <Badge tone="success">{t("On")}</Badge>
         ) : (
-          <Badge tone="neutral">Off</Badge>
+          <Badge tone="neutral">{t("Off")}</Badge>
         )
       }
     >
@@ -71,39 +74,43 @@ export function TwoFactorCard() {
           {left <= 3 && (
             <InlineAlert
               tone="warning"
-              title={left === 0 ? "No recovery codes left" : `Only ${left} recovery codes left`}
+              title={
+                left === 0
+                  ? t("No recovery codes left")
+                  : t("Only {left} recovery codes left", { left })
+              }
             >
-              Make new ones, so you can still sign in if you lose your phone.
+              {t("Make new ones, so you can still sign in if you lose your phone.")}
             </InlineAlert>
           )}
           <div className="flex flex-wrap items-center gap-3">
             <p className="min-w-0 flex-1 text-sm text-fg-secondary">
               <ShieldCheck size={15} className="mr-1.5 inline text-success" />
-              Signing in asks for a code. {left} of 10 recovery codes left.
+              {t("Signing in asks for a code. {left} of 10 recovery codes left.", { left })}
             </p>
             <Button icon={<KeyRound size={14} />} onClick={() => setDialog("codes")}>
-              New recovery codes
+              {t("New recovery codes")}
             </Button>
             <Button
               variant="danger"
               icon={<ShieldOff size={14} />}
               onClick={() => setDialog("disable")}
             >
-              Turn off
+              {t("Turn off")}
             </Button>
           </div>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           <p className="min-w-0 flex-1 text-sm text-fg-secondary">
-            Someone who learns your password still cannot sign in without your phone.
+            {t("Someone who learns your password still cannot sign in without your phone.")}
           </p>
           <Button
             variant="primary"
             icon={<ShieldCheck size={14} />}
             onClick={() => setDialog("setup")}
           >
-            Turn on
+            {t("Turn on")}
           </Button>
         </div>
       )}
@@ -116,13 +123,13 @@ export function TwoFactorCard() {
       <ConfirmCodeDialog
         open={dialog === "disable"}
         onOpenChange={(open) => setDialog(open ? "disable" : null)}
-        title="Turn off two-factor sign-in?"
-        description="Signing in will ask only for your password again."
-        confirmLabel="Turn off"
+        title={t("Turn off two-factor sign-in?")}
+        description={t("Signing in will ask only for your password again.")}
+        confirmLabel={t("Turn off")}
         danger
         run={async (input) => {
           await api.twoFactor.disable(input);
-          toast.success("Two-factor sign-in is off");
+          toast.success(t("Two-factor sign-in is off"));
           await after();
           return null;
         }}
@@ -130,9 +137,9 @@ export function TwoFactorCard() {
       <ConfirmCodeDialog
         open={dialog === "codes"}
         onOpenChange={(open) => setDialog(open ? "codes" : null)}
-        title="Make new recovery codes?"
-        description="Your old recovery codes stop working."
-        confirmLabel="Make new codes"
+        title={t("Make new recovery codes?")}
+        description={t("Your old recovery codes stop working.")}
+        confirmLabel={t("Make new codes")}
         run={async (input) => {
           const { recoveryCodes } = await api.twoFactor.recoveryCodes(input);
           await after();
@@ -214,23 +221,23 @@ function SetupDialog({
       size="md"
       title={
         step === "password"
-          ? "Turn on two-factor sign-in"
+          ? t("Turn on two-factor sign-in")
           : step === "scan"
-            ? "Scan the code with your app"
-            : "Save your recovery codes"
+            ? t("Scan the code with your app")
+            : t("Save your recovery codes")
       }
       description={
         step === "password"
-          ? "Step 1 of 3 · Confirm it is you."
+          ? t("Step 1 of 3 · Confirm it is you.")
           : step === "scan"
-            ? "Step 2 of 3 · Add Zelyq to your authenticator app."
-            : "Step 3 of 3 · Two-factor sign-in is on."
+            ? t("Step 2 of 3 · Add Zelyq to your authenticator app.")
+            : t("Step 3 of 3 · Two-factor sign-in is on.")
       }
       footer={
         step === "codes" ? null : (
           <>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               variant="primary"
@@ -238,7 +245,7 @@ function SetupDialog({
               disabled={step === "password" ? !password : code.length !== 6}
               onClick={() => void submit()}
             >
-              {step === "password" ? "Continue" : "Turn on"}
+              {step === "password" ? t("Continue") : t("Turn on")}
             </Button>
           </>
         )
@@ -246,7 +253,7 @@ function SetupDialog({
     >
       {step === "password" && (
         <form onSubmit={submit}>
-          <Field label="Your password" error={error}>
+          <Field label={t("Your password")} error={error}>
             <PasswordInput
               autoFocus
               value={password}
@@ -263,7 +270,7 @@ function SetupDialog({
               {qr ? (
                 <img
                   src={qr}
-                  alt="QR code to add Zelyq to an authenticator app"
+                  alt={t("QR code to add Zelyq to an authenticator app")}
                   className="size-40"
                 />
               ) : (
@@ -272,8 +279,9 @@ function SetupDialog({
             </div>
             <div className="min-w-0 text-sm text-fg-secondary">
               <p>
-                In your authenticator app, add an account and scan this code. If you cannot scan,
-                type this key instead:
+                {t(
+                  "In your authenticator app, add an account and scan this code. If you cannot scan, type this key instead:",
+                )}
               </p>
               <p className="mt-2 flex flex-wrap gap-x-2 gap-y-1 rounded-md bg-surface-subtle px-2.5 py-2 font-mono text-xs text-fg">
                 {secret.secret.match(/.{1,4}/g)?.map((group, i) => (
@@ -285,7 +293,7 @@ function SetupDialog({
               </p>
             </div>
           </div>
-          <Field label="The 6-digit code your app shows" error={error}>
+          <Field label={t("The 6-digit code your app shows")} error={error}>
             <Input
               autoFocus
               value={code}
@@ -307,12 +315,15 @@ function SetupDialog({
 function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone(): void }) {
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
-  const text = `Zelyq recovery codes — each works once.\n\n${codes.join("\n")}\n`;
+  const text = t("Zelyq recovery codes — each works once.\n\n{codes}\n", {
+    codes: codes.join("\n"),
+  });
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-fg-secondary">
-        If you lose your phone, each of these codes lets you sign in once. Keep them somewhere safe,
-        such as a password manager. They are shown only now.
+        {t(
+          "If you lose your phone, each of these codes lets you sign in once. Keep them somewhere safe, such as a password manager. They are shown only now.",
+        )}
       </p>
       <ul className="grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-lg border border-border-default bg-surface-subtle p-4 font-mono text-sm text-fg">
         {codes.map((code) => (
@@ -326,7 +337,7 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone(): void }) {
             void navigator.clipboard?.writeText(text).then(() => setCopied(true));
           }}
         >
-          {copied ? "Copied" : "Copy all"}
+          {copied ? t("Copied") : t("Copy all")}
         </Button>
         <Button
           icon={<Download size={14} />}
@@ -339,16 +350,16 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone(): void }) {
             URL.revokeObjectURL(url);
           }}
         >
-          Download
+          {t("Download")}
         </Button>
       </div>
       <span className="flex items-center gap-2 text-sm text-fg">
         <Checkbox id="codes-saved" checked={saved} onCheckedChange={setSaved} />
-        <label htmlFor="codes-saved">I have saved these codes</label>
+        <label htmlFor="codes-saved">{t("I have saved these codes")}</label>
       </span>
       <div className="flex justify-end">
         <Button variant="primary" disabled={!saved} onClick={onDone}>
-          Done
+          {t("Done")}
         </Button>
       </div>
     </div>
@@ -411,13 +422,13 @@ function ConfirmCodeDialog({
         onOpenChange(next);
       }}
       size="sm"
-      title={codes ? "Your new recovery codes" : title}
+      title={codes ? t("Your new recovery codes") : title}
       description={codes ? undefined : description}
       footer={
         codes ? null : (
           <>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               variant={danger ? "danger-solid" : "primary"}
@@ -435,7 +446,7 @@ function ConfirmCodeDialog({
         <RecoveryCodes codes={codes} onDone={() => onOpenChange(false)} />
       ) : (
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <Field label="Your password">
+          <Field label={t("Your password")}>
             <PasswordInput
               autoFocus
               value={password}
@@ -443,7 +454,7 @@ function ConfirmCodeDialog({
               autoComplete="current-password"
             />
           </Field>
-          <Field label="A code from your app, or a recovery code" error={error}>
+          <Field label={t("A code from your app, or a recovery code")} error={error}>
             <Input
               value={code}
               onChange={(event) => setCode(event.target.value)}
@@ -464,33 +475,33 @@ function ConfirmCodeDialog({
 
 /** "Chrome on macOS", from a user-agent string, in plain words. */
 export function describeDevice(userAgent: string | null): { name: string; phone: boolean } {
-  if (!userAgent) return { name: "Unknown browser", phone: false };
+  if (!userAgent) return { name: t("Unknown browser"), phone: false };
   const ua = userAgent;
   const browser = /Edg\//.test(ua)
-    ? "Edge"
+    ? t("Edge")
     : /OPR\/|Opera/.test(ua)
-      ? "Opera"
+      ? t("Opera")
       : /Firefox\//.test(ua)
-        ? "Firefox"
+        ? t("Firefox")
         : /Chrome\//.test(ua)
-          ? "Chrome"
+          ? t("Chrome")
           : /Safari\//.test(ua)
-            ? "Safari"
+            ? t("Safari")
             : /curl|python|node|Go-http/i.test(ua)
-              ? "A script"
-              : "A browser";
+              ? t("A script")
+              : t("A browser");
   const os = /iPhone|iPad/.test(ua)
     ? "iOS"
     : /Android/.test(ua)
-      ? "Android"
+      ? t("Android")
       : /Windows/.test(ua)
-        ? "Windows"
+        ? t("Windows")
         : /Mac OS X|Macintosh/.test(ua)
           ? "macOS"
           : /CrOS/.test(ua)
             ? "ChromeOS"
             : /Linux/.test(ua)
-              ? "Linux"
+              ? t("Linux")
               : null;
   return {
     name: os ? `${browser} on ${os}` : browser,
@@ -508,7 +519,7 @@ export function SessionsCard() {
   const end = useMutation({
     mutationFn: (id: string) => api.signedInSessions.end(id),
     onSuccess: async () => {
-      toast.success("That device is signed out");
+      toast.success(t("That device is signed out"));
       await queryClient.invalidateQueries({ queryKey: ["signed-in-sessions"] });
     },
     onError: (error) => toast.error((error as Error).message),
@@ -521,15 +532,18 @@ export function SessionsCard() {
 
   async function endOthers() {
     const ok = await confirmAction({
-      title: "Sign out of every other device?",
-      description: `${others} other ${others === 1 ? "device is" : "devices are"} signed out at once. This one stays signed in.`,
-      confirmLabel: "Sign out others",
+      title: t("Sign out of every other device?"),
+      description: t(
+        "{others} other {others, plural, one {device is} other {devices are}} signed out at once. This one stays signed in.",
+        { others },
+      ),
+      confirmLabel: t("Sign out others"),
       danger: true,
     });
     if (!ok) return;
     try {
       const { ended } = await api.signedInSessions.endOthers();
-      toast.success(`${ended} ${ended === 1 ? "device" : "devices"} signed out`);
+      toast.success(t("{ended, plural, one {# device} other {# devices}} signed out", { ended }));
       await queryClient.invalidateQueries({ queryKey: ["signed-in-sessions"] });
     } catch (error) {
       toast.error((error as Error).message);
@@ -538,12 +552,14 @@ export function SessionsCard() {
 
   return (
     <Card
-      title="Signed-in devices"
-      description="Everywhere this account is signed in now. Sign out any you do not recognise, then change your password."
+      title={t("Signed-in devices")}
+      description={t(
+        "Everywhere this account is signed in now. Sign out any you do not recognise, then change your password.",
+      )}
       actions={
         others > 0 && (
           <Button size="sm" variant="danger" icon={<LogOut size={13} />} onClick={endOthers}>
-            Sign out others
+            {t("Sign out others")}
           </Button>
         )
       }
@@ -566,18 +582,16 @@ export function SessionsCard() {
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-fg">
                     {device.name}
-                    {session.current && <Badge tone="accent">This device</Badge>}
+                    {session.current && <Badge tone="accent">{t("This device")}</Badge>}
                   </p>
                   <p className="mt-0.5 truncate text-xs text-fg-muted">
                     {session.ip ? `${session.ip} · ` : ""}
-                    {session.current ? (
-                      "Active now"
-                    ) : (
-                      <>
-                        Last active <RelativeTime value={session.lastSeenAt} />
-                      </>
-                    )}
-                    {" · "}signed in <RelativeTime value={session.createdAt} />
+                    {session.current
+                      ? t("Active now")
+                      : t("Last active {when}", {
+                          when: <RelativeTime value={session.lastSeenAt} />,
+                        })}
+                    {t(" · signed in {when}", { when: <RelativeTime value={session.createdAt} /> })}
                   </p>
                 </div>
                 {!session.current && (
@@ -586,7 +600,7 @@ export function SessionsCard() {
                     loading={end.isPending && end.variables === session.id}
                     onClick={() => end.mutate(session.id)}
                   >
-                    Sign out
+                    {t("Sign out")}
                   </Button>
                 )}
               </li>

@@ -1,6 +1,7 @@
 import type { Topology } from "@zelyq/core";
 import { Minus, Plus, Scan } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from "react";
+import { t } from "../lib/i18n";
 import { layerColor, layoutTopology, NODE_H, NODE_W } from "./topologyLayout";
 import { IconButton } from "./ui";
 
@@ -74,7 +75,7 @@ export function TopologyDiagram({ topology }: { topology: Topology }) {
         <svg
           className="h-full w-full touch-none select-none"
           role="img"
-          aria-label={topology.title ?? "System design diagram"}
+          aria-label={topology.title ?? t("System design diagram")}
           onWheel={onWheel}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -154,7 +155,7 @@ export function TopologyDiagram({ topology }: { topology: Topology }) {
                     stroke={isLit ? "var(--color-primary)" : "var(--color-fg-muted)"}
                     strokeWidth={isLit ? 2 : 1.25}
                     strokeDasharray={edge.kind === "async" ? "5 5" : undefined}
-                    markerEnd={`url(#td-arrow${isLit ? "-lit" : ""})`}
+                    markerEnd={isLit ? "url(#td-arrow-lit)" : "url(#td-arrow)"}
                     className={isLit && edge.kind !== "async" ? "td-flow" : undefined}
                   />
                   {edge.protocol ? (
@@ -253,19 +254,19 @@ export function TopologyDiagram({ topology }: { topology: Topology }) {
         <div className="absolute right-2 top-2 flex flex-col gap-1 rounded-lg border border-border-default bg-surface/90 p-1 backdrop-blur">
           <IconButton
             size="sm"
-            label="Zoom in"
+            label={t("Zoom in")}
             onClick={() => setScale((s) => clamp(s * 1.15, MIN_SCALE, MAX_SCALE))}
           >
             <Plus size={13} strokeWidth={1.75} />
           </IconButton>
           <IconButton
             size="sm"
-            label="Zoom out"
+            label={t("Zoom out")}
             onClick={() => setScale((s) => clamp(s * 0.87, MIN_SCALE, MAX_SCALE))}
           >
             <Minus size={13} strokeWidth={1.75} />
           </IconButton>
-          <IconButton size="sm" label="Reset view" onClick={reset}>
+          <IconButton size="sm" label={t("Reset view")} onClick={reset}>
             <Scan size={13} strokeWidth={1.75} />
           </IconButton>
         </div>
@@ -313,7 +314,7 @@ function FocusCard({
           type="button"
           onClick={onClose}
           className="text-2xs text-fg-muted hover:text-fg"
-          aria-label="Close"
+          aria-label={t("Close")}
         >
           ✕
         </button>

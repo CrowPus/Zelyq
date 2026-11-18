@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BackendConfigurationResolved } from "@zelyq/core";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { Button, Drawer, Input, NativeSelect, PasswordInput } from "./ui";
 
 export function BackendPanel({
@@ -58,11 +59,12 @@ export function BackendPanel({
   const inputClass =
     "w-full rounded-md border border-border-control bg-surface px-2.5 h-8 text-sm text-fg";
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} width="lg" title="Backend configuration">
+    <Drawer open={open} onOpenChange={onOpenChange} width="lg" title={t("Backend configuration")}>
       <div className="p-5">
         <p className="mb-4 text-sm text-fg-muted">
-          Connect your database and identity provider. Existing tables are never changed by
-          connecting or inspecting. Previews use development settings.
+          {t(
+            "Connect your database and identity provider. Existing tables are never changed by connecting or inspecting. Previews use development settings.",
+          )}
         </p>
         <form
           className="grid gap-4"
@@ -72,25 +74,26 @@ export function BackendPanel({
           }}
         >
           <label>
-            Environment
+            {t("Environment")}
             <NativeSelect
               className={inputClass}
               value={environment}
               onChange={(e) => setEnvironment(e.target.value as typeof environment)}
             >
-              <option value="development">development — used by previews and checks</option>
-              <option value="test">test — stored, not yet used</option>
-              <option value="production">production — stored, not yet used</option>
+              <option value="development">{t("development — used by previews and checks")}</option>
+              <option value="test">{t("test — stored, not yet used")}</option>
+              <option value="production">{t("production — stored, not yet used")}</option>
             </NativeSelect>
           </label>
           {environment !== "development" && (
             <p role="status" className="text-xs text-fg-muted">
-              Saved securely, but nothing reads this environment yet: previews, checks and
-              connection tests all use development. Deployment will use it.
+              {t(
+                "Saved securely, but nothing reads this environment yet: previews, checks and connection tests all use development. Deployment will use it.",
+              )}
             </p>
           )}
           <label>
-            Database
+            {t("Database")}
             <NativeSelect
               className={inputClass}
               value={form.engine}
@@ -102,31 +105,31 @@ export function BackendPanel({
                 })
               }
             >
-              <option value="none">No database</option>
-              <option value="postgresql">My PostgreSQL database</option>
-              <option value="mysql">My MySQL database</option>
-              <option value="sqlite">SQLite — persistent local file</option>
-              <option value="supabase">Linked Supabase resource</option>
+              <option value="none">{t("No database")}</option>
+              <option value="postgresql">{t("My PostgreSQL database")}</option>
+              <option value="mysql">{t("My MySQL database")}</option>
+              <option value="sqlite">{t("SQLite — persistent local file")}</option>
+              <option value="supabase">{t("Linked Supabase resource")}</option>
             </NativeSelect>
           </label>
           {["postgresql", "mysql"].includes(form.engine) && (
             <label>
-              Connection URL
+              {t("Connection URL")}
               <PasswordInput
                 className={inputClass}
                 autoComplete="new-password"
                 value={form.databaseUrl ?? ""}
                 placeholder={
                   query.data?.configuration.configured
-                    ? "Saved — leave unchanged to keep"
-                    : `${form.engine}://user:password@host/database`
+                    ? t("Saved — leave unchanged to keep")
+                    : t("{engine}://user:password@host/database", { engine: form.engine })
                 }
                 onChange={(e) => setForm({ ...form, databaseUrl: e.target.value })}
               />
             </label>
           )}
           <label>
-            Schema ownership
+            {t("Schema ownership")}
             <NativeSelect
               className={inputClass}
               value={form.ownership}
@@ -134,9 +137,9 @@ export function BackendPanel({
                 setForm({ ...form, ownership: e.target.value as typeof form.ownership })
               }
             >
-              <option value="external">Existing schema — managed outside this app</option>
+              <option value="external">{t("Existing schema — managed outside this app")}</option>
               <option value="application">
-                Application-owned schema — migrations reviewed separately
+                {t("Application-owned schema — migrations reviewed separately")}
               </option>
             </NativeSelect>
           </label>
@@ -146,10 +149,10 @@ export function BackendPanel({
               checked={form.readOnly}
               onChange={(e) => setForm({ ...form, readOnly: e.target.checked })}
             />
-            Read-only access (use read-only database credentials)
+            {t("Read-only access (use read-only database credentials)")}
           </label>
           <label>
-            Schema (optional)
+            {t("Schema (optional)")}
             <Input
               className={inputClass}
               value={form.schema ?? ""}
@@ -157,7 +160,7 @@ export function BackendPanel({
             />
           </label>
           <label>
-            Tables to inspect (comma-separated)
+            {t("Tables to inspect (comma-separated)")}
             <Input
               className={inputClass}
               value={form.tables.join(",")}
@@ -173,14 +176,16 @@ export function BackendPanel({
             />
           </label>
           <label>
-            Application authentication
+            {t("Application authentication")}
             <NativeSelect
               className={inputClass}
               value={form.auth}
               onChange={(e) => setForm({ ...form, auth: e.target.value as typeof form.auth })}
             >
-              <option value="none">Not configured — protected routes remain unavailable</option>
-              <option value="jwt">Existing provider — signed access tokens</option>
+              <option value="none">
+                {t("Not configured — protected routes remain unavailable")}
+              </option>
+              <option value="jwt">{t("Existing provider — signed access tokens")}</option>
             </NativeSelect>
           </label>
           {form.auth === "jwt" &&
@@ -188,9 +193,9 @@ export function BackendPanel({
               <label key={key}>
                 {
                   {
-                    issuer: "Token issuer (HTTPS)",
-                    audience: "API audience",
-                    jwksUrl: "Signing keys URL (HTTPS)",
+                    issuer: t("Token issuer (HTTPS)"),
+                    audience: t("API audience"),
+                    jwksUrl: t("Signing keys URL (HTTPS)"),
                   }[key]
                 }
                 <Input
@@ -201,9 +206,10 @@ export function BackendPanel({
               </label>
             ))}
           <p className="text-sm text-fg-muted">
-            API keys and other secrets for the backend are set under <strong>Variables</strong>,
-            next to this button — typed there, or taken from your team's Vault. They reach the
-            backend as environment variables.
+            {t(
+              "API keys and other secrets for the backend are set under {strong}, next to this button — typed there, or taken from your team’s Vault. They reach the backend as environment variables.",
+              { strong: <strong>{t("Variables")}</strong> },
+            )}
           </p>
           {(query.error || save.error || inspect.error || disconnect.error) && (
             <p role="alert" className="text-sm text-danger">
@@ -212,12 +218,12 @@ export function BackendPanel({
           )}
           {save.isSuccess && (
             <p role="status" className="text-sm">
-              Saved. Start the preview to apply development settings.
+              {t("Saved. Start the preview to apply development settings.")}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={save.isPending || query.isPending}>
-              Save configuration
+              {t("Save configuration")}
             </Button>
             <Button
               type="button"
@@ -226,11 +232,11 @@ export function BackendPanel({
               title={
                 environment === "development"
                   ? undefined
-                  : "Connection tests run against the development configuration."
+                  : t("Connection tests run against the development configuration.")
               }
               onClick={() => inspect.mutate()}
             >
-              Test connection and inspect
+              {t("Test connection and inspect")}
             </Button>
             <Button
               type="button"
@@ -238,12 +244,13 @@ export function BackendPanel({
               onClick={() => disconnect.mutate()}
               disabled={disconnect.isPending}
             >
-              Disconnect
+              {t("Disconnect")}
             </Button>
           </div>
           <p className="text-xs text-fg-muted">
-            Install dependencies by starting the preview before inspection. The probe reads selected
-            schema metadata, not rows. Disconnecting removes configuration, not your database.
+            {t(
+              "Install dependencies by starting the preview before inspection. The probe reads selected schema metadata, not rows. Disconnecting removes configuration, not your database.",
+            )}
           </p>
           {inspection && (
             <pre className="overflow-auto whitespace-pre-wrap text-xs">{inspection}</pre>

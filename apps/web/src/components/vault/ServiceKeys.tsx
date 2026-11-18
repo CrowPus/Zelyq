@@ -4,14 +4,15 @@ import { Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff } from "lucide-react"
 import { useId, useState } from "react";
 import { api } from "../../lib/api";
 import { formatDate } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
 import { Badge, Button, EmptyState, FieldLabel, IconButton, Input, Spinner } from "../ui";
 
 const SCOPE_TEXT: Record<VaultKeyScope, string> = {
-  list: "List names",
-  read: "Read values",
-  write: "Set values (never Protected ones)",
-  pipelines: "Start pipeline runs",
+  list: t("List names"),
+  read: t("Read values"),
+  write: t("Set values (never Protected ones)"),
+  pipelines: t("Start pipeline runs"),
 };
 
 /**
@@ -36,18 +37,21 @@ export function ServiceKeysTab({ teamId, canAdmin }: { teamId: string; canAdmin:
   if (!canAdmin) {
     return (
       <EmptyState
-        title="Admins and owners manage service keys"
-        description="A service key can read Protected secrets, so creating one is limited to admins and owners of the team."
+        title={t("Admins and owners manage service keys")}
+        description={t(
+          "A service key can read Protected secrets, so creating one is limited to admins and owners of the team.",
+        )}
       />
     );
   }
 
   return (
-    <section aria-label="Service keys">
+    <section aria-label={t("Service keys")}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="max-w-xl text-2xs text-fg-muted">
-          For your own servers, CI and scripts. One key per system; revoke it the moment that system
-          no longer needs it.
+          {t(
+            "For your own servers, CI and scripts. One key per system; revoke it the moment that system no longer needs it.",
+          )}
         </p>
         <Button
           size="sm"
@@ -58,7 +62,7 @@ export function ServiceKeysTab({ teamId, canAdmin }: { teamId: string; canAdmin:
             setShown(null);
           }}
         >
-          New service key
+          {t("New service key")}
         </Button>
       </div>
 
@@ -92,8 +96,10 @@ export function ServiceKeysTab({ teamId, canAdmin }: { teamId: string; canAdmin:
       )}
       {keys.data?.length === 0 && !creating && (
         <EmptyState
-          title="No service keys"
-          description="Create one to read this Vault from outside Zelyq — a deploy script, a CI job, a Kubernetes cluster."
+          title={t("No service keys")}
+          description={t(
+            "Create one to read this Vault from outside Zelyq — a deploy script, a CI job, a Kubernetes cluster.",
+          )}
         />
       )}
       {keys.data && keys.data.length > 0 && (
@@ -155,16 +161,16 @@ function CreateKey({
         create.mutate();
       }}
     >
-      <p className="text-xs font-medium">New service key</p>
+      <p className="text-xs font-medium">{t("New service key")}</p>
       <div className="grid gap-1">
         <label htmlFor={`${ids}-name`}>
-          <FieldLabel>Name — which system uses it</FieldLabel>
+          <FieldLabel>{t("Name — which system uses it")}</FieldLabel>
         </label>
         <Input
           id={`${ids}-name`}
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Production deploy"
+          placeholder={t("Production deploy")}
           autoFocus
           required
           maxLength={100}
@@ -172,7 +178,7 @@ function CreateKey({
       </div>
       <fieldset className="grid gap-1">
         <legend className="mb-1">
-          <FieldLabel>It may</FieldLabel>
+          <FieldLabel>{t("It may")}</FieldLabel>
         </legend>
         {VAULT_KEY_SCOPES.map((scope) => (
           <label key={scope} className="flex items-center gap-2 text-xs">
@@ -191,33 +197,33 @@ function CreateKey({
       </fieldset>
       <div className="grid gap-1">
         <label htmlFor={`${ids}-patterns`}>
-          <FieldLabel>Only these names (optional)</FieldLabel>
+          <FieldLabel>{t("Only these names (optional)")}</FieldLabel>
         </label>
         <Input
           id={`${ids}-patterns`}
           value={patterns}
           onChange={(event) => setPatterns(event.target.value)}
-          placeholder="STRIPE_*, DB_PASSWORD — empty means every secret"
+          placeholder={t("STRIPE_*, DB_PASSWORD — empty means every secret")}
           className="font-mono"
           spellCheck={false}
         />
       </div>
       <div className="grid gap-1">
         <label htmlFor={`${ids}-ips`}>
-          <FieldLabel>Only from these addresses (optional)</FieldLabel>
+          <FieldLabel>{t("Only from these addresses (optional)")}</FieldLabel>
         </label>
         <Input
           id={`${ids}-ips`}
           value={ips}
           onChange={(event) => setIps(event.target.value)}
-          placeholder="203.0.113.10, 198.51.100.0/24 — empty means anywhere"
+          placeholder={t("203.0.113.10, 198.51.100.0/24 — empty means anywhere")}
           className="font-mono"
           spellCheck={false}
         />
       </div>
       <div className="grid gap-1">
         <label htmlFor={`${ids}-expires`}>
-          <FieldLabel>Expires (optional)</FieldLabel>
+          <FieldLabel>{t("Expires (optional)")}</FieldLabel>
         </label>
         <Input
           id={`${ids}-expires`}
@@ -234,7 +240,7 @@ function CreateKey({
       )}
       <div className="flex justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </Button>
         <Button
           size="sm"
@@ -242,7 +248,7 @@ function CreateKey({
           type="submit"
           disabled={!name.trim() || scopes.length === 0 || create.isPending}
         >
-          {create.isPending ? "Creating…" : "Create key"}
+          {create.isPending ? t("Creating…") : t("Create key")}
         </Button>
       </div>
     </form>
@@ -272,11 +278,11 @@ function ShownOnce({
       className="mb-4 grid gap-3 rounded-lg border border-success/30 bg-success-subtle p-3"
     >
       <p className="text-xs font-medium">
-        Key for “{name}”. Copy it now — it will not be shown again.
+        {t("Key for “{name}”. Copy it now — it will not be shown again.", { name })}
       </p>
-      <CopyLine value={secret} label="Copy key" />
+      <CopyLine value={secret} label={t("Copy key")} />
       <div>
-        <div className="mb-1 flex gap-1" role="tablist" aria-label="Example">
+        <div className="mb-1 flex gap-1" role="tablist" aria-label={t("Example")}>
           {(["curl", "node", "python"] as const).map((id) => (
             <button
               key={id}
@@ -288,7 +294,7 @@ function ShownOnce({
                 example === id ? "bg-surface text-fg" : "text-fg-secondary"
               }`}
             >
-              {id === "curl" ? "curl" : id === "node" ? "Node" : "Python"}
+              {id === "curl" ? t("curl") : id === "node" ? t("Node") : t("Python")}
             </button>
           ))}
         </div>
@@ -296,13 +302,14 @@ function ShownOnce({
           {examples[example]}
         </pre>
         <p className="mt-1 text-2xs text-fg-muted">
-          Give the system the key as <code>ZELYQ_VAULT_KEY</code>; it fetches everything else from
-          Vault.
+          {t("Give the system the key as {code}; it fetches everything else from Vault.", {
+            code: <code>ZELYQ_VAULT_KEY</code>,
+          })}
         </p>
       </div>
       <div className="flex justify-end">
         <Button size="sm" variant="ghost" onClick={onClose}>
-          I have copied it
+          {t("I have copied it")}
         </Button>
       </div>
     </div>
@@ -316,7 +323,7 @@ function CopyLine({ value, label }: { value: string; label: string }) {
       <code className="min-w-0 flex-1 break-all font-mono text-xs">{value}</code>
       <IconButton
         size="sm"
-        label={copied ? "Copied" : label}
+        label={copied ? t("Copied") : label}
         onClick={async () => {
           await navigator.clipboard.writeText(value);
           setCopied(true);
@@ -366,23 +373,32 @@ function KeyRow({
             ))}
           </p>
           <p className="mt-0.5 text-2xs text-fg-muted">
-            {item.namePatterns ? `Names: ${item.namePatterns.join(", ")}` : "Every secret"}
+            {item.namePatterns ? `Names: ${item.namePatterns.join(", ")}` : t("Every secret")}
             {" · "}
-            {item.allowedIps ? `From: ${item.allowedIps.join(", ")}` : "From anywhere"}
-            {item.expiresAt ? ` · Expires ${formatDate(item.expiresAt)}` : ""}
+            {item.allowedIps ? `From: ${item.allowedIps.join(", ")}` : t("From anywhere")}
+            {item.expiresAt
+              ? t(" · Expires {expiresAt}", { expiresAt: formatDate(item.expiresAt) })
+              : ""}
           </p>
           <p className="mt-0.5 text-2xs text-fg-muted">
             {item.lastUsedAt
-              ? `Last used ${formatRelative(item.lastUsedAt)} from ${item.lastUsedIp}`
-              : "Never used"}
-            {" · "}created by {item.createdBy?.name ?? "someone"} {formatRelative(item.createdAt)}
+              ? t("Last used {lastUsedAt} from {lastUsedIp} · created by {name} {createdAt}", {
+                  lastUsedAt: formatRelative(item.lastUsedAt),
+                  lastUsedIp: item.lastUsedIp,
+                  name: item.createdBy?.name ?? t("someone"),
+                  createdAt: formatRelative(item.createdAt),
+                })
+              : t("Never used · created by {name} {createdAt}", {
+                  name: item.createdBy?.name ?? t("someone"),
+                  createdAt: formatRelative(item.createdAt),
+                })}
           </p>
         </div>
         {status === "active" && (
           <div className="flex shrink-0 gap-0.5">
             <IconButton
               size="sm"
-              label={`Rotate ${item.name}`}
+              label={t("Rotate {name}", { name: item.name })}
               onClick={() => setConfirm("rotate")}
             >
               <RefreshCw size={13} strokeWidth={1.75} />
@@ -390,7 +406,7 @@ function KeyRow({
             <IconButton
               size="sm"
               variant="danger"
-              label={`Revoke ${item.name}`}
+              label={t("Revoke {name}", { name: item.name })}
               onClick={() => setConfirm("revoke")}
             >
               <ShieldOff size={13} strokeWidth={1.75} />
@@ -402,12 +418,14 @@ function KeyRow({
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2 py-1.5 text-xs">
           <span>
             {confirm === "rotate"
-              ? `Make a new key for “${item.name}”? The current one stops working at once.`
-              : `Revoke “${item.name}”? Anything using it loses access at once.`}
+              ? t("Make a new key for “{name}”? The current one stops working at once.", {
+                  name: item.name,
+                })
+              : t("Revoke “{name}”? Anything using it loses access at once.", { name: item.name })}
           </span>
           <span className="flex gap-1">
             <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               size="sm"
@@ -418,7 +436,7 @@ function KeyRow({
                 (confirm === "rotate" ? rotate : revoke).mutate();
               }}
             >
-              {confirm === "rotate" ? "Rotate" : "Revoke"}
+              {confirm === "rotate" ? t("Rotate") : t("Revoke")}
             </Button>
           </span>
         </div>

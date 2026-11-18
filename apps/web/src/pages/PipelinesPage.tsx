@@ -30,6 +30,7 @@ import {
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { RUN_STATUS } from "../lib/pipelines";
 import { teamHref, useTeamPaths } from "../lib/routes";
 import { formatRelative } from "../lib/vault";
@@ -59,18 +60,20 @@ export function PipelinesPage() {
     }).data?.pipelines.length ?? 0;
 
   return (
-    <AppShell crumbs={[{ label: "Pipelines" }]}>
+    <AppShell crumbs={[{ label: t("Pipelines") }]}>
       <PageBody width="standard">
         <PageHeader
-          title="Pipelines"
-          description="Test, build and deploy the same way every time, on this server or on your own machines over SSH. Secrets come from the team's Vault and never appear in a log."
+          title={t("Pipelines")}
+          description={t(
+            "Test, build and deploy the same way every time, on this server or on your own machines over SSH. Secrets come from the team’s Vault and never appear in a log.",
+          )}
           actions={
             tab === "pipelines" &&
             canWrite &&
             pipelineCount > 0 && (
               <Link to={paths.pipeline("new")} className={buttonClass("primary")}>
                 <Plus size={15} />
-                New pipeline
+                {t("New pipeline")}
               </Link>
             )
           }
@@ -78,25 +81,25 @@ export function PipelinesPage() {
 
         <div className="mb-6">
           <Tabs
-            label="Pipelines sections"
+            label={t("Pipelines sections")}
             value={tab}
             onChange={(name) =>
               // Each tab starts without the list's search and filters.
               setParams(name === "pipelines" ? {} : { tab: name }, { replace: true })
             }
             items={[
-              { id: "pipelines", label: "Pipelines", count: pipelineCount || undefined },
-              { id: "overview", label: "Overview" },
-              { id: "runners", label: "Runners" },
-              { id: "plugins", label: "Plugins" },
+              { id: "pipelines", label: t("Pipelines"), count: pipelineCount || undefined },
+              { id: "overview", label: t("Overview") },
+              { id: "runners", label: t("Runners") },
+              { id: "plugins", label: t("Plugins") },
             ]}
           />
         </div>
 
         {!team ? (
           <EmptyState
-            title="No team"
-            description="Pipelines belong to a team. Create or join one first."
+            title={t("No team")}
+            description={t("Pipelines belong to a team. Create or join one first.")}
           />
         ) : tab === "runners" ? (
           <RunnersTab team={team} />
@@ -114,18 +117,18 @@ export function PipelinesPage() {
 
 /** How a pipeline's last run went, in the few groups people filter by. */
 const OUTCOMES = [
-  { value: "failed", label: "Last run failed", statuses: ["failed", "timed_out"] },
-  { value: "passed", label: "Last run passed", statuses: ["passed"] },
-  { value: "running", label: "Running now", statuses: ["queued", "pending", "running"] },
-  { value: "waiting", label: "Waiting for approval", statuses: ["waiting"] },
-  { value: "cancelled", label: "Last run cancelled", statuses: ["cancelled"] },
-  { value: "never", label: "Never run", statuses: [] },
+  { value: "failed", label: t("Last run failed"), statuses: ["failed", "timed_out"] },
+  { value: "passed", label: t("Last run passed"), statuses: ["passed"] },
+  { value: "running", label: t("Running now"), statuses: ["queued", "pending", "running"] },
+  { value: "waiting", label: t("Waiting for approval"), statuses: ["waiting"] },
+  { value: "cancelled", label: t("Last run cancelled"), statuses: ["cancelled"] },
+  { value: "never", label: t("Never run"), statuses: [] },
 ] as const;
 
 const SORTS = [
-  { value: "", label: "Recent activity" },
-  { value: "name", label: "Name A–Z" },
-  { value: "changed", label: "Recently changed" },
+  { value: "", label: t("Recent activity") },
+  { value: "name", label: t("Name A–Z") },
+  { value: "changed", label: t("Recently changed") },
 ];
 
 /** When something last happened: its last run, or its last change. */
@@ -158,13 +161,15 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
   if (all.length === 0) {
     return (
       <EmptyState
-        title="No pipelines yet"
-        description="A pipeline is a short file: stages, and the commands in each. Start from a template — Node, Python or Docker."
+        title={t("No pipelines yet")}
+        description={t(
+          "A pipeline is a short file: stages, and the commands in each. Start from a template — Node, Python or Docker.",
+        )}
         action={
           canWrite && (
             <Link to={teamHref("/pipelines/new")} className={buttonClass("primary")}>
               <Plus size={14} />
-              New pipeline
+              {t("New pipeline")}
             </Link>
           )
         }
@@ -203,14 +208,14 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
         <SearchBox
           value={q}
           onChange={(value) => filters.set({ q: value })}
-          placeholder="Search pipelines"
+          placeholder={t("Search pipelines")}
         />
         <FilterSelect
-          label="Last run"
+          label={t("Last run")}
           value={last}
           onChange={(value) => filters.set({ last: value })}
           options={[
-            { value: "", label: "Any last run" },
+            { value: "", label: t("Any last run") },
             ...OUTCOMES.map((choice) => ({
               value: choice.value,
               label: `${choice.label} (${count(choice.statuses, choice.value === "never")})`,
@@ -219,20 +224,23 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
         />
         {machines.length > 1 && (
           <FilterSelect
-            label="Runs on"
+            label={t("Runs on")}
             value={on}
             onChange={(value) => filters.set({ on: value })}
             options={[
-              { value: "", label: "Any machine" },
-              ...machines.map((machine) => ({ value: machine, label: `On ${machine}` })),
+              { value: "", label: t("Any machine") },
+              ...machines.map((machine) => ({
+                value: machine,
+                label: t("On {machine}", { machine }),
+              })),
             ]}
           />
         )}
         <FilterToggle on={starred} onChange={(value) => filters.set({ starred: value ? "1" : "" })}>
-          <Star size={13} className={starred ? "fill-warning text-warning" : ""} /> Starred
+          <Star size={13} className={starred ? "fill-warning text-warning" : ""} /> {t("Starred")}
         </FilterToggle>
         <FilterSelect
-          label="Order"
+          label={t("Order")}
           value={sort}
           onChange={(value) => filters.set({ sort: value })}
           options={SORTS}
@@ -249,10 +257,14 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
                 <button
                   type="button"
                   aria-label={
-                    pipeline.favorite ? `Unstar ${pipeline.name}` : `Star ${pipeline.name}`
+                    pipeline.favorite
+                      ? t("Unstar {name}", { name: pipeline.name })
+                      : t("Star {name}", { name: pipeline.name })
                   }
                   aria-pressed={pipeline.favorite}
-                  title={pipeline.favorite ? "Starred: shown first" : "Star it, to show it first"}
+                  title={
+                    pipeline.favorite ? t("Starred: shown first") : t("Star it, to show it first")
+                  }
                   disabled={star.isPending}
                   onClick={() => star.mutate({ id: pipeline.id, favorite: !pipeline.favorite })}
                   className="py-2.5 pr-1 pl-3 text-fg-muted hover:text-warning"
@@ -274,16 +286,26 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
                         <GitBranch
                           size={12}
                           className="shrink-0 text-fg-muted"
-                          aria-label={`File kept in the repository at ${pipeline.repoPath}`}
+                          aria-label={t("File kept in the repository at {repoPath}", {
+                            repoPath: pipeline.repoPath,
+                          })}
                         >
-                          <title>{`Kept in the repository at ${pipeline.repoPath}`}</title>
+                          <title>
+                            {t("Kept in the repository at {repoPath}", {
+                              repoPath: pipeline.repoPath,
+                            })}
+                          </title>
                         </GitBranch>
                       )}
                     </p>
                     <p className="text-xs text-fg-secondary">
-                      runs on <span className="font-mono">{pipeline.runsOn}</span>
-                      {pipeline.updatedBy && <> · changed by {pipeline.updatedBy.name}</>} ·{" "}
-                      {formatRelative(pipeline.updatedAt)}
+                      {t("runs on {runsOn}", {
+                        runsOn: <span className="font-mono">{pipeline.runsOn}</span>,
+                      })}
+                      {pipeline.updatedBy && (
+                        <> {t("· changed by {name}", { name: pipeline.updatedBy.name })}</>
+                      )}{" "}
+                      · {formatRelative(pipeline.updatedAt)}
                     </p>
                   </div>
                   {pipeline.lastRun && status ? (
@@ -292,7 +314,7 @@ function PipelineList({ teamId, canWrite }: { teamId: string; canWrite: boolean 
                       <Badge tone={status.tone}>{status.label}</Badge>
                     </span>
                   ) : (
-                    <span className="text-xs text-fg-muted">never run</span>
+                    <span className="text-xs text-fg-muted">{t("never run")}</span>
                   )}
                 </Link>
               </li>

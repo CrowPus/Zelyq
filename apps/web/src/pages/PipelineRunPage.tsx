@@ -41,6 +41,7 @@ import {
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { formatDateTime } from "../lib/format";
+import { t } from "../lib/i18n";
 import { duration, formatBytes, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
 import { teamHref } from "../lib/routes";
 import { vaultErrorMessage } from "../lib/vault";
@@ -153,15 +154,17 @@ export function PipelineRunPage() {
 
   if (run.isLoading || !detail) {
     return (
-      <AppShell crumbs={[{ label: "Pipelines", to: teamHref("/pipelines") }, { label: "Run" }]}>
+      <AppShell
+        crumbs={[{ label: t("Pipelines"), to: teamHref("/pipelines") }, { label: t("Run") }]}
+      >
         {run.isLoading ? (
           <div className="p-6">
             <Spinner />
           </div>
         ) : (
           <EmptyState
-            title="Not found"
-            description="This run is not in the team you have chosen."
+            title={t("Not found")}
+            description={t("This run is not in the team you have chosen.")}
           />
         )}
       </AppShell>
@@ -182,7 +185,7 @@ export function PipelineRunPage() {
   return (
     <AppShell
       crumbs={[
-        { label: "Pipelines", to: teamHref("/pipelines") },
+        { label: t("Pipelines"), to: teamHref("/pipelines") },
         { label: detail.pipelineName, to: teamHref(`/pipelines/${id}`) },
         { label: `#${detail.number}` },
       ]}
@@ -210,7 +213,10 @@ export function PipelineRunPage() {
                   )}
                   className="text-info hover:underline"
                 >
-                  started by {detail.upstream.pipelineName} #{detail.upstream.number}
+                  {t("started by {pipelineName} #{number}", {
+                    pipelineName: detail.upstream.pipelineName,
+                    number: detail.upstream.number,
+                  })}
                 </Link>
               )}
               {Object.entries(detail.inputs).map(([name, value]) => (
@@ -225,7 +231,11 @@ export function PipelineRunPage() {
               )}
               <RelativeTime value={detail.createdAt} />
               {detail.startedAt && (
-                <span>took {duration(detail.startedAt, detail.finishedAt)}</span>
+                <span>
+                  {t("took {startedAt}", {
+                    startedAt: duration(detail.startedAt, detail.finishedAt),
+                  })}
+                </span>
               )}
             </p>
           </div>
@@ -236,14 +246,14 @@ export function PipelineRunPage() {
               className={view === "full" ? "border-border-strong bg-surface-active" : ""}
               onClick={() => setView(view === "full" ? "stages" : "full")}
             >
-              {view === "full" ? "Back to stages" : "Full log"}
+              {view === "full" ? t("Back to stages") : t("Full log")}
             </Button>
             <a
               href={`/api/teams/${teamId}/pipeline-runs/${runId}/log.txt`}
               className={buttonClass()}
             >
               <FileDown size={13} />
-              Download log
+              {t("Download log")}
             </a>
             {active ? (
               <Button
@@ -252,7 +262,7 @@ export function PipelineRunPage() {
                 disabled={cancel.isPending}
                 onClick={() => cancel.mutate()}
               >
-                Cancel
+                {t("Cancel")}
               </Button>
             ) : (
               <Button
@@ -261,7 +271,7 @@ export function PipelineRunPage() {
                 disabled={rerun.isPending}
                 onClick={() => rerun.mutate(null)}
               >
-                Run again
+                {t("Run again")}
               </Button>
             )}
           </div>
@@ -270,7 +280,7 @@ export function PipelineRunPage() {
         <dl className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border-default bg-border-default sm:grid-cols-3 lg:grid-cols-5">
           {[
             {
-              label: "Status",
+              label: t("Status"),
               value: (
                 <span className="flex items-center gap-1.5">
                   <StatusIcon status={detail.status} /> {status.label}
@@ -278,22 +288,25 @@ export function PipelineRunPage() {
               ),
             },
             {
-              label: "Duration",
+              label: t("Duration"),
               value: detail.startedAt
                 ? duration(detail.startedAt, detail.finishedAt)
-                : "Not started",
+                : t("Not started"),
             },
             {
-              label: "Started",
+              label: t("Started"),
               value: <RelativeTime value={detail.startedAt ?? detail.createdAt} />,
             },
             {
-              label: "Triggered by",
+              label: t("Triggered by"),
               value: detail.triggeredBy ? detail.triggeredBy.name : TRIGGER_WORDS[detail.trigger],
             },
             {
-              label: "Steps",
-              value: `${steps.filter((step) => step.status === "passed").length} of ${steps.length} passed`,
+              label: t("Steps"),
+              value: t("{passed} of {total} passed", {
+                passed: steps.filter((step) => step.status === "passed").length,
+                total: steps.length,
+              }),
             },
           ].map((item, index, all) => (
             <div
@@ -343,15 +356,18 @@ export function PipelineRunPage() {
           >
             <StatusIcon status={failure.status} />
             <span className="min-w-0 flex-1 truncate">
-              {failure.status === "timed_out" ? "Timed out at " : "Failed at "}
+              {failure.status === "timed_out" ? t("Timed out at ") : t("Failed at ")}
               <span className="font-medium">
                 {failure.stage} › {failure.name}
               </span>
               {failure.exitCode !== null && failure.exitCode !== 0 && (
-                <span className="font-mono text-xs text-danger"> exit {failure.exitCode}</span>
+                <span className="font-mono text-xs text-danger">
+                  {" "}
+                  {t("exit {exitCode}", { exitCode: failure.exitCode })}
+                </span>
               )}
             </span>
-            <span className="text-xs text-fg-secondary">Show the error</span>
+            <span className="text-xs text-fg-secondary">{t("Show the error")}</span>
           </button>
         )}
 
@@ -362,7 +378,7 @@ export function PipelineRunPage() {
           <section className="mb-3 overflow-hidden rounded-md border border-danger/40">
             <p className="flex items-center gap-2 bg-danger-subtle px-3 py-2 text-sm">
               <StatusIcon status={detail.status} />
-              Where it went wrong: the run's last lines
+              {t("Where it went wrong: the run’s last lines")}
             </p>
             <LogLines lines={lastWords} query="" follow />
           </section>
@@ -389,7 +405,7 @@ export function PipelineRunPage() {
 
         {detail.artifacts.length > 0 && (
           <section className="mb-4 flex flex-wrap items-center gap-2 text-xs">
-            <span className="font-medium">Artifacts</span>
+            <span className="font-medium">{t("Artifacts")}</span>
             {detail.artifacts.map((artifact) => (
               <a
                 key={artifact.id}
@@ -418,7 +434,7 @@ export function PipelineRunPage() {
           <section className="rounded-md border border-border-default">
             <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
               <h2 className="flex-1 text-sm font-semibold">
-                {stages.find((stage) => stage.index === selected)?.name ?? "Steps"}
+                {stages.find((stage) => stage.index === selected)?.name ?? t("Steps")}
               </h2>
               {!active && selected !== null && selected > 0 && (
                 <Button
@@ -427,7 +443,7 @@ export function PipelineRunPage() {
                   icon={<RotateCw size={12} />}
                   onClick={() => rerun.mutate(selected)}
                 >
-                  Run again from this stage
+                  {t("Run again from this stage")}
                 </Button>
               )}
               <div className="relative w-56">
@@ -436,8 +452,8 @@ export function PipelineRunPage() {
                   className="pointer-events-none absolute top-2 left-2 text-fg-muted"
                 />
                 <Input
-                  aria-label="Search the log"
-                  placeholder="Search the log"
+                  aria-label={t("Search the log")}
+                  placeholder={t("Search the log")}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   className="h-7 pl-6 text-xs"
@@ -446,7 +462,12 @@ export function PipelineRunPage() {
             </div>
 
             {selected === stages[0]?.index && setupLines.length > 0 && (
-              <LogSection title="Set up" lines={setupLines} query={query} defaultOpen={false} />
+              <LogSection
+                title={t("Set up")}
+                lines={setupLines}
+                query={query}
+                defaultOpen={false}
+              />
             )}
             {stageSteps.map((step) => (
               <StepSection
@@ -464,7 +485,12 @@ export function PipelineRunPage() {
               />
             ))}
             {selected === stages[stages.length - 1]?.index && finishLines.length > 0 && (
-              <LogSection title="Finish" lines={finishLines} query={query} defaultOpen={false} />
+              <LogSection
+                title={t("Finish")}
+                lines={finishLines}
+                query={query}
+                defaultOpen={false}
+              />
             )}
           </section>
         )}
@@ -474,7 +500,7 @@ export function PipelineRunPage() {
             to={teamHref(`/pipelines/${id}`)}
             className="text-xs text-fg-secondary hover:underline"
           >
-            All runs of {detail.pipelineName}
+            {t("All runs of {pipelineName}", { pipelineName: detail.pipelineName })}
           </Link>
         </p>
       </PageBody>
@@ -533,26 +559,36 @@ function StepSection({
           {step.name}
         </span>
         {step.attempt > 1 && (
-          <span className="text-2xs text-fg-muted" title="It was tried again after failing">
-            attempt {step.attempt}
+          <span className="text-2xs text-fg-muted" title={t("It was tried again after failing")}>
+            {t("attempt {attempt}", { attempt: step.attempt })}
           </span>
         )}
         {step.exitCode !== null && step.exitCode !== 0 && (
-          <span className="font-mono text-2xs text-danger">exit {step.exitCode}</span>
+          <span className="font-mono text-2xs text-danger">
+            {t("exit {exitCode}", { exitCode: step.exitCode })}
+          </span>
         )}
         {step.tests && (
           <span className="text-2xs">
-            <span className="text-success">{step.tests.passed} passed</span>
+            <span className="text-success">
+              {t("{passed} passed", { passed: step.tests.passed })}
+            </span>
             {step.tests.failed > 0 && (
-              <span className="text-danger"> · {step.tests.failed} failed</span>
+              <span className="text-danger">
+                {" "}
+                {t("· {failed} failed", { failed: step.tests.failed })}
+              </span>
             )}
             {step.tests.skipped > 0 && (
-              <span className="text-fg-muted"> · {step.tests.skipped} skipped</span>
+              <span className="text-fg-muted">
+                {" "}
+                {t("· {skipped} skipped", { skipped: step.tests.skipped })}
+              </span>
             )}
           </span>
         )}
         <span className="text-xs text-fg-muted">
-          {step.status === "skipped" ? "skipped" : duration(step.startedAt, step.finishedAt)}
+          {step.status === "skipped" ? t("skipped") : duration(step.startedAt, step.finishedAt)}
         </span>
       </button>
       {open && Object.keys(step.outputs).length > 0 && (
@@ -571,7 +607,7 @@ function StepSection({
           to={teamHref(`/pipelines/${step.child.pipelineId}/runs/${step.child.id}`)}
           className="block px-10 pb-2 text-xs text-info hover:underline"
         >
-          → the run it started: #{step.child.number}
+          {t("→ the run it started: #{number}", { number: step.child.number })}
         </Link>
       )}
       {open && canOpen && (
@@ -596,14 +632,18 @@ function RunTests({ steps, onShow }: { steps: RunStep[]; onShow: (stageIndex: nu
   return (
     <details open={failed > 0} className="mb-4 rounded-md border border-border-default text-xs">
       <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm">
-        <span className="font-semibold">Tests</span>
-        <span className="text-success">{total("passed")} passed</span>
-        {failed > 0 && <span className="text-danger">· {failed} failed</span>}
+        <span className="font-semibold">{t("Tests")}</span>
+        <span className="text-success">{t("{passed} passed", { passed: total("passed") })}</span>
+        {failed > 0 && <span className="text-danger">{t("· {failed} failed", { failed })}</span>}
         {total("skipped") > 0 && (
-          <span className="text-fg-muted">· {total("skipped")} skipped</span>
+          <span className="text-fg-muted">
+            · {total("skipped")} {t("skipped")}
+          </span>
         )}
         <span className="text-fg-muted">
-          · from {reported.length} step{reported.length === 1 ? "" : "s"}
+          {t("· from {reportedCount, plural, one {# step} other {# steps}}", {
+            reportedCount: reported.length,
+          })}
         </span>
       </summary>
       {failed > 0 && (
@@ -651,7 +691,9 @@ function RunTests({ steps, onShow }: { steps: RunStep[]; onShow: (stageIndex: nu
 function TestFailures({ tests }: { tests: TestSummary }) {
   return (
     <div className="mx-10 mb-2 rounded-md border border-border-default">
-      <p className="border-b border-border-default px-3 py-1.5 text-xs font-medium">Failed tests</p>
+      <p className="border-b border-border-default px-3 py-1.5 text-xs font-medium">
+        {t("Failed tests")}
+      </p>
       <ul className="divide-y divide-border-default">
         {tests.failures.map((failure, index) => (
           <li
@@ -755,7 +797,13 @@ function FullLog({
     <section className="rounded-md border border-border-default">
       <div className="flex flex-wrap items-center gap-2 border-b border-border-default px-3 py-2">
         <h2 className="flex-1 text-sm font-semibold">
-          Full log <span className="font-normal text-fg-muted">· {lines.length} lines</span>
+          {t("Full log {part}", {
+            part: (
+              <span className="font-normal text-fg-muted">
+                {t("· {lineCount} lines", { lineCount: lines.length })}
+              </span>
+            ),
+          })}
         </h2>
         <div className="relative w-full sm:w-64">
           <Search
@@ -763,8 +811,8 @@ function FullLog({
             className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-fg-muted"
           />
           <Input
-            aria-label="Search the full log"
-            placeholder="Search the full log"
+            aria-label={t("Search the full log")}
+            placeholder={t("Search the full log")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="h-7 pl-6 text-xs"
@@ -777,7 +825,7 @@ function FullLog({
       >
         {shown.length === 0 ? (
           <p className="px-4 py-1 text-fg-muted">
-            {query ? "No matching lines." : done ? "No output." : "Waiting for output…"}
+            {query ? t("No matching lines.") : done ? t("No output.") : t("Waiting for output…")}
           </p>
         ) : (
           shown.map((line, index) => {
@@ -786,9 +834,9 @@ function FullLog({
                 ? line.stepId
                   ? (() => {
                       const step = stepOf.get(line.stepId);
-                      return step ? `${step.stage} › ${step.name}` : "Step";
+                      return step ? `${step.stage} › ${step.name}` : t("Step");
                     })()
-                  : "Run"
+                  : t("Run")
                 : null;
             previous = line.stepId;
             const step = line.stepId ? stepOf.get(line.stepId) : undefined;
@@ -808,7 +856,7 @@ function FullLog({
                     }`}
                   >
                     {heading}
-                    {bad ? " — failed" : ""}
+                    {bad ? t(" — failed") : ""}
                   </p>
                 )}
                 {!isOwnHeading && (
@@ -867,7 +915,9 @@ function LogLines({
       className="max-h-[60vh] overflow-auto bg-surface-subtle py-1 font-mono text-2xs leading-[1.6]"
     >
       {shown.length === 0 ? (
-        <p className="px-4 py-1 text-fg-muted">{query ? "No matching lines." : "No output."}</p>
+        <p className="px-4 py-1 text-fg-muted">
+          {query ? t("No matching lines.") : t("No output.")}
+        </p>
       ) : (
         shown.map(({ line, number }) => (
           <div key={line.seq} className="flex hover:bg-surface-hover">
@@ -927,22 +977,29 @@ function ApprovalBox({
   });
   const who =
     approval.approvers === "editors"
-      ? "Editors, admins and owners"
-      : "The team's admins and owners";
+      ? t("Editors, admins and owners")
+      : t("The team’s admins and owners");
   return (
     <section className="mb-4 rounded-md border border-warning/40 bg-warning-subtle p-4">
       <p className="flex items-center gap-2 text-sm font-semibold">
         <Hand size={16} /> {approval.message}
       </p>
       <p className="mt-1 text-xs text-fg-secondary">
-        {who} can answer{approval.allowSelf ? "" : ", but not the person who started this run"}. If
-        nobody answers by {formatDateTime(approval.deadline)}, the step times out.
+        {approval.allowSelf
+          ? t("{who} can answer. If nobody answers by {deadline}, the step times out.", {
+              who,
+              deadline: formatDateTime(approval.deadline),
+            })
+          : t(
+              "{who} can answer, but not the person who started this run. If nobody answers by {deadline}, the step times out.",
+              { who, deadline: formatDateTime(approval.deadline) },
+            )}
       </p>
       {approval.canDecide ? (
         <div className="mt-3 grid gap-2">
           <Input
-            aria-label="Comment"
-            placeholder="Comment (optional)"
+            aria-label={t("Comment")}
+            placeholder={t("Comment (optional)")}
             value={comment}
             onChange={(event) => setComment(event.target.value)}
           />
@@ -953,7 +1010,7 @@ function ApprovalBox({
               disabled={decide.isPending}
               onClick={() => decide.mutate("approved")}
             >
-              Approve
+              {t("Approve")}
             </Button>
             <Button
               variant="danger"
@@ -961,13 +1018,13 @@ function ApprovalBox({
               disabled={decide.isPending}
               onClick={() => decide.mutate("rejected")}
             >
-              Reject
+              {t("Reject")}
             </Button>
           </div>
           {decide.error && <p className="text-xs text-danger">{vaultErrorMessage(decide.error)}</p>}
         </div>
       ) : (
-        <p className="mt-2 text-xs font-medium">You cannot answer this one.</p>
+        <p className="mt-2 text-xs font-medium">{t("You cannot answer this one.")}</p>
       )}
     </section>
   );

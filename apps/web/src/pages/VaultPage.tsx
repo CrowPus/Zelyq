@@ -35,6 +35,7 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { AUDIT_ACTION_LABELS, auditDetailSummary } from "../lib/audit";
+import { t } from "../lib/i18n";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
 type Tab = "secrets" | "keys" | "activity";
@@ -83,17 +84,19 @@ export function VaultPage() {
   };
 
   return (
-    <AppShell crumbs={[{ label: "Vault" }]}>
+    <AppShell crumbs={[{ label: t("Vault") }]}>
       <PageBody width="standard">
         <PageHeader
-          title="Vault"
-          description="Keep a credential here once, encrypted, and use it anywhere: in an app's Variables, in settings, or from your own servers with a service key."
+          title={t("Vault")}
+          description={t(
+            "Keep a credential here once, encrypted, and use it anywhere: in an app’s Variables, in settings, or from your own servers with a service key.",
+          )}
           actions={
             (teams.length > 1 || isInstanceAdmin) && (
               <label className="flex items-center gap-2 text-sm text-fg-secondary">
-                Showing
+                {t("Showing")}
                 <NativeSelect
-                  aria-label="Vault of"
+                  aria-label={t("Vault of")}
                   value={scope?.kind === "instance" ? "instance" : (team?.id ?? "")}
                   onChange={(event) => go({ scope: event.target.value, tab: "secrets" })}
                 >
@@ -102,7 +105,9 @@ export function VaultPage() {
                       {t.name}
                     </option>
                   ))}
-                  {isInstanceAdmin && <option value="instance">Instance — Zelyq's own keys</option>}
+                  {isInstanceAdmin && (
+                    <option value="instance">{t("Instance — Zelyq’s own keys")}</option>
+                  )}
                 </NativeSelect>
               </label>
             )
@@ -110,18 +115,21 @@ export function VaultPage() {
         />
 
         {!scope ? (
-          <EmptyState title="No team yet" description="Join or create a team to use Vault." />
+          <EmptyState
+            title={t("No team yet")}
+            description={t("Join or create a team to use Vault.")}
+          />
         ) : (
           <>
             <div className="mb-6">
               <Tabs
-                label="Vault sections"
+                label={t("Vault sections")}
                 value={tab}
                 onChange={(id) => go({ tab: id })}
                 items={[
-                  { id: "secrets", label: "Secrets" },
-                  { id: "keys", label: "Service keys", hidden: scope.kind !== "team" },
-                  { id: "activity", label: "Activity" },
+                  { id: "secrets", label: t("Secrets") },
+                  { id: "keys", label: t("Service keys"), hidden: scope.kind !== "team" },
+                  { id: "activity", label: t("Activity") },
                 ]}
               />
             </div>
@@ -172,12 +180,12 @@ function SecretsTab({
   const refresh = () => cache.invalidateQueries({ queryKey: ["vault", scopeKey(scope)] });
 
   return (
-    <section aria-label="Secrets">
+    <section aria-label={t("Secrets")}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-2xs text-fg-muted">
           {scope.kind === "instance"
-            ? "Keys for Zelyq itself. Choose one on a Settings field with From Vault."
-            : "Visible to everyone in the team; values only to those allowed to reveal them."}
+            ? t("Keys for Zelyq itself. Choose one on a Settings field with From Vault.")
+            : t("Visible to everyone in the team; values only to those allowed to reveal them.")}
         </p>
         {canWrite && (
           <div className="flex gap-1">
@@ -187,7 +195,7 @@ function SecretsTab({
               icon={<Upload size={13} strokeWidth={1.75} />}
               onClick={() => setForm({ mode: "import" })}
             >
-              Import .env
+              {t("Import .env")}
             </Button>
             <Button
               size="sm"
@@ -195,7 +203,7 @@ function SecretsTab({
               icon={<Plus size={13} strokeWidth={1.75} />}
               onClick={() => setForm({ mode: "add" })}
             >
-              Add secret
+              {t("Add secret")}
             </Button>
           </div>
         )}
@@ -216,7 +224,7 @@ function SecretsTab({
       )}
       {form.mode === "import" && (
         <ImportForm
-          title="Import into Vault"
+          title={t("Import into Vault")}
           run={(input) => api.vault.import(scope, input)}
           onImported={refresh}
           onClose={() => setForm({ mode: "closed" })}
@@ -225,7 +233,7 @@ function SecretsTab({
 
       {secrets.isPending && (
         <p className="flex items-center gap-1.5 text-xs text-fg-secondary">
-          <Spinner className="size-3" /> Loading…
+          <Spinner className="size-3" /> {t("Loading…")}
         </p>
       )}
       {secrets.isError && (
@@ -235,11 +243,13 @@ function SecretsTab({
       )}
       {secrets.data?.length === 0 && form.mode === "closed" && (
         <EmptyState
-          title="Vault is empty"
+          title={t("Vault is empty")}
           description={
             canWrite
-              ? "Add the API keys and passwords you want to keep in one place, or import an existing .env file once."
-              : "An editor of this team can add them."
+              ? t(
+                  "Add the API keys and passwords you want to keep in one place, or import an existing .env file once.",
+                )
+              : t("An editor of this team can add them.")
           }
         />
       )}
@@ -315,10 +325,12 @@ function SecretForm({
         save.mutate();
       }}
     >
-      <p className="text-xs font-medium">{editing ? `Change ${editing.name}` : "New secret"}</p>
+      <p className="text-xs font-medium">
+        {editing ? t("Change {name}", { name: editing.name }) : t("New secret")}
+      </p>
       <div className="grid gap-1">
         <label htmlFor={`${ids}-name`}>
-          <FieldLabel>Name</FieldLabel>
+          <FieldLabel>{t("Name")}</FieldLabel>
         </label>
         <Input
           id={`${ids}-name`}
@@ -335,13 +347,15 @@ function SecretForm({
       </div>
       <div className="grid gap-1">
         <label htmlFor={`${ids}-value`}>
-          <FieldLabel>Value</FieldLabel>
+          <FieldLabel>{t("Value")}</FieldLabel>
         </label>
         <PasswordInput
           id={`${ids}-value`}
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          placeholder={editing ? "New value (leave empty to keep the current one)" : "The secret"}
+          placeholder={
+            editing ? t("New value (leave empty to keep the current one)") : t("The secret")
+          }
           autoComplete="new-password"
           autoFocus={editing !== null}
           required={editing === null}
@@ -350,20 +364,20 @@ function SecretForm({
       </div>
       <div className="grid gap-1">
         <label htmlFor={`${ids}-description`}>
-          <FieldLabel>Description (optional)</FieldLabel>
+          <FieldLabel>{t("Description (optional)")}</FieldLabel>
         </label>
         <Input
           id={`${ids}-description`}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          placeholder="What it is for"
+          placeholder={t("What it is for")}
           maxLength={500}
         />
       </div>
       {scope.kind === "team" && (
         <label
           className={`flex items-start gap-2 text-xs ${canAdmin ? "" : "text-fg-muted"}`}
-          title={canAdmin ? undefined : "Only an admin or owner can change this."}
+          title={canAdmin ? undefined : t("Only an admin or owner can change this.")}
         >
           <input
             type="checkbox"
@@ -373,8 +387,10 @@ function SecretForm({
             onChange={(event) => setProtected(event.target.checked)}
           />
           <span>
-            <span className="font-medium">Protected</span> — only admins and owners can reveal it,
-            change it, or use it in an app. For live keys.
+            {t(
+              "{part} — only admins and owners can reveal it, change it, or use it in an app. For live keys.",
+              { part: <span className="font-medium">{t("Protected")}</span> },
+            )}
           </span>
         </label>
       )}
@@ -385,7 +401,7 @@ function SecretForm({
       )}
       <div className="flex justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </Button>
         <Button
           size="sm"
@@ -393,7 +409,7 @@ function SecretForm({
           type="submit"
           disabled={save.isPending || unchanged || (!editing && (!name || !value))}
         >
-          {save.isPending ? "Saving…" : editing ? "Save" : "Add"}
+          {save.isPending ? t("Saving…") : editing ? t("Save") : t("Add")}
         </Button>
       </div>
     </form>
@@ -440,7 +456,7 @@ function SecretRow({
             <Badge>v{secret.version}</Badge>
             {secret.protected && (
               <Badge tone="warning">
-                <LockKeyhole size={10} className="mr-1" /> Protected
+                <LockKeyhole size={10} className="mr-1" /> {t("Protected")}
               </Badge>
             )}
           </p>
@@ -449,13 +465,19 @@ function SecretRow({
           )}
           <p className="mt-0.5 text-2xs text-fg-muted">
             {secret.usedBy.length === 0
-              ? "Not used anywhere yet"
-              : `Used by ${secret.usedBy
-                  .map((use) =>
-                    use.kind === "project" ? `${use.projectName} (${use.variable})` : use.label,
-                  )
-                  .join(", ")}`}
-            {" · "}changed by {changedBy} · {formatRelative(secret.updatedAt)}
+              ? t("Not used anywhere yet · changed by {changedBy} · {updatedAt}", {
+                  changedBy,
+                  updatedAt: formatRelative(secret.updatedAt),
+                })
+              : t("Used by {value} · changed by {changedBy} · {updatedAt}", {
+                  value: secret.usedBy
+                    .map((use) =>
+                      use.kind === "project" ? `${use.projectName} (${use.variable})` : use.label,
+                    )
+                    .join(", "),
+                  changedBy,
+                  updatedAt: formatRelative(secret.updatedAt),
+                })}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -463,27 +485,31 @@ function SecretRow({
             (revealed === null ? (
               <IconButton
                 size="sm"
-                label={`Reveal ${secret.name}`}
+                label={t("Reveal {name}", { name: secret.name })}
                 onClick={() => reveal.mutate()}
                 disabled={reveal.isPending}
               >
                 <Eye size={13} strokeWidth={1.75} />
               </IconButton>
             ) : (
-              <IconButton size="sm" label="Hide value" onClick={() => setRevealed(null)}>
+              <IconButton size="sm" label={t("Hide value")} onClick={() => setRevealed(null)}>
                 <EyeOff size={13} strokeWidth={1.75} />
               </IconButton>
             ))}
           <IconButton
             size="sm"
-            label="History"
+            label={t("History")}
             aria-pressed={showHistory}
             onClick={() => setShowHistory((current) => !current)}
           >
             <History size={13} strokeWidth={1.75} />
           </IconButton>
           {mayUse && (
-            <IconButton size="sm" label={`Change ${secret.name}`} onClick={onEdit}>
+            <IconButton
+              size="sm"
+              label={t("Change {name}", { name: secret.name })}
+              onClick={onEdit}
+            >
               <Pencil size={13} strokeWidth={1.75} />
             </IconButton>
           )}
@@ -491,7 +517,7 @@ function SecretRow({
             <IconButton
               size="sm"
               variant="danger"
-              label={`Delete ${secret.name}`}
+              label={t("Delete {name}", { name: secret.name })}
               onClick={() => setConfirmDelete(true)}
             >
               <Trash2 size={13} strokeWidth={1.75} />
@@ -505,28 +531,32 @@ function SecretRow({
       {confirmDelete && (
         <div className="mt-2 grid gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2 py-1.5 text-xs">
           <span>
-            Delete <span className="font-mono">{secret.name}</span> and its history?
+            {t("Delete {name} and its history?", {
+              name: <span className="font-mono">{secret.name}</span>,
+            })}
             {secret.usedBy.length > 0 ? (
               <>
-                {" "}
-                These will lose it:
+                {t(" These will lose it:")}
                 <ul className="mt-1 list-disc pl-5">
                   {secret.usedBy.map((use) => (
                     <li key={use.kind === "project" ? `${use.projectId}:${use.variable}` : use.key}>
                       {use.kind === "project"
-                        ? `${use.projectName} — variable ${use.variable}`
+                        ? t("{projectName} — variable {variable}", {
+                            projectName: use.projectName,
+                            variable: use.variable,
+                          })
                         : `Settings — ${use.label}`}
                     </li>
                   ))}
                 </ul>
               </>
             ) : (
-              " Nothing uses it."
+              t(" Nothing uses it.")
             )}
           </span>
           <span className="flex justify-end gap-1">
             <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Keep
+              {t("Keep")}
             </Button>
             <Button
               size="sm"
@@ -534,7 +564,7 @@ function SecretRow({
               onClick={() => remove.mutate()}
               disabled={remove.isPending}
             >
-              Delete
+              {t("Delete")}
             </Button>
           </span>
         </div>
@@ -574,7 +604,10 @@ function ActivityTab({ scope }: { scope: VaultScope }) {
     );
   if (activity.data.length === 0)
     return (
-      <EmptyState title="Nothing yet" description="Changes, reveals and fetches appear here." />
+      <EmptyState
+        title={t("Nothing yet")}
+        description={t("Changes, reveals and fetches appear here.")}
+      />
     );
   return (
     <ul className="divide-y divide-border-default rounded-lg border border-border-default">

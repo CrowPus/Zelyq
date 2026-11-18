@@ -1,5 +1,6 @@
 import { AlertOctagon, RotateCcw } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
+import { t } from "../../lib/i18n";
 import { Button } from "./Button.js";
 
 const WIDTHS = {
@@ -129,15 +130,15 @@ export function SaveBar({
   if (!visible) return null;
   return (
     <section
-      aria-label="Unsaved changes"
+      aria-label={t("Unsaved changes")}
       className="sticky bottom-4 z-10 mt-6 flex items-center gap-3 rounded-lg border border-border-default bg-overlay px-4 py-2.5 shadow-overlay"
     >
       <p className="min-w-0 flex-1 text-sm text-fg">{message}</p>
       <Button size="sm" variant="ghost" onClick={onDiscard} disabled={saving}>
-        Discard
+        {t("Discard")}
       </Button>
       <Button size="sm" variant="primary" onClick={onSave} loading={saving}>
-        Save changes
+        {t("Save changes")}
       </Button>
     </section>
   );
@@ -147,7 +148,7 @@ export function SaveBar({
 export function useDocumentTitle(...parts: Array<string | null | undefined | false>) {
   const title = parts.filter(Boolean).join(" · ");
   useEffect(() => {
-    document.title = title ? `${title} — Zelyq` : "Zelyq";
+    document.title = title ? `${title} — Zelyq` : t("Zelyq");
   }, [title]);
 }
 
@@ -184,7 +185,7 @@ export function ErrorState({
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
         {onRetry && (
           <Button icon={<RotateCcw size={14} />} onClick={onRetry}>
-            Try again
+            {t("Try again")}
           </Button>
         )}
         {action}

@@ -1,5 +1,6 @@
 import type { RunStageSummary, RunStep } from "@zelyq/core";
 import { useLayoutEffect, useRef, useState } from "react";
+import { t } from "../../lib/i18n";
 import { duration, RUN_STATUS } from "../../lib/pipelines";
 import { Pressable } from "../ui";
 import { StatusIcon } from "./Stages";
@@ -235,7 +236,7 @@ function StageCard({
       <ol className="py-1">
         {steps.length === 0 && (
           <li className="px-3 py-1.5 text-xs text-fg-muted">
-            {stage.done}/{stage.total} steps
+            {t("{done}/{total} steps", { done: stage.done, total: stage.total })}
           </li>
         )}
         {steps.map((step) => (
@@ -253,7 +254,12 @@ function StageCard({
                 }`}
               >
                 {step.name}
-                {step.attempt > 1 && <span className="text-fg-muted"> · try {step.attempt}</span>}
+                {step.attempt > 1 && (
+                  <span className="text-fg-muted">
+                    {" "}
+                    {t("· try {attempt}", { attempt: step.attempt })}
+                  </span>
+                )}
               </span>
               <span className="shrink-0 text-fg-secondary tabular-nums">
                 {step.startedAt ? duration(step.startedAt, step.finishedAt) : ""}

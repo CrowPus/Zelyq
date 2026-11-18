@@ -1,12 +1,13 @@
 import { Clapperboard, ImagePlus } from "lucide-react";
 import { Link } from "react-router-dom";
+import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
 
 /** Studio is one module with two kinds of work in it: images and video. */
 export function StudioSwitch({ current }: { current: "image" | "video" }) {
   return (
     <nav
-      aria-label="Studio"
+      aria-label={t("Studio")}
       className="flex items-center gap-0.5 rounded-md border border-border-default bg-surface-subtle p-0.5"
     >
       {(

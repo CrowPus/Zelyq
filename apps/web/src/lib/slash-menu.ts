@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /**
  * The composer's `/` menu. A slash command has to work anywhere in the
  * message, not just at the very start of the draft — someone typing
@@ -30,27 +31,27 @@ export interface SlashMenuCommand {
 export const SLASH_COMMANDS: SlashMenuCommand[] = [
   {
     name: "clone",
-    blurb: "Rebuild a live website in this project, page for page — you give it the URL.",
+    blurb: t("Rebuild a live website in this project, page for page — you give it the URL."),
     insert: "/clone ",
   },
   {
     name: "motion",
-    blurb: "Give this project a motion system — optionally the one a site you name already has.",
+    blurb: t("Give this project a motion system — optionally the one a site you name already has."),
     insert: "/motion ",
   },
   {
     name: "video",
-    blurb: "Put ambient video motion in a section — a muted loop behind the copy.",
+    blurb: t("Put ambient video motion in a section — a muted loop behind the copy."),
     insert: "/video ",
   },
   {
     name: "cinematic",
-    blurb: "Make a section play as you scroll — footage scrubbed frame by frame.",
+    blurb: t("Make a section play as you scroll — footage scrubbed frame by frame."),
     insert: "/cinematic ",
   },
   {
     name: "figma",
-    blurb: "Build a website from a Figma frame — paste the frame's share link.",
+    blurb: t("Build a website from a Figma frame — paste the frame’s share link."),
     insert: "/figma ",
   },
 ];

@@ -12,6 +12,7 @@ import {
   Tablet,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { t } from "../lib/i18n";
 import {
   INSPECTOR_ACTIVATE,
   INSPECTOR_DEACTIVATE,
@@ -52,10 +53,10 @@ interface Viewport {
 }
 
 const VIEWPORTS: Viewport[] = [
-  { id: "responsive", label: "Responsive", icon: MonitorSmartphone, width: null, height: null },
-  { id: "mobile", label: "Mobile — 390 × 844", icon: Smartphone, width: 390, height: 844 },
-  { id: "tablet", label: "Tablet — 834 × 1194", icon: Tablet, width: 834, height: 1194 },
-  { id: "desktop", label: "Desktop — 1440 × 900", icon: Monitor, width: 1440, height: 900 },
+  { id: "responsive", label: t("Responsive"), icon: MonitorSmartphone, width: null, height: null },
+  { id: "mobile", label: t("Mobile — 390 × 844"), icon: Smartphone, width: 390, height: 844 },
+  { id: "tablet", label: t("Tablet — 834 × 1194"), icon: Tablet, width: 834, height: 1194 },
+  { id: "desktop", label: t("Desktop — 1440 × 900"), icon: Monitor, width: 1440, height: 900 },
 ];
 
 const VIEWPORT_STORAGE_KEY = "zelyq:preview-viewport";
@@ -158,7 +159,7 @@ export function PreviewPanel({
       ref={iframeRef}
       key={`${reloadToken}-${frameToken}-${viewportId}`}
       src={previewUrl ?? ""}
-      title="App preview"
+      title={t("App preview")}
       className={`size-full border-0 bg-white ${inspecting ? "cursor-crosshair" : ""}`}
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
     />
@@ -180,12 +181,12 @@ export function PreviewPanel({
           }
           label={
             preview?.status === "running"
-              ? "Running"
+              ? t("Running")
               : preview?.status === "crashed"
-                ? "Crashed"
+                ? t("Crashed")
                 : busy
-                  ? "Starting"
-                  : "Stopped"
+                  ? t("Starting")
+                  : t("Stopped")
           }
         />
         {running && previewUrl && (
@@ -234,7 +235,9 @@ export function PreviewPanel({
               <IconButton
                 size="sm"
                 label={
-                  inspecting ? "Stop pointing at something" : "Point at something in the preview"
+                  inspecting
+                    ? t("Stop pointing at something")
+                    : t("Point at something in the preview")
                 }
                 onClick={toggleInspecting}
                 // A barely-different background reads as "did that even
@@ -247,7 +250,7 @@ export function PreviewPanel({
               </IconButton>
               <IconButton
                 size="sm"
-                label="Reload preview"
+                label={t("Reload preview")}
                 onClick={() => setFrameToken((t) => t + 1)}
               >
                 <RotateCw size={13} strokeWidth={1.75} />
@@ -256,8 +259,8 @@ export function PreviewPanel({
                 href={previewUrl ?? "#"}
                 target="_blank"
                 rel="noreferrer"
-                aria-label="Open preview in a new tab"
-                title="Open in a new tab"
+                aria-label={t("Open preview in a new tab")}
+                title={t("Open in a new tab")}
                 className="grid size-6 place-items-center rounded-md text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
               >
                 <ExternalLink size={13} strokeWidth={1.75} />
@@ -266,7 +269,7 @@ export function PreviewPanel({
           )}
           <IconButton
             size="sm"
-            label={showLogs ? "Hide logs" : "Show logs"}
+            label={showLogs ? t("Hide logs") : t("Show logs")}
             onClick={() => {
               setShowLogs((value) => !value);
               onRefreshLogs();
@@ -282,7 +285,7 @@ export function PreviewPanel({
               icon={<Square size={11} strokeWidth={2.5} />}
               onClick={onStop}
             >
-              Stop
+              {t("Stop")}
             </Button>
           ) : busy || preview?.status === "crashed" ? (
             // When the preview is simply stopped, the panel's own "Start preview" is the one
@@ -296,7 +299,7 @@ export function PreviewPanel({
               onClick={onStart}
               disabled={busy}
             >
-              {busy ? "Starting…" : "Start preview"}
+              {busy ? t("Starting…") : t("Start preview")}
             </Button>
           ) : null}
         </div>
@@ -311,14 +314,14 @@ export function PreviewPanel({
           <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-2 bg-primary px-3 py-1.5 text-xs font-medium text-primary-fg shadow-sm">
             <span className="flex items-center gap-1.5">
               <Crosshair size={13} strokeWidth={2} />
-              Click anything in the preview to point at it
+              {t("Click anything in the preview to point at it")}
             </span>
             <button
               type="button"
               onClick={toggleInspecting}
               className="rounded-sm px-1.5 py-0.5 text-2xs underline underline-offset-2 hover:no-underline"
             >
-              Cancel
+              {t("Cancel")}
             </button>
           </div>
         )}
@@ -361,27 +364,29 @@ export function PreviewPanel({
           <div className="flex h-full flex-col items-center justify-center gap-2.5">
             <Spinner />
             <p className="text-xs text-fg-secondary">
-              Installing dependencies and starting the dev server…
+              {t("Installing dependencies and starting the dev server…")}
             </p>
-            <p className="text-2xs text-fg-muted">The first start takes a minute.</p>
+            <p className="text-2xs text-fg-muted">{t("The first start takes a minute.")}</p>
           </div>
         ) : preview?.status === "crashed" ? (
           <EmptyState
-            title="The dev server stopped"
-            description={preview.lastError ?? "Check the logs to see what went wrong."}
+            title={t("The dev server stopped")}
+            description={preview.lastError ?? t("Check the logs to see what went wrong.")}
             action={
               <Button size="sm" onClick={() => setShowLogs(true)}>
-                Show logs
+                {t("Show logs")}
               </Button>
             }
           />
         ) : (
           <EmptyState
-            title="Preview is not running"
-            description="Start it to see the app. The first start installs dependencies, which takes a moment."
+            title={t("Preview is not running")}
+            description={t(
+              "Start it to see the app. The first start installs dependencies, which takes a moment.",
+            )}
             action={
               <Button size="sm" variant="primary" onClick={onStart}>
-                Start preview
+                {t("Start preview")}
               </Button>
             }
           />
@@ -400,14 +405,14 @@ export function PreviewPanel({
           <div className="absolute inset-x-0 bottom-0 border-t border-border-default bg-surface">
             <div className="flex h-7 items-center justify-between border-b border-border-default px-2.5">
               <span className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-                Dev server output
+                {t("Dev server output")}
               </span>
-              <IconButton size="sm" label="Refresh logs" onClick={onRefreshLogs}>
+              <IconButton size="sm" label={t("Refresh logs")} onClick={onRefreshLogs}>
                 <RotateCw size={12} strokeWidth={1.75} />
               </IconButton>
             </div>
             <pre className="max-h-56 overflow-auto px-3 py-2 font-mono text-2xs leading-relaxed whitespace-pre-wrap text-fg-secondary">
-              {logs.trim() || "No output yet."}
+              {logs.trim() || t("No output yet.")}
             </pre>
           </div>
         )}

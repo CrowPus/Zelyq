@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /**
  * Turns the agent's tool stream into a posture.
  *
@@ -195,13 +196,13 @@ export function pace(tempo: number): number {
 
 /** Plain-language name, for the caption and for screen readers. */
 export const POSTURE_LABEL: Record<Posture, string> = {
-  idle: "Waiting",
-  thinking: "Thinking",
-  reading: "Reading",
-  writing: "Writing",
-  running: "Running",
-  inspecting: "Checking",
-  browsing: "Looking",
-  consulting: "Consulting",
-  delegating: "Delegating",
+  idle: t("Waiting"),
+  thinking: t("Thinking"),
+  reading: t("Reading"),
+  writing: t("Writing"),
+  running: t("Running"),
+  inspecting: t("Checking"),
+  browsing: t("Looking"),
+  consulting: t("Consulting"),
+  delegating: t("Delegating"),
 };

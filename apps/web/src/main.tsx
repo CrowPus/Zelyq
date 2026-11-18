@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
 import "./index.css";
+import { initialLanguage, loadLanguage } from "./lib/i18n";
 
 // A new build replaces the hashed chunk files, so a tab opened before the
 // deploy asks for chunks that no longer exist the first time it lazy-loads a
@@ -34,8 +34,16 @@ window.setTimeout(() => {
 const container = document.getElementById("root");
 if (!container) throw new Error("Missing #root element");
 
-createRoot(container).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// The language first, then the app: every screen, menu and constant is
+// written in it from the first paint.
+const root = createRoot(container);
+void loadLanguage(initialLanguage())
+  .catch(() => loadLanguage("en"))
+  .then(() => import("./App"))
+  .then(({ default: App }) => {
+    root.render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+  });

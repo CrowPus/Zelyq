@@ -35,6 +35,7 @@ import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { AUDIT_ACTION_LABELS, auditDetailSummary } from "../lib/audit";
 import { formatNumber } from "../lib/format";
+import { t } from "../lib/i18n";
 import { useTeamPaths } from "../lib/routes";
 
 /**
@@ -94,14 +95,14 @@ export function HomePage() {
   );
 
   return (
-    <AppShell crumbs={[{ label: "Home" }]}>
+    <AppShell crumbs={[{ label: t("Home") }]}>
       <PageBody>
         <PageHeader
-          title={firstName ? `Welcome back, ${firstName}` : "Home"}
-          description={`What is happening in ${team?.name ?? "your team"}.`}
+          title={firstName ? t("Welcome back, {firstName}", { firstName }) : t("Home")}
+          description={t("What is happening in {name}.", { name: team?.name ?? t("your team") })}
           actions={
             <Link to={p.newApp} className={buttonClass("primary")}>
-              <Plus size={15} /> New app
+              <Plus size={15} /> {t("New app")}
             </Link>
           }
         />
@@ -113,36 +114,36 @@ export function HomePage() {
               steps={[
                 {
                   id: "app",
-                  label: "Create your first app",
-                  hint: "Describe it and the agent builds it.",
+                  label: t("Create your first app"),
+                  hint: t("Describe it and the agent builds it."),
                   done: apps.length > 0,
                   to: p.newApp,
                 },
                 {
                   id: "preview",
-                  label: "See it running in a preview",
-                  hint: "Open an app and start its preview.",
+                  label: t("See it running in a preview"),
+                  hint: t("Open an app and start its preview."),
                   done: apps.some((a) => a.thumbnailAt),
                   to: apps[0] ? p.app(apps[0].id) : p.apps,
                 },
                 {
                   id: "invite",
-                  label: "Invite a teammate",
-                  hint: "Everyone in the team sees its apps.",
+                  label: t("Invite a teammate"),
+                  hint: t("Everyone in the team sees its apps."),
                   done: (members.data?.members.length ?? 0) > 1,
                   to: p.members,
                 },
                 {
                   id: "pipeline",
-                  label: "Add a pipeline",
-                  hint: "Test and build the same way every time.",
+                  label: t("Add a pipeline"),
+                  hint: t("Test and build the same way every time."),
                   done: (pipelines.data?.pipelines.length ?? 0) > 0,
                   to: p.pipeline("new"),
                 },
                 {
                   id: "deploy",
-                  label: "Put an app online",
-                  hint: "Add an environment and deploy to it.",
+                  label: t("Put an app online"),
+                  hint: t("Add an environment and deploy to it."),
                   done: (environments.data?.environments ?? []).some((env) => env.live.length > 0),
                   to: p.deployments,
                 },
@@ -150,10 +151,10 @@ export function HomePage() {
             />
 
             <Card
-              title="Recent apps"
+              title={t("Recent apps")}
               actions={
                 <Link to={p.apps} className={buttonClass("ghost", "sm")}>
-                  All apps <ArrowRight size={13} />
+                  {t("All apps")} <ArrowRight size={13} />
                 </Link>
               }
               padded={false}
@@ -168,11 +169,13 @@ export function HomePage() {
                 <EmptyState
                   compact
                   icon={<LayoutGrid size={20} />}
-                  title="No apps yet"
-                  description="Describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read."
+                  title={t("No apps yet")}
+                  description={t(
+                    "Describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read.",
+                  )}
                   action={
                     <Link to={p.newApp} className={buttonClass("primary")}>
-                      <Plus size={15} /> New app
+                      <Plus size={15} /> {t("New app")}
                     </Link>
                   }
                 />
@@ -199,7 +202,7 @@ export function HomePage() {
             </Card>
 
             {!audit.isError && (
-              <Card title="Recent activity" padded={false}>
+              <Card title={t("Recent activity")} padded={false}>
                 {audit.isLoading ? (
                   <div className="flex flex-col gap-3 p-4">
                     {[0, 1, 2].map((i) => (
@@ -208,7 +211,7 @@ export function HomePage() {
                   </div>
                 ) : (audit.data?.entries.length ?? 0) === 0 ? (
                   <p className="px-4 py-6 text-center text-sm text-fg-muted">
-                    Nothing has happened in this team yet.
+                    {t("Nothing has happened in this team yet.")}
                   </p>
                 ) : (
                   <ul className="divide-y divide-border-default">
@@ -236,7 +239,7 @@ export function HomePage() {
           </div>
 
           <div className="flex min-w-0 flex-col gap-6">
-            <Card title="Needs attention" padded={false}>
+            <Card title={t("Needs attention")} padded={false}>
               {pipelines.isLoading || approvals.isLoading ? (
                 <div className="flex flex-col gap-3 p-4">
                   <Skeleton className="h-4 w-3/4" />
@@ -246,7 +249,7 @@ export function HomePage() {
                 <div className="flex items-center gap-3 px-4 py-5">
                   <CheckCircle2 size={18} className="shrink-0 text-success" />
                   <p className="text-sm text-fg-secondary">
-                    All clear. Nothing is failing or waiting on you.
+                    {t("All clear. Nothing is failing or waiting on you.")}
                   </p>
                 </div>
               ) : (
@@ -255,7 +258,10 @@ export function HomePage() {
                     <Attention
                       key={item.approvalId}
                       icon={<InboxIcon size={16} className="text-info" />}
-                      title={`${item.pipeline} #${item.run} is waiting for approval`}
+                      title={t("{pipeline} #{run} is waiting for approval", {
+                        pipeline: item.pipeline,
+                        run: item.run,
+                      })}
                       detail={item.message}
                       to={p.run(item.pipelineId, item.runId)}
                     />
@@ -264,7 +270,7 @@ export function HomePage() {
                     <Attention
                       key={pl.id}
                       icon={<XCircle size={16} className="text-danger" />}
-                      title={`${pl.name} failed`}
+                      title={t("{name} failed", { name: pl.name })}
                       detail={pl.lastRun ? <RelativeTime value={pl.lastRun.createdAt} /> : null}
                       to={pl.lastRun ? p.run(pl.id, pl.lastRun.id) : p.pipeline(pl.id)}
                     />
@@ -273,8 +279,13 @@ export function HomePage() {
                     <Attention
                       key={line.key}
                       icon={<AlertTriangle size={16} className="text-warning" />}
-                      title={`${line.label}: ${formatNumber(line.used)} of ${formatNumber(line.limit!)}${line.unit ? ` ${line.unit}` : ""}`}
-                      detail="Close to the plan's limit"
+                      title={t("{label}: {used} of {value}{value2}", {
+                        label: line.label,
+                        used: formatNumber(line.used),
+                        value: formatNumber(line.limit!),
+                        value2: line.unit ? ` ${line.unit}` : "",
+                      })}
+                      detail={t("Close to the plan’s limit")}
                       to={isAdmin ? p.settings("usage-and-plan") : p.home}
                     />
                   ))}
@@ -284,11 +295,15 @@ export function HomePage() {
 
             {usage.data && (
               <Card
-                title={usage.data.plansVisible ? `Usage · ${usage.data.plan.name} plan` : "Usage"}
+                title={
+                  usage.data.plansVisible
+                    ? t("Usage · {name} plan", { name: usage.data.plan.name })
+                    : t("Usage")
+                }
                 actions={
                   isAdmin ? (
                     <Link to={p.settings("usage-and-plan")} className={buttonClass("ghost", "sm")}>
-                      Details
+                      {t("Details")}
                     </Link>
                   ) : undefined
                 }
@@ -313,11 +328,11 @@ export function HomePage() {
               </Card>
             )}
 
-            <Card title="Shortcuts" padded={false}>
+            <Card title={t("Shortcuts")} padded={false}>
               <ul className="divide-y divide-border-default">
-                <Shortcut to={p.pipelines} icon={<Workflow size={15} />} label="Pipelines" />
-                <Shortcut to={p.deployments} icon={<Rocket size={15} />} label="Deployments" />
-                <Shortcut to={p.members} icon={<Users size={15} />} label="Members" />
+                <Shortcut to={p.pipelines} icon={<Workflow size={15} />} label={t("Pipelines")} />
+                <Shortcut to={p.deployments} icon={<Rocket size={15} />} label={t("Deployments")} />
+                <Shortcut to={p.members} icon={<Users size={15} />} label={t("Members")} />
               </ul>
             </Card>
           </div>
@@ -400,18 +415,18 @@ function GettingStarted({
 
   return (
     <Card
-      title="Get started"
-      description={`${done} of ${steps.length} done`}
+      title={t("Get started")}
+      description={t("{done} of {stepCount} done", { done, stepCount: steps.length })}
       actions={
         <Button size="sm" variant="ghost" icon={<X size={13} />} onClick={hide}>
-          Hide
+          {t("Hide")}
         </Button>
       }
       padded={false}
     >
       <div
         role="progressbar"
-        aria-label="Setup progress"
+        aria-label={t("Setup progress")}
         aria-valuemin={0}
         aria-valuemax={steps.length}
         aria-valuenow={done}

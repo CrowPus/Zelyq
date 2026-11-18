@@ -3,6 +3,7 @@ import { ArrowUpCircle, ExternalLink, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSession } from "../hooks/useSession";
 import { PLAN_LIMIT_EVENT } from "../lib/api";
+import { currentLanguage, t, translateServerMessage } from "../lib/i18n";
 
 /**
  * When a plan limit stops something, anywhere in the app: on a server managed
@@ -28,7 +29,9 @@ export function PlanLimitBanner() {
   const team = teams.find((entry) => entry.id === hit.teamId);
   const label =
     hit.limit in PLAN_LIMITS
-      ? PLAN_LIMITS[hit.limit as PlanLimitKey].label.toLowerCase()
+      ? currentLanguage() === "de"
+        ? translateServerMessage(PLAN_LIMITS[hit.limit as PlanLimitKey].label)
+        : translateServerMessage(PLAN_LIMITS[hit.limit as PlanLimitKey].label).toLowerCase()
       : hit.limit;
 
   return (
@@ -39,21 +42,25 @@ export function PlanLimitBanner() {
       <ArrowUpCircle size={14} strokeWidth={1.75} className="shrink-0 text-info" aria-hidden />
       <span className="min-w-0 flex-1">
         {team ? <span className="font-medium">{team.name}: </span> : null}
-        the plan's limit for {label} was reached.
-        {team?.role === "owner" ? "" : " The team's owner can choose a bigger plan."}
+        {team?.role === "owner"
+          ? t("the plan’s limit for {label} was reached.", { label })
+          : t(
+              "the plan’s limit for {label} was reached. The team’s owner can choose a bigger plan.",
+              { label },
+            )}
       </span>
       {team?.role === "owner" && (
         <a
           href={accountServiceLinks(accounts).upgrade(hit.teamId, hit.limit)}
           className="inline-flex items-center gap-1 rounded-md bg-info px-2.5 py-1 font-medium text-white hover:opacity-90"
         >
-          Upgrade
+          {t("Upgrade")}
           <ExternalLink size={11} aria-hidden />
         </a>
       )}
       <button
         type="button"
-        aria-label="Dismiss"
+        aria-label={t("Dismiss")}
         className="text-fg-muted hover:text-fg"
         onClick={() => setHit(null)}
       >

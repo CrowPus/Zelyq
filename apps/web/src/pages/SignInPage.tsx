@@ -7,6 +7,7 @@ import { AuthHeading, AuthLayout, AuthNotice } from "../components/AuthCard";
 import { Button, Field, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { type ApiError, api } from "../lib/api";
+import { t } from "../lib/i18n";
 
 /**
  * Sign in, register, and first-run setup are one screen. Splitting them across
@@ -114,7 +115,7 @@ export function SignInPage() {
       <div className="grid h-dvh place-items-center bg-canvas">
         <div className="flex flex-col items-center gap-3 text-xs text-fg-secondary">
           <Spinner />
-          Taking you to {accounts?.name}…
+          {t("Taking you to {name}…", { name: accounts?.name })}
         </div>
       </div>
     );
@@ -123,15 +124,20 @@ export function SignInPage() {
   if (serviceOnly && accounts) {
     return (
       <AuthLayout>
-        <AuthHeading title="Sign in to Zelyq" subtitle={`Your account is with ${accounts.name}.`} />
+        <AuthHeading
+          title={t("Sign in to Zelyq")}
+          subtitle={t("Your account is with {name}.", { name: accounts.name })}
+        />
         {oidcError && (
           <p className="mb-3 flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
             <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
             {suspended
-              ? `This account is suspended. Contact ${accounts.name} for help.`
+              ? t("This account is suspended. Contact {name} for help.", { name: accounts.name })
               : unavailable
-                ? `${accounts.name} can't be reached right now. Try again in a minute.`
-                : "Signing in could not be completed. Please try again."}
+                ? t("{name} can’t be reached right now. Try again in a minute.", {
+                    name: accounts.name,
+                  })
+                : t("Signing in could not be completed. Please try again.")}
           </p>
         )}
         <Button
@@ -143,13 +149,16 @@ export function SignInPage() {
           {signIn?.oidcLabel}
         </Button>
         <p className="mt-4 text-center text-xs text-fg-muted">
-          No account?{" "}
-          <a
-            href={accountServiceLinks(accounts).signup(`${window.location.origin}/`)}
-            className="text-info underline underline-offset-2 hover:no-underline"
-          >
-            Create one at {accounts.name}
-          </a>
+          {t("No account? {link}", {
+            link: (
+              <a
+                href={accountServiceLinks(accounts).signup(`${window.location.origin}/`)}
+                className="text-info underline underline-offset-2 hover:no-underline"
+              >
+                {t("Create one at {name}", { name: accounts.name })}
+              </a>
+            ),
+          })}
         </p>
       </AuthLayout>
     );
@@ -174,21 +183,21 @@ export function SignInPage() {
       <AuthHeading
         title={
           firstRun
-            ? "Set up Zelyq"
+            ? t("Set up Zelyq")
             : registering
-              ? "Create an account"
+              ? t("Create an account")
               : forgot
-                ? "Reset your password"
-                : "Sign in to Zelyq"
+                ? t("Reset your password")
+                : t("Sign in to Zelyq")
         }
         subtitle={
           firstRun
-            ? "This instance has no accounts yet. The first one owns it."
+            ? t("This instance has no accounts yet. The first one owns it.")
             : registering
-              ? "You will get a team of your own."
+              ? t("You will get a team of your own.")
               : forgot
-                ? "Enter your account's email. We will send a link to choose a new password."
-                : "Use the account an administrator set up for you."
+                ? t("Enter your account’s email. We will send a link to choose a new password.")
+                : t("Use the account an administrator set up for you.")
         }
       />
 
@@ -196,7 +205,7 @@ export function SignInPage() {
         {registering && (
           <div className="flex flex-col gap-1.5">
             <label htmlFor="signin-name" className="text-xs font-medium text-fg-secondary">
-              Name
+              {t("Name")}
             </label>
             <Input
               id="signin-name"
@@ -204,14 +213,14 @@ export function SignInPage() {
               onChange={(event) => setName(event.target.value)}
               autoComplete="name"
               required
-              placeholder="Ada Lovelace"
+              placeholder={t("Ada Lovelace")}
             />
           </div>
         )}
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="signin-email" className="text-xs font-medium text-fg-secondary">
-            Email
+            {t("Email")}
           </label>
           <Input
             id="signin-email"
@@ -228,7 +237,7 @@ export function SignInPage() {
           <div className="flex flex-col gap-1.5">
             <div className="flex items-baseline justify-between">
               <label htmlFor="signin-password" className="text-xs font-medium text-fg-secondary">
-                Password
+                {t("Password")}
               </label>
               {canReset && !registering && (
                 <button
@@ -240,7 +249,7 @@ export function SignInPage() {
                   }}
                   className="text-xs text-info underline-offset-2 hover:underline"
                 >
-                  Forgot password?
+                  {t("Forgot password?")}
                 </button>
               )}
             </div>
@@ -251,22 +260,25 @@ export function SignInPage() {
               autoComplete={registering ? "new-password" : "current-password"}
               required
               minLength={registering ? 10 : undefined}
-              placeholder={registering ? "At least 10 characters" : ""}
+              placeholder={registering ? t("At least 10 characters") : ""}
             />
           </div>
         )}
 
         {passwordChanged && !error && (
           <AuthNotice>
-            Your password is changed. Sign in with it; you will be asked for a code from your
-            authenticator app too.
+            {t(
+              "Your password is changed. Sign in with it; you will be asked for a code from your authenticator app too.",
+            )}
           </AuthNotice>
         )}
 
         {forgot && sent && (
           <AuthNotice>
-            If an account uses {email}, a link is on its way. It works for one hour. Check spam if
-            it does not arrive in a few minutes.
+            {t(
+              "If an account uses {email}, a link is on its way. It works for one hour. Check spam if it does not arrive in a few minutes.",
+              { email },
+            )}
           </AuthNotice>
         )}
 
@@ -281,25 +293,27 @@ export function SignInPage() {
           <p className="flex items-start gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2.5 py-2 text-xs text-danger">
             <CircleAlert size={14} strokeWidth={1.75} className="mt-px shrink-0" />
             {suspended
-              ? "This account is suspended. Contact the server's administrator for help."
+              ? t("This account is suspended. Contact the server’s administrator for help.")
               : unavailable
-                ? `${accounts?.name ?? "The sign-in service"} can't be reached right now. Try again in a minute.`
-                : "Single sign-on could not be completed. Please try again."}
+                ? t("{name} can’t be reached right now. Try again in a minute.", {
+                    name: accounts?.name ?? t("The sign-in service"),
+                  })
+                : t("Single sign-on could not be completed. Please try again.")}
           </p>
         )}
 
         <Button type="submit" variant="primary" disabled={busy} className="mt-1 w-full">
           {busy
-            ? "Working…"
+            ? t("Working…")
             : forgot
               ? sent
-                ? "Send again"
-                : "Send reset link"
+                ? t("Send again")
+                : t("Send reset link")
               : firstRun
-                ? "Create owner account"
+                ? t("Create owner account")
                 : registering
-                  ? "Create account"
-                  : "Sign in"}
+                  ? t("Create account")
+                  : t("Sign in")}
         </Button>
       </form>
 
@@ -316,7 +330,7 @@ export function SignInPage() {
 
       {forgot && (
         <p className="mt-4 text-center text-xs text-fg-muted">
-          Remembered it?{" "}
+          {t("Remembered it? ")}
           <button
             type="button"
             onClick={() => {
@@ -325,14 +339,14 @@ export function SignInPage() {
             }}
             className="text-info underline underline-offset-2 hover:no-underline"
           >
-            Sign in
+            {t("Sign in")}
           </button>
         </p>
       )}
 
       {!firstRun && !forgot && (registering || signIn?.register) && (
         <p className="mt-4 text-center text-xs text-fg-muted">
-          {registering ? "Already have an account?" : "No account?"}{" "}
+          {registering ? t("Already have an account?") : t("No account?")}{" "}
           <button
             type="button"
             onClick={() => {
@@ -341,7 +355,7 @@ export function SignInPage() {
             }}
             className="text-info underline underline-offset-2 hover:no-underline"
           >
-            {registering ? "Sign in" : "Create one"}
+            {registering ? t("Sign in") : t("Create one")}
           </button>
         </p>
       )}
@@ -387,15 +401,17 @@ function TwoFactorStep({
   return (
     <AuthLayout>
       <AuthHeading
-        title="Enter your code"
+        title={t("Enter your code")}
         subtitle={
           recovery
-            ? "Type one of the recovery codes you saved when you turned on two-factor sign-in. Each works once."
-            : "Open your authenticator app and type the 6-digit code it shows for Zelyq."
+            ? t(
+                "Type one of the recovery codes you saved when you turned on two-factor sign-in. Each works once.",
+              )
+            : t("Open your authenticator app and type the 6-digit code it shows for Zelyq.")
         }
       />
       <form onSubmit={submit} className="flex flex-col gap-3">
-        <Field label={recovery ? "Recovery code" : "Code"} error={error}>
+        <Field label={recovery ? t("Recovery code") : t("Code")} error={error}>
           <Input
             autoFocus
             value={code}
@@ -419,7 +435,7 @@ function TwoFactorStep({
           loading={busy}
           disabled={recovery ? code.trim().length < 8 : code.length !== 6}
         >
-          Sign in
+          {t("Sign in")}
         </Button>
       </form>
       <div className="mt-5 flex flex-col items-center gap-2 text-sm">
@@ -432,10 +448,10 @@ function TwoFactorStep({
             setError(null);
           }}
         >
-          {recovery ? "Use a code from your app instead" : "Use a recovery code"}
+          {recovery ? t("Use a code from your app instead") : t("Use a recovery code")}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => onRestart(null)}>
-          Back to sign in
+          {t("Back to sign in")}
         </Button>
       </div>
     </AuthLayout>

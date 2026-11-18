@@ -36,6 +36,7 @@ import {
 import { type DragEvent, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import {
   type DocPath,
   editable,
@@ -69,30 +70,32 @@ type Selection =
   | { kind: "step"; stage: number; step: number };
 
 const KIND_LABEL: Record<StepKind, string> = {
-  run: "Commands",
-  checkout: "Check out the code",
-  setup: "Set up a language",
-  cache: "Cache a folder",
-  docker: "Build a Docker image",
-  approval: "Wait for approval",
-  deploy: "Deploy",
-  pipeline: "Run another pipeline",
-  download: "Download an artifact",
-  plugin: "Plugin",
+  run: t("Commands"),
+  checkout: t("Check out the code"),
+  setup: t("Set up a language"),
+  cache: t("Cache a folder"),
+  docker: t("Build a Docker image"),
+  approval: t("Wait for approval"),
+  deploy: t("Deploy"),
+  pipeline: t("Run another pipeline"),
+  download: t("Download an artifact"),
+  plugin: t("Plugin"),
 };
 
 /** What each kind of step is for, in plain words. */
 const KIND_HELP: Record<StepKind, string> = {
-  run: "Runs commands, as you would in a terminal.",
-  checkout: "Copies the code (the app, or the repository) into the run's folder.",
-  setup: "Installs a language at a version: Node, Python, Java or Go.",
-  cache: "Keeps a folder such as node_modules between runs, so installs get faster.",
-  docker: "Builds a Docker image, and can push it to a registry.",
-  approval: "Stops the run until someone approves or rejects it.",
-  deploy: "Puts the app on an environment's machine with Docker; rolls back if it does not start.",
-  pipeline: "Starts another pipeline of this team, and can wait for it.",
-  download: "Takes a file another run kept, instead of building it again.",
-  plugin: "A ready-made step your team installed in Pipelines → Plugins.",
+  run: t("Runs commands, as you would in a terminal."),
+  checkout: t("Copies the code (the app, or the repository) into the run’s folder."),
+  setup: t("Installs a language at a version: Node, Python, Java or Go."),
+  cache: t("Keeps a folder such as node_modules between runs, so installs get faster."),
+  docker: t("Builds a Docker image, and can push it to a registry."),
+  approval: t("Stops the run until someone approves or rejects it."),
+  deploy: t(
+    "Puts the app on an environment’s machine with Docker; rolls back if it does not start.",
+  ),
+  pipeline: t("Starts another pipeline of this team, and can wait for it."),
+  download: t("Takes a file another run kept, instead of building it again."),
+  plugin: t("A ready-made step your team installed in Pipelines → Plugins."),
 };
 
 const KIND_ICON: Record<StepKind, typeof Box> = {
@@ -149,22 +152,26 @@ function stepLabel(step: Raw): string {
   switch (kind) {
     case "run": {
       const first = text(value).trim().split("\n")[0] ?? "";
-      return first.length > 48 ? `${first.slice(0, 45)}…` : first || "Commands";
+      return first.length > 48 ? `${first.slice(0, 45)}…` : first || t("Commands");
     }
     case "setup":
-      return `Set up ${typeof value === "string" ? value : text((value as Raw)?.tool)}`;
+      return t("Set up {value}", {
+        value: typeof value === "string" ? value : text((value as Raw)?.tool),
+      });
     case "cache":
-      return `Cache ${typeof value === "string" ? value : text((value as Raw)?.path)}`;
+      return t("Cache {value}", {
+        value: typeof value === "string" ? value : text((value as Raw)?.path),
+      });
     case "deploy":
-      return `Deploy to ${text((value as Raw)?.to)}`;
+      return t("Deploy to {to}", { to: text((value as Raw)?.to) });
     case "plugin":
       return text(value);
     case "pipeline":
       return `Run ${text((value as Raw)?.run)}`;
     case "download":
-      return `Download ${text((value as Raw)?.artifact)}`;
+      return t("Download {artifact}", { artifact: text((value as Raw)?.artifact) });
     case "approval":
-      return typeof value === "string" ? value : text((value as Raw)?.message) || "Approval";
+      return typeof value === "string" ? value : text((value as Raw)?.message) || t("Approval");
     default:
       return KIND_LABEL[kind];
   }
@@ -300,8 +307,9 @@ export function VisualEditor({
   if (!file) {
     return (
       <p className="rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm">
-        The file is not valid YAML, so it cannot be shown as a picture. Fix it in the YAML view
-        first.
+        {t(
+          "The file is not valid YAML, so it cannot be shown as a picture. Fix it in the YAML view first.",
+        )}
       </p>
     );
   }
@@ -403,9 +411,9 @@ export function VisualEditor({
           }`}
         >
           <Settings2 size={14} className="text-fg-secondary" />
-          <span className="font-medium">{text(file.name) || "Pipeline"}</span>
+          <span className="font-medium">{text(file.name) || t("Pipeline")}</span>
           <span className="text-xs text-fg-secondary">
-            runs on{" "}
+            {t("runs on ")}
             <span className="font-mono">
               {Array.isArray(file["runs-on"])
                 ? (file["runs-on"] as unknown[]).join(", ")
@@ -414,10 +422,12 @@ export function VisualEditor({
           </span>
           {pipelineProblems.length > 0 && (
             <Chip tone="danger">
-              {pipelineProblems.length} problem{pipelineProblems.length === 1 ? "" : "s"}
+              {t("{pipelineProblemCount, plural, one {# problem} other {# problems}}", {
+                pipelineProblemCount: pipelineProblems.length,
+              })}
             </Chip>
           )}
-          <span className="ml-auto text-2xs text-fg-muted">Pipeline settings</span>
+          <span className="ml-auto text-2xs text-fg-muted">{t("Pipeline settings")}</span>
         </button>
 
         {latest.run && (
@@ -447,7 +457,7 @@ export function VisualEditor({
                             )
                         : null
                     }
-                    title="Add a stage here"
+                    title={t("Add a stage here")}
                   />
                 )}
                 <div className="group/column flex w-52 shrink-0 flex-col items-stretch gap-2">
@@ -460,7 +470,7 @@ export function VisualEditor({
                   >
                     {column.length > 1 && (
                       <span className="px-1 text-2xs text-fg-muted">
-                        {column.length} at the same time
+                        {t("{columnCount} at the same time", { columnCount: column.length })}
                       </span>
                     )}
                     {column.map((index) => (
@@ -492,8 +502,8 @@ export function VisualEditor({
                       onClick={() =>
                         addStage(last + 1, true, rawNeeds(stages[column[0] ?? 0] ?? {}))
                       }
-                      title="Add a stage that runs at the same time"
-                      aria-label="Add a stage that runs at the same time"
+                      title={t("Add a stage that runs at the same time")}
+                      aria-label={t("Add a stage that runs at the same time")}
                       className="mx-auto flex size-6 items-center justify-center rounded-full border border-dashed border-border-strong bg-surface text-fg-muted opacity-0 transition-opacity group-hover/column:opacity-100 hover:border-primary hover:text-fg focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                     >
                       <Plus size={12} />
@@ -506,12 +516,12 @@ export function VisualEditor({
           {canWrite &&
             (stages.length === 0 ? (
               <Button size="sm" icon={<Plus size={13} />} onClick={() => addStage(0)}>
-                Add the first stage
+                {t("Add the first stage")}
               </Button>
             ) : (
               <Connector
                 onAdd={() => addStage(stages.length, false, namesOf(columns[columns.length - 1]))}
-                title="Add a stage at the end"
+                title={t("Add a stage at the end")}
                 end
               />
             ))}
@@ -615,15 +625,15 @@ function PluginPicker({
         <Package size={14} className="mt-0.5 shrink-0 text-fg-secondary" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">
-            {chosen ? chosen.name : value || "No plugin"}
+            {chosen ? chosen.name : value || t("No plugin")}
           </span>
           <span className="block truncate font-mono text-2xs text-fg-muted">
-            {chosen ? `${chosen.pluginId}@${chosen.version}` : "not installed"}
+            {chosen ? `${chosen.pluginId}@${chosen.version}` : t("not installed")}
           </span>
         </span>
         {!disabled && (
           <Button size="sm" variant="ghost" onClick={() => setSearching(true)}>
-            Change
+            {t("Change")}
           </Button>
         )}
       </div>
@@ -632,19 +642,23 @@ function PluginPicker({
   return (
     <div className="grid min-w-0 gap-1.5">
       {value && !chosen && (
-        <span className="text-2xs text-danger">{value} is not installed in this team.</span>
+        <span className="text-2xs text-danger">
+          {t("{value} is not installed in this team.", { value })}
+        </span>
       )}
       <Input
         autoFocus
         value={query}
         disabled={disabled}
-        placeholder={`Search ${plugins.length} plugin${plugins.length === 1 ? "" : "s"}`}
+        placeholder={t("Search {pluginCount, plural, one {# plugin} other {# plugins}}", {
+          pluginCount: plugins.length,
+        })}
         onChange={(event) => setQuery(event.target.value)}
         className="text-sm"
       />
       <ul className="max-h-64 overflow-y-auto rounded-md border border-border-default">
         {found.length === 0 ? (
-          <li className="px-2.5 py-2 text-xs text-fg-muted">No plugin matches.</li>
+          <li className="px-2.5 py-2 text-xs text-fg-muted">{t("No plugin matches.")}</li>
         ) : (
           found.slice(0, 100).map((plugin) => {
             const ref = `${plugin.pluginId}@${plugin.version}`;
@@ -672,7 +686,7 @@ function PluginPicker({
       </ul>
       {chosen && (
         <Button size="sm" variant="ghost" onClick={() => setSearching(false)}>
-          Cancel
+          {t("Cancel")}
         </Button>
       )}
     </div>
@@ -762,20 +776,22 @@ function RunStrip({
   return (
     <div className="mb-3 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs">
       <StatusIcon status={run.status} />
-      <span className="font-medium">Latest run #{run.number}</span>
+      <span className="font-medium">{t("Latest run #{number}", { number: run.number })}</span>
       <span className="text-fg-secondary">
         {status.label}
         {run.startedAt && ` · ${duration(run.startedAt, run.finishedAt)}`} ·{" "}
         {formatRelative(run.createdAt)}
       </span>
       {changed && (
-        <span className="text-fg-muted">· the file has changed since, so steps are not marked</span>
+        <span className="text-fg-muted">
+          {t("· the file has changed since, so steps are not marked")}
+        </span>
       )}
       <Link
         to={teamHref(`/pipelines/${pipelineId}/runs/${run.id}`)}
         className="ml-auto font-medium text-fg-secondary underline-offset-2 hover:text-fg hover:underline"
       >
-        Open the run
+        {t("Open the run")}
       </Link>
     </div>
   );
@@ -814,10 +830,10 @@ function StageRow({ count, children }: { count: number; children: ReactNode }) {
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       {(edges.left || edges.right) && (
         <div className="flex items-center justify-end gap-1 text-2xs text-fg-muted">
-          <span className="mr-1">{count} stages · scroll to see them all</span>
+          <span className="mr-1">{t("{count} stages · scroll to see them all", { count })}</span>
           <button
             type="button"
-            aria-label="Earlier stages"
+            aria-label={t("Earlier stages")}
             disabled={!edges.left}
             onClick={() => scroll(-1)}
             className={arrow}
@@ -826,7 +842,7 @@ function StageRow({ count, children }: { count: number; children: ReactNode }) {
           </button>
           <button
             type="button"
-            aria-label="Later stages"
+            aria-label={t("Later stages")}
             disabled={!edges.right}
             onClick={() => scroll(1)}
             className={arrow}
@@ -905,8 +921,8 @@ function Chip({
 }
 
 const WHEN: Record<string, string> = {
-  "failure()": "Only after a failure",
-  "always()": "Always runs",
+  "failure()": t("Only after a failure"),
+  "always()": t("Always runs"),
 };
 
 function StageCard({
@@ -1005,7 +1021,7 @@ function StageCard({
           event.dataTransfer.setData(STAGE_DRAG, String(index));
           event.dataTransfer.effectAllowed = "move";
         }}
-        title={onMoveStage ? "Drag to move this stage before another" : undefined}
+        title={onMoveStage ? t("Drag to move this stage before another") : undefined}
         onClick={() => onSelect({ kind: "stage", stage: index })}
         className="flex w-full min-w-0 flex-col gap-1 rounded-t-md border-b border-border-default px-3 py-2 text-left hover:bg-surface-hover"
       >
@@ -1014,7 +1030,7 @@ function StageCard({
             {order}
           </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {text(stage.name) || "Stage"}
+            {text(stage.name) || t("Stage")}
           </span>
           {runStatus && <StatusIcon status={runStatus} size={13} />}
         </span>
@@ -1026,18 +1042,24 @@ function StageCard({
           <span className="flex min-w-0 flex-wrap gap-1">
             {stage["runs-on"] !== undefined && (
               <Chip>
-                On{" "}
+                {t("On ")}
                 {Array.isArray(stage["runs-on"])
                   ? (stage["runs-on"] as unknown[]).join(", ")
                   : text(stage["runs-on"])}
               </Chip>
             )}
-            {matrix > 0 && <Chip tone="info">Matrix × {matrix}</Chip>}
+            {matrix > 0 && <Chip tone="info">{t("Matrix × {matrix}", { matrix })}</Chip>}
             {WHEN[text(stage.if)] && <Chip tone="warning">{WHEN[text(stage.if)]}</Chip>}
-            {stage.uses !== undefined && <Chip tone="info">Template: {text(stage.uses)}</Chip>}
+            {stage.uses !== undefined && (
+              <Chip tone="info">
+                {t("Template:")} {text(stage.uses)}
+              </Chip>
+            )}
             {problems.length > 0 && (
               <Chip tone="danger">
-                {problems.length} problem{problems.length === 1 ? "" : "s"}
+                {t("{problemCount, plural, one {# problem} other {# problems}}", {
+                  problemCount: problems.length,
+                })}
               </Chip>
             )}
           </span>
@@ -1089,7 +1111,7 @@ function StageCard({
                   {wrong.length > 0 && (
                     <span
                       role="img"
-                      aria-label="Has a problem"
+                      aria-label={t("Has a problem")}
                       title={wrong.join("\n")}
                       className="size-1.5 shrink-0 rounded-full bg-danger"
                     />
@@ -1110,7 +1132,7 @@ function StageCard({
                 onClick={() => onSelect({ kind: "add-step", stage: index })}
                 className="flex w-full items-center gap-1 rounded px-2 py-1 text-2xs text-fg-muted hover:bg-surface-hover hover:text-fg"
               >
-                <Plus size={11} /> Add a step
+                <Plus size={11} /> {t("Add a step")}
               </button>
             </li>
           )}
@@ -1132,7 +1154,9 @@ function StepChooser({
 }) {
   return (
     <div className="grid gap-2">
-      <Heading icon={<Plus size={14} />}>Add a step to {stageName || "this stage"}</Heading>
+      <Heading icon={<Plus size={14} />}>
+        {t("Add a step to")} {stageName || t("this stage")}
+      </Heading>
       <ul className="grid gap-1">
         {STEP_KINDS.map((kind) => {
           const Icon = KIND_ICON[kind];
@@ -1154,7 +1178,7 @@ function StepChooser({
         })}
       </ul>
       <Button size="sm" variant="ghost" onClick={onCancel}>
-        Cancel
+        {t("Cancel")}
       </Button>
     </div>
   );
@@ -1279,11 +1303,13 @@ function WaitsFor({
     : (plan.needs[index] ?? []).map((other) => text(stages[other]?.name));
   return (
     <Field
-      label="Waits for"
+      label={t("Waits for")}
       hint={
         graph
-          ? "It starts as soon as these are done. Stages that wait for nothing start at once."
-          : "Now: the stage before it. Tick exactly what it needs, and stages that don't need each other run at the same time."
+          ? t("It starts as soon as these are done. Stages that wait for nothing start at once.")
+          : t(
+              "Now: the stage before it. Tick exactly what it needs, and stages that don’t need each other run at the same time.",
+            )
       }
     >
       <div className="grid gap-1">
@@ -1295,7 +1321,7 @@ function WaitsFor({
               key={position}
               checked={current.includes(name)}
               disabled={disabled || !name}
-              label={name || `Stage ${position + 1}`}
+              label={name || t("Stage {position}", { position: position + 1 })}
               onChange={(on) => {
                 const next = on
                   ? [...current.filter((item) => item !== name), name]
@@ -1413,7 +1439,7 @@ function Pairs({
           ) : (
             <IconButton
               size="sm"
-              label="Remove"
+              label={t("Remove")}
               onClick={() => write(rows.filter((_, at) => at !== index))}
             >
               <X size={12} />
@@ -1427,7 +1453,7 @@ function Pairs({
           onClick={() => write([...rows, [`NAME${rows.length + 1}`, ""]])}
           className="justify-self-start text-2xs text-primary hover:underline"
         >
-          + Add
+          {t("+ Add")}
         </button>
       )}
     </div>
@@ -1507,7 +1533,7 @@ function Choose({
           : value === ""
             ? [["", "Choose…"] as [string, string]]
             : []),
-        ...(known ? [] : [[value, `${value} (not found)`] as [string, string]]),
+        ...(known ? [] : [[value, t("{value} (not found)", { value })] as [string, string]]),
         ...options,
       ]}
     />
@@ -1539,12 +1565,12 @@ function RunsOn({
         disabled={disabled}
         empty={inherit}
         options={[
-          ["local", "This Zelyq server (local)"],
+          ["local", t("This Zelyq server (local)")],
           ...runners.map((runner): [string, string] => [
             runner.name,
-            `${runner.name}${runner.os ? ` · ${runner.os}` : ""}${runner.enabled ? "" : " (turned off)"}`,
+            `${runner.name}${runner.os ? ` · ${runner.os}` : ""}${runner.enabled ? "" : t(" (turned off)")}`,
           ]),
-          [LABELS, "Any runner with these labels…"],
+          [LABELS, t("Any runner with these labels…")],
         ]}
         onChange={(next) => onChange(next === LABELS ? ["linux"] : next === "" ? undefined : next)}
       />
@@ -1552,7 +1578,7 @@ function RunsOn({
         <TextInput
           mono
           value={(value as unknown[]).join(", ")}
-          placeholder="linux, docker"
+          placeholder={t("linux, docker")}
           disabled={disabled}
           onChange={(next) =>
             onChange(
@@ -1582,16 +1608,16 @@ function PipelineForm({
   const off = !canWrite;
   return (
     <div className="grid gap-3">
-      <Heading icon={<Settings2 size={14} />}>Pipeline</Heading>
+      <Heading icon={<Settings2 size={14} />}>{t("Pipeline")}</Heading>
       <Problems problems={problems} />
-      <Field label="Name" hint="What the pipeline is called in the list.">
+      <Field label={t("Name")} hint={t("What the pipeline is called in the list.")}>
         <TextInput
           value={text(file.name)}
           disabled={off}
           onChange={(v) => edit(setIn(source, ["name"], v))}
         />
       </Field>
-      <Field label="Runs on" hint="Runners are added in Pipelines → Runners.">
+      <Field label={t("Runs on")} hint={t("Runners are added in Pipelines → Runners.")}>
         <RunsOn
           value={file["runs-on"]}
           runners={lists.runners}
@@ -1599,14 +1625,14 @@ function PipelineForm({
           onChange={(next) => edit(setIn(source, ["runs-on"], next ?? "local"))}
         />
       </Field>
-      <Field label="Where the code comes from" hint="What a Check out step fetches.">
+      <Field label={t("Where the code comes from")} hint={t("What a Check out step fetches.")}>
         <Select
           value={kind}
           disabled={off}
           options={[
-            ["none", "Nothing (no checkout)"],
-            ["app", "An app built in Zelyq"],
-            ["repo", "A git repository"],
+            ["none", t("Nothing (no checkout)")],
+            ["app", t("An app built in Zelyq")],
+            ["repo", t("A git repository")],
           ]}
           onChange={(next) =>
             edit(
@@ -1624,7 +1650,7 @@ function PipelineForm({
         />
       </Field>
       {kind === "app" && (
-        <Field label="App">
+        <Field label={t("App")}>
           <Choose
             value={text(origin.app)}
             disabled={off}
@@ -1635,7 +1661,7 @@ function PipelineForm({
       )}
       {kind === "repo" && (
         <>
-          <Field label="Repository (https)">
+          <Field label={t("Repository (https)")}>
             <TextInput
               mono
               value={text(origin.repo)}
@@ -1643,7 +1669,7 @@ function PipelineForm({
               onChange={(v) => edit(setIn(source, ["source", "repo"], v))}
             />
           </Field>
-          <Field label="Branch, tag or commit" hint="Empty: the default branch">
+          <Field label={t("Branch, tag or commit")} hint={t("Empty: the default branch")}>
             <TextInput
               mono
               value={text(origin.ref)}
@@ -1651,7 +1677,7 @@ function PipelineForm({
               onChange={(v) => edit(setIn(source, ["source", "ref"], v))}
             />
           </Field>
-          <Field label="Token" hint="For a private repository: vault://GITHUB_TOKEN">
+          <Field label={t("Token")} hint={t("For a private repository: vault://GITHUB_TOKEN")}>
             <TextInput
               mono
               placeholder="vault://GITHUB_TOKEN"
@@ -1663,12 +1689,12 @@ function PipelineForm({
           <Check
             checked={origin["report-status"] === true}
             disabled={off}
-            label="Show ✓ / ✗ on the commit and the pull request"
+            label={t("Show ✓ / ✗ on the commit and the pull request")}
             onChange={(on) => edit(setIn(source, ["source", "report-status"], on || undefined))}
           />
         </>
       )}
-      <Field label="Timeout for the whole run" hint="Such as 30m or 2h; empty: 1h">
+      <Field label={t("Timeout for the whole run")} hint={t("Such as 30m or 2h; empty: 1h")}>
         <TextInput
           mono
           value={text(file.timeout)}
@@ -1676,7 +1702,7 @@ function PipelineForm({
           onChange={(v) => edit(setIn(source, ["timeout"], v))}
         />
       </Field>
-      <Field label="Variables for every step" hint="A value may be vault://NAME">
+      <Field label={t("Variables for every step")} hint={t("A value may be vault://NAME")}>
         <Pairs
           value={(file.env as Raw) ?? {}}
           disabled={off}
@@ -1686,7 +1712,7 @@ function PipelineForm({
         />
       </Field>
       <p className="text-2xs text-fg-muted">
-        Inputs, services, artifacts, notifications and the rest: switch to YAML.
+        {t("Inputs, services, artifacts, notifications and the rest: switch to YAML.")}
       </p>
     </div>
   );
@@ -1716,9 +1742,9 @@ function StageForm({
   const matrix = (stage.matrix && typeof stage.matrix === "object" ? stage.matrix : {}) as Raw;
   return (
     <div className="grid gap-3">
-      <Heading icon={<CheckCircle2 size={14} />}>Stage</Heading>
+      <Heading icon={<CheckCircle2 size={14} />}>{t("Stage")}</Heading>
       <Problems problems={problems} />
-      <Field label="Name" hint="Shown on the stage's box in every run.">
+      <Field label={t("Name")} hint={t("Shown on the stage’s box in every run.")}>
         <TextInput
           value={text(stage.name)}
           disabled={off}
@@ -1728,15 +1754,15 @@ function StageForm({
         />
       </Field>
       <Field
-        label="Runs"
-        hint="A stage that runs only on failure is how you send an alert or clean up."
+        label={t("Runs")}
+        hint={t("A stage that runs only on failure is how you send an alert or clean up.")}
       >
         <Select
           value={text(stage.if) || "success()"}
           disabled={off}
           options={[
-            ["success()", "When everything before it passed"],
-            ["failure()", "Only when something before it failed"],
+            ["success()", t("When everything before it passed")],
+            ["failure()", t("Only when something before it failed")],
             ["always()", "Always"],
           ]}
           onChange={(v) => edit(setIn(source, [...at, "if"], v === "success()" ? undefined : v))}
@@ -1749,13 +1775,15 @@ function StageForm({
         <Check
           checked={stage.parallel === true}
           disabled={off || index === 0}
-          label="At the same time as the stage before it"
+          label={t("At the same time as the stage before it")}
           onChange={(on) => edit(setIn(source, [...at, "parallel"], on || undefined))}
         />
       )}
       <Field
-        label="Its own machine"
-        hint="A stage on a machine of its own starts in an empty folder: check out again there."
+        label={t("Its own machine")}
+        hint={t(
+          "A stage on a machine of its own starts in an empty folder: check out again there.",
+        )}
       >
         <RunsOn
           value={stage["runs-on"]}
@@ -1768,8 +1796,8 @@ function StageForm({
       {stage.uses !== undefined ? (
         <>
           <Field
-            label="Uses the stages of"
-            hint="Another pipeline of this team, copied in when a run starts"
+            label={t("Uses the stages of")}
+            hint={t("Another pipeline of this team, copied in when a run starts")}
           >
             <Choose
               value={text(stage.uses)}
@@ -1781,7 +1809,7 @@ function StageForm({
               onChange={(v) => edit(setIn(source, [...at, "uses"], v))}
             />
           </Field>
-          <Field label="Its inputs">
+          <Field label={t("Its inputs")}>
             <Pairs
               value={(stage.with as Raw) ?? {}}
               disabled={off}
@@ -1793,8 +1821,12 @@ function StageForm({
         </>
       ) : (
         <Field
-          label="Matrix"
-          hint="One copy of the stage per combination, at the same time: node → 20, 22. Use ${{ matrix.node }} in its steps."
+          label={t("Matrix")}
+          hint={t(
+            "One copy of the stage per combination, at the same time: node → 20, 22. Use {expression} in its steps.",
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: pipeline syntax, shown as written.
+            { expression: "${{ matrix.node }}" },
+          )}
         >
           <Pairs
             value={matrix}
@@ -1824,7 +1856,7 @@ function StageForm({
       {canWrite && (
         <div className="grid gap-1.5">
           <Button size="sm" icon={<Plus size={12} />} onClick={() => onAddStage(false)}>
-            Add a stage after this one
+            {t("Add a stage after this one")}
           </Button>
           <Button
             size="sm"
@@ -1832,7 +1864,7 @@ function StageForm({
             icon={<Plus size={12} />}
             onClick={() => onAddStage(true)}
           >
-            Add a stage at the same time as this one
+            {t("Add a stage at the same time as this one")}
           </Button>
         </div>
       )}
@@ -1840,7 +1872,7 @@ function StageForm({
         <div className="flex flex-wrap gap-1 border-t border-border-default pt-3">
           <IconButton
             size="sm"
-            label="Move left"
+            label={t("Move left")}
             disabled={index === 0 || !canMove(stages, index, index - 1)}
             onClick={() => {
               edit(moveIn(source, ["stages"], index, index - 1));
@@ -1851,7 +1883,7 @@ function StageForm({
           </IconButton>
           <IconButton
             size="sm"
-            label="Move right"
+            label={t("Move right")}
             disabled={index >= stages.length - 1 || !canMove(stages, index, index + 1)}
             onClick={() => {
               edit(moveIn(source, ["stages"], index, index + 1));
@@ -1871,7 +1903,7 @@ function StageForm({
               onSelect({ kind: "pipeline" });
             }}
           >
-            Delete stage
+            {t("Delete stage")}
           </Button>
         </div>
       )}
@@ -1914,7 +1946,10 @@ function StepForm({
     case "run":
       fields = (
         <>
-          <Field label="Commands" hint="One per line; the step stops at the first that fails.">
+          <Field
+            label={t("Commands")}
+            hint={t("One per line; the step stops at the first that fails.")}
+          >
             <Textarea
               value={text(value)}
               disabled={off}
@@ -1925,12 +1960,12 @@ function StepForm({
               className="overflow-x-auto font-mono text-xs leading-5 whitespace-pre"
             />
           </Field>
-          <Field label="Shell" hint="The program that runs the commands.">
+          <Field label={t("Shell")} hint={t("The program that runs the commands.")}>
             <Select
               value={text(step.shell)}
               disabled={off}
               options={[
-                ["", "Default (bash; pwsh on Windows)"],
+                ["", t("Default (bash; pwsh on Windows)")],
                 ...PIPELINE_SHELLS.map((shell): [string, string] => [shell, shell]),
               ]}
               onChange={(v) => set(["shell"], v || undefined)}
@@ -1946,7 +1981,7 @@ function StepForm({
         set(["setup"], nextVersion ? `${nextTool}@${nextVersion}` : nextTool);
       fields = (
         <>
-          <Field label="Language" hint="Installed for this and every later step.">
+          <Field label={t("Language")} hint={t("Installed for this and every later step.")}>
             <Select
               value={tool || "node"}
               disabled={off}
@@ -1954,7 +1989,10 @@ function StepForm({
               onChange={(v) => write(v, version ?? "")}
             />
           </Field>
-          <Field label="Version" hint="Such as 22 or lts; empty: the project's own file (.nvmrc…)">
+          <Field
+            label={t("Version")}
+            hint={t("Such as 22 or lts; empty: the project’s own file (.nvmrc…)")}
+          >
             <TextInput
               mono
               value={version ?? ""}
@@ -1970,8 +2008,8 @@ function StepForm({
       const path = typeof value === "string" ? value : text(object.path);
       fields = (
         <Field
-          label="Folder to keep between runs"
-          hint="Saved when the run passes, put back next time: installs get faster."
+          label={t("Folder to keep between runs")}
+          hint={t("Saved when the run passes, put back next time: installs get faster.")}
         >
           <TextInput
             mono
@@ -1986,7 +2024,7 @@ function StepForm({
     case "docker":
       fields = (
         <>
-          <Field label="Image (without a tag)" hint="Needs a runner with Docker.">
+          <Field label={t("Image (without a tag)")} hint={t("Needs a runner with Docker.")}>
             <TextInput
               mono
               value={text(object.image)}
@@ -1994,7 +2032,7 @@ function StepForm({
               onChange={(v) => set(["docker", "image"], v)}
             />
           </Field>
-          <Field label="Tags" hint="Comma-separated; empty: latest">
+          <Field label={t("Tags")} hint={t("Comma-separated; empty: latest")}>
             <TextInput
               mono
               value={Array.isArray(object.tags) ? object.tags.join(", ") : ""}
@@ -2013,17 +2051,17 @@ function StepForm({
           <Check
             checked={object.push === true}
             disabled={off}
-            label="Push to the registry"
+            label={t("Push to the registry")}
             onChange={(on) => set(["docker", "push"], on || undefined)}
           />
-          <p className="text-2xs text-fg-muted">A registry login is set in YAML.</p>
+          <p className="text-2xs text-fg-muted">{t("A registry login is set in YAML.")}</p>
         </>
       );
       break;
     case "deploy":
       fields = (
         <>
-          <Field label="Environment" hint="Environments are added in Deployments.">
+          <Field label={t("Environment")} hint={t("Environments are added in Deployments.")}>
             <Choose
               value={text(object.to)}
               disabled={off}
@@ -2034,7 +2072,7 @@ function StepForm({
               onChange={(v) => set(["deploy", "to"], v)}
             />
           </Field>
-          <Field label="Port inside the container" hint="The port the app listens on.">
+          <Field label={t("Port inside the container")} hint={t("The port the app listens on.")}>
             <TextInput
               mono
               value={text(object.port)}
@@ -2042,7 +2080,7 @@ function StepForm({
               onChange={(v) => set(["deploy", "port"], v ? Number(v) || v : undefined)}
             />
           </Field>
-          <Field label="Port on the machine" hint="Empty: the same">
+          <Field label={t("Port on the machine")} hint={t("Empty: the same")}>
             <TextInput
               mono
               value={text(object["host-port"])}
@@ -2050,7 +2088,7 @@ function StepForm({
               onChange={(v) => set(["deploy", "host-port"], v ? Number(v) || v : undefined)}
             />
           </Field>
-          <Field label="Health check path" hint="Empty: /">
+          <Field label={t("Health check path")} hint={t("Empty: /")}>
             <TextInput
               mono
               value={text(object.health)}
@@ -2058,7 +2096,10 @@ function StepForm({
               onChange={(v) => set(["deploy", "health"], v)}
             />
           </Field>
-          <Field label="Public address" hint="Where people reach it, if not the machine's">
+          <Field
+            label={t("Public address")}
+            hint={t("Where people reach it, if not the machine’s")}
+          >
             <TextInput
               mono
               value={text(object.url)}
@@ -2081,16 +2122,16 @@ function StepForm({
         );
       fields = (
         <>
-          <Field label="Question" hint="The run waits here until someone answers.">
+          <Field label={t("Question")} hint={t("The run waits here until someone answers.")}>
             <TextInput value={message} disabled={off} onChange={(v) => write(v, approvers)} />
           </Field>
-          <Field label="Who may answer">
+          <Field label={t("Who may answer")}>
             <Select
               value={approvers}
               disabled={off}
               options={[
-                ["", "Admins and owners"],
-                ["editors", "Editors, admins and owners"],
+                ["", t("Admins and owners")],
+                ["editors", t("Editors, admins and owners")],
               ]}
               onChange={(v) => write(message, v)}
             />
@@ -2102,7 +2143,7 @@ function StepForm({
     case "pipeline":
       fields = (
         <>
-          <Field label="Pipeline to run">
+          <Field label={t("Pipeline to run")}>
             <Choose
               value={text(object.run)}
               disabled={off}
@@ -2116,10 +2157,10 @@ function StepForm({
           <Check
             checked={object.wait !== false}
             disabled={off}
-            label="Wait for it, and pass or fail with it"
+            label={t("Wait for it, and pass or fail with it")}
             onChange={(on) => set(["pipeline", "wait"], on ? undefined : false)}
           />
-          <Field label="Its inputs">
+          <Field label={t("Its inputs")}>
             <Pairs
               value={(object.with as Raw) ?? {}}
               disabled={off}
@@ -2134,7 +2175,7 @@ function StepForm({
     case "download":
       fields = (
         <>
-          <Field label="Artifact" hint="A file or folder another run kept.">
+          <Field label={t("Artifact")} hint={t("A file or folder another run kept.")}>
             <TextInput
               mono
               value={text(object.artifact)}
@@ -2142,14 +2183,17 @@ function StepForm({
               onChange={(v) => set(["download", "artifact"], v)}
             />
           </Field>
-          <Field label="From" hint="Empty: the run that started this one; or a pipeline's name">
+          <Field
+            label={t("From")}
+            hint={t("Empty: the run that started this one; or a pipeline’s name")}
+          >
             <TextInput
               value={text(object.from)}
               disabled={off}
               onChange={(v) => set(["download", "from"], v)}
             />
           </Field>
-          <Field label="Unpack into" hint="Empty: the step's folder">
+          <Field label={t("Unpack into")} hint={t("Empty: the step’s folder")}>
             <TextInput
               mono
               value={text(object.path)}
@@ -2167,8 +2211,10 @@ function StepForm({
       fields = (
         <>
           <Field
-            label="Plugin"
-            hint={plugins.length === 0 ? "No plugins installed: Pipelines → Plugins." : undefined}
+            label={t("Plugin")}
+            hint={
+              plugins.length === 0 ? t("No plugins installed: Pipelines → Plugins.") : undefined
+            }
           >
             <PluginPicker
               value={ref}
@@ -2202,7 +2248,9 @@ function StepForm({
     }
     default:
       fields = (
-        <p className="text-xs text-fg-secondary">Fetches the source into the run's folder.</p>
+        <p className="text-xs text-fg-secondary">
+          {t("Fetches the source into the run’s folder.")}
+        </p>
       );
   }
 
@@ -2214,10 +2262,10 @@ function StepForm({
           return <Icon size={14} />;
         })()}
       >
-        Step
+        {t("Step")}
       </Heading>
       <Problems problems={problems} />
-      <Field label="Kind" hint={KIND_HELP[kind]}>
+      <Field label={t("Kind")} hint={KIND_HELP[kind]}>
         <Select
           value={kind}
           disabled={off}
@@ -2227,30 +2275,36 @@ function StepForm({
           }
         />
       </Field>
-      <Field label="Name" hint="Empty: worked out from what it does">
+      <Field label={t("Name")} hint={t("Empty: worked out from what it does")}>
         <TextInput value={text(step.name)} disabled={off} onChange={(v) => set(["name"], v)} />
       </Field>
       {fields}
       <details className="rounded-md border border-border-default p-2">
-        <summary className="cursor-pointer text-xs font-medium">More</summary>
+        <summary className="cursor-pointer text-xs font-medium">{t("More")}</summary>
         <div className="mt-2 grid gap-3">
-          <Field label="Id" hint="To read its outputs: ${{ steps.ID.outputs.NAME }}">
+          <Field
+            label={t("Id")}
+            hint={t("To read its outputs: {expression}", {
+              // biome-ignore lint/suspicious/noTemplateCurlyInString: pipeline syntax, shown as written.
+              expression: "${{ steps.ID.outputs.NAME }}",
+            })}
+          >
             <TextInput mono value={text(step.id)} disabled={off} onChange={(v) => set(["id"], v)} />
           </Field>
-          <Field label="Runs">
+          <Field label={t("Runs")}>
             <Select
               value={text(step.if)}
               disabled={off}
               options={[
-                ["", "Like its stage"],
-                ["success()", "When everything before it passed"],
-                ["failure()", "Only when something before it failed"],
+                ["", t("Like its stage")],
+                ["success()", t("When everything before it passed")],
+                ["failure()", t("Only when something before it failed")],
                 ["always()", "Always"],
               ]}
               onChange={(v) => set(["if"], v || undefined)}
             />
           </Field>
-          <Field label="Timeout" hint="Such as 10m">
+          <Field label={t("Timeout")} hint={t("Such as 10m")}>
             <TextInput
               mono
               value={text(step.timeout)}
@@ -2258,7 +2312,7 @@ function StepForm({
               onChange={(v) => set(["timeout"], v)}
             />
           </Field>
-          <Field label="Folder" hint="A subfolder of the project to run in">
+          <Field label={t("Folder")} hint={t("A subfolder of the project to run in")}>
             <TextInput
               mono
               value={text(step["working-directory"])}
@@ -2269,10 +2323,10 @@ function StepForm({
           <Check
             checked={step["continue-on-error"] === true}
             disabled={off}
-            label="If it fails, carry on as if it passed"
+            label={t("If it fails, carry on as if it passed")}
             onChange={(on) => set(["continue-on-error"], on || undefined)}
           />
-          <Field label="Variables" hint="A value may be vault://NAME">
+          <Field label={t("Variables")} hint={t("A value may be vault://NAME")}>
             <Pairs
               value={(step.env as Raw) ?? {}}
               disabled={off}
@@ -2287,7 +2341,7 @@ function StepForm({
         <div className="flex flex-wrap gap-1 border-t border-border-default pt-3">
           <IconButton
             size="sm"
-            label="Move up"
+            label={t("Move up")}
             disabled={index === 0}
             onClick={() => {
               edit(moveIn(source, ["stages", stage, "steps"], index, index - 1));
@@ -2298,7 +2352,7 @@ function StepForm({
           </IconButton>
           <IconButton
             size="sm"
-            label="Move down"
+            label={t("Move down")}
             disabled={index >= steps.length - 1}
             onClick={() => {
               edit(moveIn(source, ["stages", stage, "steps"], index, index + 1));
@@ -2318,7 +2372,7 @@ function StepForm({
               onSelect({ kind: "stage", stage });
             }}
           >
-            Delete step
+            {t("Delete step")}
           </Button>
         </div>
       )}

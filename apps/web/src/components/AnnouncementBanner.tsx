@@ -3,6 +3,7 @@ import { CircleAlert, Info, Megaphone, Wrench, X } from "lucide-react";
 import { useEffect } from "react";
 import { api, type InboxItem } from "../lib/api";
 import { formatDateTime } from "../lib/format";
+import { t } from "../lib/i18n";
 
 /**
  * What the server's operators want everyone (or this plan, team or person) to
@@ -47,11 +48,11 @@ export function AnnouncementBanner() {
         <Wrench size={14} strokeWidth={1.75} className="shrink-0" aria-hidden />
         <span className="min-w-0 flex-1">
           <span className="font-medium">
-            {maintenance.underway ? "Maintenance now" : "Maintenance planned"}:{" "}
+            {maintenance.underway ? t("Maintenance now") : t("Maintenance planned")}:{" "}
           </span>
           {maintenance.message} ({formatDateTime(maintenance.startsAt)} –{" "}
           {formatDateTime(maintenance.endsAt)})
-          {maintenance.pauseBuilds ? ". New building waits until it is over." : ""}
+          {maintenance.pauseBuilds ? t(". New building waits until it is over.") : ""}
         </span>
       </div>
     );
@@ -91,7 +92,7 @@ export function AnnouncementBanner() {
       )}
       <button
         type="button"
-        aria-label="Dismiss"
+        aria-label={t("Dismiss")}
         className="text-fg-muted hover:text-fg"
         onClick={() => mark.mutate({ id: banner.id, what: "dismiss" })}
       >

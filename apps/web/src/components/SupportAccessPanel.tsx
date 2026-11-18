@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LifeBuoy } from "lucide-react";
 import { api } from "../lib/api";
 import { formatDateTime } from "../lib/format";
+import { t } from "../lib/i18n";
 import { Button } from "./ui";
 
 /**
@@ -25,14 +26,19 @@ export function SupportAccessPanel({ teamId, canManage }: { teamId: string; canM
   const until = access.data?.access?.until ?? null;
 
   return (
-    <section className="mt-8" aria-label="Support access">
+    <section className="mt-8" aria-label={t("Support access")}>
       <h2 className="flex items-center gap-2 text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-        <LifeBuoy size={13} aria-hidden /> Support access
+        <LifeBuoy size={13} aria-hidden /> {t("Support access")}
       </h2>
       <p className="mt-1 text-xs text-fg-secondary">
         {until
-          ? `Support may look inside this team's apps until ${formatDateTime(until)}. Every look is in the team's activity.`
-          : "Support can see this team's facts and logs, not what is inside its apps. To get help with an app, let them look for 48 hours."}
+          ? t(
+              "Support may look inside this team’s apps until {until}. Every look is in the team’s activity.",
+              { until: formatDateTime(until) },
+            )
+          : t(
+              "Support can see this team’s facts and logs, not what is inside its apps. To get help with an app, let them look for 48 hours.",
+            )}
       </p>
       {canManage && (
         <div className="mt-2">
@@ -43,7 +49,7 @@ export function SupportAccessPanel({ teamId, canManage }: { teamId: string; canM
               disabled={change.isPending}
               onClick={() => change.mutate(false)}
             >
-              Take it back now
+              {t("Take it back now")}
             </Button>
           ) : (
             <Button
@@ -52,7 +58,7 @@ export function SupportAccessPanel({ teamId, canManage }: { teamId: string; canM
               disabled={change.isPending}
               onClick={() => change.mutate(true)}
             >
-              Let support look for 48 hours
+              {t("Let support look for 48 hours")}
             </Button>
           )}
           {change.isError && (
