@@ -23,6 +23,7 @@ import { SupabaseConnectionService } from "../src/services/supabase-connections.
 const tmp = path.join(os.tmpdir(), `zelyq-team-integrations-${Date.now()}`);
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 const secrets = new SecretBox(randomBytes(32));
+const secrets_ = secrets;
 let store: Store;
 let server: ZelyqServer;
 const owner = { cookie: "", teamId: "" };
@@ -317,4 +318,86 @@ test("a team's mail server can't be this server or a cloud metadata address", as
     assert.equal(refused.statusCode, 400, `${host}: ${refused.body}`);
     assert.match(refused.json().error.message, /can't be used/);
   }
+});
+
+test("the team's email password can come from its Vault: only the name is kept, the Vault shows the use", async () => {
+  const made = await as(owner.cookie, "POST", `/api/teams/${owner.teamId}/vault`, {
+    name: "SMTP_PASSWORD",
+    value: "vault-smtp-password",
+  });
+  assert.equal(made.statusCode, 201, made.body);
+  assert.equal(
+    (
+      await as(owner.cookie, "PUT", `/api/teams/${owner.teamId}/mail`, {
+        ...MAIL,
+        password: undefined,
+        passwordVault: "NOT_THERE",
+      })
+    ).statusCode,
+    400,
+    "a secret that isn't in the Vault",
+  );
+  const saved = await as(owner.cookie, "PUT", `/api/teams/${owner.teamId}/mail`, {
+    host: MAIL.host,
+    from: MAIL.from,
+    username: MAIL.username,
+    passwordVault: "SMTP_PASSWORD",
+  });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.equal(saved.json().mail.passwordVault, "SMTP_PASSWORD");
+  assert.equal(saved.json().mail.passwordSet, true);
+  const raw = await store.settings.get(`team:${owner.teamId}:mail`);
+  assert.ok(raw && !raw.includes("vault-smtp-password"), "the value isn't copied");
+
+  const secrets = (await as(owner.cookie, "GET", `/api/teams/${owner.teamId}/vault`)).json()
+    .secrets;
+  const used = secrets.find((s: { name: string }) => s.name === "SMTP_PASSWORD").usedBy;
+  assert.ok(used.some((u: { label?: string }) => u.label === "Team email password"));
+
+  // Mail goes out with the Vault's value.
+  const settings = new SettingsService(store, secrets_, {});
+  const seen: string[] = [];
+  const mail = new MailService(settings, (options) => {
+    if (options.auth) seen.push(options.auth.pass);
+    return { sendMail: async () => ({}), verify: async () => true };
+  });
+  mail.vaultValue = async (scope, name) =>
+    scope === owner.teamId && name === "SMTP_PASSWORD" ? "vault-smtp-password" : null;
+  await mail.send({ to: ["x@example.com"], subject: "s", text: "t" }, owner.teamId);
+  assert.deepEqual(seen, ["vault-smtp-password"]);
+  await as(owner.cookie, "DELETE", `/api/teams/${owner.teamId}/mail`);
+});
+
+test("a Supabase connection can take its token from the Vault, read each time it is used", async () => {
+  const access = new AccessControl(store);
+  let calls = 0;
+  const svc = new SupabaseConnectionService(store, secrets_, access, {
+    fetch: (async (url: string, init?: RequestInit) => {
+      calls += 1;
+      const auth = new Headers(init?.headers).get("authorization");
+      if (/\/v1\/organizations$/.test(url) && auth === "Bearer sbp_from_vault")
+        return new Response("[]", { status: 200 });
+      if (/\/v1\/projects$/.test(url) && auth === "Bearer sbp_from_vault")
+        return new Response("[]", { status: 200 });
+      return new Response("no", { status: 401 });
+    }) as never,
+  });
+  const t = await teamWithApp("vault");
+  let value: string | null = "sbp_from_vault";
+  svc.vaultValue = async (scope, name) =>
+    scope === t.team.id && name === "SUPABASE_TOKEN" ? value : null;
+  const conn = await svc.connectWithVault(t.user, "SUPABASE_TOKEN", t.team.id);
+  assert.equal(conn.vaultName, "SUPABASE_TOKEN");
+  assert.deepEqual(
+    await svc.listOrgProjects(conn.id, t.team.id),
+    [],
+    "the token is read from the Vault",
+  );
+  assert.deepEqual(
+    (await svc.vaultUsages(t.team.id)).map((u) => u.vaultName),
+    ["SUPABASE_TOKEN"],
+  );
+  value = null;
+  await assert.rejects(svc.listOrgProjects(conn.id, t.team.id), /gone or empty/);
+  assert.ok(calls >= 2);
 });

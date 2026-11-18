@@ -1,9 +1,10 @@
-import type { User } from "@zelyq/core";
+import { type User, vaultNameSchema } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { SupabaseConnectionService } from "../services/supabase-connections.js";
+import type { VaultService } from "../services/vault.js";
 
 /**
  * Supabase connection routes.
@@ -31,9 +32,14 @@ const confirmedSchema = z.object({ confirmed: z.literal(true) });
 
 export function registerSupabaseConnectionRoutes(
   app: FastifyInstance,
-  deps: { supabase: SupabaseConnectionService; access: AccessControl; runtime: RuntimeDriver },
+  deps: {
+    supabase: SupabaseConnectionService;
+    access: AccessControl;
+    runtime: RuntimeDriver;
+    vault: VaultService;
+  },
 ): void {
-  const { supabase, access, runtime } = deps;
+  const { supabase, access, runtime, vault } = deps;
 
   // — capability probe (any signed-in user; the UI shows/hides the OAuth button) —
   app.get("/api/integrations/supabase/config", async (request) => {
@@ -72,6 +78,20 @@ export function registerSupabaseConnectionRoutes(
       const { user, teamId } = await owner(request);
       const { pat } = patSchema.parse(request.body);
       const connection = await supabase.connectWithPat(user, pat, teamId);
+      reply.status(201);
+      return { connection };
+    });
+
+    // The token from the Vault (the team's, or the server's): only its name is kept.
+    app.post(`${prefix}/connections/vault`, async (request, reply) => {
+      const { user, teamId } = await owner(request);
+      const { vaultName } = z.object({ vaultName: vaultNameSchema }).strict().parse(request.body);
+      await vault.requireUse(
+        user,
+        teamId ? { kind: "team", teamId } : { kind: "instance" },
+        vaultName,
+      );
+      const connection = await supabase.connectWithVault(user, vaultName, teamId);
       reply.status(201);
       return { connection };
     });
