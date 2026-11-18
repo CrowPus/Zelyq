@@ -197,6 +197,29 @@ test("guessing codes pauses the account's code checks", async () => {
   assert.ok(statuses.includes(429), `expected a pause, got ${statuses.join(",")}`);
 });
 
+test("signed-in devices: a session from before devices were noted learns its browser", async () => {
+  const made = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    headers: { "user-agent": "" },
+    payload: { email: "old@example.com", name: "old", password: PASSWORD },
+  });
+  assert.equal(made.statusCode, 201, made.body);
+  const cookie = cookieOf(made);
+  const look = async () =>
+    (
+      await server.app.inject({
+        method: "GET",
+        url: "/api/auth/sessions",
+        headers: { cookie, "user-agent": "Mozilla/5.0 (Windows NT 10.0) Firefox/132.0" },
+      })
+    ).json().sessions as Array<{ current: boolean; userAgent: string | null }>;
+  const first = await look();
+  assert.match(first[0]?.userAgent ?? "", /Firefox/, "filled in on the first look");
+  const again = await look();
+  assert.match(again[0]?.userAgent ?? "", /Firefox/, "and kept");
+});
+
 test("signed-in devices: listed with their browser, and each can be signed out", async () => {
   const { cookie } = await register("linus@example.com");
   const phone = cookieOf(await login("linus@example.com"));

@@ -848,12 +848,27 @@ export class AuthService {
   }
 
   /** The person's signed-in devices, the one asking marked as current. */
-  async listSessions(user: User, currentToken: string | undefined) {
+  async listSessions(
+    user: User,
+    currentToken: string | undefined,
+    meta?: { userAgent: string | null; ip: string | null },
+  ) {
     const current = currentToken
       ? await this.store.authSessions.findByTokenHash(hashToken(currentToken))
       : null;
     const rows = await this.store.authSessions.listForUser(user.id);
-    return rows.map((row) => ({ ...row, current: row.id === current?.id }));
+    return await Promise.all(
+      rows.map(async (row) => {
+        const isCurrent = row.id === current?.id;
+        // A session from before devices were noted learns its device the first
+        // time its owner looks, from the browser doing the looking.
+        if (isCurrent && currentToken && !row.userAgent && meta?.userAgent) {
+          await this.describeSession(currentToken, meta);
+          return { ...row, userAgent: meta.userAgent.slice(0, 400), current: true };
+        }
+        return { ...row, current: isCurrent };
+      }),
+    );
   }
 
   /** Signs one of the person's own devices out. */
