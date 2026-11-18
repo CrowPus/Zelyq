@@ -1,7 +1,7 @@
 {
   "name": "@zelyq/web",
   "version": "0.1.0",
-  "description": "Zelyq web client \u2014 project list, chat, file explorer, and live preview.",
+  "description": "Zelyq web client — project list, chat, file explorer, and live preview.",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",

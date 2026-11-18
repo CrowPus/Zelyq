@@ -69,7 +69,7 @@ export function MembersTable({
       header: t("Member"),
       sortValue: (member) => member.name.toLowerCase(),
       cell: (member) => (
-        <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex min-w-0 max-w-28 items-center gap-2.5 sm:max-w-none">
           <Avatar name={member.name} size={28} />
           <div className="min-w-0">
             <p className="truncate text-sm text-fg">
@@ -86,15 +86,16 @@ export function MembersTable({
     {
       id: "role",
       header: t("Role"),
-      width: "w-40",
-      sortValue: (member) => ROLES.length - ROLES.indexOf(member.role),
+      width: "w-32 sm:w-40",
+      // ROLES runs viewer → owner, so "desc" lists owners first.
+      sortValue: (member) => ROLES.indexOf(member.role),
       cell: (member) =>
         canManage ? (
           <NativeSelect
             value={member.role}
             onChange={(event) => onRole(member.userId, event.target.value as Role)}
             aria-label={t("Role for {name}", { name: member.name })}
-            className="w-auto min-w-32"
+            className="w-auto min-w-28 sm:min-w-32"
             title={translateServerMessage(ROLE_DESCRIPTIONS[member.role])}
           >
             {ROLES.map((option) => (

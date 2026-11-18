@@ -1029,7 +1029,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
         // Built assets carry a hash of their content in their name: a new
         // build is a new name, so a browser may keep each one for good. The
         // page itself is always checked, so a deploy is seen straight away.
-        const immutable = filePath.includes(`${path.sep}assets${path.sep}`);
+        const relative = path.relative(config.webDir as string, filePath);
+        const immutable = relative.startsWith(`assets${path.sep}`);
         reply.header(
           "cache-control",
           immutable ? "public, max-age=31536000, immutable" : "no-cache",

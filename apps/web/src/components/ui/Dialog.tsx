@@ -108,7 +108,7 @@ export function Drawer({
         )}
         <RadixDialog.Content
           onInteractOutside={modal ? undefined : (event) => event.preventDefault()}
-          className={`fixed inset-y-0 right-0 z-40 flex w-full ${width === "lg" ? "sm:max-w-2xl" : "sm:max-w-md"} flex-col border-l border-border-default bg-overlay shadow-dialog focus:outline-none data-[state=open]:animate-[ui-drawer-in_220ms_cubic-bezier(0.16,1,0.3,1)]`}
+          className={`fixed ${modal ? "inset-y-0 z-40" : "top-12 bottom-0 z-20"} right-0 flex w-full ${width === "lg" ? "sm:max-w-2xl" : "sm:max-w-md"} flex-col border-l border-border-default bg-overlay shadow-dialog focus:outline-none data-[state=open]:animate-[ui-drawer-in_220ms_cubic-bezier(0.16,1,0.3,1)]`}
         >
           <div className="flex items-start gap-3 border-b border-border-default px-5 py-4">
             <div className="min-w-0 flex-1">

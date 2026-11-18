@@ -6,7 +6,7 @@ export const articles: Articles = {
     body: `Zelyq ist nach **Teams** organisiert. Alles, was ein Team erstellt (seine Apps, Pipelines, Umgebungen und Secrets), gehört ihm, und alle im Team können es sehen.
 
 - **Seitenleiste.** Links: **Start**, dann **Build** (Apps, Studio, Agenten), **Ausliefern** (Pipelines, Bereitstellungen, Ops) und **Sicher** (Vault). In einer App zeigt die Seitenleiste stattdessen die Bereiche dieser App.
-- **Obere Leiste.** Teamauswahl und Pfadnavigation zeigen, wo Sie sind. Die Suche (**Strg K** oder **⌘ K**) findet jede App, Pipeline, Umgebung, jedes Secret und jede Einstellung.
+- **Obere Leiste.** Teamauswahl und Pfadnavigation zeigen, wo Sie sind. Die Suche (**Strg K** oder **⌘ K**) findet jede App, Pipeline und Umgebung und führt zu jeder Seite, auch zu Vault und den Einstellungen.
 - **Posteingang.** Die Glocke sammelt, was auf Sie wartet, etwa eine Bereitstellung oder die Anfrage eines Agenten zur Freigabe.
 - **Hilfe.** Das Menü **?** öffnet diese Artikel, die Tastenkürzel und den vollständigen Einsteigerleitfaden.
 
@@ -95,8 +95,8 @@ Eine Ausführung hält fest, wer oder was sie gestartet hat (eine Person, ein Ze
     body: `Im **Vault** liegen die Schlüssel und Passwörter des Teams einmal und verschlüsselt, damit sie überall genutzt werden können, ohne sie zu kopieren: in den Variablen einer App, in Einstellungen, in Pipelines (\`vault://NAME\`) oder auf Ihren eigenen Servern.
 
 - **Fügen Sie ein Secret hinzu** mit einem Namen wie \`STRIPE_KEY_LIVE\`, seinem Wert und einer Notiz, wofür es ist. **.env importieren** fügt viele auf einmal hinzu.
-- **Die Tabelle** zeigt jedes Secret, wo es verwendet wird, wann es zuletzt geändert wurde und von wem. Durchsuchen Sie sie oder zeigen Sie nur geschützte oder ungenutzte an.
-- **Einen Wert anzeigen oder kopieren** Sie über das Menü der Zeile. Sie werden vorher gefragt, und es wird unter Ihrem Namen in der **Aktivität** festgehalten.
+- **Die Tabelle** zeigt jedes Secret, wo es verwendet wird, wann es zuletzt geändert wurde und von wem. Ab mehr als fünf Secrets können Sie sie durchsuchen oder nur geschützte oder ungenutzte anzeigen.
+- **Wert anzeigen oder kopieren:** über das Menü der Zeile. Sie werden vorher gefragt, und es wird unter Ihrem Namen in der **Aktivität** festgehalten.
 - **Wert ändern** speichert eine neue Version; **Verlauf** listet alle Versionen und kann eine frühere wiederherstellen. Alles, was das Secret nutzt, erhält den neuen Wert.
 - **Geschützte** Secrets können nur Admins und Inhaber anzeigen, ändern oder verwenden. Nutzen Sie das für Live-Schlüssel.
 
@@ -113,7 +113,7 @@ Eine Ausführung hält fest, wer oder was sie gestartet hat (eine Person, ein Ze
 
 **Fügen Sie jemanden** per E-Mail hinzu. Wer schon ein Konto hat, tritt sofort bei; alle anderen erhalten eine Einladung, die 7 Tage gilt, sofern auf diesem Server E-Mail eingerichtet ist. **Wartet auf Beitritt** listet noch nicht genutzte Einladungen.
 
-**Die Tabelle** lässt sich durchsuchen und sortieren. **Zuletzt aktiv** zeigt, wann jemand Zelyq zuletzt genutzt hat. Admins ändern eine Rolle direkt in der Zeile; über das Menü der Zeile entfernen Sie jemanden oder verlassen das Team.
+**Die Tabelle** lässt sich sortieren und, sobald das Team mehr als fünf Personen hat, durchsuchen. **Zuletzt aktiv** zeigt, wann jemand Zelyq zuletzt genutzt hat. Admins ändern eine Rolle direkt in der Zeile; über das Menü der Zeile entfernen Sie jemanden oder verlassen das Team.
 
 **Wer was geändert hat** listet jede Änderung im Team: wer hinzugefügt oder entfernt wurde, welche Rolle sich geändert hat und durch wen.`,
   },

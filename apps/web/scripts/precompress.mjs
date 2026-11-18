@@ -16,6 +16,9 @@ for (const entry of fs.readdirSync(dist, { recursive: true, withFileTypes: true 
   const file = path.join(entry.parentPath, entry.name);
   const data = fs.readFileSync(file);
   if (data.length < 1024) continue; // Too small to be worth a second request path.
+  // The page itself stays plain: a deploy that copies only index.html must
+  // never leave an older index.html.br behind to be served in its place.
+  if (entry.name === "index.html") continue;
   const br = zlib.brotliCompressSync(data, {
     params: {
       [zlib.constants.BROTLI_PARAM_QUALITY]: 11,

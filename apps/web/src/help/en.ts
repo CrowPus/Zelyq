@@ -6,7 +6,7 @@ export const articles: Articles = {
     body: `Zelyq is organised by **team**. Everything a team makes (its apps, pipelines, environments and secrets) belongs to it, and everyone in the team can see it.
 
 - **Sidebar.** On the left: **Home**, then **Build** (Apps, Studio, Agents), **Ship** (Pipelines, Deployments, Ops) and **Secure** (Vault). Inside an app, the sidebar lists that app's own sections instead.
-- **Top bar.** The team switcher and the breadcrumb show where you are. Search (**Ctrl K** or **⌘ K**) finds any app, pipeline, environment, secret or setting.
+- **Top bar.** The team switcher and the breadcrumb show where you are. Search (**Ctrl K** or **⌘ K**) finds any app, pipeline or environment, and takes you to any page, Vault and settings included.
 - **Inbox.** The bell collects what is waiting for you, such as a deploy or an agent's request to approve.
 - **Help.** The **?** menu opens these articles, the keyboard shortcuts and the full beginner's guide.
 
@@ -95,7 +95,7 @@ A run records who or what started it (a person, a schedule, a push) and how long
     body: `**Vault** keeps the team's keys and passwords once, encrypted, so they can be used anywhere without being copied: in an app's Variables, in settings, in pipelines (\`vault://NAME\`) or from your own servers.
 
 - **Add a secret** with a name such as \`STRIPE_KEY_LIVE\`, its value and a note on what it is for. **Import .env** adds many at once.
-- **The table** shows every secret, where it is used, when it last changed and by whom. Search it, or show only the protected or unused ones.
+- **The table** shows every secret, where it is used, when it last changed and by whom. Once there are more than five, search it or show only the protected or unused ones.
 - **Show or copy a value** from the row's menu. You are asked first, and it is recorded in **Activity** under your name.
 - **Change value** saves a new version; **History** lists every version and can restore an earlier one. Everything using the secret gets the new value.
 - **Protected** secrets can be shown, changed or used only by admins and owners. Use it for live keys.
@@ -113,7 +113,7 @@ A run records who or what started it (a person, a schedule, a push) and how long
 
 **Add someone** by email. A person who already has an account joins straight away; anyone else gets an invitation that works for 7 days, when email is set up on this server. **Waiting to join** lists invitations not yet used.
 
-**The table** can be searched and sorted. **Last active** shows when each person last used Zelyq. Admins change a role in place; the row menu removes someone, or lets you leave.
+**The table** can be sorted, and searched once the team has more than five people. **Last active** shows when each person last used Zelyq. Admins change a role in place; the row menu removes someone, or lets you leave.
 
 **Who changed what** lists every change to the team: who was added or removed, which role changed and by whom.`,
   },

@@ -17,8 +17,9 @@ import { Drawer, Pressable, SearchField, Spinner } from "../ui";
 
 /* The panel is opened from anywhere (the help menu, a link in a page), so its
  * state lives outside React, like the command palette's. */
-type State = { open: boolean; article: ArticleId | null };
-let state: State = { open: false, article: null };
+/* `opened` counts openings, so asking again while open still picks the article. */
+type State = { open: boolean; article: ArticleId | null; opened: number };
+let state: State = { open: false, article: null, opened: 0 };
 const listeners = new Set<() => void>();
 function set(next: State) {
   state = next;
@@ -26,7 +27,7 @@ function set(next: State) {
 }
 /** Opens help on an article, or on the one for the page being viewed. */
 export function openHelp(article: ArticleId | null = null) {
-  set({ open: true, article });
+  set({ open: true, article, opened: state.opened + 1 });
 }
 function useHelpState(): State {
   return useSyncExternalStore(
@@ -53,7 +54,7 @@ function plain(markdown: string): string {
  * Only the reader's language is loaded, and only once help is opened.
  */
 export function HelpPanel() {
-  const { open, article } = useHelpState();
+  const { open, article, opened } = useHelpState();
   const { pathname } = useLocation();
   const here = articleFor(pathname);
   const [articles, setArticles] = useState<Articles | null>(null);
@@ -76,7 +77,7 @@ export function HelpPanel() {
     if (!open) return;
     setViewing(article ?? here);
     setQuery("");
-  }, [open, article]);
+  }, [open, article, opened]);
 
   // A new article starts at its top.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the article changes
@@ -96,7 +97,7 @@ export function HelpPanel() {
     <Drawer
       modal={false}
       open={open}
-      onOpenChange={(next) => set({ open: next, article: null })}
+      onOpenChange={(next) => set({ ...state, open: next, article: null })}
       title={t("Help")}
       description={t("Read beside your work. Search finds any article.")}
     >
@@ -179,7 +180,7 @@ export function HelpPanel() {
         <div className="mt-2 grid gap-1 border-t border-border-default pt-3 text-sm">
           <Link
             to={globalPaths.docs}
-            onClick={() => set({ open: false, article: null })}
+            onClick={() => set({ ...state, open: false, article: null })}
             className="flex items-center gap-2 rounded-md px-2 py-1.5 text-fg-secondary hover:bg-surface-hover hover:text-fg"
           >
             <BookOpen size={14} /> {t("The beginner’s guide, start to finish")}

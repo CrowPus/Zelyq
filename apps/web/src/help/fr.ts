@@ -6,7 +6,7 @@ export const articles: Articles = {
     body: `Zelyq s’organise par **équipe**. Tout ce qu’une équipe crée (ses apps, pipelines, environnements et secrets) lui appartient, et tous ses membres peuvent le voir.
 
 - **Barre latérale.** À gauche : **Accueil**, puis **Build** (Apps, Studio, Agents), **Livrer** (Pipelines, Déploiements, Ops) et **Sécurisé** (Vault). Dans une app, la barre latérale liste plutôt les sections de cette app.
-- **Barre du haut.** Le sélecteur d’équipe et le fil d’Ariane indiquent où vous êtes. La recherche (**Ctrl K** ou **⌘ K**) trouve n’importe quelle app, pipeline, environnement, secret ou paramètre.
+- **Barre du haut.** Le sélecteur d’équipe et le fil d’Ariane indiquent où vous êtes. La recherche (**Ctrl K** ou **⌘ K**) trouve n’importe quelle app, pipeline ou environnement, et mène à n’importe quelle page, Vault et paramètres compris.
 - **Boîte de réception.** La cloche rassemble ce qui vous attend, comme un déploiement ou la demande d’un agent à approuver.
 - **Aide.** Le menu **?** ouvre ces articles, les raccourcis clavier et le guide complet du débutant.
 
@@ -59,7 +59,7 @@ Ce que chacun peut modifier dépend de son rôle dans l’équipe.`,
 
 **Créez-en un** avec **Nouveau pipeline** et un modèle. Modifiez-le en **Visuel** (cliquez sur les blocs et les champs) ou en **YAML** (le fichier lui-même) : les deux montrent le même pipeline.
 
-- **Exécuté sur.** \`local\` l’exécute sur le serveur Zelyq, dans un conteneur jeté ensuite. Un **runner** est l’une de vos machines, ajoutée dans **Runners** et jointe en SSH.
+- **S’exécute sur.** \`local\` l’exécute sur le serveur Zelyq, dans un conteneur jeté ensuite. Un **runner** est l’une de vos machines, ajoutée dans **Runners** et jointe en SSH.
 - **Source.** D’où viennent les fichiers : une app dans Zelyq, un dépôt GitHub ou un dossier sur une machine.
 - **Secrets.** N’écrivez jamais une clé dans le fichier. Utilisez \`vault://NOM\` et Zelyq la remplit ; les secrets sont masqués dans tous les journaux.
 - **Déclencheurs.** Lancez-le à la main, selon un horaire, ou à chaque push et pull request depuis GitHub.
@@ -95,7 +95,7 @@ Les **Variables** d’un environnement sont transmises à chaque app qui s’y t
     body: `**Vault** garde une seule fois, chiffrés, les clés et mots de passe de l’équipe, pour les utiliser partout sans les copier : dans les Variables d’une app, dans les paramètres, dans les pipelines (\`vault://NOM\`) ou depuis vos propres serveurs.
 
 - **Ajoutez un secret** avec un nom comme \`STRIPE_KEY_LIVE\`, sa valeur et une note sur son usage. **Importer un .env** en ajoute plusieurs d’un coup.
-- **Le tableau** montre chaque secret, où il est utilisé, sa dernière modification et son auteur. Recherchez-y, ou n’affichez que les secrets protégés ou inutilisés.
+- **Le tableau** montre chaque secret, où il est utilisé, sa dernière modification et son auteur. Au-delà de cinq secrets, recherchez-y ou n’affichez que les secrets protégés ou inutilisés.
 - **Afficher ou copier une valeur** depuis le menu de la ligne. Une confirmation vous est demandée, et l’action est enregistrée dans **Activité** à votre nom.
 - **Modifier la valeur** enregistre une nouvelle version ; **Historique** liste toutes les versions et peut en restaurer une antérieure. Tout ce qui utilise le secret reçoit la nouvelle valeur.
 - Les secrets **protégés** ne peuvent être affichés, modifiés ou utilisés que par les admins et les propriétaires. Utilisez-le pour les clés de production.
@@ -113,7 +113,7 @@ Les **clés de service** permettent à un serveur hors de Zelyq de lire les secr
 
 **Ajoutez quelqu’un** par e-mail. Une personne qui a déjà un compte rejoint l’équipe tout de suite ; les autres reçoivent une invitation valable 7 jours, si l’e-mail est configuré sur ce serveur. **En attente d’adhésion** liste les invitations pas encore utilisées.
 
-**Le tableau** se recherche et se trie. **Dernière activité** montre quand chacun a utilisé Zelyq pour la dernière fois. Les admins changent un rôle directement ; le menu de la ligne retire quelqu’un, ou vous permet de partir.
+**Le tableau** se trie, et se recherche dès que l’équipe compte plus de cinq personnes. **Dernière activité** montre quand chacun a utilisé Zelyq pour la dernière fois. Les admins changent un rôle directement ; le menu de la ligne retire quelqu’un, ou vous permet de partir.
 
 **Qui a modifié quoi** liste chaque changement dans l’équipe : qui a été ajouté ou retiré, quel rôle a changé et par qui.`,
   },

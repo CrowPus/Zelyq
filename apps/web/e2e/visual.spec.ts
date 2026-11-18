@@ -14,6 +14,11 @@ const PASSWORD = "e2e-Passw0rd!23";
 const EMAIL = "vera.visual@example.invalid";
 
 async function signIn(page: Page): Promise<{ slug: string; id: string }> {
+  // The first account on a server becomes its admin, which changes the
+  // sidebar. Take that place with someone else, whatever ran before.
+  await page.request.post("/api/auth/register", {
+    data: { email: "first.admin@example.invalid", name: "First Admin", password: PASSWORD },
+  });
   const registered = await page.request.post("/api/auth/register", {
     data: { email: EMAIL, name: "Vera Visual", password: PASSWORD },
   });
