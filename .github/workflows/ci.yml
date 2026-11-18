@@ -69,6 +69,19 @@ jobs:
       - name: Audit workspace dependencies
         run: pnpm audit --audit-level=high
 
+      # package.json ignores GHSA-fc5q-39xc-vjpf (picomatch ReDoS, no fixed
+      # release yet). That is only safe while picomatch runs inside build tools
+      # on globs we write ourselves. If it ever reaches a production
+      # dependency, fail here. Drop the ignore once picomatch ships a fix.
+      - name: Ignored advisories stay out of production code
+        run: |
+          found=$(pnpm ls picomatch -r --prod --depth Infinity --parseable)
+          if [ -n "$found" ]; then
+            echo "picomatch is now a production dependency; the audit ignore for GHSA-fc5q-39xc-vjpf is no longer safe:"
+            echo "$found"
+            exit 1
+          fi
+
       # plugins/ is an independent Node project (its own package-lock.json,
       # not part of the pnpm workspace) — pnpm audit above never sees it.
       - name: Audit plugin library dependencies
