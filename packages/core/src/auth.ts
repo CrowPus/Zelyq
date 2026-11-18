@@ -213,6 +213,8 @@ export const teamMemberSchema = z.object({
   name: z.string(),
   role: roleSchema,
   joinedAt: z.string().datetime(),
+  /** When they last used Zelyq (any team), or null if they never signed in. */
+  lastSeenAt: z.string().nullable().optional(),
 });
 export type TeamMember = z.infer<typeof teamMemberSchema>;
 

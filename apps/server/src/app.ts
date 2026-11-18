@@ -523,7 +523,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     // missing asset would turn a broken `<img src>` or a stale bundle
     // reference into a silent 200 that no log or monitor ever flags.
     if (config.webDir && isNavigation(request.url, request.headers.accept)) {
-      reply.type("text/html").send(fs.createReadStream(path.join(config.webDir, "index.html")));
+      reply
+        .type("text/html")
+        .header("cache-control", "no-cache")
+        .send(fs.createReadStream(path.join(config.webDir, "index.html")));
       return;
     }
     reply.status(404).send({ error: { code: "not_found", message: `Not found: ${request.url}` } });
@@ -1017,7 +1020,22 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     // filenames — misses the static handler, falls through to the SPA fallback,
     // and is served as HTML. The browser then refuses to execute it and renders
     // a blank page.
-    await app.register(fastifyStatic, { root: config.webDir });
+    await app.register(fastifyStatic, {
+      root: config.webDir,
+      // The build writes .br and .gz beside each file (apps/web/scripts/precompress.mjs).
+      preCompressed: true,
+      cacheControl: false,
+      setHeaders(reply, filePath) {
+        // Built assets carry a hash of their content in their name: a new
+        // build is a new name, so a browser may keep each one for good. The
+        // page itself is always checked, so a deploy is seen straight away.
+        const immutable = filePath.includes(`${path.sep}assets${path.sep}`);
+        reply.header(
+          "cache-control",
+          immutable ? "public, max-age=31536000, immutable" : "no-cache",
+        );
+      },
+    });
     app.log.info(`serving web build from ${config.webDir}`);
   }
 

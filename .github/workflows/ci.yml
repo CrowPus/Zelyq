@@ -141,6 +141,58 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # How the main pages look, how fast they load and whether everyone can use
+  # them: screenshots compared with apps/web/e2e/__screenshots__, Lighthouse
+  # against scripts/perf-budget.json, and axe. Runs in the Playwright image
+  # so fonts and the browser match the committed screenshots; the image tag
+  # follows @playwright/test's version (scripts/quality.sh runs the same image
+  # locally, and `scripts/quality.sh --update` refreshes the screenshots).
+  page-quality:
+    name: Page quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: The image matches the Playwright in the lockfile
+        run: |
+          want="v$(node -p "require('@playwright/test/package.json').version")-noble"
+          case "$want" in
+            v1.62.1-noble) ;;
+            *) echo "Update the page-quality container to mcr.microsoft.com/playwright:$want"; exit 1 ;;
+          esac
+
+      - name: Build
+        run: pnpm build
+
+      - name: Accessibility, screenshots and speed
+        run: pnpm exec playwright test -c playwright.quality.config.ts
+
+      # Expected, actual and difference images for every screenshot that
+      # changed, and the Lighthouse numbers.
+      - name: Keep the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: page-quality-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
   # Pipeline runners are people's own machines — macOS and Windows as well as
   # Linux. These start the machine's own SSH server and run everything a
   # runner does to a machine against it (test/pipeline-machine.test.ts).

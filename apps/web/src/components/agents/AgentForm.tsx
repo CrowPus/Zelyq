@@ -153,7 +153,7 @@ export function AgentForm({
 
       <ScopePicker
         title={t("Apps it may work on")}
-        every="Every app in the team, including ones made later"
+        every={t("Every app in the team, including ones made later")}
         empty={t("This team has no apps yet.")}
         options={apps.map((app) => ({ id: app.id, name: app.name }))}
         value={appScope}
@@ -161,18 +161,18 @@ export function AgentForm({
       />
       <ScopePicker
         title={t("Pipelines it may see, change and ask to run")}
-        every="Every pipeline in the team, including ones made later"
+        every={t("Every pipeline in the team, including ones made later")}
         empty={t("This team has no pipelines yet. The agent can still create its own.")}
-        note="Pipelines the agent creates are always its own."
+        note={t("Pipelines the agent creates are always its own.")}
         options={pipelines}
         value={pipelineScope}
         onChange={setPipelineScope}
       />
       <ScopePicker
         title={t("Environments it may see and deploy to")}
-        every="Every environment in the team, including ones made later"
+        every={t("Every environment in the team, including ones made later")}
         empty={t("This team has no environments yet.")}
-        note="Its pipelines may deploy only to these."
+        note={t("Its pipelines may deploy only to these.")}
         options={environments}
         value={environmentScope}
         onChange={setEnvironmentScope}

@@ -59,7 +59,9 @@ export function PageHeader({
   return (
     <header className={tabs ? "mb-0" : "mb-6"}>
       <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+        {/* At least 18rem for the title and its description: on a phone the
+            actions go below them instead of squeezing them into a column. */}
+        <div className="flex min-w-0 flex-1 basis-72 items-start gap-3">
           {icon && (
             <div className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-lg border border-border-default bg-surface text-fg-secondary">
               {icon}

@@ -17,6 +17,32 @@ export interface Column<T> {
   hideBelow?: "sm" | "md" | "lg";
 }
 
+export type SortState = { id: string; dir: "asc" | "desc" } | null;
+
+/** Rows in a column's order; nulls last either way. For a list sorted before it is split into pages. */
+export function sortRows<T>(rows: T[], columns: Column<T>[], sort: SortState): T[] {
+  if (!sort) return rows;
+  const col = columns.find((c) => c.id === sort.id);
+  const value = col?.sortValue;
+  if (!value) return rows;
+  const factor = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = value(a);
+    const bv = value(b);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === "number" && typeof bv === "number") return (av - bv) * factor;
+    return String(av).localeCompare(String(bv), undefined, { numeric: true }) * factor;
+  });
+}
+
+/** "name:asc" in an address ↔ a sort. */
+export function parseSort(value: string, fallback: SortState = null): SortState {
+  const [id, dir] = value.split(":");
+  return id && (dir === "asc" || dir === "desc") ? { id, dir } : fallback;
+}
+
 const HIDE = { sm: "hidden sm:table-cell", md: "hidden md:table-cell", lg: "hidden lg:table-cell" };
 
 /**
@@ -33,6 +59,8 @@ export function DataTable<T>({
   selectable,
   bulkActions,
   initialSort,
+  sort: controlledSort,
+  onSortChange,
   caption,
   density = "default",
 }: {
@@ -45,28 +73,26 @@ export function DataTable<T>({
   selectable?: boolean;
   bulkActions?(selected: T[], clear: () => void): ReactNode;
   initialSort?: { id: string; dir: "asc" | "desc" };
+  /**
+   * Controlled sort: the rows are already in this order (sorted before
+   * paging, with sortRows), and a header click asks for a new one.
+   */
+  sort?: SortState;
+  onSortChange?(sort: SortState): void;
   /** Read by screen readers; describe what the table lists. */
   caption: string;
   density?: "compact" | "default";
 }) {
-  const [sort, setSort] = useState(initialSort ?? null);
+  const [ownSort, setOwnSort] = useState<SortState>(initialSort ?? null);
+  const controlled = onSortChange !== undefined;
+  const sort = controlled ? (controlledSort ?? null) : ownSort;
+  const setSort = controlled ? onSortChange : setOwnSort;
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const sorted = useMemo(() => {
-    if (!sort) return rows;
-    const col = columns.find((c) => c.id === sort.id);
-    if (!col?.sortValue) return rows;
-    const factor = sort.dir === "asc" ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      const av = col.sortValue!(a);
-      const bv = col.sortValue!(b);
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      if (typeof av === "number" && typeof bv === "number") return (av - bv) * factor;
-      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * factor;
-    });
-  }, [rows, columns, sort]);
+  const sorted = useMemo(
+    () => (controlled ? rows : sortRows(rows, columns, sort)),
+    [rows, columns, sort, controlled],
+  );
 
   const selectedRows = sorted.filter((row) => selected.has(rowKey(row)));
   const allChecked =

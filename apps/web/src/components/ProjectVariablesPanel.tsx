@@ -493,7 +493,9 @@ function VariableRow({
           restore={(version) => api.variables.rollback(projectId, variable.id, version)}
           canRestore={canEdit}
           onRestored={onChanged}
-          note="Typed values only; a Vault secret keeps its history in Vault. Restoring makes the variable typed again with that value."
+          note={t(
+            "Typed values only; a Vault secret keeps its history in Vault. Restoring makes the variable typed again with that value.",
+          )}
         />
       )}
     </li>

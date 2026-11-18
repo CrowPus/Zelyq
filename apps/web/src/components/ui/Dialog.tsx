@@ -84,6 +84,7 @@ export function Drawer({
   actions,
   children,
   width = "md",
+  modal = true,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -92,12 +93,21 @@ export function Drawer({
   actions?: ReactNode;
   children: ReactNode;
   width?: "md" | "lg";
+  /**
+   * False for a panel to read beside the page (help): no backdrop, the page
+   * stays usable, and a click on it does not close the panel. Escape and the
+   * close button still do.
+   */
+  modal?: boolean;
 }) {
   return (
-    <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
+    <RadixDialog.Root open={open} onOpenChange={onOpenChange} modal={modal}>
       <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-40 bg-[var(--backdrop)] data-[state=open]:animate-[ui-fade-in_150ms_ease-out]" />
+        {modal && (
+          <RadixDialog.Overlay className="fixed inset-0 z-40 bg-[var(--backdrop)] data-[state=open]:animate-[ui-fade-in_150ms_ease-out]" />
+        )}
         <RadixDialog.Content
+          onInteractOutside={modal ? undefined : (event) => event.preventDefault()}
           className={`fixed inset-y-0 right-0 z-40 flex w-full ${width === "lg" ? "sm:max-w-2xl" : "sm:max-w-md"} flex-col border-l border-border-default bg-overlay shadow-dialog focus:outline-none data-[state=open]:animate-[ui-drawer-in_220ms_cubic-bezier(0.16,1,0.3,1)]`}
         >
           <div className="flex items-start gap-3 border-b border-border-default px-5 py-4">

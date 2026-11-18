@@ -76,7 +76,11 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
         {data.measuredAt
           ? t(
               "What this team uses. Storage counts what it made: its apps’ own files and history, undo points, Studio, attachments and pipeline files. Installed packages and builds are not counted. Files measured {measuredAt}.",
-              { measuredAt: formatDateTime(data.measuredAt) },
+              {
+                measuredAt: (
+                  <time dateTime={data.measuredAt}>{formatDateTime(data.measuredAt)}</time>
+                ),
+              },
             )
           : t(
               "What this team uses. Storage counts what it made: its apps’ own files and history, undo points, Studio, attachments and pipeline files. Installed packages and builds are not counted.",

@@ -1,26 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast, type VaultEntry, type VaultScope } from "@zelyq/core";
-import {
-  Eye,
-  EyeOff,
-  History,
-  KeyRound,
-  LockKeyhole,
-  Pencil,
-  Plus,
-  ShieldCheck,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { useId, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import {
-  Badge,
   Button,
   EmptyState,
   FieldLabel,
-  IconButton,
   Input,
   NativeSelect,
   PageBody,
@@ -29,14 +16,14 @@ import {
   Spinner,
   Tabs,
 } from "../components/ui";
+import { SecretsTable, VaultActivityTable } from "../components/vault/SecretsTable";
 import { ServiceKeysTab } from "../components/vault/ServiceKeys";
-import { ImportForm, RevealedValue, VersionHistory } from "../components/vault/shared";
+import { ImportForm } from "../components/vault/shared";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
-import { AUDIT_ACTION_LABELS, auditDetailSummary } from "../lib/audit";
 import { t } from "../lib/i18n";
-import { formatRelative, vaultErrorMessage } from "../lib/vault";
+import { vaultErrorMessage } from "../lib/vault";
 
 type Tab = "secrets" | "keys" | "activity";
 
@@ -254,21 +241,14 @@ function SecretsTab({
         />
       )}
       {secrets.data && secrets.data.length > 0 && (
-        <ul className="divide-y divide-border-default rounded-lg border border-border-default">
-          {secrets.data.map((secret) => (
-            <SecretRow
-              // Keyed by version too: a new value is a fresh row, so a value
-              // revealed before the change is not left showing.
-              key={`${secret.id}:${secret.version}`}
-              scope={scope}
-              secret={secret}
-              canWrite={canWrite}
-              canAdmin={canAdmin}
-              onEdit={() => setForm({ mode: "edit", secret })}
-              onChanged={refresh}
-            />
-          ))}
-        </ul>
+        <SecretsTable
+          scope={scope}
+          secrets={secrets.data}
+          canWrite={canWrite}
+          canAdmin={canAdmin}
+          onEdit={(secret) => setForm({ mode: "edit", secret })}
+          onChanged={refresh}
+        />
       )}
     </section>
   );
@@ -416,180 +396,6 @@ function SecretForm({
   );
 }
 
-function SecretRow({
-  scope,
-  secret,
-  canWrite,
-  canAdmin,
-  onEdit,
-  onChanged,
-}: {
-  scope: VaultScope;
-  secret: VaultEntry;
-  canWrite: boolean;
-  canAdmin: boolean;
-  onEdit: () => void;
-  onChanged: () => Promise<void>;
-}) {
-  const [revealed, setRevealed] = useState<string | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const mayUse = secret.protected ? canAdmin : canWrite;
-
-  const reveal = useMutation({
-    mutationFn: () => api.vault.reveal(scope, secret.id),
-    onSuccess: ({ value }) => setRevealed(value),
-  });
-  const remove = useMutation({
-    mutationFn: () => api.vault.remove(scope, secret.id),
-    onSuccess: onChanged,
-  });
-  const changedBy = secret.updatedBy?.name ?? secret.createdBy?.name ?? "Zelyq";
-  const error = reveal.error ?? remove.error;
-
-  return (
-    <li className="px-3 py-2.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-mono text-sm">{secret.name}</span>
-            <Badge>v{secret.version}</Badge>
-            {secret.protected && (
-              <Badge tone="warning">
-                <LockKeyhole size={10} className="mr-1" /> {t("Protected")}
-              </Badge>
-            )}
-          </p>
-          {secret.description && (
-            <p className="mt-0.5 truncate text-xs text-fg-secondary">{secret.description}</p>
-          )}
-          <p className="mt-0.5 text-2xs text-fg-muted">
-            {secret.usedBy.length === 0
-              ? t("Not used anywhere yet · changed by {changedBy} · {updatedAt}", {
-                  changedBy,
-                  updatedAt: formatRelative(secret.updatedAt),
-                })
-              : t("Used by {value} · changed by {changedBy} · {updatedAt}", {
-                  value: secret.usedBy
-                    .map((use) =>
-                      use.kind === "project" ? `${use.projectName} (${use.variable})` : use.label,
-                    )
-                    .join(", "),
-                  changedBy,
-                  updatedAt: formatRelative(secret.updatedAt),
-                })}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          {mayUse &&
-            (revealed === null ? (
-              <IconButton
-                size="sm"
-                label={t("Reveal {name}", { name: secret.name })}
-                onClick={() => reveal.mutate()}
-                disabled={reveal.isPending}
-              >
-                <Eye size={13} strokeWidth={1.75} />
-              </IconButton>
-            ) : (
-              <IconButton size="sm" label={t("Hide value")} onClick={() => setRevealed(null)}>
-                <EyeOff size={13} strokeWidth={1.75} />
-              </IconButton>
-            ))}
-          <IconButton
-            size="sm"
-            label={t("History")}
-            aria-pressed={showHistory}
-            onClick={() => setShowHistory((current) => !current)}
-          >
-            <History size={13} strokeWidth={1.75} />
-          </IconButton>
-          {mayUse && (
-            <IconButton
-              size="sm"
-              label={t("Change {name}", { name: secret.name })}
-              onClick={onEdit}
-            >
-              <Pencil size={13} strokeWidth={1.75} />
-            </IconButton>
-          )}
-          {canAdmin && (
-            <IconButton
-              size="sm"
-              variant="danger"
-              label={t("Delete {name}", { name: secret.name })}
-              onClick={() => setConfirmDelete(true)}
-            >
-              <Trash2 size={13} strokeWidth={1.75} />
-            </IconButton>
-          )}
-        </div>
-      </div>
-
-      {revealed !== null && <RevealedValue value={revealed} onHide={() => setRevealed(null)} />}
-
-      {confirmDelete && (
-        <div className="mt-2 grid gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2 py-1.5 text-xs">
-          <span>
-            {t("Delete {name} and its history?", {
-              name: <span className="font-mono">{secret.name}</span>,
-            })}
-            {secret.usedBy.length > 0 ? (
-              <>
-                {t(" These will lose it:")}
-                <ul className="mt-1 list-disc pl-5">
-                  {secret.usedBy.map((use) => (
-                    <li key={use.kind === "project" ? `${use.projectId}:${use.variable}` : use.key}>
-                      {use.kind === "project"
-                        ? t("{projectName} — variable {variable}", {
-                            projectName: use.projectName,
-                            variable: use.variable,
-                          })
-                        : `Settings — ${use.label}`}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              t(" Nothing uses it.")
-            )}
-          </span>
-          <span className="flex justify-end gap-1">
-            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
-              {t("Keep")}
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => remove.mutate()}
-              disabled={remove.isPending}
-            >
-              {t("Delete")}
-            </Button>
-          </span>
-        </div>
-      )}
-
-      {error && (
-        <p role="alert" className="mt-1.5 text-xs text-danger">
-          {vaultErrorMessage(error)}
-        </p>
-      )}
-
-      {showHistory && (
-        <VersionHistory
-          queryKey={["vault-versions", scopeKey(scope), secret.id, secret.version]}
-          load={() => api.vault.versions(scope, secret.id).then((r) => r.versions)}
-          restore={(version) => api.vault.rollback(scope, secret.id, version)}
-          canRestore={mayUse}
-          onRestored={onChanged}
-          note="Restoring saves that value again as a new version, so nothing is lost. Everything using this secret gets it."
-        />
-      )}
-    </li>
-  );
-}
-
 function ActivityTab({ scope }: { scope: VaultScope }) {
   const activity = useQuery({
     queryKey: ["vault-activity", scopeKey(scope)],
@@ -609,28 +415,5 @@ function ActivityTab({ scope }: { scope: VaultScope }) {
         description={t("Changes, reveals and fetches appear here.")}
       />
     );
-  return (
-    <ul className="divide-y divide-border-default rounded-lg border border-border-default">
-      {activity.data.map((entry) => {
-        const summary = auditDetailSummary(entry.detail);
-        return (
-          <li key={entry.id} className="flex items-start justify-between gap-3 px-3 py-2 text-xs">
-            <span className="flex items-start gap-2">
-              {entry.action === "vault.secret.fetched" ? (
-                <ShieldCheck size={13} className="mt-0.5 text-fg-muted" />
-              ) : (
-                <KeyRound size={13} className="mt-0.5 text-fg-muted" />
-              )}
-              <span>
-                <span className="font-medium">{entry.actorName}</span>{" "}
-                {AUDIT_ACTION_LABELS[entry.action]}
-                {summary && <span className="font-mono text-fg-secondary"> · {summary}</span>}
-              </span>
-            </span>
-            <span className="shrink-0 text-fg-muted">{formatRelative(entry.createdAt)}</span>
-          </li>
-        );
-      })}
-    </ul>
-  );
+  return <VaultActivityTable entries={activity.data} />;
 }

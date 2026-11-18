@@ -393,7 +393,7 @@ function LiveAppView({
         />
         <StatTile
           icon={<MemoryStick size={15} />}
-          label={t("Memory")}
+          label={t("Memory in use")}
           value={status.memoryBytes === null ? "–" : size(status.memoryBytes)}
           hint={
             memoryShare === null ? undefined : (

@@ -295,8 +295,15 @@ const NOT_INTERFACE = [
   /pages\/GalleryPage\.tsx$/,
   /components\/ui\/.*\.stories\.tsx$/,
 ];
+const ATTRIBUTE_NAMES = new Set(
+  "placeholder title aria-label label description alt help hint emptyText".split(" "),
+);
 const ATTRIBUTE =
   /\b(placeholder|title|aria-label|label|description|alt|help|hint|emptyText)="([^"]*[A-Za-z]{2}[^"]*)"/g;
+// Any other prop holding a sentence (a note, a confirmation, a fallback):
+// starts with a capital and runs to three words or more.
+const SENTENCE_PROP = /\s([a-z][A-Za-z]*)="([A-Z][^"]*\s[^"]*\s[^"]*)"/g;
+const NOT_SENTENCE_PROPS = new Set(["className", "d", "viewBox", "points", "transform"]);
 const JSX_TEXT = />\s*([A-Za-z][^<>{}]*[A-Za-z.!?…:][^<>{}]*)\s*</g;
 const untranslated = [];
 for (const file of webFiles) {
@@ -308,6 +315,12 @@ for (const file of webFiles) {
     // Example values, not words: addresses, URLs, CONSTANT_NAMES, host names.
     if (/@|:\/\/|^[A-Z0-9_]+$|^[\w.-]+\.[a-z]{2,}$/.test(match[2])) continue;
     untranslated.push(`${path.relative(root, file)}:${lineOf(text, match.index)}  ${match[0]}`);
+  }
+  for (const match of text.matchAll(SENTENCE_PROP)) {
+    if (NOT_SENTENCE_PROPS.has(match[1]) || ATTRIBUTE_NAMES.has(match[1])) continue;
+    untranslated.push(
+      `${path.relative(root, file)}:${lineOf(text, match.index)}  ${match[0].trim()}`,
+    );
   }
   for (const match of text.matchAll(JSX_TEXT)) {
     const words = match[1].trim();

@@ -2,7 +2,7 @@
   "name": "zelyq",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-source AI app builder \u2014 describe an app, watch an agent build it, edit it live.",
+  "description": "Open-source AI app builder — describe an app, watch an agent build it, edit it live.",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/CrowPus/Zelyq#readme",
   "repository": {
@@ -43,6 +43,7 @@
     "@biomejs/biome": "^2.5.9",
     "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",
+    "lighthouse": "13.6.0",
     "tsx": "^4.19.2",
     "typescript": "^7.0.2"
   },

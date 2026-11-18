@@ -404,7 +404,10 @@ function PasswordSection() {
           />
         </Field>
 
-        <Feedback state={state} savedMessage="Password changed. Other devices were signed out." />
+        <Feedback
+          state={state}
+          savedMessage={t("Password changed. Other devices were signed out.")}
+        />
 
         <div>
           <Button type="submit" variant="primary" disabled={!ready} loading={state.busy}>

@@ -12,6 +12,7 @@ import {
 } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { CommandPalette } from "./components/CommandPalette";
+import { HelpPanel } from "./components/help/HelpPanel";
 import {
   buttonClass,
   ConfirmHost,
@@ -273,6 +274,7 @@ function Providers({ children }: { children: ReactNode }) {
         <BrowserRouter>
           {children}
           <CommandPalette />
+          <HelpPanel />
           <ConfirmHost />
           <Toaster />
           <TitleTooltips />

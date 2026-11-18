@@ -232,7 +232,7 @@ export function ListToolbar({ children }: { children: ReactNode }) {
 }
 
 /** "Showing 26–50 of 132", and the way to the other pages. Hidden when everything fits. */
-type Countable = "apps" | "agents" | "pipelines";
+type Countable = "apps" | "agents" | "pipelines" | "members" | "secrets";
 
 /** "1 app", "3 apps"; "1–20 of 45 apps": whole phrases, so every language can count. */
 const COUNTED: Record<
@@ -253,6 +253,16 @@ const COUNTED: Record<
     count: (n) => t("{n, plural, one {# pipeline} other {# pipelines}}", { n }),
     range: (from, to, n) =>
       t("{from}–{to} of {n, plural, one {# pipeline} other {# pipelines}}", { from, to, n }),
+  },
+  members: {
+    count: (n) => t("{n, plural, one {# member} other {# members}}", { n }),
+    range: (from, to, n) =>
+      t("{from}–{to} of {n, plural, one {# member} other {# members}}", { from, to, n }),
+  },
+  secrets: {
+    count: (n) => t("{n, plural, one {# secret} other {# secrets}}", { n }),
+    range: (from, to, n) =>
+      t("{from}–{to} of {n, plural, one {# secret} other {# secrets}}", { from, to, n }),
   },
 };
 
