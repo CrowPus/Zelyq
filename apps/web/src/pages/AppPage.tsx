@@ -36,6 +36,7 @@ import {
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { formatDateParts } from "../lib/format";
 import { teamHref } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 import { DnsRecord, HistoryList, ReachWarning, RollBackProgress } from "./DeploymentsPage";
@@ -848,7 +849,14 @@ function LiveLog({ lines }: { lines: LogLine[] }) {
 
 function clock(at: string): string {
   const date = new Date(at);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString([], { hour12: false });
+  return Number.isNaN(date.getTime())
+    ? ""
+    : formatDateParts(date, {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
 }
 
 function size(bytes: number): string {

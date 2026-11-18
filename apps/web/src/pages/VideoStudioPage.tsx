@@ -50,6 +50,7 @@ import {
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { ApiError, api } from "../lib/api";
+import { formatDateParts, formatNumber } from "../lib/format";
 import { useTeamPaths } from "../lib/routes";
 
 /** A half-typed number field must not become a failed request: an empty field
@@ -513,7 +514,7 @@ export function VideoStudioPage() {
               />
             </label>
             <div className="mt-1 text-right text-2xs text-fg-muted">
-              {prompt.length.toLocaleString()} / 4,000
+              {formatNumber(prompt.length)} / 4,000
             </div>
             <fieldset className="mt-4">
               <legend className="text-xs font-medium text-fg-secondary">Aspect ratio</legend>
@@ -679,7 +680,7 @@ export function VideoStudioPage() {
                   {current && isVideoActive(current.status) && (
                     <p className="mt-4 text-xs text-fg-muted">
                       Started{" "}
-                      {new Date(current.createdAt).toLocaleTimeString([], {
+                      {formatDateParts(current.createdAt, {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}{" "}

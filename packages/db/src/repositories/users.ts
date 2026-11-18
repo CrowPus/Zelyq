@@ -95,6 +95,19 @@ export function userRepository(db: ZelyqDb) {
       return result.length > 0;
     },
 
+    /**
+     * Crosses one recovery code off, only if the list is still what the caller
+     * read: two uses of the same code at once cannot both succeed.
+     */
+    async claimRecoveryCode(id: string, expected: string[], next: string[]): Promise<boolean> {
+      const result = await db
+        .update(users)
+        .set({ recoveryCodes: JSON.stringify(next), updatedAt: new Date().toISOString() })
+        .where(and(eq(users.id, id), eq(users.recoveryCodes, JSON.stringify(expected))))
+        .returning({ id: users.id });
+      return result.length > 0;
+    },
+
     async setPreferences(
       id: string,
       patch: { locale?: string | null; timeZone?: string | null },

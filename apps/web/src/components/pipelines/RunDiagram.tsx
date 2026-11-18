@@ -51,6 +51,10 @@ export function RunDiagram({
           column.flatMap((to) => (columns[i] ?? []).map((from) => [from, to] as [number, number])),
         );
   const edgeKey = edges.map(([a, b]) => `${a}-${b}`).join(",");
+  const columnOf = new Map<number, number>();
+  columns.forEach((column, position) => {
+    for (const index of column) columnOf.set(index, position);
+  });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: redrawn when the edges (by their key) or the steps change.
   useLayoutEffect(() => {
@@ -60,6 +64,9 @@ export function RunDiagram({
       const box = (index: number) =>
         container.querySelector<HTMLElement>(`[data-stage-card="${index}"]`);
       const next: Array<{ key: string; d: string; from: number; to: number }> = [];
+      // A line that skips a column runs along a lane above the cards, so it is
+      // never drawn behind a card it does not belong to.
+      const lane = 12;
       for (const [from, to] of edges) {
         const source = box(from);
         const target = box(to);
@@ -70,13 +77,22 @@ export function RunDiagram({
         const y1 = source.offsetTop + 22;
         const x2 = target.offsetLeft;
         const y2 = target.offsetTop + 22;
-        const bend = Math.max(20, (x2 - x1) / 2);
-        next.push({
-          key: `${from}-${to}`,
-          d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2 - 6} ${y2}`,
-          from,
-          to,
-        });
+        const skips = (columnOf.get(to) ?? 0) - (columnOf.get(from) ?? 0) > 1;
+        let d: string;
+        if (skips) {
+          d = elbow([
+            [x1, y1],
+            [x1 + 28, y1],
+            [x1 + 28, lane],
+            [x2 - 28, lane],
+            [x2 - 28, y2],
+            [x2 - 6, y2],
+          ]);
+        } else {
+          const bend = Math.max(20, (x2 - x1) / 2);
+          d = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2 - 6} ${y2}`;
+        }
+        next.push({ key: `${from}-${to}`, d, from, to });
       }
       setLines(next);
       setSize({ width: container.scrollWidth, height: container.scrollHeight });
@@ -89,7 +105,7 @@ export function RunDiagram({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border-default bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px] bg-surface-subtle">
-      <div ref={frame} className="relative flex min-w-max items-start gap-14 p-6">
+      <div ref={frame} className="relative flex min-w-max items-start gap-14 px-6 pt-8 pb-6">
         <svg
           aria-hidden
           className="pointer-events-none absolute top-0 left-0"
@@ -97,17 +113,26 @@ export function RunDiagram({
           height={size.height}
         >
           <defs>
-            <marker
-              id="run-arrow"
-              viewBox="0 0 10 10"
-              refX="1"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto"
-            >
-              <path d="M0 0L10 5L0 10z" className="fill-border-control" />
-            </marker>
+            {(
+              [
+                ["muted", "fill-border-control"],
+                ["passed", "fill-success"],
+                ["lit", "fill-accent"],
+              ] as const
+            ).map(([id, fill]) => (
+              <marker
+                key={id}
+                id={`run-arrow-${id}`}
+                viewBox="0 0 10 10"
+                refX="1"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto"
+              >
+                <path d="M0 0L10 5L0 10z" className={fill} />
+              </marker>
+            ))}
           </defs>
           {lines.map((line) => {
             const lit = selected !== null && (line.from === selected || line.to === selected);
@@ -118,7 +143,7 @@ export function RunDiagram({
                 key={line.key}
                 d={line.d}
                 fill="none"
-                markerEnd="url(#run-arrow)"
+                markerEnd={`url(#run-arrow-${lit ? "lit" : fromStatus === "passed" ? "passed" : "muted"})`}
                 strokeWidth={lit ? 2 : 1.5}
                 className={`${
                   lit
@@ -230,7 +255,7 @@ function StageCard({
                 {step.name}
                 {step.attempt > 1 && <span className="text-fg-muted"> · try {step.attempt}</span>}
               </span>
-              <span className="shrink-0 text-fg-muted tabular-nums">
+              <span className="shrink-0 text-fg-secondary tabular-nums">
                 {step.startedAt ? duration(step.startedAt, step.finishedAt) : ""}
               </span>
             </Pressable>
@@ -239,4 +264,23 @@ function StageCard({
       </ol>
     </div>
   );
+}
+
+/** A path through the given points with rounded corners. */
+function elbow(points: Array<[number, number]>, radius = 8): string {
+  let d = `M ${points[0]![0]} ${points[0]![1]}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const [px, py] = points[i - 1]!;
+    const [x, y] = points[i]!;
+    const [nx, ny] = points[i + 1]!;
+    const into = Math.min(radius, Math.hypot(x - px, y - py) / 2);
+    const out = Math.min(radius, Math.hypot(nx - x, ny - y) / 2);
+    const ax = x - Math.sign(x - px) * into;
+    const ay = y - Math.sign(y - py) * into;
+    const bx = x + Math.sign(nx - x) * out;
+    const by = y + Math.sign(ny - y) * out;
+    d += ` L ${ax} ${ay} Q ${x} ${y} ${bx} ${by}`;
+  }
+  const [lx, ly] = points[points.length - 1]!;
+  return `${d} L ${lx} ${ly}`;
 }

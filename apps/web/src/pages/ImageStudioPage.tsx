@@ -39,6 +39,7 @@ import {
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { formatDateParts, formatNumber } from "../lib/format";
 import { useTeamPaths } from "../lib/routes";
 
 const examples = [
@@ -363,7 +364,7 @@ export function ImageStudioPage() {
             />
             <div className="mt-2 flex justify-between gap-3 text-xs text-fg-muted">
               <span>Try a subject, a setting, and a style.</span>
-              <span>{prompt.length.toLocaleString()}/8,000</span>
+              <span>{formatNumber(prompt.length)}/8,000</span>
             </div>
             <div className="mt-6">
               <p className="text-xs font-medium text-fg-secondary">Aspect ratio</p>
@@ -745,7 +746,7 @@ export function ImageStudioPage() {
                 </button>
                 <div className="flex flex-wrap items-center justify-between gap-1 px-3 pb-3 pt-2">
                   <span className="text-xs text-fg-muted">
-                    {new Date(job.createdAt).toLocaleDateString(undefined, {
+                    {formatDateParts(job.createdAt, {
                       month: "short",
                       day: "numeric",
                     })}

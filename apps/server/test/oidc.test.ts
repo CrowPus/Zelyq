@@ -8,6 +8,8 @@ import { after, before, beforeEach, test } from "node:test";
 import { runMigrations } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
+import { resolveSecretKey, SecretBox } from "../src/services/secrets.js";
+import { totpCode, totpStep } from "../src/services/totp.js";
 
 /**
  * Single sign-on (OIDC) — see docs/configuration.md's "Single sign-on (OIDC)"
@@ -283,4 +285,42 @@ test("starting a flow without ever finishing it does not leak forever", async ()
 test("/api/auth/status reports whether OIDC is actually enabled", async () => {
   const response = await server.app.inject({ method: "GET", url: "/api/auth/status" });
   assert.equal(response.json().oidcEnabled, true);
+});
+
+test("with two-factor on, single sign-on stops at the code step", async () => {
+  // An account signed up through single sign-on, then given two-factor.
+  nextClaims = { sub: "sub-2fa", email: "sso-2fa@example.com", email_verified: true };
+  const first = await oidcStart();
+  const firstResponse = await oidcCallback(first.signedState, first.cookie);
+  const cookie = sessionCookieOf(firstResponse)!;
+  // Turned on directly in the store: setup needs a password this account has never typed.
+  const me = await server.app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie } });
+  const userId = me.json().user.id as string;
+  const secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+  // Sealed with the server's own key, the way it stores every secret.
+  const box = new SecretBox(
+    resolveSecretKey({ envKey: config.secretKey, keyFilePath: config.secretKeyFile }),
+  );
+  const sealed = box.encrypt(secret);
+  await server.store.users.setTwoFactor(userId, {
+    secret: sealed,
+    enabledAt: new Date().toISOString(),
+    recoveryCodes: [],
+  });
+
+  const again = await oidcStart();
+  const response = await oidcCallback(again.signedState, again.cookie);
+  assert.equal(response.statusCode, 302);
+  assert.equal(sessionCookieOf(response), null, "no session from the identity provider alone");
+  const location = response.headers.location as string;
+  assert.match(location, /^\/signin#two-factor=/);
+  const challenge = decodeURIComponent(location.split("two-factor=")[1]!);
+
+  const done = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/login/two-factor",
+    payload: { challenge, code: totpCode(secret, totpStep()) },
+  });
+  assert.equal(done.statusCode, 200, done.body);
+  assert.ok(sessionCookieOf(done), "the code completes the sign-in");
 });

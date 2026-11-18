@@ -259,7 +259,7 @@ export class AuthService {
     code: string;
     state: string;
     verifier: string;
-  }): Promise<{ user: User; token: string }> {
+  }): Promise<{ user: User; token: string } | { user: User; challenge: string }> {
     const oidc = this.requireOidc();
     const state = this.verifyState(input.state);
     if (!state || !this.oidcStates.delete(state.value)) {
@@ -299,6 +299,9 @@ export class AuthService {
       throw new ZelyqError("unauthorized", "The identity provider returned an invalid profile.");
     }
     const user = await this.findOrCreateOidcUser(metadata.issuer, claims);
+    // The identity provider proves the email, not the phone: with two-factor
+    // on, single sign-on stops at the code step, like a password does.
+    if (user.twoFactorEnabled) return { user, challenge: await this.startChallenge(user.id) };
     const session = await this.createSession(user.id);
     this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "sso" } });
     return { user, token: session };
@@ -583,19 +586,7 @@ export class AuthService {
 
     // Two-factor on: the password alone opens nothing. A short-lived
     // challenge stands for "password correct", and the code completes it.
-    if (user.twoFactorEnabled) {
-      // A suspended account learns that before being asked for a code.
-      const state = await this.store.users.statusOf(user.id);
-      if (state?.status === "suspended") await this.createSession(user.id);
-      this.pruneChallenges();
-      const challenge = randomBytes(32).toString("base64url");
-      this.twoFactorChallenges.set(challenge, {
-        userId: user.id,
-        expires: Date.now() + TWO_FACTOR_CHALLENGE_MS,
-        attempts: 0,
-      });
-      return { user, challenge };
-    }
+    if (user.twoFactorEnabled) return { user, challenge: await this.startChallenge(user.id) };
 
     const token = await this.createSession(user.id);
     this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "password" } });
@@ -640,6 +631,27 @@ export class AuthService {
     return { user, token };
   }
 
+  /** "First factor accepted": a short-lived challenge only the code can complete. */
+  private async startChallenge(userId: string): Promise<string> {
+    // A suspended account learns that before being asked for a code.
+    const state = await this.store.users.statusOf(userId);
+    if (state?.status === "suspended") {
+      throw new ZelyqError(
+        "forbidden",
+        state.reason ? `This account is suspended: ${state.reason}` : "This account is suspended.",
+        { reason: "suspended" },
+      );
+    }
+    this.pruneChallenges();
+    const challenge = randomBytes(32).toString("base64url");
+    this.twoFactorChallenges.set(challenge, {
+      userId,
+      expires: Date.now() + TWO_FACTOR_CHALLENGE_MS,
+      attempts: 0,
+    });
+    return challenge;
+  }
+
   private pruneChallenges(): void {
     const now = Date.now();
     for (const [key, value] of this.twoFactorChallenges) {
@@ -656,6 +668,38 @@ export class AuthService {
     userId: string,
     code: string,
   ): Promise<"totp" | "recovery" | null> {
+    this.assertNotPaused(userId);
+    const state = await this.store.users.twoFactorOf(userId);
+    let method: "totp" | "recovery" | null = null;
+    // A right code that lost a race to the same code sent twice: refused, but
+    // not counted as a guess.
+    let lostRace = false;
+    if (state?.secret && /^\d{6}$/.test(code)) {
+      const secret = this.openSecret(state.secret);
+      const step = secret ? matchTotp(secret, code) : null;
+      if (step !== null) {
+        if (await this.store.users.claimTotpStep(userId, step)) method = "totp";
+        else lostRace = true;
+      }
+    } else if (state && code.length >= 8) {
+      const hashed = hashRecoveryCode(code);
+      if (state.recoveryCodes.includes(hashed)) {
+        const crossed = await this.store.users.claimRecoveryCode(
+          userId,
+          state.recoveryCodes,
+          state.recoveryCodes.filter((value) => value !== hashed),
+        );
+        if (crossed) method = "recovery";
+        else lostRace = true;
+      }
+    }
+    if (method) this.twoFactorFailures.delete(userId);
+    else if (!lostRace) this.noteFailure(userId);
+    return method;
+  }
+
+  /** Refuses while an account's code checks are paused after too many wrong codes. */
+  private assertNotPaused(userId: string): void {
     const failures = this.twoFactorFailures.get(userId);
     if (failures && Date.now() - failures.since > TWO_FACTOR_LOCK_MS) {
       this.twoFactorFailures.delete(userId);
@@ -665,29 +709,12 @@ export class AuthService {
         "Too many wrong codes. Wait ten minutes, then try again.",
       );
     }
-    const state = await this.store.users.twoFactorOf(userId);
-    let method: "totp" | "recovery" | null = null;
-    if (state?.secret && /^\d{6}$/.test(code)) {
-      const secret = this.openSecret(state.secret);
-      const step = secret ? matchTotp(secret, code) : null;
-      if (step !== null && (await this.store.users.claimTotpStep(userId, step))) method = "totp";
-    } else if (state && code.length >= 8) {
-      const hashed = hashRecoveryCode(code);
-      if (state.recoveryCodes.includes(hashed)) {
-        await this.store.users.setTwoFactor(userId, {
-          recoveryCodes: state.recoveryCodes.filter((value) => value !== hashed),
-        });
-        method = "recovery";
-      }
-    }
-    if (method) {
-      this.twoFactorFailures.delete(userId);
-    } else {
-      const current = this.twoFactorFailures.get(userId) ?? { count: 0, since: Date.now() };
-      current.count += 1;
-      this.twoFactorFailures.set(userId, current);
-    }
-    return method;
+  }
+
+  private noteFailure(userId: string): void {
+    const current = this.twoFactorFailures.get(userId) ?? { count: 0, since: Date.now() };
+    current.count += 1;
+    this.twoFactorFailures.set(userId, current);
   }
 
   private sealSecret(secret: string): string {
@@ -729,9 +756,11 @@ export class AuthService {
     const state = await this.store.users.twoFactorOf(user.id);
     if (!state?.secret) throw ZelyqError.badRequest("Start setting up two-factor sign-in first.");
     if (state.enabledAt) throw new ZelyqError("conflict", "Two-factor sign-in is already on.");
+    this.assertNotPaused(user.id);
     const secret = this.openSecret(state.secret);
     const step = secret ? matchTotp(secret, code) : null;
     if (step === null) {
+      this.noteFailure(user.id);
       throw new ZelyqError(
         "unauthorized",
         "That code is not right. Check the time on your phone, then try the newest code.",
@@ -743,6 +772,8 @@ export class AuthService {
       lastStep: step,
       recoveryCodes: recoveryCodes.map(hashRecoveryCode),
     });
+    this.twoFactorFailures.delete(user.id);
+    this.recordSecurity(user.id, "two_factor_on");
     return { recoveryCodes };
   }
 
@@ -754,6 +785,7 @@ export class AuthService {
       throw new ZelyqError("unauthorized", "That code is not right.");
     }
     await this.clearTwoFactor(user.id);
+    this.recordSecurity(user.id, "two_factor_off");
   }
 
   /** New recovery codes; the old ones stop working. */
@@ -772,6 +804,7 @@ export class AuthService {
     await this.store.users.setTwoFactor(user.id, {
       recoveryCodes: recoveryCodes.map(hashRecoveryCode),
     });
+    this.recordSecurity(user.id, "recovery_codes_renewed");
     return { recoveryCodes };
   }
 
@@ -789,8 +822,14 @@ export class AuthService {
     if (admin.instanceRole !== "admin") {
       throw new ZelyqError("forbidden", "Only a server administrator can do that.");
     }
+    if (!(await this.store.users.findById(userId))) throw ZelyqError.notFound("User", userId);
     await this.clearTwoFactor(userId);
     await this.store.authSessions.removeForUser(userId);
+    this.recordSecurity(userId, "two_factor_reset_by_admin");
+  }
+
+  private recordSecurity(userId: string, action: string): void {
+    this.activity?.record("account.security", { userId, detail: { action } });
   }
 
   private async clearTwoFactor(userId: string): Promise<void> {
@@ -822,6 +861,7 @@ export class AuthService {
     if (!(await this.store.authSessions.removeOwned(user.id, id))) {
       throw new ZelyqError("not_found", "That device is already signed out.");
     }
+    this.recordSecurity(user.id, "device_signed_out");
   }
 
   /** Signs every other device out, keeping this one. */
@@ -832,7 +872,9 @@ export class AuthService {
     if (!current || current.userId !== user.id) {
       throw new ZelyqError("unauthorized", "Sign in to continue.");
     }
-    return await this.store.authSessions.removeOthers(user.id, current.id);
+    const ended = await this.store.authSessions.removeOthers(user.id, current.id);
+    if (ended > 0) this.recordSecurity(user.id, "other_devices_signed_out");
+    return ended;
   }
 
   async setPreferences(

@@ -12,6 +12,8 @@ import { z } from "zod";
 export const PRODUCT_EVENTS = {
   "account.created": { detail: ["via"] },
   "account.signed_in": { detail: ["method"] },
+  /** Two-factor turned on or off, new recovery codes, an admin reset, a device signed out. */
+  "account.security": { detail: ["action"] },
   "team.created": { detail: ["via"] },
   "member.invited": { detail: [] },
   "member.joined": { detail: ["role"] },

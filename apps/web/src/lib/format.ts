@@ -106,3 +106,14 @@ export function formatDuration(ms: number): string {
   const h = Math.floor(m / 60);
   return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
 }
+
+/**
+ * Any other date shape, still in the person's language and time zone. An
+ * explicit `timeZone` in the options wins (a calendar day stored as UTC).
+ */
+export function formatDateParts(
+  value: string | number | Date,
+  options: Intl.DateTimeFormatOptions,
+): string {
+  return new Intl.DateTimeFormat(locale(), { ...zone(), ...options }).format(toDate(value));
+}

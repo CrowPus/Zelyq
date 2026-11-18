@@ -4,7 +4,7 @@ import { ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
-import { formatDateTime } from "../lib/format";
+import { formatDateTime, formatNumber } from "../lib/format";
 import { Badge, Button, confirmAction, Spinner } from "./ui";
 
 /** Megabytes in words a person reads: "740 MB", "2.4 GB". */
@@ -16,7 +16,7 @@ export function sizeWords(mb: number): string {
 
 function amount(line: UsageLine, value: number): string {
   if (line.key === "storageMb") return sizeWords(value);
-  return `${value.toLocaleString()}${line.unit ? ` ${line.unit}` : ""}`;
+  return `${formatNumber(value)}${line.unit ? ` ${line.unit}` : ""}`;
 }
 
 /**

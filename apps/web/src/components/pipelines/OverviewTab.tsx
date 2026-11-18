@@ -3,6 +3,7 @@ import type { PipelineStats } from "@zelyq/core";
 import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
+import { formatDateParts } from "../../lib/format";
 import { teamHref } from "../../lib/routes";
 import { formatRelative } from "../../lib/vault";
 import { EmptyState, Spinner } from "../ui";
@@ -460,7 +461,7 @@ function time(ms: number | null): string {
 
 function dayLabel(day: string, long = false): string {
   const date = new Date(`${day}T00:00:00Z`);
-  return date.toLocaleDateString(undefined, {
+  return formatDateParts(date, {
     timeZone: "UTC",
     day: "numeric",
     month: "short",

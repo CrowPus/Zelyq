@@ -1,4 +1,5 @@
 import { ApiError } from "./api";
+import { formatDateParts } from "./format";
 
 /** How long a revealed value stays on screen before it hides itself. */
 export const REVEAL_SECONDS = 30;
@@ -25,5 +26,5 @@ export function formatRelative(iso: string): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
   if (seconds < 604_800) return `${Math.floor(seconds / 86_400)}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatDateParts(iso, { month: "short", day: "numeric" });
 }

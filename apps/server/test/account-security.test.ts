@@ -309,3 +309,61 @@ test("turning it off needs the password and a code; an admin can reset it", asyn
   assert.equal(plain.json().twoFactor, undefined, "the password alone works again");
   assert.ok(codes.length === 10);
 });
+
+test("guessing during set-up pauses too; resetting a missing account says so", async () => {
+  const { cookie } = await register("setup-guess@example.com");
+  const setup = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/two-factor/setup",
+    headers: { cookie },
+    payload: { password: PASSWORD },
+  });
+  assert.equal(setup.statusCode, 200);
+  const statuses: number[] = [];
+  for (let i = 0; i < 7; i++) {
+    const guess = await server.app.inject({
+      method: "POST",
+      url: "/api/auth/two-factor/enable",
+      headers: { cookie },
+      payload: { code: String(200000 + i) },
+    });
+    statuses.push(guess.statusCode);
+  }
+  assert.ok(statuses.includes(429), `expected a pause, got ${statuses.join(",")}`);
+
+  const missing = await server.app.inject({
+    method: "DELETE",
+    url: "/api/users/usr_does_not_exist/two-factor",
+    headers: { cookie: adminCookie },
+  });
+  assert.equal(missing.statusCode, 404);
+});
+
+test("the same right code sent twice at once signs in once and is not counted as a guess", async () => {
+  const { cookie } = await register("twice@example.com");
+  const { secret } = await turnOn(cookie);
+  const challenges = await Promise.all(
+    [0, 1, 2, 3, 4, 5].map(
+      async () => (await login("twice@example.com")).json().twoFactor.challenge,
+    ),
+  );
+  const code = totpCode(secret, totpStep());
+  const results = await Promise.all(
+    challenges.map((challenge) =>
+      server.app.inject({
+        method: "POST",
+        url: "/api/auth/login/two-factor",
+        payload: { challenge, code },
+      }),
+    ),
+  );
+  assert.equal(results.filter((r) => r.statusCode === 200).length, 1);
+  // Not paused: the losers were not guesses.
+  const start = await login("twice@example.com");
+  const next = await server.app.inject({
+    method: "POST",
+    url: "/api/auth/login/two-factor",
+    payload: { challenge: start.json().twoFactor.challenge, code: "000000" },
+  });
+  assert.equal(next.statusCode, 401, "a wrong code is refused, not paused");
+});

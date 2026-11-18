@@ -25,8 +25,19 @@ export function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  /** Password accepted, two-factor on: the code completes this challenge. */
-  const [challenge, setChallenge] = useState<string | null>(null);
+  /**
+   * Password (or single sign-on) accepted, two-factor on: the code completes
+   * this challenge. Single sign-on hands it over after the # of the address.
+   */
+  const [challenge, setChallenge] = useState<string | null>(() => {
+    const match = /two-factor=([^&]+)/.exec(window.location.hash);
+    return match ? decodeURIComponent(match[1]!) : null;
+  });
+  useEffect(() => {
+    if (window.location.hash.includes("two-factor=")) {
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+    }
+  }, []);
   const query = new URLSearchParams(window.location.search);
   const oidcError = query.has("error");
   const suspended = query.get("error") === "suspended";
@@ -46,7 +57,7 @@ export function SignInPage() {
   // Managed: straight to the account service. Someone already signed in there
   // comes back signed in here without typing anything. Not after a failure,
   // which would loop.
-  const goStraight = serviceOnly && Boolean(accounts) && !oidcError;
+  const goStraight = serviceOnly && Boolean(accounts) && !oidcError && !challenge;
   useEffect(() => {
     if (goStraight) window.location.replace(startUrl);
   }, [goStraight, startUrl]);

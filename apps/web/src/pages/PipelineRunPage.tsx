@@ -43,7 +43,7 @@ import { api } from "../lib/api";
 import { formatDateTime } from "../lib/format";
 import { duration, formatBytes, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
 import { teamHref } from "../lib/routes";
-import { formatRelative, vaultErrorMessage } from "../lib/vault";
+import { vaultErrorMessage } from "../lib/vault";
 
 /** Colour codes some tools print even when asked not to. */
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, "g");
@@ -223,7 +223,7 @@ export function PipelineRunPage() {
                   <Server size={12} /> {detail.runner}
                 </span>
               )}
-              <span>{formatRelative(detail.createdAt)}</span>
+              <RelativeTime value={detail.createdAt} />
               {detail.startedAt && (
                 <span>took {duration(detail.startedAt, detail.finishedAt)}</span>
               )}
@@ -295,8 +295,12 @@ export function PipelineRunPage() {
               label: "Steps",
               value: `${steps.filter((step) => step.status === "passed").length} of ${steps.length} passed`,
             },
-          ].map((item) => (
-            <div key={item.label} className="min-w-0 bg-surface px-4 py-3">
+          ].map((item, index, all) => (
+            <div
+              key={item.label}
+              // The last fills the row when the columns do not divide evenly.
+              className={`min-w-0 bg-surface px-4 py-3 ${index === all.length - 1 ? "col-span-2 lg:col-span-1" : ""}`}
+            >
               <dt className="text-xs text-fg-muted">{item.label}</dt>
               <dd className="mt-1 truncate text-sm font-medium text-fg">{item.value}</dd>
             </div>

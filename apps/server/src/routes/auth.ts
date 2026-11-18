@@ -173,6 +173,11 @@ export function registerAuthRoutes(
           state: signedState,
           verifier,
         });
+        // Two-factor on: no cookie; the sign-in screen asks for the code. The
+        // challenge rides after the #, which never reaches a server or a log.
+        if ("challenge" in result) {
+          return reply.redirect(`/signin#two-factor=${encodeURIComponent(result.challenge)}`);
+        }
         await setSessionCookie(request, reply, result.token);
         return reply.redirect(back ?? "/signin");
       } catch (error) {
