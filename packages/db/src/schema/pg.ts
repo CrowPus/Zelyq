@@ -29,6 +29,20 @@ export const users = pgTable(
     statusReason: text("status_reason"),
     /** When the person last signed in or did something (written at most every ten minutes). */
     lastSeenAt: text("last_seen_at"),
+    /**
+     * Two-factor sign-in with an authenticator app. The secret is encrypted
+     * with the server's key; it is set while being set up and only counts once
+     * `totpEnabledAt` is set.
+     */
+    totpSecret: text("totp_secret"),
+    totpEnabledAt: text("totp_enabled_at"),
+    /** The 30-second step of the last code accepted, so a code works once. */
+    totpLastStep: integer("totp_last_step"),
+    /** SHA-256 of each unused recovery code, as a JSON array. */
+    recoveryCodes: text("recovery_codes"),
+    /** The person's language (a BCP 47 tag) and IANA time zone; null: the browser's. */
+    locale: text("locale"),
+    timeZone: text("time_zone"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -96,6 +110,9 @@ export const authSessions = pgTable(
     expiresAt: text("expires_at").notNull(),
     createdAt: text("created_at").notNull(),
     lastSeenAt: text("last_seen_at").notNull(),
+    /** What the person signed in with, shown in their list of signed-in devices. */
+    userAgent: text("user_agent"),
+    ip: text("ip"),
   },
   (table) => ({
     tokenIdx: uniqueIndex("auth_sessions_token_hash_idx").on(table.tokenHash),

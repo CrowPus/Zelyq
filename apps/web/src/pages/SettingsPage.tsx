@@ -19,6 +19,7 @@ import {
   Server,
   ServerCog,
   ShieldCheck,
+  ShieldOff,
   Trash2,
   Users,
   Workflow,
@@ -43,6 +44,7 @@ import {
   PageHeader,
   Spinner,
   StatusDot,
+  toast,
 } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
@@ -564,15 +566,48 @@ export function SettingsPage() {
                           )}
                           {account.instanceRole === "admin" && (
                             <span className="ml-1.5 inline-block">
-                              <Badge tone="neutral">instance admin</Badge>
+                              <Badge tone="neutral">Server admin</Badge>
+                            </span>
+                          )}
+                          {account.twoFactorEnabled && (
+                            <span className="ml-1.5 inline-block">
+                              <Badge tone="success">Two-factor on</Badge>
                             </span>
                           )}
                         </p>
-                        <p className="truncate font-mono text-2xs text-fg-muted">{account.email}</p>
+                        <p className="truncate text-xs text-fg-muted">{account.email}</p>
                       </div>
                       <span className="shrink-0 text-2xs text-fg-muted">
                         joined {formatDate(account.createdAt)}
                       </span>
+                      {account.twoFactorEnabled && account.id !== user?.id && (
+                        <IconButton
+                          size="sm"
+                          label={`Turn off two-factor sign-in for ${account.name}`}
+                          onClick={async () => {
+                            if (
+                              await confirmAction({
+                                title: `Turn off two-factor sign-in for ${account.name}?`,
+                                description:
+                                  "For someone who lost both their phone and their recovery codes. They are signed out everywhere and sign in again with their password alone. Check it is really them first.",
+                                confirmLabel: "Turn off two-factor",
+                                danger: true,
+                                typeToConfirm: account.email,
+                              })
+                            ) {
+                              try {
+                                await api.resetUserTwoFactor(account.id);
+                                toast.success(`Two-factor sign-in is off for ${account.name}`);
+                                await users.refetch();
+                              } catch (failure) {
+                                toast.error((failure as Error).message);
+                              }
+                            }
+                          }}
+                        >
+                          <ShieldOff size={13} strokeWidth={1.75} />
+                        </IconButton>
+                      )}
                       {account.id !== user?.id && (
                         <IconButton
                           size="sm"

@@ -235,6 +235,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     log: (error, message) => app.log.warn({ error }, message),
   });
   auth.activity = activity;
+  auth.secrets = secrets;
   access.activity = activity;
   // What developers need: errors grouped (secrets taken out), and how long calls take.
   const errors = new ErrorTracker(store, (error, message) => app.log.warn({ error }, message));

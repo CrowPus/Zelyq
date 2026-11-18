@@ -2,14 +2,31 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type AccountService, accountServiceLinks } from "@zelyq/core";
 import { CircleAlert, ExternalLink, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { Badge, Button, Input, PageBody, PageHeader, PasswordInput } from "../components/ui";
+import { PreferencesCard } from "../components/account/Preferences";
+import { SessionsCard, TwoFactorCard } from "../components/account/Security";
+import {
+  Badge,
+  Button,
+  Card,
+  Field,
+  Input,
+  PageBody,
+  PageHeader,
+  PasswordInput,
+  Tabs,
+} from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 
 export function ProfilePage() {
   const { user, teams, session, refresh } = useSession();
   const queryClient = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const raw = params.get("tab");
+  const tab: "profile" | "security" | "preferences" =
+    raw === "security" || raw === "preferences" ? raw : "profile";
 
   if (!user) return null;
   // Managed: a person's email, password and account live with the account
@@ -23,48 +40,87 @@ export function ProfilePage() {
           title="Account"
           description={
             accounts
-              ? `Your details and teams. Your email, password and account are managed at ${accounts.name}.`
-              : "Your details and password. Changing your password signs you out everywhere else."
+              ? `Your details, devices and preferences. Your email, password and account are managed at ${accounts.name}.`
+              : "Your details, how you sign in, and how Zelyq looks for you."
+          }
+          tabs={
+            <Tabs
+              label="Account"
+              value={tab}
+              onChange={(next) =>
+                setParams(next === "profile" ? {} : { tab: next }, { replace: true })
+              }
+              items={[
+                { id: "profile", label: "Profile" },
+                { id: "security", label: "Security" },
+                { id: "preferences", label: "Preferences" },
+              ]}
+            />
           }
         />
 
-        {accounts ? (
-          <ManagedProfileSection user={user} accounts={accounts} />
-        ) : (
+        {tab === "profile" && (
           <>
-            <ProfileSection
-              user={user}
-              onSaved={() => {
-                refresh();
-                queryClient.invalidateQueries({ queryKey: ["session"] });
-              }}
-            />
-            <PasswordSection />
+            {accounts ? (
+              <ManagedProfileSection user={user} accounts={accounts} />
+            ) : (
+              <ProfileSection
+                user={user}
+                onSaved={() => {
+                  refresh();
+                  queryClient.invalidateQueries({ queryKey: ["session"] });
+                }}
+              />
+            )}
+
+            <Card
+              title="Membership"
+              description="Your role on this server, and in each of your teams."
+              padded={false}
+              className="mt-6"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3 last:border-b-0">
+                  <span className="text-sm text-fg">Server role</span>
+                  <Badge tone={user.instanceRole === "admin" ? "info" : "neutral"}>
+                    {user.instanceRole}
+                  </Badge>
+                </div>
+                {teams.map((team) => (
+                  <div
+                    key={team.id}
+                    className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3 last:border-b-0"
+                  >
+                    <span className="truncate text-sm text-fg">{team.name}</span>
+                    <Badge tone="neutral">{team.role}</Badge>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {!accounts && <DeleteAccountSection />}
           </>
         )}
 
-        <section className="mt-8">
-          <h2 className="text-sm font-medium text-fg">Membership</h2>
-          <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
-            <div className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5 last:border-b-0">
-              <span className="text-sm text-fg">Instance role</span>
-              <Badge tone={user.instanceRole === "admin" ? "info" : "neutral"}>
-                {user.instanceRole}
-              </Badge>
-            </div>
-            {teams.map((team) => (
-              <div
-                key={team.id}
-                className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5 last:border-b-0"
-              >
-                <span className="truncate text-sm text-fg">{team.name}</span>
-                <Badge tone="neutral">{team.role}</Badge>
-              </div>
-            ))}
+        {tab === "security" && (
+          <div className="flex flex-col gap-6">
+            {accounts ? (
+              <Card title="Password and two-factor sign-in">
+                <p className="text-sm text-fg-secondary">
+                  Your password and two-factor sign-in are managed at {accounts.name}.
+                </p>
+              </Card>
+            ) : (
+              <>
+                <PasswordSection />
+                <TwoFactorCard />
+              </>
+            )}
+            <SessionsCard />
           </div>
-        </section>
+        )}
 
-        {!accounts && <DeleteAccountSection />}
+        {tab === "preferences" && <PreferencesCard />}
       </PageBody>
     </AppShell>
   );
@@ -97,10 +153,13 @@ function DeleteAccountSection() {
   }
 
   return (
-    <section className="mt-8">
-      <h2 className="text-sm font-medium text-danger">Delete account</h2>
-      <div className="mt-3 rounded-lg border border-danger/25 bg-surface p-3">
-        <p className="text-xs text-fg-secondary">
+    <section className="mt-6 overflow-hidden rounded-lg border border-danger/40">
+      <header className="border-b border-danger/25 bg-danger-subtle px-4 py-3">
+        <h3 className="text-sm font-semibold text-danger">Danger zone</h3>
+      </header>
+      <div className="bg-surface p-4">
+        <p className="text-sm font-medium text-fg">Delete your account</p>
+        <p className="mt-0.5 text-sm text-fg-secondary">
           This cannot be undone. Any team where you are the only member is deleted too, along with
           its projects and their files on disk. You will be refused if you are the last owner of a
           team that still has members, or the last administrator of this instance.
@@ -108,7 +167,7 @@ function DeleteAccountSection() {
 
         {open ? (
           <form onSubmit={submit} className="mt-3 flex flex-col gap-2">
-            <label htmlFor="delete-password" className="text-xs font-medium text-fg-secondary">
+            <label htmlFor="delete-password" className="text-sm font-medium text-fg">
               Your password
             </label>
             <PasswordInput
@@ -118,7 +177,7 @@ function DeleteAccountSection() {
               autoComplete="current-password"
               required
             />
-            <label htmlFor="delete-confirm" className="text-xs font-medium text-fg-secondary">
+            <label htmlFor="delete-confirm" className="text-sm font-medium text-fg">
               Type <span className="font-mono text-fg">delete</span> to confirm
             </label>
             <Input
@@ -160,18 +219,17 @@ function ManagedProfileSection({
   accounts: AccountService;
 }) {
   return (
-    <section className="mt-7">
-      <h2 className="text-sm font-medium text-fg">Profile</h2>
-      <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
-        <div className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5">
+    <Card title="Profile" padded={false}>
+      <div>
+        <div className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3">
           <span className="text-xs text-fg-secondary">Name</span>
           <span className="truncate text-sm text-fg">{user.name}</span>
         </div>
-        <div className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3">
           <span className="text-xs text-fg-secondary">Email</span>
           <span className="truncate text-sm text-fg">{user.email}</span>
         </div>
-        <div className="px-3 py-2.5">
+        <div className="px-4 py-3">
           <a
             href={accountServiceLinks(accounts).account()}
             className="inline-flex items-center gap-1.5 text-xs text-info underline-offset-2 hover:underline"
@@ -184,7 +242,7 @@ function ManagedProfileSection({
           </p>
         </div>
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -222,11 +280,10 @@ function ProfileSection({
   }
 
   return (
-    <form onSubmit={submit} className="mt-7">
-      <h2 className="text-sm font-medium text-fg">Profile</h2>
-      <div className="mt-3 space-y-3 rounded-lg border border-border-default bg-surface p-3">
+    <Card title="Profile" description="Your name, and the email you sign in with.">
+      <form onSubmit={submit} className="flex max-w-md flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="profile-name" className="text-xs font-medium text-fg-secondary">
+          <label htmlFor="profile-name" className="text-sm font-medium text-fg">
             Name
           </label>
           <Input
@@ -238,7 +295,7 @@ function ProfileSection({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="profile-email" className="text-xs font-medium text-fg-secondary">
+          <label htmlFor="profile-email" className="text-sm font-medium text-fg">
             Email
           </label>
           <Input
@@ -257,7 +314,7 @@ function ProfileSection({
         */}
         {emailChanged && (
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="profile-confirm" className="text-xs font-medium text-fg-secondary">
+            <label htmlFor="profile-confirm" className="text-sm font-medium text-fg">
               Current password
             </label>
             <PasswordInput
@@ -272,11 +329,13 @@ function ProfileSection({
 
         <Feedback state={state} />
 
-        <Button type="submit" variant="primary" disabled={!dirty || state.busy}>
-          {state.busy ? "Saving…" : "Save profile"}
-        </Button>
-      </div>
-    </form>
+        <div>
+          <Button type="submit" variant="primary" disabled={!dirty} loading={state.busy}>
+            Save profile
+          </Button>
+        </div>
+      </form>
+    </Card>
   );
 }
 
@@ -305,58 +364,46 @@ function PasswordSection() {
   }
 
   return (
-    <form onSubmit={submit} className="mt-8">
-      <h2 className="text-sm font-medium text-fg">Password</h2>
-      <p className="mt-0.5 text-xs text-fg-secondary">
-        At least 10 characters. Every other signed-in device will be signed out.
-      </p>
-
-      <div className="mt-3 space-y-3 rounded-lg border border-border-default bg-surface p-3">
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="password-current" className="text-xs font-medium text-fg-secondary">
-            Current password
-          </label>
+    <Card
+      title="Password"
+      description="At least 10 characters. Changing it signs every other device out."
+    >
+      <form onSubmit={submit} className="flex max-w-md flex-col gap-3">
+        <Field label="Current password">
           <PasswordInput
-            id="password-current"
             value={current}
             onChange={(event) => setCurrent(event.target.value)}
             autoComplete="current-password"
           />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="password-new" className="text-xs font-medium text-fg-secondary">
-            New password
-          </label>
+        </Field>
+        <Field label="New password">
           <PasswordInput
-            id="password-new"
             value={next}
             onChange={(event) => setNext(event.target.value)}
             autoComplete="new-password"
             minLength={10}
           />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="password-confirm" className="text-xs font-medium text-fg-secondary">
-            Confirm new password
-          </label>
+        </Field>
+        <Field
+          label="Confirm new password"
+          error={mismatch ? "The two entries do not match." : undefined}
+        >
           <PasswordInput
-            id="password-confirm"
             value={confirm}
             onChange={(event) => setConfirm(event.target.value)}
             autoComplete="new-password"
           />
-          {mismatch && <span className="text-2xs text-danger">The two entries do not match.</span>}
-        </div>
+        </Field>
 
         <Feedback state={state} savedMessage="Password changed. Other devices were signed out." />
 
-        <Button type="submit" variant="primary" disabled={!ready || state.busy}>
-          {state.busy ? "Changing…" : "Change password"}
-        </Button>
-      </div>
-    </form>
+        <div>
+          <Button type="submit" variant="primary" disabled={!ready} loading={state.busy}>
+            Change password
+          </Button>
+        </div>
+      </form>
+    </Card>
   );
 }
 

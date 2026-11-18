@@ -37,6 +37,7 @@ import {
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { formatNumber } from "../lib/format";
 import { useLiveTalk } from "../lib/ops-live";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
@@ -449,7 +450,7 @@ function Conversation({
         </p>
         <Badge tone={stage.tone}>{stage.label}</Badge>
         {job.tokens > 0 && (
-          <span className="text-2xs text-fg-muted">{job.tokens.toLocaleString()} tokens</span>
+          <span className="text-2xs text-fg-muted">{formatNumber(job.tokens)} tokens</span>
         )}
         {live && (
           <Button size="sm" variant="ghost" icon={<Ban size={12} />} onClick={() => stop.mutate()}>
@@ -1007,8 +1008,8 @@ function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) 
       <section className="grid gap-2 rounded-md border border-border-default p-3">
         <p className="text-sm font-medium">Spending</p>
         <p className="text-xs text-fg-secondary">
-          This month: {used.toLocaleString()} tokens
-          {status.monthlyTokenCap !== null ? ` of ${status.monthlyTokenCap.toLocaleString()}` : ""}.
+          This month: {formatNumber(used)} tokens
+          {status.monthlyTokenCap !== null ? ` of ${formatNumber(status.monthlyTokenCap)}` : ""}.
           When the limit is reached, Ops starts no new work; checks and alerts keep running.
         </p>
         {isAdmin && (

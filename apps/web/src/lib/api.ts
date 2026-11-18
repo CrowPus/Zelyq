@@ -77,6 +77,7 @@ import type {
   SessionResponse,
   SetGitRemoteInput,
   SettingsResponse,
+  SignedInSession,
   Snapshot,
   SshRunnerInput,
   SshRunnerUpdate,
@@ -85,6 +86,7 @@ import type {
   TeamSshKeySummary,
   TeamUsage,
   TriggerInput,
+  TwoFactorRequired,
   UpdateProfileInput,
   UpdateSettingsInput,
   UploadSkillInput,
@@ -917,8 +919,9 @@ export const api = {
       body: JSON.stringify({ email }),
     }),
 
+  /** Signs in, or — with two-factor on — answers `signInAgain`: the code is still asked. */
   resetPassword: (input: { token: string; password: string }) =>
-    request<SessionResponse>("/auth/reset-password", {
+    request<SessionResponse | { signInAgain: true }>("/auth/reset-password", {
       method: "POST",
       body: JSON.stringify(input),
     }),
@@ -943,8 +946,48 @@ export const api = {
   register: (input: { email: string; name: string; password: string }) =>
     request<SessionResponse>("/auth/register", { method: "POST", body: JSON.stringify(input) }),
 
+  /** A session, or — with two-factor on — a challenge the code completes. */
   login: (input: { email: string; password: string }) =>
-    request<SessionResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
+    request<SessionResponse | TwoFactorRequired>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  loginTwoFactor: (input: { challenge: string; code: string }) =>
+    request<SessionResponse>("/auth/login/two-factor", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  twoFactor: {
+    status: () => request<{ enabled: boolean; recoveryCodesLeft: number }>("/auth/two-factor"),
+    setup: (password: string) =>
+      request<{ secret: string; otpauthUri: string }>("/auth/two-factor/setup", {
+        method: "POST",
+        body: JSON.stringify({ password }),
+      }),
+    enable: (code: string) =>
+      request<{ recoveryCodes: string[] }>("/auth/two-factor/enable", {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      }),
+    disable: (input: { password: string; code: string }) =>
+      request<void>("/auth/two-factor/disable", { method: "POST", body: JSON.stringify(input) }),
+    recoveryCodes: (input: { password: string; code: string }) =>
+      request<{ recoveryCodes: string[] }>("/auth/two-factor/recovery-codes", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+  },
+
+  signedInSessions: {
+    list: () => request<{ sessions: SignedInSession[] }>("/auth/sessions"),
+    end: (id: string) => request<void>(`/auth/sessions/${id}`, { method: "DELETE" }),
+    endOthers: () => request<{ ended: number }>("/auth/sessions", { method: "DELETE" }),
+  },
+
+  setPreferences: (input: { locale?: string | null; timeZone?: string | null }) =>
+    request<SessionResponse>("/auth/preferences", { method: "PATCH", body: JSON.stringify(input) }),
 
   logout: () => request<void>("/auth/logout", { method: "POST" }),
 
@@ -1001,6 +1044,10 @@ export const api = {
   listUsers: () => request<{ users: User[] }>("/users"),
 
   deleteUser: (id: string) => request<void>(`/users/${id}`, { method: "DELETE" }),
+
+  /** Server admin: turn off someone's two-factor sign-in (lost phone and codes). */
+  resetUserTwoFactor: (id: string) =>
+    request<void>(`/users/${id}/two-factor`, { method: "DELETE" }),
 
   listTeams: () => request<{ teams: TeamMembership[] }>("/teams"),
 

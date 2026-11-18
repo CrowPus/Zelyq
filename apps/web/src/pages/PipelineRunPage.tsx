@@ -26,14 +26,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { QueueNotice } from "../components/pipelines/QueueNotice";
-import { StageGraph, StatusIcon } from "../components/pipelines/Stages";
-import { Badge, Button, buttonClass, EmptyState, Input, PageBody, Spinner } from "../components/ui";
+import { RunDiagram } from "../components/pipelines/RunDiagram";
+import { StatusIcon } from "../components/pipelines/Stages";
+import {
+  Badge,
+  Button,
+  buttonClass,
+  EmptyState,
+  Input,
+  PageBody,
+  RelativeTime,
+  Spinner,
+} from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { formatDateTime } from "../lib/format";
 import { duration, formatBytes, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
 import { teamHref } from "../lib/routes";
-import { formatRelative, vaultErrorMessage } from "../lib/vault";
+import { vaultErrorMessage } from "../lib/vault";
 
 /** Colour codes some tools print even when asked not to. */
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, "g");
@@ -135,6 +145,11 @@ export function PipelineRunPage() {
   // Where the run went wrong: the first failed step, shown at the top and scrolled to.
   const failure = steps.find((step) => step.status === "failed" || step.status === "timed_out");
   const [focus, setFocus] = useState(0);
+  /** A step picked in the diagram: its log opens and comes into view. */
+  const [opened, setOpened] = useState<{ id: string | null; count: number }>({
+    id: null,
+    count: 0,
+  });
 
   if (run.isLoading || !detail) {
     return (
@@ -208,7 +223,7 @@ export function PipelineRunPage() {
                   <Server size={12} /> {detail.runner}
                 </span>
               )}
-              <span>{formatRelative(detail.createdAt)}</span>
+              <RelativeTime value={detail.createdAt} />
               {detail.startedAt && (
                 <span>took {duration(detail.startedAt, detail.finishedAt)}</span>
               )}
@@ -251,6 +266,46 @@ export function PipelineRunPage() {
             )}
           </div>
         </header>
+
+        <dl className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border-default bg-border-default sm:grid-cols-3 lg:grid-cols-5">
+          {[
+            {
+              label: "Status",
+              value: (
+                <span className="flex items-center gap-1.5">
+                  <StatusIcon status={detail.status} /> {status.label}
+                </span>
+              ),
+            },
+            {
+              label: "Duration",
+              value: detail.startedAt
+                ? duration(detail.startedAt, detail.finishedAt)
+                : "Not started",
+            },
+            {
+              label: "Started",
+              value: <RelativeTime value={detail.startedAt ?? detail.createdAt} />,
+            },
+            {
+              label: "Triggered by",
+              value: detail.triggeredBy ? detail.triggeredBy.name : TRIGGER_WORDS[detail.trigger],
+            },
+            {
+              label: "Steps",
+              value: `${steps.filter((step) => step.status === "passed").length} of ${steps.length} passed`,
+            },
+          ].map((item, index, all) => (
+            <div
+              key={item.label}
+              // The last fills the row when the columns do not divide evenly.
+              className={`min-w-0 bg-surface px-4 py-3 ${index === all.length - 1 ? "col-span-2 lg:col-span-1" : ""}`}
+            >
+              <dt className="text-xs text-fg-muted">{item.label}</dt>
+              <dd className="mt-1 truncate text-sm font-medium text-fg">{item.value}</dd>
+            </div>
+          ))}
+        </dl>
 
         {detail.status === "queued" && <QueueNotice queue={detail.queue} />}
 
@@ -315,13 +370,19 @@ export function PipelineRunPage() {
 
         {/* A run that could not start (no file at that commit) has no steps to show. */}
         {stages.length > 0 && (
-          <section className="mb-4 rounded-md border border-border-default bg-surface-subtle p-3">
-            <StageGraph
+          <section className="mb-4">
+            <RunDiagram
               stages={stages}
-              groups={detail?.stageGroups}
+              steps={steps}
+              groups={detail?.stageGroups ?? []}
               needs={detail?.stageNeeds ?? null}
               selected={selected}
-              onSelect={setPicked}
+              onSelectStage={setPicked}
+              onSelectStep={(step) => {
+                setPicked(step.stageIndex);
+                setView("stages");
+                setOpened({ id: step.id, count: opened.count + 1 });
+              }}
             />
           </section>
         )}
@@ -393,7 +454,13 @@ export function PipelineRunPage() {
                 step={step}
                 lines={byStep.get(step.id) ?? []}
                 query={query}
-                focus={step.id === failure?.id && !active ? focus + 1 : 0}
+                focus={
+                  step.id === opened.id
+                    ? opened.count + 1000
+                    : step.id === failure?.id && !active
+                      ? focus + 1
+                      : 0
+                }
               />
             ))}
             {selected === stages[stages.length - 1]?.index && finishLines.length > 0 && (

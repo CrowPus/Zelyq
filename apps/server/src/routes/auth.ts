@@ -1,11 +1,16 @@
 import {
   acceptInviteSchema,
   changePasswordSchema,
+  confirmTwoFactorSchema,
+  enableTwoFactorSchema,
   forgotPasswordSchema,
   isZelyqError,
   loginSchema,
+  loginTwoFactorSchema,
+  preferencesSchema,
   registerSchema,
   resetPasswordSchema,
+  setupTwoFactorSchema,
   updateProfileSchema,
   ZelyqError,
 } from "@zelyq/core";
@@ -34,6 +39,14 @@ export function registerAuthRoutes(
       secure: request.protocol === "https",
       maxAge: (await deps.sessionTtlDays()) * 24 * 60 * 60,
     });
+    // Every way in passes here, so every session gets its device noted for
+    // the owner's list of signed-in devices. Best-effort: it is a label.
+    await deps.auth
+      .describeSession(token, {
+        userAgent: request.headers["user-agent"] ?? null,
+        ip: request.ip ?? null,
+      })
+      .catch(() => undefined);
   };
 
   const setOidcStateCookie = (request: FastifyRequest, reply: FastifyReply, value: string) => {
@@ -76,6 +89,9 @@ export function registerAuthRoutes(
     async (request, reply) => {
       const input = resetPasswordSchema.parse(request.body);
       const user = await deps.links.resetPassword(input.token, input.password);
+      // The link proves the email, not the phone: with two-factor on, the new
+      // password is set but signing in still asks for a code.
+      if (user.twoFactorEnabled) return { signInAgain: true };
       await setSessionCookie(request, reply, await deps.links.session(user.id));
       return await deps.auth.describe(user);
     },
@@ -157,6 +173,11 @@ export function registerAuthRoutes(
           state: signedState,
           verifier,
         });
+        // Two-factor on: no cookie; the sign-in screen asks for the code. The
+        // challenge rides after the #, which never reaches a server or a log.
+        if ("challenge" in result) {
+          return reply.redirect(`/signin#two-factor=${encodeURIComponent(result.challenge)}`);
+        }
         await setSessionCookie(request, reply, result.token);
         return reply.redirect(back ?? "/signin");
       } catch (error) {
@@ -181,9 +202,83 @@ export function registerAuthRoutes(
 
   app.post("/api/auth/login", async (request, reply) => {
     const input = loginSchema.parse(request.body);
-    const { user, token } = await deps.auth.login(input);
+    const result = await deps.auth.login(input);
+    // Two-factor on: no cookie yet, only the challenge the code completes.
+    if ("challenge" in result) return { twoFactor: { challenge: result.challenge } };
+    await setSessionCookie(request, reply, result.token);
+    return await deps.auth.describe(result.user);
+  });
+
+  app.post("/api/auth/login/two-factor", async (request, reply) => {
+    const input = loginTwoFactorSchema.parse(request.body);
+    const { user, token } = await deps.auth.completeTwoFactorLogin(input);
     await setSessionCookie(request, reply, token);
     return await deps.auth.describe(user);
+  });
+
+  const signedIn = (request: FastifyRequest) => {
+    const user = request.zelyqUser;
+    if (!user) throw new ZelyqError("unauthorized", "Sign in to continue.");
+    return user;
+  };
+
+  /** What the Security page shows: whether a code is asked, and how many recovery codes are left. */
+  app.get("/api/auth/two-factor", async (request) => {
+    const user = signedIn(request);
+    return {
+      enabled: Boolean(user.twoFactorEnabled),
+      recoveryCodesLeft: user.twoFactorEnabled ? await deps.auth.recoveryCodesLeft(user.id) : 0,
+    };
+  });
+
+  app.post("/api/auth/two-factor/setup", async (request) => {
+    const user = signedIn(request);
+    const { password } = setupTwoFactorSchema.parse(request.body);
+    return await deps.auth.setupTwoFactor(user, password);
+  });
+
+  app.post("/api/auth/two-factor/enable", async (request) => {
+    const user = signedIn(request);
+    const { code } = enableTwoFactorSchema.parse(request.body);
+    return await deps.auth.enableTwoFactor(user, code);
+  });
+
+  app.post("/api/auth/two-factor/disable", async (request, reply) => {
+    const user = signedIn(request);
+    await deps.auth.disableTwoFactor(user, confirmTwoFactorSchema.parse(request.body));
+    reply.status(204);
+  });
+
+  app.post("/api/auth/two-factor/recovery-codes", async (request) => {
+    const user = signedIn(request);
+    return await deps.auth.regenerateRecoveryCodes(
+      user,
+      confirmTwoFactorSchema.parse(request.body),
+    );
+  });
+
+  /** The person's signed-in devices. */
+  app.get("/api/auth/sessions", async (request) => {
+    const user = signedIn(request);
+    return { sessions: await deps.auth.listSessions(user, request.cookies[SESSION_COOKIE]) };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/auth/sessions/:id", async (request, reply) => {
+    const user = signedIn(request);
+    await deps.auth.revokeSession(user, request.params.id);
+    reply.status(204);
+  });
+
+  /** Signs every other device out; this one stays signed in. */
+  app.delete("/api/auth/sessions", async (request) => {
+    const user = signedIn(request);
+    return { ended: await deps.auth.revokeOtherSessions(user, request.cookies[SESSION_COOKIE]) };
+  });
+
+  app.patch("/api/auth/preferences", async (request) => {
+    const user = signedIn(request);
+    const updated = await deps.auth.setPreferences(user, preferencesSchema.parse(request.body));
+    return await deps.auth.describe(updated);
   });
 
   app.post("/api/auth/logout", async (request, reply) => {

@@ -45,6 +45,11 @@ export const userSchema = z.object({
   name: z.string(),
   instanceRole: instanceRoleSchema,
   createdAt: z.string().datetime(),
+  /** Whether signing in also asks for a code from an authenticator app. */
+  twoFactorEnabled: z.boolean().optional(),
+  /** The person's language (BCP 47) and IANA time zone; null or absent: the browser's own. */
+  locale: z.string().nullable().optional(),
+  timeZone: z.string().nullable().optional(),
 });
 export type User = z.infer<typeof userSchema>;
 
@@ -69,6 +74,73 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+/** A 6-digit authenticator code, or a recovery code (spaces and dashes ignored). */
+export const twoFactorCodeSchema = z
+  .string()
+  .trim()
+  .min(6, "Enter the 6-digit code")
+  .max(40)
+  .transform((value) => value.replace(/[\s-]/g, ""));
+
+/** The second step of signing in, when the account has two-factor sign-in on. */
+export const loginTwoFactorSchema = z.object({
+  challenge: z.string().min(16).max(200),
+  code: twoFactorCodeSchema,
+});
+
+/** Turning two-factor sign-in on: the first code proves the app was set up. */
+export const enableTwoFactorSchema = z.object({ code: twoFactorCodeSchema });
+
+/** Turning it off, or making new recovery codes: the password, and a code. */
+export const confirmTwoFactorSchema = z.object({
+  password: z.string().min(1).max(200),
+  code: twoFactorCodeSchema,
+});
+
+/** Starting set-up asks for the password: an open session alone is not enough. */
+export const setupTwoFactorSchema = z.object({ password: z.string().min(1).max(200) });
+
+function isTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isLocale(value: string): boolean {
+  try {
+    return Intl.getCanonicalLocales(value).length === 1;
+  } catch {
+    return false;
+  }
+}
+
+/** The person's language and time zone. Null puts either back to the browser's own. */
+export const preferencesSchema = z.object({
+  locale: z.string().max(35).refine(isLocale, "That is not a language tag").nullable().optional(),
+  timeZone: z.string().max(64).refine(isTimeZone, "That is not a time zone").nullable().optional(),
+});
+export type PreferencesInput = z.infer<typeof preferencesSchema>;
+
+/** One signed-in browser or device, as its owner sees it. */
+export interface SignedInSession {
+  id: string;
+  /** This is the session the request came from. */
+  current: boolean;
+  userAgent: string | null;
+  ip: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+}
+
+/** What signing in with a password answers when a code is needed next. */
+export interface TwoFactorRequired {
+  twoFactor: { challenge: string };
+}
 
 export const updateProfileSchema = z
   .object({

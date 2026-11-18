@@ -63,7 +63,12 @@ export function ResetPasswordPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.resetPassword({ token, password });
+      const result = await api.resetPassword({ token, password });
+      if ("signInAgain" in result) {
+        // Two-factor on: the link proved the email, not the phone.
+        navigate("/signin", { replace: true, state: { notice: "passwordChanged" } });
+        return;
+      }
       refresh();
       navigate("/", { replace: true });
     } catch (caught) {
