@@ -36,7 +36,7 @@ import {
   toast,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
-import { api } from "../lib/api";
+import { ApiError, api } from "../lib/api";
 import { AUDIT_ACTION_LABELS, auditDetailSummary } from "../lib/audit";
 import { formatDateTime } from "../lib/format";
 import { useTeamPaths } from "../lib/routes";
@@ -70,7 +70,11 @@ export function AppDetailPage({ tab }: { tab: "overview" | "settings" }) {
         ) : project.isError || !current ? (
           <ErrorState
             title="This app could not be opened"
-            error={project.error}
+            error={
+              project.error instanceof ApiError && project.error.status === 404
+                ? "It may have been deleted, or it belongs to a team you are not in."
+                : project.error
+            }
             onRetry={() => project.refetch()}
             action={
               <Link to={p.apps} className={buttonClass("secondary")}>

@@ -306,7 +306,7 @@ export function SettingsPage() {
 
   if (settings.isLoading) {
     return (
-      <AppShell crumbs={[{ label: "Server administration" }]}>
+      <AppShell crumbs={[{ label: "Server administration" }]} scope="global">
         <div className="grid h-full place-items-center">
           <Spinner />
         </div>
@@ -316,7 +316,7 @@ export function SettingsPage() {
 
   if (settings.isError) {
     return (
-      <AppShell crumbs={[{ label: "Server administration" }]}>
+      <AppShell crumbs={[{ label: "Server administration" }]} scope="global">
         <div className="grid h-full place-items-center px-6 text-center">
           <div>
             <p className="text-sm text-fg">{(settings.error as Error).message}</p>
@@ -330,7 +330,7 @@ export function SettingsPage() {
   }
 
   return (
-    <AppShell crumbs={[{ label: "Server administration" }]}>
+    <AppShell crumbs={[{ label: "Server administration" }]} scope="global">
       <PageBody>
         <PageHeader
           title="Server administration"

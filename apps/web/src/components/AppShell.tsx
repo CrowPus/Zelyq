@@ -111,11 +111,14 @@ export function AppShell({
   actions,
   children,
   app,
+  scope = "team",
 }: {
   crumbs: Crumb[];
   actions?: ReactNode;
   children: ReactNode;
   app?: ShellApp;
+  /** "global" for pages that are not a team's (account, server admin, docs): the tab title leaves the team out. */
+  scope?: "team" | "global";
 }) {
   const [railOpen, setRailOpen] = useState(readRailOpen);
   const [mobileNav, setMobileNav] = useState(false);
@@ -146,7 +149,11 @@ export function AppShell({
   useEffect(() => setMobileNav(false), [pathname]);
 
   // "Page · App · Team — Zelyq", so a person with many tabs can find this one.
-  const title = [crumbs.length ? crumbs[crumbs.length - 1]!.label : null, app?.name, team?.name]
+  const title = [
+    crumbs.length ? crumbs[crumbs.length - 1]!.label : null,
+    app?.name,
+    scope === "team" ? team?.name : null,
+  ]
     .filter((part, i, all) => part && all.indexOf(part) === i)
     .join(" · ");
   useEffect(() => {
@@ -411,9 +418,15 @@ function SidebarContent({
         )}
       </div>
 
+      {/* On a phone the breadcrumb has no room for the team, so the drawer carries it. */}
+      {onClose && (
+        <div className="border-b border-border-default px-3 pb-3">
+          <TeamSwitcher />
+        </div>
+      )}
       <nav
         aria-label="Primary"
-        className={`min-h-0 flex-1 overflow-y-auto pb-3 ${open ? "px-3" : "px-2"}`}
+        className={`min-h-0 flex-1 overflow-y-auto pt-2 pb-3 ${open ? "px-3" : "px-2"}`}
       >
         {app && (
           <div className="mb-3">
@@ -825,7 +838,7 @@ function AppSwitcher({ app }: { app: ShellApp }) {
   // Switching apps keeps the section you were looking at.
   const section: "overview" | "settings" | "build" = pathname.endsWith("/overview")
     ? "overview"
-    : pathname.endsWith("/admin")
+    : pathname.endsWith("/settings")
       ? "settings"
       : "build";
 
@@ -855,6 +868,14 @@ function AppSwitcher({ app }: { app: ShellApp }) {
           placeholder="Find an app"
           aria-label="Find an app"
           autoFocus
+          onKeyDown={(event) => {
+            // Enter opens the first match, so the keyboard alone is enough.
+            if (event.key === "Enter" && apps[0]) {
+              event.preventDefault();
+              setOpen(false);
+              navigate(p.app(apps[0].id, section));
+            }
+          }}
         />
       </div>
       <ul className="max-h-80 overflow-y-auto py-1">

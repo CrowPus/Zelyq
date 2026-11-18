@@ -473,7 +473,9 @@ export function ChatPanel({
         return;
       }
       if (figmaConnection.data && !figmaConnection.data.connection) {
-        setCommandError("Connect Figma in Settings first, then try /figma again.");
+        setCommandError(
+          "Connect Figma in Team settings → Integrations first, then try /figma again.",
+        );
         return;
       }
     }

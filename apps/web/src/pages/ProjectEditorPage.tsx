@@ -47,7 +47,7 @@ import {
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useChatSocket } from "../hooks/useChatSocket";
-import { api } from "../lib/api";
+import { ApiError, api } from "../lib/api";
 import { MAX_UPLOAD_BYTES, uploadTargetPath } from "../lib/files";
 import type { SelectedElement } from "../lib/inspector";
 import { type AppPanel, useTeamPaths } from "../lib/routes";
@@ -201,7 +201,11 @@ export function ProjectEditorPage() {
       <AppShell crumbs={[{ label: "Not found" }]}>
         <ErrorState
           title="This app could not be opened"
-          error={project.error}
+          error={
+            project.error instanceof ApiError && project.error.status === 404
+              ? "It may have been deleted, or it belongs to a team you are not in."
+              : project.error
+          }
           onRetry={() => project.refetch()}
           action={
             <Link to={p.apps} className={buttonClass("secondary")}>

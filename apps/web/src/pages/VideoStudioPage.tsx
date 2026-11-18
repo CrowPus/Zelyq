@@ -373,10 +373,10 @@ export function VideoStudioPage() {
                 This provider needs a video API key.{" "}
                 {user?.instanceRole === "admin" ? (
                   <Link to="/admin#video-generation" className="underline">
-                    Configure video in Settings
+                    Configure video in Server admin
                   </Link>
                 ) : (
-                  "Ask an administrator to configure video in Settings."
+                  "Ask an administrator to configure video in Server admin."
                 )}
               </p>
             )}

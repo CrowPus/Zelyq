@@ -32,6 +32,7 @@ import {
   PageBody,
   PageHeader,
   Spinner,
+  Tabs,
   Textarea,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
@@ -126,36 +127,19 @@ export function OpsPage() {
           />
         ) : (
           <>
-            <nav
-              className="flex gap-1 overflow-x-auto border-b border-border-default"
-              aria-label="Ops"
-            >
-              {(["talk", "status", "alerts", "memory", "access", "settings"] as const).map(
-                (name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => setTab(name)}
-                    className={`-mb-px shrink-0 border-b-2 px-3 py-1.5 text-sm whitespace-nowrap ${
-                      tab === name
-                        ? "border-primary font-medium text-fg"
-                        : "border-transparent text-fg-secondary hover:text-fg"
-                    }`}
-                  >
-                    {
-                      {
-                        talk: "Talk",
-                        status: "Status",
-                        alerts: "Alerts",
-                        memory: "Memory",
-                        access: "Access",
-                        settings: "Settings",
-                      }[name]
-                    }
-                  </button>
-                ),
-              )}
-            </nav>
+            <Tabs
+              label="Ops"
+              value={tab}
+              onChange={(name) => setTab(name)}
+              items={[
+                { id: "talk", label: "Talk" },
+                { id: "status", label: "Status" },
+                { id: "alerts", label: "Alerts" },
+                { id: "memory", label: "Memory" },
+                { id: "access", label: "Access" },
+                { id: "settings", label: "Settings" },
+              ]}
+            />
             {tab === "talk" && <TalkTab teamId={teamId} canTalk={canTalk} paused={status.paused} />}
             {tab === "status" && (
               <StatusTab teamId={teamId} canAnswer={canTalk} isAdmin={isAdmin} />
@@ -305,7 +289,7 @@ function TalkTab({
         <form onSubmit={send} className="border-t border-border-default p-3">
           {paused && (
             <p className="mb-2 text-xs text-warning">
-              Ops is paused. An admin resumes it in Settings.
+              Ops is paused. An admin resumes it on the Settings tab above.
             </p>
           )}
           {(error || live.error) && (

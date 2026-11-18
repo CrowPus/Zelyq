@@ -87,7 +87,7 @@ export function VaultPage() {
       <PageBody width="standard">
         <PageHeader
           title="Vault"
-          description="Keep a credential here once, encrypted, and use it anywhere: in an app's Variables, in Settings, or from your own servers with a service key."
+          description="Keep a credential here once, encrypted, and use it anywhere: in an app's Variables, in settings, or from your own servers with a service key."
           actions={
             (teams.length > 1 || isInstanceAdmin) && (
               <label className="flex items-center gap-2 text-sm text-fg-secondary">

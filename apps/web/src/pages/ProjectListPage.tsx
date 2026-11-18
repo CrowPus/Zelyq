@@ -574,51 +574,54 @@ function NewAppDialog({
             />
             {source === "stack" ? (
               <div role="radiogroup" aria-label="Stack" className="grid gap-2 sm:grid-cols-2">
-                {templates.map((option) => {
-                  const active = option.name === template;
-                  return (
-                    // biome-ignore lint/a11y/useSemanticElements: a card radio, roles set explicitly.
-                    <button
-                      key={option.name}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      onClick={() => setTemplate(option.name)}
-                      onDoubleClick={() => {
-                        setTemplate(option.name);
-                        setStep(2);
-                      }}
-                      className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-[border-color,box-shadow,background-color] ${
-                        active
-                          ? "border-accent bg-accent-subtle shadow-[0_0_0_1px_var(--accent)]"
-                          : "border-border-default bg-surface hover:border-border-strong hover:bg-surface-hover"
-                      }`}
-                    >
-                      {option.icon ? (
-                        <img
-                          src={`/${option.icon}`}
-                          alt=""
-                          width={36}
-                          height={36}
-                          className="size-9 shrink-0 object-contain"
-                        />
-                      ) : (
-                        <span
-                          aria-hidden
-                          className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-active text-sm font-semibold text-fg-secondary"
-                        >
-                          {option.title.slice(0, 1)}
+                {/* The default stack first: it is the one already chosen. */}
+                {[...templates]
+                  .sort((a, b) => Number(b.name === "vite-react") - Number(a.name === "vite-react"))
+                  .map((option) => {
+                    const active = option.name === template;
+                    return (
+                      // biome-ignore lint/a11y/useSemanticElements: a card radio, roles set explicitly.
+                      <button
+                        key={option.name}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setTemplate(option.name)}
+                        onDoubleClick={() => {
+                          setTemplate(option.name);
+                          setStep(2);
+                        }}
+                        className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-[border-color,box-shadow,background-color] ${
+                          active
+                            ? "border-accent bg-accent-subtle shadow-[0_0_0_1px_var(--accent)]"
+                            : "border-border-default bg-surface hover:border-border-strong hover:bg-surface-hover"
+                        }`}
+                      >
+                        {option.icon ? (
+                          <img
+                            src={`/${option.icon}`}
+                            alt=""
+                            width={36}
+                            height={36}
+                            className="size-9 shrink-0 object-contain"
+                          />
+                        ) : (
+                          <span
+                            aria-hidden
+                            className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-active text-sm font-semibold text-fg-secondary"
+                          >
+                            {option.title.slice(0, 1)}
+                          </span>
+                        )}
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium text-fg">{option.title}</span>
+                          <span className="mt-0.5 block text-xs leading-4 text-fg-secondary">
+                            {option.description}
+                          </span>
                         </span>
-                      )}
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-fg">{option.title}</span>
-                        <span className="mt-0.5 block text-xs leading-4 text-fg-secondary">
-                          {option.description}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
               </div>
             ) : (
               <div className="flex flex-col gap-3">

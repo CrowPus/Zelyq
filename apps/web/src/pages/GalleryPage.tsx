@@ -107,7 +107,7 @@ export function GalleryPage() {
 
   if (user?.instanceRole !== "admin") {
     return (
-      <AppShell crumbs={[{ label: "Components" }]}>
+      <AppShell crumbs={[{ label: "Components" }]} scope="global">
         <EmptyState
           title="For server admins"
           description="The component gallery is a tool for the people building Zelyq."
@@ -170,7 +170,7 @@ export function GalleryPage() {
   ];
 
   return (
-    <AppShell crumbs={[{ label: "Components" }]}>
+    <AppShell crumbs={[{ label: "Components" }]} scope="global">
       <PageBody>
         <PageHeader
           title="Components"

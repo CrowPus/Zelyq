@@ -303,7 +303,7 @@ export function HomePage() {
                       <StatTile
                         key={line.key}
                         label={line.label}
-                        value={`${formatNumber(line.used)}${
+                        value={`${formatNumber(line.used, { maximumFractionDigits: line.unit === "MB" ? 2 : 0 })}${
                           line.limit === null ? "" : ` / ${formatNumber(line.limit)}`
                         }${line.unit ? ` ${line.unit}` : ""}`}
                         meter={line.limit ? line.used / line.limit : undefined}

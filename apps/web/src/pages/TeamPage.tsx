@@ -152,7 +152,7 @@ export function TeamPage() {
           <p className="mt-2 text-2xs text-fg-muted">
             {canInvite
               ? "Someone with an account joins straight away. Anyone else gets an invitation email, valid for 7 days."
-              : "Only people who already have an account can be added. To invite anyone by email, an instance admin turns on invitations in Settings → Email."}
+              : "Only people who already have an account can be added. To invite anyone by email, a server admin turns on invitations in Server admin → Email."}
           </p>
         )}
 

@@ -28,8 +28,7 @@ export function Tabs<T extends string>({
 }) {
   return (
     <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-      <div
-        role="tablist"
+      <nav
         aria-label={label}
         className="flex min-w-max items-center gap-1 border-b border-border-default"
       >
@@ -57,8 +56,7 @@ export function Tabs<T extends string>({
               <Link
                 key={item.id}
                 to={item.to}
-                role="tab"
-                aria-selected={active}
+                aria-current={active ? "page" : undefined}
                 className={className}
                 onClick={() => onChange?.(item.id)}
               >
@@ -68,8 +66,7 @@ export function Tabs<T extends string>({
               <button
                 key={item.id}
                 type="button"
-                role="tab"
-                aria-selected={active}
+                aria-pressed={active}
                 className={className}
                 onClick={() => onChange?.(item.id)}
               >
@@ -77,7 +74,7 @@ export function Tabs<T extends string>({
               </button>
             );
           })}
-      </div>
+      </nav>
     </div>
   );
 }

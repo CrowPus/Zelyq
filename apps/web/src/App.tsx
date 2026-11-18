@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
 import {
   BrowserRouter,
+  Link,
   Navigate,
   Outlet,
   Route,
@@ -12,7 +13,7 @@ import {
 import { AppShell } from "./components/AppShell";
 import { CommandPalette } from "./components/CommandPalette";
 import {
-  Button,
+  buttonClass,
   ConfirmHost,
   EmptyState,
   ErrorBoundary,
@@ -127,7 +128,7 @@ function Gate() {
 
         {/* Old addresses, so every bookmark, email and Inbox link still lands. */}
         <Route path="/" element={<ToTeam />} />
-        <Route path="/settings" element={<Navigate to={{ pathname: "/admin" }} replace />} />
+        <Route path="/settings" element={<ToAdmin />} />
         <Route path="/projects/:id" element={<LegacyApp />} />
         <Route path="/teams/:id" element={<LegacyTeam section="members" />} />
         <Route path="/teams/:id/settings" element={<LegacyTeam section="settings" />} />
@@ -194,6 +195,12 @@ function ToTeam({ rest, keepPath }: { rest?: string; keepPath?: boolean }) {
   return <Navigate to={`${base}${path}${location.search}${location.hash}`} replace />;
 }
 
+/** `/settings#email` → `/admin#email`: the old server-settings links keep their section. */
+function ToAdmin() {
+  const location = useLocation();
+  return <Navigate to={`/admin${location.search}${location.hash}`} replace />;
+}
+
 function LegacyApp() {
   const { id = "" } = useParams();
   const location = useLocation();
@@ -230,8 +237,9 @@ function NotFound({ what = "page" }: { what?: "page" | "team" }) {
   const { team } = useActiveTeam();
   const home = team ? teamPaths(teamKey(team)).home : "/";
   return (
-    <AppShell crumbs={[{ label: "Not found" }]}>
+    <AppShell crumbs={[{ label: "Not found" }]} scope="global">
       <EmptyState
+        headingLevel={1}
         title={what === "team" ? "This team isn’t one of yours" : "This page doesn’t exist"}
         description={
           what === "team"
@@ -239,9 +247,9 @@ function NotFound({ what = "page" }: { what?: "page" | "team" }) {
             : "The address may be mistyped, or what it pointed to has been moved or deleted."
         }
         action={
-          <Button variant="primary" onClick={() => window.location.assign(home)}>
+          <Link to={home} className={buttonClass("primary")}>
             Go to your Home
-          </Button>
+          </Link>
         }
       />
     </AppShell>

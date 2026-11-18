@@ -17,7 +17,7 @@ export function ProfilePage() {
   const accounts = user.instanceRole === "admin" ? null : (session?.accounts ?? null);
 
   return (
-    <AppShell crumbs={[{ label: "Account" }]}>
+    <AppShell crumbs={[{ label: "Account" }]} scope="global">
       <PageBody width="narrow">
         <PageHeader
           title="Account"

@@ -284,8 +284,8 @@ export function ImageStudioPage() {
               <p className="font-medium text-fg">Connect an image model to get started</p>
               <p className="mt-1 text-fg-secondary">
                 {user?.instanceRole === "admin"
-                  ? "Add this provider’s image API key in Settings. Image generation is billed to that key."
-                  : "Ask your administrator to add an image API key in Settings."}
+                  ? "Add this provider’s image API key in Server admin. Image generation is billed to that key."
+                  : "Ask your administrator to add an image API key in Server admin."}
               </p>
             </div>
             {user?.instanceRole === "admin" && (

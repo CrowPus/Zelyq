@@ -22,12 +22,14 @@ export function PageBody({
   children: ReactNode;
   className?: string;
 }) {
+  // Narrow pages share the standard frame and its left edge, so the title
+  // never jumps sideways when moving between pages; only the content is
+  // kept to a readable measure.
+  const frame = width === "full" ? WIDTHS.full : WIDTHS.standard;
   return (
     <div className="h-full overflow-y-auto">
-      <div
-        className={`mx-auto w-full px-4 pt-6 pb-16 sm:px-6 lg:pt-8 ${WIDTHS[width]} ${className}`}
-      >
-        {children}
+      <div className={`mx-auto w-full px-4 pt-6 pb-16 sm:px-6 lg:pt-8 ${frame}`}>
+        <div className={`${width === "narrow" ? WIDTHS.narrow : ""} ${className}`}>{children}</div>
       </div>
     </div>
   );

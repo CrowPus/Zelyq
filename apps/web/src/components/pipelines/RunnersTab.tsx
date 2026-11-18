@@ -102,7 +102,7 @@ function LocalRunnerNote({ status }: { status: LocalRunnerStatus | null }) {
         <p>
           <span className="font-medium text-fg">Local runner</span> — always here. A pipeline with{" "}
           <code className="font-mono">runs-on: local</code> runs on this Zelyq server, in a fresh
-          container that is thrown away afterwards. An instance admin can change this in Settings →
+          container that is thrown away afterwards. A server admin can change this in Server admin →
           Pipelines.
         </p>
         {status && !status.off && (

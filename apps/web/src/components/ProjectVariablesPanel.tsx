@@ -83,7 +83,10 @@ export function ProjectVariablesPanel({
       description={
         <>
           What this app is given, encrypted. Type a value, or take one from your team's{" "}
-          <Link to={vaultPath} className="text-accent hover:underline">
+          <Link
+            to={vaultPath}
+            className="text-accent underline underline-offset-2 hover:no-underline"
+          >
             Vault
           </Link>
           . Never sent to the browser or to the agent.

@@ -124,6 +124,7 @@ export function EmptyState({
   action,
   secondary,
   compact = false,
+  headingLevel = 0,
 }: {
   icon?: ReactNode;
   title: string;
@@ -131,6 +132,8 @@ export function EmptyState({
   action?: ReactNode;
   secondary?: ReactNode;
   compact?: boolean;
+  /** 1 when the empty state is the whole page (not found), so it has a heading. */
+  headingLevel?: 0 | 1 | 2;
 }) {
   return (
     <div
@@ -141,7 +144,13 @@ export function EmptyState({
           {icon}
         </div>
       )}
-      <p className="text-base font-semibold text-fg">{title}</p>
+      {headingLevel === 1 ? (
+        <h1 className="text-lg font-semibold text-fg">{title}</h1>
+      ) : headingLevel === 2 ? (
+        <h2 className="text-base font-semibold text-fg">{title}</h2>
+      ) : (
+        <p className="text-base font-semibold text-fg">{title}</p>
+      )}
       <div className="max-w-md text-sm leading-relaxed text-fg-secondary">{description}</div>
       {(action || secondary) && (
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
