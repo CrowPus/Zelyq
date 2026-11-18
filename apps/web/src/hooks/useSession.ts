@@ -1,7 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { accountServiceLinks, type SessionResponse } from "@zelyq/core";
 import { useCallback } from "react";
-import { ApiError, api } from "../lib/api";
+import { ApiError, api, dropEarly } from "../lib/api";
 
 /**
  * Ends the local session and drops everything cached for the previous user.
@@ -14,6 +14,7 @@ import { ApiError, api } from "../lib/api";
  * torn out from under them again.
  */
 export function clearSessionCache(queryClient: QueryClient): void {
+  dropEarly();
   queryClient.setQueryData(["session"], null);
   queryClient.removeQueries({
     predicate: (query) => query.queryKey[0] !== "session",

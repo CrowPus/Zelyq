@@ -118,7 +118,7 @@ function preloadPages(): Plugin {
             early,
           ];
         });
-        const script = `(()=>{var f=${JSON.stringify(files)},r=${JSON.stringify(routes)},p=location.pathname;for(var i=0;i<r.length;i++)if(new RegExp(r[i][0]).test(p)){r[i][1].forEach(function(n){var l=document.createElement("link");l.rel="modulepreload";l.crossOrigin="";l.href="/"+f[n];document.head.appendChild(l)});var e=window.__zelyqEarly;if(e)r[i][2].forEach(function(a){e[a]=fetch("/api"+a,{credentials:"same-origin"})});break}})()`;
+        const script = `(()=>{var f=${JSON.stringify(files)},r=${JSON.stringify(routes)},p=location.pathname;for(var i=0;i<r.length;i++)if(new RegExp(r[i][0]).test(p)){r[i][1].forEach(function(n){var l=document.createElement("link");l.rel="modulepreload";l.crossOrigin="";l.href="/"+f[n];document.head.appendChild(l)});var e=window.__zelyqEarly;if(e)r[i][2].forEach(function(a){var q=fetch("/api"+a,{credentials:"same-origin"});q.catch(function(){});e[a]=q});break}})()`;
         // In place of the marker, above the stylesheet: an inline script after
         // a stylesheet waits for it to load, and this one should not wait.
         const marker = /<!-- zelyq:preload-pages[\s\S]*?-->/;

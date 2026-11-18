@@ -212,16 +212,32 @@ declare global {
   }
 }
 
-/** A request index.html already started, taken once; a later ask fetches anew. */
+/** How long after the page loads an early answer may still be used. */
+const EARLY_FOR_MS = 15_000;
+
+/** Forgets every early answer: on any change of who is signed in. */
+export function dropEarly(): void {
+  if (typeof window !== "undefined") window.__zelyqEarly = {};
+}
+
+/**
+ * A request index.html already started, taken once; a later ask fetches anew.
+ * Only a successful answer from the first moments of the page counts: an
+ * answer nobody took then may belong to someone who has since signed out.
+ */
 async function takeEarly(path: string): Promise<Response | null> {
   if (typeof window === "undefined") return null;
   const early = window.__zelyqEarly?.[path];
   if (!early) return null;
   delete window.__zelyqEarly?.[path];
-  return await early.catch(() => null);
+  if (performance.now() > EARLY_FOR_MS) return null;
+  const response = await early.catch(() => null);
+  return response?.ok ? response : null;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Signing in, up or out changes whose answers these would be.
+  if (/^\/auth\/(login|register|logout)/.test(path)) dropEarly();
   const response =
     (!init && (await takeEarly(path))) ||
     (await fetch(`/api${path}`, {

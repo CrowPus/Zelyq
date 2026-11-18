@@ -31,9 +31,9 @@
         // Who is signed in is the app's first question: ask it now, while the
         // code downloads, instead of after it has run (lib/api.ts takes it).
         try {
-          window.__zelyqEarly = {
-            "/auth/me": fetch("/api/auth/me", { credentials: "same-origin" }),
-          };
+          const me = fetch("/api/auth/me", { credentials: "same-origin" });
+          me.catch(() => {}); // A failure is handled where it is taken (lib/api.ts).
+          window.__zelyqEarly = { "/auth/me": me };
         } catch {}
       })();
     </script>
