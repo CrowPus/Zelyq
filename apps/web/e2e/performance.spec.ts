@@ -4,8 +4,14 @@ import { chromium, expect, test } from "@playwright/test";
 import lighthouse from "lighthouse";
 
 /**
- * How fast the main pages load, measured by Lighthouse the way it measures a
- * mid-range phone on 4G, against the budgets in scripts/perf-budget.json.
+ * How fast the main pages load, measured by Lighthouse on a browser slowed to
+ * a mid-range phone on 4G, against the budgets in scripts/perf-budget.json.
+ *
+ * The slowing is applied, not simulated. Lighthouse's default simulation
+ * estimates a page from which requests block which; an app that draws a
+ * skeleton and starts its requests from index.html fools it into reporting
+ * the real content at the skeleton's time. Applied, every request really pays
+ * the phone's latency and the page is timed as it actually appears.
  * Each page is measured three times and the middle result counts, because a
  * shared CI machine is not always as fast as itself.
  *
@@ -80,6 +86,14 @@ test("main pages load within their budgets", async ({ page, baseURL }) => {
           logLevel: "error",
           onlyCategories: ["performance", "accessibility"],
           extraHeaders: { Cookie: cookie },
+          // Lighthouse's own figures for a mid-range phone on 4G, applied.
+          throttlingMethod: "devtools",
+          throttling: {
+            requestLatencyMs: 562.5,
+            downloadThroughputKbps: 1474.56,
+            uploadThroughputKbps: 675,
+            cpuSlowdownMultiplier: 4,
+          },
         });
         if (!result) throw new Error(`Lighthouse returned nothing for ${name}`);
         const { audits, categories } = result.lhr;

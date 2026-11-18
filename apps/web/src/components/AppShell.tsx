@@ -50,8 +50,8 @@ import { t } from "../lib/i18n";
 import { roleName } from "../lib/roles";
 import { globalPaths, type TeamPaths, teamKey, teamPaths, useTeamPaths } from "../lib/routes";
 import { AnnouncementBanner } from "./AnnouncementBanner";
-import { openCommandPalette, openShortcuts } from "./CommandPalette";
-import { openHelp } from "./help/HelpPanel";
+import { openCommandPalette, openShortcuts } from "./command-palette-store";
+import { openHelp } from "./help/help-store";
 import { Inbox } from "./Inbox";
 import { NewTeamDialog } from "./NewTeamDialog";
 import { PlanLimitBanner } from "./PlanLimitBanner";
@@ -130,6 +130,8 @@ export function AppShell({
   const { team } = useActiveTeam();
 
   useEffect(() => {
+    // The loading skeleton (index.html, AppSkeleton) draws the sidebar the same width.
+    document.documentElement.dataset.rail = railOpen ? "open" : "closed";
     try {
       localStorage.setItem(RAIL_KEY, railOpen ? "open" : "closed");
     } catch {

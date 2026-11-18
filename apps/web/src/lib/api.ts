@@ -205,19 +205,37 @@ function listQuery(cursor?: string, teamId?: string): string {
   return text ? `?${text}` : "";
 }
 
+declare global {
+  interface Window {
+    /** Requests index.html starts before the app runs, by API path. */
+    __zelyqEarly?: Record<string, Promise<Response> | undefined>;
+  }
+}
+
+/** A request index.html already started, taken once; a later ask fetches anew. */
+async function takeEarly(path: string): Promise<Response | null> {
+  if (typeof window === "undefined") return null;
+  const early = window.__zelyqEarly?.[path];
+  if (!early) return null;
+  delete window.__zelyqEarly?.[path];
+  return await early.catch(() => null);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    // The session lives in an httpOnly cookie, so it has to be sent explicitly
-    // for anything other than a same-origin default.
-    credentials: "same-origin",
-    headers: {
-      ...(init?.body && !(init.body instanceof FormData)
-        ? { "content-type": "application/json" }
-        : {}),
-      ...init?.headers,
-    },
-  });
+  const response =
+    (!init && (await takeEarly(path))) ||
+    (await fetch(`/api${path}`, {
+      ...init,
+      // The session lives in an httpOnly cookie, so it has to be sent explicitly
+      // for anything other than a same-origin default.
+      credentials: "same-origin",
+      headers: {
+        ...(init?.body && !(init.body instanceof FormData)
+          ? { "content-type": "application/json" }
+          : {}),
+        ...init?.headers,
+      },
+    }));
 
   if (response.status === 204) return undefined as T;
 

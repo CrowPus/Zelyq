@@ -235,6 +235,27 @@ function serverTemplates() {
 /* A small ICU MessageFormat subset: {name}, plural, select, '{' quoting.   */
 /* ------------------------------------------------------------------------ */
 
+/* Made once per language: making these costs far more than using them. */
+const counts = new Map<string, Intl.NumberFormat>();
+function countFormat(language: string): Intl.NumberFormat {
+  let formatter = counts.get(language);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(language);
+    counts.set(language, formatter);
+  }
+  return formatter;
+}
+const plurals = new Map<string, Intl.PluralRules>();
+function pluralRules(language: string, type: Intl.PluralRuleType): Intl.PluralRules {
+  const key = `${language}|${type}`;
+  let rules = plurals.get(key);
+  if (!rules) {
+    rules = new Intl.PluralRules(language, { type });
+    plurals.set(key, rules);
+  }
+  return rules;
+}
+
 function format(message: string, values: Record<string, Value>, hash?: number): Value[] {
   const out: Value[] = [];
   let text = "";
@@ -256,7 +277,7 @@ function format(message: string, values: Record<string, Value>, hash?: number): 
       continue;
     }
     if (ch === "#" && hash !== undefined) {
-      text += new Intl.NumberFormat(current === "pseudo" ? "en" : current).format(hash);
+      text += countFormat(current === "pseudo" ? "en" : current).format(hash);
       i++;
       continue;
     }
@@ -282,9 +303,10 @@ function format(message: string, values: Record<string, Value>, hash?: number): 
     let chosen: string | undefined;
     if (kind.trim() === "plural" || kind.trim() === "selectordinal") {
       const n = Number(value);
-      const rules = new Intl.PluralRules(current === "pseudo" ? "en" : current, {
-        type: kind.trim() === "plural" ? "cardinal" : "ordinal",
-      });
+      const rules = pluralRules(
+        current === "pseudo" ? "en" : current,
+        kind.trim() === "plural" ? "cardinal" : "ordinal",
+      );
       chosen = options[`=${n}`] ?? options[rules.select(n)] ?? options.other;
       if (chosen !== undefined) {
         push();

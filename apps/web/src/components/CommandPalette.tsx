@@ -25,7 +25,7 @@ import {
   Users,
   Workflow,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
@@ -33,32 +33,9 @@ import { useTheme } from "../hooks/useTheme";
 import { api } from "../lib/api";
 import { t } from "../lib/i18n";
 import { globalPaths, teamKey, teamPaths, useTeamPaths } from "../lib/routes";
-import { isMac, isTyping } from "./AppShell";
+import { isMac } from "./AppShell";
+import { setPaletteOpen as setOpen, usePaletteOpen as useOpen } from "./command-palette-store";
 import { Avatar, Dialog, Kbd } from "./ui";
-
-/*
- * A tiny store so any button anywhere can open the palette or the shortcut
- * sheet without threading props through the tree.
- */
-type Open = "none" | "palette" | "shortcuts";
-let state: Open = "none";
-const listeners = new Set<() => void>();
-function setOpen(next: Open) {
-  state = next;
-  for (const l of listeners) l();
-}
-export const openCommandPalette = () => setOpen("palette");
-export const openShortcuts = () => setOpen("shortcuts");
-function useOpen() {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    () => state,
-    () => "none" as Open,
-  );
-}
 
 /**
  * ⌘K / Ctrl K: jump to any app, pipeline, environment, team or settings
@@ -79,22 +56,6 @@ function Palette_() {
   const [search, setSearch] = useState("");
   const teamId = team?.id ?? "";
   const isAdmin = team ? roleAtLeast(team.role, "admin") : false;
-
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setOpen(state === "palette" ? "none" : "palette");
-        return;
-      }
-      if (event.key === "?" && !event.metaKey && !event.ctrlKey && !isTyping(event.target)) {
-        event.preventDefault();
-        setOpen("shortcuts");
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   const enabled = open === "palette" && Boolean(user);
   const projects = useQuery({
