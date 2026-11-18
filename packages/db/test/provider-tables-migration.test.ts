@@ -67,6 +67,8 @@ test("a database that already ran the team-scoped 0009 is reconciled by 0010", a
   // A DB that ran everything up to 0009 has this from 0000; later migrations
   // (0011) alter it.
   await c.execute(`CREATE TABLE messages (id text primary key)`);
+  // From 0000 too; 0061 adds the device columns to it.
+  await c.execute(`CREATE TABLE auth_sessions (id text primary key)`);
   await c.execute(
     `CREATE TABLE provider_connections (
        id text primary key, team_id text not null, provider text not null,
