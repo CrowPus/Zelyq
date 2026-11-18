@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 
 /**
  * Time-based one-time codes (RFC 6238, the 6-digit codes every authenticator
@@ -102,8 +102,7 @@ export function otpauthUri(secret: string, account: string, issuer: string): str
 export function generateRecoveryCodes(count = 10): string[] {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
   return Array.from({ length: count }, () => {
-    const bytes = randomBytes(10);
-    const chars = [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
+    const chars = Array.from({ length: 10 }, () => alphabet[randomInt(alphabet.length)]).join("");
     return `${chars.slice(0, 5)}-${chars.slice(5)}`;
   });
 }
