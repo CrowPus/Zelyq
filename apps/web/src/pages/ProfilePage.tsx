@@ -19,6 +19,8 @@ import {
 } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
+import { roleName } from "../lib/roles";
 
 export function ProfilePage() {
   const { user, teams, session, refresh } = useSession();
@@ -34,26 +36,29 @@ export function ProfilePage() {
   const accounts = user.instanceRole === "admin" ? null : (session?.accounts ?? null);
 
   return (
-    <AppShell crumbs={[{ label: "Account" }]} scope="global">
+    <AppShell crumbs={[{ label: t("Account") }]} scope="global">
       <PageBody width="narrow">
         <PageHeader
-          title="Account"
+          title={t("Account")}
           description={
             accounts
-              ? `Your details, devices and preferences. Your email, password and account are managed at ${accounts.name}.`
-              : "Your details, how you sign in, and how Zelyq looks for you."
+              ? t(
+                  "Your details, devices and preferences. Your email, password and account are managed at {name}.",
+                  { name: accounts.name },
+                )
+              : t("Your details, how you sign in, and how Zelyq looks for you.")
           }
           tabs={
             <Tabs
-              label="Account"
+              label={t("Account")}
               value={tab}
               onChange={(next) =>
                 setParams(next === "profile" ? {} : { tab: next }, { replace: true })
               }
               items={[
-                { id: "profile", label: "Profile" },
-                { id: "security", label: "Security" },
-                { id: "preferences", label: "Preferences" },
+                { id: "profile", label: t("Profile") },
+                { id: "security", label: t("Security") },
+                { id: "preferences", label: t("Preferences") },
               ]}
             />
           }
@@ -74,14 +79,14 @@ export function ProfilePage() {
             )}
 
             <Card
-              title="Membership"
-              description="Your role on this server, and in each of your teams."
+              title={t("Membership")}
+              description={t("Your role on this server, and in each of your teams.")}
               padded={false}
               className="mt-6"
             >
               <div>
                 <div className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3 last:border-b-0">
-                  <span className="text-sm text-fg">Server role</span>
+                  <span className="text-sm text-fg">{t("Server role")}</span>
                   <Badge tone={user.instanceRole === "admin" ? "info" : "neutral"}>
                     {user.instanceRole}
                   </Badge>
@@ -92,7 +97,7 @@ export function ProfilePage() {
                     className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3 last:border-b-0"
                   >
                     <span className="truncate text-sm text-fg">{team.name}</span>
-                    <Badge tone="neutral">{team.role}</Badge>
+                    <Badge tone="neutral">{roleName(team.role)}</Badge>
                   </div>
                 ))}
               </div>
@@ -105,9 +110,11 @@ export function ProfilePage() {
         {tab === "security" && (
           <div className="flex flex-col gap-6">
             {accounts ? (
-              <Card title="Password and two-factor sign-in">
+              <Card title={t("Password and two-factor sign-in")}>
                 <p className="text-sm text-fg-secondary">
-                  Your password and two-factor sign-in are managed at {accounts.name}.
+                  {t("Your password and two-factor sign-in are managed at {name}.", {
+                    name: accounts.name,
+                  })}
                 </p>
               </Card>
             ) : (
@@ -155,20 +162,20 @@ function DeleteAccountSection() {
   return (
     <section className="mt-6 overflow-hidden rounded-lg border border-danger/40">
       <header className="border-b border-danger/25 bg-danger-subtle px-4 py-3">
-        <h3 className="text-sm font-semibold text-danger">Danger zone</h3>
+        <h3 className="text-sm font-semibold text-danger">{t("Danger zone")}</h3>
       </header>
       <div className="bg-surface p-4">
-        <p className="text-sm font-medium text-fg">Delete your account</p>
+        <p className="text-sm font-medium text-fg">{t("Delete your account")}</p>
         <p className="mt-0.5 text-sm text-fg-secondary">
-          This cannot be undone. Any team where you are the only member is deleted too, along with
-          its projects and their files on disk. You will be refused if you are the last owner of a
-          team that still has members, or the last administrator of this instance.
+          {t(
+            "This cannot be undone. Any team where you are the only member is deleted too, along with its projects and their files on disk. You will be refused if you are the last owner of a team that still has members, or the last administrator of this instance.",
+          )}
         </p>
 
         {open ? (
           <form onSubmit={submit} className="mt-3 flex flex-col gap-2">
             <label htmlFor="delete-password" className="text-sm font-medium text-fg">
-              Your password
+              {t("Your password")}
             </label>
             <PasswordInput
               id="delete-password"
@@ -178,7 +185,9 @@ function DeleteAccountSection() {
               required
             />
             <label htmlFor="delete-confirm" className="text-sm font-medium text-fg">
-              Type <span className="font-mono text-fg">delete</span> to confirm
+              {t("Type {part} to confirm", {
+                part: <span className="font-mono text-fg">delete</span>,
+              })}
             </label>
             <Input
               id="delete-confirm"
@@ -193,16 +202,16 @@ function DeleteAccountSection() {
                 variant="danger"
                 disabled={busy || confirm !== "delete" || !password}
               >
-                {busy ? "Deleting…" : "Delete my account"}
+                {busy ? t("Deleting…") : t("Delete my account")}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-                Cancel
+                {t("Cancel")}
               </Button>
             </div>
           </form>
         ) : (
           <Button variant="danger" className="mt-3" onClick={() => setOpen(true)}>
-            Delete account…
+            {t("Delete account…")}
           </Button>
         )}
       </div>
@@ -219,14 +228,14 @@ function ManagedProfileSection({
   accounts: AccountService;
 }) {
   return (
-    <Card title="Profile" padded={false}>
+    <Card title={t("Profile")} padded={false}>
       <div>
         <div className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3">
-          <span className="text-xs text-fg-secondary">Name</span>
+          <span className="text-xs text-fg-secondary">{t("Name")}</span>
           <span className="truncate text-sm text-fg">{user.name}</span>
         </div>
         <div className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3">
-          <span className="text-xs text-fg-secondary">Email</span>
+          <span className="text-xs text-fg-secondary">{t("Email")}</span>
           <span className="truncate text-sm text-fg">{user.email}</span>
         </div>
         <div className="px-4 py-3">
@@ -234,11 +243,11 @@ function ManagedProfileSection({
             href={accountServiceLinks(accounts).account()}
             className="inline-flex items-center gap-1.5 text-xs text-info underline-offset-2 hover:underline"
           >
-            Manage your account at {accounts.name}
+            {t("Manage your account at {name}", { name: accounts.name })}
             <ExternalLink size={12} aria-hidden />
           </a>
           <p className="mt-1 text-xs text-fg-muted">
-            Change your name, email or password, or delete your account, there.
+            {t("Change your name, email or password, or delete your account, there.")}
           </p>
         </div>
       </div>
@@ -280,11 +289,11 @@ function ProfileSection({
   }
 
   return (
-    <Card title="Profile" description="Your name, and the email you sign in with.">
+    <Card title={t("Profile")} description={t("Your name, and the email you sign in with.")}>
       <form onSubmit={submit} className="flex max-w-md flex-col gap-3">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="profile-name" className="text-sm font-medium text-fg">
-            Name
+            {t("Name")}
           </label>
           <Input
             id="profile-name"
@@ -296,7 +305,7 @@ function ProfileSection({
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="profile-email" className="text-sm font-medium text-fg">
-            Email
+            {t("Email")}
           </label>
           <Input
             id="profile-email"
@@ -315,14 +324,14 @@ function ProfileSection({
         {emailChanged && (
           <div className="flex flex-col gap-1.5">
             <label htmlFor="profile-confirm" className="text-sm font-medium text-fg">
-              Current password
+              {t("Current password")}
             </label>
             <PasswordInput
               id="profile-confirm"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
-              placeholder="Required to change your email"
+              placeholder={t("Required to change your email")}
             />
           </div>
         )}
@@ -331,7 +340,7 @@ function ProfileSection({
 
         <div>
           <Button type="submit" variant="primary" disabled={!dirty} loading={state.busy}>
-            Save profile
+            {t("Save profile")}
           </Button>
         </div>
       </form>
@@ -365,18 +374,18 @@ function PasswordSection() {
 
   return (
     <Card
-      title="Password"
-      description="At least 10 characters. Changing it signs every other device out."
+      title={t("Password")}
+      description={t("At least 10 characters. Changing it signs every other device out.")}
     >
       <form onSubmit={submit} className="flex max-w-md flex-col gap-3">
-        <Field label="Current password">
+        <Field label={t("Current password")}>
           <PasswordInput
             value={current}
             onChange={(event) => setCurrent(event.target.value)}
             autoComplete="current-password"
           />
         </Field>
-        <Field label="New password">
+        <Field label={t("New password")}>
           <PasswordInput
             value={next}
             onChange={(event) => setNext(event.target.value)}
@@ -385,8 +394,8 @@ function PasswordSection() {
           />
         </Field>
         <Field
-          label="Confirm new password"
-          error={mismatch ? "The two entries do not match." : undefined}
+          label={t("Confirm new password")}
+          error={mismatch ? t("The two entries do not match.") : undefined}
         >
           <PasswordInput
             value={confirm}
@@ -399,7 +408,7 @@ function PasswordSection() {
 
         <div>
           <Button type="submit" variant="primary" disabled={!ready} loading={state.busy}>
-            Change password
+            {t("Change password")}
           </Button>
         </div>
       </form>

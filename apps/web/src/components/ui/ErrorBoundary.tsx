@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { t } from "../../lib/i18n";
 import { ErrorState } from "./Page.js";
 
 /**
@@ -40,14 +41,15 @@ export class ErrorBoundary extends Component<
     if (this.props.fallback) return this.props.fallback(this.reset, error);
     return (
       <ErrorState
-        title="This part of the page could not be shown"
-        error={
-          <>
-            Something went wrong while drawing it. Try again; if it keeps happening, reload the
-            page.
-            <span className="mt-2 block font-mono text-xs text-fg-muted">{error.message}</span>
-          </>
-        }
+        title={t("This part of the page could not be shown")}
+        error={t(
+          "Something went wrong while drawing it. Try again; if it keeps happening, reload the page.{message}",
+          {
+            message: (
+              <span className="mt-2 block font-mono text-xs text-fg-muted">{error.message}</span>
+            ),
+          },
+        )}
         onRetry={this.reset}
       />
     );

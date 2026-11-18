@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, Plug, Unplug } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { api, type SupabaseResource } from "../lib/api";
+import { t } from "../lib/i18n";
 import { type SecretFrom, SecretSource } from "./SecretSource";
 import { Badge, Button, Input, NativeSelect, Spinner } from "./ui";
 
@@ -74,11 +75,12 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
   return (
     <section className="mt-7">
       <h2 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-        <Database size={13} strokeWidth={1.75} /> Supabase
+        <Database size={13} strokeWidth={1.75} /> {t("Supabase")}
       </h2>
       <p className="mt-0.5 text-xs text-fg-secondary">
-        Connect a Supabase account so an app&apos;s preview runs against a real backend. The access
-        token stays on the server — projects only ever receive the public URL and publishable key.
+        {t(
+          "Connect a Supabase account so an app’s preview runs against a real backend. The access token stays on the server — projects only ever receive the public URL and publishable key.",
+        )}
       </p>
 
       {error && (
@@ -90,7 +92,7 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
       <div className="mt-3 rounded-lg border border-border-default bg-surface p-3">
         {connections.isLoading && (
           <div className="flex items-center gap-2 text-xs text-fg-muted">
-            <Spinner /> Loading…
+            <Spinner /> {t("Loading…")}
           </div>
         )}
 
@@ -101,8 +103,8 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
                 <div className="sm:flex-1">
                   <SecretSource
                     teamId={teamId}
-                    label="Supabase Personal Access Token"
-                    placeholder="Personal Access Token (sbp_…)"
+                    label={t("Supabase Personal Access Token")}
+                    placeholder={t("Personal Access Token (sbp_…)")}
                     from={from}
                     onFrom={setFrom}
                     value={pat}
@@ -116,8 +118,8 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
                   type="password"
                   value={pat}
                   onChange={(event) => setPat(event.target.value)}
-                  placeholder="Personal Access Token (sbp_…)"
-                  aria-label="Supabase Personal Access Token"
+                  placeholder={t("Personal Access Token (sbp_…)")}
+                  aria-label={t("Supabase Personal Access Token")}
                   className="sm:flex-1"
                 />
               )}
@@ -129,12 +131,13 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
                   connectPat.isPending || !(teamId && from === "vault" ? vaultName : pat.trim())
                 }
               >
-                Connect
+                {t("Connect")}
               </Button>
             </form>
             <p className="text-2xs text-fg-muted">
-              A Personal Access Token has full access to your Supabase account. Create one at
-              supabase.com → Account → Access Tokens.
+              {t(
+                "A Personal Access Token has full access to your Supabase account. Create one at supabase.com → Account → Access Tokens.",
+              )}
             </p>
             {config.data?.oauthConfigured && (
               <Button
@@ -142,7 +145,7 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
                 onClick={() => startOAuth.mutate()}
                 disabled={startOAuth.isPending}
               >
-                Connect with Supabase (OAuth)
+                {t("Connect with Supabase (OAuth)")}
               </Button>
             )}
           </div>
@@ -157,10 +160,12 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
                 </Badge>
                 <span className="text-xs text-fg-secondary">
                   {connection.credentialType === "oauth"
-                    ? "OAuth"
+                    ? t("OAuth")
                     : connection.vaultName
-                      ? `Access token from Vault: ${connection.vaultName}`
-                      : "Access token"}
+                      ? t("Access token from Vault: {vaultName}", {
+                          vaultName: connection.vaultName,
+                        })
+                      : t("Access token")}
                 </span>
               </div>
               <Button
@@ -170,7 +175,7 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
                 onClick={() => disconnect.mutate(connection.id)}
                 disabled={disconnect.isPending}
               >
-                Disconnect
+                {t("Disconnect")}
               </Button>
             </div>
 
@@ -218,10 +223,12 @@ function ResourceManager({
 
   return (
     <div className="rounded-md border border-border-default bg-surface-subtle p-2.5">
-      <p className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">Projects</p>
+      <p className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
+        {t("Projects")}
+      </p>
 
       {resources.data?.resources.length === 0 && (
-        <p className="mt-1.5 text-xs text-fg-muted">None added yet.</p>
+        <p className="mt-1.5 text-xs text-fg-muted">{t("None added yet.")}</p>
       )}
       <ul className="mt-1.5 flex flex-col gap-1">
         {resources.data?.resources.map((resource) => (
@@ -238,10 +245,10 @@ function ResourceManager({
           <NativeSelect
             value={ref}
             onChange={(event) => setRef(event.target.value)}
-            aria-label="Supabase project"
+            aria-label={t("Supabase project")}
             className="sm:flex-1"
           >
-            <option value="">Choose a project…</option>
+            <option value="">{t("Choose a project…")}</option>
             {orgProjects.data.projects.map((project) => (
               <option key={project.ref} value={project.ref}>
                 {project.name} ({project.ref})
@@ -252,8 +259,8 @@ function ResourceManager({
           <Input
             value={ref}
             onChange={(event) => setRef(event.target.value)}
-            placeholder="Project ref (e.g. abcdefghijklmnop)"
-            aria-label="Supabase project ref"
+            placeholder={t("Project ref (e.g. abcdefghijklmnop)")}
+            aria-label={t("Supabase project ref")}
             className="sm:flex-1"
           />
         )}
@@ -262,18 +269,18 @@ function ResourceManager({
           onChange={(event) =>
             setEnvironment(event.target.value as SupabaseResource["environment"])
           }
-          aria-label="Environment"
+          aria-label={t("Environment")}
         >
-          <option value="development">development</option>
-          <option value="staging">staging</option>
-          <option value="production">production</option>
+          <option value="development">{t("development")}</option>
+          <option value="staging">{t("staging")}</option>
+          <option value="production">{t("production")}</option>
         </NativeSelect>
         <Button
           variant="secondary"
           onClick={() => ref.trim() && link.mutate()}
           disabled={link.isPending || !ref.trim()}
         >
-          Add
+          {t("Add")}
         </Button>
       </div>
     </div>
@@ -316,9 +323,9 @@ function ProjectLinker({
   return (
     <div className="rounded-md border border-border-default bg-surface-subtle p-2.5">
       <p className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-        Linked to an app
+        {t("Linked to an app")}
       </p>
-      {teamApps.length === 0 && <p className="mt-1.5 text-xs text-fg-muted">No apps yet.</p>}
+      {teamApps.length === 0 && <p className="mt-1.5 text-xs text-fg-muted">{t("No apps yet.")}</p>}
       <ul className="mt-1.5 flex flex-col gap-1.5">
         {teamApps.map((project) => (
           <ProjectLinkRow
@@ -365,11 +372,11 @@ function ProjectLinkRow({
         <NativeSelect
           value={current}
           onChange={(event) => onChange(event.target.value)}
-          aria-label={`Supabase backend for ${projectName}`}
+          aria-label={t("Supabase backend for {projectName}", { projectName })}
           disabled={pending || link.isLoading}
           className="max-w-[45%]"
         >
-          <option value="">Not linked</option>
+          <option value="">{t("Not linked")}</option>
           {resources.map((resource) => (
             <option key={resource.id} value={resource.id}>
               {resource.displayName} ({resource.environment})
@@ -383,7 +390,7 @@ function ProjectLinkRow({
             onClick={() => applyVerify.mutate()}
             disabled={applyVerify.isPending}
           >
-            {applyVerify.isPending ? "Running…" : "Apply & verify"}
+            {applyVerify.isPending ? t("Running…") : t("Apply & verify")}
           </Button>
         )}
       </div>

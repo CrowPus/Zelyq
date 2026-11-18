@@ -49,35 +49,36 @@ import {
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { formatDate } from "../lib/format";
+import { t, translateServerMessage } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
 
 export type Draft = Record<string, string | number | boolean>;
 
 /** The sections, grouped the way an administrator thinks about them. */
 const SECTION_GROUPS = [
-  "Models and AI",
-  "Runtime and preview",
-  "Identity and access",
-  "Communication",
-  "Plans and status",
-  "Other",
+  t("Models and AI"),
+  t("Runtime and preview"),
+  t("Identity and access"),
+  t("Communication"),
+  t("Plans and status"),
+  t("Other"),
 ] as const;
 const GROUP_OF: Record<string, (typeof SECTION_GROUPS)[number]> = {
-  model: "Models and AI",
-  "image-generation": "Models and AI",
-  "video-generation": "Models and AI",
-  "voice-input": "Models and AI",
-  ops: "Models and AI",
-  runtime: "Runtime and preview",
-  preview: "Runtime and preview",
-  pipelines: "Runtime and preview",
-  access: "Identity and access",
-  users: "Identity and access",
-  "api-keys": "Identity and access",
-  email: "Communication",
-  integrations: "Communication",
-  plans: "Plans and status",
-  status: "Plans and status",
+  model: t("Models and AI"),
+  "image-generation": t("Models and AI"),
+  "video-generation": t("Models and AI"),
+  "voice-input": t("Models and AI"),
+  ops: t("Models and AI"),
+  runtime: t("Runtime and preview"),
+  preview: t("Runtime and preview"),
+  pipelines: t("Runtime and preview"),
+  access: t("Identity and access"),
+  users: t("Identity and access"),
+  "api-keys": t("Identity and access"),
+  email: t("Communication"),
+  integrations: t("Communication"),
+  plans: t("Plans and status"),
+  status: t("Plans and status"),
 };
 
 /**
@@ -96,40 +97,48 @@ const GROUP_OF: Record<string, (typeof SECTION_GROUPS)[number]> = {
  * section rather than scrolling to one.
  */
 const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: string }> = {
-  model: { label: "Model", icon: Cpu, blurb: "Which vendor the agent talks to, and its key" },
+  model: { label: t("Model"), icon: Cpu, blurb: t("Which vendor the agent talks to, and its key") },
   "image-generation": {
-    label: "Image generation",
+    label: t("Image generation"),
     icon: ImageIcon,
-    blurb: "Studio image providers, models and limits",
+    blurb: t("Studio image providers, models and limits"),
   },
   "video-generation": {
-    label: "Video generation",
+    label: t("Video generation"),
     icon: Clapperboard,
-    blurb: "Studio video providers, models and limits",
+    blurb: t("Studio video providers, models and limits"),
   },
-  "voice-input": { label: "Voice input", icon: Mic, blurb: "Transcription for the microphone" },
-  access: { label: "Access", icon: LockKeyhole, blurb: "Who may sign in, and for how long" },
-  runtime: { label: "Runtime", icon: Server, blurb: "Where app commands run" },
+  "voice-input": {
+    label: t("Voice input"),
+    icon: Mic,
+    blurb: t("Transcription for the microphone"),
+  },
+  access: { label: t("Access"), icon: LockKeyhole, blurb: t("Who may sign in, and for how long") },
+  runtime: { label: t("Runtime"), icon: Server, blurb: t("Where app commands run") },
   pipelines: {
-    label: "Pipelines",
+    label: t("Pipelines"),
     icon: Workflow,
-    blurb: "The local runner, and how long runs are kept",
+    blurb: t("The local runner, and how long runs are kept"),
   },
-  preview: { label: "Preview", icon: Monitor, blurb: "How app previews are reached" },
-  ops: { label: "Ops", icon: ServerCog, blurb: "The model the DevOps engineer thinks with" },
-  email: { label: "Email", icon: Mail, blurb: "The mail server Zelyq sends through" },
+  preview: { label: t("Preview"), icon: Monitor, blurb: t("How app previews are reached") },
+  ops: { label: t("Ops"), icon: ServerCog, blurb: t("The model the DevOps engineer thinks with") },
+  email: { label: t("Email"), icon: Mail, blurb: t("The mail server Zelyq sends through") },
   integrations: {
-    label: "Integrations",
+    label: t("Integrations"),
     icon: Puzzle,
-    blurb: "Figma and Supabase connections",
+    blurb: t("Figma and Supabase connections"),
   },
-  status: { label: "Instance status", icon: Activity, blurb: "Health, migrations and diagnostics" },
-  users: { label: "Users", icon: Users, blurb: "Accounts on this instance" },
-  plans: { label: "Plans", icon: Gauge, blurb: "What each team may use" },
+  status: {
+    label: t("Instance status"),
+    icon: Activity,
+    blurb: t("Health, migrations and diagnostics"),
+  },
+  users: { label: t("Users"), icon: Users, blurb: t("Accounts on this instance") },
+  plans: { label: t("Plans"), icon: Gauge, blurb: t("What each team may use") },
   "api-keys": {
-    label: "API keys",
+    label: t("API keys"),
     icon: KeyRound,
-    blurb: "Keys for your own systems that run this server",
+    blurb: t("Keys for your own systems that run this server"),
   },
 };
 
@@ -235,19 +244,19 @@ export function SettingsPage() {
         }
         aria-label={
           group.name === "Image Studio"
-            ? "Image generation settings"
+            ? t("Image generation settings")
             : group.name === "Video Studio"
-              ? "Video generation settings"
+              ? t("Video generation settings")
               : undefined
         }
         className="mt-7 scroll-mt-6"
       >
         <h2 className="text-sm font-medium text-fg">
           {group.name === "Image Studio"
-            ? "Image generation"
+            ? t("Image generation")
             : group.name === "Video Studio"
-              ? "Video generation"
-              : group.name}
+              ? t("Video generation")
+              : translateServerMessage(group.name)}
         </h2>
         <p className="mt-0.5 text-xs text-fg-secondary">{group.description}</p>
         {group.name === "Video Studio" && (
@@ -255,7 +264,7 @@ export function SettingsPage() {
             to={teamHref("/studio/video")}
             className="mt-2 inline-block text-xs text-fg underline underline-offset-4"
           >
-            Open Studio — Video
+            {t("Open Studio — Video")}
           </Link>
         )}
         {group.name === "Image Studio" && (
@@ -263,7 +272,7 @@ export function SettingsPage() {
             to={teamHref("/studio/image")}
             className="mt-2 inline-block text-xs text-fg underline underline-offset-4"
           >
-            Open Studio — Image
+            {t("Open Studio — Image")}
           </Link>
         )}
 
@@ -308,7 +317,7 @@ export function SettingsPage() {
 
   if (settings.isLoading) {
     return (
-      <AppShell crumbs={[{ label: "Server administration" }]} scope="global">
+      <AppShell crumbs={[{ label: t("Server administration") }]} scope="global">
         <div className="grid h-full place-items-center">
           <Spinner />
         </div>
@@ -318,12 +327,12 @@ export function SettingsPage() {
 
   if (settings.isError) {
     return (
-      <AppShell crumbs={[{ label: "Server administration" }]} scope="global">
+      <AppShell crumbs={[{ label: t("Server administration") }]} scope="global">
         <div className="grid h-full place-items-center px-6 text-center">
           <div>
             <p className="text-sm text-fg">{(settings.error as Error).message}</p>
             <p className="mt-1 text-xs text-fg-secondary">
-              Only an instance administrator can change settings.
+              {t("Only an instance administrator can change settings.")}
             </p>
           </div>
         </div>
@@ -332,11 +341,13 @@ export function SettingsPage() {
   }
 
   return (
-    <AppShell crumbs={[{ label: "Server administration" }]} scope="global">
+    <AppShell crumbs={[{ label: t("Server administration") }]} scope="global">
       <PageBody>
         <PageHeader
-          title="Server administration"
-          description="What runs the whole server, and the defaults every team starts from. Only server admins see this page."
+          title={t("Server administration")}
+          description={t(
+            "What runs the whole server, and the defaults every team starts from. Only server admins see this page.",
+          )}
         />
 
         <div className="gap-8 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start">
@@ -344,11 +355,11 @@ export function SettingsPage() {
                 beside the content on a desktop — the same list either way, so
                 there is one idea to learn rather than two. */}
           <nav
-            aria-label="Settings sections"
+            aria-label={t("Settings sections")}
             className="-mx-4 mb-5 flex gap-1 overflow-x-auto px-4 pb-2 md:sticky md:top-4 md:mx-0 md:mb-0 md:flex-col md:overflow-visible md:px-0 md:pb-0"
           >
             {SECTION_GROUPS.map((group) => {
-              const ids = sections.filter((id) => (GROUP_OF[id] ?? "Other") === group);
+              const ids = sections.filter((id) => (GROUP_OF[id] ?? t("Other")) === group);
               if (ids.length === 0) return null;
               return (
                 <div key={group} className="contents md:mb-4 md:block">
@@ -397,15 +408,16 @@ export function SettingsPage() {
           <fieldset disabled={Boolean(runFrom)} className="m-0 min-w-0 border-0 p-0">
             {runFrom && (
               <p className="mb-4 rounded-md border border-info/25 bg-info-subtle px-3 py-2 text-xs text-info">
-                This server is connected to {runFrom} and is run from its admin. Everything here is
-                shown as it is set; changes are made in the admin, behind its own sign-in, so
-                nothing that runs the whole server can be changed from inside it.
+                {t(
+                  "This server is connected to {runFrom} and is run from its admin. Everything here is shown as it is set; changes are made in the admin, behind its own sign-in, so nothing that runs the whole server can be changed from inside it.",
+                  { runFrom },
+                )}
               </p>
             )}
             {settings.data?.restartPending && (
               <p className="mt-5 flex items-start gap-2 rounded-md border border-warning/25 bg-warning-subtle px-2.5 py-2 text-xs text-warning">
                 <RotateCw size={14} strokeWidth={1.75} className="mt-px shrink-0" />
-                Some changes need the server restarted before they take effect.
+                {t("Some changes need the server restarted before they take effect.")}
               </p>
             )}
 
@@ -429,35 +441,37 @@ export function SettingsPage() {
 
             {active === "status" && (
               <section className="mt-7">
-                <h2 className="text-sm font-medium text-fg">Instance status</h2>
+                <h2 className="text-sm font-medium text-fg">{t("Instance status")}</h2>
                 <p className="mt-0.5 text-xs text-fg-secondary">
-                  What's actually running right now — reflects the last restart, not this page.
+                  {t(
+                    "What’s actually running right now — reflects the last restart, not this page.",
+                  )}
                 </p>
 
                 <div className="mt-3 divide-y divide-border-default overflow-hidden rounded-lg border border-border-default bg-surface">
                   {health.isLoading && (
                     <div className="flex items-center gap-2 px-4 py-3 text-xs text-fg-muted">
-                      <Spinner /> Checking…
+                      <Spinner /> {t("Checking…")}
                     </div>
                   )}
                   {health.isError && (
                     <p className="px-4 py-3 text-xs text-danger">
-                      Could not reach the server to check status.
+                      {t("Could not reach the server to check status.")}
                     </p>
                   )}
                   {health.data && (
                     <>
                       <StatusRow
-                        label="Model"
+                        label={t("Model")}
                         ok={health.data.agent.status === "ok"}
                         detail={
                           health.data.agent.model
                             ? `${health.data.agent.provider ?? health.data.provider} · ${health.data.agent.model}`
-                            : "not configured"
+                            : t("not configured")
                         }
                       />
                       <StatusRow
-                        label="Runtime"
+                        label={t("Runtime")}
                         ok={health.data.runtime.ok}
                         detail={
                           health.data.runtime.detail ?? (health.data.runtime.ok ? "ok" : "degraded")
@@ -470,7 +484,7 @@ export function SettingsPage() {
                           className="mt-0.5 shrink-0 text-fg-muted"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm text-fg">Plugin tools</p>
+                          <p className="text-sm text-fg">{t("Plugin tools")}</p>
                           {health.data.agent.plugins?.length ? (
                             <p className="mt-0.5 flex flex-wrap gap-1.5">
                               {health.data.agent.plugins.map((name) => (
@@ -481,17 +495,19 @@ export function SettingsPage() {
                             </p>
                           ) : (
                             <p className="mt-0.5 text-xs text-fg-secondary">
-                              None loaded. Set <code className="font-mono">ZELYQ_PLUGIN_DIR</code>{" "}
-                              and restart the agent — see{" "}
-                              <a
-                                href="https://github.com/CrowPus/Zelyq/blob/main/docs/plugins.md"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="underline underline-offset-2 hover:text-fg"
-                              >
-                                docs/plugins.md
-                              </a>
-                              .
+                              {t("None loaded. Set {code} and restart the agent — see {link}.", {
+                                code: <code className="font-mono">ZELYQ_PLUGIN_DIR</code>,
+                                link: (
+                                  <a
+                                    href="https://github.com/CrowPus/Zelyq/blob/main/docs/plugins.md"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline underline-offset-2 hover:text-fg"
+                                  >
+                                    docs/plugins.md
+                                  </a>
+                                ),
+                              })}
                             </p>
                           )}
                         </div>
@@ -503,7 +519,7 @@ export function SettingsPage() {
                           className="mt-0.5 shrink-0 text-fg-muted"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm text-fg">Skills</p>
+                          <p className="text-sm text-fg">{t("Skills")}</p>
                           {health.data.agent.skills?.length ? (
                             <p className="mt-0.5 flex flex-wrap gap-1.5">
                               {health.data.agent.skills.map((skill) => (
@@ -514,16 +530,18 @@ export function SettingsPage() {
                             </p>
                           ) : (
                             <p className="mt-0.5 text-xs text-fg-secondary">
-                              None loaded. See{" "}
-                              <a
-                                href="https://github.com/CrowPus/Zelyq/blob/main/docs/skills.md"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="underline underline-offset-2 hover:text-fg"
-                              >
-                                docs/skills.md
-                              </a>
-                              .
+                              {t("None loaded. See {link}.", {
+                                link: (
+                                  <a
+                                    href="https://github.com/CrowPus/Zelyq/blob/main/docs/skills.md"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline underline-offset-2 hover:text-fg"
+                                  >
+                                    docs/skills.md
+                                  </a>
+                                ),
+                              })}
                             </p>
                           )}
                           <div className="mt-2">
@@ -542,15 +560,15 @@ export function SettingsPage() {
 
             {active === "users" && (
               <section className="mt-7">
-                <h2 className="text-sm font-medium text-fg">Users</h2>
+                <h2 className="text-sm font-medium text-fg">{t("Users")}</h2>
                 <p className="mt-0.5 text-xs text-fg-secondary">
-                  Everyone with an account on this instance, across every team.
+                  {t("Everyone with an account on this instance, across every team.")}
                 </p>
 
                 <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
                   {users.isLoading && (
                     <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-muted">
-                      <Spinner /> Loading users…
+                      <Spinner /> {t("Loading users…")}
                     </div>
                   )}
                   {users.data?.users.map((account) => (
@@ -562,42 +580,49 @@ export function SettingsPage() {
                         <p className="truncate text-sm text-fg">
                           {account.name}
                           {account.id === user?.id && (
-                            <span className="ml-1.5 text-xs text-fg-muted">(you)</span>
+                            <span className="ml-1.5 text-xs text-fg-muted">{t("(you)")}</span>
                           )}
                           {account.instanceRole === "admin" && (
                             <span className="ml-1.5 inline-block">
-                              <Badge tone="neutral">Server admin</Badge>
+                              <Badge tone="neutral">{t("Server admin")}</Badge>
                             </span>
                           )}
                           {account.twoFactorEnabled && (
                             <span className="ml-1.5 inline-block">
-                              <Badge tone="success">Two-factor on</Badge>
+                              <Badge tone="success">{t("Two-factor on")}</Badge>
                             </span>
                           )}
                         </p>
                         <p className="truncate text-xs text-fg-muted">{account.email}</p>
                       </div>
                       <span className="shrink-0 text-2xs text-fg-muted">
-                        joined {formatDate(account.createdAt)}
+                        {t("joined {createdAt}", { createdAt: formatDate(account.createdAt) })}
                       </span>
                       {account.twoFactorEnabled && account.id !== user?.id && (
                         <IconButton
                           size="sm"
-                          label={`Turn off two-factor sign-in for ${account.name}`}
+                          label={t("Turn off two-factor sign-in for {name}", {
+                            name: account.name,
+                          })}
                           onClick={async () => {
                             if (
                               await confirmAction({
-                                title: `Turn off two-factor sign-in for ${account.name}?`,
-                                description:
+                                title: t("Turn off two-factor sign-in for {name}?", {
+                                  name: account.name,
+                                }),
+                                description: t(
                                   "For someone who lost both their phone and their recovery codes. They are signed out everywhere and sign in again with their password alone. Check it is really them first.",
-                                confirmLabel: "Turn off two-factor",
+                                ),
+                                confirmLabel: t("Turn off two-factor"),
                                 danger: true,
                                 typeToConfirm: account.email,
                               })
                             ) {
                               try {
                                 await api.resetUserTwoFactor(account.id);
-                                toast.success(`Two-factor sign-in is off for ${account.name}`);
+                                toast.success(
+                                  t("Two-factor sign-in is off for {name}", { name: account.name }),
+                                );
                                 await users.refetch();
                               } catch (failure) {
                                 toast.error((failure as Error).message);
@@ -612,13 +637,18 @@ export function SettingsPage() {
                         <IconButton
                           size="sm"
                           variant="danger"
-                          label={`Delete ${account.name}`}
+                          label={t("Delete {name}", { name: account.name })}
                           onClick={async () => {
                             if (
                               await confirmAction({
-                                title: `Delete ${account.name} (${account.email})?`,
-                                description: `This removes their account and anything only they could reach. This cannot be undone.`,
-                                confirmLabel: "Delete account",
+                                title: t("Delete {name} ({email})?", {
+                                  name: account.name,
+                                  email: account.email,
+                                }),
+                                description: t(
+                                  "This removes their account and anything only they could reach. This cannot be undone.",
+                                ),
+                                confirmLabel: t("Delete account"),
                                 danger: true,
                                 typeToConfirm: account.email,
                               })
@@ -650,16 +680,16 @@ export function SettingsPage() {
                   onClick={() => save.mutate()}
                   disabled={!dirty || save.isPending}
                 >
-                  {save.isPending ? "Saving…" : "Save changes"}
+                  {save.isPending ? t("Saving…") : t("Save changes")}
                 </Button>
                 {dirty && (
                   <Button variant="ghost" onClick={() => setDraft({})}>
-                    Discard
+                    {t("Discard")}
                   </Button>
                 )}
                 {saved && (
                   <span className="flex items-center gap-1.5 text-xs text-success">
-                    <ShieldCheck size={13} strokeWidth={1.75} /> Saved
+                    <ShieldCheck size={13} strokeWidth={1.75} /> {t("Saved")}
                   </span>
                 )}
               </div>
@@ -715,7 +745,7 @@ function ModelChoice({
           onChange(event.target.value);
         }}
       >
-        <option value="">{field.placeholder ?? "Provider default"}</option>
+        <option value="">{field.placeholder ?? t("Provider default")}</option>
         {(["recommended", "previous", "legacy"] as const).map((group) => {
           const inGroup = options.filter((model) => (model.group ?? "recommended") === group);
           if (inGroup.length === 0) return null;
@@ -724,10 +754,10 @@ function ModelChoice({
               key={group}
               label={
                 group === "recommended"
-                  ? "Recommended"
+                  ? t("Recommended")
                   : group === "previous"
-                    ? "Previous generation"
-                    : "Legacy"
+                    ? t("Previous generation")
+                    : t("Legacy")
               }
             >
               {inGroup.map((model) => (
@@ -739,20 +769,20 @@ function ModelChoice({
             </optgroup>
           );
         })}
-        <option value="__other__">Other model…</option>
+        <option value="__other__">{t("Other model…")}</option>
       </NativeSelect>
       {other && !providerChanged && (
         <Input
-          aria-label={`${field.label}, typed`}
+          aria-label={t("{label}, typed", { label: field.label })}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="The model's exact name"
+          placeholder={t("The model’s exact name")}
           autoComplete="off"
         />
       )}
       {providerChanged ? (
         <p className="max-w-sm text-xs text-fg-muted">
-          Save first; then this lists the models of the provider you chose.
+          {t("Save first; then this lists the models of the provider you chose.")}
         </p>
       ) : (
         field.modelNotice && <p className="max-w-sm text-xs text-fg-muted">{field.modelNotice}</p>
@@ -781,18 +811,20 @@ export function FieldRow({
           {locked && (
             <span
               className="inline-flex items-center gap-1 text-2xs text-fg-muted"
-              title={`Set by ${field.envVar} in the environment`}
+              title={t("Set by {envVar} in the environment", { envVar: field.envVar })}
             >
               <Lock size={10} strokeWidth={2} />
               {field.envVar}
             </span>
           )}
-          {field.restartRequired && <Badge tone="neutral">restart</Badge>}
+          {field.restartRequired && <Badge tone="neutral">{t("restart")}</Badge>}
           {field.kind === "secret" && field.configured && !field.vaultName && (
-            <Badge tone="success">{field.hint ?? "set"}</Badge>
+            <Badge tone="success">{field.hint ?? t("set")}</Badge>
           )}
           {field.vaultName && (
-            <Badge tone={field.vaultMissing ? "danger" : "info"}>Vault: {field.vaultName}</Badge>
+            <Badge tone={field.vaultMissing ? "danger" : "info"}>
+              {t("Vault: {vaultName}", { vaultName: field.vaultName })}
+            </Badge>
           )}
         </div>
         <p className="mt-0.5 text-xs leading-relaxed text-fg-secondary">{field.description}</p>
@@ -801,7 +833,7 @@ export function FieldRow({
       <div className="sm:justify-self-end">
         {locked ? (
           <p className="font-mono text-xs text-fg-muted">
-            {field.kind === "secret" ? (field.hint ?? "configured") : String(field.value ?? "")}
+            {field.kind === "secret" ? (field.hint ?? t("configured")) : String(field.value ?? "")}
           </p>
         ) : field.modelOptions ? (
           <ModelChoice
@@ -833,7 +865,7 @@ export function FieldRow({
               onChange={(event) => onChange(event.target.checked)}
               className="size-3.5 accent-fg"
             />
-            {(pending ?? field.value) ? "Enabled" : "Disabled"}
+            {(pending ?? field.value) ? t("Enabled") : t("Disabled")}
           </label>
         ) : (
           <>
@@ -895,11 +927,11 @@ function CredentialInput({
   return (
     <div className="grid gap-1.5 sm:w-[260px]">
       <fieldset className="flex gap-0.5 rounded-md border border-border-default bg-surface-subtle p-0.5 text-xs">
-        <legend className="sr-only">Where {field.label} comes from</legend>
+        <legend className="sr-only">{t("Where {label} comes from", { label: field.label })}</legend>
         {(
           [
-            ["typed", "Type a value"],
-            ["vault", "From Vault"],
+            ["typed", t("Type a value")],
+            ["vault", t("From Vault")],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -924,22 +956,22 @@ function CredentialInput({
           autoComplete="new-password"
           placeholder={
             field.vaultName
-              ? "Type a value to use instead of Vault"
+              ? t("Type a value to use instead of Vault")
               : field.configured
-                ? "Enter a new value to replace"
+                ? t("Enter a new value to replace")
                 : field.placeholder
           }
         />
       ) : (
         <>
           <NativeSelect
-            aria-label={`${field.label} from Vault`}
+            aria-label={t("{label} from Vault", { label: field.label })}
             className="w-full font-mono"
             value={current}
             disabled={point.isPending}
             onChange={(event) => point.mutate(event.target.value)}
           >
-            <option value="">{choices.isPending ? "Loading…" : "Choose a secret…"}</option>
+            <option value="">{choices.isPending ? t("Loading…") : t("Choose a secret…")}</option>
             {choices.data
               ?.filter((group) => group.names.length > 0)
               .map((group) => (
@@ -956,27 +988,35 @@ function CredentialInput({
                 (group) =>
                   group.scope === (field.vaultScope ?? "instance") &&
                   group.names.includes(field.vaultName ?? ""),
-              ) && <option value={current}>{field.vaultName} (missing)</option>}
+              ) && (
+                <option value={current}>
+                  {t("{vaultName} (missing)", { vaultName: field.vaultName })}
+                </option>
+              )}
           </NativeSelect>
           {choices.data && !anyChoices && (
             <p className="text-2xs text-fg-muted">
-              Your Vault is empty.{" "}
-              <Link to={teamHref("/vault")} className="underline underline-offset-2">
-                Add a key in Vault
-              </Link>{" "}
-              first.
+              {t("Your Vault is empty. {link} first.", {
+                link: (
+                  <Link to={teamHref("/vault")} className="underline underline-offset-2">
+                    {t("Add a key in Vault")}
+                  </Link>
+                ),
+              })}
             </p>
           )}
         </>
       )}
       {field.vaultMissing && (
         <p role="alert" className="text-2xs text-danger">
-          {field.vaultName} is no longer in Vault, so this key is not set.
+          {t("{vaultName} is no longer in Vault, so this key is not set.", {
+            vaultName: field.vaultName,
+          })}
         </p>
       )}
       {point.isError && (
         <p role="alert" className="text-2xs text-danger">
-          {point.error instanceof Error ? point.error.message : "Could not change it."}
+          {point.error instanceof Error ? point.error.message : t("Could not change it.")}
         </p>
       )}
     </div>
@@ -990,14 +1030,18 @@ function MailTest() {
     <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
       <Button variant="secondary" onClick={() => test.mutate()} disabled={test.isPending}>
         {test.isPending ? <Spinner /> : <Mail size={14} strokeWidth={1.75} />}
-        Send a test email
+        {t("Send a test email")}
       </Button>
       {test.isSuccess && (
-        <span className="text-success">Sent to {test.data.to}. Check that it arrived.</span>
+        <span className="text-success">
+          {t("Sent to {to}. Check that it arrived.", { to: test.data.to })}
+        </span>
       )}
       {test.isError && <span className="text-danger">{(test.error as Error).message}</span>}
       {!test.isSuccess && !test.isError && (
-        <span className="text-fg-muted">Save the settings first, then send yourself a test.</span>
+        <span className="text-fg-muted">
+          {t("Save the settings first, then send yourself a test.")}
+        </span>
       )}
     </div>
   );

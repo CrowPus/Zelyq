@@ -39,6 +39,7 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { ApiError, api } from "../lib/api";
 import { AUDIT_ACTION_LABELS, auditDetailSummary } from "../lib/audit";
 import { formatDateTime } from "../lib/format";
+import { t } from "../lib/i18n";
 import { useTeamPaths } from "../lib/routes";
 
 /** An app's front door (Overview) and its settings, under the app's own sidebar. */
@@ -54,12 +55,15 @@ export function AppDetailPage({ tab }: { tab: "overview" | "settings" }) {
         id: current.id,
         name: current.name,
         status: statusOf(current.status),
-        statusLabel: current.status === "ready" ? "Ready" : undefined,
+        statusLabel: current.status === "ready" ? t("Ready") : undefined,
       }
     : { id, name: "…" };
 
   return (
-    <AppShell crumbs={[{ label: tab === "overview" ? "Overview" : "Settings" }]} app={shellApp}>
+    <AppShell
+      crumbs={[{ label: tab === "overview" ? t("Overview") : t("Settings") }]}
+      app={shellApp}
+    >
       <PageBody width={tab === "settings" ? "narrow" : "standard"}>
         {project.isLoading ? (
           <div className="flex flex-col gap-4">
@@ -69,16 +73,16 @@ export function AppDetailPage({ tab }: { tab: "overview" | "settings" }) {
           </div>
         ) : project.isError || !current ? (
           <ErrorState
-            title="This app could not be opened"
+            title={t("This app could not be opened")}
             error={
               project.error instanceof ApiError && project.error.status === 404
-                ? "It may have been deleted, or it belongs to a team you are not in."
+                ? t("It may have been deleted, or it belongs to a team you are not in.")
                 : project.error
             }
             onRetry={() => project.refetch()}
             action={
               <Link to={p.apps} className={buttonClass("secondary")}>
-                All apps
+                {t("All apps")}
               </Link>
             }
           />
@@ -156,7 +160,7 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
           <>
             <StatusBadge
               status={statusOf(app.status)}
-              label={app.status === "ready" ? "Ready" : undefined}
+              label={app.status === "ready" ? t("Ready") : undefined}
             />
             {template && (
               <span className="inline-flex items-center gap-1.5 text-xs text-fg-secondary">
@@ -165,7 +169,7 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
               </span>
             )}
             <span className="text-xs text-fg-muted">
-              Updated <RelativeTime value={app.updatedAt} />
+              {t("Updated {when}", { when: <RelativeTime value={app.updatedAt} /> })}
             </span>
           </>
         }
@@ -178,11 +182,11 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
                 rel="noreferrer"
                 className={buttonClass("secondary")}
               >
-                <ExternalLink size={14} /> Open preview
+                <ExternalLink size={14} /> {t("Open preview")}
               </a>
             )}
             <Link to={p.app(projectId)} className={buttonClass("primary")}>
-              <Sparkles size={14} /> Open builder
+              <Sparkles size={14} /> {t("Open builder")}
             </Link>
           </>
         }
@@ -191,8 +195,8 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
           <Card
-            title="Preview"
-            description="A private copy of the app, running here so you can try it."
+            title={t("Preview")}
+            description={t("A private copy of the app, running here so you can try it.")}
             actions={
               canEdit && (
                 <Button
@@ -202,7 +206,9 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
                   icon={pv?.status === "running" ? <Square size={12} /> : <Play size={12} />}
                   onClick={togglePreview}
                 >
-                  {pv?.status === "running" || pv?.status === "starting" ? "Stop" : "Start preview"}
+                  {pv?.status === "running" || pv?.status === "starting"
+                    ? t("Stop")
+                    : t("Start preview")}
                 </Button>
               )
             }
@@ -216,25 +222,25 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
                 <DescriptionList
                   items={[
                     {
-                      label: "Status",
+                      label: t("Status"),
                       value: (
                         <StatusBadge
                           status={previewStatus}
                           label={
                             pv?.status === "running"
-                              ? "Running"
+                              ? t("Running")
                               : pv?.status === "starting"
-                                ? "Starting"
+                                ? t("Starting")
                                 : pv?.status === "crashed"
-                                  ? "Failed to start"
-                                  : "Stopped"
+                                  ? t("Failed to start")
+                                  : t("Stopped")
                           }
                           variant="inline"
                         />
                       ),
                     },
                     {
-                      label: "Address",
+                      label: t("Address"),
                       value:
                         pv?.url && pv.status === "running" ? (
                           <a
@@ -246,11 +252,11 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
                             {pv.url.replace(/^https?:\/\//, "")}
                           </a>
                         ) : (
-                          <span className="text-fg-muted">Shown while the preview runs</span>
+                          <span className="text-fg-muted">{t("Shown while the preview runs")}</span>
                         ),
                     },
                     {
-                      label: "Started",
+                      label: t("Started"),
                       value: pv?.startedAt ? (
                         <RelativeTime value={pv.startedAt} />
                       ) : (
@@ -265,11 +271,11 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
           </Card>
 
           <Card
-            title="Deployments"
-            description="Where this app is live."
+            title={t("Deployments")}
+            description={t("Where this app is live.")}
             actions={
               <Link to={p.deployments} className={buttonClass("ghost", "sm")}>
-                <Rocket size={13} /> All environments
+                <Rocket size={13} /> {t("All environments")}
               </Link>
             }
             padded={false}
@@ -282,11 +288,13 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
               <EmptyState
                 compact
                 icon={<Rocket size={20} />}
-                title="Not deployed yet"
-                description="A pipeline puts an app on one of your environments once its tests pass. Add an environment and a pipeline that deploys this app."
+                title={t("Not deployed yet")}
+                description={t(
+                  "A pipeline puts an app on one of your environments once its tests pass. Add an environment and a pipeline that deploys this app.",
+                )}
                 action={
                   <Link to={p.deployments} className={buttonClass("secondary")}>
-                    Set up deployments
+                    {t("Set up deployments")}
                   </Link>
                 }
               />
@@ -301,13 +309,15 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-medium text-fg">{env.name}</span>
                         <span className="block text-xs text-fg-muted">
-                          Deploy #{deployment.number} ·{" "}
-                          <RelativeTime value={deployment.createdAt} />
+                          {t("Deploy #{number} · {when}", {
+                            number: deployment.number,
+                            when: <RelativeTime value={deployment.createdAt} />,
+                          })}
                         </span>
                       </span>
                       <StatusBadge
                         status={statusOf(deployment.status)}
-                        label={deployment.status === "live" ? "Live" : undefined}
+                        label={deployment.status === "live" ? t("Live") : undefined}
                       />
                     </Link>
                   </li>
@@ -318,29 +328,29 @@ function Overview({ projectId, teamId }: { projectId: string; teamId: string }) 
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
-          <Card title="Details">
+          <Card title={t("Details")}>
             <DescriptionList
               items={[
-                { label: "Stack", value: template?.title ?? app.template },
+                { label: t("Stack"), value: template?.title ?? app.template },
                 {
-                  label: "App ID",
+                  label: t("App ID"),
                   value: (
                     <span className="flex items-center gap-1">
                       <code className="truncate font-mono text-xs">{app.id}</code>
-                      <CopyButton value={app.id} label="Copy app ID" />
+                      <CopyButton value={app.id} label={t("Copy app ID")} />
                     </span>
                   ),
                 },
-                { label: "Created", value: formatDateTime(app.createdAt) },
-                { label: "Last changed", value: formatDateTime(app.updatedAt) },
+                { label: t("Created"), value: formatDateTime(app.createdAt) },
+                { label: t("Last changed"), value: formatDateTime(app.updatedAt) },
               ]}
             />
           </Card>
 
           {!audit.isError && (
-            <Card title="Recent activity" padded={false}>
+            <Card title={t("Recent activity")} padded={false}>
               {activity.length === 0 ? (
-                <p className="px-4 py-5 text-sm text-fg-muted">No recorded changes yet.</p>
+                <p className="px-4 py-5 text-sm text-fg-muted">{t("No recorded changes yet.")}</p>
               ) : (
                 <ul className="divide-y divide-border-default">
                   {activity.map((entry) => {
@@ -396,10 +406,11 @@ function SettingsTab({ projectId }: { projectId: string }) {
 
   async function remove() {
     const ok = await confirmAction({
-      title: `Delete ${app.name}?`,
-      description:
+      title: t("Delete {name}?", { name: app.name }),
+      description: t(
         "Its files, conversation, snapshots and preview are deleted for everyone in the team. This cannot be undone.",
-      confirmLabel: "Delete app",
+      ),
+      confirmLabel: t("Delete app"),
       danger: true,
       typeToConfirm: app.name,
     });
@@ -407,7 +418,7 @@ function SettingsTab({ projectId }: { projectId: string }) {
     try {
       await api.deleteProject(projectId);
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      toast.success(`${app.name} was deleted`);
+      toast.success(t("{name} was deleted", { name: app.name }));
       navigate(p.apps);
     } catch (error) {
       toast.error((error as Error).message);
@@ -419,18 +430,18 @@ function SettingsTab({ projectId }: { projectId: string }) {
   return (
     <>
       <PageHeader
-        title="App settings"
-        description={`How ${app.name} is named and what its agent may do.`}
+        title={t("App settings")}
+        description={t("How {name} is named and what its agent may do.", { name: app.name })}
       />
       <div className="flex flex-col gap-6">
         <Card
-          title="General"
+          title={t("General")}
           footer={
             canEdit && (
               <>
                 {dirty && (
                   <Button variant="ghost" onClick={() => setName(app.name)}>
-                    Discard
+                    {t("Discard")}
                   </Button>
                 )}
                 <Button
@@ -440,17 +451,20 @@ function SettingsTab({ projectId }: { projectId: string }) {
                   onClick={() =>
                     update.mutate(
                       { name: name.trim() },
-                      { onSuccess: () => toast.success("Name saved") },
+                      { onSuccess: () => toast.success(t("Name saved")) },
                     )
                   }
                 >
-                  Save
+                  {t("Save")}
                 </Button>
               </>
             )
           }
         >
-          <Field label="App name" help="Shown in the app list, the breadcrumb and the browser tab.">
+          <Field
+            label={t("App name")}
+            help={t("Shown in the app list, the breadcrumb and the browser tab.")}
+          >
             <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -461,14 +475,14 @@ function SettingsTab({ projectId }: { projectId: string }) {
         </Card>
 
         <Card
-          title="What the agent may do"
-          description="Each one spends money against the team's AI keys, so both start off."
+          title={t("What the agent may do")}
+          description={t("Each one spends money against the team’s AI keys, so both start off.")}
         >
           <ul className="flex flex-col divide-y divide-border-default">
             <Permission
               icon={<ImageIcon size={16} />}
-              title="Generate images"
-              detail="Pictures for the app: illustrations, icons, backgrounds."
+              title={t("Generate images")}
+              detail={t("Pictures for the app: illustrations, icons, backgrounds.")}
               checked={app.imageGenerationEnabled}
               disabled={!canEdit || update.isPending}
               onChange={(next) =>
@@ -476,15 +490,15 @@ function SettingsTab({ projectId }: { projectId: string }) {
                   { imageGenerationEnabled: next },
                   {
                     onSuccess: () =>
-                      toast.success(next ? "Image generation on" : "Image generation off"),
+                      toast.success(next ? t("Image generation on") : t("Image generation off")),
                   },
                 )
               }
             />
             <Permission
               icon={<Video size={16} />}
-              title="Generate video"
-              detail="Short clips. A clip costs far more than a picture."
+              title={t("Generate video")}
+              detail={t("Short clips. A clip costs far more than a picture.")}
               checked={app.videoGenerationEnabled}
               disabled={!canEdit || update.isPending}
               onChange={(next) =>
@@ -492,7 +506,7 @@ function SettingsTab({ projectId }: { projectId: string }) {
                   { videoGenerationEnabled: next },
                   {
                     onSuccess: () =>
-                      toast.success(next ? "Video generation on" : "Video generation off"),
+                      toast.success(next ? t("Video generation on") : t("Video generation off")),
                   },
                 )
               }
@@ -503,18 +517,19 @@ function SettingsTab({ projectId }: { projectId: string }) {
         {canDelete && (
           <section className="overflow-hidden rounded-lg border border-danger/40">
             <header className="border-b border-danger/25 bg-danger-subtle px-4 py-3">
-              <h3 className="text-sm font-semibold text-danger">Danger zone</h3>
+              <h3 className="text-sm font-semibold text-danger">{t("Danger zone")}</h3>
             </header>
             <div className="flex flex-wrap items-center gap-4 bg-surface px-4 py-4">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-fg">Delete this app</p>
+                <p className="text-sm font-medium text-fg">{t("Delete this app")}</p>
                 <p className="mt-0.5 text-sm text-fg-secondary">
-                  Removes its files, conversation, snapshots and preview for everyone. This cannot
-                  be undone.
+                  {t(
+                    "Removes its files, conversation, snapshots and preview for everyone. This cannot be undone.",
+                  )}
                 </p>
               </div>
               <Button variant="danger-solid" icon={<Trash2 size={14} />} onClick={remove}>
-                Delete app
+                {t("Delete app")}
               </Button>
             </div>
           </section>

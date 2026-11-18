@@ -62,6 +62,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import { formatYaml } from "../../lib/pipeline-yaml";
 import {
   type Lookups,
@@ -91,8 +92,8 @@ interface Props {
 
 const WRAP_KEY = "zelyq.yaml-editor.wrap";
 const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-const MOD = mac ? "⌘" : "Ctrl";
-const ALT = mac ? "⌥" : "Alt";
+const MOD = mac ? "⌘" : t("Ctrl");
+const ALT = mac ? "⌥" : t("Alt");
 
 const SHORTCUTS: [string, string][] = [
   [`${MOD}+S`, "Save"],
@@ -106,7 +107,7 @@ const SHORTCUTS: [string, string][] = [
   [`Shift+${ALT}+↑ / ↓`, "Copy lines"],
   [`${MOD}+]  /  ${MOD}+[`, "Indent, outdent"],
   [`${MOD}+Shift+[  /  ]`, "Fold, unfold"],
-  ["F8", "Next problem"],
+  ["F8", t("Next problem")],
   [`${MOD}+Z  /  ${MOD}+Shift+Z`, "Undo, redo"],
   [`${ALT}+click, drag`, "More cursors, a column"],
 ];
@@ -202,7 +203,7 @@ export default function YamlEditor({
     const text = target.state.doc.toString();
     const next = formatYaml(text);
     if (next === null) {
-      setFormatNote("Fix the YAML errors first; formatting never guesses.");
+      setFormatNote(t("Fix the YAML errors first; formatting never guesses."));
       return true;
     }
     setFormatNote(null);
@@ -227,7 +228,7 @@ export default function YamlEditor({
             markerDOM: (open) => {
               const marker = document.createElement("span");
               marker.textContent = open ? "⌄" : "›";
-              marker.title = open ? "Fold" : "Unfold";
+              marker.title = open ? t("Fold") : t("Unfold");
               marker.style.cssText = open
                 ? "display:inline-block;transform:translateY(-3px)"
                 : "display:inline-block";
@@ -260,7 +261,7 @@ export default function YamlEditor({
           pipelineHover(() => latest.current.lookups),
           editorLook,
           placeholder("name: My pipeline"),
-          EditorView.contentAttributes.of({ "aria-label": "Pipeline file" }),
+          EditorView.contentAttributes.of({ "aria-label": t("Pipeline file") }),
           compartments.readOnly.of(EditorState.readOnly.of(readOnly)),
           compartments.wrap.of(wrap ? EditorView.lineWrapping : []),
           keymap.of([
@@ -437,41 +438,43 @@ export default function YamlEditor({
           full ? "rounded-t-md border" : "border-b"
         }`}
         role="toolbar"
-        aria-label="Editor tools"
+        aria-label={t("Editor tools")}
       >
-        <Tool label={`Find and replace (${MOD}+F)`} onClick={() => run(openSearchPanel)}>
+        <Tool label={t("Find and replace ({MOD}+F)", { MOD })} onClick={() => run(openSearchPanel)}>
           <Search size={14} />
         </Tool>
         {!readOnly && (
-          <Tool label={`Format (Shift+${ALT}+F)`} onClick={() => run(format)}>
+          <Tool label={t("Format (Shift+{ALT}+F)", { ALT })} onClick={() => run(format)}>
             <AlignLeft size={14} />
           </Tool>
         )}
         <span className="mx-1 h-4 w-px bg-border-default" aria-hidden />
-        <Tool label="Fold all" onClick={() => run(foldAll)}>
+        <Tool label={t("Fold all")} onClick={() => run(foldAll)}>
           <ChevronsDownUp size={14} />
         </Tool>
-        <Tool label="Unfold all" onClick={() => run(unfoldAll)}>
+        <Tool label={t("Unfold all")} onClick={() => run(unfoldAll)}>
           <ChevronsUpDown size={14} />
         </Tool>
-        <Tool label="Wrap long lines" pressed={wrap} onClick={() => setWrap((on) => !on)}>
+        <Tool label={t("Wrap long lines")} pressed={wrap} onClick={() => setWrap((on) => !on)}>
           <WrapText size={14} />
         </Tool>
         {formatNote && <span className="ml-2 text-2xs text-warning">{formatNote}</span>}
         <span className="ml-auto flex items-center gap-0.5">
-          {full && dirty && <span className="mr-2 text-2xs text-warning">Unsaved changes</span>}
+          {full && dirty && (
+            <span className="mr-2 text-2xs text-warning">{t("Unsaved changes")}</span>
+          )}
           {full && onSave && (
             <button
               type="button"
               onClick={onSave}
               className="mr-1 flex h-7 items-center gap-1.5 rounded bg-primary px-2.5 text-xs font-medium text-primary-text hover:bg-primary-hover"
             >
-              <Save size={13} /> Save
+              <Save size={13} /> {t("Save")}
             </button>
           )}
           <span className="relative" ref={keysBox}>
             <Tool
-              label="Keyboard shortcuts"
+              label={t("Keyboard shortcuts")}
               pressed={showKeys}
               onClick={() => setShowKeys((on) => !on)}
             >
@@ -480,7 +483,7 @@ export default function YamlEditor({
             {showKeys && (
               <div
                 role="dialog"
-                aria-label="Keyboard shortcuts"
+                aria-label={t("Keyboard shortcuts")}
                 className="absolute top-full right-0 z-20 mt-1 w-80 rounded-md border border-border-default bg-overlay p-2 shadow-overlay"
               >
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
@@ -497,7 +500,7 @@ export default function YamlEditor({
             )}
           </span>
           <Tool
-            label={full ? "Leave full screen (Esc)" : "Full screen"}
+            label={full ? t("Leave full screen (Esc)") : t("Full screen")}
             pressed={full}
             onClick={() => setFull((on) => !on)}
           >
@@ -525,7 +528,7 @@ export default function YamlEditor({
           onClick={() => setListOpen((open) => !open)}
           className="flex items-center gap-2 rounded px-1 hover:bg-surface-hover hover:text-fg"
           aria-expanded={listOpen}
-          title="Problems (F8: next)"
+          title={t("Problems (F8: next)")}
         >
           <span className={`flex items-center gap-1 ${errors ? "text-danger" : ""}`}>
             <CircleAlert size={12} /> {errors}
@@ -534,20 +537,25 @@ export default function YamlEditor({
             <TriangleAlert size={12} /> {warningCount}
           </span>
         </button>
-        {readOnly && <span className="rounded bg-surface-hover px-1.5">Read only</span>}
+        {readOnly && <span className="rounded bg-surface-hover px-1.5">{t("Read only")}</span>}
         <span className="ml-auto tabular-nums">
-          Ln {cursor.line}, Col {cursor.column}
-          {cursor.selected > 0 ? ` (${cursor.selected} selected)` : ""}
-          {cursor.cursors > 1 ? ` · ${cursor.cursors} cursors` : ""}
+          {t("Ln {line}, Col {column}{value}{value2}", {
+            line: cursor.line,
+            column: cursor.column,
+            value:
+              cursor.selected > 0 ? t(" ({selected} selected)", { selected: cursor.selected }) : "",
+            value2:
+              cursor.cursors > 1 ? t(" · {cursors} cursors", { cursors: cursor.cursors }) : "",
+          })}
         </span>
-        <span className="hidden sm:inline">Spaces: 2</span>
-        <span className="hidden sm:inline">UTF-8</span>
+        <span className="hidden sm:inline">{t("Spaces: 2")}</span>
+        <span className="hidden sm:inline">{t("UTF-8")}</span>
         <span>YAML</span>
       </div>
 
       {listOpen && problems.length > 0 && (
         <ul
-          aria-label="Problems"
+          aria-label={t("Problems")}
           className={`max-h-40 overflow-y-auto border-border-default bg-surface text-xs ${
             full ? "rounded-b-md border border-t-0" : "border-t"
           }`}
@@ -573,7 +581,7 @@ export default function YamlEditor({
                 <span className="min-w-0 flex-1 break-words text-fg">{problem.message}</span>
                 {problem.line !== null && (
                   <span className="shrink-0 font-mono text-2xs text-fg-muted">
-                    Ln {problem.line}
+                    {t("Ln {line}", { line: problem.line })}
                   </span>
                 )}
               </button>

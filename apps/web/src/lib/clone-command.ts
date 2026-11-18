@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /**
  * `/clone <url>` — proposal 067.
  *
@@ -61,7 +62,7 @@ export function parseCloneCommand(draft: string): ParsedClone | { error: string 
   try {
     url = new URL(match[0]);
   } catch {
-    return { error: `That doesn't look like a URL: ${match[0]}` };
+    return { error: t("That doesn’t look like a URL: {match}", { match: match[0] }) };
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return { error: "/clone only works with an http:// or https:// URL" };

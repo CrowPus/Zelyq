@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { formatDateParts } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { teamHref } from "../../lib/routes";
 import { formatRelative } from "../../lib/vault";
 import { EmptyState, Spinner } from "../ui";
@@ -31,10 +32,10 @@ export function OverviewTab({ teamId }: { teamId: string }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-fg-secondary">Every run of this team's pipelines.</p>
+        <p className="text-xs text-fg-secondary">{t("Every run of this team’s pipelines.")}</p>
         <div
           role="tablist"
-          aria-label="Period"
+          aria-label={t("Period")}
           className="inline-flex rounded-md border border-border-default bg-surface p-0.5 text-xs"
         >
           {RANGES.map((range) => (
@@ -50,7 +51,7 @@ export function OverviewTab({ teamId }: { teamId: string }) {
                   : "text-fg-secondary hover:text-fg"
               }`}
             >
-              {range} days
+              {t("{range} days", { range })}
             </button>
           ))}
         </div>
@@ -60,46 +61,58 @@ export function OverviewTab({ teamId }: { teamId: string }) {
         <Spinner />
       ) : data.totals.runs === 0 ? (
         <EmptyState
-          title={`No runs in the last ${days} days`}
-          description="When pipelines run, how they go shows here: success rate, time, and the slowest stages."
+          title={t("No runs in the last {days} days", { days })}
+          description={t(
+            "When pipelines run, how they go shows here: success rate, time, and the slowest stages.",
+          )}
         />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Tile label="Runs" value={compact(data.totals.runs)} hint={`last ${days} days`} />
             <Tile
-              label="Success rate"
-              value={percent(data.totals.successRate)}
-              hint={`${data.totals.passed} passed · ${data.totals.failed} failed`}
+              label={t("Runs")}
+              value={compact(data.totals.runs)}
+              hint={t("last {days} days", { days })}
             />
-            <Tile label="Typical run" value={time(data.totals.medianMs)} hint="the middle run" />
             <Tile
-              label="Failing now"
+              label={t("Success rate")}
+              value={percent(data.totals.successRate)}
+              hint={t("{passed} passed · {failed} failed", {
+                passed: data.totals.passed,
+                failed: data.totals.failed,
+              })}
+            />
+            <Tile
+              label={t("Typical run")}
+              value={time(data.totals.medianMs)}
+              hint={t("the middle run")}
+            />
+            <Tile
+              label={t("Failing now")}
               value={String(data.totals.failingNow)}
-              hint={
-                data.totals.failingNow === 1
-                  ? "pipeline's newest run failed"
-                  : "pipelines' newest run failed"
-              }
+              hint={t(
+                "{failingNow, plural, one {pipeline’s newest run failed} other {pipelines’ newest run failed}}",
+                { failingNow: data.totals.failingNow },
+              )}
               warn={data.totals.failingNow > 0}
             />
           </div>
 
           <section className="rounded-md border border-border-default bg-surface p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">Runs per day</h2>
+              <h2 className="text-sm font-semibold">{t("Runs per day")}</h2>
               <Legend />
             </div>
             <RunsChart daily={data.daily} />
             <details className="mt-3 text-xs">
-              <summary className="cursor-pointer text-fg-secondary">Show as a table</summary>
+              <summary className="cursor-pointer text-fg-secondary">{t("Show as a table")}</summary>
               <table className="mt-2 w-full max-w-md">
                 <thead className="text-left text-fg-muted">
                   <tr>
-                    <th className="py-1 font-medium">Day</th>
-                    <th className="py-1 text-right font-medium">Passed</th>
-                    <th className="py-1 text-right font-medium">Failed</th>
-                    <th className="py-1 text-right font-medium">Cancelled</th>
+                    <th className="py-1 font-medium">{t("Day")}</th>
+                    <th className="py-1 text-right font-medium">{t("Passed")}</th>
+                    <th className="py-1 text-right font-medium">{t("Failed")}</th>
+                    <th className="py-1 text-right font-medium">{t("Cancelled")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -118,17 +131,17 @@ export function OverviewTab({ teamId }: { teamId: string }) {
 
           <section className="rounded-md border border-border-default bg-surface">
             <h2 className="border-b border-border-default px-4 py-2.5 text-sm font-semibold">
-              Pipelines
+              {t("Pipelines")}
             </h2>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
                 <thead className="text-left text-xs text-fg-muted">
                   <tr>
-                    <th className="px-4 py-2 font-medium">Pipeline</th>
-                    <th className="px-2 py-2 text-right font-medium">Runs</th>
-                    <th className="px-2 py-2 font-medium">Success rate</th>
-                    <th className="px-2 py-2 text-right font-medium">Average time</th>
-                    <th className="px-4 py-2 font-medium">Newest run</th>
+                    <th className="px-4 py-2 font-medium">{t("Pipeline")}</th>
+                    <th className="px-2 py-2 text-right font-medium">{t("Runs")}</th>
+                    <th className="px-2 py-2 font-medium">{t("Success rate")}</th>
+                    <th className="px-2 py-2 text-right font-medium">{t("Average time")}</th>
+                    <th className="px-4 py-2 font-medium">{t("Newest run")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -159,7 +172,7 @@ export function OverviewTab({ teamId }: { teamId: string }) {
                             {pipeline.last.number} · {formatRelative(pipeline.last.createdAt)}
                           </Link>
                         ) : (
-                          <span className="text-xs text-fg-muted">never run</span>
+                          <span className="text-xs text-fg-muted">{t("never run")}</span>
                         )}
                       </td>
                     </tr>
@@ -171,10 +184,11 @@ export function OverviewTab({ teamId }: { teamId: string }) {
 
           {data.slowStages.length > 0 && (
             <section className="rounded-md border border-border-default bg-surface p-4">
-              <h2 className="mb-1 text-sm font-semibold">Slowest stages</h2>
+              <h2 className="mb-1 text-sm font-semibold">{t("Slowest stages")}</h2>
               <p className="mb-3 text-xs text-fg-secondary">
-                On average, over the runs in this period: where a faster runner, a cache or running
-                stages at the same time would help most.
+                {t(
+                  "On average, over the runs in this period: where a faster runner, a cache or running stages at the same time would help most.",
+                )}
               </p>
               <SlowStages stages={data.slowStages} />
             </section>
@@ -228,8 +242,9 @@ function Legend() {
   return (
     <ul className="flex items-center gap-3 text-xs text-fg-secondary">
       <li className="flex items-center gap-1.5">
-        <span className="size-2.5 rounded-sm" style={{ background: PASSED }} />
-        Passed
+        {t("{part}Passed", {
+          part: <span className="size-2.5 rounded-sm" style={{ background: PASSED }} />,
+        })}
       </li>
       <li className="flex items-center gap-1.5">
         <svg width="10" height="10" aria-hidden="true">
@@ -240,7 +255,7 @@ function Legend() {
             strokeWidth="1.2"
           />
         </svg>
-        Failed
+        {t("Failed")}
       </li>
     </ul>
   );
@@ -292,7 +307,7 @@ function RunsChart({ daily }: { daily: PipelineStats["daily"] }) {
           viewBox={`0 0 ${width} ${height + 22}`}
           className="block"
           role="img"
-          aria-label="Runs per day, passed and failed"
+          aria-label={t("Runs per day, passed and failed")}
           onMouseLeave={() => setHover(null)}
         >
           <defs>
@@ -386,8 +401,8 @@ function RunsChart({ daily }: { daily: PipelineStats["daily"] }) {
         >
           <p className="font-medium">{dayLabel(shown.day, true)}</p>
           <p className="text-fg-secondary">
-            {shown.passed} passed · {shown.failed} failed
-            {shown.other > 0 && ` · ${shown.other} cancelled`}
+            {t("{passed} passed · {failed} failed", { passed: shown.passed, failed: shown.failed })}
+            {shown.other > 0 && t(" · {other} cancelled", { other: shown.other })}
           </p>
         </div>
       )}
@@ -417,7 +432,10 @@ function SlowStages({ stages }: { stages: PipelineStats["slowStages"] }) {
               to={teamHref(`/pipelines/${stage.pipelineId}`)}
               className="block truncate text-fg-muted hover:underline"
             >
-              {stage.pipelineName} · {stage.runs} run{stage.runs === 1 ? "" : "s"}
+              {t("{pipelineName} · {runs, plural, one {# run} other {# runs}}", {
+                pipelineName: stage.pipelineName,
+                runs: stage.runs,
+              })}
             </Link>
           </span>
           <span className="flex min-w-0 items-center gap-2">

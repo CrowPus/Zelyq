@@ -24,7 +24,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
-import { formatDate } from "../../lib/format";
+import { formatDate, formatNumber } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
 import {
   Badge,
@@ -37,7 +38,11 @@ import {
   Spinner,
 } from "../ui";
 
-const OS_LABEL: Record<string, string> = { linux: "Linux", macos: "macOS", windows: "Windows" };
+const OS_LABEL: Record<string, string> = {
+  linux: t("Linux"),
+  macos: "macOS",
+  windows: t("Windows"),
+};
 
 /**
  * The team's machines. Three steps for each, in the order they are needed:
@@ -59,16 +64,16 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
         <TeamKey teamId={team.id} />
       ) : (
         <p className="text-xs text-fg-secondary">
-          A team admin adds runners and manages the team's SSH key.
+          {t("A team admin adds runners and manages the team’s SSH key.")}
         </p>
       )}
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">SSH runners</h2>
+          <h2 className="text-sm font-semibold">{t("SSH runners")}</h2>
           {isAdmin && !adding && (
             <Button size="sm" icon={<Plus size={13} />} onClick={() => setAdding(true)}>
-              Add runner
+              {t("Add runner")}
             </Button>
           )}
         </div>
@@ -78,8 +83,10 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
         ) : (runners.data?.runners.length ?? 0) === 0 ? (
           !adding && (
             <EmptyState
-              title="No SSH runners"
-              description="Any Linux, macOS or Windows machine with an SSH server can run pipelines: a VM, a Mac mini, a build box."
+              title={t("No SSH runners")}
+              description={t(
+                "Any Linux, macOS or Windows machine with an SSH server can run pipelines: a VM, a Mac mini, a build box.",
+              )}
             />
           )
         ) : (
@@ -100,25 +107,33 @@ function LocalRunnerNote({ status }: { status: LocalRunnerStatus | null }) {
       <Server size={16} className="mt-0.5 shrink-0" />
       <div className="grid gap-1">
         <p>
-          <span className="font-medium text-fg">Local runner</span> — always here. A pipeline with{" "}
-          <code className="font-mono">runs-on: local</code> runs on this Zelyq server, in a fresh
-          container that is thrown away afterwards. A server admin can change this in Server admin →
-          Pipelines.
+          {t(
+            "{part} — always here. A pipeline with {code} runs on this Zelyq server, in a fresh container that is thrown away afterwards. A server admin can change this in Server admin → Pipelines.",
+            {
+              part: <span className="font-medium text-fg">{t("Local runner")}</span>,
+              code: <code className="font-mono">runs-on: local</code>,
+            },
+          )}
         </p>
         {status && !status.off && (
           <p className="flex flex-wrap items-center gap-2">
             <Badge
               tone={status.busy >= status.places ? "warning" : status.busy > 0 ? "info" : "success"}
             >
-              {status.busy > 0 ? `Running ${status.busy} of ${status.places}` : "Ready"}
+              {status.busy > 0
+                ? t("Running {busy} of {places}", { busy: status.busy, places: status.places })
+                : t("Ready")}
             </Badge>
-            Takes {status.places === 1 ? "1 run" : `${status.places} runs`} at once
-            {status.automatic
-              ? ": automatic, from this server's processors and memory."
-              : " (set by hand)."}
+            {t("Takes {value} at once{value2}", {
+              value:
+                status.places === 1 ? t("1 run") : t("{places} runs", { places: status.places }),
+              value2: status.automatic
+                ? t(": automatic, from this server’s processors and memory.")
+                : t(" (set by hand)."),
+            })}
           </p>
         )}
-        {status?.off && <p>Turned off on this instance.</p>}
+        {status?.off && <p>{t("Turned off on this instance.")}</p>}
       </div>
     </div>
   );
@@ -137,7 +152,7 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
         });
       }}
     >
-      {copied ? "Copied" : label}
+      {copied ? t("Copied") : label}
     </Button>
   );
 }
@@ -179,7 +194,7 @@ function TeamKey({ teamId }: { teamId: string }) {
     <section className="rounded-md border border-border-default p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <KeyRound size={14} /> The team's SSH key
+          <KeyRound size={14} /> {t("The team’s SSH key")}
         </h2>
         <div className="flex gap-1">
           <Button
@@ -190,24 +205,25 @@ function TeamKey({ teamId }: { teamId: string }) {
             onClick={async () => {
               if (
                 await confirmAction({
-                  title: "Make a new key?",
-                  description:
+                  title: t("Make a new key?"),
+                  description: t(
                     "The current one keeps working for 7 days while you add the new one to each machine.",
-                  confirmLabel: "Make a new key",
+                  ),
+                  confirmLabel: t("Make a new key"),
                 })
               ) {
                 rotate.mutate(current.algorithm);
               }
             }}
           >
-            New key
+            {t("New key")}
           </Button>
         </div>
       </div>
       <p className="mb-2 text-xs text-fg-secondary">
-        Step 1 for every machine: set it up. Paste this once on the machine, as a user who can use
-        sudo (on Windows: PowerShell, Run as administrator). It creates the runner's user, lets this
-        team's key in, and joins the docker group if Docker is there. Running it again is safe.
+        {t(
+          "Step 1 for every machine: set it up. Paste this once on the machine, as a user who can use sudo (on Windows: PowerShell, Run as administrator). It creates the runner’s user, lets this team’s key in, and joins the docker group if Docker is there. Running it again is safe.",
+        )}
       </p>
       <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
         <div className="flex gap-1">
@@ -223,9 +239,9 @@ function TeamKey({ teamId }: { teamId: string }) {
           ))}
         </div>
         <span className="flex items-center gap-1">
-          User to create
+          {t("User to create")}
           <Input
-            aria-label="User to create"
+            aria-label={t("User to create")}
             value={user}
             onChange={(event) => setUser(event.target.value.trim())}
             className="h-6 w-28 font-mono text-xs"
@@ -237,13 +253,14 @@ function TeamKey({ teamId }: { teamId: string }) {
             checked={admin}
             onChange={(event) => setAdmin(event.target.checked)}
           />
-          {os === "windows" ? "Make it an administrator" : "Let it use sudo"}
+          {os === "windows" ? t("Make it an administrator") : t("Let it use sudo")}
         </label>
       </div>
       {admin && (
         <p className="mb-2 rounded bg-warning-subtle p-2 text-2xs">
-          Then every pipeline that runs here can do anything on this machine. Leave it off unless
-          your steps install system packages.
+          {t(
+            "Then every pipeline that runs here can do anything on this machine. Leave it off unless your steps install system packages.",
+          )}
         </p>
       )}
       {userOk ? (
@@ -252,28 +269,30 @@ function TeamKey({ teamId }: { teamId: string }) {
         </pre>
       ) : (
         <p className="mb-2 text-xs text-danger">
-          Use lower-case letters, digits, '_' or '-' for the user.
+          {t("Use lower-case letters, digits, ’_’ or ’-’ for the user.")}
         </p>
       )}
       {os === "macos" && (
         <p className="mb-2 text-2xs text-fg-secondary">
-          Remote Login must be on: System Settings → General → Sharing → Remote Login.
+          {t("Remote Login must be on: System Settings → General → Sharing → Remote Login.")}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <CopyButton text={command} label="Copy command" />
-        <CopyButton text={current.publicKey} label="Copy key only" />
+        <CopyButton text={command} label={t("Copy command")} />
+        <CopyButton text={current.publicKey} label={t("Copy key only")} />
         <span className="font-mono text-2xs text-fg-muted">
           {current.algorithm} · {current.fingerprint}
         </span>
       </div>
       {older.map((key) => (
         <div key={key.id} className="mt-3 rounded bg-warning-subtle p-2 text-xs">
-          The previous key ({key.fingerprint}) still works until{" "}
-          {key.retiresAt ? formatDate(key.retiresAt) : "removed"}. Add the new key to every machine,
-          then{" "}
+          {t("The previous key ({fingerprint}) still works until ", {
+            fingerprint: key.fingerprint,
+          })}
+          {key.retiresAt ? formatDate(key.retiresAt) : t("removed")}
+          {t(". Add the new key to every machine, then ")}
           <button type="button" className="underline" onClick={() => retire.mutate()}>
-            stop the old key now
+            {t("stop the old key now")}
           </button>
           .
         </div>
@@ -286,13 +305,25 @@ function TeamKey({ teamId }: { teamId: string }) {
 /** Adds a runner, or — given one — changes it. */
 /** "Takes 4 runs at once — automatic, from 8 processors and 31 GB of memory." */
 function capacityWords(runner: RunnerSummary): string {
-  const runs = runner.concurrency === 1 ? "1 run" : `${runner.concurrency} runs`;
-  if (runner.maxConcurrent > 0) return `Takes ${runs} at once (set by hand).`;
+  const runs =
+    runner.concurrency === 1
+      ? "1 run"
+      : t("{concurrency} runs", { concurrency: runner.concurrency });
+  if (runner.maxConcurrent > 0) return t("Takes {runs} at once (set by hand).", { runs });
   if (!runner.cpus) {
-    return `Takes ${runs} at once for now; Test connection lets Zelyq size it from its processors and memory.`;
+    return t(
+      "Takes {runs} at once for now; Test connection lets Zelyq size it from its processors and memory.",
+      { runs },
+    );
   }
-  const memory = runner.memoryMb ? ` and ${Math.round(runner.memoryMb / 1024)} GB of memory` : "";
-  return `Takes ${runs} at once: automatic, from ${runner.cpus} processors${memory}.`;
+  const memory = runner.memoryMb
+    ? t(" and {memoryMb} GB of memory", { memoryMb: Math.round(runner.memoryMb / 1024) })
+    : "";
+  return t("Takes {runs} at once: automatic, from {cpus} processors{memory}.", {
+    runs,
+    cpus: runner.cpus,
+    memory,
+  });
 }
 
 function RunnerForm({
@@ -359,8 +390,10 @@ function RunnerForm({
     >
       <p className="text-xs text-fg-secondary">
         {runner
-          ? "Change what you need. A new host or port means confirming the machine's fingerprint again."
-          : "Step 2: where the machine is. After adding it, press Test connection."}
+          ? t(
+              "Change what you need. A new host or port means confirming the machine’s fingerprint again.",
+            )
+          : t("Step 2: where the machine is. After adding it, press Test connection.")}
       </p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {field("name", "Name", "build-01")}
@@ -377,10 +410,10 @@ function RunnerForm({
           variant="primary"
           disabled={create.isPending || !form.name || !form.host || !form.username}
         >
-          {runner ? "Save" : "Add runner"}
+          {runner ? t("Save") : t("Add runner")}
         </Button>
         <Button variant="ghost" onClick={onDone}>
-          Cancel
+          {t("Cancel")}
         </Button>
       </div>
     </form>
@@ -431,19 +464,22 @@ function RunnerRow({
 
   const confirmed = Boolean(runner.hostKeyFingerprint);
   const state = !runner.enabled
-    ? { tone: "neutral" as const, label: "Off" }
+    ? { tone: "neutral" as const, label: t("Off") }
     : !confirmed
-      ? { tone: "warning" as const, label: "Not confirmed" }
+      ? { tone: "warning" as const, label: t("Not confirmed") }
       : runner.lastTest && !runner.lastTest.ok
-        ? { tone: "danger" as const, label: "Unreachable" }
+        ? { tone: "danger" as const, label: t("Unreachable") }
         : runner.busyRuns > 0
           ? {
               tone: (runner.busyRuns >= runner.concurrency ? "warning" : "info") as
                 | "warning"
                 | "info",
-              label: `Running ${runner.busyRuns} of ${runner.concurrency}`,
+              label: t("Running {busyRuns} of {concurrency}", {
+                busyRuns: runner.busyRuns,
+                concurrency: runner.concurrency,
+              }),
             }
-          : { tone: "success" as const, label: "Ready" };
+          : { tone: "success" as const, label: t("Ready") };
 
   if (editing) {
     return (
@@ -473,7 +509,7 @@ function RunnerRow({
                 disabled={test.isPending}
                 onClick={() => test.mutate()}
               >
-                {test.isPending ? "Testing…" : "Test connection"}
+                {test.isPending ? t("Testing…") : t("Test connection")}
               </Button>
               <Button
                 size="sm"
@@ -481,21 +517,23 @@ function RunnerRow({
                 icon={<Pencil size={13} />}
                 onClick={() => setEditing(true)}
               >
-                Edit
+                {t("Edit")}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => toggle.mutate()}>
-                {runner.enabled ? "Turn off" : "Turn on"}
+                {runner.enabled ? t("Turn off") : t("Turn on")}
               </Button>
               <IconButton
                 size="sm"
                 variant="danger"
-                label="Remove runner"
+                label={t("Remove runner")}
                 onClick={async () => {
                   if (
                     await confirmAction({
-                      title: `Remove ${runner.name}?`,
-                      description: `Pipelines that name it will fail until another runner matches.`,
-                      confirmLabel: "Remove machine",
+                      title: t("Remove {name}?", { name: runner.name }),
+                      description: t(
+                        "Pipelines that name it will fail until another runner matches.",
+                      ),
+                      confirmLabel: t("Remove machine"),
                       danger: true,
                     })
                   ) {
@@ -512,7 +550,10 @@ function RunnerRow({
       <p className="mt-1 font-mono text-xs text-fg-secondary">
         {runner.username}@{runner.host}:{runner.port}
         {runner.shells.length + runner.tools.length > 0 && (
-          <span className="font-sans"> · has {[...runner.shells, ...runner.tools].join(", ")}</span>
+          <span className="font-sans">
+            {" "}
+            {t("· has")} {[...runner.shells, ...runner.tools].join(", ")}
+          </span>
         )}
       </p>
       <p className="mt-1 text-xs text-fg-secondary">{capacityWords(runner)}</p>
@@ -524,16 +565,19 @@ function RunnerRow({
       {confirmed && isAdmin && <DiskUse teamId={teamId} runnerId={runner.id} />}
       {confirmed && (
         <p className="mt-1 flex items-center gap-1 text-2xs text-fg-muted">
-          <ShieldCheck size={12} /> Only talks to {runner.hostKeyFingerprint}
+          <ShieldCheck size={12} />{" "}
+          {t("Only talks to {hostKeyFingerprint}", {
+            hostKeyFingerprint: runner.hostKeyFingerprint,
+          })}
         </p>
       )}
       {result?.needsConfirmation && result.hostKeyFingerprint && (
         <div className="mt-3 rounded-md border border-warning/40 bg-warning-subtle p-3 text-xs">
-          <p className="font-medium">Step 3: is this really your machine?</p>
-          <p className="mt-1">It says its fingerprint is</p>
+          <p className="font-medium">{t("Step 3: is this really your machine?")}</p>
+          <p className="mt-1">{t("It says its fingerprint is")}</p>
           <p className="my-1 font-mono text-sm break-all">{result.hostKeyFingerprint}</p>
           <p className="text-fg-secondary">
-            Check on the machine itself — one of the lines this prints must match:
+            {t("Check on the machine itself — one of the lines this prints must match:")}
           </p>
           <pre className="my-1 overflow-x-auto rounded bg-surface p-2 font-mono text-2xs">
             {runner.os === "windows"
@@ -547,10 +591,10 @@ function RunnerRow({
               disabled={confirm.isPending}
               onClick={() => confirm.mutate(result.hostKeyFingerprint as string)}
             >
-              It matches — confirm
+              {t("It matches — confirm")}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setResult(null)}>
-              Not now
+              {t("Not now")}
             </Button>
           </div>
         </div>
@@ -577,8 +621,8 @@ function DiskUse({ teamId, runnerId }: { teamId: string; runnerId: string }) {
     bytes === null
       ? "?"
       : bytes >= 1024 ** 3
-        ? `${(bytes / 1024 ** 3).toFixed(1)} GB`
-        : `${Math.round(bytes / 1024 ** 2)} MB`;
+        ? `${formatNumber(bytes / 1024 ** 3, { maximumFractionDigits: 1, minimumFractionDigits: 1 })} ${t("GB")}`
+        : `${formatNumber(Math.round(bytes / 1024 ** 2))} ${t("MB")}`;
 
   if (!open) {
     return (
@@ -587,7 +631,7 @@ function DiskUse({ teamId, runnerId }: { teamId: string; runnerId: string }) {
         onClick={() => setOpen(true)}
         className="mt-1 flex items-center gap-1 text-2xs text-fg-secondary hover:underline"
       >
-        <HardDrive size={12} /> Disk
+        <HardDrive size={12} /> {t("Disk")}
       </button>
     );
   }
@@ -604,13 +648,13 @@ function DiskUse({ teamId, runnerId }: { teamId: string; runnerId: string }) {
         <div className="grid gap-1">
           <p className={used !== null && used > 0.85 ? "font-medium text-warning" : ""}>
             <HardDrive size={12} className="mr-1 inline" />
-            {size(data.freeBytes)} free of {size(data.totalBytes)}
+            {size(data.freeBytes)} {t("free of")} {size(data.totalBytes)}
             {used !== null && ` (${Math.round(used * 100)}% used)`}
-            {used !== null && used > 0.85 && " — builds may run out of space."}
+            {used !== null && used > 0.85 && t(" — builds may run out of space.")}
           </p>
           {(["tools", "cache"] as const).map((what) => (
             <p key={what} className="flex items-center gap-2">
-              <span className="w-28">{what === "tools" ? "Tools (setup)" : "Caches"}</span>
+              <span className="w-28">{what === "tools" ? t("Tools (setup)") : t("Caches")}</span>
               <span className="w-16 text-fg-secondary">
                 {size(what === "tools" ? data.toolsBytes : data.cacheBytes)}
               </span>
@@ -623,9 +667,12 @@ function DiskUse({ teamId, runnerId }: { teamId: string; runnerId: string }) {
                 onClick={async () => {
                   if (
                     await confirmAction({
-                      title: `Remove all ${what === "tools" ? "tools" : "caches"} from this machine?`,
-                      description: "The next run fetches them again.",
-                      confirmLabel: "Remove",
+                      title:
+                        what === "tools"
+                          ? t("Remove all tools from this machine?")
+                          : t("Remove all caches from this machine?"),
+                      description: t("The next run fetches them again."),
+                      confirmLabel: t("Remove"),
                       danger: true,
                     })
                   ) {
@@ -633,7 +680,7 @@ function DiskUse({ teamId, runnerId }: { teamId: string; runnerId: string }) {
                   }
                 }}
               >
-                Clear
+                {t("Clear")}
               </Button>
             </p>
           ))}

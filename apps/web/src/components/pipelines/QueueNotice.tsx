@@ -2,45 +2,39 @@ import type { RunQueueInfo } from "@zelyq/core";
 import { Clock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { t } from "../../lib/i18n";
 import { teamHref } from "../../lib/routes";
 
 /** "next", "2nd", "3rd", "11th": a place in line. */
 export function placeInLine(position: number): string {
-  if (position <= 1) return "next";
-  const tens = position % 100;
-  const suffix =
-    tens >= 11 && tens <= 13
-      ? "th"
-      : position % 10 === 1
-        ? "st"
-        : position % 10 === 2
-          ? "nd"
-          : position % 10 === 3
-            ? "rd"
-            : "th";
-  return `${position}${suffix}`;
+  if (position <= 1) return t("next");
+  return t("{position, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}", { position });
 }
 
 /** "in about 3 min", "any moment now": when a waiting run should start. */
 export function startsIn(startsAt: string | null, now = Date.now()): string | null {
   if (!startsAt) return null;
   const seconds = Math.round((Date.parse(startsAt) - now) / 1000);
-  if (seconds <= 10) return "any moment now";
-  if (seconds < 60) return "in under a minute";
-  if (seconds < 90) return "in about a minute";
+  if (seconds <= 10) return t("any moment now");
+  if (seconds < 60) return t("in under a minute");
+  if (seconds < 90) return t("in about a minute");
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `in about ${minutes} min`;
+  if (minutes < 60) return t("in about {minutes} min", { minutes });
   const hours = Math.floor(minutes / 60);
-  return `in about ${hours} h ${minutes % 60} min`;
+  return t("in about {hours} h {minutes} min", { hours, minutes: minutes % 60 });
 }
 
 /** One line for a list: "Waiting · 2nd in line · starts in about 3 min". */
 export function queueSummary(queue: RunQueueInfo | null): string {
-  if (!queue) return "Waiting to start";
+  if (!queue) return t("Waiting to start");
   const when = startsIn(queue.startsAt);
   return [
-    queue.position <= 1 ? "Next in line" : `${placeInLine(queue.position)} in line`,
-    when ? `starts ${when}` : null,
+    queue.position <= 1
+      ? t("Next in line")
+      : t("{position, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} in line", {
+          position: queue.position,
+        }),
+    when ? t("starts {when}", { when }) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -67,22 +61,30 @@ export function QueueNotice({ queue }: { queue: RunQueueInfo | null }) {
       <div className="min-w-0 flex-1">
         <p className="font-medium">
           {!queue
-            ? "Waiting to start"
+            ? t("Waiting to start")
             : queue.position <= 1
-              ? "Waiting to start · next in line"
-              : `Waiting to start · ${placeInLine(queue.position)} in line`}
+              ? t("Waiting to start · next in line")
+              : t(
+                  "Waiting to start · {position, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} in line",
+                  { position: queue.position },
+                )}
         </p>
         {queue && (
           <p className="mt-0.5 text-xs text-fg-secondary">
             {queue.reason === "machine" ? (
               <>
                 {queue.places === 1
-                  ? `${capitalise(queue.machine ?? "The runner")} takes one run at a time, and it is busy`
-                  : `All ${queue.places} places on ${queue.machine} are taken`}
+                  ? t("{value} takes one run at a time, and it is busy", {
+                      value: queue.machine ? capitalise(queue.machine) : t("The runner"),
+                    })
+                  : t("All {places} places on {machine} are taken", {
+                      places: queue.places,
+                      machine: queue.machine,
+                    })}
                 {blockers.length > 0 && <>: </>}
               </>
             ) : (
-              <>This pipeline runs one at a time; first </>
+              <>{t("This pipeline runs one at a time; first")} </>
             )}
             {blockers.map((blocker, index) => (
               <span key={blocker.id}>
@@ -101,18 +103,17 @@ export function QueueNotice({ queue }: { queue: RunQueueInfo | null }) {
         {queue && (
           <p className="mt-0.5 text-xs text-fg-secondary">
             {when
-              ? `It should start ${when}, going by how long these runs usually take.`
-              : "No estimate yet: these pipelines have no passed runs to go by."}
+              ? t("It should start {when}, going by how long these runs usually take.", { when })
+              : t("No estimate yet: these pipelines have no passed runs to go by.")}
             {queue.reason === "machine" && (
               <>
-                {" "}
-                To run more at once, raise{" "}
+                {t(" To run more at once, raise ")}
                 {queue.machine === "the local runner" ? (
                   <Link to="/admin" className="text-info hover:underline">
-                    Local runs at once
+                    {t("Local runs at once")}
                   </Link>
                 ) : (
-                  "the runner's runs at once in Pipelines › Runners"
+                  t("the runner’s runs at once in Pipelines › Runners")
                 )}
                 .
               </>

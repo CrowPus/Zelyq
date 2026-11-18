@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
+import { t } from "../lib/i18n";
 
 import { NativeSelect } from "./ui";
 
@@ -156,7 +157,7 @@ export function SearchBox({
       {value ? (
         <button
           type="button"
-          aria-label="Clear the search"
+          aria-label={t("Clear the search")}
           onClick={() => onChange("")}
           className="absolute top-1/2 right-2 -translate-y-1/2 text-fg-muted hover:text-fg"
         >
@@ -231,6 +232,30 @@ export function ListToolbar({ children }: { children: ReactNode }) {
 }
 
 /** "Showing 26–50 of 132", and the way to the other pages. Hidden when everything fits. */
+type Countable = "apps" | "agents" | "pipelines";
+
+/** "1 app", "3 apps"; "1–20 of 45 apps": whole phrases, so every language can count. */
+const COUNTED: Record<
+  Countable,
+  { count(n: number): string; range(from: number, to: number, n: number): string }
+> = {
+  apps: {
+    count: (n) => t("{n, plural, one {# app} other {# apps}}", { n }),
+    range: (from, to, n) =>
+      t("{from}–{to} of {n, plural, one {# app} other {# apps}}", { from, to, n }),
+  },
+  agents: {
+    count: (n) => t("{n, plural, one {# agent} other {# agents}}", { n }),
+    range: (from, to, n) =>
+      t("{from}–{to} of {n, plural, one {# agent} other {# agents}}", { from, to, n }),
+  },
+  pipelines: {
+    count: (n) => t("{n, plural, one {# pipeline} other {# pipelines}}", { n }),
+    range: (from, to, n) =>
+      t("{from}–{to} of {n, plural, one {# pipeline} other {# pipelines}}", { from, to, n }),
+  },
+};
+
 export function Pager({
   page,
   total,
@@ -242,19 +267,19 @@ export function Pager({
   page: number;
   total: number;
   size?: number;
-  /** What is counted, plural: "apps". */
-  noun: string;
+  /** What is counted. */
+  noun: Countable;
   /** How many there are without the search and filters, when they hide some. */
   all?: number;
   onPage: (page: number) => void;
 }) {
-  const of = all !== undefined && all !== total ? ` (${all} in all)` : "";
+  const of = all !== undefined && all !== total ? t(" ({all} in all)", { all }) : "";
   const nav = useRef<HTMLElement>(null);
   const last = Math.max(1, Math.ceil(total / size));
   if (total <= size) {
     return total > 0 ? (
       <p className="mt-2 text-xs text-fg-muted">
-        {total} {total === 1 ? noun.replace(/s$/, "") : noun}
+        {COUNTED[noun].count(total)}
         {of}
       </p>
     ) : null;
@@ -271,17 +296,17 @@ export function Pager({
   return (
     <nav
       ref={nav}
-      aria-label="Pages"
+      aria-label={t("Pages")}
       className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-fg-secondary"
     >
       <span>
-        {(page - 1) * size + 1}–{Math.min(page * size, total)} of {total} {noun}
+        {COUNTED[noun].range((page - 1) * size + 1, Math.min(page * size, total), total)}
         {of}
       </span>
       <span className="flex items-center gap-1">
         <button
           type="button"
-          aria-label="Previous page"
+          aria-label={t("Previous page")}
           disabled={page <= 1}
           onClick={() => go(page - 1)}
           className="grid size-7 place-items-center rounded-md border border-border-default hover:bg-surface-hover disabled:opacity-40"
@@ -293,7 +318,7 @@ export function Pager({
             {index > 0 && n - (shown[index - 1] ?? n) > 1 && <span className="px-0.5">…</span>}
             <button
               type="button"
-              aria-label={`Page ${n}`}
+              aria-label={t("Page {n}", { n })}
               aria-current={n === page ? "page" : undefined}
               onClick={() => go(n)}
               className={`h-7 min-w-7 rounded-md border px-1.5 tabular-nums ${
@@ -308,7 +333,7 @@ export function Pager({
         ))}
         <button
           type="button"
-          aria-label="Next page"
+          aria-label={t("Next page")}
           disabled={page >= last}
           onClick={() => go(page + 1)}
           className="grid size-7 place-items-center rounded-md border border-border-default hover:bg-surface-hover disabled:opacity-40"
@@ -324,9 +349,9 @@ export function Pager({
 export function NothingMatches({ onClear }: { onClear: () => void }) {
   return (
     <div className="rounded-md border border-dashed border-border-default px-4 py-8 text-center text-sm text-fg-secondary">
-      Nothing matches.{" "}
+      {t("Nothing matches. ")}
       <button type="button" className="text-info hover:underline" onClick={onClear}>
-        Clear the search and filters
+        {t("Clear the search and filters")}
       </button>
     </div>
   );

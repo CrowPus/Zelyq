@@ -25,6 +25,7 @@ import {
 import { useActiveTeam } from "./hooks/useActiveTeam";
 import { useSession } from "./hooks/useSession";
 import { setFormatPreferences } from "./lib/format";
+import { followAccountLanguage, t } from "./lib/i18n";
 import { setCurrentTeamKey, teamKey, teamPaths, useRouteTeam } from "./lib/routes";
 import { InvitePage, ResetPasswordPage } from "./pages/EmailLinkPages";
 import { SignInPage } from "./pages/SignInPage";
@@ -77,7 +78,7 @@ export const SIGN_IN_PATH = "/signin";
 function FullScreenSpinner() {
   return (
     <div className="grid h-dvh place-items-center bg-canvas">
-      <Spinner label="Loading" />
+      <Spinner label={t("Loading")} />
     </div>
   );
 }
@@ -93,6 +94,8 @@ function Gate() {
   // Dates and numbers follow the person's own language and time zone.
   useEffect(() => {
     setFormatPreferences({ locale: user?.locale, timeZone: user?.timeZone });
+    // So do Zelyq's own words, when the account has chosen a language it speaks.
+    followAccountLanguage(user?.locale);
   }, [user?.locale, user?.timeZone]);
 
   if (loading) return <FullScreenSpinner />;
@@ -242,18 +245,20 @@ function NotFound({ what = "page" }: { what?: "page" | "team" }) {
   const { team } = useActiveTeam();
   const home = team ? teamPaths(teamKey(team)).home : "/";
   return (
-    <AppShell crumbs={[{ label: "Not found" }]} scope="global">
+    <AppShell crumbs={[{ label: t("Not found") }]} scope="global">
       <EmptyState
         headingLevel={1}
-        title={what === "team" ? "This team isn’t one of yours" : "This page doesn’t exist"}
+        title={what === "team" ? t("This team isn’t one of yours") : t("This page doesn’t exist")}
         description={
           what === "team"
-            ? "The link names a team you are not a member of, or one that no longer exists. Ask a team admin to add you."
-            : "The address may be mistyped, or what it pointed to has been moved or deleted."
+            ? t(
+                "The link names a team you are not a member of, or one that no longer exists. Ask a team admin to add you.",
+              )
+            : t("The address may be mistyped, or what it pointed to has been moved or deleted.")
         }
         action={
           <Link to={home} className={buttonClass("primary")}>
-            Go to your Home
+            {t("Go to your Home")}
           </Link>
         }
       />

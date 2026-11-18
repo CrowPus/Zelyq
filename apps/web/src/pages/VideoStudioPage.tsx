@@ -51,6 +51,7 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { ApiError, api } from "../lib/api";
 import { formatDateParts, formatNumber } from "../lib/format";
+import { t } from "../lib/i18n";
 import { useTeamPaths } from "../lib/routes";
 
 /** A half-typed number field must not become a failed request: an empty field
@@ -63,30 +64,33 @@ function clamp(value: number, min: number, max: number, fallback: number) {
 const control =
   "mt-2 w-full rounded-lg border border-border-default bg-canvas px-3 py-2.5 text-sm text-fg outline-none focus:border-border-strong focus:ring-2 focus:ring-primary/20 disabled:opacity-50";
 const states = {
-  queued: "In the queue",
-  submitting: "Sending to the studio",
-  generating: "Creating your video",
-  saving: "Saving your video",
-  succeeded: "Ready to play",
-  failed: "Generation failed",
-  unknown: "Result unconfirmed",
-  cancelled: "Cancelled",
+  queued: t("In the queue"),
+  submitting: t("Sending to the studio"),
+  generating: t("Creating your video"),
+  saving: t("Saving your video"),
+  succeeded: t("Ready to play"),
+  failed: t("Generation failed"),
+  unknown: t("Result unconfirmed"),
+  cancelled: t("Cancelled"),
 };
 const examples = [
   {
-    title: "A product in motion",
-    prompt:
+    title: t("A product in motion"),
+    prompt: t(
       "A continuous slow orbit around an amber perfume bottle on warm travertine. Soft afternoon light glides over the glass, a linen curtain moves gently in the background. Refined editorial product film, stable bottle shape, no text. Gentle ambient sound, no dialogue.",
+    ),
   },
   {
-    title: "An atmospheric world",
-    prompt:
+    title: t("An atmospheric world"),
+    prompt: t(
       "A slow forward camera glide through a tiny botanical library floating above the clouds at blue hour. Warm windows, gently moving leaves, soft mist, intricate architecture. One continuous cinematic shot, no cuts, no text. Quiet wind and distant birds.",
+    ),
   },
   {
-    title: "Illustration comes alive",
-    prompt:
+    title: t("Illustration comes alive"),
+    prompt: t(
       "A hand-painted storybook fox in a little flower shop carefully arranges a bouquet. Leaves sway gently and sunlight drifts across the wooden counter. Restrained animation, consistent character, warm gouache textures, no text.",
+    ),
   },
 ];
 
@@ -171,7 +175,7 @@ export function VideoStudioPage() {
   };
   const generate = useMutation({
     mutationFn: async () => {
-      if (!candidate) throw new Error("Choose a configured provider.");
+      if (!candidate) throw new Error(t("Choose a configured provider."));
       const previous = submission.current;
       const next = {
         ...candidate,
@@ -194,7 +198,7 @@ export function VideoStudioPage() {
   const upload = useMutation({
     mutationFn: async (file: File) => {
       if (file.size > maxVideoReferenceBytes)
-        throw new Error("Starting images must be 8 MiB or smaller.");
+        throw new Error(t("Starting images must be 8 MiB or smaller."));
       return api.uploadVideoReference(file);
     },
     onSuccess: ({ reference: next }) => {
@@ -250,9 +254,15 @@ export function VideoStudioPage() {
   /** Said here, in the panel, rather than left to a generic server rejection. */
   const frameProblem =
     !Number.isFinite(frameCount) || frameCount < minFrameCount || frameCount > maxFrameCount
-      ? `Choose between ${minFrameCount} and ${maxFrameCount} frames.`
+      ? t("Choose between {minFrameCount} and {maxFrameCount} frames.", {
+          minFrameCount,
+          maxFrameCount,
+        })
       : !Number.isFinite(frameWidth) || frameWidth < minFrameWidth || frameWidth > maxFrameWidth
-        ? `Choose a width between ${minFrameWidth} and ${maxFrameWidth} pixels.`
+        ? t("Choose a width between {minFrameWidth} and {maxFrameWidth} pixels.", {
+            minFrameWidth,
+            maxFrameWidth,
+          })
         : null;
   const extract = useMutation({
     mutationFn: (input: FrameExportInput) => api.extractVideoFrames(shownId as string, input),
@@ -304,23 +314,25 @@ export function VideoStudioPage() {
   }
   const busy = generate.isPending || upload.isPending || chooseImage.isPending;
   return (
-    <AppShell crumbs={[{ label: "Studio" }, { label: "Video" }]}>
+    <AppShell crumbs={[{ label: t("Studio") }, { label: t("Video") }]}>
       <PageBody>
         <PageHeader
-          title="Studio"
-          description="Make images and short videos for your apps. What you make stays in the team's private library."
+          title={t("Studio")}
+          description={t(
+            "Make images and short videos for your apps. What you make stays in the team’s private library.",
+          )}
           meta={
             <Badge tone="neutral">
-              <LockKeyhole size={11} className="mr-1" /> Private library
+              <LockKeyhole size={11} className="mr-1" /> {t("Private library")}
             </Badge>
           }
           tabs={
             <Tabs
-              label="Studio"
+              label={t("Studio")}
               value={"video" as "image" | "video"}
               items={[
-                { id: "image", label: "Image", to: paths.studioImage },
-                { id: "video", label: "Video", to: paths.studioVideo },
+                { id: "image", label: t("Image"), to: paths.studioImage },
+                { id: "video", label: t("Video"), to: paths.studioVideo },
               ]}
             />
           }
@@ -332,14 +344,14 @@ export function VideoStudioPage() {
         )}
         <div className="grid items-start gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
           <section
-            aria-label="Video composer"
+            aria-label={t("Video composer")}
             className="rounded-2xl border border-border-default bg-surface p-5"
           >
             <div className="mb-5 grid grid-cols-2 gap-1 rounded-lg bg-canvas p-1">
               {(
                 [
-                  ["text-to-video", "Text to video"],
-                  ["image-to-video", "Animate image"],
+                  ["text-to-video", t("Text to video")],
+                  ["image-to-video", t("Animate image")],
                 ] as const
               ).map(([value, label]) => (
                 <button
@@ -354,9 +366,9 @@ export function VideoStudioPage() {
               ))}
             </div>
             <label className="block text-xs font-medium text-fg-secondary">
-              Video model
+              {t("Video model")}
               <NativeSelect
-                aria-label="Video model"
+                aria-label={t("Video model")}
                 value={provider?.id ?? "google"}
                 onChange={(e) => setProviderId(e.target.value as VideoProviderId)}
                 className={control}
@@ -364,28 +376,30 @@ export function VideoStudioPage() {
                 {caps.data?.providers.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.modelLabel} · {p.label}
-                    {!p.configured ? " · Set up key" : ""}
+                    {!p.configured ? t(" · Set up key") : ""}
                   </option>
                 ))}
               </NativeSelect>
             </label>
             {provider && !provider.configured && (
               <p className="mt-3 rounded-lg bg-canvas p-3 text-xs leading-relaxed text-fg-secondary">
-                This provider needs a video API key.{" "}
+                {t("This provider needs a video API key. ")}
                 {user?.instanceRole === "admin" ? (
                   <Link to="/admin#video-generation" className="underline">
-                    Configure video in Server admin
+                    {t("Configure video in Server admin")}
                   </Link>
                 ) : (
-                  "Ask an administrator to configure video in Server admin."
+                  t("Ask an administrator to configure video in Server admin.")
                 )}
               </p>
             )}
             {mode === "image-to-video" && (
               <div className="mt-5">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-medium text-fg-secondary">Starting frame</span>
-                  <span className="text-2xs text-fg-muted">PNG, JPEG, WebP · 8 MiB</span>
+                  <span className="text-xs font-medium text-fg-secondary">
+                    {t("Starting frame")}
+                  </span>
+                  <span className="text-2xs text-fg-muted">{t("PNG, JPEG, WebP · 8 MiB")}</span>
                 </div>
                 {reference ? (
                   <div>
@@ -395,12 +409,12 @@ export function VideoStudioPage() {
                     >
                       <img
                         src={reference.url}
-                        alt="Starting frame preview"
+                        alt={t("Starting frame preview")}
                         className="absolute inset-0 h-full w-full object-contain"
                       />
                       <button
                         type="button"
-                        aria-label="Remove starting image"
+                        aria-label={t("Remove starting image")}
                         onClick={() => void removeReference()}
                         className="absolute right-2 top-2 rounded-full bg-black/70 p-1.5 text-white"
                       >
@@ -408,7 +422,7 @@ export function VideoStudioPage() {
                       </button>
                     </div>
                     <p className="mt-2 text-[11px] text-fg-muted">
-                      Full image preserved. Black padding matches this preview.
+                      {t("Full image preserved. Black padding matches this preview.")}
                     </p>
                   </div>
                 ) : (
@@ -416,7 +430,7 @@ export function VideoStudioPage() {
                     <ImagePlus size={23} className="mx-auto text-fg-muted" />
                     <label className="mt-3 inline-block cursor-pointer rounded-md border border-border-default px-3 py-2 text-xs text-fg">
                       <input
-                        aria-label="Upload starting image"
+                        aria-label={t("Upload starting image")}
                         className="sr-only"
                         type="file"
                         accept="image/png,image/jpeg,image/webp"
@@ -427,24 +441,24 @@ export function VideoStudioPage() {
                           e.target.value = "";
                         }}
                       />
-                      {upload.isPending ? "Uploading…" : "Upload an image"}
+                      {upload.isPending ? t("Uploading…") : t("Upload an image")}
                     </label>
                     <button
                       type="button"
                       className="mt-3 block w-full text-xs text-fg-secondary underline underline-offset-4"
                       onClick={() => setLibraryOpen(!libraryOpen)}
                     >
-                      Choose from your images
+                      {t("Choose from your images")}
                     </button>
                   </div>
                 )}
                 {libraryOpen && (
                   <div className="mt-3 rounded-lg border border-border-default p-3">
                     <div className="mb-3 flex justify-between text-xs text-fg-secondary">
-                      Your generated images
+                      {t("Your generated images")}
                       <button
                         type="button"
-                        aria-label="Close image library"
+                        aria-label={t("Close image library")}
                         onClick={() => setLibraryOpen(false)}
                       >
                         <X size={14} />
@@ -466,7 +480,7 @@ export function VideoStudioPage() {
                               <button
                                 type="button"
                                 key={g.id}
-                                aria-label={`Use image: ${g.prompt}`}
+                                aria-label={t("Use image: {prompt}", { prompt: g.prompt })}
                                 disabled={chooseImage.isPending}
                                 onClick={() => chooseImage.mutate(g.id)}
                                 className="overflow-hidden rounded-md focus:ring-2 focus:ring-primary"
@@ -482,14 +496,16 @@ export function VideoStudioPage() {
                         </div>
                         {!imageLibrary.data?.pages.some((p) =>
                           p.generations.some((g) => g.asset),
-                        ) && <p className="text-xs text-fg-muted">No completed images yet.</p>}
+                        ) && (
+                          <p className="text-xs text-fg-muted">{t("No completed images yet.")}</p>
+                        )}
                         {imageLibrary.hasNextPage && (
                           <button
                             type="button"
                             className="mt-3 text-xs underline"
                             onClick={() => void imageLibrary.fetchNextPage()}
                           >
-                            Load more images
+                            {t("Load more images")}
                           </button>
                         )}
                       </>
@@ -499,17 +515,17 @@ export function VideoStudioPage() {
               </div>
             )}
             <label className="mt-5 block text-xs font-medium text-fg-secondary">
-              Describe your scene
+              {t("Describe your scene")}
               <textarea
-                aria-label="Video prompt"
+                aria-label={t("Video prompt")}
                 className={`${control} min-h-[150px] resize-y leading-relaxed`}
                 value={prompt}
                 maxLength={4000}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder={
                   mode === "image-to-video"
-                    ? "How should this image move? Describe the action, camera, and atmosphere…"
-                    : "A slow camera glide through a sunlit garden, leaves moving in the breeze…"
+                    ? t("How should this image move? Describe the action, camera, and atmosphere…")
+                    : t("A slow camera glide through a sunlit garden, leaves moving in the breeze…")
                 }
               />
             </label>
@@ -517,7 +533,7 @@ export function VideoStudioPage() {
               {formatNumber(prompt.length)} / 4,000
             </div>
             <fieldset className="mt-4">
-              <legend className="text-xs font-medium text-fg-secondary">Aspect ratio</legend>
+              <legend className="text-xs font-medium text-fg-secondary">{t("Aspect ratio")}</legend>
               <div className="mt-2 grid grid-cols-3 gap-2">
                 {(["16:9", "9:16", "1:1"] as const).map((value) => (
                   <button
@@ -538,33 +554,35 @@ export function VideoStudioPage() {
             </fieldset>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label className="text-xs font-medium text-fg-secondary">
-                Duration
+                {t("Duration")}
                 <NativeSelect
-                  aria-label="Duration"
+                  aria-label={t("Duration")}
                   className={control}
                   value={duration}
                   onChange={(e) => setDuration(Number(e.target.value))}
                 >
                   {!provider?.durations.includes(duration) && (
-                    <option value={duration}>{duration}s · unsupported</option>
+                    <option value={duration}>{t("{duration}s · unsupported", { duration })}</option>
                   )}
                   {provider?.durations.map((n) => (
                     <option key={n} value={n}>
-                      {n} seconds
+                      {t("{n} seconds", { n })}
                     </option>
                   ))}
                 </NativeSelect>
               </label>
               <label className="text-xs font-medium text-fg-secondary">
-                Resolution
+                {t("Resolution")}
                 <NativeSelect
-                  aria-label="Resolution"
+                  aria-label={t("Resolution")}
                   className={control}
                   value={resolution}
                   onChange={(e) => setResolution(e.target.value as typeof resolution)}
                 >
                   {!provider?.resolutions.includes(resolution) && (
-                    <option value={resolution}>{resolution} · unsupported</option>
+                    <option value={resolution}>
+                      {t("{resolution} · unsupported", { resolution })}
+                    </option>
                   )}
                   {provider?.resolutions.map((r) => (
                     <option key={r} value={r}>
@@ -582,9 +600,9 @@ export function VideoStudioPage() {
                 disabled={provider?.audio === "always" && audio}
                 onChange={(e) => setAudio(e.target.checked)}
               />
-              Generate audio
+              {t("Generate audio")}
               {provider?.audio === "always" && (
-                <span className="ml-auto text-2xs text-fg-muted">Included by model</span>
+                <span className="ml-auto text-2xs text-fg-muted">{t("Included by model")}</span>
               )}
             </label>
             {validation && (
@@ -613,25 +631,27 @@ export function VideoStudioPage() {
               onClick={() => generate.mutate()}
             >
               {busy ? <Spinner /> : <Sparkles size={15} />}
-              {generate.isPending ? "Submitting…" : "Generate video"}
+              {generate.isPending ? t("Submitting…") : t("Generate video")}
             </Button>
             <p className="mt-3 text-center text-[11px] leading-relaxed text-fg-muted">
               {outstanding
-                ? "Your current video is still outstanding. You can keep editing this draft."
-                : `One clip per request · ${caps.data?.hourlyLimit ?? 5} requests per hour`}
+                ? t("Your current video is still outstanding. You can keep editing this draft.")
+                : t("One clip per request · {hourlyLimit} requests per hour", {
+                    hourlyLimit: caps.data?.hourlyLimit ?? 5,
+                  })}
             </p>
             <p className="mt-1 text-center text-2xs text-fg-muted">
-              Billed to your provider account. Cost estimate unavailable.
+              {t("Billed to your provider account. Cost estimate unavailable.")}
             </p>
           </section>
           <div className="min-w-0 space-y-5">
             <section
-              aria-label="Video preview"
+              aria-label={t("Video preview")}
               className="overflow-hidden rounded-2xl border border-border-default bg-surface"
             >
               <div className="flex items-center justify-between border-b border-border-default px-5 py-3">
                 <span className="flex items-center gap-2 text-xs font-medium text-fg-secondary">
-                  <Film size={15} /> Preview
+                  <Film size={15} /> {t("Preview")}
                 </span>
                 {current && (
                   <span role="status" className="text-xs text-fg-muted">
@@ -648,7 +668,7 @@ export function VideoStudioPage() {
                   {/* biome-ignore lint/a11y/useMediaCaption: Provider outputs do not include captions. A fabricated track would misrepresent generated audio. */}
                   <video
                     key={current.id}
-                    aria-label="Generated video"
+                    aria-label={t("Generated video")}
                     src={current.asset.url}
                     poster={current.asset.posterUrl}
                     controls
@@ -667,24 +687,28 @@ export function VideoStudioPage() {
                     )}
                   </div>
                   <h2 className="text-xl font-medium tracking-tight text-fg">
-                    {current ? states[current.status] : "Every scene starts with an idea"}
+                    {current ? states[current.status] : t("Every scene starts with an idea")}
                   </h2>
                   <p className="mt-3 max-w-sm text-sm leading-relaxed text-fg-muted">
                     {current?.error ??
                       (current && isVideoActive(current.status)
-                        ? "Your video is being created. You can leave this page and return when it’s ready."
+                        ? t(
+                            "Your video is being created. You can leave this page and return when it’s ready.",
+                          )
                         : current
-                          ? "Use the prompt again to explore a new direction."
-                          : "Describe a moment or animate an image. Your finished film will appear here.")}
+                          ? t("Use the prompt again to explore a new direction.")
+                          : t(
+                              "Describe a moment or animate an image. Your finished film will appear here.",
+                            ))}
                   </p>
                   {current && isVideoActive(current.status) && (
                     <p className="mt-4 text-xs text-fg-muted">
-                      Started{" "}
-                      {formatDateParts(current.createdAt, {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}{" "}
-                      · usually takes several minutes
+                      {t("Started {createdAt} · usually takes several minutes", {
+                        createdAt: formatDateParts(current.createdAt, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }),
+                      })}
                     </p>
                   )}
                 </div>
@@ -701,7 +725,11 @@ export function VideoStudioPage() {
                       current.asset
                         ? `${current.asset.width} × ${current.asset.height}`
                         : current.input.resolution,
-                      current.asset ? (current.asset.hasAudio ? "With audio" : "Silent") : null,
+                      current.asset
+                        ? current.asset.hasAudio
+                          ? t("With audio")
+                          : t("Silent")
+                        : null,
                     ]
                       .filter(Boolean)
                       .map((value) => (
@@ -720,18 +748,18 @@ export function VideoStudioPage() {
                         download
                         className="inline-flex items-center gap-2 rounded-lg bg-fg px-3 py-2 text-xs font-medium text-canvas"
                       >
-                        <ArrowDownToLine size={14} /> Download MP4
+                        <ArrowDownToLine size={14} /> {t("Download MP4")}
                       </a>
                     )}
                     <Button onClick={() => reuse(current)}>
-                      <RotateCw size={13} /> Use prompt & settings
+                      <RotateCw size={13} /> {t("Use prompt & settings")}
                     </Button>
                     {current.canReconcile && (
                       <Button
                         disabled={action.isPending}
                         onClick={() => action.mutate({ id: current.id, kind: "reconcile" })}
                       >
-                        Check existing job
+                        {t("Check existing job")}
                       </Button>
                     )}
                     {current.status === "queued" && (
@@ -739,13 +767,13 @@ export function VideoStudioPage() {
                         disabled={action.isPending}
                         onClick={() => action.mutate({ id: current.id, kind: "cancel" })}
                       >
-                        Cancel queued video
+                        {t("Cancel queued video")}
                       </Button>
                     )}
                     {!isVideoActive(current.status) && (
                       <Button
                         onClick={() => setConfirmDelete(!confirmDelete)}
-                        aria-label="Delete video"
+                        aria-label={t("Delete video")}
                       >
                         <Trash2 size={14} />
                       </Button>
@@ -755,17 +783,19 @@ export function VideoStudioPage() {
                     <div className="mt-3 rounded-lg border border-border-default p-3">
                       <p className="text-xs text-fg-secondary">
                         {current.status === "unknown"
-                          ? "Dismiss this unconfirmed job? The provider may still generate and charge for it. Dismissing releases your slot without requesting another video."
-                          : "Delete this video and its saved inputs from your library?"}
+                          ? t(
+                              "Dismiss this unconfirmed job? The provider may still generate and charge for it. Dismissing releases your slot without requesting another video.",
+                            )
+                          : t("Delete this video and its saved inputs from your library?")}
                       </p>
                       <div className="mt-3 flex gap-2">
                         <Button
                           disabled={action.isPending}
                           onClick={() => action.mutate({ id: current.id, kind: "delete" })}
                         >
-                          Confirm delete
+                          {t("Confirm delete")}
                         </Button>
-                        <Button onClick={() => setConfirmDelete(false)}>Keep it</Button>
+                        <Button onClick={() => setConfirmDelete(false)}>{t("Keep it")}</Button>
                       </div>
                     </div>
                   )}
@@ -773,20 +803,20 @@ export function VideoStudioPage() {
                         scroll-scrubbed hero needs. Nothing is billed here. */}
                   {current.status === "succeeded" && current.asset && (
                     <section
-                      aria-label="Frame export"
+                      aria-label={t("Frame export")}
                       className="mt-4 rounded-xl border border-border-default p-4"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="text-sm font-medium text-fg">Split into frames</h3>
+                        <h3 className="text-sm font-medium text-fg">{t("Split into frames")}</h3>
                         <span className="text-[11px] text-fg-muted">
-                          For a scroll-scrubbed hero
+                          {t("For a scroll-scrubbed hero")}
                         </span>
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-2">
                         <label className="text-xs text-fg-secondary">
-                          Format
+                          {t("Format")}
                           <NativeSelect
-                            aria-label="Frame format"
+                            aria-label={t("Frame format")}
                             className={control}
                             value={frameFormat}
                             disabled={extract.isPending}
@@ -800,12 +830,15 @@ export function VideoStudioPage() {
                           </NativeSelect>
                         </label>
                         <label className="text-xs text-fg-secondary">
-                          Frames{" "}
-                          <span className="text-fg-muted">
-                            ({minFrameCount}–{maxFrameCount})
-                          </span>
+                          {t("Frames {part}", {
+                            part: (
+                              <span className="text-fg-muted">
+                                ({minFrameCount}–{maxFrameCount})
+                              </span>
+                            ),
+                          })}
                           <Input
-                            aria-label="Frame count"
+                            aria-label={t("Frame count")}
                             type="number"
                             className={control}
                             min={minFrameCount}
@@ -821,12 +854,15 @@ export function VideoStudioPage() {
                           />
                         </label>
                         <label className="text-xs text-fg-secondary">
-                          Width{" "}
-                          <span className="text-fg-muted">
-                            ({minFrameWidth}–{maxFrameWidth})
-                          </span>
+                          {t("Width {part}", {
+                            part: (
+                              <span className="text-fg-muted">
+                                ({minFrameWidth}–{maxFrameWidth})
+                              </span>
+                            ),
+                          })}
                           <Input
-                            aria-label="Frame width"
+                            aria-label={t("Frame width")}
                             type="number"
                             className={control}
                             min={minFrameWidth}
@@ -868,11 +904,11 @@ export function VideoStudioPage() {
                         >
                           {extract.isPending ? (
                             <>
-                              <Spinner /> Extracting…
+                              <Spinner /> {t("Extracting…")}
                             </>
                           ) : (
                             <>
-                              <Scissors size={13} /> {frames.data ? "Re-extract" : "Extract"}
+                              <Scissors size={13} /> {frames.data ? t("Re-extract") : t("Extract")}
                             </>
                           )}
                         </Button>
@@ -883,12 +919,12 @@ export function VideoStudioPage() {
                               download
                               className="inline-flex items-center gap-2 rounded-lg bg-fg px-3 py-2 text-xs font-medium text-canvas"
                             >
-                              <ArrowDownToLine size={14} /> Download frames
+                              <ArrowDownToLine size={14} /> {t("Download frames")}
                             </a>
                             <Button
                               disabled={dropFrames.isPending}
                               onClick={() => dropFrames.mutate()}
-                              aria-label="Delete frames"
+                              aria-label={t("Delete frames")}
                             >
                               <Trash2 size={14} />
                             </Button>
@@ -903,10 +939,14 @@ export function VideoStudioPage() {
                       {frames.data && (
                         <>
                           <p className="mt-3 text-xs text-fg-secondary">
-                            {frames.data.count} frames · {frames.data.width}×{frames.data.height} ·{" "}
+                            {t("{count} frames · {width}×{height} · ", {
+                              count: frames.data.count,
+                              width: frames.data.width,
+                              height: frames.data.height,
+                            })}
                             {frames.data.format.toUpperCase()} ·{" "}
-                            {(frames.data.sizeBytes / 1024 / 1024).toFixed(1)} MB ·{" "}
-                            {frames.data.fps} fps
+                            {(frames.data.sizeBytes / 1024 / 1024).toFixed(1)}{" "}
+                            {t("MB · {fps} fps", { fps: frames.data.fps })}
                           </p>
                           <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                             {frames.data.frameUrls
@@ -924,16 +964,20 @@ export function VideoStudioPage() {
                                 <img
                                   key={url}
                                   src={url}
-                                  alt={`Frame sample ${i + 1}`}
+                                  alt={t("Frame sample {i}", { i: i + 1 })}
                                   loading="lazy"
                                   className="h-14 w-auto shrink-0 rounded border border-border-default"
                                 />
                               ))}
                           </div>
                           <p className="mt-2 text-[11px] text-fg-muted">
-                            Numbered <code>frame_0001.{frameExtensions[frames.data.format]}</code>{" "}
-                            with a poster and <code>manifest.json</code> — the shape a scroll-scrub
-                            canvas reads.
+                            {t(
+                              "Numbered {code} with a poster and {code2} — the shape a scroll-scrub canvas reads.",
+                              {
+                                code: <code>frame_0001.{frameExtensions[frames.data.format]}</code>,
+                                code2: <code>manifest.json</code>,
+                              },
+                            )}
                           </p>
                         </>
                       )}
@@ -951,13 +995,16 @@ export function VideoStudioPage() {
                     onClick={() => setPrompt(example.prompt)}
                     className="rounded-xl border border-border-default bg-surface p-4 text-left transition-colors hover:border-border-strong"
                   >
-                    <span className="text-2xs tracking-widest text-fg-muted">SCENE 0{i + 1}</span>
+                    <span className="text-2xs tracking-widest text-fg-muted">
+                      {t("SCENE 0")}
+                      {i + 1}
+                    </span>
                     <h3 className="mt-3 text-sm font-medium text-fg">{example.title}</h3>
                     <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-fg-muted">
                       {example.prompt}
                     </p>
                     <span className="mt-3 inline-flex items-center gap-1 text-[11px] text-fg-secondary">
-                      Try this idea <ArrowUpRight size={12} />
+                      {t("Try this idea")} <ArrowUpRight size={12} />
                     </span>
                   </button>
                 ))}
@@ -965,13 +1012,17 @@ export function VideoStudioPage() {
             )}
           </div>
         </div>
-        <section aria-label="Video library" className="mt-10">
+        <section aria-label={t("Video library")} className="mt-10">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-medium text-fg">Your films</h2>
-              <p className="mt-1 text-xs text-fg-muted">Private, saved, and ready to revisit.</p>
+              <h2 className="text-lg font-medium text-fg">{t("Your films")}</h2>
+              <p className="mt-1 text-xs text-fg-muted">
+                {t("Private, saved, and ready to revisit.")}
+              </p>
             </div>
-            <span className="text-xs text-fg-muted">{entries.length} loaded</span>
+            <span className="text-xs text-fg-muted">
+              {t("{entrieCount} loaded", { entrieCount: entries.length })}
+            </span>
           </div>
           {history.isPending ? (
             <Spinner />
@@ -981,7 +1032,7 @@ export function VideoStudioPage() {
             </p>
           ) : !entries.length ? (
             <div className="rounded-xl border border-dashed border-border-default p-8 text-center text-sm text-fg-muted">
-              Your first video will begin this collection.
+              {t("Your first video will begin this collection.")}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
@@ -1017,7 +1068,11 @@ export function VideoStudioPage() {
                       <Film size={25} strokeWidth={1.2} />
                     )}
                     <span className="absolute left-2 top-2 rounded bg-surface/90 px-1.5 py-1 text-2xs">
-                      {entry.asset ? "Video" : entry.reference ? "Starting image" : "Video"}
+                      {entry.asset
+                        ? t("Video")
+                        : entry.reference
+                          ? t("Starting image")
+                          : t("Video")}
                     </span>
                     <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-2xs text-white">
                       {entry.asset
@@ -1041,7 +1096,7 @@ export function VideoStudioPage() {
                 disabled={history.isFetchingNextPage}
                 onClick={() => void history.fetchNextPage()}
               >
-                Load more videos
+                {t("Load more videos")}
               </Button>
             </div>
           )}

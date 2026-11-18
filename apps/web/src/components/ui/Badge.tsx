@@ -9,6 +9,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { t } from "../../lib/i18n";
 
 export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent";
 
@@ -81,26 +82,26 @@ const STATUS: Record<Status, { tone: Tone; icon: ReactNode; label: string }> = {
     icon: (
       <Loader2 size={12} strokeWidth={2.25} className="animate-spin motion-reduce:animate-none" />
     ),
-    label: "Running",
+    label: t("Running"),
   },
   succeeded: {
     tone: "success",
     icon: <CheckCircle2 size={12} strokeWidth={2.25} />,
-    label: "Passed",
+    label: t("Passed"),
   },
-  failed: { tone: "danger", icon: <XCircle size={12} strokeWidth={2.25} />, label: "Failed" },
+  failed: { tone: "danger", icon: <XCircle size={12} strokeWidth={2.25} />, label: t("Failed") },
   warning: {
     tone: "warning",
     icon: <AlertTriangle size={12} strokeWidth={2.25} />,
-    label: "Needs attention",
+    label: t("Needs attention"),
   },
-  queued: { tone: "neutral", icon: <Clock size={12} strokeWidth={2.25} />, label: "Queued" },
-  stopped: { tone: "neutral", icon: <Square size={11} strokeWidth={2.25} />, label: "Stopped" },
-  skipped: { tone: "neutral", icon: <Ban size={12} strokeWidth={2.25} />, label: "Skipped" },
+  queued: { tone: "neutral", icon: <Clock size={12} strokeWidth={2.25} />, label: t("Queued") },
+  stopped: { tone: "neutral", icon: <Square size={11} strokeWidth={2.25} />, label: t("Stopped") },
+  skipped: { tone: "neutral", icon: <Ban size={12} strokeWidth={2.25} />, label: t("Skipped") },
   unknown: {
     tone: "neutral",
     icon: <CircleDashed size={12} strokeWidth={2.25} />,
-    label: "Unknown",
+    label: t("Unknown"),
   },
 };
 

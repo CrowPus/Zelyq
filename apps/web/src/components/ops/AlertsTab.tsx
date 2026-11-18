@@ -14,6 +14,7 @@ import { ExternalLink, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSession } from "../../hooks/useSession";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import { Badge, Button, confirmAction, FieldLabel, Input, PasswordInput, Spinner } from "../ui";
 
 /**
@@ -23,16 +24,16 @@ import { Badge, Button, confirmAction, FieldLabel, Input, PasswordInput, Spinner
  */
 
 const SERVICE: Record<OpsChannelKind, string> = {
-  telegram: "Telegram",
-  slack: "Slack",
-  discord: "Discord",
+  telegram: t("Telegram"),
+  slack: t("Slack"),
+  discord: t("Discord"),
 };
 
 const AUDIENCE: Array<{ key: OpsNotifyAudience; words: string; hint: string }> = [
-  { key: "urgent", words: "Urgent", hint: "a site or machine is down" },
-  { key: "warning", words: "Warnings", hint: "slow, a disk filling, a certificate ending" },
-  { key: "approval", words: "Ops needs you", hint: "an approval, a secret, a job finished" },
-  { key: "weekly", words: "Weekly report", hint: "how the week went" },
+  { key: "urgent", words: t("Urgent"), hint: t("a site or machine is down") },
+  { key: "warning", words: t("Warnings"), hint: t("slow, a disk filling, a certificate ending") },
+  { key: "approval", words: t("Ops needs you"), hint: t("an approval, a secret, a job finished") },
+  { key: "weekly", words: t("Weekly report"), hint: t("how the week went") },
 ];
 
 const SLACK_MANIFEST = `display_information:
@@ -96,7 +97,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
       )
     ) {
       setLinking(null);
-      setNotice("Telegram is linked. Alerts will arrive there.");
+      setNotice(t("Telegram is linked. Alerts will arrive there."));
     }
   }, [data, linking, linkingSince]);
 
@@ -114,7 +115,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
   });
 
   if (view.isLoading) return <Spinner />;
-  if (!data) return <p className="text-sm text-danger">This could not be read.</p>;
+  if (!data) return <p className="text-sm text-danger">{t("This could not be read.")}</p>;
 
   const connected = (kind: OpsChannelKind) => data.channels.find((row) => row.kind === kind);
   const me = data.links.filter((link) => link.userId === data.me);
@@ -124,19 +125,22 @@ export function AlertsTab({ teamId }: { teamId: string }) {
       {error && <p className="text-xs text-danger">{error}</p>}
       {notice && <p className="text-xs text-success">{notice}</p>}
 
-      <section aria-label="Your alerts" className="grid gap-3">
+      <section aria-label={t("Your alerts")} className="grid gap-3">
         <div>
-          <h2 className="text-sm font-medium">Where your alerts reach you</h2>
+          <h2 className="text-sm font-medium">{t("Where your alerts reach you")}</h2>
           <p className="text-xs text-fg-secondary">
-            Email always works. Link your own chat to be told there too, then choose what goes
-            where.
+            {t(
+              "Email always works. Link your own chat to be told there too, then choose what goes where.",
+            )}
           </p>
         </div>
         {(["telegram", "slack"] as const).filter((kind) => connected(kind)).length === 0 ? (
           <p className="text-xs text-fg-muted">
             {data.canManage
-              ? "Connect Telegram or Slack for the team below, then link your own chat here."
-              : "An admin of the team connects Telegram or Slack first; then you can link yours here."}
+              ? t("Connect Telegram or Slack for the team below, then link your own chat here.")
+              : t(
+                  "An admin of the team connects Telegram or Slack first; then you can link yours here.",
+                )}
           </p>
         ) : (
           <ul className="grid gap-2">
@@ -153,7 +157,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                     {mine ? (
                       <>
                         <span className="flex-1 text-xs text-fg-secondary">
-                          Linked{mine.label ? ` as ${mine.label}` : ""}
+                          {mine.label ? t("Linked as {label}", { label: mine.label }) : t("Linked")}
                         </span>
                         <UnlinkButton
                           teamId={teamId}
@@ -164,7 +168,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                       </>
                     ) : (
                       <>
-                        <span className="flex-1 text-xs text-fg-muted">Not linked</span>
+                        <span className="flex-1 text-xs text-fg-muted">{t("Not linked")}</span>
                         {linking?.kind !== kind && !(kind === "slack" && askingSlack) && (
                           <Button
                             size="sm"
@@ -178,7 +182,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                               } else startLink.mutate({ kind });
                             }}
                           >
-                            Link my {SERVICE[kind]}
+                            {t("Link my {kind}", { kind: SERVICE[kind] })}
                           </Button>
                         )}
                       </>
@@ -193,8 +197,9 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                         }}
                       >
                         <label htmlFor="slack-email" className="text-fg-secondary">
-                          The email your Slack account uses. Zelyq sends a code to that account's
-                          direct messages; typing it here proves the account is yours.
+                          {t(
+                            "The email your Slack account uses. Zelyq sends a code to that account’s direct messages; typing it here proves the account is yours.",
+                          )}
                         </label>
                         <div className="flex flex-wrap items-center gap-2">
                           <Input
@@ -212,10 +217,10 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                             variant="primary"
                             disabled={startLink.isPending}
                           >
-                            {startLink.isPending ? "Sending…" : "Send me a code"}
+                            {startLink.isPending ? t("Sending…") : t("Send me a code")}
                           </Button>
                           <Button type="button" size="sm" onClick={() => setAskingSlack(false)}>
-                            Cancel
+                            {t("Cancel")}
                           </Button>
                         </div>
                       </form>
@@ -227,7 +232,11 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                         onLinked={(next) => {
                           keep(next);
                           setLinking(null);
-                          setNotice(`${SERVICE[kind]} is linked. Alerts will arrive there.`);
+                          setNotice(
+                            t("{kind} is linked. Alerts will arrive there.", {
+                              kind: SERVICE[kind],
+                            }),
+                          );
                         }}
                         onError={failed}
                       />
@@ -238,7 +247,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
           </ul>
         )}
         {data.channels.some((row) => row.teamAudiences !== null) && (
-          <ul className="grid gap-2" aria-label="The team's channels">
+          <ul className="grid gap-2" aria-label={t("The team’s channels")}>
             {data.channels
               .filter((row) => row.teamAudiences !== null)
               .map((row) => (
@@ -248,9 +257,10 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                 >
                   <span className="w-20 font-medium">{SERVICE[row.kind]}</span>
                   <span className="min-w-0 flex-1 text-xs text-fg-secondary">
-                    {row.kind === "discord" ? row.name.replace(/^Discord · /, "") : row.teamChat} is
-                    the team's channel: everyone there sees{" "}
-                    {teamAudienceWords(row.teamAudiences ?? [])}. Nothing to link.
+                    {row.kind === "discord" ? row.name.replace(/^Discord · /, "") : row.teamChat}{" "}
+                    {t("is the team’s channel: everyone there sees ")}
+                    {teamAudienceWords(row.teamAudiences ?? [])}
+                    {t(". Nothing to link.")}
                   </span>
                 </li>
               ))}
@@ -262,19 +272,21 @@ export function AlertsTab({ teamId }: { teamId: string }) {
           available={["email", ...(["telegram", "slack"] as const).filter((k) => connected(k))]}
           onSaved={(next) => {
             keep(next);
-            setNotice("Saved.");
+            setNotice(t("Saved."));
           }}
           onError={failed}
         />
       </section>
 
-      <section aria-label="The team's services" className="grid gap-3">
+      <section aria-label={t("The team’s services")} className="grid gap-3">
         <div>
-          <h2 className="text-sm font-medium">The team's services</h2>
+          <h2 className="text-sm font-medium">{t("The team’s services")}</h2>
           <p className="text-xs text-fg-secondary">
             {data.canManage
-              ? "Connect each once for the whole team. Tokens are kept encrypted and are never shown again."
-              : "Connected by an admin of the team."}
+              ? t(
+                  "Connect each once for the whole team. Tokens are kept encrypted and are never shown again.",
+                )
+              : t("Connected by an admin of the team.")}
           </p>
         </div>
         {(["telegram", "slack", "discord"] as const).map((kind) => (
@@ -301,8 +313,8 @@ export function AlertsTab({ teamId }: { teamId: string }) {
       </section>
 
       {data.canManage && data.links.length > 0 && (
-        <section aria-label="Linked people" className="grid gap-2">
-          <h2 className="text-sm font-medium">Who is linked</h2>
+        <section aria-label={t("Linked people")} className="grid gap-2">
+          <h2 className="text-sm font-medium">{t("Who is linked")}</h2>
           <ul className="divide-y divide-border-default rounded-md border border-border-default bg-surface">
             {data.links.map((link) => (
               <li key={link.id} className="flex flex-wrap items-center gap-3 px-3 py-1.5 text-xs">
@@ -344,7 +356,7 @@ function UnlinkButton({
       onClick={() => unlink.mutate()}
       className="text-xs text-fg-secondary hover:underline"
     >
-      Unlink
+      {t("Unlink")}
     </button>
   );
 }
@@ -377,13 +389,15 @@ function LinkSteps({
             rel="noreferrer"
             className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
           >
-            Open Telegram <ExternalLink size={12} />
+            {t("Open Telegram")} <ExternalLink size={12} />
           </a>
           <span className="text-fg-muted">
-            or send <code className="rounded bg-surface-hover px-1">/start {start.code}</code>
+            {t("or send {code}", {
+              code: <code className="rounded bg-surface-hover px-1">/start {start.code}</code>,
+            })}
           </span>
           <span className="inline-flex items-center gap-1 text-fg-muted">
-            <Spinner /> waiting for Telegram…
+            <Spinner /> {t("waiting for Telegram…")}
           </span>
         </div>
       )}
@@ -396,8 +410,8 @@ function LinkSteps({
           }}
         >
           <Input
-            aria-label="Code from Slack"
-            placeholder="Code from Slack"
+            aria-label={t("Code from Slack")}
+            placeholder={t("Code from Slack")}
             value={code}
             autoComplete="one-time-code"
             onChange={(event) => setCode(event.target.value)}
@@ -409,7 +423,7 @@ function LinkSteps({
             type="submit"
             disabled={confirm.isPending || !code.trim()}
           >
-            Link
+            {t("Link")}
           </Button>
         </form>
       )}
@@ -451,14 +465,14 @@ function Choices({
         : [...current[audience], kind],
     }));
   const changed = JSON.stringify(draft) !== JSON.stringify(prefs);
-  const label = (kind: OpsPersonalChannel) => (kind === "email" ? "Email" : SERVICE[kind]);
+  const label = (kind: OpsPersonalChannel) => (kind === "email" ? t("Email") : SERVICE[kind]);
 
   return (
     <div className="grid gap-3 rounded-md border border-border-default bg-surface p-3">
       <table className="w-full text-xs">
         <thead>
           <tr className="text-left text-fg-muted">
-            <th className="py-1 font-normal">What</th>
+            <th className="py-1 font-normal">{t("What")}</th>
             {available.map((kind) => (
               <th key={kind} className="w-20 py-1 text-center font-normal">
                 {label(kind)}
@@ -477,7 +491,7 @@ function Choices({
                 <td key={kind} className="text-center">
                   <input
                     type="checkbox"
-                    aria-label={`${row.words} by ${label(kind)}`}
+                    aria-label={t("{words} by {kind}", { words: row.words, kind: label(kind) })}
                     checked={draft[row.key].includes(kind)}
                     onChange={() => toggle(row.key, kind)}
                   />
@@ -489,9 +503,9 @@ function Choices({
       </table>
       <div className="flex flex-wrap items-end gap-3 text-xs">
         <div className="grid gap-1">
-          <FieldLabel>Quiet from</FieldLabel>
+          <FieldLabel>{t("Quiet from")}</FieldLabel>
           <Input
-            aria-label="Quiet from"
+            aria-label={t("Quiet from")}
             type="time"
             value={draft.quietFrom ?? ""}
             onChange={(event) =>
@@ -501,9 +515,9 @@ function Choices({
           />
         </div>
         <div className="grid gap-1">
-          <FieldLabel>Until</FieldLabel>
+          <FieldLabel>{t("Until")}</FieldLabel>
           <Input
-            aria-label="Quiet until"
+            aria-label={t("Quiet until")}
             type="time"
             value={draft.quietTo ?? ""}
             onChange={(event) =>
@@ -513,9 +527,9 @@ function Choices({
           />
         </div>
         <div className="grid gap-1">
-          <FieldLabel>Time zone</FieldLabel>
+          <FieldLabel>{t("Time zone")}</FieldLabel>
           <Input
-            aria-label="Time zone"
+            aria-label={t("Time zone")}
             value={draft.timeZone}
             onChange={(event) =>
               setDraft((current) => ({ ...current, timeZone: event.target.value }))
@@ -524,7 +538,7 @@ function Choices({
           />
         </div>
         <p className="flex-1 text-fg-muted">
-          In quiet hours only urgent alerts reach you, by chat or email.
+          {t("In quiet hours only urgent alerts reach you, by chat or email.")}
         </p>
         <Button
           size="sm"
@@ -532,7 +546,7 @@ function Choices({
           disabled={!changed || save.isPending}
           onClick={() => save.mutate()}
         >
-          Save choices
+          {t("Save choices")}
         </Button>
       </div>
     </div>
@@ -603,9 +617,9 @@ function ServiceCard({
             <span className="min-w-0 flex-1 text-xs text-fg-secondary">
               {channel.name}{" "}
               {channel.status === "ok" ? (
-                <Badge tone="success">working</Badge>
+                <Badge tone="success">{t("working")}</Badge>
               ) : (
-                <Badge tone="danger">failing</Badge>
+                <Badge tone="danger">{t("failing")}</Badge>
               )}
               {channel.status !== "ok" && channel.lastError && (
                 <span className="block text-danger">{channel.lastError}</span>
@@ -620,11 +634,13 @@ function ServiceCard({
                     disabled={test.isPending}
                     onClick={() => test.mutate()}
                   >
-                    Send a test
+                    {t("Send a test")}
                   </Button>
                 ) : (
                   <span className="text-xs text-fg-muted">
-                    To send a test, first press "Link my {SERVICE[kind]}" at the top of this tab.
+                    {t('To send a test, first press "Link my {kind}" at the top of this tab.', {
+                      kind: SERVICE[kind],
+                    })}
                   </span>
                 )}
                 <Button
@@ -634,22 +650,22 @@ function ServiceCard({
                   onClick={async () => {
                     if (
                       await confirmAction({
-                        title: `Disconnect ${SERVICE[kind]}?`,
-                        description: `Everyone's linked chats there are forgotten.`,
-                        confirmLabel: "Disconnect",
+                        title: t("Disconnect {kind}?", { kind: SERVICE[kind] }),
+                        description: t("Everyone’s linked chats there are forgotten."),
+                        confirmLabel: t("Disconnect"),
                         danger: true,
                       })
                     )
                       disconnect.mutate();
                   }}
                 >
-                  Disconnect
+                  {t("Disconnect")}
                 </Button>
               </>
             )}
           </>
         ) : (
-          <span className="flex-1 text-xs text-fg-muted">Not connected</span>
+          <span className="flex-1 text-xs text-fg-muted">{t("Not connected")}</span>
         )}
       </div>
       {channel?.teamAudiences && (
@@ -659,7 +675,9 @@ function ServiceCard({
           chosen={channel.teamAudiences}
           canManage={canManage}
           where={
-            kind === "discord" ? "The Discord channel" : `The Slack channel ${channel.teamChat}`
+            kind === "discord"
+              ? t("The Discord channel")
+              : t("The Slack channel {teamChat}", { teamChat: channel.teamChat })
           }
           onDone={onDone}
           onError={onError}
@@ -677,35 +695,43 @@ function ServiceCard({
             {kind === "telegram" && (
               <>
                 <li>
-                  In Telegram, open <b>@BotFather</b>, send <code>/newbot</code> and follow its two
-                  questions.
+                  {t("In Telegram, open {strong}, send {code} and follow its two questions.", {
+                    strong: <b>{t("@BotFather")}</b>,
+                    code: <code>/newbot</code>,
+                  })}
                 </li>
-                <li>Paste the token it gives you here (it reads like 123456:ABC…).</li>
+                <li>{t("Paste the token it gives you here (it reads like 123456:ABC…).")}</li>
               </>
             )}
             {kind === "slack" && (
               <>
                 <li>
-                  At api.slack.com/apps choose Create New App → From a manifest, and paste the
-                  manifest below.
+                  {t(
+                    "At api.slack.com/apps choose Create New App → From a manifest, and paste the manifest below.",
+                  )}
                 </li>
-                <li>Install it to your workspace and copy the Bot User OAuth Token (xoxb-…).</li>
                 <li>
-                  Optionally name a channel for the whole team (#ops) and invite the bot there with{" "}
-                  <code>/invite @Zelyq</code>.
+                  {t("Install it to your workspace and copy the Bot User OAuth Token (xoxb-…).")}
+                </li>
+                <li>
+                  {t(
+                    "Optionally name a channel for the whole team (#ops) and invite the bot there with {code}.",
+                    { code: <code>/invite @Zelyq</code> },
+                  )}
                 </li>
               </>
             )}
             {kind === "discord" && (
               <li>
-                In your Discord channel: Edit Channel → Integrations → Webhooks → New Webhook → Copy
-                Webhook URL, and paste it here. Alerts go to that channel for the whole team.
+                {t(
+                  "In your Discord channel: Edit Channel → Integrations → Webhooks → New Webhook → Copy Webhook URL, and paste it here. Alerts go to that channel for the whole team.",
+                )}
               </li>
             )}
           </ol>
           {kind === "slack" && (
             <details>
-              <summary className="cursor-pointer text-fg-secondary">The manifest</summary>
+              <summary className="cursor-pointer text-fg-secondary">{t("The manifest")}</summary>
               <pre className="mt-1 overflow-x-auto rounded bg-surface-hover p-2 text-2xs">
                 {SLACK_MANIFEST}
               </pre>
@@ -714,9 +740,13 @@ function ServiceCard({
           <div className="flex flex-wrap items-center gap-2">
             <PasswordInput
               aria-label={
-                kind === "discord" ? "Discord webhook address" : `${SERVICE[kind]} bot token`
+                kind === "discord"
+                  ? t("Discord webhook address")
+                  : t("{kind} bot token", { kind: SERVICE[kind] })
               }
-              placeholder={kind === "discord" ? "https://discord.com/api/webhooks/…" : "Bot token"}
+              placeholder={
+                kind === "discord" ? "https://discord.com/api/webhooks/…" : t("Bot token")
+              }
               value={secret}
               autoComplete="off"
               onChange={(event) => setSecret(event.target.value)}
@@ -724,8 +754,8 @@ function ServiceCard({
             />
             {kind === "slack" && (
               <Input
-                aria-label="Team channel (optional)"
-                placeholder="#ops (optional)"
+                aria-label={t("Team channel (optional)")}
+                placeholder={t("#ops (optional)")}
                 value={teamChat}
                 onChange={(event) => setTeamChat(event.target.value)}
                 className="w-36"
@@ -737,7 +767,7 @@ function ServiceCard({
               type="submit"
               disabled={connect.isPending || !secret.trim()}
             >
-              {connect.isPending ? "Checking…" : `Connect ${SERVICE[kind]}`}
+              {connect.isPending ? t("Checking…") : t("Connect {kind}", { kind: SERVICE[kind] })}
             </Button>
           </div>
         </form>
@@ -747,12 +777,12 @@ function ServiceCard({
 }
 
 const TEAM_AUDIENCE_WORDS: Record<OpsTeamAudience, string> = {
-  urgent: "urgent alerts",
+  urgent: t("urgent alerts"),
   warning: "warnings",
 };
 
 function teamAudienceWords(chosen: OpsTeamAudience[]): string {
-  if (chosen.length === 0) return "nothing for now";
+  if (chosen.length === 0) return t("nothing for now");
   return chosen.map((one) => TEAM_AUDIENCE_WORDS[one]).join(" and ");
 }
 
@@ -781,8 +811,10 @@ function TeamAudiences({
   });
   return (
     <fieldset className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border-default pt-2 text-xs">
-      <legend className="sr-only">What {where.toLowerCase()} hears</legend>
-      <span className="text-fg-secondary">{where} hears:</span>
+      <legend className="sr-only">
+        {t("What")} {where.toLowerCase()} {t("hears")}
+      </legend>
+      <span className="text-fg-secondary">{t("{where} hears:", { where })}</span>
       {OPS_TEAM_AUDIENCES.map((one) => (
         <label key={one} className="inline-flex items-center gap-1.5">
           <input
@@ -799,7 +831,7 @@ function TeamAudiences({
         </label>
       ))}
       <span className="text-fg-muted">
-        Approvals and messages Ops sends you stay in your own chats.
+        {t("Approvals and messages Ops sends you stay in your own chats.")}
       </span>
     </fieldset>
   );

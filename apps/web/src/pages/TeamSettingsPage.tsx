@@ -24,45 +24,46 @@ import { UsagePanel } from "../components/UsagePanel";
 import { Badge, Button, PageBody, PageHeader, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { useRouteTeam } from "../lib/routes";
 import { type Draft, FieldRow } from "./SettingsPage";
 
 /** What each group is called on a team's page. */
 const GROUP_WORDS: Record<string, { title: string; description: string }> = {
   Model: {
-    title: "Building apps",
-    description: "Which AI builds this team's apps, and how hard it thinks.",
+    title: t("Building apps"),
+    description: t("Which AI builds this team’s apps, and how hard it thinks."),
   },
   "Image Studio": {
-    title: "Image Studio",
-    description: "Which provider and model make this team's images.",
+    title: t("Image Studio"),
+    description: t("Which provider and model make this team’s images."),
   },
   "Video Studio": {
-    title: "Video Studio",
-    description: "Which provider and model make this team's videos.",
+    title: t("Video Studio"),
+    description: t("Which provider and model make this team’s videos."),
   },
   "Voice input": {
-    title: "Voice input",
-    description: "How this team's spoken words become text.",
+    title: t("Voice input"),
+    description: t("How this team’s spoken words become text."),
   },
   Ops: {
-    title: "Ops",
-    description: "The AI behind this team's DevOps engineer, and the voice it speaks with.",
+    title: t("Ops"),
+    description: t("The AI behind this team’s DevOps engineer, and the voice it speaks with."),
   },
 };
 
 /** The menu: each section with its icon. Setting groups get theirs by name. */
 const SECTIONS: Record<string, { label: string; icon: typeof Cpu }> = {
-  plan: { label: "Usage and plan", icon: Gauge },
-  "ai-keys": { label: "AI keys", icon: KeyRound },
-  Model: { label: "Building apps", icon: Cpu },
-  "Image Studio": { label: "Image Studio", icon: Image },
-  "Video Studio": { label: "Video Studio", icon: Film },
-  "Voice input": { label: "Voice input", icon: Mic },
-  Ops: { label: "Ops", icon: Bot },
-  email: { label: "Email", icon: Mail },
-  integrations: { label: "Integrations", icon: Puzzle },
-  support: { label: "Support access", icon: LifeBuoy },
+  plan: { label: t("Usage and plan"), icon: Gauge },
+  "ai-keys": { label: t("AI keys"), icon: KeyRound },
+  Model: { label: t("Building apps"), icon: Cpu },
+  "Image Studio": { label: t("Image Studio"), icon: Image },
+  "Video Studio": { label: t("Video Studio"), icon: Film },
+  "Voice input": { label: t("Voice input"), icon: Mic },
+  Ops: { label: t("Ops"), icon: Bot },
+  email: { label: t("Email"), icon: Mail },
+  integrations: { label: t("Integrations"), icon: Puzzle },
+  support: { label: t("Support access"), icon: LifeBuoy },
 };
 
 /** The sections that are not setting groups: each has its own panel. */
@@ -150,7 +151,7 @@ export function TeamSettingsPage() {
   useEffect(() => {
     if (!sections.includes(active)) return;
     document
-      .querySelector(`nav[aria-label="Team settings sections"] [data-section="${slug(active)}"]`)
+      .querySelector(`nav[data-team-sections] [data-section="${slug(active)}"]`)
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [active, sections]);
   function open(id: string) {
@@ -188,12 +189,12 @@ export function TeamSettingsPage() {
                 </fieldset>
                 <div className="flex items-center gap-2 px-3 pb-2.5 text-2xs text-fg-muted">
                   {teamChoice ? (
-                    <Badge tone="info">Team's choice</Badge>
+                    <Badge tone="info">{t("Team’s choice")}</Badge>
                   ) : (
                     <span>
                       {reset
-                        ? "Goes back to the server's default when you save"
-                        : "Server's default"}
+                        ? t("Goes back to the server’s default when you save")
+                        : t("Server’s default")}
                     </span>
                   )}
                   {canManage && teamChoice && (
@@ -202,7 +203,7 @@ export function TeamSettingsPage() {
                       className="underline underline-offset-2 hover:text-fg"
                       onClick={() => setDraft((current) => ({ ...current, [field.key]: "" }))}
                     >
-                      Use the server's default
+                      {t("Use the server’s default")}
                     </button>
                   )}
                 </div>
@@ -215,18 +216,24 @@ export function TeamSettingsPage() {
   }
 
   return (
-    <AppShell crumbs={[{ label: "Team settings" }]}>
+    <AppShell crumbs={[{ label: t("Team settings") }]}>
       <PageBody>
         <PageHeader
-          title="Team settings"
-          description={`What ${team?.name ?? "this team"} decides for itself. Anything left alone uses the server's default.`}
-          meta={!canManage && <Badge tone="neutral">Only a team admin can change these</Badge>}
+          title={t("Team settings")}
+          description={t(
+            "What {name} decides for itself. Anything left alone uses the server’s default.",
+            { name: team?.name ?? t("this team") },
+          )}
+          meta={
+            !canManage && <Badge tone="neutral">{t("Only a team admin can change these")}</Badge>
+          }
         />
 
         <div className="mt-6 gap-8 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:items-start">
           {/* The menu: a row that scrolls sideways on a phone, a column on a desktop. */}
           <nav
-            aria-label="Team settings sections"
+            aria-label={t("Team settings sections")}
+            data-team-sections
             className="-mx-4 mb-5 flex gap-1 overflow-x-auto px-4 pb-2 md:sticky md:top-4 md:mx-0 md:mb-0 md:flex-col md:overflow-visible md:px-0 md:pb-0"
           >
             {sections.map((section) => {
@@ -286,12 +293,12 @@ export function TeamSettingsPage() {
       {canManage && (dirty || saved) && (
         <div className="fixed right-4 bottom-4 left-4 z-30 mx-auto flex max-w-3xl items-center justify-end gap-2 rounded-lg border border-border-default bg-overlay px-4 py-2.5 shadow-overlay md:left-[16rem]">
           {saved && !dirty ? (
-            <span className="text-xs text-success">Saved.</span>
+            <span className="text-xs text-success">{t("Saved.")}</span>
           ) : (
             <>
-              <span className="mr-auto text-xs text-fg-secondary">Unsaved changes</span>
+              <span className="mr-auto text-xs text-fg-secondary">{t("Unsaved changes")}</span>
               <Button size="sm" variant="ghost" onClick={() => setDraft({})}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button
                 size="sm"
@@ -299,7 +306,7 @@ export function TeamSettingsPage() {
                 disabled={save.isPending}
                 onClick={() => save.mutate()}
               >
-                {save.isPending ? "Saving…" : "Save changes"}
+                {save.isPending ? t("Saving…") : t("Save changes")}
               </Button>
             </>
           )}

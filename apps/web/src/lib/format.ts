@@ -1,3 +1,5 @@
+import { currentLanguage, languageOf, t } from "./i18n";
+
 /**
  * Dates, times, numbers and sizes in the viewer's own locale and time zone.
  * Nothing in the interface formats one of these by hand.
@@ -10,14 +12,21 @@ let preferred: { locale: string | null; timeZone: string | null } = {
 };
 
 export function setFormatPreferences(next: { locale?: string | null; timeZone?: string | null }) {
+  // The page's own lang attribute is the interface language (lib/i18n), not this.
   preferred = { locale: next.locale ?? null, timeZone: next.timeZone ?? null };
-  if (typeof document !== "undefined") {
-    document.documentElement.lang = preferred.locale ?? navigator.language ?? "en";
-  }
 }
 
-const locale = (): string | undefined =>
-  preferred.locale ?? (typeof navigator === "undefined" ? undefined : navigator.language);
+/**
+ * The account's choice; else the browser's, as long as it is in the language
+ * on screen ("de-AT" for a German page); else that language itself.
+ */
+const locale = (): string | undefined => {
+  if (preferred.locale) return preferred.locale;
+  const browser = typeof navigator === "undefined" ? undefined : navigator.language;
+  const shown = currentLanguage();
+  if (shown === "pseudo" || languageOf(browser) === shown) return browser;
+  return shown;
+};
 const zone = (): { timeZone?: string } =>
   preferred.timeZone ? { timeZone: preferred.timeZone } : {};
 
@@ -73,7 +82,7 @@ export function formatRelative(value: string | number | Date, now = Date.now()):
   const date = toDate(value);
   const seconds = Math.round((date.getTime() - now) / 1000);
   const abs = Math.abs(seconds);
-  if (abs < 45) return seconds <= 0 ? "just now" : "in a moment";
+  if (abs < 45) return seconds <= 0 ? t("just now") : t("in a moment");
   if (abs > 7 * 24 * 3600) return formatDate(date);
   const rtf = new Intl.RelativeTimeFormat(locale(), { numeric: "auto" });
   for (const [unit, size] of UNITS) {
@@ -88,8 +97,8 @@ export function formatNumber(value: number, options?: Intl.NumberFormatOptions):
 
 /** "1.2 MB", "0 B", "640 KB". Binary units, labelled the way people read them. */
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
+  const units = [t("B"), t("KB"), t("MB"), t("GB"), t("TB")];
+  if (!Number.isFinite(bytes) || bytes <= 0) return `0 ${units[0]}`;
   const exponent = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
   const value = bytes / 1024 ** exponent;
   return `${formatNumber(value, { maximumFractionDigits: value < 10 && exponent > 0 ? 1 : 0 })} ${units[exponent]}`;
@@ -102,9 +111,9 @@ export function formatDuration(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s} s`;
   const m = Math.floor(s / 60);
-  if (m < 60) return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
+  if (m < 60) return s % 60 ? t("{m} min {s} s", { m, s: s % 60 }) : `${m} min`;
   const h = Math.floor(m / 60);
-  return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+  return m % 60 ? t("{h} h {m} min", { h, m: m % 60 }) : `${h} h`;
 }
 
 /**

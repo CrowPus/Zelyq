@@ -3,6 +3,7 @@ import { PLAN_LIMIT_KEYS, PLAN_LIMITS, type Plan, type PlanLimitKey } from "@zel
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { t, translateServerMessage } from "../lib/i18n";
 import { IdleCleanup } from "./IdleCleanup";
 import { sizeWords } from "./UsagePanel";
 import { Button, Input, NativeSelect, Spinner } from "./ui";
@@ -77,12 +78,12 @@ export function PlansPanel() {
     );
 
   return (
-    <section className="mt-7" aria-label="Plans">
-      <h2 className="text-sm font-medium text-fg">Plans</h2>
+    <section className="mt-7" aria-label={t("Plans")}>
+      <h2 className="text-sm font-medium text-fg">{t("Plans")}</h2>
       <p className="mt-0.5 text-xs leading-relaxed text-fg-secondary">
-        What each team may use. A limit left empty is no limit. At a limit only something new is
-        stopped (a new app, upload or run); nothing that exists is broken or deleted. Unlimited
-        always exists, and the teams you belong to stay on it unless you move them here.
+        {t(
+          "What each team may use. A limit left empty is no limit. At a limit only something new is stopped (a new app, upload or run); nothing that exists is broken or deleted. Unlimited always exists, and the teams you belong to stay on it unless you move them here.",
+        )}
       </p>
 
       <div className="mt-3 grid gap-3">
@@ -90,10 +91,10 @@ export function PlansPanel() {
           <div key={plan.uid} className="rounded-lg border border-border-default bg-surface p-3">
             <div className="flex flex-wrap items-end gap-2">
               <div className="grid gap-1 text-2xs text-fg-secondary">
-                <span>Name</span>
+                <span>{t("Name")}</span>
                 <Input
                   value={plan.name}
-                  aria-label="Plan name"
+                  aria-label={t("Plan name")}
                   onChange={(event) =>
                     setDraft((current) =>
                       (current ?? []).map((one, at) =>
@@ -105,10 +106,10 @@ export function PlansPanel() {
                 />
               </div>
               <div className="grid gap-1 text-2xs text-fg-secondary">
-                <span>Id</span>
+                <span>{t("Id")}</span>
                 <Input
                   value={plan.id}
-                  aria-label="Plan id"
+                  aria-label={t("Plan id")}
                   onChange={(event) =>
                     setDraft((current) =>
                       (current ?? []).map((one, at) =>
@@ -128,7 +129,7 @@ export function PlansPanel() {
                   setDraft((current) => (current ?? []).filter((_, at) => at !== index))
                 }
               >
-                Remove
+                {t("Remove")}
               </Button>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -136,17 +137,19 @@ export function PlansPanel() {
                 <div
                   key={key}
                   className="grid gap-1 text-2xs text-fg-secondary"
-                  title={PLAN_LIMITS[key].description}
+                  title={translateServerMessage(PLAN_LIMITS[key].description)}
                 >
                   <span>
-                    {PLAN_LIMITS[key].label}
-                    {PLAN_LIMITS[key].unit ? ` (${PLAN_LIMITS[key].unit})` : ""}
+                    {translateServerMessage(PLAN_LIMITS[key].label)}
+                    {PLAN_LIMITS[key].unit
+                      ? ` (${translateServerMessage(PLAN_LIMITS[key].unit)})`
+                      : ""}
                   </span>
                   <Input
                     type="number"
                     min={0}
-                    placeholder="No limit"
-                    aria-label={`${plan.name} ${PLAN_LIMITS[key].label}`}
+                    placeholder={t("No limit")}
+                    aria-label={`${plan.name} ${translateServerMessage(PLAN_LIMITS[key].label)}`}
                     value={plan.limits[key] ?? ""}
                     onChange={(event) => setLimit(index, key, event.target.value)}
                   />
@@ -168,12 +171,12 @@ export function PlansPanel() {
             ])
           }
         >
-          Add a plan
+          {t("Add a plan")}
         </Button>
         <label className="flex items-center gap-2 text-xs text-fg-secondary">
-          New teams start on
+          {t("New teams start on")}
           <NativeSelect
-            aria-label="Plan new teams start on"
+            aria-label={t("Plan new teams start on")}
             value={defaultPlan}
             onChange={(event) => setDefaultPlan(event.target.value)}
           >
@@ -191,12 +194,12 @@ export function PlansPanel() {
           disabled={save.isPending}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : saved ? "Saved" : "Save plans"}
+          {save.isPending ? t("Saving…") : saved ? t("Saved") : t("Save plans")}
         </Button>
       </div>
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
 
-      <h3 className="mt-6 text-sm font-medium text-fg">Teams</h3>
+      <h3 className="mt-6 text-sm font-medium text-fg">{t("Teams")}</h3>
       <div className="mt-2 overflow-hidden rounded-lg border border-border-default bg-surface">
         {(teams.data?.teams ?? []).map((team) => (
           <div
@@ -205,10 +208,14 @@ export function PlansPanel() {
           >
             <span className="min-w-0 flex-1 truncate text-fg">{team.name}</span>
             <span className="text-2xs text-fg-muted">
-              {sizeWords(team.storageMb)} · {team.apps} apps · {team.members} members
+              {t("{storageMb} · {apps} apps · {members} members", {
+                storageMb: sizeWords(team.storageMb),
+                apps: team.apps,
+                members: team.members,
+              })}
             </span>
             <NativeSelect
-              aria-label={`Plan for ${team.name}`}
+              aria-label={t("Plan for {name}", { name: team.name })}
               value={team.plan.id}
               disabled={move.isPending}
               onChange={(event) => move.mutate({ teamId: team.id, plan: event.target.value })}

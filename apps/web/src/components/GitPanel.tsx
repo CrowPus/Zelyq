@@ -11,6 +11,7 @@ import {
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
 import { Badge, Button, Drawer, Input, NativeSelect, Spinner } from "./ui";
 
@@ -65,8 +66,8 @@ export function GitPanel({
     <Drawer
       open={open}
       onOpenChange={onOpenChange}
-      title="Git"
-      description="Commit, push and pull this app's code, and switch branches."
+      title={t("Git")}
+      description={t("Commit, push and pull this app’s code, and switch branches.")}
       actions={
         attention && (
           <span
@@ -76,7 +77,7 @@ export function GitPanel({
                 : "bg-warning-subtle text-warning"
             }`}
           >
-            {attention === "danger" ? "Needs attention" : "Behind remote"}
+            {attention === "danger" ? t("Needs attention") : t("Behind remote")}
           </span>
         )
       }
@@ -84,14 +85,14 @@ export function GitPanel({
       <div className="px-5 py-4">
         {status.isPending && (
           <p className="flex items-center gap-1.5 text-sm text-fg-secondary">
-            <Spinner className="size-3" /> Reading this app's git…
+            <Spinner className="size-3" /> {t("Reading this app’s git…")}
           </p>
         )}
         {status.isError && (
           <Message tone="danger">
             {status.error instanceof ApiError
               ? status.error.message
-              : "Could not read this app's git."}
+              : t("Could not read this app’s git.")}
           </Message>
         )}
         {state && <GitBody projectId={projectId} teamId={teamId} state={state} />}
@@ -144,7 +145,7 @@ function GitBody({
   const fail = (error: unknown) => {
     setNote({
       tone: "danger",
-      text: error instanceof ApiError ? error.message : "That did not work.",
+      text: error instanceof ApiError ? error.message : t("That did not work."),
     });
   };
 
@@ -156,8 +157,10 @@ function GitBody({
         tone: status.behind > 0 ? "warning" : "success",
         text:
           status.behind > 0
-            ? `The remote has ${status.behind} commit(s) this project does not.`
-            : "Up to date with the remote.",
+            ? t("The remote has {behind} commit(s) this project does not.", {
+                behind: status.behind,
+              })
+            : t("Up to date with the remote."),
       });
     },
     onError: fail,
@@ -175,7 +178,7 @@ function GitBody({
       setDiverged(null);
       setNote({
         tone: "success",
-        text: status.pulled ? "Pulled the remote's changes in." : "Already up to date.",
+        text: status.pulled ? t("Pulled the remote’s changes in.") : t("Already up to date."),
       });
     },
     onError: (error) => {
@@ -202,17 +205,22 @@ function GitBody({
       // unnoticed: say what actually travelled, including when that is nothing.
       const sent =
         commits === 0
-          ? `${branch} was already up to date — nothing new to send.`
-          : `Pushed ${commits} commit${commits === 1 ? "" : "s"} to ${branch}.`;
-      const before = [
-        committed ? "Committed your uncommitted changes" : null,
-        pulled ? "brought in the remote's work" : null,
-      ].filter(Boolean);
+          ? t("{branch} was already up to date — nothing new to send.", { branch })
+          : t("Pushed {commits, plural, one {# commit} other {# commits}} to {branch}.", {
+              commits,
+              branch,
+            });
+      const before =
+        committed && pulled
+          ? t("Committed your uncommitted changes and brought in the remote’s work first.")
+          : committed
+            ? t("Committed your uncommitted changes first.")
+            : pulled
+              ? t("Brought in the remote’s work first.")
+              : "";
       setNote({
         tone: "success",
-        text: before.length
-          ? `${before.join(" and ")} first. ${sent[0].toUpperCase()}${sent.slice(1)}`
-          : sent,
+        text: before ? `${before} ${sent}` : sent,
       });
     },
     onError: fail,
@@ -226,7 +234,7 @@ function GitBody({
       setRemoteUrl("");
       setConfirmReplace(null);
       setPane("main");
-      setNote({ tone: "success", text: "This app now pushes to the new address." });
+      setNote({ tone: "success", text: t("This app now pushes to the new address.") });
     },
     onError: (error) => {
       const current =
@@ -250,19 +258,27 @@ function GitBody({
       if (result.url) {
         setNote({
           tone: "success",
-          text: `${result.existing ? "Updated the open" : "Opened a"} pull request for ${result.branch}.`,
+          text: result.existing
+            ? t("Updated the open pull request for {branch}.", { branch: result.branch })
+            : t("Opened a pull request for {branch}.", { branch: result.branch }),
         });
         window.open(result.url, "_blank", "noopener");
       } else if (result.compareUrl) {
         setNote({
           tone: "warning",
-          text: `Pushed ${result.branch}, but the pull request could not be opened for you. Opening the compare page instead.`,
+          text: t(
+            "Pushed {branch}, but the pull request could not be opened for you. Opening the compare page instead.",
+            { branch: result.branch },
+          ),
         });
         window.open(result.compareUrl, "_blank", "noopener");
       } else {
         setNote({
           tone: "warning",
-          text: `Pushed ${result.branch}. This host is not GitHub, so open the pull request there yourself.`,
+          text: t(
+            "Pushed {branch}. This host is not GitHub, so open the pull request there yourself.",
+            { branch: result.branch },
+          ),
         });
       }
     },
@@ -285,9 +301,14 @@ function GitBody({
       {blocked && (
         <Message tone="danger">
           {state.inProgress
-            ? `A ${state.inProgress} was started here and never finished.`
-            : `${state.conflicts.length} file(s) still have conflicts.`}{" "}
-          Turns are paused until it is resolved, so the agent cannot commit half-merged files.
+            ? t(
+                "A {inProgress} was started here and never finished. Turns are paused until it is resolved, so the agent cannot commit half-merged files.",
+                { inProgress: state.inProgress },
+              )
+            : t(
+                "{conflictCount} file(s) still have conflicts. Turns are paused until it is resolved, so the agent cannot commit half-merged files.",
+                { conflictCount: state.conflicts.length },
+              )}
         </Message>
       )}
 
@@ -314,7 +335,7 @@ function GitBody({
                 fetchRemote.mutate();
               }}
             >
-              {fetchRemote.isPending ? "Checking…" : "Check remote"}
+              {fetchRemote.isPending ? t("Checking…") : t("Check remote")}
             </Button>
 
             <Button
@@ -328,7 +349,7 @@ function GitBody({
                 pull.mutate("ff-only");
               }}
             >
-              {pull.isPending ? "Pulling…" : "Pull"}
+              {pull.isPending ? t("Pulling…") : t("Pull")}
             </Button>
 
             <Button
@@ -341,7 +362,7 @@ function GitBody({
                 push.mutate();
               }}
             >
-              {push.isPending ? "Pushing…" : "Push"}
+              {push.isPending ? t("Pushing…") : t("Push")}
             </Button>
           </div>
 
@@ -349,27 +370,30 @@ function GitBody({
             <RemoteField
               value={remoteUrl}
               onChange={setRemoteUrl}
-              label="This app has no remote yet. Paste the repository address to push to."
+              label={t("This app has no remote yet. Paste the repository address to push to.")}
             />
           )}
 
           {diverged && (
             <div className="rounded-md border border-warning/40 bg-warning/5 p-2">
               <p className="text-2xs leading-relaxed text-fg-secondary">
-                Both sides have moved on — {diverged.ahead} commit(s) here, {diverged.behind} on the
-                remote. Combining them is a choice:
+                {t(
+                  "Both sides have moved on — {ahead} commit(s) here, {behind} on the remote. Combining them is a choice:",
+                  { ahead: diverged.ahead, behind: diverged.behind },
+                )}
               </p>
               <div className="mt-2 flex gap-1.5">
                 <Button size="sm" disabled={busy} onClick={() => pull.mutate("rebase")}>
-                  Replay mine on top
+                  {t("Replay mine on top")}
                 </Button>
                 <Button size="sm" disabled={busy} onClick={() => pull.mutate("merge")}>
-                  Keep both, merge
+                  {t("Keep both, merge")}
                 </Button>
               </div>
               <p className="mt-1.5 text-2xs text-fg-muted">
-                Either way, if the same lines were changed on both sides nothing is applied and this
-                project is left exactly as it is now.
+                {t(
+                  "Either way, if the same lines were changed on both sides nothing is applied and this project is left exactly as it is now.",
+                )}
               </p>
             </div>
           )}
@@ -383,7 +407,7 @@ function GitBody({
                 setPane("pr");
               }}
             >
-              Open a pull request
+              {t("Open a pull request")}
             </button>
             <button
               type="button"
@@ -394,7 +418,7 @@ function GitBody({
                 setPane("remote");
               }}
             >
-              {state.remote ? "Change remote" : "Set remote"}
+              {state.remote ? t("Change remote") : t("Set remote")}
             </button>
           </div>
         </>
@@ -415,15 +439,18 @@ function GitBody({
               setRemoteUrl(next);
               setConfirmReplace(null);
             }}
-            label="Where this app pushes to. There is only ever one."
+            label={t("Where this app pushes to. There is only ever one.")}
           />
 
           {confirmReplace && (
             <div className="rounded-md border border-warning/40 bg-warning/5 p-2">
               <p className="text-2xs leading-relaxed text-fg-secondary">
-                This project currently pushes to <Mono>{confirmReplace}</Mono>. Point it at{" "}
-                <Mono>{remoteUrl.trim()}</Mono> instead? Commits already made stay in this app —
-                they simply will not go to the old address any more.
+                {t("This project currently pushes to")} <Mono>{confirmReplace}</Mono>
+                {t(". Point it at ")}
+                <Mono>{remoteUrl.trim()}</Mono>{" "}
+                {t(
+                  "instead? Commits already made stay in this app — they simply will not go to the old address any more.",
+                )}
               </p>
               <div className="mt-2 flex gap-1.5">
                 <Button
@@ -432,10 +459,10 @@ function GitBody({
                   disabled={busy}
                   onClick={() => setRemote.mutate(true)}
                 >
-                  Yes, repoint it
+                  {t("Yes, repoint it")}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setConfirmReplace(null)}>
-                  Cancel
+                  {t("Cancel")}
                 </Button>
               </div>
             </div>
@@ -444,7 +471,7 @@ function GitBody({
           {!confirmReplace && (
             <div className="flex justify-end gap-1.5">
               <Button size="sm" variant="ghost" onClick={() => setPane("main")} type="button">
-                Back
+                {t("Back")}
               </Button>
               <Button
                 size="sm"
@@ -452,7 +479,7 @@ function GitBody({
                 type="submit"
                 disabled={busy || !remoteUrl.trim()}
               >
-                Save
+                {t("Save")}
               </Button>
             </div>
           )}
@@ -469,15 +496,15 @@ function GitBody({
           className="flex flex-col gap-2"
         >
           <p className="text-2xs leading-relaxed text-fg-secondary">
-            Puts this work on its own branch and proposes it, instead of pushing straight at the
-            shared one. GitHub repositories get a real pull request; anywhere else the branch is
-            pushed for you to open one yourself.
+            {t(
+              "Puts this work on its own branch and proposes it, instead of pushing straight at the shared one. GitHub repositories get a real pull request; anywhere else the branch is pushed for you to open one yourself.",
+            )}
           </p>
           <Input
             value={prTitle}
             onChange={(event) => setPrTitle(event.target.value)}
-            placeholder="What does this change?"
-            aria-label="Pull request title"
+            placeholder={t("What does this change?")}
+            aria-label={t("Pull request title")}
           />
           <TokenField
             value={token}
@@ -491,7 +518,7 @@ function GitBody({
           />
           <div className="flex justify-end gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setPane("main")} type="button">
-              Back
+              {t("Back")}
             </Button>
             <Button
               size="sm"
@@ -500,7 +527,7 @@ function GitBody({
               icon={<GitPullRequest size={12} strokeWidth={1.75} />}
               disabled={busy || !prTitle.trim() || !hasCredential}
             >
-              {pullRequest.isPending ? "Opening…" : "Open"}
+              {pullRequest.isPending ? t("Opening…") : t("Open")}
             </Button>
           </div>
         </form>
@@ -516,8 +543,9 @@ function Summary({ state }: { state: GitStatus }) {
   if (!state.repository) {
     return (
       <p className="text-2xs leading-relaxed text-fg-secondary">
-        This project does not have a git history yet. Sending a turn starts one, and so does the
-        first push.
+        {t(
+          "This project does not have a git history yet. Sending a turn starts one, and so does the first push.",
+        )}
       </p>
     );
   }
@@ -525,20 +553,26 @@ function Summary({ state }: { state: GitStatus }) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        <Badge tone="neutral">{state.branch ?? "detached"}</Badge>
-        {state.ahead > 0 && <Badge tone="info">{state.ahead} to push</Badge>}
-        {state.behind > 0 && <Badge tone="warning">{state.behind} to pull</Badge>}
-        {state.dirty && <Badge tone="neutral">uncommitted</Badge>}
-        {state.commits === 0 && <Badge tone="neutral">no commits</Badge>}
+        <Badge tone="neutral">{state.branch ?? t("detached")}</Badge>
+        {state.ahead > 0 && (
+          <Badge tone="info">{t("{ahead} to push", { ahead: state.ahead })}</Badge>
+        )}
+        {state.behind > 0 && (
+          <Badge tone="warning">{t("{behind} to pull", { behind: state.behind })}</Badge>
+        )}
+        {state.dirty && <Badge tone="neutral">{t("uncommitted")}</Badge>}
+        {state.commits === 0 && <Badge tone="neutral">{t("no commits")}</Badge>}
       </div>
       <p className="truncate text-2xs text-fg-secondary" title={state.remote ?? undefined}>
-        {state.remote ? <Mono>{state.remote}</Mono> : "No remote set"}
+        {state.remote ? <Mono>{state.remote}</Mono> : t("No remote set")}
       </p>
       {state.remote && (
         <p className="text-2xs text-fg-muted">
           {state.fetchedAt
-            ? `Last checked ${relative(state.fetchedAt)}. Counts are from then.`
-            : "Never checked the remote — the counts above cannot be known yet."}
+            ? t("Last checked {fetchedAt}. Counts are from then.", {
+                fetchedAt: relative(state.fetchedAt),
+              })
+            : t("Never checked the remote — the counts above cannot be known yet.")}
         </p>
       )}
     </div>
@@ -561,7 +595,7 @@ function RemoteField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder="https://github.com/owner/repository.git"
-        aria-label="Repository URL"
+        aria-label={t("Repository URL")}
       />
     </div>
   );
@@ -597,8 +631,8 @@ export function TokenField({
       <div className="flex gap-1 rounded-md bg-canvas p-0.5 text-2xs">
         {(
           [
-            ["paste", "Paste token"],
-            ["vault", "From Vault"],
+            ["paste", t("Paste token")],
+            ["vault", t("From Vault")],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -621,42 +655,47 @@ export function TokenField({
           onChange={(event) => onChange(event.target.value)}
           placeholder={
             required
-              ? "Access token — needed to open a pull request"
-              : "Access token — if it is private"
+              ? t("Access token — needed to open a pull request")
+              : t("Access token — if it is private")
           }
-          aria-label="Repository access token"
+          aria-label={t("Repository access token")}
           autoComplete="new-password"
         />
       ) : choices.isPending ? (
         <p className="flex items-center gap-1.5 text-2xs text-fg-secondary">
-          <Spinner className="size-3" /> Reading your team's Vault…
+          <Spinner className="size-3" /> {t("Reading your team’s Vault…")}
         </p>
       ) : choices.isError ? (
         <Message tone="danger">
           {choices.error instanceof ApiError
             ? choices.error.message
-            : "Could not read your team's Vault."}
+            : t("Could not read your team’s Vault.")}
         </Message>
       ) : usable.length === 0 ? (
         <p className="text-2xs leading-relaxed text-fg-secondary">
-          Your team's Vault has no secret you can use here yet.{" "}
-          <Link to={teamHref(`/vault?scope=${teamId}`)} className="underline underline-offset-2">
-            Add your git token to Vault
-          </Link>
-          , then choose it here.
+          {t("Your team’s Vault has no secret you can use here yet. {link}, then choose it here.", {
+            link: (
+              <Link
+                to={teamHref(`/vault?scope=${teamId}`)}
+                className="underline underline-offset-2"
+              >
+                {t("Add your git token to Vault")}
+              </Link>
+            ),
+          })}
         </p>
       ) : (
         <NativeSelect
-          aria-label="Repository access token from Vault"
+          aria-label={t("Repository access token from Vault")}
           value={usable.some((choice) => choice.name === vaultName) ? vaultName : ""}
           onChange={(event) => onVaultName(event.target.value)}
           className="w-full"
         >
-          <option value="">Choose the secret holding your token…</option>
+          <option value="">{t("Choose the secret holding your token…")}</option>
           {usable.map((choice) => (
             <option key={choice.name} value={choice.name}>
               {choice.name}
-              {choice.protected ? " · Protected" : ""}
+              {choice.protected ? t(" · Protected") : ""}
             </option>
           ))}
         </NativeSelect>
@@ -704,11 +743,12 @@ function Mono({ children }: { children: ReactNode }) {
 /** "4 minutes ago" — enough to judge whether a count is still worth trusting. */
 function relative(iso: string): string {
   const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (seconds < 60) return "just now";
+  if (seconds < 60) return t("just now");
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  if (minutes < 60)
+    return t("{minutes, plural, one {# minute} other {# minutes}} ago", { minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  if (hours < 24) return t("{hours, plural, one {# hour} other {# hours}} ago", { hours });
   const days = Math.round(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
+  return t("{days, plural, one {# day} other {# days}} ago", { days });
 }

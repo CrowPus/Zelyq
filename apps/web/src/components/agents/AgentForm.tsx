@@ -10,12 +10,13 @@ import {
   type Project,
 } from "@zelyq/core";
 import { type FormEvent, useId, useState } from "react";
+import { t } from "../../lib/i18n";
 import { Button, FieldLabel, Input, NativeSelect, Textarea } from "../ui";
 
 const LEVEL_LABEL: Record<AgentPermissionLevel, string> = {
-  off: "Off",
-  allow: "Allowed",
-  approve: "Needs approval",
+  off: t("Off"),
+  allow: t("Allowed"),
+  approve: t("Needs approval"),
 };
 
 export interface AgentFormValue {
@@ -103,7 +104,7 @@ export function AgentForm({
     >
       {!initial && (
         <div className="flex flex-wrap items-center gap-2 rounded-md bg-surface-subtle px-3 py-2 text-xs text-fg-muted">
-          <span>Start from:</span>
+          <span>{t("Start from:")}</span>
           <Button
             type="button"
             variant="secondary"
@@ -114,60 +115,63 @@ export function AgentForm({
               setPermissions({ ...DEVOPS_AGENT_PRESET.permissions });
             }}
           >
-            DevOps engineer
+            {t("DevOps engineer")}
           </Button>
           <span>
-            Sees apps, pipelines and environments; every change it makes waits for you; it follows
-            Ops's playbooks and never changes app code.
+            {t(
+              "Sees apps, pipelines and environments; every change it makes waits for you; it follows Ops’s playbooks and never changes app code.",
+            )}
           </span>
         </div>
       )}
       <div className="grid gap-3 sm:grid-cols-[1fr_2fr]">
         <label htmlFor={nameId} className="grid gap-1">
-          <FieldLabel>Name</FieldLabel>
+          <FieldLabel>{t("Name")}</FieldLabel>
           <Input
             id={nameId}
             value={name}
             maxLength={80}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Claude Code — my laptop"
+            placeholder={t("Claude Code — my laptop")}
             autoFocus
           />
         </label>
         <label htmlFor={jobId} className="grid gap-1">
-          <FieldLabel>Job</FieldLabel>
+          <FieldLabel>{t("Job")}</FieldLabel>
           <Textarea
             id={jobId}
             rows={2}
             value={job}
             maxLength={4000}
             onChange={(event) => setJob(event.target.value)}
-            placeholder="What this agent is for. It reads this first, e.g. “Fix bugs in the shop app and keep its tests green.”"
+            placeholder={t(
+              "What this agent is for. It reads this first, e.g. “Fix bugs in the shop app and keep its tests green.”",
+            )}
           />
         </label>
       </div>
 
       <ScopePicker
-        title="Apps it may work on"
+        title={t("Apps it may work on")}
         every="Every app in the team, including ones made later"
-        empty="This team has no apps yet."
+        empty={t("This team has no apps yet.")}
         options={apps.map((app) => ({ id: app.id, name: app.name }))}
         value={appScope}
         onChange={setAppScope}
       />
       <ScopePicker
-        title="Pipelines it may see, change and ask to run"
+        title={t("Pipelines it may see, change and ask to run")}
         every="Every pipeline in the team, including ones made later"
-        empty="This team has no pipelines yet. The agent can still create its own."
+        empty={t("This team has no pipelines yet. The agent can still create its own.")}
         note="Pipelines the agent creates are always its own."
         options={pipelines}
         value={pipelineScope}
         onChange={setPipelineScope}
       />
       <ScopePicker
-        title="Environments it may see and deploy to"
+        title={t("Environments it may see and deploy to")}
         every="Every environment in the team, including ones made later"
-        empty="This team has no environments yet."
+        empty={t("This team has no environments yet.")}
         note="Its pipelines may deploy only to these."
         options={environments}
         value={environmentScope}
@@ -176,21 +180,22 @@ export function AgentForm({
 
       <fieldset className="grid gap-2">
         <legend className="mb-1">
-          <FieldLabel>Who pays for its images and video</FieldLabel>
+          <FieldLabel>{t("Who pays for its images and video")}</FieldLabel>
         </legend>
         <p className="text-2xs text-fg-muted">
-          The agent generates on its own provider key, from this team's Vault — never this server's
-          keys. It never sees the key. With none set, it cannot generate at all.
+          {t(
+            "The agent generates on its own provider key, from this team’s Vault — never this server’s keys. It never sees the key. With none set, it cannot generate at all.",
+          )}
         </p>
         <MediaKey
-          label="Images"
+          label={t("Images")}
           providers={IMAGE_PROVIDERS}
           secrets={secrets}
           value={media.image}
           onChange={(image) => setMedia((current) => ({ ...current, image }))}
         />
         <MediaKey
-          label="Video"
+          label={t("Video")}
           providers={VIDEO_PROVIDERS}
           secrets={secrets}
           value={media.video}
@@ -200,7 +205,7 @@ export function AgentForm({
 
       <fieldset>
         <legend className="mb-2">
-          <FieldLabel>What it may do</FieldLabel>
+          <FieldLabel>{t("What it may do")}</FieldLabel>
         </legend>
         <ul className="divide-y divide-border-default rounded-md border border-border-default">
           {agentPermissionNames.map((permission) => {
@@ -246,8 +251,9 @@ export function AgentForm({
           })}
         </ul>
         <p className="mt-1.5 text-2xs text-fg-muted">
-          Secret values never reach an agent. Everything it changes is recorded under its name, with
-          an undo point first.
+          {t(
+            "Secret values never reach an agent. Everything it changes is recorded under its name, with an undo point first.",
+          )}
         </p>
       </fieldset>
 
@@ -255,12 +261,12 @@ export function AgentForm({
 
       <div className="flex items-center gap-2">
         <Button type="submit" variant="primary" size="sm" disabled={busy || !name.trim() || noApps}>
-          {busy ? "Saving…" : submitLabel}
+          {busy ? t("Saving…") : submitLabel}
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </Button>
-        {noApps && <span className="text-2xs text-fg-muted">Choose at least one app.</span>}
+        {noApps && <span className="text-2xs text-fg-muted">{t("Choose at least one app.")}</span>}
       </div>
     </form>
   );
@@ -296,7 +302,7 @@ function ScopePicker({
           onChange={() => onChange({ ...value, every: false })}
           className="accent-[var(--primary)]"
         />
-        Only the ones I choose
+        {t("Only the ones I choose")}
       </label>
       {!value.every && (
         <div className="ml-5 grid max-h-44 gap-1 overflow-y-auto rounded-md border border-border-default p-2 sm:grid-cols-2">
@@ -336,12 +342,12 @@ function ScopePicker({
 }
 
 const IMAGE_PROVIDERS = [
-  { id: "openai", label: "OpenAI" },
-  { id: "google", label: "Google" },
+  { id: "openai", label: t("OpenAI") },
+  { id: "google", label: t("Google") },
   { id: "xai", label: "xAI" },
 ] as const;
 const VIDEO_PROVIDERS = [
-  { id: "google", label: "Google (Veo)" },
+  { id: "google", label: t("Google (Veo)") },
   { id: "xai", label: "xAI" },
 ] as const;
 
@@ -364,7 +370,7 @@ function MediaKey<P extends string>({
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="w-14 text-fg-secondary">{label}</span>
       <NativeSelect
-        aria-label={`${label} provider`}
+        aria-label={t("{label} provider", { label })}
         className={select}
         value={value?.provider ?? ""}
         onChange={(event) =>
@@ -375,7 +381,7 @@ function MediaKey<P extends string>({
           )
         }
       >
-        <option value="">None</option>
+        <option value="">{t("None")}</option>
         {providers.map((provider) => (
           <option key={provider.id} value={provider.id}>
             {provider.label}
@@ -384,14 +390,14 @@ function MediaKey<P extends string>({
       </NativeSelect>
       {value && (
         <>
-          <span className="text-fg-muted">key from Vault</span>
+          <span className="text-fg-muted">{t("key from Vault")}</span>
           <NativeSelect
-            aria-label={`${label} key`}
+            aria-label={t("{label} key", { label })}
             className={select}
             value={value.secret}
             onChange={(event) => onChange({ ...value, secret: event.target.value })}
           >
-            {secrets.length === 0 && <option value="">No secrets in Vault yet</option>}
+            {secrets.length === 0 && <option value="">{t("No secrets in Vault yet")}</option>}
             {secrets.map((name) => (
               <option key={name} value={name}>
                 {name}

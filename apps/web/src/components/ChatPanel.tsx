@@ -46,6 +46,7 @@ import {
   withoutFigmaCommand,
 } from "../lib/figma-command";
 import { fileToBase64 } from "../lib/files";
+import { t } from "../lib/i18n";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
 import {
   buildMotionDirective,
@@ -474,7 +475,7 @@ export function ChatPanel({
       }
       if (figmaConnection.data && !figmaConnection.data.connection) {
         setCommandError(
-          "Connect Figma in Team settings → Integrations first, then try /figma again.",
+          t("Connect Figma in Team settings → Integrations first, then try /figma again."),
         );
         return;
       }
@@ -606,7 +607,7 @@ export function ChatPanel({
         });
         setAttachments((previous) => [...previous, attachment]);
       } catch (error) {
-        setUploadError(error instanceof Error ? error.message : "Could not attach that file.");
+        setUploadError(error instanceof Error ? error.message : t("Could not attach that file."));
       } finally {
         setUploading((count) => count - 1);
       }
@@ -634,7 +635,7 @@ export function ChatPanel({
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setVoiceError("Voice input is not supported by this browser.");
+      setVoiceError(t("Voice input is not supported by this browser."));
       return;
     }
 
@@ -659,7 +660,7 @@ export function ChatPanel({
         releaseMicrophone();
         if (mountedRef.current) {
           setVoiceState("idle");
-          setVoiceError("The browser could not record from the microphone.");
+          setVoiceError(t("The browser could not record from the microphone."));
         }
       };
       recorder.onstop = () => {
@@ -669,7 +670,7 @@ export function ChatPanel({
         if (!mountedRef.current) return;
         if (audio.size === 0) {
           setVoiceState("idle");
-          setVoiceError("No audio was recorded. Try again and speak after recording starts.");
+          setVoiceError(t("No audio was recorded. Try again and speak after recording starts."));
           return;
         }
         setVoiceState("transcribing");
@@ -694,7 +695,9 @@ export function ChatPanel({
           .catch((error) => {
             if (!mountedRef.current) return;
             setVoiceState("idle");
-            setVoiceError(error instanceof Error ? error.message : "Could not transcribe audio.");
+            setVoiceError(
+              error instanceof Error ? error.message : t("Could not transcribe audio."),
+            );
           });
       };
       recorder.start(250);
@@ -707,8 +710,8 @@ export function ChatPanel({
       setVoiceState("idle");
       setVoiceError(
         error instanceof DOMException && error.name === "NotAllowedError"
-          ? "Microphone access was denied. Allow it in your browser settings and try again."
-          : "Could not access the microphone.",
+          ? t("Microphone access was denied. Allow it in your browser settings and try again.")
+          : t("Could not access the microphone."),
       );
     }
   }
@@ -746,18 +749,21 @@ export function ChatPanel({
           tone={chat.busy ? "warning" : chat.status === "open" ? "success" : "danger"}
           pulse={chat.busy}
         />
-        <h2 className="text-xs font-medium text-fg">Agent</h2>
+        <h2 className="text-xs font-medium text-fg">{t("Agent")}</h2>
         {/* The picker's own choice is the truth once one is made — showing the
             instance default here too would contradict it. */}
         {modelChoice ? (
-          <span className="truncate font-mono text-2xs text-fg-muted" title="Picked for this chat">
+          <span
+            className="truncate font-mono text-2xs text-fg-muted"
+            title={t("Picked for this chat")}
+          >
             {modelChoice.label}
           </span>
         ) : (
           model && (
             <span
               className="truncate font-mono text-2xs text-fg-muted"
-              title="Instance default — pick a model below to use something else"
+              title={t("Instance default — pick a model below to use something else")}
             >
               {model}
             </span>
@@ -768,13 +774,15 @@ export function ChatPanel({
             {formatTokens(chat.tokensIn)} / {formatTokens(chat.tokensOut)}
             {chat.cacheReadTokens > 0 && (
               <span
-                title="Share of the prompt served from the model's cache (~10% of the input price)"
+                title={t(
+                  "Share of the prompt served from the model’s cache (~10% of the input price)",
+                )}
                 className="text-success"
               >
                 {" "}
                 ·{" "}
-                {Math.round((chat.cacheReadTokens / (chat.tokensIn + chat.cacheReadTokens)) * 100)}%
-                cached
+                {Math.round((chat.cacheReadTokens / (chat.tokensIn + chat.cacheReadTokens)) * 100)}
+                {t("% cached")}
               </span>
             )}
           </span>
@@ -794,9 +802,9 @@ export function ChatPanel({
           {chat.messages.length === 0 && !chat.streaming && (
             <div className="px-4 py-8">
               <p className="text-xs leading-relaxed text-fg-secondary">
-                Describe what you want built. Be specific about the pages, the data, and how it
-                should look — the agent reads the project, makes the changes, and starts the
-                preview.
+                {t(
+                  "Describe what you want built. Be specific about the pages, the data, and how it should look — the agent reads the project, makes the changes, and starts the preview.",
+                )}
               </p>
             </div>
           )}
@@ -845,7 +853,7 @@ export function ChatPanel({
           {queuedReply && (
             <div className="mx-3 my-3 flex items-center gap-2 text-xs text-fg-secondary">
               <Spinner />
-              Stopping the current step, then sending your reply…
+              {t("Stopping the current step, then sending your reply…")}
             </div>
           )}
 
@@ -872,8 +880,9 @@ export function ChatPanel({
                       onClick={() => replyWhileBusy(awaitingReplyWord)}
                     />
                     <span className="mx-3 -mt-1 mb-2 max-w-md text-2xs text-fg-muted">
-                      The agent finished its message and is waiting for you — this stops the current
-                      step first. You can also just type a reply below.
+                      {t(
+                        "The agent finished its message and is waiting for you — this stops the current step first. You can also just type a reply below.",
+                      )}
                     </span>
                   </div>
                 );
@@ -903,11 +912,11 @@ export function ChatPanel({
         {showSlashMenu && (
           <div
             role="listbox"
-            aria-label="Commands"
+            aria-label={t("Commands")}
             className="absolute inset-x-2.5 bottom-full z-10 mb-1.5 max-h-64 overflow-y-auto rounded-md border border-border-default bg-overlay py-1 shadow-overlay"
           >
             {matchingCommands.length > 0 && (
-              <SlashSection title="Command">
+              <SlashSection title={t("Command")}>
                 {matchingCommands.map((command, index) => (
                   <button
                     key={command.name}
@@ -929,7 +938,7 @@ export function ChatPanel({
               </SlashSection>
             )}
             {matchingModels.length > 0 && (
-              <SlashSection title="Model">
+              <SlashSection title={t("Model")}>
                 {matchingModels.map((option, index) => (
                   <button
                     key={`${option.provider}:${option.model}`}
@@ -947,7 +956,7 @@ export function ChatPanel({
               </SlashSection>
             )}
             {matchingSkills.length > 0 && (
-              <SlashSection title="Skills">
+              <SlashSection title={t("Skills")}>
                 {matchingSkills.map((skill, index) => (
                   <button
                     key={skill.name}
@@ -973,7 +982,7 @@ export function ChatPanel({
               </SlashSection>
             )}
             {matchingAgents.length > 0 && (
-              <SlashSection title="Agents">
+              <SlashSection title={t("Agents")}>
                 {matchingAgents.map((specialist, index) => (
                   <button
                     key={specialist.name}
@@ -995,7 +1004,7 @@ export function ChatPanel({
               </SlashSection>
             )}
             {matchingPlugins.length > 0 && (
-              <SlashSection title="Plugins">
+              <SlashSection title={t("Plugins")}>
                 {matchingPlugins.map((name, index) => (
                   <button
                     key={name}
@@ -1029,8 +1038,10 @@ export function ChatPanel({
               {activeClone && (
                 <CommandChip
                   icon={Compass}
-                  label={"host" in activeClone ? `clone ${activeClone.host}` : "clone"}
-                  hint={"host" in activeClone ? undefined : "add a URL"}
+                  label={
+                    "host" in activeClone ? t("clone {host}", { host: activeClone.host }) : "clone"
+                  }
+                  hint={"host" in activeClone ? undefined : t("add a URL")}
                   onRemove={() => {
                     const next = withoutCloneCommand(draft);
                     setDraft(next);
@@ -1042,7 +1053,11 @@ export function ChatPanel({
               {activeMotion && (
                 <CommandChip
                   icon={Sparkles}
-                  label={"host" in activeMotion ? `motion like ${activeMotion.host}` : "motion"}
+                  label={
+                    "host" in activeMotion
+                      ? t("motion like {host}", { host: activeMotion.host })
+                      : "motion"
+                  }
                   onRemove={() => {
                     const next = withoutMotionCommand(draft);
                     setDraft(next);
@@ -1055,7 +1070,7 @@ export function ChatPanel({
                 <CommandChip
                   icon={Sparkles}
                   label="figma"
-                  hint={"ready" in activeFigma ? undefined : "paste the frame link"}
+                  hint={"ready" in activeFigma ? undefined : t("paste the frame link")}
                   onRemove={() => {
                     const next = withoutFigmaCommand(draft);
                     setDraft(next);
@@ -1074,7 +1089,7 @@ export function ChatPanel({
                   <span className="max-w-40 truncate font-mono">{skill.name}</span>
                   <button
                     type="button"
-                    aria-label={`Don't use the ${skill.name} skill`}
+                    aria-label={t("Don’t use the {name} skill", { name: skill.name })}
                     onClick={() =>
                       setSelectedSkills((previous) => previous.filter((s) => s.name !== skill.name))
                     }
@@ -1094,7 +1109,7 @@ export function ChatPanel({
                   <span className="max-w-40 truncate font-mono">{agent.label}</span>
                   <button
                     type="button"
-                    aria-label={`Don't point at the ${agent.label}`}
+                    aria-label={t("Don’t point at the {label}", { label: agent.label })}
                     onClick={() =>
                       setSelectedAgents((previous) => previous.filter((a) => a.name !== agent.name))
                     }
@@ -1107,14 +1122,14 @@ export function ChatPanel({
               {selectedPlugins.map((name) => (
                 <span
                   key={name}
-                  title={`Use the ${name} tool for this task`}
+                  title={t("Use the {name} tool for this task", { name })}
                   className="flex items-center gap-1.5 rounded-md border border-border-default bg-surface-subtle py-1 pr-1 pl-2 text-2xs text-fg-secondary"
                 >
                   <Puzzle size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
                   <span className="max-w-40 truncate font-mono">{name}</span>
                   <button
                     type="button"
-                    aria-label={`Don't use the ${name} tool`}
+                    aria-label={t("Don’t use the {name} tool", { name })}
                     onClick={() =>
                       setSelectedPlugins((previous) => previous.filter((p) => p !== name))
                     }
@@ -1132,7 +1147,7 @@ export function ChatPanel({
                   </span>
                   <button
                     type="button"
-                    aria-label="Stop pointing at this"
+                    aria-label={t("Stop pointing at this")}
                     onClick={onClearPointedElement}
                     className="rounded-sm p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
                   >
@@ -1151,7 +1166,7 @@ export function ChatPanel({
                   </span>
                   <button
                     type="button"
-                    aria-label={`Remove ${attachment.filename}`}
+                    aria-label={t("Remove {filename}", { filename: attachment.filename })}
                     onClick={() =>
                       setAttachments((previous) => previous.filter((a) => a.id !== attachment.id))
                     }
@@ -1163,7 +1178,7 @@ export function ChatPanel({
               ))}
               {uploading > 0 && (
                 <span className="flex items-center gap-1 rounded-md border border-border-default bg-surface-subtle px-2 py-1 text-2xs text-fg-muted">
-                  Attaching {uploading} file{uploading === 1 ? "" : "s"}…
+                  {t("Attaching {uploading, plural, one {# file} other {# files}}…", { uploading })}
                 </span>
               )}
             </div>
@@ -1173,12 +1188,12 @@ export function ChatPanel({
           {voiceError && <p className="px-2.5 pt-2 text-2xs text-danger">{voiceError}</p>}
           {voiceState === "recording" && (
             <p className="px-2.5 pt-2 text-2xs text-danger" role="status">
-              Recording… click the microphone again to stop.
+              {t("Recording… click the microphone again to stop.")}
             </p>
           )}
           {voiceState === "transcribing" && (
             <p className="px-2.5 pt-2 text-2xs text-fg-muted" role="status">
-              Transcribing voice…
+              {t("Transcribing voice…")}
             </p>
           )}
           <input
@@ -1230,14 +1245,14 @@ export function ChatPanel({
             }}
             placeholder={
               awaitingReplyWord
-                ? "Reply to the agent…"
+                ? t("Reply to the agent…")
                 : /^\/clone\b/i.test(draft.trimStart())
                   ? "/clone https://the-site-to-rebuild.com"
                   : /^\/figma\b/i.test(draft.trimStart())
-                    ? "/figma  — paste a Figma frame's share link"
-                    : "Describe a change…"
+                    ? t("/figma  — paste a Figma frame’s share link")
+                    : t("Describe a change…")
             }
-            aria-label="Message the agent"
+            aria-label={t("Message the agent")}
             style={{ height: COMPOSER_HEIGHT }}
             className="w-full resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-fg placeholder:text-fg-muted focus:outline-none"
           />
@@ -1263,7 +1278,7 @@ export function ChatPanel({
                 side="top"
                 width="w-72"
                 trigger={
-                  <IconButton size="sm" label="Add or change how the agent works">
+                  <IconButton size="sm" label={t("Add or change how the agent works")}>
                     <Plus size={14} strokeWidth={2} />
                   </IconButton>
                 }
@@ -1272,13 +1287,13 @@ export function ChatPanel({
                   icon={<Paperclip size={14} />}
                   onSelect={() => fileInputRef.current?.click()}
                 >
-                  Attach a file
+                  {t("Attach a file")}
                 </MenuItem>
                 <MenuSeparator />
-                <MenuLabel>How the agent works</MenuLabel>
+                <MenuLabel>{t("How the agent works")}</MenuLabel>
                 <MenuCheckItem
                   checked={engineerMode}
-                  hint="Builds"
+                  hint={t("Builds")}
                   onSelect={() =>
                     setEngineerMode((value) => {
                       if (!value) setArchitectMode(false);
@@ -1288,12 +1303,12 @@ export function ChatPanel({
                   }
                 >
                   <span className="flex items-center gap-2">
-                    <HardHat size={14} className="text-fg-muted" /> Engineer Mode
+                    <HardHat size={14} className="text-fg-muted" /> {t("Engineer Mode")}
                   </span>
                 </MenuCheckItem>
                 <MenuCheckItem
                   checked={architectMode}
-                  hint="Plans first"
+                  hint={t("Plans first")}
                   onSelect={() =>
                     setArchitectMode((value) => {
                       if (!value) setEngineerMode(false);
@@ -1303,12 +1318,12 @@ export function ChatPanel({
                   }
                 >
                   <span className="flex items-center gap-2">
-                    <Compass size={14} className="text-fg-muted" /> Architect Mode
+                    <Compass size={14} className="text-fg-muted" /> {t("Architect Mode")}
                   </span>
                 </MenuCheckItem>
                 <MenuCheckItem
                   checked={autoMode}
-                  hint="No step limit"
+                  hint={t("No step limit")}
                   onSelect={() =>
                     setAutoMode((value) => {
                       // Needs a building mode. Keep whichever is on; with
@@ -1319,38 +1334,39 @@ export function ChatPanel({
                   }
                 >
                   <span className="flex items-center gap-2">
-                    <InfinityIcon size={14} className="text-fg-muted" /> Auto Mode
+                    <InfinityIcon size={14} className="text-fg-muted" /> {t("Auto Mode")}
                   </span>
                 </MenuCheckItem>
                 {(imageGeneration.available || videoGeneration.available) && (
                   <>
                     <MenuSeparator />
-                    <MenuLabel>May spend money on</MenuLabel>
+                    <MenuLabel>{t("May spend money on")}</MenuLabel>
                     {/* Persisted per app, unlike the modes: turning it on
                         lets the agent spend against the team's key. */}
                     {imageGeneration.available && (
                       <MenuCheckItem
                         checked={imageGeneration.enabled}
-                        hint={canEdit ? undefined : "Editors only"}
+                        hint={canEdit ? undefined : t("Editors only")}
                         onSelect={() => {
                           if (canEdit) void imageGeneration.onToggle(!imageGeneration.enabled);
                         }}
                       >
                         <span className="flex items-center gap-2">
-                          <ImageIcon size={14} className="text-fg-muted" /> Generating images
+                          <ImageIcon size={14} className="text-fg-muted" /> {t("Generating images")}
                         </span>
                       </MenuCheckItem>
                     )}
                     {videoGeneration.available && (
                       <MenuCheckItem
                         checked={videoGeneration.enabled}
-                        hint={canEdit ? undefined : "Editors only"}
+                        hint={canEdit ? undefined : t("Editors only")}
                         onSelect={() => {
                           if (canEdit) void videoGeneration.onToggle(!videoGeneration.enabled);
                         }}
                       >
                         <span className="flex items-center gap-2">
-                          <Clapperboard size={14} className="text-fg-muted" /> Generating video
+                          <Clapperboard size={14} className="text-fg-muted" />{" "}
+                          {t("Generating video")}
                         </span>
                       </MenuCheckItem>
                     )}
@@ -1358,7 +1374,7 @@ export function ChatPanel({
                 )}
                 <MenuSeparator />
                 <MenuItem icon={<Info size={14} />} onSelect={() => setShortcutsOpen(true)}>
-                  Keyboard shortcuts
+                  {t("Keyboard shortcuts")}
                 </MenuItem>
               </Menu>
               <IconButton
@@ -1366,12 +1382,12 @@ export function ChatPanel({
                 variant={voiceState === "recording" ? "danger" : "ghost"}
                 label={
                   voiceState === "recording"
-                    ? "Stop voice recording"
+                    ? t("Stop voice recording")
                     : voiceState === "requesting"
-                      ? "Requesting microphone access"
+                      ? t("Requesting microphone access")
                       : voiceState === "transcribing"
-                        ? "Transcribing voice"
-                        : "Start voice input"
+                        ? t("Transcribing voice")
+                        : t("Start voice input")
                 }
                 aria-pressed={voiceState === "recording"}
                 disabled={chat.busy || voiceState === "requesting" || voiceState === "transcribing"}
@@ -1390,7 +1406,7 @@ export function ChatPanel({
               {/* What is on, said in words, each one a click from off. */}
               {engineerMode && (
                 <ModeChip
-                  label="Engineer"
+                  label={t("Engineer")}
                   onClear={() => {
                     setEngineerMode(false);
                     setAutoMode(false);
@@ -1399,21 +1415,21 @@ export function ChatPanel({
               )}
               {architectMode && (
                 <ModeChip
-                  label="Architect"
+                  label={t("Architect")}
                   onClear={() => {
                     setArchitectMode(false);
                     setAutoMode(false);
                   }}
                 />
               )}
-              {autoMode && <ModeChip label="Auto" onClear={() => setAutoMode(false)} />}
+              {autoMode && <ModeChip label={t("Auto")} onClear={() => setAutoMode(false)} />}
               <div className="shrink-0" ref={shortcutsBtnRef} />
             </div>
             {chat.busy ? (
               <IconButton
                 size="sm"
                 variant="secondary"
-                label="Stop the current turn"
+                label={t("Stop the current turn")}
                 onClick={chat.abort}
                 className="shrink-0"
               >
@@ -1423,7 +1439,7 @@ export function ChatPanel({
               <IconButton
                 size="sm"
                 variant="primary"
-                label="Send message"
+                label={t("Send message")}
                 type="submit"
                 disabled={
                   voiceState !== "idle" ||
@@ -1444,33 +1460,33 @@ export function ChatPanel({
           <>
             <button
               type="button"
-              aria-label="Close shortcuts"
+              aria-label={t("Close shortcuts")}
               className="fixed inset-0 z-[100] cursor-default"
               onClick={() => setShortcutsOpen(false)}
             />
             <div
               role="dialog"
-              aria-label="Keyboard shortcuts"
+              aria-label={t("Keyboard shortcuts")}
               style={{ left: shortcutsPos.left, bottom: shortcutsPos.bottom }}
               className="fixed z-[101] w-60 rounded-lg border border-border-default bg-surface p-2.5 text-2xs shadow-lg"
             >
-              <p className="mb-1.5 font-medium text-fg">Keyboard</p>
+              <p className="mb-1.5 font-medium text-fg">{t("Keyboard")}</p>
               <ul className="space-y-1 text-fg-muted">
                 <li className="flex items-center justify-between gap-2">
-                  <span>Send message</span>
+                  <span>{t("Send message")}</span>
                   <span className="flex items-center gap-0.5">
                     <Kbd>↵</Kbd>
                   </span>
                 </li>
                 <li className="flex items-center justify-between gap-2">
-                  <span>New line</span>
+                  <span>{t("New line")}</span>
                   <span className="flex items-center gap-0.5">
                     <Kbd>⇧</Kbd>
                     <Kbd>↵</Kbd>
                   </span>
                 </li>
                 <li className="flex items-center justify-between gap-2">
-                  <span>Commands, skills, agents, plugins</span>
+                  <span>{t("Commands, skills, agents, plugins")}</span>
                   <span className="flex items-center gap-0.5">
                     <Kbd>/</Kbd>
                   </span>
@@ -1577,7 +1593,7 @@ function UserMessageBody({ content }: { content: string }) {
     return (
       <span className="flex w-fit items-center gap-1.5 rounded-md border border-border-default bg-surface px-2 py-1 text-2xs text-fg-secondary">
         <Copy size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
-        <span className="font-mono">figma</span>
+        <span className="font-mono">{t("figma")}</span>
         <span className="max-w-64 truncate text-fg">
           {figma.fileKey} · {figma.nodeId}
         </span>
@@ -1621,7 +1637,7 @@ function CommandChip({
       {hint && <span className="opacity-80">· {hint}</span>}
       <button
         type="button"
-        aria-label={`Cancel the ${label} command`}
+        aria-label={t("Cancel the {label} command", { label })}
         onClick={onRemove}
         className="rounded-sm p-0.5 opacity-70 hover:bg-surface-hover hover:opacity-100"
       >
@@ -1788,7 +1804,9 @@ function TurnFooter({
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border-default pt-2 text-2xs text-fg-muted">
       <span className="font-medium">
-        {changed.length} file{changed.length === 1 ? "" : "s"} changed
+        {t("{changedCount, plural, one {# file} other {# files}} changed", {
+          changedCount: changed.length,
+        })}
       </span>
       <span className="flex min-w-0 flex-1 flex-wrap gap-x-2">
         {changed.map((file) =>
@@ -1798,7 +1816,7 @@ function TurnFooter({
               type="button"
               onClick={() => onOpenDiff(file, message.snapshotId as string, nextSnapshotId)}
               className="truncate font-mono text-fg-secondary underline decoration-dotted underline-offset-2 hover:text-fg"
-              title={`See what changed in ${file}`}
+              title={t("See what changed in {file}", { file })}
             >
               {file}
             </button>
@@ -1817,7 +1835,7 @@ function TurnFooter({
           onClick={() => setConfirming(true)}
           className="shrink-0 text-fg-secondary underline underline-offset-2 hover:text-fg"
         >
-          Undo this turn
+          {t("Undo this turn")}
         </button>
       )}
 
@@ -1827,8 +1845,10 @@ function TurnFooter({
               every later change with it — say so before, not after. */}
           <span className="text-warning">
             {nextSnapshotId
-              ? "Put the whole app back as it was before this turn? Every change made after it is undone too."
-              : "Put the files back as they were before this turn?"}
+              ? t(
+                  "Put the whole app back as it was before this turn? Every change made after it is undone too.",
+                )
+              : t("Put the files back as they were before this turn?")}
           </span>
           <button
             type="button"
@@ -1836,14 +1856,14 @@ function TurnFooter({
             onClick={() => revert.mutate()}
             className="text-danger underline underline-offset-2 disabled:opacity-50"
           >
-            {revert.isPending ? "Undoing…" : "Undo"}
+            {revert.isPending ? t("Undoing…") : t("Undo")}
           </button>
           <button
             type="button"
             onClick={() => setConfirming(false)}
             className="underline underline-offset-2"
           >
-            Cancel
+            {t("Cancel")}
           </button>
         </span>
       )}
@@ -1861,12 +1881,12 @@ function TurnFooter({
  * Live only; the dispatch tool call and its full report persist on their own.
  */
 const SPECIALIST_LABEL: Record<AgentActivity["agent"], string> = {
-  designer: "Designer agent",
-  devops: "DevOps agent",
-  security: "Security/QA agent",
-  cinematic: "Cinematic engineer",
-  verifier: "Verifier agent",
-  builder: "Builder agent",
+  designer: t("Designer agent"),
+  devops: t("DevOps agent"),
+  security: t("Security/QA agent"),
+  cinematic: t("Cinematic engineer"),
+  verifier: t("Verifier agent"),
+  builder: t("Builder agent"),
 };
 
 const SPECIALIST_ICON: Record<AgentActivity["agent"], typeof Sparkles> = {
@@ -1893,7 +1913,7 @@ function SpecialistActivity({ items }: { items: AgentActivity[] }) {
         <span className="font-medium text-fg-secondary">{SPECIALIST_LABEL[agent]}</span>
         {!ended && <StatusDot tone="warning" pulse />}
         <span className="min-w-0 flex-1 truncate text-fg-muted">
-          {ended ? endLine?.title : (startLine?.title ?? "working")}
+          {ended ? endLine?.title : (startLine?.title ?? t("working"))}
         </span>
       </div>
       {steps.length > 0 && (
@@ -2008,7 +2028,7 @@ function SlashSection({ title, children }: { title: string; children: React.Reac
 /** A mode that is on, shown in words beside the composer, with a way to turn it off. */
 function ModeChip({ label, onClear }: { label: string; onClear(): void }) {
   return (
-    <Chip onRemove={onClear} removeLabel={`Turn off ${label} Mode`}>
+    <Chip onRemove={onClear} removeLabel={t("Turn off {label} Mode", { label })}>
       {label}
     </Chip>
   );

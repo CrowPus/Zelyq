@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Toaster as SonnerToaster, toast } from "sonner";
 import { useTheme } from "../../hooks/useTheme.js";
+import { t } from "../../lib/i18n";
 import { Button } from "./Button.js";
 import { Dialog } from "./Dialog.js";
 import { Input } from "./Field.js";
@@ -99,7 +100,7 @@ export function ConfirmHost() {
       footer={
         <>
           <Button variant="ghost" onClick={() => finish(false)}>
-            {pending?.cancelLabel ?? "Cancel"}
+            {pending?.cancelLabel ?? t("Cancel")}
           </Button>
           <Button
             variant={pending?.danger ? "danger-solid" : "primary"}
@@ -108,7 +109,7 @@ export function ConfirmHost() {
             // Enter confirms only once the name matches: typing it is the point.
             autoFocus={!needsName && !asks}
           >
-            {pending?.confirmLabel ?? "Confirm"}
+            {pending?.confirmLabel ?? t("Confirm")}
           </Button>
         </>
       }
@@ -146,7 +147,9 @@ export function ConfirmHost() {
             className="flex flex-col gap-1.5 text-sm text-fg-secondary"
           >
             <span>
-              Type <strong className="font-mono text-fg">{needsName}</strong> to confirm.
+              {t("Type {strong} to confirm.", {
+                strong: <strong className="font-mono text-fg">{needsName}</strong>,
+              })}
             </span>
             <Input
               id="confirm-typed-name"
@@ -170,6 +173,7 @@ export function Toaster() {
     <SonnerToaster
       theme={resolved}
       position="bottom-right"
+      containerAriaLabel={t("Notifications")}
       closeButton
       toastOptions={{
         classNames: {

@@ -4,6 +4,7 @@ import { CircleAlert, Save } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { inlineImageMimeType } from "../lib/files";
+import { t } from "../lib/i18n";
 import { DiffView } from "./DiffView";
 import { Button, EmptyState, Spinner } from "./ui";
 
@@ -92,8 +93,8 @@ export function CodeViewer({
     return (
       <div className="h-full bg-canvas">
         <EmptyState
-          title="No file open"
-          description="Pick a file from the tree to read or edit what the agent wrote."
+          title={t("No file open")}
+          description={t("Pick a file from the tree to read or edit what the agent wrote.")}
         />
       </div>
     );
@@ -105,7 +106,7 @@ export function CodeViewer({
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-canvas">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border-default bg-surface px-3">
         <span className="truncate font-mono text-xs text-fg-secondary">{path}</span>
-        {dirty && <span className="shrink-0 text-2xs text-warning">unsaved</span>}
+        {dirty && <span className="shrink-0 text-2xs text-warning">{t("unsaved")}</span>}
 
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {compareSnapshotId && content !== null && (
@@ -114,19 +115,21 @@ export function CodeViewer({
                 type="button"
                 className="rounded-sm bg-surface px-1.5 py-0.5 text-2xs font-medium text-fg shadow-[0_1px_2px_rgb(0_0_0/0.06)]"
               >
-                Changes
+                {t("Changes")}
               </button>
               <button
                 type="button"
                 onClick={onCloseCompare}
                 className="rounded-sm px-1.5 py-0.5 text-2xs font-medium text-fg-secondary hover:text-fg"
               >
-                File
+                {t("File")}
               </button>
             </span>
           )}
           {file && !file.truncated && file.encoding === "utf8" && (
-            <span className="font-mono text-2xs text-fg-muted tabular-nums">{lines} lines</span>
+            <span className="font-mono text-2xs text-fg-muted tabular-nums">
+              {t("{lines} lines", { lines })}
+            </span>
           )}
           {editable && (
             <Button
@@ -136,7 +139,7 @@ export function CodeViewer({
               onClick={commit}
               icon={<Save size={12} strokeWidth={2} />}
             >
-              {save.isPending ? "Saving…" : "Save"}
+              {save.isPending ? t("Saving…") : t("Save")}
             </Button>
           )}
         </span>
@@ -146,7 +149,7 @@ export function CodeViewer({
         <div className="flex items-center gap-2 border-b border-warning/25 bg-warning-subtle px-3 py-2 text-2xs text-warning">
           <CircleAlert size={13} strokeWidth={1.75} className="shrink-0" />
           <span className="min-w-0 flex-1">
-            The agent changed this file while you were editing. Saving replaces its version.
+            {t("The agent changed this file while you were editing. Saving replaces its version.")}
           </span>
           <button
             type="button"
@@ -159,7 +162,7 @@ export function CodeViewer({
               )
             }
           >
-            Discard mine
+            {t("Discard mine")}
           </button>
         </div>
       )}
@@ -173,10 +176,10 @@ export function CodeViewer({
 
       {loading ? (
         <div className="flex items-center gap-2 px-3 py-3 text-xs text-fg-muted">
-          <Spinner /> Opening {path}…
+          <Spinner /> {t("Opening {path}…", { path })}
         </div>
       ) : !file ? (
-        <EmptyState title="Could not open file" description={path} />
+        <EmptyState title={t("Could not open file")} description={path} />
       ) : file.encoding === "base64" && inlineImageMimeType(path) ? (
         // The bytes already arrived as base64 for every binary file; an image
         // was being thrown away at the last step and shown as "nothing to
@@ -202,8 +205,8 @@ export function CodeViewer({
         </div>
       ) : file.encoding === "base64" ? (
         <EmptyState
-          title="Binary file"
-          description={`${path} is not text, so there is nothing to show.`}
+          title={t("Binary file")}
+          description={t("{path} is not text, so there is nothing to show.", { path })}
         />
       ) : compareSnapshotId && content !== null ? (
         <DiffView
@@ -246,7 +249,7 @@ export function CodeViewer({
             }}
             wrap="off"
             spellCheck={false}
-            aria-label={`Edit ${path}`}
+            aria-label={t("Edit {path}", { path })}
             // Fills the pane to the window edge, so the focus ring has to be
             // drawn inside it — see [data-inset-focus] in index.css. Removing
             // the ring instead would cost keyboard users their only cue.
@@ -272,8 +275,9 @@ export function CodeViewer({
           </table>
           {file.truncated && (
             <p className="border-t border-border-default px-3 py-2 text-2xs text-warning">
-              This file is too large to display in full, so it cannot be edited here — saving would
-              discard the part that was not sent.
+              {t(
+                "This file is too large to display in full, so it cannot be edited here — saving would discard the part that was not sent.",
+              )}
             </p>
           )}
         </div>

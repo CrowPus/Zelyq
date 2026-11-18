@@ -6,6 +6,7 @@ import { AuthCard, AuthError } from "../components/AuthCard";
 import { Button, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { teamKey, teamPaths } from "../lib/routes";
 
 /**
@@ -31,12 +32,14 @@ function useLinkToken(): string {
 function NoLink(props: { what: string }) {
   return (
     <AuthCard
-      title="This link is not complete"
-      subtitle={`Open the ${props.what} link from your email again, the whole of it.`}
+      title={t("This link is not complete")}
+      subtitle={t("Open the {what} link from your email again, the whole of it.", {
+        what: props.what,
+      })}
     >
       <p className="text-center text-xs">
         <Link to="/signin" className="text-info underline underline-offset-2 hover:no-underline">
-          Go to sign in
+          {t("Go to sign in")}
         </Link>
       </p>
     </AuthCard>
@@ -57,7 +60,7 @@ export function ResetPasswordPage() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (password !== repeat) {
-      setError("The two passwords are different.");
+      setError(t("The two passwords are different."));
       return;
     }
     setBusy(true);
@@ -80,13 +83,13 @@ export function ResetPasswordPage() {
 
   return (
     <AuthCard
-      title="Choose a new password"
-      subtitle="You will be signed out everywhere else, and signed in here."
+      title={t("Choose a new password")}
+      subtitle={t("You will be signed out everywhere else, and signed in here.")}
     >
       <form onSubmit={submit} className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="reset-password" className="text-xs font-medium text-fg-secondary">
-            New password
+            {t("New password")}
           </label>
           <PasswordInput
             id="reset-password"
@@ -95,12 +98,12 @@ export function ResetPasswordPage() {
             autoComplete="new-password"
             required
             minLength={10}
-            placeholder="At least 10 characters"
+            placeholder={t("At least 10 characters")}
           />
         </div>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="reset-repeat" className="text-xs font-medium text-fg-secondary">
-            New password again
+            {t("New password again")}
           </label>
           <PasswordInput
             id="reset-repeat"
@@ -113,14 +116,20 @@ export function ResetPasswordPage() {
         </div>
         {error && <AuthError>{error}</AuthError>}
         <Button type="submit" variant="primary" disabled={busy} className="mt-1 w-full">
-          {busy ? "Working…" : "Set password and sign in"}
+          {busy ? t("Working…") : t("Set password and sign in")}
         </Button>
       </form>
       <p className="mt-4 text-center text-xs text-fg-muted">
-        Remembered it?{" "}
-        <Link to="/signin" className="text-info underline underline-offset-2 hover:no-underline">
-          Sign in
-        </Link>
+        {t("Remembered it? {link}", {
+          link: (
+            <Link
+              to="/signin"
+              className="text-info underline underline-offset-2 hover:no-underline"
+            >
+              {t("Sign in")}
+            </Link>
+          ),
+        })}
       </p>
     </AuthCard>
   );
@@ -159,15 +168,15 @@ export function InvitePage() {
   if (invite.error || !invite.data) {
     return (
       <AuthCard
-        title="This invitation cannot be used"
+        title={t("This invitation cannot be used")}
         subtitle={
           (invite.error as Error | null)?.message ??
-          "Ask the person who invited you to send a new one."
+          t("Ask the person who invited you to send a new one.")
         }
       >
         <p className="text-center text-xs">
           <Link to="/signin" className="text-info underline underline-offset-2 hover:no-underline">
-            Go to sign in
+            {t("Go to sign in")}
           </Link>
         </p>
       </AuthCard>
@@ -203,17 +212,25 @@ export function InvitePage() {
 
   const subtitle = (
     <>
-      {details.invitedBy ?? "Someone"} invited{" "}
-      <span className="font-medium text-fg">{details.email}</span> to join as{" "}
-      {/^[aeiou]/i.test(details.role) ? "an" : "a"} {details.role}.
+      {t(
+        "{invitedBy} invited {email} to join as {role, select, owner {the owner} admin {an admin} editor {an editor} viewer {a viewer} other {{role}}}.",
+        {
+          invitedBy: details.invitedBy ?? t("Someone"),
+          email: <span className="font-medium text-fg">{details.email}</span>,
+          role: details.role,
+        },
+      )}
     </>
   );
 
   if (signedInAsOther) {
     return (
-      <AuthCard title={`Join ${details.teamName}`} subtitle={subtitle}>
+      <AuthCard title={t("Join {teamName}", { teamName: details.teamName })} subtitle={subtitle}>
         <AuthError>
-          You are signed in as {user.email}, but this invitation is for {details.email}.
+          {t("You are signed in as {email}, but this invitation is for {email2}.", {
+            email: user.email,
+            email2: details.email,
+          })}
         </AuthError>
         <Button
           type="button"
@@ -224,7 +241,7 @@ export function InvitePage() {
             navigate("/signin", backHere);
           }}
         >
-          Sign out and continue as {details.email}
+          {t("Sign out and continue as {email}", { email: details.email })}
         </Button>
       </AuthCard>
     );
@@ -232,10 +249,12 @@ export function InvitePage() {
 
   if (accounts && !user) {
     return (
-      <AuthCard title={`Join ${details.teamName}`} subtitle={subtitle}>
+      <AuthCard title={t("Join {teamName}", { teamName: details.teamName })} subtitle={subtitle}>
         <p className="text-center text-xs text-fg-secondary">
-          Sign in with {accounts.name} as {details.email}, or create your account there, and you
-          will come straight back here to join.
+          {t(
+            "Sign in with {name} as {email}, or create your account there, and you will come straight back here to join.",
+            { name: accounts.name, email: details.email },
+          )}
         </p>
         <Button
           type="button"
@@ -243,18 +262,21 @@ export function InvitePage() {
           className="mt-4 w-full"
           onClick={() => window.location.assign(throughService)}
         >
-          Continue with {accounts.name}
+          {t("Continue with {name}", { name: accounts.name })}
         </Button>
         <p className="mt-3 text-center text-xs text-fg-muted">
-          No account?{" "}
-          <a
-            href={accountServiceLinks(accounts).signup(
-              `${window.location.origin}${throughService}`,
-            )}
-            className="text-info underline underline-offset-2 hover:no-underline"
-          >
-            Create one at {accounts.name}
-          </a>
+          {t("No account? {link}", {
+            link: (
+              <a
+                href={accountServiceLinks(accounts).signup(
+                  `${window.location.origin}${throughService}`,
+                )}
+                className="text-info underline underline-offset-2 hover:no-underline"
+              >
+                {t("Create one at {name}", { name: accounts.name })}
+              </a>
+            ),
+          })}
         </p>
       </AuthCard>
     );
@@ -262,9 +284,11 @@ export function InvitePage() {
 
   if (needsSignIn) {
     return (
-      <AuthCard title={`Join ${details.teamName}`} subtitle={subtitle}>
+      <AuthCard title={t("Join {teamName}", { teamName: details.teamName })} subtitle={subtitle}>
         <p className="text-center text-xs text-fg-secondary">
-          {details.email} already has an account. Sign in, and you will come straight back here.
+          {t("{email} already has an account. Sign in, and you will come straight back here.", {
+            email: details.email,
+          })}
         </p>
         <Button
           type="button"
@@ -272,7 +296,7 @@ export function InvitePage() {
           className="mt-4 w-full"
           onClick={() => navigate("/signin", backHere)}
         >
-          Sign in
+          {t("Sign in")}
         </Button>
       </AuthCard>
     );
@@ -280,7 +304,7 @@ export function InvitePage() {
 
   if (details.accountExists) {
     return (
-      <AuthCard title={`Join ${details.teamName}`} subtitle={subtitle}>
+      <AuthCard title={t("Join {teamName}", { teamName: details.teamName })} subtitle={subtitle}>
         {error && (
           <div className="mb-3">
             <AuthError>{error}</AuthError>
@@ -293,24 +317,24 @@ export function InvitePage() {
           className="w-full"
           onClick={() => accept()}
         >
-          {busy ? "Working…" : `Join ${details.teamName}`}
+          {busy ? t("Working…") : t("Join {teamName}", { teamName: details.teamName })}
         </Button>
       </AuthCard>
     );
   }
 
   return (
-    <AuthCard title={`Join ${details.teamName}`} subtitle={subtitle}>
+    <AuthCard title={t("Join {teamName}", { teamName: details.teamName })} subtitle={subtitle}>
       <form onSubmit={accept} className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="invite-email" className="text-xs font-medium text-fg-secondary">
-            Email
+            {t("Email")}
           </label>
           <Input id="invite-email" value={details.email} readOnly disabled />
         </div>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="invite-name" className="text-xs font-medium text-fg-secondary">
-            Your name
+            {t("Your name")}
           </label>
           <Input
             id="invite-name"
@@ -318,12 +342,12 @@ export function InvitePage() {
             onChange={(event) => setName(event.target.value)}
             autoComplete="name"
             required
-            placeholder="Ada Lovelace"
+            placeholder={t("Ada Lovelace")}
           />
         </div>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="invite-password" className="text-xs font-medium text-fg-secondary">
-            Choose a password
+            {t("Choose a password")}
           </label>
           <PasswordInput
             id="invite-password"
@@ -332,12 +356,12 @@ export function InvitePage() {
             autoComplete="new-password"
             required
             minLength={10}
-            placeholder="At least 10 characters"
+            placeholder={t("At least 10 characters")}
           />
         </div>
         {error && <AuthError>{error}</AuthError>}
         <Button type="submit" variant="primary" disabled={busy} className="mt-1 w-full">
-          {busy ? "Working…" : "Create account and join"}
+          {busy ? t("Working…") : t("Create account and join")}
         </Button>
       </form>
     </AuthCard>

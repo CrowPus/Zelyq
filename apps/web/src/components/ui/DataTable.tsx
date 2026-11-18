@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { t } from "../../lib/i18n";
 import { Skeleton } from "./Display.js";
 import { Checkbox } from "./Field.js";
 
@@ -80,7 +81,9 @@ export function DataTable<T>({
     <div className="overflow-hidden rounded-lg border border-border-default bg-surface">
       {selectable && selectedRows.length > 0 && bulkActions && (
         <div className="flex items-center gap-3 border-b border-border-default bg-accent-subtle px-4 py-2">
-          <span className="text-sm font-medium text-fg">{selectedRows.length} selected</span>
+          <span className="text-sm font-medium text-fg">
+            {t("{selectedRowCount} selected", { selectedRowCount: selectedRows.length })}
+          </span>
           <div className="flex flex-1 items-center gap-2">
             {bulkActions(selectedRows, () => setSelected(new Set()))}
           </div>
@@ -94,7 +97,7 @@ export function DataTable<T>({
               {selectable && (
                 <th scope="col" className="w-10 px-4 py-2 text-left">
                   <Checkbox
-                    label="Select all"
+                    label={t("Select all")}
                     checked={allChecked}
                     onCheckedChange={(next) =>
                       setSelected(next ? new Set(sorted.map(rowKey)) : new Set())
@@ -180,7 +183,7 @@ export function DataTable<T>({
                         // biome-ignore lint/a11y/useKeyWithClickEvents: the checkbox inside is the keyboard target.
                         <td className={`px-4 ${pad}`} onClick={(event) => event.stopPropagation()}>
                           <Checkbox
-                            label="Select row"
+                            label={t("Select row")}
                             checked={isSelected}
                             onCheckedChange={(next) =>
                               setSelected((current) => {

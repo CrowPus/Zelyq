@@ -3,6 +3,7 @@ import { parseTopology, TOPOLOGY_PATH } from "@zelyq/core";
 import { CheckCircle2, Circle, CircleDashed, Compass, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { buildSafeReportDoc } from "./planReportSanitizer";
 import { TopologyDiagram } from "./TopologyDiagram";
 import { IconButton } from "./ui";
@@ -104,25 +105,25 @@ export function PlanPanel({ projectId }: { projectId: string }) {
               disabled={!topology}
               onClick={() => setTab("diagram")}
             >
-              System design
+              {t("System design")}
             </TabButton>
             <TabButton
               active={tab === "report"}
               disabled={!srcDoc}
               onClick={() => setTab("report")}
             >
-              Report
+              {t("Report")}
             </TabButton>
           </div>
         ) : checklist.length > 0 ? (
           <span className="truncate text-2xs font-medium text-fg-secondary">
-            Plan · {done}/{checklist.length} done
+            {t("Plan · {done}/{checklistCount} done", { done, checklistCount: checklist.length })}
           </span>
         ) : (
-          <span className="truncate font-mono text-2xs text-fg-muted">no plan yet</span>
+          <span className="truncate font-mono text-2xs text-fg-muted">{t("no plan yet")}</span>
         )}
         <div className="ml-auto flex items-center gap-0.5">
-          <IconButton size="sm" label="Refresh plan" onClick={refresh}>
+          <IconButton size="sm" label={t("Refresh plan")} onClick={refresh}>
             <RotateCw size={13} strokeWidth={1.75} />
           </IconButton>
         </div>
@@ -139,7 +140,7 @@ export function PlanPanel({ projectId }: { projectId: string }) {
               // that produced it.
               sandbox=""
               srcDoc={srcDoc}
-              title="Architecture plan"
+              title={t("Architecture plan")}
               className="h-full w-full border-0 bg-white"
             />
           ) : (
@@ -151,11 +152,13 @@ export function PlanPanel({ projectId }: { projectId: string }) {
           <div className="grid h-full place-items-center p-8 text-center">
             <div className="max-w-sm space-y-2">
               <Compass size={22} strokeWidth={1.5} className="mx-auto text-fg-muted" />
-              <p className="text-sm font-medium text-fg">No plan yet</p>
+              <p className="text-sm font-medium text-fg">{t("No plan yet")}</p>
               <p className="text-xs text-fg-muted">
                 {report.isLoading || topologyFile.isLoading
-                  ? "Loading…"
-                  : "Turn on Architect Mode — the compass in the chat composer — and describe what you want to build. It will interview you, then write the design package, the system-design diagram, and this report."}
+                  ? t("Loading…")
+                  : t(
+                      "Turn on Architect Mode — the compass in the chat composer — and describe what you want to build. It will interview you, then write the design package, the system-design diagram, and this report.",
+                    )}
               </p>
             </div>
           </div>

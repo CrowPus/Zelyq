@@ -1,28 +1,29 @@
 import type { RunStatus, StepStatus } from "@zelyq/core";
+import { t } from "./i18n";
 
 type Tone = "neutral" | "success" | "warning" | "danger" | "info";
 
 export const RUN_STATUS: Record<RunStatus | StepStatus, { label: string; tone: Tone }> = {
-  queued: { label: "Queued", tone: "neutral" },
-  pending: { label: "Waiting", tone: "neutral" },
-  running: { label: "Running", tone: "info" },
-  waiting: { label: "Waiting", tone: "warning" },
-  passed: { label: "Passed", tone: "success" },
-  failed: { label: "Failed", tone: "danger" },
-  cancelled: { label: "Cancelled", tone: "warning" },
-  timed_out: { label: "Timed out", tone: "danger" },
-  skipped: { label: "Skipped", tone: "neutral" },
+  queued: { label: t("Queued"), tone: "neutral" },
+  pending: { label: t("Waiting"), tone: "neutral" },
+  running: { label: t("Running"), tone: "info" },
+  waiting: { label: t("Waiting"), tone: "warning" },
+  passed: { label: t("Passed"), tone: "success" },
+  failed: { label: t("Failed"), tone: "danger" },
+  cancelled: { label: t("Cancelled"), tone: "warning" },
+  timed_out: { label: t("Timed out"), tone: "danger" },
+  skipped: { label: t("Skipped"), tone: "neutral" },
 };
 
 export const TRIGGER_WORDS: Record<string, string> = {
-  manual: "started by hand",
+  manual: t("started by hand"),
   rerun: "re-run",
-  push: "a push",
-  pull_request: "a pull request",
-  schedule: "the schedule",
-  api: "the API",
-  app: "a change to the app",
-  pipeline: "another pipeline",
+  push: t("a push"),
+  pull_request: t("a pull request"),
+  schedule: t("the schedule"),
+  api: t("the API"),
+  app: t("a change to the app"),
+  pipeline: t("another pipeline"),
 };
 
 /** "1m 05s" — how long something took, or has been running. */

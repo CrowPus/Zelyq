@@ -16,6 +16,7 @@ import {
 import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { teamHref, useTeamPaths } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 import {
@@ -79,26 +80,29 @@ export function ProjectVariablesPanel({
       open={open}
       onOpenChange={onOpenChange}
       width="lg"
-      title="Variables"
-      description={
-        <>
-          What this app is given, encrypted. Type a value, or take one from your team's{" "}
-          <Link
-            to={vaultPath}
-            className="text-accent underline underline-offset-2 hover:no-underline"
-          >
-            Vault
-          </Link>
-          . Never sent to the browser or to the agent.
-        </>
-      }
+      title={t("Variables")}
+      description={t(
+        "What this app is given, encrypted. Type a value, or take one from your team’s {link}. Never sent to the browser or to the agent.",
+        {
+          link: (
+            <Link
+              to={vaultPath}
+              className="text-accent underline underline-offset-2 hover:no-underline"
+            >
+              {t("Vault")}
+            </Link>
+          ),
+        },
+      )}
     >
       <div className="flex h-full flex-col">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default px-4 py-2.5">
           <p className="text-2xs text-fg-muted">
             {hasBackend
-              ? "The backend receives these when the preview runs. A change restarts it."
-              : "This app has no server of its own yet, so nothing reads these until it has one. Browser code never gets them."}
+              ? t("The backend receives these when the preview runs. A change restarts it.")
+              : t(
+                  "This app has no server of its own yet, so nothing reads these until it has one. Browser code never gets them.",
+                )}
           </p>
           {canEdit && (
             <div className="flex gap-1">
@@ -108,7 +112,7 @@ export function ProjectVariablesPanel({
                 icon={<Upload size={13} strokeWidth={1.75} />}
                 onClick={() => setForm({ mode: "import" })}
               >
-                Import .env
+                {t("Import .env")}
               </Button>
               <Button
                 size="sm"
@@ -116,7 +120,7 @@ export function ProjectVariablesPanel({
                 icon={<Plus size={13} strokeWidth={1.75} />}
                 onClick={() => setForm({ mode: "add" })}
               >
-                Add variable
+                {t("Add variable")}
               </Button>
             </div>
           )}
@@ -138,7 +142,7 @@ export function ProjectVariablesPanel({
           )}
           {form.mode === "import" && (
             <ImportForm
-              title="Import into this app"
+              title={t("Import into this app")}
               run={(input) => api.variables.import(projectId, input)}
               onImported={refresh}
               onClose={() => setForm({ mode: "closed" })}
@@ -146,7 +150,7 @@ export function ProjectVariablesPanel({
           )}
           {variables.isPending && (
             <p className="flex items-center gap-1.5 text-xs text-fg-secondary">
-              <Spinner className="size-3" /> Loading…
+              <Spinner className="size-3" /> {t("Loading…")}
             </p>
           )}
           {variables.isError && (
@@ -156,11 +160,13 @@ export function ProjectVariablesPanel({
           )}
           {variables.data?.length === 0 && form.mode === "closed" && (
             <EmptyState
-              title="No variables"
+              title={t("No variables")}
               description={
                 canEdit
-                  ? "Add the keys this app needs: type a value, or pick one from your team's Vault."
-                  : "An editor of this app can add them."
+                  ? t(
+                      "Add the keys this app needs: type a value, or pick one from your team’s Vault.",
+                    )
+                  : t("An editor of this app can add them.")
               }
             />
           )}
@@ -239,10 +245,12 @@ function VariableForm({
         save.mutate();
       }}
     >
-      <p className="text-xs font-medium">{editing ? `Change ${editing.name}` : "New variable"}</p>
+      <p className="text-xs font-medium">
+        {editing ? t("Change {name}", { name: editing.name }) : t("New variable")}
+      </p>
       <div className="grid gap-1">
         <label htmlFor={`${ids}-name`}>
-          <FieldLabel>Name the app reads</FieldLabel>
+          <FieldLabel>{t("Name the app reads")}</FieldLabel>
         </label>
         <Input
           id={`${ids}-name`}
@@ -259,7 +267,7 @@ function VariableForm({
       </div>
       <fieldset className="grid gap-2">
         <legend className="mb-1">
-          <FieldLabel>Value</FieldLabel>
+          <FieldLabel>{t("Value")}</FieldLabel>
         </legend>
         <label className="flex items-center gap-2 text-xs">
           <input
@@ -268,14 +276,14 @@ function VariableForm({
             checked={source === "direct"}
             onChange={() => setSource("direct")}
           />
-          Type a value
+          {t("Type a value")}
         </label>
         {source === "direct" && (
           <PasswordInput
-            aria-label="Value"
+            aria-label={t("Value")}
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder={editing?.source === "direct" ? "New value" : "The secret"}
+            placeholder={editing?.source === "direct" ? t("New value") : t("The secret")}
             autoComplete="new-password"
             spellCheck={false}
           />
@@ -287,34 +295,36 @@ function VariableForm({
             checked={source === "vault"}
             onChange={() => setSource("vault")}
           />
-          From Vault
+          {t("From Vault")}
         </label>
         {source === "vault" && (
           <>
             <NativeSelect
-              aria-label="Vault secret"
+              aria-label={t("Vault secret")}
               className="font-mono"
               value={vaultName}
               onChange={(event) => setVaultName(event.target.value)}
             >
-              <option value="">{choices.isPending ? "Loading…" : "Choose a secret…"}</option>
+              <option value="">{choices.isPending ? t("Loading…") : t("Choose a secret…")}</option>
               {choices.data?.map((choice) => (
                 <option key={choice.name} value={choice.name} disabled={!choice.selectable}>
                   {choice.name}
-                  {choice.protected ? " (Protected — admins and owners)" : ""}
+                  {choice.protected ? t(" (Protected — admins and owners)") : ""}
                 </option>
               ))}
             </NativeSelect>
             {choices.data?.length === 0 && (
               <p className="text-2xs text-fg-muted">
-                Your team's Vault is empty.{" "}
-                <Link
-                  to={teamHref(`/vault?scope=${teamId}`)}
-                  className="underline underline-offset-2"
-                >
-                  Add a secret there
-                </Link>
-                .
+                {t("Your team’s Vault is empty. {link}.", {
+                  link: (
+                    <Link
+                      to={teamHref(`/vault?scope=${teamId}`)}
+                      className="underline underline-offset-2"
+                    >
+                      {t("Add a secret there")}
+                    </Link>
+                  ),
+                })}
               </p>
             )}
           </>
@@ -327,10 +337,10 @@ function VariableForm({
       )}
       <div className="flex justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </Button>
         <Button size="sm" variant="primary" type="submit" disabled={save.isPending || !ready}>
-          {save.isPending ? "Saving…" : editing ? "Save" : "Add"}
+          {save.isPending ? t("Saving…") : editing ? t("Save") : t("Add")}
         </Button>
       </div>
     </form>
@@ -371,26 +381,31 @@ function VariableRow({
             <span className="truncate font-mono text-sm">{variable.name}</span>
             {variable.source === "vault" ? (
               <Badge tone="info">
-                <KeyRound size={10} className="mr-1" /> Vault: {variable.vaultName}
+                <KeyRound size={10} className="mr-1" />{" "}
+                {t("Vault: {vaultName}", { vaultName: variable.vaultName })}
               </Badge>
             ) : (
-              <Badge>Typed</Badge>
+              <Badge>{t("Typed")}</Badge>
             )}
             {variable.protected && (
               <Badge tone="warning">
-                <LockKeyhole size={10} className="mr-1" /> Protected
+                <LockKeyhole size={10} className="mr-1" /> {t("Protected")}
               </Badge>
             )}
           </p>
           {variable.missing && (
             <p className="mt-1 flex items-center gap-1 text-xs text-danger" role="alert">
-              <TriangleAlert size={12} /> {variable.vaultName} is no longer in Vault. The app does
-              not get this variable.
+              <TriangleAlert size={12} />{" "}
+              {t("{vaultName} is no longer in Vault. The app does not get this variable.", {
+                vaultName: variable.vaultName,
+              })}
             </p>
           )}
           <p className="mt-0.5 text-2xs text-fg-muted">
-            Changed by {variable.updatedBy?.name ?? variable.createdBy?.name ?? "Zelyq"} ·{" "}
-            {formatRelative(variable.updatedAt)}
+            {t("Changed by {name} · {updatedAt}", {
+              name: variable.updatedBy?.name ?? variable.createdBy?.name ?? "Zelyq",
+              updatedAt: formatRelative(variable.updatedAt),
+            })}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -399,20 +414,20 @@ function VariableRow({
             (revealed === null ? (
               <IconButton
                 size="sm"
-                label={`Reveal ${variable.name}`}
+                label={t("Reveal {name}", { name: variable.name })}
                 onClick={() => reveal.mutate()}
                 disabled={reveal.isPending}
               >
                 <Eye size={13} strokeWidth={1.75} />
               </IconButton>
             ) : (
-              <IconButton size="sm" label="Hide value" onClick={() => setRevealed(null)}>
+              <IconButton size="sm" label={t("Hide value")} onClick={() => setRevealed(null)}>
                 <EyeOff size={13} strokeWidth={1.75} />
               </IconButton>
             ))}
           <IconButton
             size="sm"
-            label="History of typed values"
+            label={t("History of typed values")}
             aria-pressed={showHistory}
             onClick={() => setShowHistory((current) => !current)}
           >
@@ -420,13 +435,17 @@ function VariableRow({
           </IconButton>
           {canEdit && (
             <>
-              <IconButton size="sm" label={`Change ${variable.name}`} onClick={onEdit}>
+              <IconButton
+                size="sm"
+                label={t("Change {name}", { name: variable.name })}
+                onClick={onEdit}
+              >
                 <Pencil size={13} strokeWidth={1.75} />
               </IconButton>
               <IconButton
                 size="sm"
                 variant="danger"
-                label={`Delete ${variable.name}`}
+                label={t("Delete {name}", { name: variable.name })}
                 onClick={() => setConfirmDelete(true)}
               >
                 <Trash2 size={13} strokeWidth={1.75} />
@@ -439,12 +458,17 @@ function VariableRow({
       {confirmDelete && (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-danger/25 bg-danger-subtle px-2 py-1.5 text-xs">
           <span>
-            Delete <span className="font-mono">{variable.name}</span>? The app will no longer get
-            it.{variable.source === "vault" ? " The secret stays in Vault." : ""}
+            {variable.source === "vault"
+              ? t("Delete {name}? The app will no longer get it. The secret stays in Vault.", {
+                  name: <span className="font-mono">{variable.name}</span>,
+                })
+              : t("Delete {name}? The app will no longer get it.", {
+                  name: <span className="font-mono">{variable.name}</span>,
+                })}
           </span>
           <span className="flex gap-1">
             <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Keep
+              {t("Keep")}
             </Button>
             <Button
               size="sm"
@@ -452,7 +476,7 @@ function VariableRow({
               onClick={() => remove.mutate()}
               disabled={remove.isPending}
             >
-              Delete
+              {t("Delete")}
             </Button>
           </span>
         </div>
@@ -495,18 +519,24 @@ function SupabaseSync({ projectId, canEdit }: { projectId: string; canEdit: bool
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-default bg-surface-subtle px-3 py-2 text-xs">
       <span>
-        <span className="font-medium">Supabase Edge Functions</span>{" "}
+        <span className="font-medium">{t("Supabase Edge Functions")}</span>{" "}
         {data.error ? (
           <span className="text-danger" role="alert">
-            — last sync failed: {data.error}
+            {t("— last sync failed: {error}", { error: data.error })}
           </span>
         ) : data.at ? (
           <span className="text-fg-secondary">
-            — {data.names.length} variable{data.names.length === 1 ? "" : "s"} set{" "}
-            {formatRelative(data.at)}. Read them with <code>Deno.env.get("NAME")</code>.
+            {t(
+              "— {nameCount, plural, one {# variable} other {# variables}} set {at}. Read them with {code}.",
+              {
+                nameCount: data.names.length,
+                at: formatRelative(data.at),
+                code: <code>Deno.env.get("NAME")</code>,
+              },
+            )}
           </span>
         ) : (
-          <span className="text-fg-secondary">— not synced yet.</span>
+          <span className="text-fg-secondary">{t("— not synced yet.")}</span>
         )}
       </span>
       {canEdit && (
@@ -517,7 +547,7 @@ function SupabaseSync({ projectId, canEdit }: { projectId: string; canEdit: bool
           onClick={() => sync.mutate()}
           disabled={sync.isPending}
         >
-          {sync.isPending ? "Syncing…" : "Sync now"}
+          {sync.isPending ? t("Syncing…") : t("Sync now")}
         </Button>
       )}
     </div>

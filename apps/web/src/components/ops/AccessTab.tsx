@@ -8,6 +8,7 @@ import {
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import { Badge, NativeSelect, Spinner } from "../ui";
 
 /**
@@ -18,32 +19,34 @@ import { Badge, NativeSelect, Spinner } from "../ui";
 const SECTIONS: { kind: OpsAccessKind; title: string; hint: string; empty: string }[] = [
   {
     kind: "environment",
-    title: "Environments",
-    hint: "Where apps run. To change one, Ops also follows the trust level you choose.",
-    empty: "No environments in this team yet.",
+    title: t("Environments"),
+    hint: t("Where apps run. To change one, Ops also follows the trust level you choose."),
+    empty: t("No environments in this team yet."),
   },
   {
     kind: "machine",
-    title: "Machines",
-    hint: "The servers. Looking: disk, memory, ports. Managing: putting new environments on it.",
-    empty: "No machines in this team yet.",
+    title: t("Machines"),
+    hint: t("The servers. Looking: disk, memory, ports. Managing: putting new environments on it."),
+    empty: t("No machines in this team yet."),
   },
   {
     kind: "pipeline",
-    title: "Pipelines",
-    hint: "Managing lets Ops run and change it. It still needs the environments it deploys to.",
-    empty: "No pipelines in this team yet.",
+    title: t("Pipelines"),
+    hint: t("Managing lets Ops run and change it. It still needs the environments it deploys to."),
+    empty: t("No pipelines in this team yet."),
   },
   {
     kind: "project",
-    title: "Apps' code",
-    hint: "Ops reads the code to learn how an app is built and what it needs. It never changes code.",
-    empty: "No apps in this team yet.",
+    title: t("Apps’ code"),
+    hint: t(
+      "Ops reads the code to learn how an app is built and what it needs. It never changes code.",
+    ),
+    empty: t("No apps in this team yet."),
   },
   {
     kind: "vault",
-    title: "Secrets",
-    hint: "Ops only ever sees secret names, to tell you which are missing. Never their values.",
+    title: t("Secrets"),
+    hint: t("Ops only ever sees secret names, to tell you which are missing. Never their values."),
     empty: "",
   },
 ];
@@ -61,30 +64,39 @@ function choiceOf(item: OpsAccessItem): Choice {
 function choicesFor(kind: OpsAccessKind): { value: Choice; label: string }[] {
   if (kind === "environment") {
     return [
-      { value: "none", label: "No access" },
-      { value: "see", label: "Look only" },
-      { value: "ask", label: `Manage: ${OPS_TRUST_WORDS.ask.label.toLowerCase()}` },
-      { value: "trusted", label: `Manage: ${OPS_TRUST_WORDS.trusted.label.toLowerCase()}` },
-      { value: "oncall", label: `Manage: ${OPS_TRUST_WORDS.oncall.label.toLowerCase()}` },
+      { value: "none", label: t("No access") },
+      { value: "see", label: t("Look only") },
+      {
+        value: "ask",
+        label: t("Manage: {value}", { value: OPS_TRUST_WORDS.ask.label.toLowerCase() }),
+      },
+      {
+        value: "trusted",
+        label: t("Manage: {value}", { value: OPS_TRUST_WORDS.trusted.label.toLowerCase() }),
+      },
+      {
+        value: "oncall",
+        label: t("Manage: {value}", { value: OPS_TRUST_WORDS.oncall.label.toLowerCase() }),
+      },
     ];
   }
   if (OPS_SEE_ONLY_KINDS.includes(kind)) {
     return [
-      { value: "none", label: "No access" },
-      { value: "see", label: kind === "vault" ? "Names only" : "Look only" },
+      { value: "none", label: t("No access") },
+      { value: "see", label: kind === "vault" ? t("Names only") : t("Look only") },
     ];
   }
   return [
-    { value: "none", label: "No access" },
-    { value: "see", label: "Look only" },
-    { value: "manage", label: "Manage" },
+    { value: "none", label: t("No access") },
+    { value: "see", label: t("Look only") },
+    { value: "manage", label: t("Manage") },
   ];
 }
 
 const CHOICE_WORDS: Partial<Record<Choice, string>> = {
-  none: "Ops cannot see this.",
-  see: "Ops can look and advise, never change it.",
-  manage: "Ops can change it, as a step in a plan.",
+  none: t("Ops cannot see this."),
+  see: t("Ops can look and advise, never change it."),
+  manage: t("Ops can change it, as a step in a plan."),
   ask: OPS_TRUST_WORDS.ask.description,
   trusted: OPS_TRUST_WORDS.trusted.description,
   oncall: OPS_TRUST_WORDS.oncall.description,
@@ -126,14 +138,17 @@ export function AccessTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolea
         <div className="min-w-0">
           <p className="text-sm font-medium">
             {given === 0
-              ? "Ops has not been given anything yet"
-              : `Ops has been given ${given} thing${given === 1 ? "" : "s"}`}
+              ? t("Ops has not been given anything yet")
+              : t("Ops has been given {given, plural, one {# thing} other {# things}}", { given })}
           </p>
           <p className="mt-0.5 text-xs text-fg-secondary">
-            Ops sees, watches and changes only what is given here. Everything else does not exist
-            for it, and it cannot give itself anything.
-            {isAdmin ? "" : " Only a team admin changes this."} Deleting data, pointing domains and
-            anything that cannot be undone still wait for a person, whatever you choose.
+            {isAdmin
+              ? t(
+                  "Ops sees, watches and changes only what is given here. Everything else does not exist for it, and it cannot give itself anything. Deleting data, pointing domains and anything that cannot be undone still wait for a person, whatever you choose.",
+                )
+              : t(
+                  "Ops sees, watches and changes only what is given here. Everything else does not exist for it, and it cannot give itself anything. Only a team admin changes this. Deleting data, pointing domains and anything that cannot be undone still wait for a person, whatever you choose.",
+                )}
           </p>
         </div>
       </section>
@@ -166,15 +181,15 @@ export function AccessTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolea
                       <div className="min-w-0 flex-1">
                         <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
                           <span className="truncate">{item.name}</span>
-                          {item.protected && <Badge tone="warning">Protected</Badge>}
-                          {item.frozen && <Badge tone="danger">Frozen</Badge>}
+                          {item.protected && <Badge tone="warning">{t("Protected")}</Badge>}
+                          {item.frozen && <Badge tone="danger">{t("Frozen")}</Badge>}
                         </p>
                         {item.detail && (
                           <p className="truncate text-2xs text-fg-muted">{item.detail}</p>
                         )}
                       </div>
                       <NativeSelect
-                        aria-label={`What Ops may do with ${item.name}`}
+                        aria-label={t("What Ops may do with {name}", { name: item.name })}
                         value={choice}
                         disabled={!isAdmin || change.isPending}
                         onChange={(event) =>

@@ -6,6 +6,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { formatDateTime } from "../lib/format";
+import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
 import { AgentRequests } from "./agents/AgentRequests";
 import { Button } from "./ui";
@@ -113,9 +114,11 @@ export function Inbox() {
     <div className="relative" ref={panel}>
       <button
         type="button"
-        aria-label={count > 0 ? `Waiting for you: ${count}` : "Nothing waiting for you"}
+        aria-label={
+          count > 0 ? t("Waiting for you: {count}", { count }) : t("Nothing waiting for you")
+        }
         aria-expanded={open}
-        title="Waiting for you"
+        title={t("Waiting for you")}
         onClick={() => setOpen((now) => !now)}
         className="relative grid size-[30px] shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover"
       >
@@ -129,16 +132,22 @@ export function Inbox() {
       {open && (
         <div
           role="dialog"
-          aria-label="Waiting for you"
+          aria-label={t("Waiting for you")}
           className="fixed top-12 right-2 left-2 z-50 max-h-[75vh] overflow-y-auto rounded-lg border border-border-default bg-surface p-3 shadow-lg sm:absolute sm:top-full sm:right-0 sm:left-auto sm:mt-1 sm:w-[480px]"
         >
-          <p className="text-sm font-medium text-fg">Waiting for you</p>
+          <p className="text-sm font-medium text-fg">{t("Waiting for you")}</p>
           <p className="mb-3 text-2xs text-fg-muted">
-            Everything in {team?.name} that needs a person's yes, in one place.
+            {t("Everything in {name} that needs a person’s yes, in one place.", {
+              name: team?.name,
+            })}
           </p>
 
           {runQuestions.length > 0 && (
-            <Group title={`Pipeline runs (${runQuestions.length})`}>
+            <Group
+              title={t("Pipeline runs ({runQuestionCount})", {
+                runQuestionCount: runQuestions.length,
+              })}
+            >
               {answer.isError && (
                 <p className="text-xs text-danger">{(answer.error as Error).message}</p>
               )}
@@ -147,17 +156,17 @@ export function Inbox() {
                   key={one.approvalId}
                   icon={<Workflow size={15} strokeWidth={1.75} />}
                   title={one.message}
-                  detail={
-                    <>
+                  detail={t("{link} · answer by {deadline}", {
+                    link: (
                       <Link
                         to={teamHref(`/pipelines/${one.pipelineId}/runs/${one.runId}`)}
                         className="underline underline-offset-2 hover:text-fg"
                       >
                         {one.pipeline} #{one.run}
-                      </Link>{" "}
-                      · answer by {formatDateTime(one.deadline)}
-                    </>
-                  }
+                      </Link>
+                    ),
+                    deadline: formatDateTime(one.deadline),
+                  })}
                   actions={
                     one.canDecide ? (
                       <span className="flex shrink-0 gap-1.5">
@@ -167,7 +176,7 @@ export function Inbox() {
                           disabled={answer.isPending}
                           onClick={() => answer.mutate({ ...one, decision: "approved" })}
                         >
-                          Approve
+                          {t("Approve")}
                         </Button>
                         <Button
                           size="sm"
@@ -175,7 +184,7 @@ export function Inbox() {
                           disabled={answer.isPending}
                           onClick={() => answer.mutate({ ...one, decision: "rejected" })}
                         >
-                          Reject
+                          {t("Reject")}
                         </Button>
                       </span>
                     ) : (
@@ -188,7 +197,7 @@ export function Inbox() {
           )}
 
           {opsWaiting.length > 0 && (
-            <Group title={`Ops (${opsWaiting.length})`}>
+            <Group title={t("Ops ({opsWaitingCount})", { opsWaitingCount: opsWaiting.length })}>
               {opsWaiting.map((one) => (
                 <Item
                   key={`${one.jobId}:${one.kind}:${one.words}`}
@@ -196,8 +205,10 @@ export function Inbox() {
                   title={one.kind === "plan" ? one.request : one.words}
                   detail={
                     one.kind === "plan"
-                      ? `${one.words}, waiting for approval`
-                      : `Cannot be undone: confirm it on its own · ${one.request}`
+                      ? t("{words}, waiting for approval", { words: one.words })
+                      : t("Cannot be undone: confirm it on its own · {request}", {
+                          request: one.request,
+                        })
                   }
                   actions={
                     one.canDecide ? (
@@ -205,7 +216,7 @@ export function Inbox() {
                         to={teamHref(`/ops?job=${encodeURIComponent(one.jobId)}`)}
                         className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg hover:bg-primary-hover"
                       >
-                        {one.kind === "plan" ? "Read and approve" : "Read and confirm"}
+                        {one.kind === "plan" ? t("Read and approve") : t("Read and confirm")}
                       </Link>
                     ) : (
                       <span className="max-w-40 text-right text-2xs text-fg-muted">{one.why}</span>
@@ -216,10 +227,10 @@ export function Inbox() {
             </Group>
           )}
 
-          <AgentRequests teamId={teamId} canDecide={isAdmin} waitingOnly title="From agents" />
+          <AgentRequests teamId={teamId} canDecide={isAdmin} waitingOnly title={t("From agents")} />
 
           {fromOperators.length > 0 && (
-            <Group title="Messages">
+            <Group title={t("Messages")}>
               {fromOperators.map((item) => (
                 <Item
                   key={`${item.kind}:${item.id}`}
@@ -252,7 +263,7 @@ export function Inbox() {
                         disabled={read.isPending}
                         onClick={() => read.mutate({ kind: item.kind, id: item.id })}
                       >
-                        Mark read
+                        {t("Mark read")}
                       </Button>
                     )
                   }
@@ -262,7 +273,7 @@ export function Inbox() {
           )}
 
           {nothing && (
-            <p className="py-6 text-center text-xs text-fg-muted">Nothing waits for you.</p>
+            <p className="py-6 text-center text-xs text-fg-muted">{t("Nothing waits for you.")}</p>
           )}
         </div>
       )}

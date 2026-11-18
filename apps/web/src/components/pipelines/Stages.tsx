@@ -10,6 +10,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { t } from "../../lib/i18n";
 import { duration, RUN_STATUS } from "../../lib/pipelines";
 
 const ICONS: Record<StepStatus | "queued", typeof CheckCircle2> = {
@@ -63,7 +64,7 @@ export function StatusIcon({
 export function StageStrip({ stages }: { stages: RunStageSummary[] }) {
   if (stages.length === 0) return null;
   return (
-    <span className="flex items-center gap-0.5" title="Stages">
+    <span className="flex items-center gap-0.5" title={t("Stages")}>
       {stages.map((stage) => (
         <span
           key={stage.index}
@@ -314,8 +315,7 @@ function StageBox({
       <span className={`text-2xs ${COLOURS[tone]}`}>
         {RUN_STATUS[stage.status].label}
         <span className="text-fg-muted">
-          {" "}
-          · {stage.done}/{stage.total} steps
+          {t(" · {done}/{total} steps", { done: stage.done, total: stage.total })}
           {stage.startedAt && ` · ${duration(stage.startedAt, stage.finishedAt)}`}
         </span>
       </span>

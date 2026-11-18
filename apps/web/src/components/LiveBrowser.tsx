@@ -1,4 +1,5 @@
 import { Globe } from "lucide-react";
+import { t } from "../lib/i18n";
 import { Spinner } from "./ui";
 
 interface Props {
@@ -29,15 +30,16 @@ export function LiveBrowser({ browser }: Props) {
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border-default px-3">
         <Globe size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
         <span className="text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-          Agent browser
+          {t("Agent browser")}
         </span>
         <span className="min-w-0 flex-1 truncate text-2xs text-fg-muted" title={browser.label}>
           {browser.label}
         </span>
         {browser.live && (
           <span className="flex shrink-0 items-center gap-1 text-2xs text-fg-muted">
-            <span className="size-1.5 animate-pulse rounded-full bg-danger" aria-hidden />
-            LIVE
+            {t("{part}LIVE", {
+              part: <span className="size-1.5 animate-pulse rounded-full bg-danger" aria-hidden />,
+            })}
           </span>
         )}
       </div>
@@ -50,12 +52,12 @@ export function LiveBrowser({ browser }: Props) {
             // browser paint the next frame over the last one.
             key={browser.callId}
             src={`data:image/jpeg;base64,${browser.frame}`}
-            alt={`The agent's browser: ${browser.label}`}
+            alt={t("The agent’s browser: {label}", { label: browser.label })}
             className="max-h-full max-w-full rounded border border-border-default object-contain"
           />
         ) : (
           <span className="flex items-center gap-2 text-xs text-fg-muted">
-            <Spinner /> Opening the page…
+            <Spinner /> {t("Opening the page…")}
           </span>
         )}
       </div>

@@ -1,5 +1,6 @@
 import { ApiError } from "./api";
 import { formatDateParts } from "./format";
+import { t } from "./i18n";
 
 /** How long a revealed value stays on screen before it hides itself. */
 export const REVEAL_SECONDS = 30;
@@ -16,15 +17,15 @@ export function vaultErrorMessage(error: unknown): string {
     if (first?.message) return first.message;
     return error.message;
   }
-  return error instanceof Error ? error.message : "Something went wrong.";
+  return error instanceof Error ? error.message : t("Something went wrong.");
 }
 
 /** Relative for the recent past, absolute once "3 days ago" stops helping. */
 export function formatRelative(iso: string): string {
   const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604_800) return `${Math.floor(seconds / 86_400)}d ago`;
+  if (seconds < 60) return t("just now");
+  if (seconds < 3600) return t("{minutes}m ago", { minutes: Math.floor(seconds / 60) });
+  if (seconds < 86_400) return t("{hours}h ago", { hours: Math.floor(seconds / 3600) });
+  if (seconds < 604_800) return t("{days}d ago", { days: Math.floor(seconds / 86_400) });
   return formatDateParts(iso, { month: "short", day: "numeric" });
 }

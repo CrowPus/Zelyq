@@ -26,7 +26,7 @@
     "dev:web": "pnpm --filter @zelyq/web dev",
     "start": "pnpm --filter @zelyq/server start",
     "typecheck": "pnpm -r typecheck",
-    "lint": "biome check . && node scripts/check-ui.mjs",
+    "lint": "biome check . && node scripts/check-ui.mjs && node scripts/check-i18n.mjs",
     "format": "biome format --write .",
     "test": "pnpm -r test",
     "db:generate": "pnpm --filter @zelyq/db generate",
@@ -35,7 +35,8 @@
     "clean": "pnpm -r exec rm -rf dist node_modules/.cache && rm -rf node_modules",
     "eval": "pnpm --filter @zelyq/agent eval",
     "e2e": "playwright test",
-    "check:ui": "node scripts/check-ui.mjs"
+    "check:ui": "node scripts/check-ui.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

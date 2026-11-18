@@ -3,6 +3,7 @@ import { defaultRepoPath, parsePipelineFile } from "@zelyq/core";
 import { Download, GitBranch, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import { vaultErrorMessage } from "../../lib/vault";
 import { Button, confirmAction, Input } from "../ui";
 
@@ -79,10 +80,13 @@ export function RepoFileBar({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <GitBranch size={15} className="shrink-0 text-fg-secondary" aria-hidden />
           <p className="min-w-0 flex-1">
-            Kept in the repository at{" "}
-            <code className="rounded bg-surface-hover px-1 py-0.5 text-xs break-all">
-              {repoPath}
-            </code>
+            {t("Kept in the repository at {code}", {
+              code: (
+                <code className="rounded bg-surface-hover px-1 py-0.5 text-xs break-all">
+                  {repoPath}
+                </code>
+              ),
+            })}
           </p>
           {canWrite && (
             <span className="flex flex-wrap gap-2">
@@ -92,7 +96,7 @@ export function RepoFileBar({
                 disabled={busy}
                 onClick={() => pull.mutate()}
               >
-                Update from the repository
+                {t("Update from the repository")}
               </Button>
               <Button
                 size="sm"
@@ -101,23 +105,23 @@ export function RepoFileBar({
                 onClick={async () => {
                   if (
                     await confirmAction({
-                      title: "Keep the file only in Zelyq again?",
-                      description: "Runs will use this copy, not the repository's.",
-                      confirmLabel: "Keep in Zelyq",
+                      title: t("Keep the file only in Zelyq again?"),
+                      description: t("Runs will use this copy, not the repository’s."),
+                      confirmLabel: t("Keep in Zelyq"),
                     })
                   )
                     unlink.mutate();
                 }}
               >
-                Stop keeping it there
+                {t("Stop keeping it there")}
               </Button>
             </span>
           )}
         </div>
         <p className="text-xs text-fg-secondary">
-          Each branch and pull request runs its own copy of this file. Below is the copy from the
-          default branch: change the file in the repository, and it updates here when the default
-          branch runs.
+          {t(
+            "Each branch and pull request runs its own copy of this file. Below is the copy from the default branch: change the file in the repository, and it updates here when the default branch runs.",
+          )}
         </p>
         {note && <p className="text-xs text-success">{note}</p>}
         {error && <p className="text-xs text-danger">{error}</p>}
@@ -129,10 +133,10 @@ export function RepoFileBar({
     <section className="grid gap-2 rounded-md border border-border-default bg-surface p-3 text-sm">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <GitBranch size={15} className="shrink-0 text-fg-muted" aria-hidden />
-        <p className="min-w-0 flex-1 text-fg-secondary">This file is kept in Zelyq.</p>
+        <p className="min-w-0 flex-1 text-fg-secondary">{t("This file is kept in Zelyq.")}</p>
         {canWrite && !linking && (
           <Button size="sm" onClick={() => setLinking(true)}>
-            Keep it in the repository
+            {t("Keep it in the repository")}
           </Button>
         )}
       </div>
@@ -140,19 +144,25 @@ export function RepoFileBar({
         <div className="grid gap-3 border-t border-border-default pt-3">
           {!repo ? (
             <p className="text-xs text-warning">
-              First add <code>source:</code> with <code>repo:</code> (your repository's https://
-              address) to the file and save it. That is where Zelyq will read the file.
+              {t(
+                "First add {code} with {code2} (your repository’s https:// address) to the file and save it. That is where Zelyq will read the file.",
+                { code: <code>source:</code>, code2: <code>repo:</code> },
+              )}
             </p>
           ) : (
             <>
               <ol className="grid list-decimal gap-1 pl-5 text-xs text-fg-secondary">
                 <li>
-                  Download this file and add it to <span className="break-all text-fg">{repo}</span>{" "}
-                  at the path below, on the default branch.
+                  {t(
+                    "Download this file and add it to {repo} at the path below, on the default branch.",
+                    { repo: <span className="break-all text-fg">{repo}</span> },
+                  )}
                 </li>
                 <li>
-                  Press <span className="text-fg">Link</span>. From then on, every run reads the
-                  file from the repository, at its own branch or commit.
+                  {t(
+                    "Press {part}. From then on, every run reads the file from the repository, at its own branch or commit.",
+                    { part: <span className="text-fg">{t("Link")}</span> },
+                  )}
                 </li>
               </ol>
               <form
@@ -163,7 +173,7 @@ export function RepoFileBar({
                 }}
               >
                 <label className="sr-only" htmlFor="repo-path">
-                  Path in the repository
+                  {t("Path in the repository")}
                 </label>
                 <Input
                   id="repo-path"
@@ -173,10 +183,10 @@ export function RepoFileBar({
                   spellCheck={false}
                 />
                 <Button size="sm" icon={<Download size={12} />} onClick={download}>
-                  Download the file
+                  {t("Download the file")}
                 </Button>
                 <Button size="sm" variant="primary" type="submit" disabled={busy || !path.trim()}>
-                  Link
+                  {t("Link")}
                 </Button>
                 <Button
                   size="sm"
@@ -186,7 +196,7 @@ export function RepoFileBar({
                     setError(null);
                   }}
                 >
-                  Cancel
+                  {t("Cancel")}
                 </Button>
               </form>
             </>
@@ -194,7 +204,7 @@ export function RepoFileBar({
           {!repo && (
             <span>
               <Button size="sm" variant="ghost" onClick={() => setLinking(false)}>
-                Close
+                {t("Close")}
               </Button>
             </span>
           )}

@@ -37,6 +37,7 @@ import {
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { formatDateParts } from "../lib/format";
+import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 import { DnsRecord, HistoryList, ReachWarning, RollBackProgress } from "./DeploymentsPage";
@@ -45,10 +46,10 @@ const STATE: Record<
   AppStatus["state"],
   { label: string; tone: "success" | "danger" | "warning" | "neutral" }
 > = {
-  running: { label: "Running", tone: "success" },
-  restarting: { label: "Restarting", tone: "warning" },
-  stopped: { label: "Stopped", tone: "neutral" },
-  missing: { label: "Not on the machine", tone: "danger" },
+  running: { label: t("Running"), tone: "success" },
+  restarting: { label: t("Restarting"), tone: "warning" },
+  stopped: { label: t("Stopped"), tone: "neutral" },
+  missing: { label: t("Not on the machine"), tone: "danger" },
 };
 
 /** Lines kept on screen; older ones scroll away. */
@@ -75,8 +76,8 @@ export function AppPage() {
   return (
     <AppShell
       crumbs={[
-        { label: "Deployments", to: teamHref("/deployments") },
-        { label: environment ? `${app} on ${environment.name}` : app },
+        { label: t("Deployments"), to: teamHref("/deployments") },
+        { label: environment ? t("{app} on {name}", { app, name: environment.name }) : app },
       ]}
     >
       <PageBody width="standard">
@@ -84,8 +85,8 @@ export function AppPage() {
           <Spinner />
         ) : !environment ? (
           <EmptyState
-            title="No such environment"
-            description="It may have been removed. Go back to Deployments."
+            title={t("No such environment")}
+            description={t("It may have been removed. Go back to Deployments.")}
           />
         ) : (
           <LiveAppView
@@ -175,7 +176,12 @@ function LiveAppView({
           {
             at: new Date().toISOString(),
             stream: "system" as const,
-            text: action === "restart" ? "Restarted." : action === "stop" ? "Stopped." : "Started.",
+            text:
+              action === "restart"
+                ? t("Restarted.")
+                : action === "stop"
+                  ? t("Stopped.")
+                  : t("Started."),
           },
         ].slice(-KEEP_LINES),
       );
@@ -198,15 +204,15 @@ function LiveAppView({
       <p className="text-sm text-danger">{problem}</p>
     ) : (
       <p className="flex items-center gap-2 text-sm text-fg-secondary">
-        <Spinner /> Asking the machine…
+        <Spinner /> {t("Asking the machine…")}
       </p>
     );
   }
   if (!deployment) {
     return (
       <EmptyState
-        title={`${app} is not live on ${environment.name}`}
-        description="Nothing of it runs there now. A pipeline's deploy step puts it there."
+        title={t("{app} is not live on {name}", { app, name: environment.name })}
+        description={t("Nothing of it runs there now. A pipeline’s deploy step puts it there.")}
       />
     );
   }
@@ -227,12 +233,15 @@ function LiveAppView({
         <p className="text-xs text-fg-secondary">
           #{deployment.number}
           {deployment.kind === "promote" && deployment.promotedFrom
-            ? `, promoted from ${deployment.promotedFrom.environment} #${deployment.promotedFrom.number}`
+            ? t(", promoted from {environment} #{number}", {
+                environment: deployment.promotedFrom.environment,
+                number: deployment.promotedFrom.number,
+              })
             : deployment.kind === "rollback"
-              ? `, a roll back to #${deployment.rolledBackTo}`
+              ? t(", a roll back to #{rolledBackTo}", { rolledBackTo: deployment.rolledBackTo })
               : ""}
           {" · "}
-          {deployment.by ? deployment.by.name : "a pipeline"},{" "}
+          {deployment.by ? deployment.by.name : t("a pipeline")},{" "}
           {formatRelative(deployment.createdAt)}
           {deployment.run && (
             <>
@@ -241,7 +250,7 @@ function LiveAppView({
                 to={teamHref(`/pipelines/${deployment.run.pipelineId}/runs/${deployment.run.id}`)}
                 className="text-info hover:underline"
               >
-                run #{deployment.run.number}
+                {t("run #{number}", { number: deployment.run.number })}
               </Link>
             </>
           )}
@@ -259,8 +268,9 @@ function LiveAppView({
         {deployment.error && <ReachWarning team={team} deployment={deployment} />}
         {status.state === "missing" && (
           <p className="text-xs text-danger">
-            Its container is gone from the machine (removed by hand?). Deploy it again, or roll back
-            below.
+            {t(
+              "Its container is gone from the machine (removed by hand?). Deploy it again, or roll back below.",
+            )}
           </p>
         )}
       </header>
@@ -275,7 +285,7 @@ function LiveAppView({
               disabled={act.isPending}
               onClick={() => act.mutate("restart")}
             >
-              Restart
+              {t("Restart")}
             </Button>
           )}
           {status.state === "missing" ? null : status.state === "stopped" ? (
@@ -284,7 +294,7 @@ function LiveAppView({
               disabled={act.isPending}
               onClick={() => act.mutate("start")}
             >
-              Start
+              {t("Start")}
             </Button>
           ) : (
             <Button
@@ -294,16 +304,18 @@ function LiveAppView({
               onClick={async () => {
                 if (
                   await confirmAction({
-                    title: `Stop ${app} on ${environment.name}?`,
-                    description: `People cannot open it until it is started again (it also stays stopped after the machine restarts).`,
-                    confirmLabel: "Stop app",
+                    title: t("Stop {app} on {name}?", { app, name: environment.name }),
+                    description: t(
+                      "People cannot open it until it is started again (it also stays stopped after the machine restarts).",
+                    ),
+                    confirmLabel: t("Stop app"),
                     danger: true,
                   })
                 )
                   act.mutate("stop");
               }}
             >
-              Stop
+              {t("Stop")}
             </Button>
           )}
           <Button
@@ -314,16 +326,18 @@ function LiveAppView({
             onClick={async () => {
               if (
                 await confirmAction({
-                  title: `Remove ${app} from ${environment.name}?`,
-                  description: `Zelyq stops it and removes its containers, its address on the proxy and its images from the machine. Its history stays.`,
-                  confirmLabel: "Remove app",
+                  title: t("Remove {app} from {name}?", { app, name: environment.name }),
+                  description: t(
+                    "Zelyq stops it and removes its containers, its address on the proxy and its images from the machine. Its history stays.",
+                  ),
+                  confirmLabel: t("Remove app"),
                   danger: true,
                 })
               )
                 remove.mutate(false);
             }}
           >
-            Remove app
+            {t("Remove app")}
           </Button>
           {act.error && <span className="text-xs text-danger">{vaultErrorMessage(act.error)}</span>}
         </div>
@@ -332,22 +346,25 @@ function LiveAppView({
         <div className="grid gap-1 text-xs">
           <p className="text-danger">{vaultErrorMessage(remove.error)}</p>
           <p className="text-fg-secondary">
-            If the machine is gone for good,{" "}
+            {t("If the machine is gone for good, ")}
             <button
               type="button"
               className="text-info hover:underline"
               onClick={async () => {
                 if (
                   await confirmAction({
-                    title: `Forget ${app} on ${environment.name}, without touching the machine?`,
-                    confirmLabel: "Forget app",
+                    title: t("Forget {app} on {name}, without touching the machine?", {
+                      app,
+                      name: environment.name,
+                    }),
+                    confirmLabel: t("Forget app"),
                     danger: true,
                   })
                 )
                   remove.mutate(true);
               }}
             >
-              forget the app in Zelyq only
+              {t("forget the app in Zelyq only")}
             </button>
             .
           </p>
@@ -370,13 +387,13 @@ function LiveAppView({
       <section className="grid grid-cols-2 gap-4 rounded-md border border-border-default p-3 md:grid-cols-4">
         <StatTile
           icon={<Cpu size={15} />}
-          label="CPU"
+          label={t("CPU")}
           value={status.cpuPercent === null ? "–" : `${status.cpuPercent.toFixed(1)}%`}
-          hint="100% = one core"
+          hint={t("100% = one core")}
         />
         <StatTile
           icon={<MemoryStick size={15} />}
-          label="Memory"
+          label={t("Memory")}
           value={status.memoryBytes === null ? "–" : size(status.memoryBytes)}
           hint={
             memoryShare === null ? undefined : (
@@ -394,31 +411,39 @@ function LiveAppView({
         />
         <StatTile
           icon={<Timer size={15} />}
-          label="Started"
+          label={t("Started")}
           value={
             status.state === "running" && status.startedAt ? formatRelative(status.startedAt) : "–"
           }
         />
         <StatTile
           icon={<RotateCw size={15} />}
-          label="Crashes"
+          label={t("Crashes")}
           value={status.restarts}
-          hint={status.restarts > 0 ? "Restarted by itself" : "None so far"}
+          hint={status.restarts > 0 ? t("Restarted by itself") : t("None so far")}
         />
       </section>
 
       <section className="grid min-w-0 gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          Logs
-          <span className="flex items-center gap-1 text-xs font-normal text-fg-muted">
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60" />
-              <span className="relative inline-flex size-2 rounded-full bg-success" />
-            </span>
-            live, the app's own output
-          </span>
+          {t("Logs{part}", {
+            part: (
+              <span className="flex items-center gap-1 text-xs font-normal text-fg-muted">
+                {t("{part}live, the app’s own output", {
+                  part: (
+                    <span className="relative flex size-2">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60" />
+                      <span className="relative inline-flex size-2 rounded-full bg-success" />
+                    </span>
+                  ),
+                })}
+              </span>
+            ),
+          })}
         </h2>
-        {problem && <p className="text-xs text-warning">{problem} Trying again…</p>}
+        {problem && (
+          <p className="text-xs text-warning">{t("{problem} Trying again…", { problem })}</p>
+        )}
         <LiveLog lines={lines} />
       </section>
 
@@ -427,7 +452,7 @@ function LiveAppView({
       )}
 
       <section className="grid min-w-0 gap-1">
-        <h2 className="text-sm font-semibold">History · roll back</h2>
+        <h2 className="text-sm font-semibold">{t("History · roll back")}</h2>
         <HistoryList team={team} environment={environment} app={app} />
       </section>
     </div>
@@ -469,9 +494,9 @@ function AppAddress({
       setNote(
         applied
           ? input.domain
-            ? `Saved: people are sent to ${input.domain} now.`
-            : "Saved: it is back at its usual address."
-          : "Saved. It is used from the next deploy.",
+            ? t("Saved: people are sent to {domain} now.", { domain: input.domain })
+            : t("Saved: it is back at its usual address.")
+          : t("Saved. It is used from the next deploy."),
       );
     },
     onError: () => setNote(null),
@@ -486,7 +511,7 @@ function AppAddress({
   return (
     <section className="grid min-w-0 gap-2 rounded-md border border-border-default p-3">
       <h2 className="flex items-center gap-2 text-sm font-semibold">
-        <Globe size={15} /> Address
+        <Globe size={15} /> {t("Address")}
       </h2>
       {mayManage ? (
         <form
@@ -499,7 +524,7 @@ function AppAddress({
         >
           <div className="flex flex-wrap items-center gap-2">
             <Input
-              aria-label="Address"
+              aria-label={t("Address")}
               className="w-72 max-w-full"
               value={domain}
               placeholder="example.com"
@@ -512,7 +537,7 @@ function AppAddress({
               disabled={!changed || save.isPending}
               icon={save.isPending ? <Spinner /> : undefined}
             >
-              Save
+              {t("Save")}
             </Button>
             {saved.domain && (
               <Button
@@ -524,7 +549,7 @@ function AppAddress({
                   save.mutate({ domain: null, www: false });
                 }}
               >
-                Use the usual one
+                {t("Use the usual one")}
               </Button>
             )}
           </div>
@@ -535,28 +560,34 @@ function AppAddress({
                 checked={www}
                 onChange={(event) => setWww(event.target.checked)}
               />
-              Also www.{name}, sending people on to {name}
+              {t("Also www.{name}, sending people on to {name}", { name })}
             </label>
           )}
           <p className="text-2xs text-fg-muted">
-            The exact name people type: the domain itself (example.com) or any name under it.
             {environment.domain
-              ? ` Empty: ${app}.${environment.domain}.`
-              : " Empty: the machine's address and a port."}
+              ? t(
+                  "The exact name people type: the domain itself (example.com) or any name under it. Empty: {app}.{domain}.",
+                  { app, domain: environment.domain },
+                )
+              : t(
+                  "The exact name people type: the domain itself (example.com) or any name under it. Empty: the machine’s address and a port.",
+                )}
           </p>
         </form>
       ) : (
-        <p className="text-xs">{saved.domain ?? "The usual one."}</p>
+        <p className="text-xs">{saved.domain ?? t("The usual one.")}</p>
       )}
       {save.error && <p className="text-xs text-danger">{vaultErrorMessage(save.error)}</p>}
       {note && <p className="text-xs text-success">{note}</p>}
       {current && (
         <DnsRecord name={current} pointTo={pointTo}>
           {saved.domain && saved.www && (
-            <p className="mt-1 text-fg-secondary">And the same record for www.{saved.domain}.</p>
+            <p className="mt-1 text-fg-secondary">
+              {t("And the same record for www.{domain}.", { domain: saved.domain })}
+            </p>
           )}
           <p className="mt-1 text-fg-secondary">
-            For the domain itself, the name is often written @ at your DNS provider.
+            {t("For the domain itself, the name is often written @ at your DNS provider.")}
           </p>
         </DnsRecord>
       )}
@@ -564,7 +595,7 @@ function AppAddress({
         <WebServerLines
           names={[current, ...(saved.domain === current && saved.www ? [`www.${current}`] : [])]}
           port={environment.httpPort}
-          machine={environment.runner?.name ?? "the machine"}
+          machine={environment.runner?.name ?? t("the machine")}
           setUp={
             mayManage && status.deployment
               ? () => api.deploys.setUpWebServer(team.id, environment.id, app)
@@ -596,7 +627,7 @@ function WebServerLines({
   onSetUp: (deployment: AppStatus["deployment"]) => void;
 }) {
   const run = useMutation({
-    mutationFn: () => (setUp ? setUp() : Promise.reject(new Error("Not allowed."))),
+    mutationFn: () => (setUp ? setUp() : Promise.reject(new Error(t("Not allowed.")))),
     onSuccess: ({ deployment }) => onSetUp(deployment),
   });
   const [first] = names;
@@ -627,9 +658,10 @@ function WebServerLines({
       {setUp && (
         <div className="grid gap-1.5 rounded-md border border-border-default p-2">
           <p>
-            Your nginx on {machine} must send {names.join(" and ")} to Zelyq. Zelyq can do it for
-            you: it adds a site of its own (your other sites are not touched), checks it, reloads
-            nginx and gets the HTTPS certificate.
+            {t("Your nginx on {machine} must send", { machine })} {names.join(" and ")}{" "}
+            {t(
+              "to Zelyq. Zelyq can do it for you: it adds a site of its own (your other sites are not touched), checks it, reloads nginx and gets the HTTPS certificate.",
+            )}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -638,13 +670,14 @@ function WebServerLines({
               disabled={run.isPending}
               onClick={() => run.mutate()}
             >
-              {run.isPending ? "Setting up (up to a few minutes)…" : "Set it up for me"}
+              {run.isPending ? t("Setting up (up to a few minutes)…") : t("Set it up for me")}
             </Button>
           </div>
           {run.data && (
             <div className="grid gap-1">
               <p className={run.data.deployment?.error ? "text-warning" : "text-success"}>
-                {run.data.deployment?.error ?? `Done: ${names[0]} opens with HTTPS.`}
+                {run.data.deployment?.error ??
+                  t("Done: {names} opens with HTTPS.", { names: names[0] })}
               </p>
               {run.data.log.length > 0 && (
                 <pre className="overflow-x-auto rounded bg-surface-subtle p-2 font-mono text-2xs">
@@ -659,7 +692,9 @@ function WebServerLines({
         </div>
       )}
       <p className="font-medium">
-        {setUp ? "Or do it yourself: paste" : "Paste"} this in a terminal on {machine}:
+        {setUp
+          ? t("Or do it yourself: paste this in a terminal on {machine}:", { machine })
+          : t("Paste this in a terminal on {machine}:", { machine })}
       </p>
       <div className="relative min-w-0">
         <pre className="overflow-x-auto rounded-md bg-surface-subtle p-2 pr-16 font-mono text-2xs leading-[1.6]">
@@ -676,12 +711,14 @@ function WebServerLines({
             });
           }}
         >
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("Copied") : t("Copy")}
         </Button>
       </div>
       <p className="text-fg-muted">
-        The last line gets the HTTPS certificate. Apache instead: ProxyPreserveHost On and ProxyPass
-        / http://127.0.0.1:{port}/ in the site's VirtualHost.
+        {t(
+          "The last line gets the HTTPS certificate. Apache instead: ProxyPreserveHost On and ProxyPass / http://127.0.0.1:{port}/ in the site’s VirtualHost.",
+          { port },
+        )}
       </p>
     </div>
   );
@@ -728,15 +765,16 @@ function Promote({
   return (
     <section className="grid min-w-0 gap-2 rounded-md border border-border-default p-3">
       <h2 className="flex items-center gap-2 text-sm font-semibold">
-        <ArrowUpRight size={15} /> Promote
+        <ArrowUpRight size={15} /> {t("Promote")}
       </h2>
       <p className="text-xs text-fg-secondary">
-        Ships the image running here, as it is, to another environment: nothing is built again, so
-        what runs there is what you tested here. Only that environment's own variables differ.
+        {t(
+          "Ships the image running here, as it is, to another environment: nothing is built again, so what runs there is what you tested here. Only that environment’s own variables differ.",
+        )}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <NativeSelect
-          aria-label="Environment to promote to"
+          aria-label={t("Environment to promote to")}
           className="min-w-0"
           value={target}
           onChange={(event) => setTarget(event.target.value)}
@@ -755,15 +793,15 @@ function Promote({
             if (
               chosen &&
               (await confirmAction({
-                title: `Ship this exact image of ${app} to ${chosen.name}?`,
-                confirmLabel: "Ship it",
+                title: t("Ship this exact image of {app} to {name}?", { app, name: chosen.name }),
+                confirmLabel: t("Ship it"),
               }))
             ) {
               promote.mutate(chosen.id);
             }
           }}
         >
-          Promote to {chosen?.name ?? "…"}
+          {t("Promote to {name}", { name: chosen?.name ?? "…" })}
         </Button>
       </div>
       {promote.error && <p className="text-xs text-danger">{vaultErrorMessage(promote.error)}</p>}
@@ -779,9 +817,16 @@ function Promote({
             }
             onClose={() => setFollowing(null)}
             words={{
-              running: `Promoting ${app} to ${following.env}…`,
-              ok: `${app} #${following.number} is live on ${following.env}.`,
-              failed: `The promote to ${following.env} did not go through. What was running there is still running.`,
+              running: t("Promoting {app} to {env}…", { app, env: following.env }),
+              ok: t("{app} #{number} is live on {env}.", {
+                app,
+                number: following.number,
+                env: following.env,
+              }),
+              failed: t(
+                "The promote to {env} did not go through. What was running there is still running.",
+                { env: following.env },
+              ),
             }}
           />
           <p className="px-2 py-1.5 text-xs">
@@ -791,7 +836,7 @@ function Promote({
               )}
               className="text-info hover:underline"
             >
-              Open {app} on {following.env}
+              {t("Open {app} on {env}", { app, env: following.env })}
             </Link>
           </p>
         </div>
@@ -819,7 +864,7 @@ function LiveLog({ lines }: { lines: LogLine[] }) {
     >
       {lines.length === 0 ? (
         <p className="text-fg-muted">
-          No output yet. New lines appear here as the app writes them.
+          {t("No output yet. New lines appear here as the app writes them.")}
         </p>
       ) : (
         lines.map((line, index) => (
@@ -860,7 +905,7 @@ function clock(at: string): string {
 }
 
 function size(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB"];
+  const units = [t("B"), t("KB"), t("MB"), t("GB"), t("TB")];
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {

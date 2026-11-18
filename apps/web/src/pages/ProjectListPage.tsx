@@ -54,6 +54,7 @@ import {
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { useTeamPaths } from "../lib/routes";
 
 /** Cards sit three to a row on a wide screen and two on a narrower one: 12
@@ -135,10 +136,11 @@ export function ProjectListPage() {
 
   async function remove(project: Project) {
     const ok = await confirmAction({
-      title: `Delete ${project.name}?`,
-      description:
+      title: t("Delete {name}?", { name: project.name }),
+      description: t(
         "Its files, conversation, snapshots and preview are deleted for everyone in the team. This cannot be undone.",
-      confirmLabel: "Delete app",
+      ),
+      confirmLabel: t("Delete app"),
       danger: true,
       typeToConfirm: project.name,
     });
@@ -146,7 +148,7 @@ export function ProjectListPage() {
     try {
       await api.deleteProject(project.id);
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      toast.success(`${project.name} was deleted`);
+      toast.success(t("{name} was deleted", { name: project.name }));
     } catch (error) {
       toast.error((error as Error).message);
     }
@@ -155,31 +157,31 @@ export function ProjectListPage() {
   const appMenu = (project: Project) => (
     <Menu
       trigger={
-        <IconButton size="sm" label={`Actions for ${project.name}`}>
+        <IconButton size="sm" label={t("Actions for {name}", { name: project.name })}>
           <MoreHorizontal size={15} />
         </IconButton>
       }
     >
       <MenuItem icon={<Sparkles size={14} />} onSelect={() => navigate(p.app(project.id))}>
-        Open builder
+        {t("Open builder")}
       </MenuItem>
       <MenuItem
         icon={<LayoutDashboard size={14} />}
         onSelect={() => navigate(p.app(project.id, "overview"))}
       >
-        Overview
+        {t("Overview")}
       </MenuItem>
       <MenuItem
         icon={<Settings size={14} />}
         onSelect={() => navigate(p.app(project.id, "settings"))}
       >
-        Settings
+        {t("Settings")}
       </MenuItem>
       {canDelete(project.teamId) && (
         <>
           <MenuSeparator />
           <MenuItem icon={<Trash2 size={14} />} danger onSelect={() => void remove(project)}>
-            Delete app
+            {t("Delete app")}
           </MenuItem>
         </>
       )}
@@ -205,7 +207,7 @@ export function ProjectListPage() {
     },
     {
       id: "stack",
-      header: "Stack",
+      header: t("Stack"),
       hideBelow: "md",
       sortValue: (project) => templateByName.get(project.template)?.title ?? project.template,
       cell: (project) => (
@@ -219,13 +221,13 @@ export function ProjectListPage() {
     },
     {
       id: "status",
-      header: "Status",
+      header: t("Status"),
       hideBelow: "sm",
       sortValue: (project) => project.status,
       cell: (project) => (
         <StatusBadge
           status={statusOf(project.status)}
-          label={project.status === "ready" ? "Ready" : undefined}
+          label={project.status === "ready" ? t("Ready") : undefined}
           variant="inline"
         />
       ),
@@ -238,7 +240,7 @@ export function ProjectListPage() {
     },
     {
       id: "actions",
-      header: <span className="sr-only">Actions</span>,
+      header: <span className="sr-only">{t("Actions")}</span>,
       align: "end",
       width: "w-12",
       cell: appMenu,
@@ -246,18 +248,20 @@ export function ProjectListPage() {
   ];
 
   return (
-    <AppShell crumbs={[{ label: "Apps" }]}>
+    <AppShell crumbs={[{ label: t("Apps") }]}>
       <PageBody>
         <PageHeader
-          title="Apps"
-          description="Describe an app and the agent builds it. Each one is a real folder of files you can open, edit, and take with you."
+          title={t("Apps")}
+          description={t(
+            "Describe an app and the agent builds it. Each one is a real folder of files you can open, edit, and take with you.",
+          )}
           actions={
             <Button
               variant="primary"
               icon={<Plus size={15} strokeWidth={2} />}
               onClick={() => setCreating(true)}
             >
-              New app
+              {t("New app")}
             </Button>
           }
         />
@@ -269,15 +273,15 @@ export function ProjectListPage() {
                 <SearchBox
                   value={q}
                   onChange={(value) => filters.set({ q: value })}
-                  placeholder="Search apps"
+                  placeholder={t("Search apps")}
                 />
                 {statuses.length > 1 && (
                   <FilterSelect
-                    label="Status"
+                    label={t("Status")}
                     value={statusFilter}
                     onChange={(value) => filters.set({ status: value })}
                     options={[
-                      { value: "", label: "Any status" },
+                      { value: "", label: t("Any status") },
                       ...statuses.map((value) => ({
                         value,
                         label: `${value[0]?.toUpperCase()}${value.slice(1)} (${all.filter((project) => project.status === value).length})`,
@@ -287,11 +291,11 @@ export function ProjectListPage() {
                 )}
                 {stacks.length > 1 && (
                   <FilterSelect
-                    label="Stack"
+                    label={t("Stack")}
                     value={stack}
                     onChange={(value) => filters.set({ stack: value })}
                     options={[
-                      { value: "", label: "Any stack" },
+                      { value: "", label: t("Any stack") },
                       ...stacks.map((value) => ({
                         value,
                         label: `${templateByName.get(value)?.title ?? value} (${all.filter((project) => project.template === value).length})`,
@@ -300,30 +304,30 @@ export function ProjectListPage() {
                   />
                 )}
                 <FilterSelect
-                  label="Order"
+                  label={t("Order")}
                   value={sort}
                   onChange={(value) => filters.set({ sort: value })}
                   options={[
-                    { value: "", label: "Recently updated" },
-                    { value: "name", label: "Name A–Z" },
-                    { value: "oldest", label: "Least recently updated" },
+                    { value: "", label: t("Recently updated") },
+                    { value: "name", label: t("Name A–Z") },
+                    { value: "oldest", label: t("Least recently updated") },
                   ]}
                 />
               </ListToolbar>
             </div>
             <SegmentedControl
-              label="View"
+              label={t("View")}
               value={view}
               onValueChange={setView}
               options={[
                 {
                   value: "grid",
-                  label: <span className="sr-only">Grid</span>,
+                  label: <span className="sr-only">{t("Grid")}</span>,
                   icon: <LayoutGrid size={14} />,
                 },
                 {
                   value: "list",
-                  label: <span className="sr-only">List</span>,
+                  label: <span className="sr-only">{t("List")}</span>,
                   icon: <List size={14} />,
                 },
               ]}
@@ -343,15 +347,17 @@ export function ProjectListPage() {
           <Card padded={false}>
             <EmptyState
               icon={<LayoutGrid size={20} />}
-              title={team ? `No apps in ${team.name} yet` : "No apps yet"}
-              description="Create one and describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read."
+              title={team ? t("No apps in {name} yet", { name: team.name }) : t("No apps yet")}
+              description={t(
+                "Create one and describe what you want built. The agent works in a real workspace, so everything it writes is a file you can read.",
+              )}
               action={
                 <Button
                   variant="primary"
                   icon={<Plus size={15} strokeWidth={2} />}
                   onClick={() => setCreating(true)}
                 >
-                  New app
+                  {t("New app")}
                 </Button>
               }
             />
@@ -362,7 +368,7 @@ export function ProjectListPage() {
 
         {list.length > 0 && view === "list" && (
           <DataTable
-            caption="Apps"
+            caption={t("Apps")}
             rows={list}
             columns={columns}
             rowKey={(project) => project.id}
@@ -495,7 +501,7 @@ function NewAppDialog({
     onSettled: () => setGitToken(""),
     onSuccess: async ({ project }) => {
       onOpenChange(false);
-      toast.success(`${project.name} is ready`);
+      toast.success(t("{name} is ready", { name: project.name }));
       await onCreated(project);
     },
   });
@@ -521,11 +527,16 @@ function NewAppDialog({
       open={open}
       onOpenChange={onOpenChange}
       size="lg"
-      title={step === 1 ? "New app" : "Name your app"}
+      title={t("{step, plural, one {New app} other {Name your app}}", { step })}
       description={
         step === 1
-          ? "Step 1 of 2 · Choose how to start."
-          : `Step 2 of 2 · ${source === "stack" ? (templates.find((t) => t.name === template)?.title ?? template) : "From a Git repository"}`
+          ? t("Step 1 of 2 · Choose how to start.")
+          : t("Step 2 of 2 · {value}", {
+              value:
+                source === "stack"
+                  ? (templates.find((t) => t.name === template)?.title ?? template)
+                  : t("From a Git repository"),
+            })
       }
       footer={
         <>
@@ -536,15 +547,15 @@ function NewAppDialog({
               onClick={() => setStep(1)}
               className="mr-auto"
             >
-              Back
+              {t("Back")}
             </Button>
           )}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           {step === 1 ? (
             <Button variant="primary" disabled={!canContinue} onClick={() => setStep(2)}>
-              Continue
+              {t("Continue")}
             </Button>
           ) : (
             <Button
@@ -553,7 +564,7 @@ function NewAppDialog({
               disabled={!name.trim()}
               onClick={() => create.mutate()}
             >
-              {source === "git" ? "Import app" : "Create app"}
+              {source === "git" ? t("Import app") : t("Create app")}
             </Button>
           )}
         </>
@@ -563,17 +574,17 @@ function NewAppDialog({
         {step === 1 ? (
           <>
             <SegmentedControl
-              label="Start from"
+              label={t("Start from")}
               value={source}
               onValueChange={(v) => setSource(v as "stack" | "git")}
               options={[
-                { value: "stack", label: "Start from a stack", icon: <Sparkles size={14} /> },
-                { value: "git", label: "Import from Git", icon: <GitBranch size={14} /> },
+                { value: "stack", label: t("Start from a stack"), icon: <Sparkles size={14} /> },
+                { value: "git", label: t("Import from Git"), icon: <GitBranch size={14} /> },
               ]}
               className="w-full"
             />
             {source === "stack" ? (
-              <div role="radiogroup" aria-label="Stack" className="grid gap-2 sm:grid-cols-2">
+              <div role="radiogroup" aria-label={t("Stack")} className="grid gap-2 sm:grid-cols-2">
                 {/* The default stack first: it is the one already chosen. */}
                 {[...templates]
                   .sort((a, b) => Number(b.name === "vite-react") - Number(a.name === "vite-react"))
@@ -626,8 +637,10 @@ function NewAppDialog({
             ) : (
               <div className="flex flex-col gap-3">
                 <Field
-                  label="Repository address"
-                  help="Zelyq clones it and works on a copy. It never pushes, so a read-only token is enough."
+                  label={t("Repository address")}
+                  help={t(
+                    "Zelyq clones it and works on a copy. It never pushes, so a read-only token is enough.",
+                  )}
                 >
                   <Input
                     autoFocus
@@ -649,7 +662,7 @@ function NewAppDialog({
                   />
                 )}
                 <p className="text-xs text-fg-muted">
-                  The token is used once and never stored. Cloning can take a minute.
+                  {t("The token is used once and never stored. Cloning can take a minute.")}
                 </p>
               </div>
             )}
@@ -657,15 +670,19 @@ function NewAppDialog({
         ) : (
           <>
             <Field
-              label="App name"
+              label={t("App name")}
               required
-              help={slug ? `Its folder will be called ${slug}.` : "You can rename it later."}
+              help={
+                slug
+                  ? t("Its folder will be called {slug}.", { slug })
+                  : t("You can rename it later.")
+              }
             >
               <Input
                 autoFocus
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Customer portal"
+                placeholder={t("Customer portal")}
                 maxLength={120}
               />
             </Field>
@@ -675,7 +692,7 @@ function NewAppDialog({
               </p>
             )}
             {create.isError && (
-              <InlineAlert tone="danger" title="The app could not be created">
+              <InlineAlert tone="danger" title={t("The app could not be created")}>
                 {(create.error as Error).message}
               </InlineAlert>
             )}

@@ -45,6 +45,8 @@ import { useActiveTeam } from "../hooks/useActiveTeam";
 import { useSession } from "../hooks/useSession";
 import { type Theme, useTheme } from "../hooks/useTheme";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
+import { roleName } from "../lib/roles";
 import { globalPaths, type TeamPaths, teamKey, teamPaths, useTeamPaths } from "../lib/routes";
 import { AnnouncementBanner } from "./AnnouncementBanner";
 import { openCommandPalette, openShortcuts } from "./CommandPalette";
@@ -157,7 +159,7 @@ export function AppShell({
     .filter((part, i, all) => part && all.indexOf(part) === i)
     .join(" · ");
   useEffect(() => {
-    document.title = title ? `${title} — Zelyq` : "Zelyq";
+    document.title = title ? `${title} — Zelyq` : t("Zelyq");
   }, [title]);
 
   return (
@@ -167,10 +169,10 @@ export function AppShell({
       }`}
     >
       <a href="#main-content" className="skip-link">
-        Skip to content
+        {t("Skip to content")}
       </a>
       <aside
-        aria-label="Sidebar"
+        aria-label={t("Sidebar")}
         className="hidden min-h-0 border-r border-border-default bg-surface md:flex md:flex-col"
       >
         <SidebarContent open={railOpen} app={app} onToggle={() => setRailOpen((value) => !value)} />
@@ -180,9 +182,9 @@ export function AppShell({
         <RadixDialog.Portal>
           <RadixDialog.Overlay className="fixed inset-0 z-20 bg-[var(--backdrop)] md:hidden" />
           <RadixDialog.Content className="fixed inset-y-0 left-0 z-20 flex w-[17rem] max-w-[85vw] flex-col border-r border-border-default bg-surface shadow-dialog focus:outline-none data-[state=open]:animate-[ui-fade-in_150ms_ease-out] md:hidden">
-            <RadixDialog.Title className="sr-only">Navigation</RadixDialog.Title>
+            <RadixDialog.Title className="sr-only">{t("Navigation")}</RadixDialog.Title>
             <RadixDialog.Description className="sr-only">
-              Move between this team's sections.
+              {t("Move between this team’s sections.")}
             </RadixDialog.Description>
             <SidebarContent open app={app} onClose={() => setMobileNav(false)} />
           </RadixDialog.Content>
@@ -253,22 +255,22 @@ function teamSections(
   return [
     {
       title: null,
-      items: [{ to: p.home, label: "Home", icon: House, match: (path) => path === p.home }],
+      items: [{ to: p.home, label: t("Home"), icon: House, match: (path) => path === p.home }],
     },
     {
-      title: "Build",
+      title: t("Build"),
       items: [
-        { to: p.apps, label: "Apps", icon: LayoutGrid, match: starts(p.apps) },
+        { to: p.apps, label: t("Apps"), icon: LayoutGrid, match: starts(p.apps) },
         {
           to: p.studio,
-          label: "Studio",
+          label: t("Studio"),
           icon: Palette,
           match: starts(p.studio),
           hidden: hidden.studio,
         },
         {
           to: p.agents,
-          label: "Agents",
+          label: t("Agents"),
           icon: Bot,
           match: starts(p.agents),
           hidden: hidden.agents,
@@ -276,28 +278,28 @@ function teamSections(
       ],
     },
     {
-      title: "Ship",
+      title: t("Ship"),
       items: [
         {
           to: p.pipelines,
-          label: "Pipelines",
+          label: t("Pipelines"),
           icon: Workflow,
           match: starts(p.pipelines),
           hidden: hidden.pipelines,
         },
         {
           to: p.deployments,
-          label: "Deployments",
+          label: t("Deployments"),
           icon: Rocket,
           match: starts(p.deployments),
           hidden: hidden.deploy,
         },
-        { to: p.ops, label: "Ops", icon: ServerCog, match: starts(p.ops), hidden: hidden.ops },
+        { to: p.ops, label: t("Ops"), icon: ServerCog, match: starts(p.ops), hidden: hidden.ops },
       ],
     },
     {
-      title: "Secure",
-      items: [{ to: p.vault, label: "Vault", icon: KeyRound, match: starts(p.vault) }],
+      title: t("Secure"),
+      items: [{ to: p.vault, label: t("Vault"), icon: KeyRound, match: starts(p.vault) }],
     },
   ];
 }
@@ -314,43 +316,43 @@ function appSections(
       items: [
         {
           to: p.app(app.id, "overview"),
-          label: "Overview",
+          label: t("Overview"),
           icon: LayoutDashboard,
           match: (path) => path === p.app(app.id, "overview"),
         },
         {
           to: build,
-          label: "Build",
+          label: t("Build"),
           icon: Sparkles,
           match: (path, search) => path === build && !search.includes("panel="),
         },
       ],
     },
     {
-      title: "Manage",
+      title: t("Manage"),
       items: [
         {
           to: p.appPanel(app.id, "variables"),
-          label: "Variables",
+          label: t("Variables"),
           icon: Variable,
           match: (_, search) => search.includes("panel=variables"),
         },
         {
           to: p.appPanel(app.id, "git"),
-          label: "Git",
+          label: t("Git"),
           icon: GitBranch,
           match: (_, search) => search.includes("panel=git"),
           hidden: !canEdit,
         },
         {
           to: p.appPanel(app.id, "snapshots"),
-          label: "Snapshots",
+          label: t("Snapshots"),
           icon: Camera,
           match: (_, search) => search.includes("panel=snapshots"),
         },
         {
           to: p.app(app.id, "settings"),
-          label: "Settings",
+          label: t("Settings"),
           icon: Settings,
           match: (path) => path === p.app(app.id, "settings"),
         },
@@ -386,28 +388,30 @@ function SidebarContent({
       >
         <Link
           to={p.home || "/"}
-          aria-label="Zelyq home"
+          aria-label={t("Zelyq home")}
           className="flex items-center gap-2 rounded-md p-1 text-fg transition-colors hover:bg-surface-hover"
         >
           <Mark />
-          {open && <span className="text-[15px] font-semibold tracking-[-0.01em]">Zelyq</span>}
+          {open && (
+            <span className="text-[15px] font-semibold tracking-[-0.01em]">{t("Zelyq")}</span>
+          )}
         </Link>
         {onClose ? (
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close navigation"
+            aria-label={t("Close navigation")}
             className="grid size-8 place-items-center rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg"
           >
             <X size={16} />
           </button>
         ) : (
           open && (
-            <Tooltip content="Collapse sidebar" shortcut="[">
+            <Tooltip content={t("Collapse sidebar")} shortcut="[">
               <button
                 type="button"
                 onClick={onToggle}
-                aria-label="Collapse sidebar"
+                aria-label={t("Collapse sidebar")}
                 aria-expanded
                 className="grid size-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
               >
@@ -425,14 +429,14 @@ function SidebarContent({
         </div>
       )}
       <nav
-        aria-label="Primary"
+        aria-label={t("Primary")}
         className={`min-h-0 flex-1 overflow-y-auto pt-2 pb-3 ${open ? "px-3" : "px-2"}`}
       >
         {app && (
           <div className="mb-3">
             <SideLink
               to={p.apps}
-              label="All apps"
+              label={t("All apps")}
               icon={ArrowLeft}
               open={open}
               active={false}
@@ -490,7 +494,7 @@ function SidebarContent({
         {team && (
           <SideLink
             to={p.members}
-            label="Members"
+            label={t("Members")}
             icon={Users}
             open={open}
             active={pathname === p.members}
@@ -499,7 +503,7 @@ function SidebarContent({
         {team && isAdmin && (
           <SideLink
             to={p.settings()}
-            label="Team settings"
+            label={t("Team settings")}
             icon={SlidersHorizontal}
             open={open}
             active={pathname === p.settings()}
@@ -508,18 +512,18 @@ function SidebarContent({
         {user?.instanceRole === "admin" && (
           <SideLink
             to={globalPaths.admin()}
-            label="Server admin"
+            label={t("Server admin")}
             icon={Shield}
             open={open}
             active={pathname === "/admin"}
           />
         )}
         {!open && onToggle && (
-          <Tooltip content="Expand sidebar" shortcut="[" side="right">
+          <Tooltip content={t("Expand sidebar")} shortcut="[" side="right">
             <button
               type="button"
               onClick={onToggle}
-              aria-label="Expand sidebar"
+              aria-label={t("Expand sidebar")}
               aria-expanded={false}
               className="mt-1 grid size-9 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
             >
@@ -601,13 +605,13 @@ function TopBar({
       <button
         type="button"
         onClick={onMenu}
-        aria-label="Open navigation"
+        aria-label={t("Open navigation")}
         className="grid size-8 shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover md:hidden"
       >
         <MenuIcon size={18} strokeWidth={1.75} />
       </button>
 
-      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center">
+      <nav aria-label={t("Breadcrumb")} className="flex min-w-0 flex-1 items-center">
         <ol className="flex min-w-0 items-center gap-1">
           <li
             className={`min-w-0 shrink items-center ${app || crumbs.length ? "hidden sm:flex" : "flex"}`}
@@ -659,17 +663,17 @@ function TopBar({
         className="hidden h-8 w-56 shrink-0 items-center gap-2 rounded-md border border-border-default bg-surface-subtle px-2.5 text-sm text-fg-muted transition-colors hover:border-border-strong hover:text-fg-secondary lg:flex xl:w-72"
       >
         <Search size={14} strokeWidth={1.75} />
-        <span className="flex-1 text-left">Search or jump to…</span>
-        <Kbd>{isMac() ? "⌘K" : "Ctrl K"}</Kbd>
+        <span className="flex-1 text-left">{t("Search or jump to…")}</span>
+        <Kbd>{isMac() ? "⌘K" : t("Ctrl K")}</Kbd>
       </button>
 
       <div className="flex shrink-0 items-center gap-1">
         {actions && <div className="flex items-center gap-1">{actions}</div>}
-        <Tooltip content="Search" shortcut={isMac() ? "⌘K" : "Ctrl K"}>
+        <Tooltip content={t("Search")} shortcut={isMac() ? "⌘K" : t("Ctrl K")}>
           <button
             type="button"
             onClick={openCommandPalette}
-            aria-label="Search"
+            aria-label={t("Search")}
             className="grid size-8 place-items-center rounded-md text-fg-secondary hover:bg-surface-hover hover:text-fg lg:hidden"
           >
             <Search size={16} strokeWidth={1.75} />
@@ -751,7 +755,7 @@ function TeamSwitcher() {
           >
             <Avatar name={team.name} size={20} shape="square" />
             <span className="max-w-[12rem] truncate">{team.name}</span>
-            <span className="sr-only">, switch team</span>
+            <span className="sr-only">{t(", switch team")}</span>
             <ChevronsUpDown size={13} className="shrink-0 text-fg-muted" />
           </button>
         }
@@ -761,14 +765,14 @@ function TeamSwitcher() {
             <SearchField
               value={query}
               onValueChange={setQuery}
-              placeholder="Find a team"
-              aria-label="Find a team"
+              placeholder={t("Find a team")}
+              aria-label={t("Find a team")}
               autoFocus
             />
           </div>
         )}
         <p className="px-2 pt-1.5 pb-1 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-          Teams
+          {t("Teams")}
         </p>
         <ul className="max-h-72 overflow-y-auto">
           {filtered.map((t) => (
@@ -781,7 +785,7 @@ function TeamSwitcher() {
               >
                 <Avatar name={t.name} size={20} shape="square" />
                 <span className="min-w-0 flex-1 truncate">{t.name}</span>
-                <span className="text-xs text-fg-muted capitalize">{t.role}</span>
+                <span className="text-xs text-fg-muted capitalize">{roleName(t.role)}</span>
                 <span className="grid w-4 place-items-center">
                   {t.id === team.id && <Check size={14} className="text-accent" />}
                 </span>
@@ -798,14 +802,14 @@ function TeamSwitcher() {
           }}
           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-fg-secondary hover:bg-surface-hover hover:text-fg"
         >
-          <Plus size={14} /> New team
+          <Plus size={14} /> {t("New team")}
         </button>
         <Link
           to={teamPaths(teamKey(team)).members}
           onClick={() => setOpen(false)}
           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-surface-hover hover:text-fg"
         >
-          <Users size={14} /> Members and invites
+          <Users size={14} /> {t("Members and invites")}
         </Link>
       </Popover>
       <NewTeamDialog open={creating} onOpenChange={setCreating} />
@@ -856,7 +860,7 @@ function AppSwitcher({ app }: { app: ShellApp }) {
           className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium text-fg transition-colors hover:bg-surface-hover"
         >
           <span className="max-w-[14rem] truncate">{app.name}</span>
-          <span className="sr-only">, switch app</span>
+          <span className="sr-only">{t(", switch app")}</span>
           <ChevronsUpDown size={13} className="shrink-0 text-fg-muted" />
         </button>
       }
@@ -865,8 +869,8 @@ function AppSwitcher({ app }: { app: ShellApp }) {
         <SearchField
           value={query}
           onValueChange={setQuery}
-          placeholder="Find an app"
-          aria-label="Find an app"
+          placeholder={t("Find an app")}
+          aria-label={t("Find an app")}
           autoFocus
           onKeyDown={(event) => {
             // Enter opens the first match, so the keyboard alone is enough.
@@ -879,9 +883,13 @@ function AppSwitcher({ app }: { app: ShellApp }) {
         />
       </div>
       <ul className="max-h-80 overflow-y-auto py-1">
-        {projects.isLoading && <li className="px-2 py-1.5 text-sm text-fg-muted">Loading apps…</li>}
+        {projects.isLoading && (
+          <li className="px-2 py-1.5 text-sm text-fg-muted">{t("Loading apps…")}</li>
+        )}
         {!projects.isLoading && apps.length === 0 && (
-          <li className="px-2 py-1.5 text-sm text-fg-muted">No app matches “{query}”.</li>
+          <li className="px-2 py-1.5 text-sm text-fg-muted">
+            {t("No app matches “{query}”.", { query })}
+          </li>
         )}
         {apps.map((project) => (
           <li key={project.id}>
@@ -906,14 +914,14 @@ function AppSwitcher({ app }: { app: ShellApp }) {
         onClick={() => setOpen(false)}
         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-surface-hover hover:text-fg"
       >
-        <LayoutGrid size={14} /> All apps
+        <LayoutGrid size={14} /> {t("All apps")}
       </Link>
       <Link
         to={p.newApp}
         onClick={() => setOpen(false)}
         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-surface-hover hover:text-fg"
       >
-        <Plus size={14} /> New app
+        <Plus size={14} /> {t("New app")}
       </Link>
     </Popover>
   );
@@ -926,31 +934,31 @@ function HelpMenu() {
       trigger={
         <button
           type="button"
-          aria-label="Help"
+          aria-label={t("Help")}
           className="grid size-8 place-items-center rounded-md text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
         >
           <HelpCircle size={16} strokeWidth={1.75} />
         </button>
       }
     >
-      <MenuLabel>Help</MenuLabel>
+      <MenuLabel>{t("Help")}</MenuLabel>
       <MenuItem asChild>
         <Link to={globalPaths.docs}>
-          <BookOpen size={14} className="text-fg-muted" /> Documentation
+          <BookOpen size={14} className="text-fg-muted" /> {t("Documentation")}
         </Link>
       </MenuItem>
       <MenuItem icon={<Keyboard size={14} />} shortcut="?" onSelect={openShortcuts}>
-        Keyboard shortcuts
+        {t("Keyboard shortcuts")}
       </MenuItem>
       <MenuSeparator />
       <MenuItem asChild>
         <a href={`${REPO}/releases`} target="_blank" rel="noreferrer">
-          <Newspaper size={14} className="text-fg-muted" /> What’s new
+          <Newspaper size={14} className="text-fg-muted" /> {t("What’s new")}
         </a>
       </MenuItem>
       <MenuItem asChild>
         <a href={`${REPO}/issues/new`} target="_blank" rel="noreferrer">
-          <LifeBuoy size={14} className="text-fg-muted" /> Report a problem
+          <LifeBuoy size={14} className="text-fg-muted" /> {t("Report a problem")}
         </a>
       </MenuItem>
     </Menu>
@@ -964,9 +972,9 @@ function AccountMenu() {
   if (!user) return null;
 
   const themes: Array<{ id: Theme; label: string }> = [
-    { id: "light", label: "Light" },
-    { id: "dark", label: "Dark" },
-    { id: "system", label: "Match system" },
+    { id: "light", label: t("Light") },
+    { id: "dark", label: t("Dark") },
+    { id: "system", label: t("Match system") },
   ];
 
   return (
@@ -978,7 +986,7 @@ function AccountMenu() {
           className="ml-1 grid size-8 place-items-center rounded-full transition-[box-shadow] hover:ring-2 hover:ring-border-strong"
         >
           <Avatar name={user.name} size={28} />
-          <span className="sr-only">Account menu for {user.name}</span>
+          <span className="sr-only">{t("Account menu for {name}", { name: user.name })}</span>
         </button>
       }
     >
@@ -991,10 +999,10 @@ function AccountMenu() {
       </div>
       <MenuSeparator />
       <MenuItem icon={<UserRound size={14} />} onSelect={() => navigate(globalPaths.account)}>
-        Account settings
+        {t("Account settings")}
       </MenuItem>
       <SubMenu
-        label="Theme"
+        label={t("Theme")}
         icon={
           theme === "dark" ? (
             <Moon size={14} />
@@ -1013,12 +1021,12 @@ function AccountMenu() {
       </SubMenu>
       {user.instanceRole === "admin" && (
         <MenuItem icon={<Shield size={14} />} onSelect={() => navigate(globalPaths.admin())}>
-          Server administration
+          {t("Server administration")}
         </MenuItem>
       )}
       <MenuSeparator />
       <MenuItem icon={<LogOut size={14} />} onSelect={() => void signOut()}>
-        Sign out
+        {t("Sign out")}
       </MenuItem>
     </Menu>
   );

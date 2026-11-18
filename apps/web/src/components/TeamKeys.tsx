@@ -3,6 +3,7 @@ import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
 import { Badge, Button, confirmAction, NativeSelect, PasswordInput, Spinner } from "./ui";
 
@@ -57,18 +58,24 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
   const none = data.keys.every((key) => key.source === "none");
 
   return (
-    <section className="mt-8" aria-label="AI keys">
-      <h2 className="text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">AI keys</h2>
+    <section className="mt-8" aria-label={t("AI keys")}>
+      <h2 className="text-xs font-medium tracking-[0.06em] text-fg-muted uppercase">
+        {t("AI keys")}
+      </h2>
       <p className="mt-1 text-xs text-fg-secondary">
         {data.usesServerKeys
-          ? "This team may use the server's keys. A key of its own is used first, and paid by the team."
-          : "This team pays for its own AI. Add at least one key (Claude or Gemini) to build apps; Gemini also powers Ops and voice."}{" "}
-        Keys are kept encrypted in the team's Vault and never shown again.
+          ? t(
+              "This team may use the server’s keys. A key of its own is used first, and paid by the team. Keys are kept encrypted in the team’s Vault and never shown again.",
+            )
+          : t(
+              "This team pays for its own AI. Add at least one key (Claude or Gemini) to build apps; Gemini also powers Ops and voice. Keys are kept encrypted in the team’s Vault and never shown again.",
+            )}
       </p>
       {none && (
         <p className="mt-2 rounded-md border border-warning/25 bg-warning-subtle px-2.5 py-2 text-xs text-fg">
-          No AI key yet: the team's apps cannot be built until{" "}
-          {canManage ? "you add one below." : "a team admin adds one here."}
+          {canManage
+            ? t("No AI key yet: the team’s apps cannot be built until you add one below.")
+            : t("No AI key yet: the team’s apps cannot be built until a team admin adds one here.")}
         </p>
       )}
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
@@ -83,15 +90,16 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
             <span className="min-w-0 flex-1">
               {key.vaultName ? (
                 <Badge tone={key.vaultMissing ? "danger" : "info"}>
-                  Vault: {key.vaultName}
-                  {key.vaultMissing ? " (missing)" : ""}
+                  {key.vaultMissing
+                    ? t("Vault: {vaultName} (missing)", { vaultName: key.vaultName })
+                    : t("Vault: {vaultName}", { vaultName: key.vaultName })}
                 </Badge>
               ) : key.source === "team" ? (
-                <Badge tone="success">Team's own key</Badge>
+                <Badge tone="success">{t("Team’s own key")}</Badge>
               ) : key.source === "server" ? (
-                <Badge tone="neutral">Server's key</Badge>
+                <Badge tone="neutral">{t("Server’s key")}</Badge>
               ) : (
-                <span className="text-xs text-fg-muted">No key</span>
+                <span className="text-xs text-fg-muted">{t("No key")}</span>
               )}
             </span>
             {canManage && editing !== key.provider && (
@@ -106,7 +114,7 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                     setError(null);
                   }}
                 >
-                  {key.source === "team" || key.vaultName ? "Change" : "Add key"}
+                  {key.source === "team" || key.vaultName ? t("Change") : t("Add key")}
                 </Button>
                 {(key.source === "team" || key.vaultName) && (
                   <Button
@@ -116,15 +124,15 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                     onClick={async () => {
                       if (
                         await confirmAction({
-                          title: `Remove the team's ${key.label} key?`,
-                          confirmLabel: "Remove key",
+                          title: t("Remove the team’s {label} key?", { label: key.label }),
+                          confirmLabel: t("Remove key"),
                           danger: true,
                         })
                       )
                         remove.mutate(key.provider);
                     }}
                   >
-                    Remove
+                    {t("Remove")}
                   </Button>
                 )}
               </span>
@@ -140,8 +148,8 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                 <div className="flex w-full gap-1 rounded-md bg-canvas p-0.5 text-2xs">
                   {(
                     [
-                      ["paste", "Paste key"],
-                      ["vault", "From Vault"],
+                      ["paste", t("Paste key")],
+                      ["vault", t("From Vault")],
                     ] as const
                   ).map(([choice, label]) => (
                     <button
@@ -162,39 +170,44 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                 {from === "vault" ? (
                   choices.isPending ? (
                     <span className="flex min-w-0 flex-1 items-center gap-1.5 text-2xs text-fg-secondary">
-                      <Spinner /> Reading the team's Vault…
+                      <Spinner /> {t("Reading the team’s Vault…")}
                     </span>
                   ) : usable.length === 0 ? (
                     <span className="min-w-0 flex-1 text-2xs text-fg-secondary">
-                      The team's Vault has no secret to choose yet.{" "}
-                      <Link
-                        to={teamHref(`/vault?scope=${teamId}`)}
-                        className="underline underline-offset-2"
-                      >
-                        Add the key to the Vault
-                      </Link>
-                      , then choose it here.
+                      {t(
+                        "The team’s Vault has no secret to choose yet. {link}, then choose it here.",
+                        {
+                          link: (
+                            <Link
+                              to={teamHref(`/vault?scope=${teamId}`)}
+                              className="underline underline-offset-2"
+                            >
+                              {t("Add the key to the Vault")}
+                            </Link>
+                          ),
+                        },
+                      )}
                     </span>
                   ) : (
                     <NativeSelect
-                      aria-label={`${key.label} key from Vault`}
+                      aria-label={t("{label} key from Vault", { label: key.label })}
                       value={vaultName}
                       onChange={(event) => setVaultName(event.target.value)}
                       className="min-w-0 flex-1"
                     >
-                      <option value="">Choose the secret holding the key…</option>
+                      <option value="">{t("Choose the secret holding the key…")}</option>
                       {usable.map((choice) => (
                         <option key={choice.name} value={choice.name}>
                           {choice.name}
-                          {choice.protected ? " · Protected" : ""}
+                          {choice.protected ? t(" · Protected") : ""}
                         </option>
                       ))}
                     </NativeSelect>
                   )
                 ) : (
                   <PasswordInput
-                    aria-label={`${key.label} API key`}
-                    placeholder="Paste the key"
+                    aria-label={t("{label} API key", { label: key.label })}
+                    placeholder={t("Paste the key")}
                     value={value}
                     onChange={(event) => setValue(event.target.value)}
                     autoComplete="off"
@@ -202,15 +215,17 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
                   />
                 )}
                 <Button type="submit" size="sm" variant="primary" disabled={save.isPending}>
-                  {save.isPending ? "Saving…" : "Save"}
+                  {save.isPending ? t("Saving…") : t("Save")}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>
-                  Cancel
+                  {t("Cancel")}
                 </Button>
                 <span className="w-full text-2xs text-fg-muted">
                   {from === "vault"
-                    ? "Only the secret's name is kept; its value is read when the key is used and never shown."
-                    : `Get one at ${key.hint}.`}
+                    ? t(
+                        "Only the secret’s name is kept; its value is read when the key is used and never shown.",
+                      )
+                    : t("Get one at {hint}.", { hint: key.hint })}
                 </span>
               </form>
             )}

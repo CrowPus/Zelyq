@@ -4,6 +4,7 @@ import { Check, CircleAlert, Copy, KeyRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import { formatDate, formatDateTime } from "../lib/format";
+import { t } from "../lib/i18n";
 import { Badge, Button, confirmAction, IconButton, Input, Spinner } from "./ui";
 
 /**
@@ -52,25 +53,27 @@ export function AdminKeysPanel() {
 
   return (
     <section className="mt-7">
-      <h2 className="text-sm font-medium text-fg">API keys</h2>
+      <h2 className="text-sm font-medium text-fg">{t("API keys")}</h2>
       <p className="mt-1 text-xs text-fg-secondary">
-        For your own systems that run this server: an account service, monitoring, analytics or
-        support tools. They call <code className="font-mono">/api/admin/v1</code> with{" "}
-        <code className="font-mono">Authorization: Bearer zlq_admin_…</code>. Give each system its
-        own key with only what it needs. Every change a key makes is in the audit log under its
-        name.
+        {t(
+          "For your own systems that run this server: an account service, monitoring, analytics or support tools. They call {code} with {code2}. Give each system its own key with only what it needs. Every change a key makes is in the audit log under its name.",
+          {
+            code: <code className="font-mono">/api/admin/v1</code>,
+            code2: <code className="font-mono">Authorization: Bearer zlq_admin_…</code>,
+          },
+        )}
       </p>
 
       {fresh && (
         <div className="mt-4 rounded-lg border border-success/30 bg-success-subtle p-3">
           <p className="text-xs font-medium text-fg">
-            “{fresh.name}” is ready. Copy the key now: it is not shown again.
+            {t("“{name}” is ready. Copy the key now: it is not shown again.", { name: fresh.name })}
           </p>
           <div className="mt-2 flex items-center gap-2 rounded-md border border-border-default bg-surface px-2 py-1.5">
             <code className="min-w-0 flex-1 break-all font-mono text-xs">{fresh.key}</code>
             <IconButton
               size="sm"
-              label={copied ? "Copied" : "Copy key"}
+              label={copied ? t("Copied") : t("Copy key")}
               onClick={async () => {
                 await navigator.clipboard.writeText(fresh.key);
                 setCopied(true);
@@ -85,7 +88,7 @@ export function AdminKeysPanel() {
             </IconButton>
           </div>
           <Button size="sm" variant="ghost" className="mt-2" onClick={() => setFresh(null)}>
-            I have stored it
+            {t("I have stored it")}
           </Button>
         </div>
       )}
@@ -96,19 +99,21 @@ export function AdminKeysPanel() {
       >
         <div className="flex flex-col gap-1.5">
           <label htmlFor="admin-key-name" className="text-xs font-medium text-fg-secondary">
-            Name
+            {t("Name")}
           </label>
           <Input
             id="admin-key-name"
             value={name}
             maxLength={60}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Account service"
+            placeholder={t("Account service")}
           />
         </div>
         <fieldset>
           <div className="flex items-baseline justify-between">
-            <legend className="text-xs font-medium text-fg-secondary">What it may reach</legend>
+            <legend className="text-xs font-medium text-fg-secondary">
+              {t("What it may reach")}
+            </legend>
             <button
               type="button"
               className="text-xs text-info underline-offset-2 hover:underline"
@@ -118,7 +123,7 @@ export function AdminKeysPanel() {
                 )
               }
             >
-              {scopes.size === ALL_ADMIN_SCOPES.length ? "None" : "All"}
+              {scopes.size === ALL_ADMIN_SCOPES.length ? t("None") : t("All")}
             </button>
           </div>
           <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
@@ -153,7 +158,7 @@ export function AdminKeysPanel() {
           icon={<KeyRound size={13} />}
           disabled={!name.trim() || scopes.size === 0 || create.isPending}
         >
-          {create.isPending ? "Making…" : "Make key"}
+          {create.isPending ? t("Making…") : t("Make key")}
         </Button>
       </form>
 
@@ -161,7 +166,7 @@ export function AdminKeysPanel() {
         {keys.isLoading ? (
           <Spinner />
         ) : (keys.data?.keys ?? []).length === 0 ? (
-          <p className="text-xs text-fg-muted">No keys yet.</p>
+          <p className="text-xs text-fg-muted">{t("No keys yet.")}</p>
         ) : (
           <ul className="overflow-hidden rounded-lg border border-border-default bg-surface">
             {keys.data?.keys.map((key) => (
@@ -173,13 +178,21 @@ export function AdminKeysPanel() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm text-fg">{key.name}</span>
                     <code className="font-mono text-2xs text-fg-muted">{key.prefix}…</code>
-                    {key.revokedAt && <Badge tone="danger">revoked</Badge>}
+                    {key.revokedAt && <Badge tone="danger">{t("revoked")}</Badge>}
                   </div>
                   <p className="mt-0.5 text-2xs text-fg-muted">
-                    {key.scopes.join(", ")} · made {formatDate(key.createdAt)} ·{" "}
+                    {key.scopes.join(", ")}{" "}
                     {key.lastUsedAt
-                      ? `last used ${formatDateTime(key.lastUsedAt)}${key.lastUsedIp ? ` from ${key.lastUsedIp}` : ""}`
-                      : "never used"}
+                      ? t("· made {createdAt} · last used {lastUsedAt}{value}", {
+                          createdAt: formatDate(key.createdAt),
+                          lastUsedAt: formatDateTime(key.lastUsedAt),
+                          value: key.lastUsedIp
+                            ? t(" from {lastUsedIp}", { lastUsedIp: key.lastUsedIp })
+                            : "",
+                        })
+                      : t("· made {createdAt} · never used", {
+                          createdAt: formatDate(key.createdAt),
+                        })}
                   </p>
                 </div>
                 {!key.revokedAt && (
@@ -190,9 +203,9 @@ export function AdminKeysPanel() {
                     onClick={async () => {
                       if (
                         await confirmAction({
-                          title: `Revoke “${key.name}”?`,
-                          description: `It stops working at once.`,
-                          confirmLabel: "Revoke key",
+                          title: t("Revoke “{name}”?", { name: key.name }),
+                          description: t("It stops working at once."),
+                          confirmLabel: t("Revoke key"),
                           danger: true,
                         })
                       ) {
@@ -200,7 +213,7 @@ export function AdminKeysPanel() {
                       }
                     }}
                   >
-                    Revoke
+                    {t("Revoke")}
                   </Button>
                 )}
               </li>

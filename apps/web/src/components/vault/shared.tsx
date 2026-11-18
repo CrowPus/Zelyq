@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import type { VaultImportResult, VaultVersion } from "@zelyq/core";
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { t } from "../../lib/i18n";
 import { formatRelative, REVEAL_SECONDS, vaultErrorMessage } from "../../lib/vault";
 import { Badge, Button, IconButton, Spinner, Textarea } from "../ui";
 
@@ -20,7 +21,7 @@ export function RevealedValue({ value, onHide }: { value: string; onHide: () => 
       <code className="min-w-0 flex-1 break-all font-mono text-xs">{value}</code>
       <IconButton
         size="sm"
-        label={copied ? "Copied" : "Copy value"}
+        label={copied ? t("Copied") : t("Copy value")}
         onClick={async () => {
           await navigator.clipboard.writeText(value);
           setCopied(true);
@@ -29,7 +30,9 @@ export function RevealedValue({ value, onHide }: { value: string; onHide: () => 
       >
         {copied ? <Check size={13} strokeWidth={1.75} /> : <Copy size={13} strokeWidth={1.75} />}
       </IconButton>
-      <span className="text-2xs text-fg-muted">hides in {REVEAL_SECONDS}s</span>
+      <span className="text-2xs text-fg-muted">
+        {t("hides in {REVEAL_SECONDS}s", { REVEAL_SECONDS })}
+      </span>
     </div>
   );
 }
@@ -55,7 +58,9 @@ export function VersionHistory({
   return (
     <div className="mt-2 rounded-md border border-border-default bg-surface-subtle p-2">
       {versions.isPending && <Spinner className="size-3" />}
-      {versions.data?.length === 0 && <p className="text-xs text-fg-muted">No typed values yet.</p>}
+      {versions.data?.length === 0 && (
+        <p className="text-xs text-fg-muted">{t("No typed values yet.")}</p>
+      )}
       {versions.data && versions.data.length > 0 && (
         <ol className="grid gap-1">
           {versions.data.map((version) => (
@@ -64,11 +69,11 @@ export function VersionHistory({
                 <span className="font-mono">v{version.version}</span>
                 <span className="text-fg-muted">
                   {" "}
-                  · {version.createdBy?.name ?? "Zelyq"} · {formatRelative(version.createdAt)}
+                  · {version.createdBy?.name ?? t("Zelyq")} · {formatRelative(version.createdAt)}
                 </span>
               </span>
               {version.current ? (
-                <Badge tone="success">current</Badge>
+                <Badge tone="success">{t("current")}</Badge>
               ) : (
                 canRestore && (
                   <Button
@@ -77,7 +82,7 @@ export function VersionHistory({
                     onClick={() => run.mutate(version.version)}
                     disabled={run.isPending}
                   >
-                    Restore
+                    {t("Restore")}
                   </Button>
                 )
               )}
@@ -129,7 +134,7 @@ export function ImportForm({
       <div>
         <p className="text-xs font-medium">{title}</p>
         <p className="text-2xs text-fg-muted">
-          A one-time way to bring existing keys in. The file is not kept.
+          {t("A one-time way to bring existing keys in. The file is not kept.")}
         </p>
       </div>
       <Textarea
@@ -139,7 +144,7 @@ export function ImportForm({
         placeholder={"STRIPE_KEY_TEST=sk_test_…\nOPENAI_API_KEY=sk-…"}
         className="font-mono text-xs"
         spellCheck={false}
-        aria-label=".env content"
+        aria-label={t(".env content")}
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="flex items-center gap-1.5 text-xs text-fg-secondary">
@@ -148,10 +153,10 @@ export function ImportForm({
             checked={overwrite}
             onChange={(event) => setOverwrite(event.target.checked)}
           />
-          Replace ones that already exist
+          {t("Replace ones that already exist")}
         </label>
         <label className="cursor-pointer text-xs text-fg-secondary underline-offset-2 hover:underline">
-          Or choose a file
+          {t("Or choose a file")}
           <input
             type="file"
             className="sr-only"
@@ -170,23 +175,36 @@ export function ImportForm({
       )}
       {result && (
         <div role="status" className="grid gap-1 text-xs">
-          {result.created.length > 0 && <p>Added: {result.created.join(", ")}</p>}
-          {result.updated.length > 0 && <p>Replaced: {result.updated.join(", ")}</p>}
+          {result.created.length > 0 && (
+            <p>
+              {t("Added:")} {result.created.join(", ")}
+            </p>
+          )}
+          {result.updated.length > 0 && (
+            <p>
+              {t("Replaced:")} {result.updated.join(", ")}
+            </p>
+          )}
           {result.skipped.length > 0 && (
             <ul className="text-fg-secondary">
               {result.skipped.map((item) => (
                 <li key={item.name}>
-                  Skipped <span className="font-mono">{item.name}</span>: {item.reason}
+                  {t("Skipped {name}: {reason}", {
+                    name: <span className="font-mono">{item.name}</span>,
+                    reason: item.reason,
+                  })}
                 </li>
               ))}
             </ul>
           )}
-          {result.created.length + result.updated.length === 0 && <p>Nothing was imported.</p>}
+          {result.created.length + result.updated.length === 0 && (
+            <p>{t("Nothing was imported.")}</p>
+          )}
         </div>
       )}
       <div className="flex justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onClose}>
-          {result ? "Done" : "Cancel"}
+          {result ? t("Done") : t("Cancel")}
         </Button>
         <Button
           size="sm"
@@ -194,7 +212,7 @@ export function ImportForm({
           type="submit"
           disabled={!content.trim() || submit.isPending}
         >
-          {submit.isPending ? "Importing…" : "Import"}
+          {submit.isPending ? t("Importing…") : t("Import")}
         </Button>
       </div>
     </form>

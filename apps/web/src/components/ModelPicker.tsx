@@ -4,6 +4,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 
 export interface ModelChoice {
   provider: string;
@@ -102,18 +103,18 @@ export function ModelPicker({ value, onChange }: Props) {
           onClick={failed ? () => void providers.refetch() : undefined}
           aria-label={
             failed
-              ? "Unavailable: model list could not load, click to retry"
-              : "Default: loading the model list"
+              ? t("Unavailable: model list could not load, click to retry")
+              : t("Default: loading the model list")
           }
           title={
             failed
-              ? "Could not load the model list. The agent may be restarting — click to retry."
-              : "Loading models…"
+              ? t("Could not load the model list. The agent may be restarting — click to retry.")
+              : t("Loading models…")
           }
           className="flex w-20 min-w-14 max-w-20 items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors disabled:cursor-default enabled:hover:bg-surface-hover enabled:hover:text-fg"
         >
           <span className="min-w-0 flex-1 truncate text-left">
-            {value?.label ?? (failed ? "Unavailable" : "Default")}
+            {value?.label ?? (failed ? t("Unavailable") : t("Default"))}
           </span>
           <ChevronDown size={11} strokeWidth={2} className="shrink-0 opacity-40" />
         </button>
@@ -133,11 +134,13 @@ export function ModelPicker({ value, onChange }: Props) {
         onClick={() => setOpen((current) => !current)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${value?.label ?? "Default"}: choose a model for this conversation`}
-        title={value?.label ?? "Default"}
+        aria-label={t("{label}: choose a model for this conversation", {
+          label: value?.label ?? t("Default"),
+        })}
+        title={value?.label ?? t("Default")}
         className="flex w-20 min-w-14 max-w-20 items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
       >
-        <span className="min-w-0 flex-1 truncate text-left">{value?.label ?? "Default"}</span>
+        <span className="min-w-0 flex-1 truncate text-left">{value?.label ?? t("Default")}</span>
         <ChevronDown size={11} strokeWidth={2} className="shrink-0" />
       </button>
 
@@ -155,8 +158,8 @@ export function ModelPicker({ value, onChange }: Props) {
             className="absolute bottom-full left-0 z-20 mb-1.5 max-h-[min(70dvh,32rem)] w-72 overflow-y-auto rounded-lg border border-border-default bg-overlay p-1 shadow-overlay"
           >
             <MenuRow
-              label="Default"
-              detail="Whatever this instance is currently set to"
+              label={t("Default")}
+              detail={t("Whatever this instance is currently set to")}
               selected={value === null}
               onClick={() => {
                 onChange(null);
@@ -187,9 +190,9 @@ export function ModelPicker({ value, onChange }: Props) {
                       detail={
                         model.description ??
                         (model.group === "legacy"
-                          ? "Legacy"
+                          ? t("Legacy")
                           : model.group === "previous"
-                            ? "Previous generation"
+                            ? t("Previous generation")
                             : undefined)
                       }
                       selected={value?.provider === provider.id && value.model === model.value}
@@ -208,7 +211,7 @@ export function ModelPicker({ value, onChange }: Props) {
                     onClick={() => setShowMore(!showMore)}
                     className="w-full rounded-md px-2.5 py-1.5 text-left text-xs text-fg-muted hover:bg-surface-hover"
                   >
-                    {showMore ? "Fewer models" : "More models…"}
+                    {showMore ? t("Fewer models") : t("More models…")}
                   </button>
                 )}
               </div>

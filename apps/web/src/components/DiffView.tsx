@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { collapseUnchanged, countChanges, type DiffLine, diffLines } from "../lib/diff";
+import { t } from "../lib/i18n";
 import { Spinner } from "./ui";
 
 /** An absent file is an empty side, not an error: the turn created or deleted it. */
@@ -57,13 +58,15 @@ export function DiffView({ projectId, beforeSnapshotId, afterSnapshotId, path, c
   if (before.isLoading || (afterSnapshotId !== null && after.isLoading)) {
     return (
       <div className="flex items-center gap-2 px-3 py-3 text-xs text-fg-muted">
-        <Spinner /> Working out what changed…
+        <Spinner /> {t("Working out what changed…")}
       </div>
     );
   }
 
   if (before.data === null) {
-    return <p className="px-3 py-3 text-xs text-fg-muted">{path} is not a text file.</p>;
+    return (
+      <p className="px-3 py-3 text-xs text-fg-muted">{t("{path} is not a text file.", { path })}</p>
+    );
   }
 
   const now = afterSnapshotId !== null ? (after.data ?? "") : current;
@@ -72,7 +75,9 @@ export function DiffView({ projectId, beforeSnapshotId, afterSnapshotId, path, c
 
   if (added === 0 && removed === 0) {
     return (
-      <p className="px-3 py-3 text-xs text-fg-muted">This turn did not change {path} in the end.</p>
+      <p className="px-3 py-3 text-xs text-fg-muted">
+        {t("This turn did not change {path} in the end.", { path })}
+      </p>
     );
   }
 
@@ -111,9 +116,9 @@ function DiffTable({
   return (
     <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
       <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border-default bg-surface px-3 py-1.5 text-2xs">
-        <span className="text-success">+{added} added</span>
-        <span className="text-danger">−{removed} removed</span>
-        <span className="text-fg-muted">unchanged lines hidden</span>
+        <span className="text-success">{t("+{added} added", { added })}</span>
+        <span className="text-danger">{t("−{removed} removed", { removed })}</span>
+        <span className="text-fg-muted">{t("unchanged lines hidden")}</span>
       </div>
 
       <table className="w-full border-collapse font-mono text-xs leading-[1.6]">

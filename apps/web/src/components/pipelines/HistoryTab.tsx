@@ -3,6 +3,7 @@ import type { PipelineVersionSummary } from "@zelyq/core";
 import { History, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
+import { t } from "../../lib/i18n";
 import { TextDiff } from "../DiffView";
 import { Badge, Button, EmptyState, RelativeTime, Spinner } from "../ui";
 
@@ -57,8 +58,10 @@ export function HistoryTab({
   if (list.length === 0 || !chosen) {
     return (
       <EmptyState
-        title="No history yet"
-        description="From now on every save of this pipeline is kept here, so you can see what changed and put an earlier version back."
+        title={t("No history yet")}
+        description={t(
+          "From now on every save of this pipeline is kept here, so you can see what changed and put an earlier version back.",
+        )}
       />
     );
   }
@@ -82,8 +85,8 @@ export function HistoryTab({
               }`}
             >
               <span className="flex items-center gap-1.5 text-xs font-medium text-fg">
-                Version {version.version}
-                {version.current && <Badge tone="success">now</Badge>}
+                {t("Version {version}", { version: version.version })}
+                {version.current && <Badge tone="success">{t("now")}</Badge>}
               </span>
               <VersionMeta version={version} />
             </button>
@@ -95,13 +98,13 @@ export function HistoryTab({
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default px-3 py-2">
           <span className="flex items-center gap-1.5 text-xs text-fg">
             <History size={13} strokeWidth={1.75} className="text-fg-muted" />
-            Version {chosen.version}
+            {t("Version {version}", { version: chosen.version })}
             <span className="text-fg-muted">
               {against === "now"
-                ? "compared with now"
+                ? t("compared with now")
                 : base
-                  ? `compared with version ${base}`
-                  : "— the first version"}
+                  ? t("compared with version {base}", { base })
+                  : t("— the first version")}
             </span>
           </span>
           <span className="flex items-center gap-1">
@@ -116,7 +119,7 @@ export function HistoryTab({
                     against === value ? "bg-surface-active text-fg" : "text-fg-secondary"
                   }`}
                 >
-                  {value === "previous" ? "What it changed" : "Compared with now"}
+                  {value === "previous" ? t("What it changed") : t("Compared with now")}
                 </button>
               ))}
             </span>
@@ -126,7 +129,7 @@ export function HistoryTab({
                 icon={<RotateCcw size={12} strokeWidth={1.75} />}
                 onClick={() => setConfirming(true)}
               >
-                Restore
+                {t("Restore")}
               </Button>
             )}
           </span>
@@ -135,12 +138,14 @@ export function HistoryTab({
         {confirming && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default bg-warning-subtle px-3 py-2 text-xs">
             <span>
-              Put version {chosen.version} back? It is saved as a new version, so this can be undone
-              the same way.
+              {t(
+                "Put version {version} back? It is saved as a new version, so this can be undone the same way.",
+                { version: chosen.version },
+              )}
             </span>
             <span className="flex gap-1">
               <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button
                 size="sm"
@@ -148,7 +153,7 @@ export function HistoryTab({
                 disabled={restore.isPending}
                 onClick={() => restore.mutate(chosen.version)}
               >
-                {restore.isPending ? "Restoring…" : "Restore"}
+                {restore.isPending ? t("Restoring…") : t("Restore")}
               </Button>
             </span>
           </div>
@@ -160,7 +165,7 @@ export function HistoryTab({
         )}
         {inRepository && (
           <p className="border-b border-border-default px-3 py-2 text-2xs text-fg-muted">
-            This file is kept in the repository: put an earlier version back there.
+            {t("This file is kept in the repository: put an earlier version back there.")}
           </p>
         )}
 
@@ -175,8 +180,8 @@ export function HistoryTab({
               after={against === "now" ? (baseSource.data ?? "") : (chosenSource.data ?? "")}
               empty={
                 against === "now"
-                  ? "This version is the same as the pipeline now."
-                  : "This save did not change the file."
+                  ? t("This version is the same as the pipeline now.")
+                  : t("This save did not change the file.")
               }
             />
           </div>

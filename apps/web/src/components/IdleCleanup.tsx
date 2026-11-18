@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type CleanupReportView } from "../lib/api";
 import { formatDateTime } from "../lib/format";
+import { t } from "../lib/i18n";
 import { sizeWords } from "./UsagePanel";
 import { Button } from "./ui";
 
@@ -34,23 +35,24 @@ export function IdleCleanup() {
   const mb = (bytes: number) => sizeWords(bytes / 1024 / 1024);
 
   return (
-    <section className="mt-8" aria-label="Idle apps">
-      <h3 className="text-sm font-medium text-fg">Idle apps</h3>
+    <section className="mt-8" aria-label={t("Idle apps")}>
+      <h3 className="text-sm font-medium text-fg">{t("Idle apps")}</h3>
       <p className="mt-0.5 text-xs leading-relaxed text-fg-secondary">
-        Apps nobody has opened, talked to or previewed for a while (Server settings → Runtime) have
-        their installed packages and build caches removed: node_modules, Python environments,
-        framework caches. Nothing a person wrote, and nothing kept in an app's git history, is
-        touched. The packages come back by themselves the next time the app's preview starts. This
-        runs every few hours.
+        {t(
+          "Apps nobody has opened, talked to or previewed for a while (Server settings → Runtime) have their installed packages and build caches removed: node_modules, Python environments, framework caches. Nothing a person wrote, and nothing kept in an app’s git history, is touched. The packages come back by themselves the next time the app’s preview starts. This runs every few hours.",
+        )}
       </p>
       <p className="mt-2 text-xs text-fg">
         {done
-          ? `Last cleared ${formatDateTime(done.at)}: ${done.apps} app${done.apps === 1 ? "" : "s"}, ${mb(done.freedBytes)} freed.`
-          : "Not run yet."}
+          ? t(
+              "Last cleared {at}: {apps, plural, one {# app} other {# apps}}, {freedBytes} freed.",
+              { at: formatDateTime(done.at), apps: done.apps, freedBytes: mb(done.freedBytes) },
+            )
+          : t("Not run yet.")}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         <Button size="sm" disabled={run.isPending} onClick={() => run.mutate(true)}>
-          {run.isPending && run.variables === true ? "Looking…" : "See what would be cleared"}
+          {run.isPending && run.variables === true ? t("Looking…") : t("See what would be cleared")}
         </Button>
         {look && look.apps > 0 && (
           <Button
@@ -60,8 +62,8 @@ export function IdleCleanup() {
             onClick={() => run.mutate(false)}
           >
             {run.isPending && run.variables === false
-              ? "Clearing…"
-              : `Clear now (${mb(look.freedBytes)})`}
+              ? t("Clearing…")
+              : t("Clear now ({freedBytes})", { freedBytes: mb(look.freedBytes) })}
           </Button>
         )}
       </div>
@@ -69,7 +71,9 @@ export function IdleCleanup() {
       {look && (
         <div className="mt-3 overflow-hidden rounded-lg border border-border-default bg-surface">
           {look.cleared.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-fg-muted">No idle app has anything to clear.</p>
+            <p className="px-4 py-3 text-xs text-fg-muted">
+              {t("No idle app has anything to clear.")}
+            </p>
           ) : (
             look.cleared.map((app) => (
               <div

@@ -1,5 +1,6 @@
 import type { AgentEvent, AttachmentRef, Message, ServerMessage, ToolCall } from "@zelyq/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t } from "../lib/i18n";
 import {
   type Body,
   onRest,
@@ -126,7 +127,7 @@ export function useChatSocket(projectId: string, onFilesChanged?: (paths: string
       // `onerror` is always followed by `onclose`; let that drive the retry and
       // just surface a message here.
       socket.onerror = () => {
-        setState((previous) => ({ ...previous, error: "Connection lost — reconnecting…" }));
+        setState((previous) => ({ ...previous, error: t("Connection lost — reconnecting…") }));
       };
 
       socket.onmessage = (event) => {

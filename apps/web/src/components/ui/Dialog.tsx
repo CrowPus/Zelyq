@@ -1,6 +1,7 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { t } from "../../lib/i18n";
 
 /**
  * The one dialog. Focus is trapped inside while it is open and returns to
@@ -49,7 +50,7 @@ export function Dialog({
               )}
             </div>
             <RadixDialog.Close
-              aria-label="Close"
+              aria-label={t("Close")}
               className="-mt-1 -mr-2 grid size-8 shrink-0 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
             >
               <X size={16} strokeWidth={1.75} />
@@ -114,7 +115,7 @@ export function Drawer({
             </div>
             {actions}
             <RadixDialog.Close
-              aria-label="Close"
+              aria-label={t("Close")}
               className="-mr-2 grid size-8 shrink-0 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
             >
               <X size={16} strokeWidth={1.75} />

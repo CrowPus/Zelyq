@@ -38,6 +38,7 @@ import {
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { formatNumber } from "../lib/format";
+import { t } from "../lib/i18n";
 import { useLiveTalk } from "../lib/ops-live";
 import { formatRelative, vaultErrorMessage } from "../lib/vault";
 
@@ -47,14 +48,14 @@ const STAGE_WORDS: Record<
   string,
   { label: string; tone: "neutral" | "info" | "success" | "warning" | "danger" }
 > = {
-  survey: { label: "Looking", tone: "info" },
-  plan: { label: "Planning", tone: "info" },
-  approve: { label: "Waiting for approval", tone: "warning" },
-  act: { label: "Working", tone: "info" },
-  record: { label: "Writing it down", tone: "info" },
-  done: { label: "Done", tone: "success" },
-  failed: { label: "Not done", tone: "danger" },
-  stopped: { label: "Stopped", tone: "neutral" },
+  survey: { label: t("Looking"), tone: "info" },
+  plan: { label: t("Planning"), tone: "info" },
+  approve: { label: t("Waiting for approval"), tone: "warning" },
+  act: { label: t("Working"), tone: "info" },
+  record: { label: t("Writing it down"), tone: "info" },
+  done: { label: t("Done"), tone: "success" },
+  failed: { label: t("Not done"), tone: "danger" },
+  stopped: { label: t("Stopped"), tone: "neutral" },
 };
 
 /**
@@ -89,20 +90,17 @@ export function OpsPage() {
 
   const status = engineer.data?.engineer;
   return (
-    <AppShell crumbs={[{ label: "Ops" }]}>
+    <AppShell crumbs={[{ label: t("Ops") }]}>
       <PageBody width="standard" className="flex flex-col gap-4">
         <PageHeader
-          title="Ops"
-          description={
-            <>
-              Your DevOps engineer. Tell it what you need, typed or aloud; it looks first, shows you
-              a plan, and proves every change.
-            </>
-          }
+          title={t("Ops")}
+          description={t(
+            "Your DevOps engineer. Tell it what you need, typed or aloud; it looks first, shows you a plan, and proves every change.",
+          )}
           actions={
             status && (
               <Badge tone={status.paused ? "warning" : "success"}>
-                {status.paused ? "Paused" : "Ready"}
+                {status.paused ? t("Paused") : t("Ready")}
               </Badge>
             )
           }
@@ -112,16 +110,18 @@ export function OpsPage() {
           <Spinner />
         ) : !status ? (
           <EmptyState
-            title="Ops is not set up in this team"
+            title={t("Ops is not set up in this team")}
             description={
               isAdmin
-                ? "Setting it up adds Ops to the team. It can do nothing until someone asks it, and changes to anything protected always wait for an admin."
-                : "A team admin sets it up once."
+                ? t(
+                    "Setting it up adds Ops to the team. It can do nothing until someone asks it, and changes to anything protected always wait for an admin.",
+                  )
+                : t("A team admin sets it up once.")
             }
             action={
               isAdmin ? (
                 <Button variant="primary" disabled={setUp.isPending} onClick={() => setUp.mutate()}>
-                  Set up Ops
+                  {t("Set up Ops")}
                 </Button>
               ) : undefined
             }
@@ -129,16 +129,16 @@ export function OpsPage() {
         ) : (
           <>
             <Tabs
-              label="Ops"
+              label={t("Ops")}
               value={tab}
               onChange={(name) => setTab(name)}
               items={[
-                { id: "talk", label: "Talk" },
-                { id: "status", label: "Status" },
-                { id: "alerts", label: "Alerts" },
-                { id: "memory", label: "Memory" },
-                { id: "access", label: "Access" },
-                { id: "settings", label: "Settings" },
+                { id: "talk", label: t("Talk") },
+                { id: "status", label: t("Status") },
+                { id: "alerts", label: t("Alerts") },
+                { id: "memory", label: t("Memory") },
+                { id: "access", label: t("Access") },
+                { id: "settings", label: t("Settings") },
               ]}
             />
             {tab === "talk" && <TalkTab teamId={teamId} canTalk={canTalk} paused={status.paused} />}
@@ -245,7 +245,7 @@ function TalkTab({
         className={`${jobId ? "hidden lg:flex" : "flex"} flex-col gap-2 lg:h-[calc(100dvh-14rem)] lg:min-h-[420px] lg:overflow-y-auto`}
       >
         <Button icon={<Plus size={13} />} onClick={newConversation} disabled={!canTalk}>
-          New conversation
+          {t("New conversation")}
         </Button>
         <ul className="flex flex-col gap-1">
           {(jobs.data?.jobs ?? []).map((row) => {
@@ -278,11 +278,11 @@ function TalkTab({
           <Conversation teamId={teamId} job={current} onBack={() => setJobId(null)} />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-fg-secondary">
-            <p className="font-medium text-fg">What do you need?</p>
+            <p className="font-medium text-fg">{t("What do you need?")}</p>
             <p className="max-w-md text-xs">
-              For example: “Put my shop online at myshop.com”, “Is everything OK?”, “Ship the latest
-              version”, “Why was the site down last night?”. Type it, or press the microphone and
-              just talk: Ops answers aloud.
+              {t(
+                "For example: “Put my shop online at myshop.com”, “Is everything OK?”, “Ship the latest version”, “Why was the site down last night?”. Type it, or press the microphone and just talk: Ops answers aloud.",
+              )}
             </p>
           </div>
         )}
@@ -290,7 +290,7 @@ function TalkTab({
         <form onSubmit={send} className="border-t border-border-default p-3">
           {paused && (
             <p className="mb-2 text-xs text-warning">
-              Ops is paused. An admin resumes it on the Settings tab above.
+              {t("Ops is paused. An admin resumes it on the Settings tab above.")}
             </p>
           )}
           {(error || live.error) && (
@@ -303,28 +303,28 @@ function TalkTab({
               />
               <span className="text-xs font-medium text-fg">
                 {live.status === "connecting"
-                  ? "Connecting…"
+                  ? t("Connecting…")
                   : live.speaking
-                    ? "Ops is talking — just speak to interrupt"
+                    ? t("Ops is talking — just speak to interrupt")
                     : live.working
-                      ? "Ops is working…"
+                      ? t("Ops is working…")
                       : live.muted
-                        ? "Muted — Ops cannot hear you"
-                        : "Listening — just talk"}
+                        ? t("Muted — Ops cannot hear you")
+                        : t("Listening — just talk")}
               </span>
               <span className="ml-auto flex gap-1">
                 <Button size="sm" variant="secondary" onClick={live.toggleMute}>
                   {live.muted ? <MicOff size={13} /> : <Mic size={13} />}
-                  {live.muted ? "Unmute" : "Mute"}
+                  {live.muted ? t("Unmute") : t("Mute")}
                 </Button>
                 <Button size="sm" variant="danger" onClick={live.stop}>
-                  <PhoneOff size={13} /> End
+                  <PhoneOff size={13} /> {t("End")}
                 </Button>
               </span>
               {live.caption && (
                 <p className="w-full text-sm text-fg-secondary">
                   <span className="font-medium text-fg">
-                    {live.caption.role === "ops" ? "Ops: " : "You: "}
+                    {live.caption.role === "ops" ? t("Ops: ") : t("You: ")}
                   </span>
                   {live.caption.text}
                 </p>
@@ -333,11 +333,13 @@ function TalkTab({
           )}
           <div className="flex items-end gap-2">
             <Textarea
-              aria-label="Message to Ops"
+              aria-label={t("Message to Ops")}
               rows={2}
               value={draft}
               disabled={!canTalk || paused}
-              placeholder={canTalk ? "Tell Ops what you need…" : "Editors and admins talk to Ops."}
+              placeholder={
+                canTalk ? t("Tell Ops what you need…") : t("Editors and admins talk to Ops.")
+              }
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -350,9 +352,11 @@ function TalkTab({
             <div className="flex flex-col gap-1">
               <Button
                 variant={talking ? "danger" : "secondary"}
-                aria-label={talking ? "End the conversation" : "Talk to Ops"}
+                aria-label={talking ? t("End the conversation") : t("Talk to Ops")}
                 title={
-                  talking ? "End the conversation" : "Talk to Ops: it listens and answers aloud"
+                  talking
+                    ? t("End the conversation")
+                    : t("Talk to Ops: it listens and answers aloud")
                 }
                 disabled={!canTalk || paused}
                 onClick={() => {
@@ -365,7 +369,7 @@ function TalkTab({
               <Button
                 type="submit"
                 variant="primary"
-                aria-label="Send"
+                aria-label={t("Send")}
                 disabled={!canTalk || paused || !draft.trim() || (!talking && talk.isPending)}
               >
                 {talk.isPending ? (
@@ -378,7 +382,7 @@ function TalkTab({
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-fg-secondary">
             <span className="text-fg-muted">
-              Approving always takes a button, never your voice.
+              {t("Approving always takes a button, never your voice.")}
             </span>
           </div>
         </form>
@@ -440,7 +444,7 @@ function Conversation({
         <button
           type="button"
           onClick={onBack}
-          aria-label="All conversations"
+          aria-label={t("All conversations")}
           className="-ml-1 rounded p-1 text-fg-secondary hover:bg-surface-subtle lg:hidden"
         >
           <ArrowLeft size={16} />
@@ -450,11 +454,13 @@ function Conversation({
         </p>
         <Badge tone={stage.tone}>{stage.label}</Badge>
         {job.tokens > 0 && (
-          <span className="text-2xs text-fg-muted">{formatNumber(job.tokens)} tokens</span>
+          <span className="text-2xs text-fg-muted">
+            {t("{tokens} tokens", { tokens: formatNumber(job.tokens) })}
+          </span>
         )}
         {live && (
           <Button size="sm" variant="ghost" icon={<Ban size={12} />} onClick={() => stop.mutate()}>
-            Stop
+            {t("Stop")}
           </Button>
         )}
       </header>
@@ -475,7 +481,7 @@ function Conversation({
               }`}
             >
               <p className="mb-0.5 text-2xs text-fg-muted">
-                {message.role === "ops" ? "Ops" : (message.author ?? "You")} ·{" "}
+                {message.role === "ops" ? t("Ops") : (message.author ?? t("You"))} ·{" "}
                 {formatRelative(message.at)}
               </p>
               {message.role === "ops" ? (
@@ -497,15 +503,15 @@ function Conversation({
 
         {job.stage === "approve" && (
           <div className="rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm">
-            <p className="font-medium">This plan waits for your approval.</p>
+            <p className="font-medium">{t("This plan waits for your approval.")}</p>
             <p className="mt-0.5 text-xs text-fg-secondary">
-              Read each step above. Approving lets Ops do exactly these steps, nothing else.
+              {t("Read each step above. Approving lets Ops do exactly these steps, nothing else.")}
             </p>
             {job.canApprove ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Input
-                  aria-label="Why not (optional)"
-                  placeholder="If you reject it: what should change? Ops remembers it."
+                  aria-label={t("Why not (optional)")}
+                  placeholder={t("If you reject it: what should change? Ops remembers it.")}
                   value={comment}
                   onChange={(event) => setComment(event.target.value)}
                   className="min-w-[220px] flex-1"
@@ -516,7 +522,7 @@ function Conversation({
                   disabled={decide.isPending}
                   onClick={() => decide.mutate("approve")}
                 >
-                  Approve
+                  {t("Approve")}
                 </Button>
                 <Button
                   variant="danger"
@@ -524,7 +530,7 @@ function Conversation({
                   disabled={decide.isPending}
                   onClick={() => decide.mutate("reject")}
                 >
-                  Reject
+                  {t("Reject")}
                 </Button>
               </div>
             ) : (
@@ -537,7 +543,7 @@ function Conversation({
           <div className="flex items-start gap-2 text-xs text-fg-secondary">
             <Loader2 size={13} className="mt-0.5 animate-spin" />
             <div>
-              <p>Ops is working…</p>
+              <p>{t("Ops is working…")}</p>
               {job.activity.slice(-4).map((line, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: a running list, newest last
                 <p key={index} className="text-fg-muted">
@@ -550,7 +556,9 @@ function Conversation({
         {!job.working && job.activity.length > 0 && (
           <details className="text-xs text-fg-secondary">
             <summary className="cursor-pointer select-none">
-              What Ops looked at and did ({job.activity.length})
+              {t("What Ops looked at and did ({activityCount})", {
+                activityCount: job.activity.length,
+              })}
             </summary>
             <ol className="mt-1 list-decimal pl-5 text-fg-muted">
               {job.activity.map((line, index) => (
@@ -588,7 +596,9 @@ function PlanCard({
   return (
     <div className="rounded-md border border-border-default p-3">
       <p className="mb-2 text-xs font-medium text-fg-secondary">
-        The plan{job.planApprovedBy ? ` — approved by ${job.planApprovedBy}` : ""}
+        {job.planApprovedBy
+          ? t("The plan — approved by {planApprovedBy}", { planApprovedBy: job.planApprovedBy })
+          : t("The plan")}
       </p>
       <ol className="flex flex-col gap-2">
         {job.steps.map((step) => {
@@ -612,29 +622,34 @@ function PlanCard({
                   {step.position + 1}. {step.words}
                 </p>
                 <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-2xs text-fg-muted">
-                  {step.risk === "always-ask" && <Badge tone="danger">Cannot be undone</Badge>}
-                  {step.needsApproval && step.risk !== "always-ask" && (
-                    <Badge tone="warning">Needs approval</Badge>
+                  {step.risk === "always-ask" && (
+                    <Badge tone="danger">{t("Cannot be undone")}</Badge>
                   )}
-                  {step.undo && <span>Way back: {step.undo}</span>}
+                  {step.needsApproval && step.risk !== "always-ask" && (
+                    <Badge tone="warning">{t("Needs approval")}</Badge>
+                  )}
+                  {step.undo && <span>{t("Way back: {undo}", { undo: step.undo })}</span>}
                 </p>
                 {step.proof && (
                   <p
                     className={`mt-0.5 text-2xs ${step.proof.ok ? "text-success" : "text-danger"}`}
                   >
-                    Checked by Zelyq: {step.proof.ok ? "it worked" : "it did not work"}
+                    {step.proof.ok
+                      ? t("Checked by Zelyq: it worked")
+                      : t("Checked by Zelyq: it did not work")}
                     {step.proof.detail ? ` — ${step.proof.detail}` : ""}
                   </p>
                 )}
                 {step.status === "replaced" && (
                   <p className="mt-0.5 text-2xs text-fg-muted">
-                    Did not work{step.result ? ` (${step.result})` : ""}; a later plan took its
-                    place.
+                    {t("Did not work")}
+                    {step.result ? ` (${step.result})` : ""}
+                    {t("; a later plan took its place.")}
                   </p>
                 )}
                 {step.status === "not_verified" && (
                   <p className="mt-0.5 text-2xs text-warning">
-                    Done, but not checked: treat it as unproven.
+                    {t("Done, but not checked: treat it as unproven.")}
                   </p>
                 )}
                 {step.risk === "always-ask" &&
@@ -650,9 +665,9 @@ function PlanCard({
                       onClick={async () => {
                         if (
                           await confirmAction({
-                            title: "This step cannot be undone",
+                            title: t("This step cannot be undone"),
                             description: step.words,
-                            confirmLabel: "Confirm this step",
+                            confirmLabel: t("Confirm this step"),
                             danger: true,
                           })
                         ) {
@@ -660,7 +675,7 @@ function PlanCard({
                         }
                       }}
                     >
-                      Confirm this step
+                      {t("Confirm this step")}
                     </Button>
                   )}
               </div>
@@ -716,9 +731,9 @@ function MemoryTab({
     <div className="grid gap-6">
       {error && <p className="text-xs text-danger">{error}</p>}
       <section>
-        <h2 className="text-sm font-semibold">What the team wants</h2>
+        <h2 className="text-sm font-semibold">{t("What the team wants")}</h2>
         <p className="mb-2 text-xs text-fg-secondary">
-          Ops reads these before every job, and a person's word beats its own conclusions.
+          {t("Ops reads these before every job, and a person’s word beats its own conclusions.")}
         </p>
         {canEdit && (
           <form
@@ -729,14 +744,14 @@ function MemoryTab({
             }}
           >
             <Input
-              aria-label="A wish"
-              placeholder="For example: never deploy on Friday afternoon"
+              aria-label={t("A wish")}
+              placeholder={t("For example: never deploy on Friday afternoon")}
               value={wish}
               onChange={(event) => setWish(event.target.value)}
               className="flex-1"
             />
             <Button type="submit" disabled={!wish.trim() || addWish.isPending}>
-              Add
+              {t("Add")}
             </Button>
           </form>
         )}
@@ -751,7 +766,7 @@ function MemoryTab({
               </span>
               {row.scope !== "team" && <Badge>{row.scope}</Badge>}
               <span className="text-2xs text-fg-muted">
-                {row.source === "correction" ? "from a correction" : "added"}
+                {row.source === "correction" ? t("from a correction") : t("added")}
               </span>
               {canEdit && (
                 <>
@@ -762,28 +777,29 @@ function MemoryTab({
                       change.mutate(() => api.ops.editWish(teamId, row.id, { active: !row.active }))
                     }
                   >
-                    {row.active ? "Switch off" : "Switch on"}
+                    {row.active ? t("Switch off") : t("Switch on")}
                   </Button>
                   <Button
                     size="sm"
                     variant="danger"
                     onClick={() => change.mutate(() => api.ops.removeWish(teamId, row.id))}
                   >
-                    Delete
+                    {t("Delete")}
                   </Button>
                 </>
               )}
             </li>
           ))}
-          {data.wishes.length === 0 && <li className="text-xs text-fg-muted">None yet.</li>}
+          {data.wishes.length === 0 && <li className="text-xs text-fg-muted">{t("None yet.")}</li>}
         </ul>
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold">What Ops learned</h2>
+        <h2 className="text-sm font-semibold">{t("What Ops learned")}</h2>
         <p className="mb-2 text-xs text-fg-secondary">
-          Each lesson comes from something that went wrong or something a person said, shown as its
-          evidence. Retire one that is no longer true.
+          {t(
+            "Each lesson comes from something that went wrong or something a person said, shown as its evidence. Retire one that is no longer true.",
+          )}
         </p>
         <ul className="flex flex-col gap-2">
           {data.lessons.map((row) => (
@@ -793,20 +809,28 @@ function MemoryTab({
               >
                 {row.rule}
               </p>
-              <p className="mt-0.5 text-xs text-fg-secondary">Because {row.why}</p>
+              <p className="mt-0.5 text-xs text-fg-secondary">
+                {t("Because {why}", { why: row.why })}
+              </p>
               {row.evidence && (
-                <p className="mt-0.5 text-2xs text-fg-muted">Evidence: {row.evidence}</p>
+                <p className="mt-0.5 text-2xs text-fg-muted">
+                  {t("Evidence: {evidence}", { evidence: row.evidence })}
+                </p>
               )}
               <p className="mt-1 flex flex-wrap items-center gap-2 text-2xs text-fg-muted">
                 <Badge tone={row.strength === "reminder" ? "neutral" : "info"}>
                   {row.strength === "reminder"
-                    ? "Reminder"
+                    ? t("Reminder")
                     : row.strength === "block"
-                      ? "A person does it"
-                      : "Checked before steps"}
+                      ? t("A person does it")
+                      : t("Checked before steps")}
                 </Badge>
                 {row.lastMatchedAt && (
-                  <span>Last mattered {formatRelative(row.lastMatchedAt)}</span>
+                  <span>
+                    {t("Last mattered {lastMatchedAt}", {
+                      lastMatchedAt: formatRelative(row.lastMatchedAt),
+                    })}
+                  </span>
                 )}
                 {canEdit && (
                   <Button
@@ -823,21 +847,24 @@ function MemoryTab({
                       )
                     }
                   >
-                    {row.status === "retired" ? "Bring back" : "Retire"}
+                    {row.status === "retired" ? t("Bring back") : t("Retire")}
                   </Button>
                 )}
               </p>
             </li>
           ))}
-          {data.lessons.length === 0 && <li className="text-xs text-fg-muted">Nothing yet.</li>}
+          {data.lessons.length === 0 && (
+            <li className="text-xs text-fg-muted">{t("Nothing yet.")}</li>
+          )}
         </ul>
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold">Checks Zelyq runs before Ops's steps</h2>
+        <h2 className="text-sm font-semibold">{t("Checks Zelyq runs before Ops’s steps")}</h2>
         <p className="mb-2 text-xs text-fg-secondary">
-          Switched on by lessons, so the same mistake cannot happen twice. Only an admin switches
-          one off; Ops never can.
+          {t(
+            "Switched on by lessons, so the same mistake cannot happen twice. Only an admin switches one off; Ops never can.",
+          )}
         </p>
         <ul className="flex flex-col gap-1">
           {data.guards.map((row) => (
@@ -857,20 +884,21 @@ function MemoryTab({
                     change.mutate(() => api.ops.switchCheck(teamId, row.id, !row.active))
                   }
                 >
-                  {row.active ? "Switch off" : "Switch on"}
+                  {row.active ? t("Switch off") : t("Switch on")}
                 </Button>
               )}
             </li>
           ))}
-          {data.guards.length === 0 && <li className="text-xs text-fg-muted">None yet.</li>}
+          {data.guards.length === 0 && <li className="text-xs text-fg-muted">{t("None yet.")}</li>}
         </ul>
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold">What Ops knows</h2>
+        <h2 className="text-sm font-semibold">{t("What Ops knows")}</h2>
         <p className="mb-2 text-xs text-fg-secondary">
-          One sheet per app, environment and machine: how it is built, deployed and restored. Every
-          version is kept.
+          {t(
+            "One sheet per app, environment and machine: how it is built, deployed and restored. Every version is kept.",
+          )}
         </p>
         <div className="flex flex-col gap-2">
           {data.sheets.map((row) => (
@@ -883,7 +911,7 @@ function MemoryTab({
               onError={failed}
             />
           ))}
-          {data.sheets.length === 0 && <p className="text-xs text-fg-muted">None yet.</p>}
+          {data.sheets.length === 0 && <p className="text-xs text-fg-muted">{t("None yet.")}</p>}
         </div>
       </section>
     </div>
@@ -922,14 +950,14 @@ function SheetCard({
         </span>
         {canEdit && !editing && (
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-            Edit
+            {t("Edit")}
           </Button>
         )}
       </p>
       {editing ? (
         <div className="mt-2 grid gap-2">
           <Textarea
-            aria-label={`Sheet for ${sheet.subject}`}
+            aria-label={t("Sheet for {subject}", { subject: sheet.subject })}
             rows={10}
             value={body}
             onChange={(event) => setBody(event.target.value)}
@@ -941,10 +969,10 @@ function SheetCard({
               disabled={save.isPending}
               onClick={() => save.mutate()}
             >
-              Save
+              {t("Save")}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-              Cancel
+              {t("Cancel")}
             </Button>
           </div>
         </div>
@@ -984,13 +1012,17 @@ function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) 
   return (
     <div className="grid max-w-3xl gap-6">
       {error && <p className="text-xs text-danger">{error}</p>}
-      {!isAdmin && <p className="text-xs text-fg-secondary">Only a team admin changes these.</p>}
+      {!isAdmin && (
+        <p className="text-xs text-fg-secondary">{t("Only a team admin changes these.")}</p>
+      )}
 
       <section className="flex flex-wrap items-center gap-3 rounded-md border border-border-default p-3">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{status.paused ? "Ops is paused" : "Ops is on"}</p>
+          <p className="text-sm font-medium">
+            {status.paused ? t("Ops is paused") : t("Ops is on")}
+          </p>
           <p className="text-xs text-fg-secondary">
-            Pausing stops everything Ops is doing and keeps it from starting anything new.
+            {t("Pausing stops everything Ops is doing and keeps it from starting anything new.")}
           </p>
         </div>
         {isAdmin && (
@@ -1000,17 +1032,23 @@ function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) 
             disabled={update.isPending}
             onClick={() => update.mutate({ paused: !status.paused })}
           >
-            {status.paused ? "Resume Ops" : "Pause Ops"}
+            {status.paused ? t("Resume Ops") : t("Pause Ops")}
           </Button>
         )}
       </section>
 
       <section className="grid gap-2 rounded-md border border-border-default p-3">
-        <p className="text-sm font-medium">Spending</p>
+        <p className="text-sm font-medium">{t("Spending")}</p>
         <p className="text-xs text-fg-secondary">
-          This month: {formatNumber(used)} tokens
-          {status.monthlyTokenCap !== null ? ` of ${formatNumber(status.monthlyTokenCap)}` : ""}.
-          When the limit is reached, Ops starts no new work; checks and alerts keep running.
+          {status.monthlyTokenCap !== null
+            ? t(
+                "This month: {used} tokens of {monthlyTokenCap}. When the limit is reached, Ops starts no new work; checks and alerts keep running.",
+                { used: formatNumber(used), monthlyTokenCap: formatNumber(status.monthlyTokenCap) },
+              )
+            : t(
+                "This month: {used} tokens. When the limit is reached, Ops starts no new work; checks and alerts keep running.",
+                { used: formatNumber(used) },
+              )}
         </p>
         {isAdmin && (
           <form
@@ -1025,40 +1063,41 @@ function SettingsTab({ teamId, isAdmin }: { teamId: string; isAdmin: boolean }) 
             }}
           >
             <label htmlFor="ops-month-cap" className="grid gap-1 text-2xs text-fg-secondary">
-              Monthly limit (tokens)
+              {t("Monthly limit (tokens)")}
               <Input
                 id="ops-month-cap"
-                aria-label="Monthly limit in tokens"
-                placeholder="No limit"
+                aria-label={t("Monthly limit in tokens")}
+                placeholder={t("No limit")}
                 value={cap}
                 onChange={(event) => setCap(event.target.value)}
                 className="w-40"
               />
             </label>
             <label htmlFor="ops-time-zone" className="grid gap-1 text-2xs text-fg-secondary">
-              Time zone
+              {t("Time zone")}
               <Input
                 id="ops-time-zone"
-                aria-label="Time zone"
-                placeholder="Europe/London"
+                aria-label={t("Time zone")}
+                placeholder={t("Europe/London")}
                 value={zone}
                 onChange={(event) => setZone(event.target.value)}
                 className="w-48"
               />
             </label>
             <Button type="submit" disabled={update.isPending}>
-              Save
+              {t("Save")}
             </Button>
           </form>
         )}
         <p className="text-2xs text-fg-muted">
-          The time zone is used for "nightly", quiet hours and no-change times.
+          {t('The time zone is used for "nightly", quiet hours and no-change times.')}
         </p>
       </section>
 
       <p className="text-xs text-fg-secondary">
-        What Ops may see and change, and how much it may do alone on each environment, is on the
-        Access tab.
+        {t(
+          "What Ops may see and change, and how much it may do alone on each environment, is on the Access tab.",
+        )}
       </p>
     </div>
   );
