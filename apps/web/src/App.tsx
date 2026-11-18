@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, type ReactNode, Suspense, useEffect } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import {
   BrowserRouter,
   Link,
@@ -10,15 +10,15 @@ import {
   useLocation,
   useParams,
 } from "react-router-dom";
-import { AppShell } from "./components/AppShell";
-import { CommandPalette } from "./components/CommandPalette";
-import { HelpPanel } from "./components/help/HelpPanel";
+import { AppShell, isTyping } from "./components/AppShell";
+import { AppSkeleton } from "./components/AppSkeleton";
+import { paletteOpen, setPaletteOpen, usePaletteOpen } from "./components/command-palette-store";
+import { useHelpState } from "./components/help/help-store";
 import {
   buttonClass,
   ConfirmHost,
   EmptyState,
   ErrorBoundary,
-  Spinner,
   TitleTooltips,
   Toaster,
   TooltipProvider,
@@ -28,8 +28,6 @@ import { useSession } from "./hooks/useSession";
 import { setFormatPreferences } from "./lib/format";
 import { followAccountLanguage, t } from "./lib/i18n";
 import { setCurrentTeamKey, teamKey, teamPaths, useRouteTeam } from "./lib/routes";
-import { InvitePage, ResetPasswordPage } from "./pages/EmailLinkPages";
-import { SignInPage } from "./pages/SignInPage";
 
 /*
  * Pages load on demand, so the first visit downloads the shell and the page
@@ -62,6 +60,13 @@ const DocsPage = page(() => import("./pages/DocsPage"), "DocsPage");
 const SettingsPage = page(() => import("./pages/SettingsPage"), "SettingsPage");
 const ProfilePage = page(() => import("./pages/ProfilePage"), "ProfilePage");
 const GalleryPage = page(() => import("./pages/GalleryPage"), "GalleryPage");
+// Signed-in people never need these, so they are not part of the first download.
+const SignInPage = page(() => import("./pages/SignInPage"), "SignInPage");
+const InvitePage = page(() => import("./pages/EmailLinkPages"), "InvitePage");
+const ResetPasswordPage = page(() => import("./pages/EmailLinkPages"), "ResetPasswordPage");
+// Opened by a shortcut or a button, so loaded when the browser is idle, or when asked for.
+const CommandPalette = page(() => import("./components/CommandPalette"), "CommandPalette");
+const HelpPanel = page(() => import("./components/help/HelpPanel"), "HelpPanel");
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -75,14 +80,6 @@ const queryClient = new QueryClient({
 });
 
 export const SIGN_IN_PATH = "/signin";
-
-function FullScreenSpinner() {
-  return (
-    <div className="grid h-dvh place-items-center bg-canvas">
-      <Spinner label={t("Loading")} />
-    </div>
-  );
-}
 
 /**
  * Signing in and out is a change of address, not a swap of component: any
@@ -99,31 +96,41 @@ function Gate() {
     followAccountLanguage(user?.locale);
   }, [user?.locale, user?.timeZone]);
 
-  if (loading) return <FullScreenSpinner />;
+  if (loading) {
+    return (
+      <AppSkeleton
+        variant={
+          /^\/(signin|reset-password|invite)(\/|$)/.test(location.pathname) ? "card" : "frame"
+        }
+      />
+    );
+  }
 
   if (!user) {
     return (
-      <Routes>
-        <Route path={SIGN_IN_PATH} element={<SignInPage />} />
-        {/* Opened from an emailed link: they work signed in or out. */}
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/invite" element={<InvitePage />} />
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to={SIGN_IN_PATH}
-              replace
-              state={{ from: location.pathname + location.search + location.hash }}
-            />
-          }
-        />
-      </Routes>
+      <Suspense fallback={<AppSkeleton variant="card" />}>
+        <Routes>
+          <Route path={SIGN_IN_PATH} element={<SignInPage />} />
+          {/* Opened from an emailed link: they work signed in or out. */}
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/invite" element={<InvitePage />} />
+          <Route
+            path="*"
+            element={
+              <Navigate
+                to={SIGN_IN_PATH}
+                replace
+                state={{ from: location.pathname + location.search + location.hash }}
+              />
+            }
+          />
+        </Routes>
+      </Suspense>
     );
   }
 
   return (
-    <Suspense fallback={<FullScreenSpinner />}>
+    <Suspense fallback={<AppSkeleton />}>
       <Routes>
         <Route path={SIGN_IN_PATH} element={<AfterSignIn />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -189,7 +196,7 @@ function TeamScope() {
   }, [routeTeam, team?.id, setTeam]);
 
   if (!routeTeam) return <NotFound what="team" />;
-  if (mismatch) return <FullScreenSpinner />;
+  if (mismatch) return <AppSkeleton />;
   setCurrentTeamKey(teamKey(routeTeam));
   return <Outlet />;
 }
@@ -267,14 +274,77 @@ function NotFound({ what = "page" }: { what?: "page" | "team" }) {
   );
 }
 
+/** Runs once the page has loaded and the browser has a moment free. */
+function whenIdle(run: () => void): () => void {
+  let handle = 0;
+  const idle = () => {
+    handle =
+      typeof window.requestIdleCallback === "function"
+        ? window.requestIdleCallback(run, { timeout: 4000 })
+        : window.setTimeout(run, 1500);
+  };
+  if (document.readyState === "complete") idle();
+  else window.addEventListener("load", idle, { once: true });
+  return () => {
+    window.removeEventListener("load", idle);
+    if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(handle);
+    window.clearTimeout(handle);
+  };
+}
+
+/**
+ * ⌘K / Ctrl K and ? work from the first moment; the palette's own code
+ * arrives when the browser is idle, or at once when it is asked for.
+ */
+function CommandPaletteHost() {
+  const open = usePaletteOpen();
+  const [wanted, setWanted] = useState(false);
+  useEffect(() => whenIdle(() => setWanted(true)), []);
+  useEffect(() => {
+    if (open !== "none") setWanted(true);
+  }, [open]);
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen(paletteOpen() === "palette" ? "none" : "palette");
+        return;
+      }
+      if (event.key === "?" && !event.metaKey && !event.ctrlKey && !isTyping(event.target)) {
+        event.preventDefault();
+        setPaletteOpen("shortcuts");
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  if (!wanted) return null;
+  return (
+    <Suspense fallback={null}>
+      <CommandPalette />
+    </Suspense>
+  );
+}
+
+/** Help's code (and the Markdown it shows) loads the first time help is opened. */
+function HelpHost() {
+  const { opened } = useHelpState();
+  if (opened === 0) return null;
+  return (
+    <Suspense fallback={null}>
+      <HelpPanel />
+    </Suspense>
+  );
+}
+
 function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <BrowserRouter>
           {children}
-          <CommandPalette />
-          <HelpPanel />
+          <CommandPaletteHost />
+          <HelpHost />
           <ConfirmHost />
           <Toaster />
           <TitleTooltips />

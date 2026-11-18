@@ -1,6 +1,6 @@
 import { GUIDE_PDF_URL } from "@zelyq/core";
 import { ArrowLeft, BookOpen, ChevronRight, ExternalLink, FileText } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ARTICLE_IDS,
@@ -14,31 +14,7 @@ import { globalPaths } from "../../lib/routes";
 import { matches } from "../ListControls";
 import { Markdown } from "../Markdown";
 import { Drawer, Pressable, SearchField, Spinner } from "../ui";
-
-/* The panel is opened from anywhere (the help menu, a link in a page), so its
- * state lives outside React, like the command palette's. */
-/* `opened` counts openings, so asking again while open still picks the article. */
-type State = { open: boolean; article: ArticleId | null; opened: number };
-let state: State = { open: false, article: null, opened: 0 };
-const listeners = new Set<() => void>();
-function set(next: State) {
-  state = next;
-  for (const listener of listeners) listener();
-}
-/** Opens help on an article, or on the one for the page being viewed. */
-export function openHelp(article: ArticleId | null = null) {
-  set({ open: true, article, opened: state.opened + 1 });
-}
-function useHelpState(): State {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => state,
-    () => state,
-  );
-}
+import { setHelpState, useHelpState } from "./help-store";
 
 /** Plain text of an article, to search and to show a line of. */
 function plain(markdown: string): string {
@@ -97,7 +73,7 @@ export function HelpPanel() {
     <Drawer
       modal={false}
       open={open}
-      onOpenChange={(next) => set({ ...state, open: next, article: null })}
+      onOpenChange={(next) => setHelpState({ open: next, article: null })}
       title={t("Help")}
       description={t("Read beside your work. Search finds any article.")}
     >
@@ -180,7 +156,7 @@ export function HelpPanel() {
         <div className="mt-2 grid gap-1 border-t border-border-default pt-3 text-sm">
           <Link
             to={globalPaths.docs}
-            onClick={() => set({ ...state, open: false, article: null })}
+            onClick={() => setHelpState({ open: false, article: null })}
             className="flex items-center gap-2 rounded-md px-2 py-1.5 text-fg-secondary hover:bg-surface-hover hover:text-fg"
           >
             <BookOpen size={14} /> {t("The beginner’s guide, start to finish")}

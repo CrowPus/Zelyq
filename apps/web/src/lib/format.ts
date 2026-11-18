@@ -30,6 +30,33 @@ const locale = (): string | undefined => {
 const zone = (): { timeZone?: string } =>
   preferred.timeZone ? { timeZone: preferred.timeZone } : {};
 
+/*
+ * Making an Intl formatter costs far more than using one (a page of numbers
+ * was spending most of its time here), so each is made once per locale and
+ * set of options.
+ */
+const formatters = new Map<string, unknown>();
+function memo<T>(
+  kind: string,
+  locales: string | undefined,
+  options: object | undefined,
+  make: () => T,
+): T {
+  const key = `${kind}|${locales ?? ""}|${JSON.stringify(options ?? {})}`;
+  let formatter = formatters.get(key) as T | undefined;
+  if (!formatter) {
+    formatter = make();
+    formatters.set(key, formatter);
+  }
+  return formatter;
+}
+const numberFormat = (locales: string | undefined, options?: Intl.NumberFormatOptions) =>
+  memo("number", locales, options, () => new Intl.NumberFormat(locales, options));
+const dateFormat = (locales: string | undefined, options?: Intl.DateTimeFormatOptions) =>
+  memo("date", locales, options, () => new Intl.DateTimeFormat(locales, options));
+const relativeFormat = (locales: string | undefined, options?: Intl.RelativeTimeFormatOptions) =>
+  memo("relative", locales, options, () => new Intl.RelativeTimeFormat(locales, options));
+
 function toDate(value: string | number | Date): Date {
   return value instanceof Date ? value : new Date(value);
 }
@@ -37,7 +64,7 @@ function toDate(value: string | number | Date): Date {
 /** "17 Nov 2026, 22:11 GMT+1" — exact, unambiguous in every locale. */
 export function formatDateTime(value: string | number | Date): string {
   // `dateStyle` cannot be combined with `timeZoneName`; spell the parts out.
-  return new Intl.DateTimeFormat(locale(), {
+  return dateFormat(locale(), {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -50,14 +77,12 @@ export function formatDateTime(value: string | number | Date): string {
 
 /** "17 Nov 2026" */
 export function formatDate(value: string | number | Date): string {
-  return new Intl.DateTimeFormat(locale(), { dateStyle: "medium", ...zone() }).format(
-    toDate(value),
-  );
+  return dateFormat(locale(), { dateStyle: "medium", ...zone() }).format(toDate(value));
 }
 
 /** "22:11" or "10:11 PM", as the viewer's locale writes it. */
 export function formatTime(value: string | number | Date, seconds = false): string {
-  return new Intl.DateTimeFormat(locale(), {
+  return dateFormat(locale(), {
     hour: "numeric",
     minute: "2-digit",
     ...(seconds ? { second: "2-digit" } : {}),
@@ -84,7 +109,7 @@ export function formatRelative(value: string | number | Date, now = Date.now()):
   const abs = Math.abs(seconds);
   if (abs < 45) return seconds <= 0 ? t("just now") : t("in a moment");
   if (abs > 7 * 24 * 3600) return formatDate(date);
-  const rtf = new Intl.RelativeTimeFormat(locale(), { numeric: "auto" });
+  const rtf = relativeFormat(locale(), { numeric: "auto" });
   for (const [unit, size] of UNITS) {
     if (abs >= size) return rtf.format(Math.round(seconds / size), unit);
   }
@@ -92,7 +117,7 @@ export function formatRelative(value: string | number | Date, now = Date.now()):
 }
 
 export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
-  return new Intl.NumberFormat(locale(), options).format(value);
+  return numberFormat(locale(), options).format(value);
 }
 
 /** "1.2 MB", "0 B", "640 KB". Binary units, labelled the way people read them. */
@@ -124,5 +149,5 @@ export function formatDateParts(
   value: string | number | Date,
   options: Intl.DateTimeFormatOptions,
 ): string {
-  return new Intl.DateTimeFormat(locale(), { ...zone(), ...options }).format(toDate(value));
+  return dateFormat(locale(), { ...zone(), ...options }).format(toDate(value));
 }

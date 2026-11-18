@@ -205,19 +205,53 @@ function listQuery(cursor?: string, teamId?: string): string {
   return text ? `?${text}` : "";
 }
 
+declare global {
+  interface Window {
+    /** Requests index.html starts before the app runs, by API path. */
+    __zelyqEarly?: Record<string, Promise<Response> | undefined>;
+  }
+}
+
+/** How long after the page loads an early answer may still be used. */
+const EARLY_FOR_MS = 15_000;
+
+/** Forgets every early answer: on any change of who is signed in. */
+export function dropEarly(): void {
+  if (typeof window !== "undefined") window.__zelyqEarly = {};
+}
+
+/**
+ * A request index.html already started, taken once; a later ask fetches anew.
+ * Only a successful answer from the first moments of the page counts: an
+ * answer nobody took then may belong to someone who has since signed out.
+ */
+async function takeEarly(path: string): Promise<Response | null> {
+  if (typeof window === "undefined") return null;
+  const early = window.__zelyqEarly?.[path];
+  if (!early) return null;
+  delete window.__zelyqEarly?.[path];
+  if (performance.now() > EARLY_FOR_MS) return null;
+  const response = await early.catch(() => null);
+  return response?.ok ? response : null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    // The session lives in an httpOnly cookie, so it has to be sent explicitly
-    // for anything other than a same-origin default.
-    credentials: "same-origin",
-    headers: {
-      ...(init?.body && !(init.body instanceof FormData)
-        ? { "content-type": "application/json" }
-        : {}),
-      ...init?.headers,
-    },
-  });
+  // Signing in, up or out changes whose answers these would be.
+  if (/^\/auth\/(login|register|logout)/.test(path)) dropEarly();
+  const response =
+    (!init && (await takeEarly(path))) ||
+    (await fetch(`/api${path}`, {
+      ...init,
+      // The session lives in an httpOnly cookie, so it has to be sent explicitly
+      // for anything other than a same-origin default.
+      credentials: "same-origin",
+      headers: {
+        ...(init?.body && !(init.body instanceof FormData)
+          ? { "content-type": "application/json" }
+          : {}),
+        ...init?.headers,
+      },
+    }));
 
   if (response.status === 204) return undefined as T;
 

@@ -2,8 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { accountServiceLinks } from "@zelyq/core";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { AppSkeleton } from "../components/AppSkeleton";
 import { AuthCard, AuthError } from "../components/AuthCard";
-import { Button, Input, PasswordInput, Spinner } from "../components/ui";
+import { Button, Input, PasswordInput } from "../components/ui";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { t } from "../lib/i18n";
@@ -157,13 +158,7 @@ export function InvitePage() {
 
   if (!token) return <NoLink what="invitation" />;
 
-  if (invite.isLoading) {
-    return (
-      <div className="grid h-dvh place-items-center bg-canvas">
-        <Spinner />
-      </div>
-    );
-  }
+  if (invite.isLoading) return <AppSkeleton variant="card" />;
 
   if (invite.error || !invite.data) {
     return (

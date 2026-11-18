@@ -1,10 +1,40 @@
 {
-  "_comment": "Lighthouse budgets for the Page quality CI job (apps/web/e2e/performance.spec.ts): mobile, simulated mid-range phone on 4G, median of 3 runs. js is compressed JavaScript on first load in KB, lcp and tbt are milliseconds. The goal from the design plan is js 250, lcp 2500, tbt 200, cls 0.1; until a page meets it, its budget is what it does today plus headroom for slower CI machines, and may only go down.",
-  "goal": { "js": 250, "lcp": 2500, "tbt": 200, "cls": 0.1, "accessibility": 0.95 },
+  "_comment": "Lighthouse budgets for the Page quality CI job (apps/web/e2e/performance.spec.ts): mobile, a browser slowed to a mid-range phone on 4G (applied, not simulated), median of 3 runs. js is compressed JavaScript on first load in KB, lcp and tbt are milliseconds. The goal from the design plan is js 250, lcp 2500, tbt 200, cls 0.1; until a page meets it, its budget is what it does today plus about a quarter for slower CI machines, and may only go down.",
+  "goal": {
+    "js": 250,
+    "lcp": 2500,
+    "tbt": 200,
+    "cls": 0.1,
+    "accessibility": 0.95
+  },
   "pages": {
-    "home": { "js": 250, "lcp": 5000, "tbt": 1000, "cls": 0.1, "accessibility": 0.95 },
-    "apps": { "js": 250, "lcp": 5000, "tbt": 900, "cls": 0.1, "accessibility": 0.95 },
-    "app-builder": { "js": 300, "lcp": 6500, "tbt": 1100, "cls": 0.1, "accessibility": 0.95 },
-    "pipeline-run": { "js": 300, "lcp": 5500, "tbt": 1000, "cls": 0.1, "accessibility": 0.95 }
+    "home": {
+      "js": 220,
+      "lcp": 4300,
+      "tbt": 400,
+      "cls": 0.1,
+      "accessibility": 0.95
+    },
+    "apps": {
+      "js": 225,
+      "lcp": 4200,
+      "tbt": 400,
+      "cls": 0.1,
+      "accessibility": 0.95
+    },
+    "app-builder": {
+      "js": 290,
+      "lcp": 6100,
+      "tbt": 700,
+      "cls": 0.1,
+      "accessibility": 0.95
+    },
+    "pipeline-run": {
+      "js": 290,
+      "lcp": 5700,
+      "tbt": 500,
+      "cls": 0.1,
+      "accessibility": 0.95
+    }
   }
 }

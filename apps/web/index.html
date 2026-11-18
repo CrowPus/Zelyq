@@ -9,17 +9,108 @@
     <meta name="description" content="Zelyq — open-source AI app builder." />
     <title>Zelyq</title>
     <script>
-      // Apply the saved theme before first paint to avoid a flash of the wrong one.
       (() => {
+        const root = document.documentElement;
         try {
-          const t = localStorage.getItem("zelyq.theme");
-          if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+          // The saved theme before first paint, so the wrong one never flashes.
+          const theme = localStorage.getItem("zelyq.theme");
+          if (theme === "light" || theme === "dark") root.setAttribute("data-theme", theme);
+          // The sidebar as the person left it, so the skeleton matches the app.
+          const rail = localStorage.getItem("zelyq.rail");
+          root.dataset.rail =
+            rail === "open" || rail === "closed"
+              ? rail
+              : matchMedia("(min-width: 1280px)").matches
+                ? "open"
+                : "closed";
+        } catch {}
+        // Signed-out screens get a card, not the app's frame.
+        if (/^\/(signin|reset-password|invite)(\/|$)/.test(location.pathname)) {
+          root.dataset.skeleton = "card";
+        }
+        // Who is signed in is the app's first question: ask it now, while the
+        // code downloads, instead of after it has run (lib/api.ts takes it).
+        try {
+          const me = fetch("/api/auth/me", { credentials: "same-origin" });
+          me.catch(() => {}); // A failure is handled where it is taken (lib/api.ts).
+          window.__zelyqEarly = { "/auth/me": me };
         } catch {}
       })();
     </script>
+    <!-- zelyq:preload-pages (filled in by the build; must stay above the stylesheet,
+         which would otherwise hold the script back until it has loaded) -->
+    <style>
+      /* The loading skeleton: the app's frame in grey, drawn before any code
+       * runs. Colours come from index.css, so both themes match. AppSkeleton
+       * (src/components/AppSkeleton.tsx) draws the same thing from React. */
+      .zs { position: fixed; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr); background: var(--canvas); }
+      .zs-side { display: none; flex-direction: column; gap: 14px; padding: 14px 12px; background: var(--surface); border-right: 1px solid var(--border); }
+      .zs-main { display: grid; grid-template-rows: 48px minmax(0, 1fr); min-width: 0; }
+      .zs-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+      .zs-page { width: 100%; max-width: 1200px; margin: 0 auto; padding: 24px 16px; overflow: hidden; }
+      .zs-b { display: block; border-radius: 6px; background: var(--surface-active); animation: zs-pulse 1.6s ease-in-out infinite; }
+      .zs-logo { width: 96px; height: 20px; margin-bottom: 10px; }
+      .zs-nav { width: 70%; height: 12px; }
+      .zs-nav:nth-child(3n) { width: 55%; }
+      .zs-crumb { width: 180px; height: 12px; }
+      .zs-av { width: 28px; height: 28px; border-radius: 999px; }
+      .zs-title { width: 220px; max-width: 60%; height: 24px; }
+      .zs-desc { width: 420px; max-width: 90%; height: 12px; margin: 12px 0 28px; }
+      .zs-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-bottom: 28px; }
+      .zs-card { height: 112px; border-radius: 10px; }
+      .zs-row { height: 14px; margin-bottom: 18px; }
+      .zs-row:nth-child(2n) { width: 82%; }
+      .zs-cardview { display: none; }
+      [data-skeleton="card"] .zs-cardview,
+      .zs-cardview.zs-show { position: fixed; inset: 0; display: grid; place-items: center; background: var(--canvas); }
+      [data-skeleton="card"] .zs-frame { display: none; }
+      .zs-auth { display: flex; flex-direction: column; gap: 14px; width: min(360px, calc(100vw - 32px)); padding: 28px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+      .zs-auth .zs-b { height: 36px; }
+      .zs-auth .zs-b:first-child { width: 120px; height: 22px; margin-bottom: 8px; }
+      @media (min-width: 640px) { .zs-page { padding: 24px; } }
+      @media (min-width: 768px) {
+        .zs { grid-template-columns: 3.5rem minmax(0, 1fr); }
+        [data-rail="open"] .zs { grid-template-columns: 15rem minmax(0, 1fr); }
+        .zs-side { display: flex; }
+        [data-rail="closed"] .zs-side { align-items: center; padding: 14px 0; }
+        [data-rail="closed"] .zs-logo { width: 24px; height: 24px; }
+        [data-rail="closed"] .zs-nav { width: 20px; height: 20px; }
+      }
+      @media (min-width: 1024px) { .zs-page { padding-top: 32px; } }
+      @keyframes zs-pulse { 50% { opacity: 0.55; } }
+      @media (prefers-reduced-motion: reduce) { .zs-b { animation: none; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div role="status" aria-label="Loading">
+        <div class="zs zs-frame">
+          <div class="zs-side">
+            <i class="zs-b zs-logo"></i><i class="zs-b zs-nav"></i><i class="zs-b zs-nav"></i
+            ><i class="zs-b zs-nav"></i><i class="zs-b zs-nav"></i><i class="zs-b zs-nav"></i
+            ><i class="zs-b zs-nav"></i><i class="zs-b zs-nav"></i>
+          </div>
+          <div class="zs-main">
+            <div class="zs-top"><i class="zs-b zs-crumb"></i><i class="zs-b zs-av"></i></div>
+            <div class="zs-page">
+              <i class="zs-b zs-title"></i><i class="zs-b zs-desc"></i>
+              <div class="zs-cards">
+                <i class="zs-b zs-card"></i><i class="zs-b zs-card"></i><i class="zs-b zs-card"></i>
+              </div>
+              <div>
+                <i class="zs-b zs-row"></i><i class="zs-b zs-row"></i><i class="zs-b zs-row"></i
+                ><i class="zs-b zs-row"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="zs-cardview">
+          <div class="zs-auth">
+            <i class="zs-b"></i><i class="zs-b"></i><i class="zs-b"></i><i class="zs-b"></i>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

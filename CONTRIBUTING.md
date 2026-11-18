@@ -96,7 +96,7 @@ The **Page quality** check opens the main pages in a real browser and fails when
 - a page **looks different** from its screenshot in `apps/web/e2e/__screenshots__` (both themes,
   desktop and phone);
 - a page is **slower or heavier** than its budget in `scripts/perf-budget.json` (Lighthouse,
-  simulating a mid-range phone on 4G, median of three runs);
+  on a browser slowed to a mid-range phone on 4G, median of three runs);
 - a page has a **serious accessibility problem** (axe, WCAG 2.2 AA).
 
 Screenshots depend on fonts and the browser build, so they are taken in the same container CI

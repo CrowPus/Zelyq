@@ -3,6 +3,7 @@ import { accountServiceLinks } from "@zelyq/core";
 import { CircleAlert } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { AppSkeleton } from "../components/AppSkeleton";
 import { AuthHeading, AuthLayout, AuthNotice } from "../components/AuthCard";
 import { Button, Field, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
@@ -102,13 +103,7 @@ export function SignInPage() {
     }
   }
 
-  if (status.isLoading) {
-    return (
-      <div className="grid h-dvh place-items-center bg-canvas">
-        <Spinner />
-      </div>
-    );
-  }
+  if (status.isLoading) return <AppSkeleton variant="card" />;
 
   if (goStraight) {
     return (

@@ -50,8 +50,8 @@ import { t } from "../lib/i18n";
 import { roleName } from "../lib/roles";
 import { globalPaths, type TeamPaths, teamKey, teamPaths, useTeamPaths } from "../lib/routes";
 import { AnnouncementBanner } from "./AnnouncementBanner";
-import { openCommandPalette, openShortcuts } from "./CommandPalette";
-import { openHelp } from "./help/HelpPanel";
+import { openCommandPalette, openShortcuts } from "./command-palette-store";
+import { openHelp } from "./help/help-store";
 import { Inbox } from "./Inbox";
 import { NewTeamDialog } from "./NewTeamDialog";
 import { PlanLimitBanner } from "./PlanLimitBanner";
@@ -130,6 +130,8 @@ export function AppShell({
   const { team } = useActiveTeam();
 
   useEffect(() => {
+    // The loading skeleton (index.html, AppSkeleton) draws the sidebar the same width.
+    document.documentElement.dataset.rail = railOpen ? "open" : "closed";
     try {
       localStorage.setItem(RAIL_KEY, railOpen ? "open" : "closed");
     } catch {
@@ -264,7 +266,9 @@ function teamSections(
       items: [
         { to: p.apps, label: t("Apps"), icon: LayoutGrid, match: starts(p.apps) },
         {
-          to: p.studio,
+          // Straight to the page: /studio only redirects, and a redirect
+          // blanks the screen while Studio's code loads.
+          to: p.studioImage,
           label: t("Studio"),
           icon: Palette,
           match: starts(p.studio),
