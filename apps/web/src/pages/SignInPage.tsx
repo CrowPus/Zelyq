@@ -4,9 +4,9 @@ import { CircleAlert } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { AuthHeading, AuthLayout, AuthNotice } from "../components/AuthCard";
-import { Button, Input, PasswordInput, Spinner } from "../components/ui";
+import { Button, Field, Input, PasswordInput, Spinner } from "../components/ui";
 import { useSession } from "../hooks/useSession";
-import { api } from "../lib/api";
+import { type ApiError, api } from "../lib/api";
 
 /**
  * Sign in, register, and first-run setup are one screen. Splitting them across
@@ -25,6 +25,8 @@ export function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Password accepted, two-factor on: the code completes this challenge. */
+  const [challenge, setChallenge] = useState<string | null>(null);
   const query = new URLSearchParams(window.location.search);
   const oidcError = query.has("error");
   const suspended = query.get("error") === "suspended";
@@ -38,6 +40,8 @@ export function SignInPage() {
   // Where they were going (a shared link): signing in brings them back there.
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from;
+  const passwordChanged =
+    (location.state as { notice?: string } | null)?.notice === "passwordChanged";
   const startUrl = `/api/auth/oidc/start${from && from !== "/" ? `?return_to=${encodeURIComponent(from)}` : ""}`;
   // Managed: straight to the account service. Someone already signed in there
   // comes back signed in here without typing anything. Not after a failure,
@@ -70,7 +74,13 @@ export function SignInPage() {
         return;
       }
       if (registering) await api.register({ email, name, password });
-      else await api.login({ email, password });
+      else {
+        const result = await api.login({ email, password });
+        if ("twoFactor" in result) {
+          setChallenge(result.twoFactor.challenge);
+          return;
+        }
+      }
       // The router decides where to land — see AfterSignIn in App.tsx.
       refresh();
     } catch (caught) {
@@ -131,6 +141,20 @@ export function SignInPage() {
           </a>
         </p>
       </AuthLayout>
+    );
+  }
+
+  if (challenge) {
+    return (
+      <TwoFactorStep
+        challenge={challenge}
+        onDone={refresh}
+        onRestart={(message) => {
+          setChallenge(null);
+          setPassword("");
+          setError(message);
+        }}
+      />
     );
   }
 
@@ -221,6 +245,13 @@ export function SignInPage() {
           </div>
         )}
 
+        {passwordChanged && !error && (
+          <AuthNotice>
+            Your password is changed. Sign in with it; you will be asked for a code from your
+            authenticator app too.
+          </AuthNotice>
+        )}
+
         {forgot && sent && (
           <AuthNotice>
             If an account uses {email}, a link is on its way. It works for one hour. Check spam if
@@ -303,6 +334,99 @@ export function SignInPage() {
           </button>
         </p>
       )}
+    </AuthLayout>
+  );
+}
+
+/**
+ * The second step: a code from the authenticator app, or a recovery code
+ * for someone without their phone.
+ */
+function TwoFactorStep({
+  challenge,
+  onDone,
+  onRestart,
+}: {
+  challenge: string;
+  onDone(): void;
+  onRestart(message: string | null): void;
+}) {
+  const [code, setCode] = useState("");
+  const [recovery, setRecovery] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.loginTwoFactor({ challenge, code });
+      onDone();
+    } catch (caught) {
+      const failure = caught as ApiError;
+      // Too slow, or too many tries: back to the password, saying why.
+      if (failure.details?.reason === "challenge_expired") onRestart(failure.message);
+      else setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <AuthLayout>
+      <AuthHeading
+        title="Enter your code"
+        subtitle={
+          recovery
+            ? "Type one of the recovery codes you saved when you turned on two-factor sign-in. Each works once."
+            : "Open your authenticator app and type the 6-digit code it shows for Zelyq."
+        }
+      />
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <Field label={recovery ? "Recovery code" : "Code"} error={error}>
+          <Input
+            autoFocus
+            value={code}
+            onChange={(event) =>
+              setCode(
+                recovery ? event.target.value : event.target.value.replace(/\D/g, "").slice(0, 6),
+              )
+            }
+            inputMode={recovery ? "text" : "numeric"}
+            autoComplete="one-time-code"
+            placeholder={recovery ? "xxxxx-xxxxx" : "123456"}
+            className="font-mono tracking-[0.2em]"
+            required
+          />
+        </Field>
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          className="w-full"
+          loading={busy}
+          disabled={recovery ? code.trim().length < 8 : code.length !== 6}
+        >
+          Sign in
+        </Button>
+      </form>
+      <div className="mt-5 flex flex-col items-center gap-2 text-sm">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setRecovery((value) => !value);
+            setCode("");
+            setError(null);
+          }}
+        >
+          {recovery ? "Use a code from your app instead" : "Use a recovery code"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => onRestart(null)}>
+          Back to sign in
+        </Button>
+      </div>
     </AuthLayout>
   );
 }

@@ -124,3 +124,22 @@ export const IconButton = forwardRef<
     </Tooltip>
   );
 });
+
+/**
+ * A button with no look of its own, for a whole card, row or tile that acts
+ * as one: the semantics and focus ring of a button, the styling of its
+ * contents. Use `Button` for anything that should look like a button.
+ */
+export const Pressable = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
+  function Pressable({ type = "button", className = "", ...props }, ref) {
+    return (
+      <button
+        ref={ref}
+        // biome-ignore lint/a11y/useButtonType: the default is set above.
+        type={type}
+        className={`cursor-pointer text-left disabled:cursor-default ${className}`}
+        {...props}
+      />
+    );
+  },
+);

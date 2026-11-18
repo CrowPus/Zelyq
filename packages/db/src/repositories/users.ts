@@ -12,11 +12,99 @@ function toUser(row: Row): User {
     name: row.name,
     instanceRole: row.instanceRole as InstanceRole,
     createdAt: row.createdAt,
+    twoFactorEnabled: Boolean(row.totpEnabledAt),
+    locale: row.locale ?? null,
+    timeZone: row.timeZone ?? null,
   };
+}
+
+/** Everything two-factor sign-in keeps for one account. The secret is still encrypted. */
+export interface TwoFactorState {
+  secret: string | null;
+  enabledAt: string | null;
+  lastStep: number | null;
+  /** SHA-256 of each unused recovery code. */
+  recoveryCodes: string[];
 }
 
 export function userRepository(db: ZelyqDb) {
   return {
+    async twoFactorOf(id: string): Promise<TwoFactorState | null> {
+      const rows = await db
+        .select({
+          secret: users.totpSecret,
+          enabledAt: users.totpEnabledAt,
+          lastStep: users.totpLastStep,
+          recoveryCodes: users.recoveryCodes,
+        })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      const row = rows[0];
+      if (!row) return null;
+      let codes: string[] = [];
+      try {
+        codes = row.recoveryCodes ? (JSON.parse(row.recoveryCodes) as string[]) : [];
+      } catch {
+        codes = [];
+      }
+      return {
+        secret: row.secret,
+        enabledAt: row.enabledAt,
+        lastStep: row.lastStep,
+        recoveryCodes: codes,
+      };
+    },
+
+    /** Writes only the parts given; null clears one. */
+    async setTwoFactor(
+      id: string,
+      patch: {
+        secret?: string | null;
+        enabledAt?: string | null;
+        lastStep?: number | null;
+        recoveryCodes?: string[] | null;
+      },
+    ): Promise<void> {
+      const set: Partial<Row> = { updatedAt: new Date().toISOString() };
+      if (patch.secret !== undefined) set.totpSecret = patch.secret;
+      if (patch.enabledAt !== undefined) set.totpEnabledAt = patch.enabledAt;
+      if (patch.lastStep !== undefined) set.totpLastStep = patch.lastStep;
+      if (patch.recoveryCodes !== undefined) {
+        set.recoveryCodes =
+          patch.recoveryCodes === null ? null : JSON.stringify(patch.recoveryCodes);
+      }
+      await db.update(users).set(set).where(eq(users.id, id));
+    },
+
+    /**
+     * Uses up one step: succeeds only when `step` is newer than the last one
+     * accepted, so the same code cannot be used twice, even by two requests at once.
+     */
+    async claimTotpStep(id: string, step: number): Promise<boolean> {
+      const result = await db
+        .update(users)
+        .set({ totpLastStep: step })
+        .where(
+          and(
+            eq(users.id, id),
+            or(sql`${users.totpLastStep} IS NULL`, lt(users.totpLastStep, step)),
+          ),
+        )
+        .returning({ id: users.id });
+      return result.length > 0;
+    },
+
+    async setPreferences(
+      id: string,
+      patch: { locale?: string | null; timeZone?: string | null },
+    ): Promise<void> {
+      const set: Partial<Row> = { updatedAt: new Date().toISOString() };
+      if (patch.locale !== undefined) set.locale = patch.locale;
+      if (patch.timeZone !== undefined) set.timeZone = patch.timeZone;
+      await db.update(users).set(set).where(eq(users.id, id));
+    },
+
     async create(input: {
       id: string;
       email: string;

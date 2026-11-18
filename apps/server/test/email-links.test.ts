@@ -6,6 +6,7 @@ import { after, before, test } from "node:test";
 import { runMigrations, type Store } from "@zelyq/db";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
+import { totpCode, totpStep } from "../src/services/totp.js";
 import { smtpSink } from "./smtp-sink.js";
 
 /**
@@ -413,4 +414,45 @@ test("an invitation stops working once the admin who sent it is no longer an adm
   assert.equal(accepted.statusCode, 404);
   assert.match(accepted.json().error.message, /no longer valid/);
   assert.equal(await store.users.findByEmail("via-helper@example.com"), null);
+});
+
+test("with two-factor on, a reset link changes the password but does not sign in", async () => {
+  const signup = await call(
+    "POST",
+    "/api/auth/register",
+    { email: "twofa@example.com", name: "Two", password: PASSWORD },
+    "",
+  );
+  assert.equal(signup.statusCode, 201, signup.body);
+  const cookie = cookieOf(signup);
+  const setup = await call("POST", "/api/auth/two-factor/setup", { password: PASSWORD }, cookie);
+  const { secret } = setup.json();
+  const enable = await call(
+    "POST",
+    "/api/auth/two-factor/enable",
+    { code: totpCode(secret, totpStep()) },
+    cookie,
+  );
+  assert.equal(enable.statusCode, 200, enable.body);
+
+  await call("POST", "/api/auth/forgot-password", { email: "twofa@example.com" }, "");
+  await settle();
+  const token = tokenFrom("twofa@example.com", "reset-password");
+  const reset = await call(
+    "POST",
+    "/api/auth/reset-password",
+    { token, password: "another-new-password" },
+    "",
+  );
+  assert.equal(reset.statusCode, 200, reset.body);
+  assert.deepEqual(reset.json(), { signInAgain: true });
+  assert.equal(cookieOf(reset), "", "the email alone does not sign in");
+
+  const login = await call(
+    "POST",
+    "/api/auth/login",
+    { email: "twofa@example.com", password: "another-new-password" },
+    "",
+  );
+  assert.ok(login.json().twoFactor?.challenge, "the code is still asked");
 });

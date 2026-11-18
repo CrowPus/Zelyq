@@ -3,8 +3,23 @@
  * Nothing in the interface formats one of these by hand.
  */
 
+/** The person's own choices (Account → Preferences); unset means the browser's. */
+let preferred: { locale: string | null; timeZone: string | null } = {
+  locale: null,
+  timeZone: null,
+};
+
+export function setFormatPreferences(next: { locale?: string | null; timeZone?: string | null }) {
+  preferred = { locale: next.locale ?? null, timeZone: next.timeZone ?? null };
+  if (typeof document !== "undefined") {
+    document.documentElement.lang = preferred.locale ?? navigator.language ?? "en";
+  }
+}
+
 const locale = (): string | undefined =>
-  typeof navigator === "undefined" ? undefined : navigator.language;
+  preferred.locale ?? (typeof navigator === "undefined" ? undefined : navigator.language);
+const zone = (): { timeZone?: string } =>
+  preferred.timeZone ? { timeZone: preferred.timeZone } : {};
 
 function toDate(value: string | number | Date): Date {
   return value instanceof Date ? value : new Date(value);
@@ -20,12 +35,15 @@ export function formatDateTime(value: string | number | Date): string {
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short",
+    ...zone(),
   }).format(toDate(value));
 }
 
 /** "17 Nov 2026" */
 export function formatDate(value: string | number | Date): string {
-  return new Intl.DateTimeFormat(locale(), { dateStyle: "medium" }).format(toDate(value));
+  return new Intl.DateTimeFormat(locale(), { dateStyle: "medium", ...zone() }).format(
+    toDate(value),
+  );
 }
 
 /** "22:11" or "10:11 PM", as the viewer's locale writes it. */
@@ -34,6 +52,7 @@ export function formatTime(value: string | number | Date, seconds = false): stri
     hour: "numeric",
     minute: "2-digit",
     ...(seconds ? { second: "2-digit" } : {}),
+    ...zone(),
   }).format(toDate(value));
 }
 

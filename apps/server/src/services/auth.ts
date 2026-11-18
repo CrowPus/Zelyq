@@ -20,6 +20,20 @@ import {
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { ProductActivity } from "./product-activity.js";
+import type { SecretBox } from "./secrets.js";
+import {
+  generateRecoveryCodes,
+  generateTotpSecret,
+  hashRecoveryCode,
+  matchTotp,
+  otpauthUri,
+} from "./totp.js";
+
+/** How long the code step of signing in may take after the password. */
+const TWO_FACTOR_CHALLENGE_MS = 5 * 60 * 1000;
+/** Wrong codes allowed per account before its code checks pause. */
+const TWO_FACTOR_MAX_FAILURES = 5;
+const TWO_FACTOR_LOCK_MS = 10 * 60 * 1000;
 
 const scryptAsync = promisify(scrypt) as (
   password: string,
@@ -120,6 +134,16 @@ export class AuthService {
   activity?: ProductActivity;
   /** Features switched off for a person in a team (feature switches). */
   switchedOff?: (userId: string, teamId: string) => Promise<string[]>;
+  /** Encrypts the two-factor secret at rest with the server's key. */
+  secrets?: SecretBox;
+
+  /** Password accepted, code still owed: challenge → who, until when, tries so far. */
+  private readonly twoFactorChallenges = new Map<
+    string,
+    { userId: string; expires: number; attempts: number }
+  >();
+  /** Wrong codes per account, so guessing across fresh challenges goes nowhere. */
+  private readonly twoFactorFailures = new Map<string, { count: number; since: number }>();
 
   constructor(
     private readonly store: Store,
@@ -535,7 +559,9 @@ export class AuthService {
     return { user, token };
   }
 
-  async login(input: LoginInput): Promise<{ user: User; token: string }> {
+  async login(
+    input: LoginInput,
+  ): Promise<{ user: User; token: string } | { user: User; challenge: string }> {
     const record = await this.store.users.findByEmail(input.email.trim().toLowerCase());
 
     // Hash even when the account is unknown, so response time does not reveal
@@ -554,9 +580,267 @@ export class AuthService {
     // and only when that is switched on on the server itself.
     this.requireLocal(user, "Sign in with your account");
     this.requireLocalSignIn();
+
+    // Two-factor on: the password alone opens nothing. A short-lived
+    // challenge stands for "password correct", and the code completes it.
+    if (user.twoFactorEnabled) {
+      // A suspended account learns that before being asked for a code.
+      const state = await this.store.users.statusOf(user.id);
+      if (state?.status === "suspended") await this.createSession(user.id);
+      this.pruneChallenges();
+      const challenge = randomBytes(32).toString("base64url");
+      this.twoFactorChallenges.set(challenge, {
+        userId: user.id,
+        expires: Date.now() + TWO_FACTOR_CHALLENGE_MS,
+        attempts: 0,
+      });
+      return { user, challenge };
+    }
+
     const token = await this.createSession(user.id);
     this.activity?.record("account.signed_in", { userId: user.id, detail: { method: "password" } });
     return { user, token };
+  }
+
+  /** The second step of signing in: the code for a challenge `login` handed out. */
+  async completeTwoFactorLogin(input: {
+    challenge: string;
+    code: string;
+  }): Promise<{ user: User; token: string }> {
+    this.pruneChallenges();
+    const pending = this.twoFactorChallenges.get(input.challenge);
+    if (!pending) {
+      throw new ZelyqError(
+        "unauthorized",
+        "That sign-in took too long. Enter your email and password again.",
+        { reason: "challenge_expired" },
+      );
+    }
+    pending.attempts += 1;
+    if (pending.attempts > TWO_FACTOR_MAX_FAILURES) {
+      this.twoFactorChallenges.delete(input.challenge);
+      throw new ZelyqError(
+        "unauthorized",
+        "Too many wrong codes. Enter your email and password again.",
+        { reason: "challenge_expired" },
+      );
+    }
+    const method = await this.checkSecondFactor(pending.userId, input.code);
+    if (!method) {
+      throw new ZelyqError("unauthorized", "That code is not right. Try the newest one.");
+    }
+    this.twoFactorChallenges.delete(input.challenge);
+    const user = await this.store.users.findById(pending.userId);
+    if (!user) throw new ZelyqError("unauthorized", "Incorrect email or password.");
+    const token = await this.createSession(user.id);
+    this.activity?.record("account.signed_in", {
+      userId: user.id,
+      detail: { method: method === "recovery" ? "recovery_code" : "two_factor" },
+    });
+    return { user, token };
+  }
+
+  private pruneChallenges(): void {
+    const now = Date.now();
+    for (const [key, value] of this.twoFactorChallenges) {
+      if (value.expires <= now) this.twoFactorChallenges.delete(key);
+    }
+  }
+
+  /**
+   * Checks a code against the account: an authenticator code (used once), or
+   * a recovery code (crossed off). Null when it is neither. Repeated wrong
+   * codes pause checking for the account, whatever the route.
+   */
+  private async checkSecondFactor(
+    userId: string,
+    code: string,
+  ): Promise<"totp" | "recovery" | null> {
+    const failures = this.twoFactorFailures.get(userId);
+    if (failures && Date.now() - failures.since > TWO_FACTOR_LOCK_MS) {
+      this.twoFactorFailures.delete(userId);
+    } else if (failures && failures.count >= TWO_FACTOR_MAX_FAILURES) {
+      throw new ZelyqError(
+        "rate_limited",
+        "Too many wrong codes. Wait ten minutes, then try again.",
+      );
+    }
+    const state = await this.store.users.twoFactorOf(userId);
+    let method: "totp" | "recovery" | null = null;
+    if (state?.secret && /^\d{6}$/.test(code)) {
+      const secret = this.openSecret(state.secret);
+      const step = secret ? matchTotp(secret, code) : null;
+      if (step !== null && (await this.store.users.claimTotpStep(userId, step))) method = "totp";
+    } else if (state && code.length >= 8) {
+      const hashed = hashRecoveryCode(code);
+      if (state.recoveryCodes.includes(hashed)) {
+        await this.store.users.setTwoFactor(userId, {
+          recoveryCodes: state.recoveryCodes.filter((value) => value !== hashed),
+        });
+        method = "recovery";
+      }
+    }
+    if (method) {
+      this.twoFactorFailures.delete(userId);
+    } else {
+      const current = this.twoFactorFailures.get(userId) ?? { count: 0, since: Date.now() };
+      current.count += 1;
+      this.twoFactorFailures.set(userId, current);
+    }
+    return method;
+  }
+
+  private sealSecret(secret: string): string {
+    if (!this.secrets) throw new ZelyqError("internal", "Two-factor sign-in is not available.");
+    return this.secrets.encrypt(secret);
+  }
+
+  private openSecret(stored: string): string | null {
+    return this.secrets?.decrypt(stored) ?? null;
+  }
+
+  /**
+   * Starts setting up two-factor sign-in: a new secret, not yet in force,
+   * and the address its QR code carries. Asks for the password first.
+   */
+  async setupTwoFactor(
+    user: User,
+    password: string,
+  ): Promise<{ secret: string; otpauthUri: string }> {
+    this.requireLocal(user, "Set up two-factor sign-in");
+    await this.confirmPassword(user, password);
+    const state = await this.store.users.twoFactorOf(user.id);
+    if (state?.enabledAt) {
+      throw new ZelyqError("conflict", "Two-factor sign-in is already on.");
+    }
+    const secret = generateTotpSecret();
+    await this.store.users.setTwoFactor(user.id, {
+      secret: this.sealSecret(secret),
+      enabledAt: null,
+      lastStep: null,
+      recoveryCodes: null,
+    });
+    return { secret, otpauthUri: otpauthUri(secret, user.email, "Zelyq") };
+  }
+
+  /** Puts it in force once the first code proves the app holds the secret. */
+  async enableTwoFactor(user: User, code: string): Promise<{ recoveryCodes: string[] }> {
+    this.requireLocal(user, "Set up two-factor sign-in");
+    const state = await this.store.users.twoFactorOf(user.id);
+    if (!state?.secret) throw ZelyqError.badRequest("Start setting up two-factor sign-in first.");
+    if (state.enabledAt) throw new ZelyqError("conflict", "Two-factor sign-in is already on.");
+    const secret = this.openSecret(state.secret);
+    const step = secret ? matchTotp(secret, code) : null;
+    if (step === null) {
+      throw new ZelyqError(
+        "unauthorized",
+        "That code is not right. Check the time on your phone, then try the newest code.",
+      );
+    }
+    const recoveryCodes = generateRecoveryCodes();
+    await this.store.users.setTwoFactor(user.id, {
+      enabledAt: new Date().toISOString(),
+      lastStep: step,
+      recoveryCodes: recoveryCodes.map(hashRecoveryCode),
+    });
+    return { recoveryCodes };
+  }
+
+  /** Turns it off: the password and a code (or a recovery code). */
+  async disableTwoFactor(user: User, input: { password: string; code: string }): Promise<void> {
+    this.requireLocal(user, "Turn off two-factor sign-in");
+    await this.confirmPassword(user, input.password);
+    if (!(await this.checkSecondFactor(user.id, input.code))) {
+      throw new ZelyqError("unauthorized", "That code is not right.");
+    }
+    await this.clearTwoFactor(user.id);
+  }
+
+  /** New recovery codes; the old ones stop working. */
+  async regenerateRecoveryCodes(
+    user: User,
+    input: { password: string; code: string },
+  ): Promise<{ recoveryCodes: string[] }> {
+    this.requireLocal(user, "Make new recovery codes");
+    await this.confirmPassword(user, input.password);
+    const state = await this.store.users.twoFactorOf(user.id);
+    if (!state?.enabledAt) throw ZelyqError.badRequest("Two-factor sign-in is not on.");
+    if (!(await this.checkSecondFactor(user.id, input.code))) {
+      throw new ZelyqError("unauthorized", "That code is not right.");
+    }
+    const recoveryCodes = generateRecoveryCodes();
+    await this.store.users.setTwoFactor(user.id, {
+      recoveryCodes: recoveryCodes.map(hashRecoveryCode),
+    });
+    return { recoveryCodes };
+  }
+
+  /** How many recovery codes are left, for the account page. */
+  async recoveryCodesLeft(userId: string): Promise<number> {
+    return (await this.store.users.twoFactorOf(userId))?.recoveryCodes.length ?? 0;
+  }
+
+  /**
+   * A server administrator turning it off for someone who lost their phone
+   * and their recovery codes. Their sessions end, so the next sign-in is a
+   * fresh one with the password.
+   */
+  async resetTwoFactor(admin: User, userId: string): Promise<void> {
+    if (admin.instanceRole !== "admin") {
+      throw new ZelyqError("forbidden", "Only a server administrator can do that.");
+    }
+    await this.clearTwoFactor(userId);
+    await this.store.authSessions.removeForUser(userId);
+  }
+
+  private async clearTwoFactor(userId: string): Promise<void> {
+    await this.store.users.setTwoFactor(userId, {
+      secret: null,
+      enabledAt: null,
+      lastStep: null,
+      recoveryCodes: null,
+    });
+    this.twoFactorFailures.delete(userId);
+  }
+
+  /** Notes the browser and address a new session came from. */
+  async describeSession(token: string, meta: { userAgent: string | null; ip: string | null }) {
+    await this.store.authSessions.describe(hashToken(token), meta);
+  }
+
+  /** The person's signed-in devices, the one asking marked as current. */
+  async listSessions(user: User, currentToken: string | undefined) {
+    const current = currentToken
+      ? await this.store.authSessions.findByTokenHash(hashToken(currentToken))
+      : null;
+    const rows = await this.store.authSessions.listForUser(user.id);
+    return rows.map((row) => ({ ...row, current: row.id === current?.id }));
+  }
+
+  /** Signs one of the person's own devices out. */
+  async revokeSession(user: User, id: string): Promise<void> {
+    if (!(await this.store.authSessions.removeOwned(user.id, id))) {
+      throw new ZelyqError("not_found", "That device is already signed out.");
+    }
+  }
+
+  /** Signs every other device out, keeping this one. */
+  async revokeOtherSessions(user: User, currentToken: string | undefined): Promise<number> {
+    const current = currentToken
+      ? await this.store.authSessions.findByTokenHash(hashToken(currentToken))
+      : null;
+    if (!current || current.userId !== user.id) {
+      throw new ZelyqError("unauthorized", "Sign in to continue.");
+    }
+    return await this.store.authSessions.removeOthers(user.id, current.id);
+  }
+
+  async setPreferences(
+    user: User,
+    input: { locale?: string | null; timeZone?: string | null },
+  ): Promise<User> {
+    await this.store.users.setPreferences(user.id, input);
+    return (await this.store.users.findById(user.id)) ?? user;
   }
 
   /**

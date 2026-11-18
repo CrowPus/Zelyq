@@ -24,6 +24,7 @@ import {
 } from "./components/ui";
 import { useActiveTeam } from "./hooks/useActiveTeam";
 import { useSession } from "./hooks/useSession";
+import { setFormatPreferences } from "./lib/format";
 import { setCurrentTeamKey, teamKey, teamPaths, useRouteTeam } from "./lib/routes";
 import { InvitePage, ResetPasswordPage } from "./pages/EmailLinkPages";
 import { SignInPage } from "./pages/SignInPage";
@@ -89,6 +90,10 @@ function FullScreenSpinner() {
 function Gate() {
   const { user, loading } = useSession();
   const location = useLocation();
+  // Dates and numbers follow the person's own language and time zone.
+  useEffect(() => {
+    setFormatPreferences({ locale: user?.locale, timeZone: user?.timeZone });
+  }, [user?.locale, user?.timeZone]);
 
   if (loading) return <FullScreenSpinner />;
 

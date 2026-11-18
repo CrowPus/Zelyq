@@ -40,6 +40,13 @@ export function registerAccountRoutes(
     return { users: await deps.accounts.list() };
   });
 
+  /** For someone who lost both their phone and their recovery codes. */
+  app.delete<{ Params: { id: string } }>("/api/users/:id/two-factor", async (request, reply) => {
+    const admin = requireInstanceAdmin(request);
+    await deps.auth.resetTwoFactor(admin, request.params.id);
+    reply.status(204);
+  });
+
   app.delete<{ Params: { id: string } }>("/api/users/:id", async (request, reply) => {
     const admin = requireInstanceAdmin(request);
     await deps.accounts.deleteUser(admin, request.params.id);

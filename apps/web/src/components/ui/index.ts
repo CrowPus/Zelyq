@@ -1,5 +1,5 @@
 export { Badge, Kbd, type Status, StatusBadge, StatusDot, statusOf, type Tone } from "./Badge.js";
-export { Button, type ButtonProps, buttonClass, IconButton } from "./Button.js";
+export { Button, type ButtonProps, buttonClass, IconButton, Pressable } from "./Button.js";
 export {
   ConfirmHost,
   type ConfirmOptions,
