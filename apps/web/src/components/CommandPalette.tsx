@@ -153,7 +153,7 @@ function Palette_() {
                   <Item
                     value="go studio image video"
                     icon={<Palette size={15} />}
-                    onSelect={() => run(() => navigate(p.studio))}
+                    onSelect={() => run(() => navigate(p.studioImage))}
                   >
                     {t("Studio")}
                   </Item>

@@ -266,7 +266,9 @@ function teamSections(
       items: [
         { to: p.apps, label: t("Apps"), icon: LayoutGrid, match: starts(p.apps) },
         {
-          to: p.studio,
+          // Straight to the page: /studio only redirects, and a redirect
+          // blanks the screen while Studio's code loads.
+          to: p.studioImage,
           label: t("Studio"),
           icon: Palette,
           match: starts(p.studio),
