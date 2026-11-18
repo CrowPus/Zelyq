@@ -459,9 +459,14 @@ function GettingStarted({
                 >
                   {step.label}
                 </span>
-                {!step.done && <span className="block text-xs text-fg-muted">{step.hint}</span>}
+                {/* Shown when done too: a row keeps its height as the
+                    answers arrive, so nothing below it jumps. */}
+                <span className="block text-xs text-fg-muted">{step.hint}</span>
               </span>
-              {!step.done && <ArrowRight size={14} className="shrink-0 text-fg-muted" />}
+              <ArrowRight
+                size={14}
+                className={`shrink-0 text-fg-muted ${step.done ? "invisible" : ""}`}
+              />
             </Link>
           </li>
         ))}

@@ -89,6 +89,28 @@ CI does. If a finding is a fixture that deliberately contains a fake credential,
 to get past a real one. See [SECURITY.md](./SECURITY.md#repository-scanning) for what each layer
 actually covers.
 
+### Page quality
+
+The **Page quality** check opens the main pages in a real browser and fails when:
+
+- a page **looks different** from its screenshot in `apps/web/e2e/__screenshots__` (both themes,
+  desktop and phone);
+- a page is **slower or heavier** than its budget in `scripts/perf-budget.json` (Lighthouse,
+  simulating a mid-range phone on 4G, median of three runs);
+- a page has a **serious accessibility problem** (axe, WCAG 2.2 AA).
+
+Screenshots depend on fonts and the browser build, so they are taken in the same container CI
+uses. With Docker installed, after `pnpm build`:
+
+```bash
+scripts/quality.sh            # check, as CI does
+scripts/quality.sh --update   # your change is meant to alter a page: take new screenshots
+```
+
+Commit the new screenshots with the change, so the review shows the new look. The report CI keeps
+for each run (**page-quality-report**) has the expected, actual and difference images. A budget
+may be lowered when a page gets faster; raising one needs a reason in the PR.
+
 ## Commit and PR conventions
 
 - `main` is protected. Every change arrives through a pull request, and CI must be green before it

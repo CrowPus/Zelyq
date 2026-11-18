@@ -258,6 +258,52 @@ test("static assets keep their own content, and unknown routes get the SPA", asy
   }
 });
 
+test("built assets are sent compressed and cached for good; the page is always checked", async () => {
+  // The build writes .br and .gz beside each file. A browser that accepts
+  // brotli gets the .br, with the right headers; one that accepts nothing
+  // gets the plain file. Hashed assets are immutable; the page is not, or a
+  // deploy would not be seen until the cache expired.
+  const zlib = await import("node:zlib");
+  const webDir = path.join(tmp, "webdir-compressed");
+  await fs.mkdir(path.join(webDir, "assets"), { recursive: true });
+  await fs.writeFile(path.join(webDir, "index.html"), "<!doctype html><title>shell</title>");
+  const source = `export const big = "${"zelyq ".repeat(500)}";\n`;
+  await fs.writeFile(path.join(webDir, "assets", "app-1a2b.js"), source);
+  await fs.writeFile(
+    path.join(webDir, "assets", "app-1a2b.js.br"),
+    zlib.brotliCompressSync(source),
+  );
+  await fs.writeFile(path.join(webDir, "assets", "app-1a2b.js.gz"), zlib.gzipSync(source));
+
+  const spa = await buildServer({ ...config, webDir });
+  try {
+    const br = await spa.app.inject({
+      method: "GET",
+      url: "/assets/app-1a2b.js",
+      headers: { "accept-encoding": "gzip, deflate, br" },
+    });
+    assert.equal(br.statusCode, 200);
+    assert.equal(br.headers["content-encoding"], "br");
+    assert.match(String(br.headers["content-type"]), /javascript/);
+    assert.equal(br.headers["cache-control"], "public, max-age=31536000, immutable");
+    assert.match(String(br.headers.vary), /accept-encoding/i);
+    assert.equal(zlib.brotliDecompressSync(br.rawPayload).toString(), source);
+
+    const plain = await spa.app.inject({ method: "GET", url: "/assets/app-1a2b.js" });
+    assert.equal(plain.headers["content-encoding"], undefined);
+    assert.equal(plain.body, source);
+
+    const page = await spa.app.inject({
+      method: "GET",
+      url: "/default/apps",
+      headers: { accept: "text/html" },
+    });
+    assert.equal(page.headers["cache-control"], "no-cache");
+  } finally {
+    await spa.close();
+  }
+});
+
 test("validation failures explain which field was wrong", async () => {
   const response = await server.app.inject({
     method: "POST",

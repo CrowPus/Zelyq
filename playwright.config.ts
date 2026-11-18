@@ -43,7 +43,8 @@ export default defineConfig({
   testDir: "./apps/web/e2e",
   // Image Studio has its own isolated server and a mock provider; it must
   // never inherit live image credentials through this suite's .env loader.
-  testIgnore: "**/image-studio.spec.ts",
+  // visual and performance run in the CI container only (playwright.quality.config.ts).
+  testIgnore: ["**/image-studio.spec.ts", "**/visual.spec.ts", "**/performance.spec.ts"],
   timeout: 15 * 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

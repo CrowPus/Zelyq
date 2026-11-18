@@ -8,6 +8,7 @@ import {
   Camera,
   Check,
   ChevronsUpDown,
+  FileText,
   GitBranch,
   HelpCircle,
   House,
@@ -50,6 +51,7 @@ import { roleName } from "../lib/roles";
 import { globalPaths, type TeamPaths, teamKey, teamPaths, useTeamPaths } from "../lib/routes";
 import { AnnouncementBanner } from "./AnnouncementBanner";
 import { openCommandPalette, openShortcuts } from "./CommandPalette";
+import { openHelp } from "./help/HelpPanel";
 import { Inbox } from "./Inbox";
 import { NewTeamDialog } from "./NewTeamDialog";
 import { PlanLimitBanner } from "./PlanLimitBanner";
@@ -942,9 +944,12 @@ function HelpMenu() {
       }
     >
       <MenuLabel>{t("Help")}</MenuLabel>
+      <MenuItem icon={<BookOpen size={14} />} onSelect={() => openHelp()}>
+        {t("Help for this page")}
+      </MenuItem>
       <MenuItem asChild>
         <Link to={globalPaths.docs}>
-          <BookOpen size={14} className="text-fg-muted" /> {t("Documentation")}
+          <FileText size={14} className="text-fg-muted" /> {t("Beginner’s guide")}
         </Link>
       </MenuItem>
       <MenuItem icon={<Keyboard size={14} />} shortcut="?" onSelect={openShortcuts}>

@@ -1788,7 +1788,7 @@ function StageForm({
         <RunsOn
           value={stage["runs-on"]}
           runners={lists.runners}
-          inherit="The pipeline's machine"
+          inherit={t("The pipeline's machine")}
           disabled={off}
           onChange={(next) => edit(setIn(source, [...at, "runs-on"], next))}
         />

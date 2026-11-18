@@ -4,9 +4,11 @@ import { ChevronRight, CircleAlert, CircleCheck, Mail, UserPlus } from "lucide-r
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { MembersTable } from "../components/MembersTable";
 import {
   Badge,
   Button,
+  confirmAction,
   Input,
   NativeSelect,
   PageBody,
@@ -20,7 +22,7 @@ import { AUDIT_ACTION_LABELS, auditDetailSummary } from "../lib/audit";
 import { formatDate } from "../lib/format";
 import { t, translateServerMessage } from "../lib/i18n";
 import { roleName } from "../lib/roles";
-import { teamHref, useRouteTeam } from "../lib/routes";
+import { globalPaths, teamHref, useRouteTeam } from "../lib/routes";
 
 export function TeamPage() {
   const id = useRouteTeam()?.id ?? "";
@@ -105,7 +107,7 @@ export function TeamPage() {
 
   return (
     <AppShell crumbs={[{ label: t("Members") }]}>
-      <PageBody width="narrow">
+      <PageBody width="standard">
         <PageHeader
           title={t("Members")}
           description={t(
@@ -166,9 +168,20 @@ export function TeamPage() {
               ? t(
                   "Someone with an account joins straight away. Anyone else gets an invitation email, valid for 7 days.",
                 )
-              : t(
-                  "Only people who already have an account can be added. To invite anyone by email, a server admin turns on invitations in Server admin → Email.",
-                )}
+              : user?.instanceRole === "admin"
+                ? t(
+                    "Only people who already have an account can be added until email is set up. {link}",
+                    {
+                      link: (
+                        <Link to={globalPaths.admin("email")} className="text-info underline">
+                          {t("Set up email")}
+                        </Link>
+                      ),
+                    },
+                  )
+                : t(
+                    "Only people who already have an account can be added. To invite anyone by email, a server admin turns on invitations in Server admin → Email.",
+                  )}
           </p>
         )}
 
@@ -189,72 +202,29 @@ export function TeamPage() {
           </p>
         )}
 
-        <div className="mt-6 overflow-hidden rounded-lg border border-border-default bg-surface">
-          <div className="grid grid-cols-[minmax(0,1fr)_130px_70px] items-center gap-3 border-b border-border-default bg-surface-subtle px-4 py-2 text-2xs font-medium tracking-[0.06em] text-fg-muted uppercase">
-            <span>{t("Member")}</span>
-            <span>{t("Role")}</span>
-            <span />
-          </div>
-
-          {members.isLoading && (
-            <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-muted">
-              <Spinner /> {t("Loading members…")}
-            </div>
-          )}
-
-          {members.data?.members.map((member) => (
-            <div
-              key={member.userId}
-              className="grid grid-cols-[minmax(0,1fr)_130px_70px] items-center gap-3 border-b border-border-default px-4 py-2.5 last:border-b-0"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm text-fg">
-                  {member.name}
-                  {member.userId === user?.id && (
-                    <span className="ml-1.5 text-xs text-fg-muted">{t("(you)")}</span>
-                  )}
-                </p>
-                <p className="truncate text-xs text-fg-muted">{member.email}</p>
-              </div>
-
-              {canManage ? (
-                <NativeSelect
-                  value={member.role}
-                  onChange={(event) =>
-                    changeRole.mutate({ userId: member.userId, next: event.target.value as Role })
-                  }
-                  aria-label={t("Role for {name}", { name: member.name })}
-                  className="w-auto"
-                  title={translateServerMessage(ROLE_DESCRIPTIONS[member.role])}
-                >
-                  {ROLES.map((option) => (
-                    <option key={option} value={option}>
-                      {roleName(option)}
-                    </option>
-                  ))}
-                </NativeSelect>
-              ) : (
-                <span
-                  className="text-xs text-fg-secondary"
-                  title={translateServerMessage(ROLE_DESCRIPTIONS[member.role])}
-                >
-                  {roleName(member.role)}
-                </span>
-              )}
-
-              <div className="text-right">
-                {(canManage || member.userId === user?.id) && (
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => removeMember.mutate(member.userId)}
-                  >
-                    {member.userId === user?.id ? t("Leave") : t("Remove")}
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="mt-6">
+          <MembersTable
+            members={members.data?.members ?? []}
+            loading={members.isLoading}
+            teamKey={id}
+            meId={user?.id}
+            canManage={canManage}
+            onRole={(userId, next) => changeRole.mutate({ userId, next })}
+            onRemove={async (member) => {
+              const leaving = member.userId === user?.id;
+              const ok = await confirmAction({
+                title: leaving
+                  ? t("Leave {team}?", { team: team?.name ?? t("this team") })
+                  : t("Remove {name} from the team?", { name: member.name }),
+                description: leaving
+                  ? t("You lose access to its apps until someone adds you again.")
+                  : t("They lose access to the team’s apps straight away. Their work stays."),
+                confirmLabel: leaving ? t("Leave team") : t("Remove"),
+                danger: true,
+              });
+              if (ok) removeMember.mutate(member.userId);
+            }}
+          />
         </div>
 
         {team && (

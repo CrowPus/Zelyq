@@ -167,6 +167,7 @@ export function teamRepository(db: ZelyqDb) {
           name: users.name,
           role: teamMembers.role,
           joinedAt: teamMembers.joinedAt,
+          lastSeenAt: users.lastSeenAt,
         })
         .from(teamMembers)
         .innerJoin(users, eq(users.id, teamMembers.userId))

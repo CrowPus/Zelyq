@@ -116,6 +116,13 @@ export function ProfilePage() {
                     name: accounts.name,
                   })}
                 </p>
+                <a
+                  href={accountServiceLinks(accounts).account()}
+                  className="mt-3 inline-flex items-center gap-1.5 text-sm text-info underline-offset-2 hover:underline"
+                >
+                  {t("Manage your account at {name}", { name: accounts.name })}
+                  <ExternalLink size={12} aria-hidden />
+                </a>
               </Card>
             ) : (
               <>
@@ -404,7 +411,10 @@ function PasswordSection() {
           />
         </Field>
 
-        <Feedback state={state} savedMessage="Password changed. Other devices were signed out." />
+        <Feedback
+          state={state}
+          savedMessage={t("Password changed. Other devices were signed out.")}
+        />
 
         <div>
           <Button type="submit" variant="primary" disabled={!ready} loading={state.busy}>

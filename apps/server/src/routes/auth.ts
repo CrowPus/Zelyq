@@ -260,7 +260,12 @@ export function registerAuthRoutes(
   /** The person's signed-in devices. */
   app.get("/api/auth/sessions", async (request) => {
     const user = signedIn(request);
-    return { sessions: await deps.auth.listSessions(user, request.cookies[SESSION_COOKIE]) };
+    return {
+      sessions: await deps.auth.listSessions(user, request.cookies[SESSION_COOKIE], {
+        userAgent: request.headers["user-agent"] ?? null,
+        ip: request.ip ?? null,
+      }),
+    };
   });
 
   app.delete<{ Params: { id: string } }>("/api/auth/sessions/:id", async (request, reply) => {

@@ -8,7 +8,7 @@ export {
   Toaster,
   toast,
 } from "./Confirm.js";
-export { type Column, DataTable } from "./DataTable.js";
+export { type Column, DataTable, parseSort, type SortState, sortRows } from "./DataTable.js";
 export { Dialog, DialogClose, Drawer } from "./Dialog.js";
 export {
   Avatar,
