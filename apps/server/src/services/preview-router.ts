@@ -34,13 +34,14 @@ export class PreviewRouter {
   constructor(
     private readonly store: Store,
     private readonly workspaceDir: string,
-    private readonly urlTemplate: string | undefined,
+    /** The preview address template now: the admin's preview domain can change at any time. */
+    private readonly urlTemplate: () => string | undefined,
   ) {}
 
   /** The domain previews are served under, or null when this deployment
    * still serves them by port. */
   get domainSuffix(): string | null {
-    return previewDomainSuffix(this.urlTemplate);
+    return previewDomainSuffix(this.urlTemplate());
   }
 
   /** Whether a request for this host is a preview rather than the app. */

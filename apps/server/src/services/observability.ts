@@ -359,6 +359,8 @@ export interface HealthProbes {
   mailConfigured: () => Promise<boolean>;
   lastCleanup: () => Promise<{ at?: string; finishedAt?: string } | null>;
   stats: RequestStats;
+  /** Named previews, when the server serves them (see preview-health.ts). */
+  previews?: () => Promise<HealthCheck>;
 }
 
 async function timed<T>(work: () => Promise<T>): Promise<{ value: T; ms: number }> {
@@ -456,6 +458,7 @@ export async function deepHealth(probes: HealthProbes) {
         detail: `idle clean-up last ran ${new Date(at).toISOString()}`,
       };
     }),
+    ...(probes.previews ? [within("previews", probes.previews as () => Promise<HealthCheck>)] : []),
   ]);
 
   const worst = checks.some((check) => check.status === "down")

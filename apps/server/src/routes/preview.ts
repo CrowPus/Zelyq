@@ -30,8 +30,8 @@ export function registerPreviewRoutes(
     activity?: ProductActivity;
     /** Maintenance that pauses building also holds new previews. */
     maintenance?: { requireBuildsAllowed(): Promise<void> };
-    /** `ZELYQ_PREVIEW_URL_TEMPLATE`, for turning a port into the address a person sees. */
-    previewUrlTemplate?: string;
+    /** The preview address template now (preview domain or ZELYQ_PREVIEW_URL_TEMPLATE). */
+    previewUrlTemplate?: () => string | undefined;
   },
 ): void {
   const { access } = deps;
@@ -42,7 +42,7 @@ export function registerPreviewRoutes(
    * the runtime built is an internal detail; without it, nothing changes.
    */
   const show = (project: { id: string; slug: string }, preview: Preview): Preview => {
-    const named = previewAddress(deps.previewUrlTemplate, project, preview.port);
+    const named = previewAddress(deps.previewUrlTemplate?.(), project, preview.port);
     return named ? { ...preview, url: named } : preview;
   };
   app.get<{ Params: { id: string } }>("/api/projects/:id/preview", async (request) => {

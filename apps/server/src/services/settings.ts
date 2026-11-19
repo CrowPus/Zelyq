@@ -574,6 +574,19 @@ const DEFINITIONS: Definition[] = [
     restartRequired: true,
   },
   {
+    key: "previewDomain",
+    label: "Preview domain",
+    description:
+      "Serve every preview at its own name under this domain, e.g. shop-a1b2c3.zelyq.app, with no port opened. It needs a wildcard DNS record and certificate for the domain pointing at this server (deploy/enable-named-previews.sh does both). Use a domain of its own, never the app's. Takes effect at once; empty turns it off.",
+    kind: "text",
+    group: "Preview",
+    envVar: "ZELYQ_PREVIEW_DOMAIN",
+    // The admin portal sets it on a managed server; an operator's .env only seeds it.
+    envOverridable: true,
+    fallback: "",
+    placeholder: "zelyq.app",
+  },
+  {
     key: "keepUndoPoints",
     label: "Undo points kept per app",
     description:
@@ -1040,6 +1053,12 @@ export class SettingsService {
 
   /** The strict sandbox is on: pipelines may never run on the server itself. */
   strictSandbox = false;
+
+  /** The app's address from the server's own configuration, when it has one. */
+  appPublicUrl?: string;
+
+  /** Told the keys that changed after every saved change (e.g. the preview domain). */
+  onChanged?: (keys: string[]) => void;
 
   constructor(
     private readonly store: Store,
@@ -1900,6 +1919,7 @@ export class SettingsService {
         await this.store.settings.set(key, this.secrets.encrypt(value));
       } else {
         this.validate(definition, value);
+        if (key === "previewDomain") await this.refusePreviewDomainOverApp(value);
         await this.store.settings.set(key, value);
       }
 
@@ -1922,9 +1942,43 @@ export class SettingsService {
         await this.store.settings.set("model", "auto");
       if (!("modelBaseUrl" in changes)) await this.store.settings.remove("modelBaseUrl");
     }
+    this.onChanged?.(Object.keys(changes));
+  }
+
+  /**
+   * Previews are other people's code: a preview domain that covers the app's
+   * own address would serve the app as if it were a preview, and put
+   * customers' pages on the app's own site.
+   */
+  private async refusePreviewDomainOverApp(domain: string): Promise<void> {
+    const addresses = [
+      await this.value("publicUrl").catch(() => ""),
+      this.env.ZELYQ_PUBLIC_URL,
+      this.appPublicUrl,
+    ];
+    const hosts = addresses.flatMap((address) => {
+      try {
+        return address ? [new URL(address).hostname.toLowerCase()] : [];
+      } catch {
+        return [];
+      }
+    });
+    const appHost = hosts.find((host) => host === domain || host.endsWith(`.${domain}`));
+    if (appHost) {
+      throw ZelyqError.badRequest(
+        `The preview domain cannot cover the app's own address (${appHost}). Use a domain of its own, such as zelyq.app.`,
+      );
+    }
   }
 
   private validate(definition: Definition, value: string): void {
+    if (definition.key === "previewDomain") {
+      if (!/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(value)) {
+        throw ZelyqError.badRequest(
+          "Preview domain must be a domain name, such as zelyq.app: lower case, no https:// and no path.",
+        );
+      }
+    }
     if (definition.key === "pipelineLocalRunner" && value === "host" && this.strictSandbox) {
       throw ZelyqError.badRequest(
         "This server keeps every team's code in a sandbox, so pipelines cannot run on the server itself.",

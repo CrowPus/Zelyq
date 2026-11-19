@@ -32,8 +32,8 @@ export async function registerPreviewProxy(
   app: FastifyInstance,
   deps: { router: PreviewRouter },
 ): Promise<void> {
-  if (!deps.router.domainSuffix) return;
-
+  // Registered even with no preview domain yet: it can be set later from the
+  // admin portal, and until then no host matches and every request passes by.
   await app.register(replyFrom, { undici: { connections: 64, pipelining: 1 } });
 
   app.addHook("onRequest", async (request, reply) => {

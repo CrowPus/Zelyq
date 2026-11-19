@@ -240,6 +240,7 @@ instead of a receiver. Events are kept 30 days. A server with no receiver and no
 | `team.limit_reached` | A plan limit stopped someone: a moment to offer a bigger plan | `teamId`, `limit`, `plan` |
 | `error.new` · `error.regressed` | A new kind of server error, or a resolved one back | `groupId`, `kind`, `message`, `location`, `route` |
 | `health.down` · `health.recovered` | The server went down (checked every 5 minutes), or came back | `checks` (the parts down) |
+| `previews.attention` · `previews.recovered` | Named previews need attention (the wildcard name, a certificate under 21 days or invalid, or the router not answering; checked every hour), or are fine again | `status`, `detail`, `domain` |
 
 ## Rules every call follows
 

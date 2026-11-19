@@ -62,6 +62,8 @@ export function registerAdminApi(
     settings: SettingsService;
     /** Every part of the server, checked now. */
     health: () => Promise<{ status: string }>;
+    /** Named previews' own check (wildcard name, certificates, router). */
+    previewHealth?: { report(fresh?: boolean): Promise<unknown> };
   },
 ): void {
   const { adminKeys, usage, store, directory, activity, errors, requestStats } = deps;
@@ -331,6 +333,12 @@ export function registerAdminApi(
         // A monitor can alert on the status code alone.
         if (report.status === "down") reply.status(503);
         return report;
+      });
+      // Named previews in detail; `?refresh=1` checks now rather than within five minutes.
+      route("GET", "/previews", "health", async (request) => {
+        if (!deps.previewHealth) return { status: "off", detail: "not available", problems: [] };
+        const fresh = (request.query as { refresh?: string }).refresh === "1";
+        return await deps.previewHealth.report(fresh);
       });
       route("GET", "/errors", "errors", async (request) =>
         errors.list(

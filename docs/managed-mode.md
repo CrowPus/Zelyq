@@ -111,6 +111,10 @@ networks. Plugins come only from Zelyq's signed registry, and pipelines never ru
 server itself. Zelyq refuses to start without `ZELYQ_RUNTIME=container` and
 `ZELYQ_CONTAINER_RUNTIME=runsc`.
 
+Previews are served by name on a domain of their own ([previews.md](./previews.md)). The domain is
+set in the admin portal; Zelyq checks it every hour and emails its administrators when it needs
+attention.
+
 ## What stays private
 
 Data stays on the server that made it: nothing is sent anywhere unless a receiver is set or a key is

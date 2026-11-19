@@ -29,6 +29,8 @@ export const OUT_EVENT_TYPES = [
   "error.regressed",
   "health.down",
   "health.recovered",
+  "previews.attention",
+  "previews.recovered",
 ] as const;
 export type OutEventType = (typeof OUT_EVENT_TYPES)[number];
 

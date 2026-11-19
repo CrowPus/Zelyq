@@ -2987,5 +2987,7 @@
   "— {nameCount, plural, one {# variable} other {# variables}} set {at}. Read them with {code}.": "— {nameCount, plural, one {# variable définie} other {# variables définies}} {at}. Lisez-les avec {code}.",
   "“{name}” is ready. Copy the key now: it is not shown again.": "« {name} » est prête. Copiez la clé maintenant : elle n’est plus affichée.",
   "→ the run it started: #{number}": "→ l’exécution qu’il a lancée : #{number}",
-  "−{removed} removed": "−{removed} supprimées"
+  "−{removed} removed": "−{removed} supprimées",
+  "Preview domain": "Domaine des aperçus",
+  "Serve every preview at its own name under this domain, e.g. shop-a1b2c3.zelyq.app, with no port opened. It needs a wildcard DNS record and certificate for the domain pointing at this server (deploy/enable-named-previews.sh does both). Use a domain of its own, never the app's. Takes effect at once; empty turns it off.": "Sert chaque aperçu sous son propre nom dans ce domaine, par ex. shop-a1b2c3.zelyq.app, sans ouvrir de port. Il faut un enregistrement DNS générique et un certificat pour ce domaine pointant vers ce serveur (deploy/enable-named-previews.sh fait les deux). Utilisez un domaine à part, jamais celui de l’application. Effet immédiat ; vide, cela le désactive."
 }
