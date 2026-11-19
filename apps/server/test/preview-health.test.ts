@@ -107,37 +107,114 @@ test("a name that does not resolve, or a router that does not answer, is down", 
   assert.match(noRouter.detail, /did not answer \(got 502\)/);
 });
 
-test("the watcher speaks on a change for the worse and on recovery, never every hour", async () => {
-  const days_ = [60, 60, 15, 15, 60, 60];
+/** Runs the watcher by hand: each call to `step` is one scheduled check. */
+function manualWatcher(results: number[], memory: { said: string | null }) {
   let call = 0;
   const health = new PreviewHealth(
     () => "zelyq.app",
-    probes({ certificate: async () => days(days_[Math.min(call, days_.length - 1)] as number) }),
+    probes({
+      certificate: async () => days(results[Math.min(call, results.length - 1)] as number),
+    }),
   );
   const said: string[] = [];
+  const pending: Array<() => void> = [];
   const realSetTimeout = globalThis.setTimeout;
   const realSetInterval = globalThis.setInterval;
-  let tick: (() => void) | null = null;
-  // Run the watcher by hand rather than waiting an hour.
   globalThis.setTimeout = ((fn: () => void) => {
-    tick = fn;
+    pending.push(fn);
     return { unref() {} } as never;
   }) as never;
   globalThis.setInterval = ((fn: () => void) => {
-    tick = fn;
+    pending.push(fn);
     return { unref() {} } as never;
   }) as never;
-  const stop = watchPreviewHealth(health, ({ status }) => {
-    said.push(status);
+  const stop = watchPreviewHealth(
+    health,
+    {
+      get: async () => memory.said,
+      set: async (status) => {
+        memory.said = status;
+      },
+    },
+    ({ status }) => {
+      said.push(status);
+    },
+  );
+  const hourly = pending.pop() as () => void;
+  const first = pending.pop() as () => void;
+  const settle = () => new Promise((resolve) => realSetTimeout(resolve, 10));
+  return {
+    said,
+    async run(fn: () => void) {
+      // Timers set while it runs (the five-minute confirmation) are collected.
+      globalThis.setTimeout = ((f: () => void) => {
+        pending.push(f);
+        return { unref() {} } as never;
+      }) as never;
+      fn();
+      await settle();
+      call += 1;
+      globalThis.setTimeout = realSetTimeout;
+    },
+    first,
+    hourly,
+    confirm: () => pending.shift() as () => void,
+    stop() {
+      stop();
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.setInterval = realSetInterval;
+    },
+  };
+}
+
+test("the watcher confirms a bad result before saying it, and says recovery once", async () => {
+  const memory = { said: null as string | null };
+  const watch = manualWatcher([60, 15, 15, 15, 60], memory);
+  await watch.run(watch.first); // 60 days: fine, nothing said
+  await watch.run(watch.hourly); // 15 days: not yet, a check again in five minutes
+  assert.deepEqual(watch.said, []);
+  await watch.run(watch.confirm()); // still 15: now it is said
+  assert.deepEqual(watch.said, ["slow"]);
+  await watch.run(watch.hourly); // still 15: already said, nothing new
+  await watch.run(watch.hourly); // 60 again: recovery, said once
+  watch.stop();
+  assert.deepEqual(watch.said, ["slow", "ok"]);
+});
+
+test("a hiccup that is gone five minutes later is never an email", async () => {
+  const watch = manualWatcher([60, 3, 60], { said: "ok" });
+  await watch.run(watch.first);
+  await watch.run(watch.hourly); // 3 days: down, to be confirmed
+  await watch.run(watch.confirm()); // fine again
+  watch.stop();
+  assert.deepEqual(watch.said, []);
+});
+
+test("after a restart, what was already said is not said again", async () => {
+  // The database remembers "slow" from before the restart.
+  const watch = manualWatcher([15, 15], { said: "slow" });
+  await watch.run(watch.first);
+  watch.stop();
+  assert.deepEqual(watch.said, []);
+});
+
+test("a preview problem is shown in the server's health, never as the server being down", async () => {
+  const { deepHealth } = await import("../src/services/observability.js");
+  const health = new PreviewHealth(() => "zelyq.app", probes({ lookup: async () => [] }));
+  await health.report(true);
+  const report = await deepHealth({
+    store: { dialect: "sqlite", users: { count: async () => 1 } } as never,
+    dataDir: os.tmpdir(),
+    runtime: async () => ({ ok: true }),
+    agent: async () => ({ status: "ok" }),
+    mailConfigured: async () => true,
+    lastCleanup: async () => ({ at: new Date().toISOString() }),
+    stats: { loopDelayMs: () => ({ p50: 1, p99: 2 }), startedAt: Date.now() } as never,
+    previews: () => health.asHealthCheck(),
   });
-  globalThis.setTimeout = realSetTimeout;
-  globalThis.setInterval = realSetInterval;
-  for (call = 0; call < days_.length; call++) {
-    (tick as unknown as () => void)();
-    await new Promise((resolve) => realSetTimeout(resolve, 10));
-  }
-  stop();
-  assert.deepEqual(said, ["slow", "ok"]);
+  const previews = report.checks.find((check) => check.name === "previews");
+  assert.equal(previews?.status, "down");
+  assert.notEqual(report.status, "down");
 });
 
 // ------------------------------------------------------------ the setting
@@ -196,7 +273,7 @@ const put = (payload: Record<string, unknown>) =>
   server.app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload });
 const onHost = (host: string) => server.app.inject({ method: "GET", url: "/", headers: { host } });
 
-test("the preview domain must be a plain domain, and never the app's own", async () => {
+test("the preview domain must be a plain domain, never the app's own, and never on its site", async () => {
   for (const bad of ["https://zelyq.app", "zelyq.app/x", "Zelyq.App", "zelyq", "*.zelyq.app"]) {
     const refused = await put({ previewDomain: bad });
     assert.equal(refused.statusCode, 400, bad);
@@ -204,6 +281,12 @@ test("the preview domain must be a plain domain, and never the app's own", async
   const app = await put({ previewDomain: "zelyq.com" });
   assert.equal(app.statusCode, 400);
   assert.match(app.json().error.message, /cannot cover the app's own address \(app\.zelyq\.com\)/);
+  // Beside the app under the same registered domain: previews could set its cookies.
+  const sameSite = await put({ previewDomain: "previews.zelyq.com" });
+  assert.equal(sameSite.statusCode, 400);
+  assert.match(sameSite.json().error.message, /same site as the app/);
+  // A public suffix is nobody's own domain.
+  assert.equal((await put({ previewDomain: "co.uk" })).statusCode, 400);
 });
 
 test("setting the preview domain applies at once, and clearing it turns previews off", async () => {
@@ -216,6 +299,30 @@ test("setting the preview domain applies at once, and clearing it turns previews
   assert.match(named.body, /This preview is not running/);
   // The app's own address is never a preview.
   assert.doesNotMatch((await onHost("app.zelyq.com")).body, /This preview is not running/);
+
+  // Anything else under the preview domain is never the app.
+  for (const host of ["login.zelyq.app", "zelyq.app", "www.zelyq.app"]) {
+    const other = await onHost(host);
+    assert.equal(other.statusCode, 404, host);
+    assert.match(other.body, /This preview is not running/, host);
+  }
+
+  // Moving the app's address under the preview domain later is refused too.
+  const moved = await put({ publicUrl: "https://app.zelyq.app" });
+  assert.equal(moved.statusCode, 400);
+  // And a refused change saves nothing of the batch.
+  const batch = await put({ sessionTtlDays: 9, previewDomain: "previews.zelyq.com" });
+  assert.equal(batch.statusCode, 400);
+  const saved = await server.app.inject({
+    method: "GET",
+    url: "/api/settings",
+    headers: { cookie },
+  });
+  const ttl = saved
+    .json()
+    .groups.flatMap((group: { fields: Array<{ key: string; value: unknown }> }) => group.fields)
+    .find((field: { key: string }) => field.key === "sessionTtlDays");
+  assert.notEqual(String(ttl?.value), "9");
 
   assert.equal((await put({ previewDomain: null })).statusCode, 200);
   assert.doesNotMatch((await onHost("shop-abcdef.zelyq.app")).body, /This preview is not running/);

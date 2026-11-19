@@ -231,6 +231,9 @@ importers:
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0
+      tldts:
+        specifier: 7.4.19
+        version: 7.4.19
       zod:
         specifier: ^4.6.6
         version: 4.6.7
@@ -3834,6 +3837,10 @@ packages:
 
   tldts-icann@7.5.4:
     resolution: {integrity: sha512-zbUdr6OsYNmfUwQbreYcmp1oMNWe7unNB6XOOuTil1FGpW31LAN3IS+buwB73uPxQlBDmDLFNyOmpYIBAKBf8A==}
+
+  tldts@7.4.19:
+    resolution: {integrity: sha512-48dH6aSpQnpbzDUc4vIQZ1VjB8tkK+e8c1yx05/SZK+rkssgjEOlxDd/yU8/a4vGYQ9vRgJr9dwMq9TJ0b3X2Q==}
+    hasBin: true
 
   toad-cache@3.7.4:
     resolution: {integrity: sha512-m1TdR/rvT7kgGJZhspNtXdsdYk0fddFpJJFlG5s+UkPFo6lkLoZ3YLOaovPYjq1R75NP5JfeTlSHaOsE09peCg==}
@@ -7502,6 +7509,10 @@ snapshots:
   tldts-core@7.5.4: {}
 
   tldts-icann@7.5.4:
+    dependencies:
+      tldts-core: 7.5.4
+
+  tldts@7.4.19:
     dependencies:
       tldts-core: 7.5.4
 

@@ -349,6 +349,8 @@ export interface HealthCheck {
   status: CheckStatus;
   detail: string;
   ms?: number;
+  /** Shown, but never makes the whole server "down" or "slow" (e.g. previews). */
+  advisory?: boolean;
 }
 
 export interface HealthProbes {
@@ -461,9 +463,10 @@ export async function deepHealth(probes: HealthProbes) {
     ...(probes.previews ? [within("previews", probes.previews as () => Promise<HealthCheck>)] : []),
   ]);
 
-  const worst = checks.some((check) => check.status === "down")
+  const counted = checks.filter((check) => !check.advisory);
+  const worst = counted.some((check) => check.status === "down")
     ? "down"
-    : checks.some((check) => check.status === "slow")
+    : counted.some((check) => check.status === "slow")
       ? "slow"
       : "ok";
   return {

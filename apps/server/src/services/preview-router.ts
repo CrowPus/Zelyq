@@ -36,12 +36,33 @@ export class PreviewRouter {
     private readonly workspaceDir: string,
     /** The preview address template now: the admin's preview domain can change at any time. */
     private readonly urlTemplate: () => string | undefined,
+    /**
+     * Whether the preview domain holds previews only (true for the preview
+     * domain setting, which may never cover the app). False for an older
+     * ZELYQ_PREVIEW_URL_TEMPLATE, where the app may live at the domain itself
+     * (try.zelyq.com, with previews at *.try.zelyq.com).
+     */
+    private readonly dedicated: () => boolean = () => false,
   ) {}
 
   /** The domain previews are served under, or null when this deployment
    * still serves them by port. */
   get domainSuffix(): string | null {
     return previewDomainSuffix(this.urlTemplate());
+  }
+
+  /**
+   * Whether this host is anywhere under the preview domain (or is the domain
+   * itself). Nothing but previews ever lives there: a name that is not a
+   * preview must never be answered by the app, or `login.zelyq.app` would be
+   * a convincing page beside customers' code.
+   */
+  isUnderPreviewDomain(hostname: string | undefined): boolean {
+    if (!this.dedicated()) return false;
+    const suffix = this.domainSuffix;
+    if (!suffix || !hostname) return false;
+    const host = hostname.toLowerCase().split(":")[0] ?? "";
+    return host.endsWith(suffix) || host === suffix.slice(1);
   }
 
   /** Whether a request for this host is a preview rather than the app. */

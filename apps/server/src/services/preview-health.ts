@@ -53,6 +53,7 @@ export interface PreviewHealthProbes {
 
 export class PreviewHealth {
   private last: PreviewHealthReport | null = null;
+  private running: Promise<PreviewHealthReport> | null = null;
 
   constructor(
     private readonly domain: () => string | null,
@@ -75,14 +76,43 @@ export class PreviewHealth {
     ) {
       return this.last;
     }
-    this.last = await this.check(domain);
-    return this.last;
+    if (!this.running) {
+      this.running = this.check(domain)
+        .then((report) => {
+          this.last = report;
+          return report;
+        })
+        .finally(() => {
+          this.running = null;
+        });
+    }
+    return this.running;
   }
 
-  /** As a line in the server's deep health check. */
+  /**
+   * As a line in the server's deep health check: the last result at once
+   * (refreshed in the background when old), never a wait on the network.
+   * Advisory: a preview problem never marks the whole server down.
+   */
   async asHealthCheck(): Promise<HealthCheck> {
-    const report = await this.report();
-    return { name: "previews", status: report.status, detail: report.detail };
+    const domain = this.domain();
+    const usable = this.last && this.last.domain === domain ? this.last : null;
+    const fresh = usable && Date.now() - Date.parse(usable.checkedAt) < CACHE_MS;
+    if (!fresh) {
+      const next = this.report(true).catch(() => null);
+      if (!usable) {
+        const first = await Promise.race([
+          next,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000).unref()),
+        ]);
+        if (!first) {
+          return { name: "previews", status: "off", detail: "being checked", advisory: true };
+        }
+        return { name: "previews", status: first.status, detail: first.detail, advisory: true };
+      }
+    }
+    const report = usable as PreviewHealthReport;
+    return { name: "previews", status: report.status, detail: report.detail, advisory: true };
   }
 
   private async check(domain: string | null): Promise<PreviewHealthReport> {
@@ -123,9 +153,14 @@ export class PreviewHealth {
     if (addresses.length && !publicCertificate) problems.push("no certificate is served for it");
     judge("public", publicCertificate);
     // Behind Cloudflare the visitor sees Cloudflare's certificate, so the one
-    // on this server is what renewal keeps alive: it is judged too.
-    if (serverCertificate && serverCertificate !== publicCertificate)
-      judge("server", serverCertificate);
+    // on this server is what renewal keeps alive: it is judged too (once,
+    // when it is the same certificate).
+    const same =
+      serverCertificate &&
+      publicCertificate &&
+      serverCertificate.validTo === publicCertificate.validTo &&
+      serverCertificate.issuer === publicCertificate.issuer;
+    if (serverCertificate && !same) judge("server", serverCertificate);
 
     const routerAnswering = Boolean(page && page.body.includes(ROUTER_MARKER));
     if (addresses.length && !routerAnswering) {
@@ -181,7 +216,13 @@ function facts(certificate: PeerCertificate, name: string, trusted: boolean): Ce
 
 const realProbes: PreviewHealthProbes = {
   async lookup(name) {
-    return (await lookup(name, { all: true })).map((entry) => entry.address);
+    const found = await Promise.race([
+      lookup(name, { all: true }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timed out")), 3000).unref(),
+      ),
+    ]);
+    return found.map((entry) => entry.address);
   },
   certificate(host, port, servername) {
     return new Promise((resolve) => {
@@ -211,42 +252,75 @@ const realProbes: PreviewHealthProbes = {
           response.on("end", () => resolve({ status: response.statusCode ?? 0, body }));
         },
       );
-      request.on("timeout", () => request.destroy());
+      // Settles once, whichever comes first: an answer, an error, or silence.
+      request.on("timeout", () => {
+        request.destroy();
+        resolve(null);
+      });
       request.on("error", () => resolve(null));
+      request.on("close", () => resolve(null));
       request.end();
     });
   },
 };
 
+/** Where the watcher keeps what it last told people, so a restart does not tell them again. */
+export interface PreviewHealthMemory {
+  get(): Promise<string | null>;
+  set(status: string): Promise<void>;
+}
+
 /**
  * Checks every hour and says so when previews start needing attention (a
  * certificate under three weeks, or anything down) and when they are fine
- * again: the change, never every check. The first check speaks only when
- * something is already wrong.
+ * again: the change, never every check. A bad result is checked again five
+ * minutes later before anyone hears of it, so one network hiccup is not an
+ * email. What was last said is kept in the database: a restart, or a second
+ * process, does not say it again.
  */
 export function watchPreviewHealth(
   health: PreviewHealth,
+  memory: PreviewHealthMemory,
   notify: (change: { status: CheckStatus; report: PreviewHealthReport }) => Promise<void> | void,
-  everyMs = 60 * 60_000,
+  options: { everyMs?: number; confirmMs?: number; firstMs?: number } = {},
 ): () => void {
-  let previous: CheckStatus | null = null;
-  const tick = async () => {
+  const everyMs = options.everyMs ?? 60 * 60_000;
+  const confirmMs = options.confirmMs ?? 5 * 60_000;
+  const timers = new Set<NodeJS.Timeout>();
+  const later = (ms: number, work: () => Promise<void>) => {
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      void work().catch(() => undefined);
+    }, ms);
+    timer.unref();
+    timers.add(timer);
+  };
+  const bad = (status: string | null) => status === "slow" || status === "down";
+
+  const tick = async (confirming: boolean): Promise<void> => {
     const report = await health.report(true);
     const now = report.status;
-    const bad = (status: CheckStatus | null) => status === "slow" || status === "down";
-    if (now === "off") {
-      previous = now;
+    if (now === "off") return;
+    const said = await memory.get();
+    if (now === said) return;
+    if (bad(now) && !confirming) {
+      // Not yet: once more in a few minutes.
+      later(confirmMs, () => tick(true));
       return;
     }
-    if (now !== previous && (bad(now) || bad(previous))) await notify({ status: now, report });
-    previous = now;
+    if (!bad(now) && !bad(said)) {
+      await memory.set(now);
+      return;
+    }
+    await memory.set(now);
+    await notify({ status: now, report });
   };
-  const first = setTimeout(() => void tick().catch(() => undefined), 60_000);
-  first.unref();
-  const timer = setInterval(() => void tick().catch(() => undefined), everyMs);
+
+  later(options.firstMs ?? 60_000, () => tick(false));
+  const timer = setInterval(() => void tick(false).catch(() => undefined), everyMs);
   timer.unref();
   return () => {
-    clearTimeout(first);
     clearInterval(timer);
+    for (const pending of timers) clearTimeout(pending);
   };
 }

@@ -33,6 +33,7 @@ import {
 import { GoogleModelDiscovery, type GoogleModelList } from "./google-models.js";
 import { OpenAIModelDiscovery, type OpenAIModelList } from "./openai-models.js";
 import { automaticLocalConcurrency } from "./pipelines/capacity.js";
+import { hostsOf, previewDomainProblem } from "./preview-domain.js";
 import type { SecretBox } from "./secrets.js";
 import { maskSecret } from "./secrets.js";
 
@@ -1057,8 +1058,12 @@ export class SettingsService {
   /** The app's address from the server's own configuration, when it has one. */
   appPublicUrl?: string;
 
+  private readonly changeListeners: Array<(keys: string[]) => void> = [];
+
   /** Told the keys that changed after every saved change (e.g. the preview domain). */
-  onChanged?: (keys: string[]) => void;
+  onChange(listener: (keys: string[]) => void): void {
+    this.changeListeners.push(listener);
+  }
 
   constructor(
     private readonly store: Store,
@@ -1900,6 +1905,40 @@ export class SettingsService {
       changes.provider !== previousProvider
         ? changes.provider
         : undefined;
+    // Everything is checked before anything is written: a refused key never
+    // leaves the keys before it saved and the rest not.
+    for (const [key, raw] of Object.entries(changes)) {
+      const definition = BY_KEY.get(key);
+      if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
+      if (!definition.secret && this.env[definition.envVar] && !definition.envOverridable) {
+        throw new ZelyqError(
+          "conflict",
+          `${definition.label} is set by ${definition.envVar} in the environment. Remove it there to manage this setting here.`,
+        );
+      }
+      const value = raw === null ? "" : String(raw).trim();
+      if (value !== "" && !definition.secret) this.validate(definition, value);
+    }
+    if ("previewDomain" in changes || "publicUrl" in changes) {
+      const problem = await this.previewDomainProblem({
+        ...("previewDomain" in changes
+          ? { previewDomain: String(changes.previewDomain ?? "").trim() }
+          : {}),
+        ...("publicUrl" in changes ? { publicUrl: String(changes.publicUrl ?? "").trim() } : {}),
+      });
+      if (problem) throw ZelyqError.badRequest(problem);
+    }
+    try {
+      await this.write(changes, switchingToCurated);
+    } finally {
+      for (const listener of this.changeListeners) listener(Object.keys(changes));
+    }
+  }
+
+  private async write(
+    changes: Record<string, string | number | boolean | null>,
+    switchingToCurated: string | undefined,
+  ): Promise<void> {
     for (const [key, raw] of Object.entries(changes)) {
       const definition = BY_KEY.get(key);
       if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
@@ -1918,8 +1957,6 @@ export class SettingsService {
       } else if (definition.secret) {
         await this.store.settings.set(key, this.secrets.encrypt(value));
       } else {
-        this.validate(definition, value);
-        if (key === "previewDomain") await this.refusePreviewDomainOverApp(value);
         await this.store.settings.set(key, value);
       }
 
@@ -1942,33 +1979,25 @@ export class SettingsService {
         await this.store.settings.set("model", "auto");
       if (!("modelBaseUrl" in changes)) await this.store.settings.remove("modelBaseUrl");
     }
-    this.onChanged?.(Object.keys(changes));
   }
 
   /**
-   * Previews are other people's code: a preview domain that covers the app's
-   * own address would serve the app as if it were a preview, and put
-   * customers' pages on the app's own site.
+   * Why the preview domain (the one given, or the one saved) may not be used
+   * with the app's address (the one given, or every one known), or null.
+   * Checked when either changes and at start, so an address set later, or a
+   * value seeded from the environment, is held to the same rule.
    */
-  private async refusePreviewDomainOverApp(domain: string): Promise<void> {
-    const addresses = [
-      await this.value("publicUrl").catch(() => ""),
-      this.env.ZELYQ_PUBLIC_URL,
-      this.appPublicUrl,
-    ];
-    const hosts = addresses.flatMap((address) => {
-      try {
-        return address ? [new URL(address).hostname.toLowerCase()] : [];
-      } catch {
-        return [];
-      }
-    });
-    const appHost = hosts.find((host) => host === domain || host.endsWith(`.${domain}`));
-    if (appHost) {
-      throw ZelyqError.badRequest(
-        `The preview domain cannot cover the app's own address (${appHost}). Use a domain of its own, such as zelyq.app.`,
-      );
-    }
+  async previewDomainProblem(
+    next: { previewDomain?: string; publicUrl?: string } = {},
+  ): Promise<string | null> {
+    const domain = (next.previewDomain ?? (await this.value("previewDomain"))).toLowerCase();
+    if (!domain) return null;
+    const publicUrl = next.publicUrl ?? (await this.value("publicUrl").catch(() => ""));
+    return previewDomainProblem(
+      domain,
+      hostsOf([publicUrl, this.env.ZELYQ_PUBLIC_URL, this.appPublicUrl]),
+      this.env.ZELYQ_ALLOW_SAME_SITE_PREVIEWS === "true",
+    );
   }
 
   private validate(definition: Definition, value: string): void {

@@ -13,8 +13,16 @@ keeps working as it always has: `ZELYQ_PREVIEW_URL_TEMPLATE` with `{port}`, or t
 
 Previews are other people's code. Put them on a domain used for nothing else, never a subdomain
 of the app's domain. On the app's domain, a hostile preview could set cookies the app reads, and
-a phishing page could pass for you. Zelyq refuses a preview domain that covers the app's own
-address.
+a phishing page could pass for you.
+
+Zelyq refuses a preview domain on the same site as the app: one that covers the app's address,
+or sits beside it under the same registered domain (`previews.zelyq.com` next to
+`app.zelyq.com`). It checks again when the app's address changes, and at start-up. A domain set
+in the setting holds previews only: any other name under it (`www.`, `login.`, the domain itself)
+gets a "not running" page, never the app.
+
+A test server with no spare domain yet may set `ZELYQ_ALLOW_SAME_SITE_PREVIEWS=true` to use a
+subdomain of its own site. Never on a server customers use.
 
 For a public service, also add the domain to the [Public Suffix List](https://publicsuffix.org).
 Browsers then treat every preview as a site of its own, so one customer's preview cannot set
@@ -55,6 +63,11 @@ Once per server. Nothing needs doing again afterwards: the certificate renews by
    - **`--staging`**: rehearses with Let's Encrypt's test service.
    - **`--proxied no`**: keeps Cloudflare out of the path.
 
+   When Cloudflare is in front, the script sets the zone's SSL mode to Full (strict), but only if
+   nothing else lives on the domain (otherwise it says so and leaves it). The nginx site also reads
+   the visitor's real address from Cloudflare. The script refuses to go on if `*.<domain>` already
+   has a record of another type, and it never puts a token on a command line.
+
 The token stays on the server, in `/etc/letsencrypt/cloudflare-<domain>.ini` (root only), and is
 used by certbot alone. Zelyq and the admin portal never see it.
 
@@ -78,6 +91,11 @@ When something needs attention, Zelyq emails the server's administrators and sen
 `previews.attention` event. It emails and sends `previews.recovered` again when everything is
 fine. A certificate with under three weeks left counts as needing attention. Under one week, or
 untrusted, or anything not answering, counts as down.
+
+A bad result is checked again five minutes later before anyone hears of it, so one network
+hiccup is not an email. What was last said is kept in the database, so a restart does not say
+it again. A preview problem is shown in the server's health but never marks the whole server
+down.
 
 The admin portal shows all of this under **Zelyq → Health → Previews**, with a **Check now**
 button. The same report is at `GET /api/admin/v1/previews` (scope `health`; add `?refresh=1` to

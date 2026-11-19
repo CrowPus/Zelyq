@@ -37,7 +37,13 @@ export async function registerPreviewProxy(
   await app.register(replyFrom, { undici: { connections: 64, pipelining: 1 } });
 
   app.addHook("onRequest", async (request, reply) => {
-    if (!deps.router.isPreviewHost(request.hostname)) return;
+    if (!deps.router.isPreviewHost(request.hostname)) {
+      // Under the preview domain but not a preview name: never the app.
+      if (deps.router.isUnderPreviewDomain(request.hostname)) {
+        return reply.status(404).type("text/html").send(notRunningPage());
+      }
+      return;
+    }
 
     const target = await deps.router.resolve(request.hostname);
     if (!target) {
@@ -99,6 +105,10 @@ export async function registerPreviewProxy(
     app.server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
       const hostname = request.headers.host?.split(":")[0];
       if (!deps.router.isPreviewHost(hostname)) {
+        if (deps.router.isUnderPreviewDomain(hostname)) {
+          socket.destroy();
+          return;
+        }
         for (const listener of existing) listener.call(app.server, request, socket, head);
         return;
       }
