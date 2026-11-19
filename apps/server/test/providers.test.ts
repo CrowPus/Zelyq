@@ -278,3 +278,39 @@ test("Settings → Ops offers the models of Ops's own provider, not Settings →
     payload: { opsProvider: "" },
   });
 });
+
+test("a team that picked its own provider sees it as its default, model included, not the server's", async () => {
+  await server.app.inject({
+    method: "PUT",
+    url: "/api/settings",
+    headers: { cookie },
+    payload: { provider: "anthropic" },
+  });
+  const teamId = (
+    await server.app.inject({ method: "GET", url: "/api/teams", headers: { cookie } })
+  ).json().teams[0].id;
+  const saved = await server.app.inject({
+    method: "PUT",
+    url: `/api/teams/${teamId}/settings`,
+    headers: { cookie },
+    payload: { provider: "openai" },
+  });
+  assert.equal(saved.statusCode, 200, saved.body);
+
+  const forTeam = (
+    await server.app.inject({
+      method: "GET",
+      url: `/api/providers?teamId=${teamId}`,
+      headers: { cookie },
+    })
+  ).json();
+  assert.equal(forTeam.default, "openai");
+  assert.ok(forTeam.defaultModel, "the model Default sends is named");
+  assert.doesNotMatch(forTeam.defaultModel, /claude/i);
+
+  // The server's own default is unchanged for anyone outside that team.
+  const server_ = (
+    await server.app.inject({ method: "GET", url: "/api/providers", headers: { cookie } })
+  ).json();
+  assert.equal(server_.default, "anthropic");
+});

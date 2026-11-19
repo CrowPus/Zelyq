@@ -318,7 +318,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   pipelinePlugins.signedOnly = config.sandbox?.strict ?? false;
   // A team's runner is the team's own machine, never ours: see SshSession.guardPrivate.
   SshSession.guardPrivate = config.sandbox?.strict ?? false;
-  statusGuard.level = config.sandbox?.strict ? "strict" : "normal";
+  statusGuard.strict = config.sandbox?.strict ?? false;
   const pipelineEngine = new PipelineEngine({
     store,
     vault,

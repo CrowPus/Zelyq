@@ -52,7 +52,26 @@ export function registerProviderRoutes(
       // always one of the registered ids — writing it goes through the same
       // options check every other select setting does.
       const liveDefault = (await deps.settings.value("provider")) as typeof listed.default;
-      return { ...listed, default: liveDefault, providers };
+      // And the model, resolved exactly as a turn resolves it (gateway.ts),
+      // so the builder names what "Default" really sends for this team
+      // rather than whatever the agent process started with.
+      const requested = await deps.settings.modelFor(liveDefault);
+      const defaultModel =
+        (liveDefault === "openai"
+          ? await deps.settings.resolveOpenAIModel(requested)
+          : liveDefault === "anthropic"
+            ? await deps.settings.resolveAnthropicModel(requested)
+            : liveDefault === "google"
+              ? await deps.settings.resolveGoogleModel(requested)
+              : requested) ||
+        listed.providers.find((provider) => provider.id === liveDefault)?.defaultModel ||
+        undefined;
+      return {
+        ...listed,
+        default: liveDefault,
+        ...(defaultModel ? { defaultModel } : {}),
+        providers,
+      };
     });
   });
 }

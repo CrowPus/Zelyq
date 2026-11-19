@@ -123,6 +123,7 @@ export function ModelPicker({ value, onChange }: Props) {
   }
 
   const { groups } = state;
+  const teamDefault = teamDefaultLabel(providers.data);
 
   return (
     // shrink-0 + a fixed-width trigger: the button row must not move when the
@@ -159,7 +160,11 @@ export function ModelPicker({ value, onChange }: Props) {
           >
             <MenuRow
               label={t("Default")}
-              detail={t("Whatever this instance is currently set to")}
+              detail={
+                teamDefault
+                  ? t("Your team’s choice: {model}", { model: teamDefault })
+                  : t("Whatever this instance is currently set to")
+              }
               selected={value === null}
               onClick={() => {
                 onChange(null);
@@ -248,4 +253,17 @@ function MenuRow({
       {selected && <Check size={13} strokeWidth={2} className="shrink-0 text-fg" />}
     </button>
   );
+}
+
+/**
+ * What "Default" means for this team, in words: its provider and the model a
+ * turn will use, e.g. "OpenAI — GPT-5.6 Terra". Null until the list loads.
+ */
+export function teamDefaultLabel(data: AvailableProviders | undefined): string | null {
+  if (!data) return null;
+  const provider = data.providers.find((entry) => entry.id === data.default);
+  if (!provider) return null;
+  const model = data.defaultModel ?? provider.defaultModel;
+  const named = provider.models?.find((option) => option.value === model)?.label ?? model;
+  return named ? `${provider.label} — ${named}` : provider.label;
 }

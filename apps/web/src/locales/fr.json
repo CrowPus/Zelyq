@@ -918,6 +918,7 @@
   "Inputs, one at a time, retry, keeping runs": "Entrées, une à la fois, nouvelle tentative, conservation des exécutions",
   "Inputs, services, artifacts, notifications and the rest: switch to YAML.": "Entrées, services, artefacts, notifications et le reste : passez au YAML.",
   "Install": "Installer",
+  "Install a plugin from the Zelyq registry above to use it in this team’s pipelines.": "Installez un plugin depuis le registre Zelyq ci-dessus pour l’utiliser dans les pipelines de cette équipe.",
   "Install a plugin package (.tar.gz) to use it in this team’s pipelines.": "Installez un paquet de plugin (.tar.gz) pour l’utiliser dans les pipelines de cette équipe.",
   "Install dependencies by starting the preview before inspection. The probe reads selected schema metadata, not rows. Disconnecting removes configuration, not your database.": "Installez les dépendances en démarrant l’aperçu avant l’inspection. La sonde lit certaines métadonnées du schéma, pas les lignes. Se déconnecter supprime la configuration, pas votre base de données.",
   "Install from a file": "Installer depuis un fichier",
@@ -929,7 +930,6 @@
   "Installing dependencies and starting the dev server…": "Installation des dépendances et démarrage du serveur de développement…",
   "Installing…": "Installation…",
   "Installs a language at a version: Node, Python, Java or Go.": "Installe un langage dans une version : Node, Python, Java ou Go.",
-  "Instance default — pick a model below to use something else": "Valeur par défaut de l’instance — choisissez un modèle ci-dessous pour en utiliser un autre",
   "Instance status": "État de l’instance",
   "Instance — Zelyq’s own keys": "Instance — les propres clés de Zelyq",
   "Integrations": "Intégrations",
@@ -2226,6 +2226,7 @@
   "This server is connected to {0}: its settings change only from the admin.": "Ce serveur est connecté à {0} : ses paramètres ne se modifient que depuis l’administration.",
   "This server is connected to {runFrom} and is run from its admin. Everything here is shown as it is set; changes are made in the admin, behind its own sign-in, so nothing that runs the whole server can be changed from inside it.": "Ce serveur est connecté à {runFrom} et géré depuis son administration. Tout est affiché ici tel que réglé ; les modifications se font dans l’administration, derrière sa propre connexion, pour que rien de ce qui fait tourner tout le serveur ne puisse être modifié de l’intérieur.",
   "This server is not set up yet.": "Ce serveur n’est pas encore configuré.",
+  "This server only installs plugins from Zelyq's plugin registry, where each one is reviewed and signed. Choose one under “From the Zelyq registry” on this page.": "Ce serveur n’installe que des plugins du registre de plugins Zelyq, où chacun est vérifié et signé. Choisissez-en un sous « Depuis le registre Zelyq » sur cette page.",
   "This service key does not have the '{0}' scope.": "Cette clé de service n’a pas le périmètre '{0}'.",
   "This service key may not access '{0}'.": "Cette clé de service ne peut pas accéder à '{0}'.",
   "This service key may not be used from {0}.": "Cette clé de service ne peut pas être utilisée depuis {0}.",
@@ -2561,6 +2562,8 @@
   "Your team has no {0} key yet. A team admin adds one on the Team page, under AI keys.": "Votre équipe n’a pas encore de clé {0}. Un administrateur de l’équipe en ajoute une sur la page Équipe, sous Clés d’IA.",
   "Your team’s Vault has no secret you can use here yet. {link}, then choose it here.": "Le Vault de votre équipe n’a pas encore de secret utilisable ici. {link}, puis choisissez-le ici.",
   "Your team’s Vault is empty. {link}.": "Le Vault de votre équipe est vide. {link}.",
+  "Your team’s choice: {model}": "Le choix de votre équipe : {model}",
+  "Your team’s default — pick a model below to use something else": "Le modèle par défaut de votre équipe — choisissez-en un autre ci-dessous pour en changer",
   "Your video is being created. You can leave this page and return when it’s ready.": "Votre vidéo est en cours de création. Vous pouvez quitter cette page et revenir quand elle sera prête.",
   "Your video library is full. Delete a video or unused starting image.": "Votre bibliothèque vidéo est pleine. Supprimez une vidéo ou une image de départ inutilisée.",
   "Your web server sends each app’s name here. Any free port; it is not opened to the internet.": "Votre serveur web envoie ici le nom de chaque app. N’importe quel port libre ; il n’est pas ouvert sur Internet.",
@@ -2984,7 +2987,5 @@
   "— {nameCount, plural, one {# variable} other {# variables}} set {at}. Read them with {code}.": "— {nameCount, plural, one {# variable définie} other {# variables définies}} {at}. Lisez-les avec {code}.",
   "“{name}” is ready. Copy the key now: it is not shown again.": "« {name} » est prête. Copiez la clé maintenant : elle n’est plus affichée.",
   "→ the run it started: #{number}": "→ l’exécution qu’il a lancée : #{number}",
-  "−{removed} removed": "−{removed} supprimées",
-  "Install a plugin from the Zelyq registry above to use it in this team’s pipelines.": "Installez un plugin depuis le registre Zelyq ci-dessus pour l’utiliser dans les pipelines de cette équipe.",
-  "This server only installs plugins from Zelyq's plugin registry, where each one is reviewed and signed. Choose one under “From the Zelyq registry” on this page.": "Ce serveur n’installe que des plugins du registre de plugins Zelyq, où chacun est vérifié et signé. Choisissez-en un sous « Depuis le registre Zelyq » sur cette page."
+  "−{removed} removed": "−{removed} supprimées"
 }
