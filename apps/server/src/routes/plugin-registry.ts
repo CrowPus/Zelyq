@@ -12,13 +12,18 @@ const installSchema = z.object({
 /** Zelyq's plugin registry, for a team: browse, read, install. */
 export function registerPluginRegistryRoutes(
   app: FastifyInstance,
-  deps: { registry: PluginRegistryClient; access: AccessControl },
+  deps: {
+    registry: PluginRegistryClient;
+    access: AccessControl;
+    /** Whether a team admin may upload a package file by hand. */
+    uploads?: () => boolean;
+  },
 ): void {
   const { access, registry } = deps;
 
   app.get("/api/plugin-registry", async (request) => {
     access.requireUser(request);
-    return { enabled: await registry.enabled() };
+    return { enabled: await registry.enabled(), uploads: deps.uploads?.() ?? true };
   });
 
   app.get<Team & { Querystring: { q?: string; category?: string } }>(

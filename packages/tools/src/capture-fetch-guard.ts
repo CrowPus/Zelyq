@@ -258,6 +258,14 @@ export interface GuardedFetchOptions {
   timeoutMs?: number;
   maxRedirects?: number;
   headers?: Record<string, string>;
+  /** GET unless said; a body only with a method that takes one. */
+  method?: string;
+  body?: Buffer;
+  /**
+   * False: a redirect is returned as it is, for a browser to follow (each of
+   * its hops then comes back through the guard as a request of its own).
+   */
+  followRedirects?: boolean;
 }
 
 function requestOnce(
@@ -266,13 +274,15 @@ function requestOnce(
   timeoutMs: number,
   maxBytes: number,
   extraHeaders: Record<string, string>,
+  method = "GET",
+  body?: Buffer,
 ): Promise<{ status: number; headers: GuardedResponse["headers"]; body: Buffer }> {
   return new Promise((resolve, reject) => {
     const send = url.protocol === "https:" ? httpsRequest : httpRequest;
     const req = send(
       url,
       {
-        method: "GET",
+        method,
         timeout: Math.max(1000, timeoutMs),
         headers: { "user-agent": CLONE_USER_AGENT, accept: "*/*", ...extraHeaders },
         // Pin the connection to the address the guard already validated — a
@@ -311,7 +321,15 @@ function requestOnce(
       },
     );
     req.on("timeout", () => req.destroy(new CaptureBlockedError("the request timed out")));
+    // The socket timeout above only notices silence; this bounds the whole
+    // answer, so a server dripping a byte at a time cannot hold it open.
+    const whole = setTimeout(
+      () => req.destroy(new CaptureBlockedError("the request timed out")),
+      Math.max(1000, timeoutMs),
+    );
+    req.on("close", () => clearTimeout(whole));
     req.on("error", reject);
+    if (body && !["GET", "HEAD"].includes(method)) req.write(body);
     req.end();
   });
 }
@@ -336,9 +354,17 @@ export async function guardedFetch(
     const pinned = await resolveAndAssertHost(current.hostname);
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new CaptureBlockedError("the request timed out");
-    const res = await requestOnce(current, pinned, remaining, maxBytes, options.headers ?? {});
+    const res = await requestOnce(
+      current,
+      pinned,
+      remaining,
+      maxBytes,
+      options.headers ?? {},
+      options.method ?? "GET",
+      options.body,
+    );
 
-    if ([301, 302, 303, 307, 308].includes(res.status)) {
+    if (options.followRedirects !== false && [301, 302, 303, 307, 308].includes(res.status)) {
       const location = res.headers.location;
       const target = Array.isArray(location) ? location[0] : location;
       if (!target) return { ...res, finalUrl: current.href };

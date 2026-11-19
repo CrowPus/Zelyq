@@ -17,8 +17,9 @@
  * reference dir turns this into the diff step of the build loop: it captures
  * the local preview and writes a pixel diff + a changed-ratio per width.
  */
-import { type Browser, chromium, type Page } from "playwright";
+import type { Page } from "playwright";
 import { z } from "zod";
+import { openBrowser, type PageBrowser } from "./browser-sandbox.js";
 import {
   assertAllowedUrl,
   assertRequestAllowed,
@@ -461,9 +462,9 @@ export const captureReferenceTool = defineTool({
     const allFonts = new Set<string>();
     let firstHtml = "";
 
-    let browser: Browser | undefined;
+    let browser: PageBrowser | undefined;
     try {
-      browser = await chromium.launch({ headless: true });
+      browser = await openBrowser();
       const ctx = await browser.newContext({
         userAgent: CLONE_USER_AGENT,
         deviceScaleFactor: 1,
@@ -474,7 +475,7 @@ export const captureReferenceTool = defineTool({
       const resolveCacheBad = new Set<string>();
       await ctx.route("**/*", async (route) => {
         const reqUrl = route.request().url();
-        if (!/^https?:/i.test(reqUrl)) return route.continue();
+        if (!/^https?:/i.test(reqUrl)) return route.fallback();
         try {
           const u = new URL(reqUrl);
           if (resolveCacheBad.has(u.host)) return route.abort();
@@ -482,7 +483,7 @@ export const captureReferenceTool = defineTool({
             await assertRequestAllowed(reqUrl);
             resolveCacheOk.add(u.host);
           }
-          return route.continue();
+          return route.fallback();
         } catch {
           try {
             resolveCacheBad.add(new URL(reqUrl).host);

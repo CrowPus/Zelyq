@@ -86,6 +86,8 @@ import { PipelinePluginService } from "./services/pipelines/plugins.js";
 import { PluginRegistryClient, ZELYQ_REGISTRY_KEYS } from "./services/pipelines/registry.js";
 import { RunnerService } from "./services/pipelines/runners.js";
 import { PipelineService } from "./services/pipelines/service.js";
+import { SshSession } from "./services/pipelines/ssh.js";
+import { statusGuard } from "./services/pipelines/status.js";
 import { ToolService } from "./services/pipelines/tools.js";
 import { PipelineTriggerService } from "./services/pipelines/triggers.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
@@ -213,6 +215,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     config.claudeCredentialsPath,
     config.codexCredentialsPath,
   );
+  settings.strictSandbox = config.sandbox?.strict ?? false;
   // Access-related settings are read at call time, so changing them in the UI
   // takes effect without a restart.
   const auth = new AuthService(store, {
@@ -312,6 +315,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     access,
     path.join(pipelinesDir, "plugins"),
   );
+  pipelinePlugins.signedOnly = config.sandbox?.strict ?? false;
+  // A team's runner is the team's own machine, never ours: see SshSession.guardPrivate.
+  SshSession.guardPrivate = config.sandbox?.strict ?? false;
+  statusGuard.level = config.sandbox?.strict ? "strict" : "normal";
   const pipelineEngine = new PipelineEngine({
     store,
     vault,
@@ -328,6 +335,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     cacheDir: path.join(pipelinesDir, "cache"),
     deploys,
     plugins: pipelinePlugins,
+    ...(config.sandbox ? { sandbox: config.sandbox } : {}),
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
   pipelines.teamStatus = teamStatus;
@@ -734,7 +742,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       : ZELYQ_REGISTRY_KEYS,
     zelyqVersion: process.env.npm_package_version ?? "0.1.0",
   });
-  registerPluginRegistryRoutes(app, { registry: pluginRegistry, access });
+  registerPluginRegistryRoutes(app, {
+    registry: pluginRegistry,
+    access,
+    uploads: () => !pipelinePlugins.signedOnly,
+  });
   registerPipelineRoutes(app, {
     access,
     pipelines,

@@ -383,6 +383,7 @@
   "This server is connected to {0}: its Vault changes only from the admin.",
   "This server is connected to {0}: its settings change only from the admin.",
   "This server is not set up yet.",
+  "This server only installs plugins from Zelyq's plugin registry, where each one is reviewed and signed. Choose one under “From the Zelyq registry” on this page.",
   "This service key does not have the '{0}' scope.",
   "This service key may not access '{0}'.",
   "This service key may not be used from {0}.",

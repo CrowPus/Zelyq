@@ -719,7 +719,7 @@ export const api = {
     removePlugin: (teamId: string, id: string) =>
       request<void>(`/teams/${teamId}/pipeline-plugins/${id}`, { method: "DELETE" }),
     /** Zelyq's plugin registry: whether it is on, what it has, installing from it. */
-    registryStatus: () => request<{ enabled: boolean }>("/plugin-registry"),
+    registryStatus: () => request<{ enabled: boolean; uploads?: boolean }>("/plugin-registry"),
     registryPlugins: (teamId: string, q?: string) =>
       request<{
         plugins: RegistryPluginSummary[];

@@ -1038,6 +1038,9 @@ export class SettingsService {
    */
   vaultLookup?: (reference: VaultReference) => Promise<string | null>;
 
+  /** The strict sandbox is on: pipelines may never run on the server itself. */
+  strictSandbox = false;
+
   constructor(
     private readonly store: Store,
     private readonly secrets: SecretBox,
@@ -1922,6 +1925,11 @@ export class SettingsService {
   }
 
   private validate(definition: Definition, value: string): void {
+    if (definition.key === "pipelineLocalRunner" && value === "host" && this.strictSandbox) {
+      throw ZelyqError.badRequest(
+        "This server keeps every team's code in a sandbox, so pipelines cannot run on the server itself.",
+      );
+    }
     if (["videoHourlyLimit", "videoConcurrency"].includes(definition.key)) {
       const max = definition.key === "videoConcurrency" ? 10 : 1000;
       if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > max)

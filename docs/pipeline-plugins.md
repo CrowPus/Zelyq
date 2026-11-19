@@ -248,6 +248,10 @@ marked), the systems it runs on, what it needs, its steps, its SHA-256, and the 
 pipeline. Runs never download a plugin: they use that copy. Every install is in the team's
 **Activity**.
 
+On a server running the [strict sandbox](./strict-sandbox.md), which every managed (cloud) server
+does, **Install from a file** is not offered. Plugins come only from the registry, and each one is
+signed. Zelyq's own registry is published only by Zelyq.
+
 **Using:** `plugin: publisher/name@version`, always with an exact version, and its inputs under
 `with:`. Saving the pipeline checks that the plugin is installed, that every required input is
 given, that secret inputs come from Vault, and that `with:` names only the plugin's inputs. A plugin

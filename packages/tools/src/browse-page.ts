@@ -1,5 +1,5 @@
-import { chromium } from "playwright";
 import { z } from "zod";
+import { openBrowser } from "./browser-sandbox.js";
 import { assertRequestAllowed, CLONE_USER_AGENT } from "./capture-fetch-guard.js";
 import {
   DEFAULT_DWELL_MS,
@@ -87,8 +87,7 @@ export const browsePageTool = defineTool({
     const width = input.width ?? 1280;
     const wantImages = input.images !== false;
 
-    const browser = await chromium.launch({
-      headless: true,
+    const browser = await openBrowser({
       // Without this every autoplaying background video stays on its poster
       // frame, which is exactly the thing worth seeing.
       args: ["--autoplay-policy=no-user-gesture-required"],
@@ -105,7 +104,7 @@ export const browsePageTool = defineTool({
       const refused = new Set<string>();
       await ctx.route("**/*", async (route) => {
         const url = route.request().url();
-        if (!/^https?:/i.test(url)) return route.continue();
+        if (!/^https?:/i.test(url)) return route.fallback();
         try {
           const host = new URL(url).host;
           if (refused.has(host)) return route.abort();
@@ -113,7 +112,7 @@ export const browsePageTool = defineTool({
             await assertRequestAllowed(url);
             allowed.add(host);
           }
-          return route.continue();
+          return route.fallback();
         } catch {
           try {
             refused.add(new URL(url).host);

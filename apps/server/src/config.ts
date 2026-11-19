@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { AccountService } from "@zelyq/core";
 import { resolveFromRepoRoot } from "@zelyq/core/node";
-import type { RuntimeConfig } from "@zelyq/runtime";
+import { type RuntimeConfig, type SandboxOptions, sandboxFromEnv } from "@zelyq/runtime";
 import type { FastifyServerOptions } from "fastify";
 
 export interface ServerConfig {
@@ -128,6 +128,11 @@ export interface ServerConfig {
   /** Built web assets to serve. Absent in development, where Vite serves them. */
   webDir: string | null;
   runtime: RuntimeConfig;
+  /**
+   * The strict sandbox for teams' code: always on for a managed server,
+   * opt-in for a self-hosted one. Absent (tests): off. See sandbox.ts.
+   */
+  sandbox?: SandboxOptions;
 }
 
 function intFromEnv(name: string, fallback: number): number {
@@ -220,6 +225,8 @@ function containerOptionsFromEnv() {
 
 export function loadServerConfig(): ServerConfig {
   const runtimeKind = runtimeKindFromEnv();
+  // Refused here, at start, when teams' code could run outside the sandbox.
+  const sandbox = sandboxFromEnv(process.env, runtimeKind);
 
   if (runtimeKind === "remote" && !process.env.ZELYQ_RUNTIME_URL) {
     throw new Error("ZELYQ_RUNTIME=remote requires ZELYQ_RUNTIME_URL");
@@ -326,8 +333,9 @@ export function loadServerConfig(): ServerConfig {
       ],
       previewHost: process.env.ZELYQ_PREVIEW_HOST ?? "127.0.0.1",
       previewUrlTemplate: process.env.ZELYQ_PREVIEW_URL_TEMPLATE || undefined,
-      container: containerOptionsFromEnv(),
+      container: { ...containerOptionsFromEnv(), sandbox },
     },
+    sandbox,
   };
 }
 

@@ -1,3 +1,5 @@
+import { type GuardLevel, guardedRequest } from "../net-guard.js";
+
 /**
  * Tells GitHub or GitLab how a run for a commit went — the ✓ / ✗ next to a
  * commit and on a pull request. Opt-in with `source.report-status`, using the
@@ -42,18 +44,26 @@ export function statusEndpoint(
   return { kind: "github", url: `${api}/repos/${path}/statuses/${sha}` };
 }
 
+/**
+ * Set by the strict sandbox: the address comes from a team's repository URL,
+ * so it may not be this server, a private network or a metadata address.
+ */
+export const statusGuard: { level: GuardLevel } = { level: "normal" };
+
 export async function reportStatus(target: StatusTarget, state: ReportState): Promise<void> {
   const endpoint = statusEndpoint(target.repo, target.sha);
   if (!endpoint) throw new Error(`Cannot tell where to report for ${target.repo}.`);
   const description = target.description.slice(0, 140);
   const response =
     endpoint.kind === "github"
-      ? await fetch(endpoint.url, {
+      ? await guardedRequest(endpoint.url, {
+          level: statusGuard.level,
           method: "POST",
           headers: {
             authorization: `Bearer ${target.token}`,
             accept: "application/vnd.github+json",
             "content-type": "application/json",
+            "user-agent": "Zelyq",
           },
           body: JSON.stringify({
             state: state === "cancelled" ? "error" : state,
@@ -61,9 +71,11 @@ export async function reportStatus(target: StatusTarget, state: ReportState): Pr
             description,
             ...(target.url ? { target_url: target.url } : {}),
           }),
-          signal: AbortSignal.timeout(10_000),
+          timeoutMs: 10_000,
+          maxBytes: 64 * 1024,
         })
-      : await fetch(endpoint.url, {
+      : await guardedRequest(endpoint.url, {
+          level: statusGuard.level,
           method: "POST",
           headers: { "private-token": target.token, "content-type": "application/json" },
           body: JSON.stringify({
@@ -77,9 +89,10 @@ export async function reportStatus(target: StatusTarget, state: ReportState): Pr
             description,
             ...(target.url ? { target_url: target.url } : {}),
           }),
-          signal: AbortSignal.timeout(10_000),
+          timeoutMs: 10_000,
+          maxBytes: 64 * 1024,
         });
-  if (!response.ok) {
+  if (response.status < 200 || response.status >= 300) {
     throw new Error(
       `${endpoint.kind === "github" ? "GitHub" : "GitLab"} answered ${response.status}.`,
     );

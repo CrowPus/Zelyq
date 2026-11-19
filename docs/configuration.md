@@ -305,6 +305,9 @@ Migrations run automatically when the server boots.
 | `ZELYQ_CONTAINER_ENGINE` | `docker` | The engine binary. `podman` works as a drop-in. |
 | `ZELYQ_CONTAINER_BLOCK_METADATA` | `true` | Set `false` to disable blocking the cloud metadata endpoint. See below. |
 | `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` | — | Comma-separated hostnames; unset means egress is unfiltered. See below. |
+| `ZELYQ_CONTAINER_RUNTIME` | Docker's default | The runtime for team containers (apps, agent commands, pipeline runs and services). A managed server requires gVisor: `runsc`. See [strict-sandbox.md](./strict-sandbox.md). |
+| `ZELYQ_STRICT_SANDBOX` | off; always on when managed | Team code behind a firewall that blocks this server and private networks, plugins only from the signed registry, no pipelines on the server itself. See [strict-sandbox.md](./strict-sandbox.md). |
+| `ZELYQ_SANDBOX_DNS` | `1.1.1.1,8.8.8.8` | Name servers for gVisor containers, which cannot use Docker's own. |
 | `ZELYQ_EXEC_TIMEOUT_MS` | `120000` | Hard ceiling on one agent shell command. |
 | `ZELYQ_PREVIEW_PORT_MIN` | `4300` | Start of the preview port range. |
 | `ZELYQ_PREVIEW_PORT_MAX` | `4399` | End of the range — this many concurrent previews. |

@@ -2984,5 +2984,7 @@
   "— {nameCount, plural, one {# variable} other {# variables}} set {at}. Read them with {code}.": "— {nameCount, plural, one {# variable définie} other {# variables définies}} {at}. Lisez-les avec {code}.",
   "“{name}” is ready. Copy the key now: it is not shown again.": "« {name} » est prête. Copiez la clé maintenant : elle n’est plus affichée.",
   "→ the run it started: #{number}": "→ l’exécution qu’il a lancée : #{number}",
-  "−{removed} removed": "−{removed} supprimées"
+  "−{removed} removed": "−{removed} supprimées",
+  "Install a plugin from the Zelyq registry above to use it in this team’s pipelines.": "Installez un plugin depuis le registre Zelyq ci-dessus pour l’utiliser dans les pipelines de cette équipe.",
+  "This server only installs plugins from Zelyq's plugin registry, where each one is reviewed and signed. Choose one under “From the Zelyq registry” on this page.": "Ce serveur n’installe que des plugins du registre de plugins Zelyq, où chacun est vérifié et signé. Choisissez-en un sous « Depuis le registre Zelyq » sur cette page."
 }

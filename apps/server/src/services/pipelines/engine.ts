@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import {
   fillRunValues,
@@ -32,10 +34,12 @@ import {
   type PipelineMachine,
   type RuntimeDriver,
   removeStalePipelineContainers,
+  type SandboxOptions,
   startPipelineContainer,
   startServiceContainers,
 } from "@zelyq/runtime";
 import type { DeployService } from "../deploy.js";
+import { refusedAddress } from "../net-guard.js";
 import type { SettingsService } from "../settings.js";
 import type { VaultService } from "../vault.js";
 import { automaticLocalConcurrency } from "./capacity.js";
@@ -116,7 +120,40 @@ export interface EngineDeps {
       version: string,
     ): Promise<{ manifest: PluginManifest; path: string } | null>;
   };
+  /** The strict sandbox (managed servers): runs never on the server itself, always under gVisor. */
+  sandbox?: SandboxOptions;
 }
+
+/**
+ * Why an image may not be pulled on a strict server, or null. The registry
+ * is the part before the first `/` when it has a dot, a colon or is
+ * `localhost`; Docker Hub otherwise.
+ */
+export async function refusedImageRegistry(image: string): Promise<string | null> {
+  const first = image.split("/")[0] ?? "";
+  if (
+    !image.includes("/") ||
+    !(first.includes(".") || first.includes(":") || first === "localhost")
+  ) {
+    return null;
+  }
+  const host = first.startsWith("[")
+    ? first.slice(1, first.indexOf("]"))
+    : (first.split(":")[0] ?? "");
+  if (host === "localhost") return `${image} is on this server, which is not allowed here.`;
+  const addresses = isIP(host)
+    ? [{ address: host }]
+    : await dnsLookup(host, { all: true }).catch(() => [] as { address: string }[]);
+  for (const { address } of addresses) {
+    const reason = refusedAddress(address, "strict");
+    if (reason) return `its registry ${host} is not allowed here: ${reason}`;
+  }
+  return null;
+}
+
+/** Said when the strict sandbox refuses the "On this server" local runner. */
+const HOST_RUNNER_REFUSED =
+  "Pipelines cannot run on the server itself here: set the local runner to In a container, or add an SSH runner.";
 
 type EndReason = "cancelled" | "timed_out";
 
@@ -609,6 +646,7 @@ export class PipelineEngine {
           fail: "The local runner is off on this instance. Add an SSH runner and name it in runs-on.",
         };
       }
+      if (mode === "host" && this.deps.sandbox?.strict) return { fail: HOST_RUNNER_REFUSED };
       if (mode !== "host" && !(await this.dockerAvailable())) {
         return {
           fail: "The local runner needs Docker on the Zelyq server, and Docker is not available. Add an SSH runner, or ask an instance admin.",
@@ -1801,11 +1839,19 @@ export class PipelineEngine {
         hosts[name as string] = { host: "127.0.0.1", port: Number(port) };
       }
     } else {
+      if (this.deps.sandbox?.strict) {
+        // The image is pulled by this server's Docker: never from this server or a private network.
+        for (const service of services) {
+          const refused = await refusedImageRegistry(service.image);
+          if (refused) throw new RunError(`The service ${service.name}: ${refused}`);
+        }
+      }
       const started = await startServiceContainers({
         runId: run.id,
         ...(machine.container ? { runContainer: machine.container } : {}),
         instance: this.instance,
         services,
+        ...(this.deps.sandbox ? { sandbox: this.deps.sandbox } : {}),
       }).catch((caught: Error) => {
         throw new RunError(caught.message);
       });
@@ -2017,6 +2063,7 @@ export class PipelineEngine {
     const key = lane === null ? run.id : `${run.id}-s${lane}`;
     if (!runner) {
       const mode = await this.deps.settings.value("pipelineLocalRunner");
+      if (mode === "host" && this.deps.sandbox?.strict) throw new RunError(HOST_RUNNER_REFUSED);
       if (mode === "host") {
         const short = `${run.id.replace(/^[a-z]+_/, "").slice(0, 12)}${lane === null ? "" : `-s${lane}`}`;
         const pipelinesDir = path.join(this.deps.artifactsDir, "..");
@@ -2029,7 +2076,14 @@ export class PipelineEngine {
       }
       const image = (await this.deps.settings.value("pipelineLocalImage")) || "node:22-bookworm";
       return {
-        ...(await startPipelineContainer({ runId: key, image, instance: this.instance })),
+        ...(await startPipelineContainer({
+          runId: key,
+          image,
+          instance: this.instance,
+          ...(this.deps.sandbox ? { sandbox: this.deps.sandbox } : {}),
+        }).catch((caught: Error) => {
+          throw new RunError(caught.message);
+        })),
         kind: "container",
         shells: null,
         zelyqDir: "/zelyq",
