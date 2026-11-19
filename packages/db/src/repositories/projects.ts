@@ -1,5 +1,5 @@
 import type { Project, ProjectStatus } from "@zelyq/core";
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, like } from "drizzle-orm";
 import type { ZelyqDb } from "../client.js";
 import { projects } from "../schema/sqlite.js";
 
@@ -80,6 +80,23 @@ export function projectRepository(db: ZelyqDb) {
     async findById(id: string): Promise<Project | null> {
       const rows = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
       return rows[0] ? toProject(rows[0]) : null;
+    },
+
+    /**
+     * The project whose id ends with `suffix`, for resolving a preview
+     * hostname back to a project. A `like` on the tail rather than a stored
+     * second identifier: nothing extra to keep in step, and the caller caches
+     * the answer. Two matches means the tail is not unique here; refusing
+     * beats serving one person's project at another person's address.
+     */
+    async findByIdSuffix(suffix: string): Promise<Project | null> {
+      if (!/^[a-z0-9]{4,32}$/i.test(suffix)) return null;
+      const rows = await db
+        .select()
+        .from(projects)
+        .where(like(projects.id, `%${suffix}`))
+        .limit(2);
+      return rows.length === 1 ? toProject(rows[0] as Row) : null;
     },
 
     async update(

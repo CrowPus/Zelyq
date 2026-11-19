@@ -8,7 +8,7 @@ export {
   containerCwd,
   containerName,
 } from "./container.js";
-export { defaultWorkspaceDir, LocalRuntimeDriver } from "./local.js";
+export { defaultWorkspaceDir, LocalRuntimeDriver, readPreviewRecord } from "./local.js";
 export * from "./managed.js";
 export {
   assertRealPathInside,

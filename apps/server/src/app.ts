@@ -31,6 +31,7 @@ import { registerPipelineRoutes } from "./routes/pipelines.js";
 import { registerPlanRoutes } from "./routes/plans.js";
 import { registerPluginRegistryRoutes } from "./routes/plugin-registry.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
+import { registerPreviewProxy } from "./routes/preview-proxy.js";
 import { registerProjectBackendRoutes } from "./routes/project-backend.js";
 import { registerProjectVariableRoutes } from "./routes/project-variables.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -91,6 +92,7 @@ import { statusGuard } from "./services/pipelines/status.js";
 import { ToolService } from "./services/pipelines/tools.js";
 import { PipelineTriggerService } from "./services/pipelines/triggers.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
+import { PreviewRouter } from "./services/preview-router.js";
 import { ProductActivity } from "./services/product-activity.js";
 import { ProjectBackendService } from "./services/project-backend.js";
 import { ProjectVariableService } from "./services/project-variables.js";
@@ -395,6 +397,15 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // Vault shows which Settings fields use its secrets.
   settings.vaultLookup = async ({ name, scope }) =>
     (await vault.resolve(scope, [name])).get(name) ?? null;
+  // Previews by name rather than by port, when the deployment's preview
+  // address template has {name} (try.zelyq.com and the cloud). Registered
+  // before any route: a request on a preview hostname is not for Zelyq at all.
+  const previewRouter = new PreviewRouter(
+    store,
+    config.runtime.workspaceDir,
+    config.runtime.previewUrlTemplate,
+  );
+  await registerPreviewProxy(app, { router: previewRouter });
   const supabaseConnections = new SupabaseConnectionService(store, secrets, access, {
     oauth: config.supabaseOAuth,
     verifyEmailDomain: config.supabaseVerifyEmailDomain,
@@ -649,6 +660,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     thumbnails,
     activity,
     maintenance: messages,
+    ...(config.runtime.previewUrlTemplate
+      ? { previewUrlTemplate: config.runtime.previewUrlTemplate }
+      : {}),
   });
   registerSupabaseConnectionRoutes(app, {
     supabase: supabaseConnections,
