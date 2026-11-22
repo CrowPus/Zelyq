@@ -52,6 +52,13 @@ export function unframe(data: Buffer): { type: number; id: number; payload: Buff
   return { type: data.readUInt8(0), id: data.readUInt32BE(1), payload: data.subarray(5) };
 }
 
+/** The text without slashes at its end (a loop, not a regex: no slow cases on many slashes). */
+function trimSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 47) end--;
+  return text.slice(0, end);
+}
+
 /** https only, except on this machine itself (a Zelyq on localhost). */
 export function checkUrl(raw: string): URL {
   let url: URL;
@@ -66,7 +73,7 @@ export function checkUrl(raw: string): URL {
       "Zelyq's address must start with https:// (commands come down this connection).",
     );
   }
-  url.pathname = url.pathname.replace(/\/+$/, "");
+  url.pathname = trimSlashes(url.pathname);
   url.search = "";
   url.hash = "";
   return url;
@@ -74,7 +81,7 @@ export function checkUrl(raw: string): URL {
 
 /** Zelyq's address without a trailing slash, to put paths after. */
 export function baseUrl(url: URL): string {
-  return url.href.replace(/\/+$/, "");
+  return trimSlashes(url.href);
 }
 
 export function socketUrl(base: URL): string {

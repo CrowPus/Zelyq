@@ -2205,6 +2205,13 @@ export function runnerSetupScript(input: {
   ].join("\n");
 }
 
+/** The text without slashes at its end (a loop, not a regex: no slow cases on many slashes). */
+function trimSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 47) end--;
+  return text.slice(0, end);
+}
+
 /**
  * The command that makes a Linux machine a runner that connects out to Zelyq: pasted once, as a
  * user who can use sudo. It makes the runner's user, gives it a Node of its own (checked against
@@ -2229,7 +2236,7 @@ export function runnerAgentSetupScript(input: {
     "sudo bash -s <<'ZELYQ'",
     "set -euo pipefail",
     `U='${input.user}'`,
-    `URL='${url.replace(/\/+$/, "")}'`,
+    `URL='${trimSlashes(url)}'`,
     `CODE='${code}'`,
     `SUM='${agentSha256}'`,
     "D=/opt/zelyq-runner",

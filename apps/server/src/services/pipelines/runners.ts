@@ -36,6 +36,13 @@ import {
 /** How long an install code works: long enough to open a terminal on the machine. */
 const INSTALL_CODE_MS = 60 * 60 * 1000;
 
+/** The text without slashes at its end (a loop, not a regex: no slow cases on many slashes). */
+function trimSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 47) end--;
+  return text.slice(0, end);
+}
+
 function hashCode(code: string): string {
   return createHash("sha256").update(code, "utf8").digest("hex");
 }
@@ -226,7 +233,7 @@ export class RunnerService {
   private install(code: string, row: RunnerRow | null, origin: string | null): RunnerAgentInstall {
     if (!this.agentProgram)
       throw new ZelyqError("internal", "The runner program is not built on this server.");
-    const url = (this.publicUrl ?? origin ?? "").replace(/\/+$/, "");
+    const url = trimSlashes(this.publicUrl ?? origin ?? "");
     if (!/^https?:\/\//.test(url)) {
       throw ZelyqError.badRequest("Zelyq does not know its own address: set ZELYQ_PUBLIC_URL.");
     }
