@@ -65,7 +65,7 @@ export function PipelinesPage() {
         <PageHeader
           title={t("Pipelines")}
           description={t(
-            "Test, build and deploy the same way every time, on this server or on your own machines over SSH. Secrets come from the team’s Vault and never appear in a log.",
+            "Test, build and deploy the same way every time, on this server or on your own machines. Secrets come from the team’s Vault and never appear in a log.",
           )}
           actions={
             tab === "pipelines" &&
