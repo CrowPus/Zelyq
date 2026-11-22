@@ -31,9 +31,9 @@ import type { DeployEnvironmentRow, DeploymentRow, RunnerRow, Store } from "@zel
 import type { AccessControl } from "./access.js";
 import { inspectScript, planBuild, readInspection } from "./build-detect.js";
 import { Masker } from "./pipelines/mask.js";
-import type { RunnerService } from "./pipelines/runners.js";
+import { type RunnerService, runnerAddress } from "./pipelines/runners.js";
 import { shellCommand } from "./pipelines/scripts.js";
-import { SshSession } from "./pipelines/ssh.js";
+import type { RunnerSession } from "./pipelines/ssh.js";
 import type { ProductActivity } from "./product-activity.js";
 import type { SecretBox } from "./secrets.js";
 import type { UsageService } from "./usage.js";
@@ -103,7 +103,7 @@ export class DeployService {
   /** A machine's connection, kept for a minute while its app page is open. */
   private readonly machines = new Map<
     string,
-    { session: Promise<SshSession>; timer: NodeJS.Timeout | null }
+    { session: Promise<RunnerSession>; timer: NodeJS.Timeout | null }
   >();
 
   constructor(
@@ -262,9 +262,9 @@ export class DeployService {
     const runner = await this.store.pipelines.runners.findById(environment.runnerId);
     if (!runner) return;
     const settings = proxiedOf(environment);
-    let session: SshSession;
+    let session: RunnerSession;
     try {
-      session = await SshSession.open(await this.runners.target(runner));
+      session = await this.runners.session(runner, 30_000);
     } catch (error) {
       const why = `Could not reach ${runner.name} to apply the new settings: ${error instanceof Error ? error.message : String(error)}. Deploy again once it is reachable.`;
       for (const row of live) await this.store.deploy.deployments.update(row.id, { error: why });
@@ -291,9 +291,9 @@ export class DeployService {
           problem =
             switched.code === 0
               ? ((await dnsHint(host, environment)) ??
-                (await reachProblem(
+                (await reachProblemAt(
                   host,
-                  environment.address ?? runner.host,
+                  environment.address ?? runnerAddress(runner),
                   settings,
                   runner.name,
                 )))
@@ -397,7 +397,7 @@ export class DeployService {
       ? await this.store.pipelines.runners.findById(environment.runnerId)
       : null;
     if (!runner) throw ZelyqError.badRequest(`${environment.name} has no machine.`);
-    const session = await SshSession.open(await this.runners.target(runner));
+    const session = await this.runners.session(runner);
     try {
       await session.exec(shellCommand("sh"), {
         stdin: `docker exec ${PROXY} caddy reload --force --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true\n`,
@@ -408,9 +408,9 @@ export class DeployService {
     const host = new URL(row.url).hostname;
     const problem =
       (await dnsHint(host, environment)) ??
-      (await reachProblem(
+      (await reachProblemAt(
         host,
-        environment.address ?? runner.host,
+        environment.address ?? runnerAddress(runner),
         proxiedOf(environment),
         runner.name,
       ));
@@ -679,12 +679,12 @@ export class DeployService {
   /** Runs work over the machine's kept connection, opening it when needed. */
   private async onMachine<T>(
     runner: RunnerRow,
-    work: (session: SshSession) => Promise<T>,
+    work: (session: RunnerSession) => Promise<T>,
   ): Promise<T> {
     let entry = this.machines.get(runner.id);
     if (!entry) {
       entry = {
-        session: this.runners.target(runner).then((target) => SshSession.open(target)),
+        session: this.runners.session(runner),
         timer: null,
       };
       this.machines.set(runner.id, entry);
@@ -846,7 +846,12 @@ export class DeployService {
     };
     if (!runner)
       return fail(`${environment.name} has no machine. An admin chooses one in Deployments.`);
-    if (!runner.hostKey) return fail(`${runner.name}'s fingerprint has not been confirmed.`);
+    if (!runner.hostKey)
+      return fail(
+        runner.kind === "agent"
+          ? `${runner.name} is not installed yet: run its install command on the machine (Runners).`
+          : `${runner.name}'s fingerprint has not been confirmed.`,
+      );
     if (runner.os === "windows") return fail("Deploys need a Linux or macOS machine with Docker.");
 
     // The app's variables for this environment, resolved now; masked wherever they appear.
@@ -876,9 +881,9 @@ export class DeployService {
       for (const line of (stream === "out" ? out : err).push(chunk)) request.onLine(stream, line);
     };
 
-    let session: SshSession;
+    let session: RunnerSession;
     try {
-      session = await SshSession.open(await this.runners.target(runner));
+      session = await this.runners.session(runner, 30_000);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }
@@ -1254,7 +1259,7 @@ export class DeployService {
     // Running is not the same as reachable: open the address the way a visitor
     // would, and say plainly what stops it (DNS, a firewall, the certificate).
     request.onLine("system", `Opening ${deployment.url} from outside the machine.`);
-    const address = environment.address ?? machine?.host ?? null;
+    const address = environment.address ?? (machine ? runnerAddress(machine) : null);
     const problem =
       (await dnsHint(host, environment)) ??
       (address ? await reachProblem(host, address, settings, runnerName) : null);
@@ -1381,7 +1386,7 @@ export class DeployService {
     await this.locked(`${environment.id}/${app}`, async () => {
       if (!forget) {
         const runner = await this.machineOf(environment);
-        const session = await SshSession.open(await this.runners.target(runner));
+        const session = await this.runners.session(runner);
         try {
           const removed = await session.capture(
             shellCommand("sh"),
@@ -1445,7 +1450,7 @@ export class DeployService {
     const runner = await this.machineOf(environment);
     // A certificate is only given once the names lead to the machine.
     const dns = await dnsHint(host, environment);
-    const session = await SshSession.open(await this.runners.target(runner));
+    const session = await this.runners.session(runner);
     let result: { code: number | null; stdout: string; stderr: string };
     try {
       result = await session.capture(
@@ -1483,9 +1488,9 @@ export class DeployService {
       dns ??
       (result.code === 6 || result.code === 7
         ? (why[result.code] as string)
-        : await reachProblem(
+        : await reachProblemAt(
             host,
-            environment.address ?? runner.host,
+            environment.address ?? runnerAddress(runner),
             proxiedOf(environment),
             runner.name,
           ));
@@ -1567,7 +1572,7 @@ export class DeployService {
     }
     const runner = await this.machineOf(environment);
     const updated = await this.locked(`${environment.id}/${app}`, async () => {
-      const session = await SshSession.open(await this.runners.target(runner));
+      const session = await this.runners.session(runner);
       try {
         const sh = (script: string) => session.capture(shellCommand("sh"), 60_000, script);
         const proxy = await this.startProxy(environment, runner, sh);
@@ -1597,9 +1602,9 @@ export class DeployService {
       }
       const problem =
         (await dnsHint(host, environment)) ??
-        (await reachProblem(
+        (await reachProblemAt(
           host,
-          environment.address ?? runner.host,
+          environment.address ?? runnerAddress(runner),
           proxiedOf(environment),
           runner.name,
         ));
@@ -1704,7 +1709,7 @@ export class DeployService {
   private async bringImage(
     promote: { from: DeploymentRow; runner: RunnerRow },
     runner: RunnerRow,
-    session: SshSession,
+    session: RunnerSession,
     image: string,
     request: DeployRequest,
   ): Promise<string | null> {
@@ -1731,9 +1736,9 @@ export class DeployService {
     );
     // A name of its own for the copy, so neither machine's other images are touched.
     const carrier = `zelyq-promote-${from.id.toLowerCase().replace(/[^a-z0-9]/g, "")}:${Date.now()}`;
-    let source: SshSession;
+    let source: RunnerSession;
     try {
-      source = await SshSession.open(await this.runners.target(promote.runner));
+      source = await this.runners.session(promote.runner, 30_000);
     } catch (error) {
       return `Could not reach ${promote.runner.name}: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -2422,6 +2427,16 @@ function visit(
  * Why people cannot open the app yet, or null when they can. A new
  * certificate takes a little while, so HTTPS is tried for half a minute.
  */
+/** reachProblem, when Zelyq knows where the machine is; nothing to say when it does not. */
+async function reachProblemAt(
+  host: string,
+  address: string | null,
+  settings: { https: EnvironmentHttps; httpPort: number; httpsPort: number },
+  machine: string,
+): Promise<string | null> {
+  return address ? reachProblem(host, address, settings, machine) : null;
+}
+
 export async function reachProblem(
   host: string,
   address: string,

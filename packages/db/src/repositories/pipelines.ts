@@ -114,6 +114,27 @@ export function pipelineRepository(db: ZelyqDb) {
           )[0] ?? null
         );
       },
+      /** The runner waiting for this install code (its SHA-256). */
+      async findByAgentCode(codeHash: string): Promise<RunnerRow | null> {
+        return (
+          (
+            await db.select().from(runners).where(eq(runners.agentCodeHash, codeHash)).limit(1)
+          )[0] ?? null
+        );
+      },
+      /** Spends an install code: only one caller wins it, however many try at once. */
+      async claimAgentCode(
+        id: string,
+        codeHash: string,
+        patch: Partial<RunnerRow>,
+      ): Promise<RunnerRow | null> {
+        const [row] = await db
+          .update(runners)
+          .set(patch)
+          .where(and(eq(runners.id, id), eq(runners.agentCodeHash, codeHash)))
+          .returning();
+        return row ?? null;
+      },
       async create(row: RunnerRow): Promise<RunnerRow> {
         await db.insert(runners).values(row);
         return row;

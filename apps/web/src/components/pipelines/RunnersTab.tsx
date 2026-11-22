@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type LocalRunnerStatus,
   RUNNER_USER,
+  type RunnerAgentInstall,
   type RunnerOs,
   type RunnerSummary,
   type RunnerTestResult,
   roleAtLeast,
+  runnerAgentSetupScript,
   runnerSetupScript,
   type TeamMembership,
 } from "@zelyq/core";
@@ -20,7 +22,9 @@ import {
   RotateCw,
   Server,
   ShieldCheck,
+  Terminal,
   Trash2,
+  Wifi,
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
@@ -30,6 +34,7 @@ import { formatRelative, vaultErrorMessage } from "../../lib/vault";
 import {
   Badge,
   Button,
+  Card,
   confirmAction,
   EmptyState,
   FieldLabel,
@@ -55,7 +60,8 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
     queryFn: () => api.runners.list(team.id),
     refetchInterval: 10_000,
   });
-  const [adding, setAdding] = useState(false);
+  // Which kind of runner is being added: first the choice, then its form.
+  const [adding, setAdding] = useState<null | "choose" | "ssh" | "agent">(null);
 
   return (
     <div className="grid gap-6">
@@ -70,22 +76,24 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">{t("SSH runners")}</h2>
+          <h2 className="text-sm font-semibold">{t("Your runners")}</h2>
           {isAdmin && !adding && (
-            <Button size="sm" icon={<Plus size={13} />} onClick={() => setAdding(true)}>
+            <Button size="sm" icon={<Plus size={13} />} onClick={() => setAdding("choose")}>
               {t("Add runner")}
             </Button>
           )}
         </div>
-        {adding && <RunnerForm teamId={team.id} onDone={() => setAdding(false)} />}
+        {adding === "choose" && <KindChooser onPick={setAdding} onCancel={() => setAdding(null)} />}
+        {adding === "ssh" && <RunnerForm teamId={team.id} onDone={() => setAdding(null)} />}
+        {adding === "agent" && <AgentRunnerForm teamId={team.id} onDone={() => setAdding(null)} />}
         {runners.isLoading ? (
           <Spinner />
         ) : (runners.data?.runners.length ?? 0) === 0 ? (
           !adding && (
             <EmptyState
-              title={t("No SSH runners")}
+              title={t("No runners of your own yet")}
               description={t(
-                "Any Linux, macOS or Windows machine with an SSH server can run pipelines: a VM, a Mac mini, a build box.",
+                "A machine of your own can run pipelines and deploys: a server that connects to Zelyq (nothing to open on it), or a machine Zelyq reaches over SSH.",
               )}
             />
           )
@@ -302,6 +310,225 @@ function TeamKey({ teamId }: { teamId: string }) {
   );
 }
 
+/** The two kinds of runner, the way GitHub Actions and GitLab offer the first. */
+function KindChooser({
+  onPick,
+  onCancel,
+}: {
+  onPick: (kind: "ssh" | "agent") => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="mb-3 grid gap-2 rounded-md border border-border-default p-3">
+      <p className="text-xs text-fg-secondary">{t("How will Zelyq reach the machine?")}</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Card
+          title={
+            <span className="flex items-center gap-2">
+              <Wifi size={14} /> {t("The machine connects to Zelyq")}
+            </span>
+          }
+          description={t(
+            "Nothing to open on it: no public address, no SSH port. It keeps one HTTPS connection to Zelyq. Best for production servers and machines behind a firewall. Linux.",
+          )}
+          footer={
+            <Button size="sm" variant="primary" onClick={() => onPick("agent")}>
+              {t("Choose")}
+            </Button>
+          }
+        />
+        <Card
+          title={
+            <span className="flex items-center gap-2">
+              <Terminal size={14} /> {t("Zelyq connects over SSH")}
+            </span>
+          }
+          description={t(
+            "For a machine Zelyq can reach on its SSH port: Linux, macOS or Windows. Uses the team’s SSH key below.",
+          )}
+          footer={
+            <Button size="sm" onClick={() => onPick("ssh")}>
+              {t("Choose")}
+            </Button>
+          }
+        />
+      </div>
+      <div>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          {t("Cancel")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Adds a runner that connects to Zelyq, then shows its install command; or changes one. */
+function AgentRunnerForm({
+  teamId,
+  runner,
+  onDone,
+}: {
+  teamId: string;
+  runner?: RunnerSummary;
+  onDone: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({
+    name: runner?.name ?? "",
+    labels: runner?.labels.join(", ") ?? "",
+    maxConcurrent: runner && runner.maxConcurrent > 0 ? String(runner.maxConcurrent) : "",
+  });
+  const [install, setInstall] = useState<RunnerAgentInstall | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: async () => {
+      const input = {
+        name: form.name.trim(),
+        labels: form.labels
+          .split(",")
+          .map((label) => label.trim().toLowerCase())
+          .filter(Boolean),
+        maxConcurrent: Math.max(0, Math.floor(Number(form.maxConcurrent) || 0)),
+      };
+      if (runner) {
+        await api.runners.update(teamId, runner.id, input);
+        return null;
+      }
+      return (await api.runners.createAgent(teamId, input)).install;
+    },
+    onSuccess: (next) => {
+      void queryClient.invalidateQueries({ queryKey: ["runners", teamId] });
+      if (next) setInstall(next);
+      else onDone();
+    },
+    onError: (caught) => setError(vaultErrorMessage(caught)),
+  });
+
+  if (install) {
+    return (
+      <div className="mb-3 rounded-md border border-border-default p-3">
+        <AgentInstall install={install} onDone={onDone} />
+      </div>
+    );
+  }
+  return (
+    <form
+      className="mb-3 grid gap-3 rounded-md border border-border-default p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save.mutate();
+      }}
+    >
+      {!runner && (
+        <p className="text-xs text-fg-secondary">
+          {t(
+            "Name it the way pipelines will call it (runs-on: prod-01). Next you get the command to paste on the machine.",
+          )}
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {(
+          [
+            ["name", t("Name"), "prod-01", ""],
+            ["labels", t("Labels"), "docker, deploy", "col-span-1 sm:col-span-2"],
+            ["maxConcurrent", t("Runs at once"), t("Automatic"), ""],
+          ] as const
+        ).map(([key, label, placeholder, className]) => (
+          <div key={key} className={`grid gap-1 ${className}`}>
+            <FieldLabel>{label}</FieldLabel>
+            <Input
+              aria-label={label}
+              value={form[key]}
+              placeholder={placeholder}
+              onChange={(event) => setForm({ ...form, [key]: event.target.value })}
+            />
+          </div>
+        ))}
+      </div>
+      {error && <p className="text-xs text-danger">{error}</p>}
+      <div className="flex gap-2">
+        <Button type="submit" variant="primary" disabled={save.isPending || !form.name.trim()}>
+          {runner ? t("Save") : t("Next: install it")}
+        </Button>
+        <Button variant="ghost" onClick={onDone}>
+          {t("Cancel")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** The command that installs the runner on the machine, with its one-time code. */
+function AgentInstall({ install, onDone }: { install: RunnerAgentInstall; onDone: () => void }) {
+  const [user, setUser] = useState("zelyq");
+  const [admin, setAdmin] = useState(false);
+  const userOk = RUNNER_USER.test(user);
+  const command = userOk ? runnerAgentSetupScript({ user, admin, install }) : "";
+  return (
+    <div className="grid gap-2 text-xs">
+      <p className="font-medium">{t("Install it on the machine")}</p>
+      <p className="text-fg-secondary">
+        {t(
+          "Paste this once on the machine (Linux with systemd), as a user who can use sudo. It makes the runner’s user, installs the runner as a service that starts with the machine, and registers the machine’s own key with Zelyq. The machine only needs to reach {url} over HTTPS: nothing on it is opened.",
+          { url: <span className="font-mono">{install.url}</span> },
+        )}
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="flex items-center gap-1">
+          {t("User to create")}
+          <Input
+            aria-label={t("User to create")}
+            value={user}
+            onChange={(event) => setUser(event.target.value.trim())}
+            className="h-6 w-28 font-mono text-xs"
+          />
+        </span>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={admin}
+            onChange={(event) => setAdmin(event.target.checked)}
+          />
+          {t("Let it use sudo")}
+        </label>
+      </div>
+      <p className="text-2xs text-fg-muted">
+        {t(
+          "If Docker is installed, the user joins the docker group so pipelines can use Docker. That is as powerful as root on the machine: use a machine for this runner alone.",
+        )}
+      </p>
+      {admin && (
+        <p className="rounded bg-warning-subtle p-2 text-2xs">
+          {t(
+            "Then every pipeline that runs here can do anything on this machine. Leave it off unless your steps install system packages.",
+          )}
+        </p>
+      )}
+      {userOk ? (
+        <pre className="max-h-64 overflow-auto rounded bg-surface-subtle p-2 font-mono text-2xs whitespace-pre">
+          {command}
+        </pre>
+      ) : (
+        <p className="text-danger">
+          {t("Use lower-case letters, digits, ’_’ or ’-’ for the user.")}
+        </p>
+      )}
+      <p className="text-2xs text-fg-muted">
+        {t(
+          "The code in it works once, until {time}. It is shown only now: for another machine, or later, make a new one.",
+          { time: formatDate(install.expiresAt) },
+        )}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <CopyButton text={command} label={t("Copy command")} />
+        <Button size="sm" variant="ghost" onClick={onDone}>
+          {t("Done")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Adds a runner, or — given one — changes it. */
 /** "Takes 4 runs at once — automatic, from 8 processors and 31 GB of memory." */
 function capacityWords(runner: RunnerSummary): string {
@@ -461,30 +688,47 @@ function RunnerRow({
     onSuccess: () => void refresh(),
     onError: (caught) => setError(vaultErrorMessage(caught)),
   });
+  const [install, setInstall] = useState<RunnerAgentInstall | null>(null);
+  const newCode = useMutation({
+    mutationFn: () => api.runners.installCode(teamId, runner.id),
+    onSuccess: (next) => {
+      setInstall(next.install);
+      setError(null);
+      void refresh();
+    },
+    onError: (caught) => setError(vaultErrorMessage(caught)),
+  });
 
+  const agent = runner.kind === "agent";
   const confirmed = Boolean(runner.hostKeyFingerprint);
   const state = !runner.enabled
     ? { tone: "neutral" as const, label: t("Off") }
     : !confirmed
-      ? { tone: "warning" as const, label: t("Not confirmed") }
-      : runner.lastTest && !runner.lastTest.ok
-        ? { tone: "danger" as const, label: t("Unreachable") }
-        : runner.busyRuns > 0
-          ? {
-              tone: (runner.busyRuns >= runner.concurrency ? "warning" : "info") as
-                | "warning"
-                | "info",
-              label: t("Running {busyRuns} of {concurrency}", {
-                busyRuns: runner.busyRuns,
-                concurrency: runner.concurrency,
-              }),
-            }
-          : { tone: "success" as const, label: t("Ready") };
+      ? { tone: "warning" as const, label: agent ? t("Not installed yet") : t("Not confirmed") }
+      : agent && !runner.online
+        ? { tone: "danger" as const, label: t("Offline") }
+        : !agent && runner.lastTest && !runner.lastTest.ok
+          ? { tone: "danger" as const, label: t("Unreachable") }
+          : runner.busyRuns > 0
+            ? {
+                tone: (runner.busyRuns >= runner.concurrency ? "warning" : "info") as
+                  | "warning"
+                  | "info",
+                label: t("Running {busyRuns} of {concurrency}", {
+                  busyRuns: runner.busyRuns,
+                  concurrency: runner.concurrency,
+                }),
+              }
+            : { tone: "success" as const, label: t("Ready") };
 
   if (editing) {
     return (
       <li>
-        <RunnerForm teamId={teamId} runner={runner} onDone={() => setEditing(false)} />
+        {agent ? (
+          <AgentRunnerForm teamId={teamId} runner={runner} onDone={() => setEditing(false)} />
+        ) : (
+          <RunnerForm teamId={teamId} runner={runner} onDone={() => setEditing(false)} />
+        )}
       </li>
     );
   }
@@ -503,14 +747,40 @@ function RunnerRow({
         <span className="ml-auto flex items-center gap-1">
           {isAdmin && (
             <>
-              <Button
-                size="sm"
-                icon={<Plug size={13} />}
-                disabled={test.isPending}
-                onClick={() => test.mutate()}
-              >
-                {test.isPending ? t("Testing…") : t("Test connection")}
-              </Button>
+              {(!agent || confirmed) && (
+                <Button
+                  size="sm"
+                  icon={<Plug size={13} />}
+                  disabled={test.isPending}
+                  onClick={() => test.mutate()}
+                >
+                  {test.isPending ? t("Testing…") : t("Test connection")}
+                </Button>
+              )}
+              {agent && (
+                <Button
+                  size="sm"
+                  variant={confirmed ? "ghost" : "primary"}
+                  disabled={newCode.isPending}
+                  onClick={async () => {
+                    if (
+                      !confirmed ||
+                      (await confirmAction({
+                        title: t("Install {name} again?", { name: runner.name }),
+                        description: t(
+                          "A new install code. The machine that installs with it becomes {name}, and the one before is cut off.",
+                          { name: runner.name },
+                        ),
+                        confirmLabel: t("Make a new code"),
+                      }))
+                    ) {
+                      newCode.mutate();
+                    }
+                  }}
+                >
+                  {confirmed ? t("Install again") : t("Install command")}
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -548,7 +818,23 @@ function RunnerRow({
         </span>
       </div>
       <p className="mt-1 font-mono text-xs text-fg-secondary">
-        {runner.username}@{runner.host}:{runner.port}
+        {agent ? (
+          <span className="font-sans">
+            {t("Connects to Zelyq")}
+            {runner.host && (
+              <span className="font-mono">
+                {" "}
+                · {runner.username}@{runner.host}
+              </span>
+            )}
+            {runner.agentVersion && ` · ${t("runner {version}", { version: runner.agentVersion })}`}
+            {!runner.online &&
+              runner.lastSeenAt &&
+              ` · ${t("last seen {when}", { when: formatRelative(runner.lastSeenAt) })}`}
+          </span>
+        ) : (
+          `${runner.username}@${runner.host}:${runner.port}`
+        )}
         {runner.shells.length + runner.tools.length > 0 && (
           <span className="font-sans">
             {" "}
@@ -557,6 +843,13 @@ function RunnerRow({
         )}
       </p>
       <p className="mt-1 text-xs text-fg-secondary">{capacityWords(runner)}</p>
+      {agent && !confirmed && (
+        <p className="mt-1 text-xs text-warning">
+          {runner.installPending
+            ? t("Waiting for the machine: paste the install command there.")
+            : t("Its install code has expired: press Install command for a new one.")}
+        </p>
+      )}
       {runner.lastTest && (
         <p className={`mt-1 text-xs ${runner.lastTest.ok ? "text-fg-secondary" : "text-danger"}`}>
           {runner.lastTest.message} ({formatRelative(runner.lastTest.at)})
@@ -566,10 +859,19 @@ function RunnerRow({
       {confirmed && (
         <p className="mt-1 flex items-center gap-1 text-2xs text-fg-muted">
           <ShieldCheck size={12} />{" "}
-          {t("Only talks to {hostKeyFingerprint}", {
-            hostKeyFingerprint: runner.hostKeyFingerprint,
-          })}
+          {agent
+            ? t("Signs in only with its own key {hostKeyFingerprint}", {
+                hostKeyFingerprint: runner.hostKeyFingerprint,
+              })
+            : t("Only talks to {hostKeyFingerprint}", {
+                hostKeyFingerprint: runner.hostKeyFingerprint,
+              })}
         </p>
+      )}
+      {install && (
+        <div className="mt-3 rounded-md border border-border-default p-3">
+          <AgentInstall install={install} onDone={() => setInstall(null)} />
+        </div>
       )}
       {result?.needsConfirmation && result.hostKeyFingerprint && (
         <div className="mt-3 rounded-md border border-warning/40 bg-warning-subtle p-3 text-xs">

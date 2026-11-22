@@ -201,7 +201,7 @@ before(async () => {
 
   watch = new CheckService(
     store,
-    { target: async () => ({}) as never },
+    { session: async () => ({}) as never },
     {
       probeAddress: async (url: string) => say.address ?? probeAddress(url),
       probeCertificate: async () => ({

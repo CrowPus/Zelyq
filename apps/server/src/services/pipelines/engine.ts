@@ -67,7 +67,7 @@ import {
   unpackCommand,
   workspacePath,
 } from "./scripts.js";
-import { probeMachine, SshSession } from "./ssh.js";
+import { probeMachine } from "./ssh.js";
 import { type ReportState, reportStatus, type StatusTarget } from "./status.js";
 import {
   applyTool,
@@ -671,7 +671,12 @@ export class PipelineEngine {
       if (!runner) return { fail: `There is no runner called ${target.name} in this team.` };
       if (!runner.enabled) return { fail: `${runner.name} is turned off.` };
       if (!runner.hostKey)
-        return { fail: `${runner.name}'s fingerprint has not been confirmed. Test it in Runners.` };
+        return {
+          fail:
+            runner.kind === "agent"
+              ? `${runner.name} is not installed yet: run its install command on the machine (Runners).`
+              : `${runner.name}'s fingerprint has not been confirmed. Test it in Runners.`,
+        };
       return this.hasRoom(runner)
         ? { runner }
         : {
@@ -685,7 +690,7 @@ export class PipelineEngine {
           };
     }
     const wanted = target.labels.map((label) => label.toLowerCase());
-    const matching = runners.filter((runner) => {
+    const fits = runners.filter((runner) => {
       if (!runner.enabled || !runner.hostKey) return false;
       const has = new Set([
         ...parseList(runner.labels),
@@ -694,6 +699,11 @@ export class PipelineEngine {
       ]);
       return wanted.every((label) => has.has(label));
     });
+    // A runner that connects to Zelyq and is not connected now is the last choice, not the first.
+    const reachable = fits.filter(
+      (runner) => runner.kind !== "agent" || this.deps.runners.agents.online(runner.id),
+    );
+    const matching = reachable.length > 0 ? reachable : fits;
     if (matching.length === 0) {
       return { fail: `No confirmed, turned-on runner has all of: ${wanted.join(", ")}.` };
     }
@@ -824,7 +834,13 @@ export class PipelineEngine {
       }
       if (!active.holding) await this.reacquire(run, runner, active);
       if (runner) {
-        log.add(null, "system", `Connecting to ${runner.username}@${runner.host}:${runner.port}.`);
+        log.add(
+          null,
+          "system",
+          runner.kind === "agent"
+            ? `Running on ${runner.name}, over the connection it keeps to Zelyq.`
+            : `Connecting to ${runner.username}@${runner.host}:${runner.port}.`,
+        );
       } else if ((await this.deps.settings.value("pipelineLocalRunner")) !== "host") {
         const image = (await this.deps.settings.value("pipelineLocalImage")) || "node:22-bookworm";
         log.add(null, "system", `Starting a container from ${image} (the first run downloads it).`);
@@ -2089,7 +2105,7 @@ export class PipelineEngine {
         zelyqDir: "/zelyq",
       };
     }
-    const session = await SshSession.open(await this.deps.runners.target(runner));
+    const session = await this.deps.runners.session(runner, 30_000);
     try {
       const facts = await probeMachine(session);
       await this.deps.store.pipelines.runners.update(runner.id, {

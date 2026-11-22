@@ -47,6 +47,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "runner.updated": t("changed a runner"),
   "runner.removed": t("removed a runner"),
   "runner.host_key_confirmed": t("confirmed a runner’s fingerprint"),
+  "runner.agent_registered": t("a runner’s machine registered with its install code"),
   "ssh_key.created": t("created the team’s SSH key"),
   "ssh_key.rotated": t("rotated the team’s SSH key"),
   "project.variable.created": t("added a variable"),
