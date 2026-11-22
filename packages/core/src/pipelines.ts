@@ -2241,7 +2241,7 @@ export function runnerAgentSetupScript(input: {
     `SUM='${agentSha256}'`,
     "D=/opt/zelyq-runner",
     'command -v systemctl >/dev/null 2>&1 || { echo "This needs a Linux machine with systemd."; exit 1; }',
-    'fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"; else wget -qO "$2" "$1"; fi; }',
+    'fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"; else wget -qO "$2" "$1"; fi || { echo "Could not download $1. If it is your Zelyq, check this machine may reach it (a firewall, or a gate in front of Zelyq, must let /runner-agent/, /api/runner-agent/ and /ws/runner-agent through)."; exit 1; }; }',
     'if ! id "$U" >/dev/null 2>&1; then',
     '  if command -v useradd >/dev/null 2>&1; then useradd -m -s /bin/bash "$U" 2>/dev/null || useradd -m "$U"',
     '  else adduser -D "$U"; fi',
