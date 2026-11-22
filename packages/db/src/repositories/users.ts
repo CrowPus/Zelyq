@@ -208,6 +208,14 @@ export function userRepository(db: ZelyqDb) {
         .where(eq(users.id, id));
     },
 
+    /** Server administrator or not. */
+    async setInstanceRole(id: string, role: "admin" | "member"): Promise<void> {
+      await db
+        .update(users)
+        .set({ instanceRole: role, updatedAt: new Date().toISOString() })
+        .where(eq(users.id, id));
+    },
+
     async updatePassword(id: string, passwordHash: string): Promise<void> {
       await db
         .update(users)

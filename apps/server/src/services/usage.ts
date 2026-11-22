@@ -16,6 +16,7 @@ import {
   ZelyqError,
 } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
+import { z } from "zod";
 import type { ProductActivity } from "./product-activity.js";
 
 /**
@@ -123,6 +124,18 @@ function gitTracks(root: string, relative: string): Promise<boolean> {
 }
 
 const PLANS_KEY = "plans";
+
+/** Bought on top of a plan. Up to 100 TB of extra storage. */
+export const teamExtrasSchema = z
+  .object({
+    storageMb: z
+      .number()
+      .int()
+      .min(0)
+      .max(100 * 1024 * 1024),
+  })
+  .strict();
+export type TeamExtras = z.infer<typeof teamExtrasSchema>;
 const MEASURE_EVERY_MS = 15 * 60_000;
 const MB = 1024 * 1024;
 
@@ -390,7 +403,38 @@ export class UsageService {
     return clean;
   }
 
+  /**
+   * What a team bought on top of its plan (an account service sells it): extra storage, in MB. It raises the
+   * plan's storage limit; a plan without a storage limit stays without one.
+   */
+  async extrasOf(teamId: string): Promise<TeamExtras> {
+    const raw = await this.store.settings.get(`team:${teamId}:extras`);
+    if (!raw) return { storageMb: 0 };
+    try {
+      const parsed = teamExtrasSchema.safeParse(JSON.parse(raw));
+      return parsed.success ? parsed.data : { storageMb: 0 };
+    } catch {
+      return { storageMb: 0 };
+    }
+  }
+
+  async setExtras(teamId: string, raw: unknown): Promise<TeamExtras> {
+    const extras = teamExtrasSchema.parse(raw);
+    if (extras.storageMb === 0) await this.store.settings.remove(`team:${teamId}:extras`);
+    else await this.store.settings.set(`team:${teamId}:extras`, JSON.stringify(extras));
+    return extras;
+  }
+
+  /** The team's plan, with what it bought on top in its limits. */
   async planOf(teamId: string): Promise<Plan> {
+    const plan = await this.basePlanOf(teamId);
+    const { storageMb } = await this.extrasOf(teamId);
+    const base = plan.limits.storageMb;
+    if (!storageMb || base === null || base === undefined) return plan;
+    return { ...plan, limits: { ...plan.limits, storageMb: base + storageMb } };
+  }
+
+  private async basePlanOf(teamId: string): Promise<Plan> {
     const all = await this.allPlans();
     const chosen = await this.store.settings.get(`team:${teamId}:plan`);
     // A team the server's admin is in stays Unlimited unless put on a plan by name:
