@@ -45,6 +45,20 @@ function output(child: ChildProcess): string {
   return (child as unknown as { output: string }).output;
 }
 
+/**
+ * The process has ended. In a container with no init (CI's), an ended child of an ended parent stays a
+ * zombie until someone reaps it: that is ended too.
+ */
+async function stopped_(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return true;
+  }
+  const stat = await fs.readFile(`/proc/${pid}/stat`, "utf8").catch(() => "");
+  return stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3) === "Z";
+}
+
 async function until<T>(
   what: () => Promise<T | null | undefined | false>,
   timeoutMs = 15_000,
@@ -188,14 +202,7 @@ test("the connection: output, input, exit codes, a slow reader, stop, several at
   stop.abort();
   const result = await stopped;
   assert.notEqual(result.code, 0);
-  await until(async () => {
-    try {
-      process.kill(childPid, 0);
-      return false;
-    } catch {
-      return true;
-    }
-  });
+  await until(async () => stopped_(childPid));
 
   // A stream in, slower to read than to send: held on both sides, nothing lost.
   const { Readable } = await import("node:stream");

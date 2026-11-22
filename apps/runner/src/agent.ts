@@ -102,6 +102,18 @@ function log(line: string): void {
   process.stdout.write(`${new Date().toISOString()} ${line}\n`);
 }
 
+/**
+ * Who the runner runs as. os.userInfo() throws for a user with no account on the machine (a container
+ * started with --user 1234, for one): then the USER setting, or the number.
+ */
+export function currentUser(): string {
+  try {
+    return os.userInfo().username;
+  } catch {
+    return process.env.USER || process.env.LOGNAME || String(process.getuid?.() ?? "unknown");
+  }
+}
+
 /** The machine, as Zelyq shows it in Runners. */
 export function machineFacts(): Record<string, string | number | null> {
   return {
@@ -109,7 +121,7 @@ export function machineFacts(): Record<string, string | number | null> {
     os:
       process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux",
     arch: process.arch,
-    user: os.userInfo().username,
+    user: currentUser(),
   };
 }
 
