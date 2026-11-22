@@ -66,9 +66,7 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
   return (
     <div className="grid gap-6">
       <LocalRunnerNote status={runners.data?.local ?? null} />
-      {isAdmin ? (
-        <TeamKey teamId={team.id} />
-      ) : (
+      {!isAdmin && (
         <p className="text-xs text-fg-secondary">
           {t("A team admin adds runners and manages the team’s SSH key.")}
         </p>
@@ -84,7 +82,12 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
           )}
         </div>
         {adding === "choose" && <KindChooser onPick={setAdding} onCancel={() => setAdding(null)} />}
-        {adding === "ssh" && <RunnerForm teamId={team.id} onDone={() => setAdding(null)} />}
+        {adding === "ssh" && (
+          <div className="mb-3 grid gap-3">
+            <TeamKey teamId={team.id} mode="setup" />
+            <RunnerForm teamId={team.id} onDone={() => setAdding(null)} />
+          </div>
+        )}
         {adding === "agent" && <AgentRunnerForm teamId={team.id} onDone={() => setAdding(null)} />}
         {runners.isLoading ? (
           <Spinner />
@@ -105,6 +108,10 @@ export function RunnersTab({ team }: { team: TeamMembership }) {
           </ul>
         )}
       </section>
+      {/* The key only matters once there is a machine Zelyq reaches over SSH. */}
+      {isAdmin && runners.data?.runners.some((runner) => runner.kind === "ssh") && (
+        <TeamKey teamId={team.id} mode="manage" />
+      )}
     </div>
   );
 }
@@ -165,7 +172,11 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
   );
 }
 
-function TeamKey({ teamId }: { teamId: string }) {
+/**
+ * The team's SSH key. "setup": step 1 of adding an SSH runner, the command that lets the key in.
+ * "manage": the key itself, under the runners: its fingerprint, a new key, the old one retiring.
+ */
+function TeamKey({ teamId, mode }: { teamId: string; mode: "setup" | "manage" }) {
   const queryClient = useQueryClient();
   const keys = useQuery({
     queryKey: ["ssh-keys", teamId],
@@ -202,109 +213,129 @@ function TeamKey({ teamId }: { teamId: string }) {
     <section className="rounded-md border border-border-default p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <KeyRound size={14} /> {t("The team’s SSH key")}
+          <KeyRound size={14} />{" "}
+          {mode === "setup" ? t("Step 1: set the machine up") : t("The team’s SSH key")}
         </h2>
-        <div className="flex gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<RotateCw size={13} />}
-            disabled={rotate.isPending}
-            onClick={async () => {
-              if (
-                await confirmAction({
-                  title: t("Make a new key?"),
-                  description: t(
-                    "The current one keeps working for 7 days while you add the new one to each machine.",
-                  ),
-                  confirmLabel: t("Make a new key"),
-                })
-              ) {
-                rotate.mutate(current.algorithm);
-              }
-            }}
-          >
-            {t("New key")}
-          </Button>
-        </div>
-      </div>
-      <p className="mb-2 text-xs text-fg-secondary">
-        {t(
-          "Step 1 for every machine: set it up. Paste this once on the machine, as a user who can use sudo (on Windows: PowerShell, Run as administrator). It creates the runner’s user, lets this team’s key in, and joins the docker group if Docker is there. Running it again is safe.",
-        )}
-      </p>
-      <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
-        <div className="flex gap-1">
-          {(["linux", "macos", "windows"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setOs(value)}
-              className={`rounded px-2 py-0.5 ${os === value ? "bg-surface-hover font-medium" : "text-fg-secondary"}`}
+        {mode === "manage" && (
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<RotateCw size={13} />}
+              disabled={rotate.isPending}
+              onClick={async () => {
+                if (
+                  await confirmAction({
+                    title: t("Make a new key?"),
+                    description: t(
+                      "The current one keeps working for 7 days while you add the new one to each machine.",
+                    ),
+                    confirmLabel: t("Make a new key"),
+                  })
+                ) {
+                  rotate.mutate(current.algorithm);
+                }
+              }}
             >
-              {OS_LABEL[value]}
-            </button>
-          ))}
-        </div>
-        <span className="flex items-center gap-1">
-          {t("User to create")}
-          <Input
-            aria-label={t("User to create")}
-            value={user}
-            onChange={(event) => setUser(event.target.value.trim())}
-            className="h-6 w-28 font-mono text-xs"
-          />
-        </span>
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={admin}
-            onChange={(event) => setAdmin(event.target.checked)}
-          />
-          {os === "windows" ? t("Make it an administrator") : t("Let it use sudo")}
-        </label>
+              {t("New key")}
+            </Button>
+          </div>
+        )}
       </div>
-      {admin && (
-        <p className="mb-2 rounded bg-warning-subtle p-2 text-2xs">
-          {t(
-            "Then every pipeline that runs here can do anything on this machine. Leave it off unless your steps install system packages.",
-          )}
-        </p>
-      )}
-      {userOk ? (
-        <pre className="mb-2 max-h-64 overflow-auto rounded bg-surface-subtle p-2 font-mono text-2xs whitespace-pre">
-          {command}
-        </pre>
+      {mode === "manage" ? (
+        <>
+          <p className="mb-2 text-xs text-fg-secondary">
+            {t("Zelyq signs in to your SSH runners with this key.")}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <CopyButton text={current.publicKey} label={t("Copy key only")} />
+            <span className="font-mono text-2xs text-fg-muted">
+              {current.algorithm} · {current.fingerprint}
+            </span>
+          </div>
+        </>
       ) : (
-        <p className="mb-2 text-xs text-danger">
-          {t("Use lower-case letters, digits, ’_’ or ’-’ for the user.")}
-        </p>
+        <>
+          <p className="mb-2 text-xs text-fg-secondary">
+            {t(
+              "Paste this once on the machine, as a user who can use sudo (on Windows: PowerShell, Run as administrator). It creates the runner’s user, lets this team’s key in, and joins the docker group if Docker is there. Running it again is safe.",
+            )}
+          </p>
+          <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
+            <div className="flex gap-1">
+              {(["linux", "macos", "windows"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setOs(value)}
+                  className={`rounded px-2 py-0.5 ${os === value ? "bg-surface-hover font-medium" : "text-fg-secondary"}`}
+                >
+                  {OS_LABEL[value]}
+                </button>
+              ))}
+            </div>
+            <span className="flex items-center gap-1">
+              {t("User to create")}
+              <Input
+                aria-label={t("User to create")}
+                value={user}
+                onChange={(event) => setUser(event.target.value.trim())}
+                className="h-6 w-28 font-mono text-xs"
+              />
+            </span>
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={admin}
+                onChange={(event) => setAdmin(event.target.checked)}
+              />
+              {os === "windows" ? t("Make it an administrator") : t("Let it use sudo")}
+            </label>
+          </div>
+          {admin && (
+            <p className="mb-2 rounded bg-warning-subtle p-2 text-2xs">
+              {t(
+                "Then every pipeline that runs here can do anything on this machine. Leave it off unless your steps install system packages.",
+              )}
+            </p>
+          )}
+          {userOk ? (
+            <pre className="mb-2 max-h-64 overflow-auto rounded bg-surface-subtle p-2 font-mono text-2xs whitespace-pre">
+              {command}
+            </pre>
+          ) : (
+            <p className="mb-2 text-xs text-danger">
+              {t("Use lower-case letters, digits, ’_’ or ’-’ for the user.")}
+            </p>
+          )}
+          {os === "macos" && (
+            <p className="mb-2 text-2xs text-fg-secondary">
+              {t("Remote Login must be on: System Settings → General → Sharing → Remote Login.")}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <CopyButton text={command} label={t("Copy command")} />
+            <CopyButton text={current.publicKey} label={t("Copy key only")} />
+            <span className="font-mono text-2xs text-fg-muted">
+              {current.algorithm} · {current.fingerprint}
+            </span>
+          </div>
+        </>
       )}
-      {os === "macos" && (
-        <p className="mb-2 text-2xs text-fg-secondary">
-          {t("Remote Login must be on: System Settings → General → Sharing → Remote Login.")}
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-2">
-        <CopyButton text={command} label={t("Copy command")} />
-        <CopyButton text={current.publicKey} label={t("Copy key only")} />
-        <span className="font-mono text-2xs text-fg-muted">
-          {current.algorithm} · {current.fingerprint}
-        </span>
-      </div>
-      {older.map((key) => (
-        <div key={key.id} className="mt-3 rounded bg-warning-subtle p-2 text-xs">
-          {t("The previous key ({fingerprint}) still works until ", {
-            fingerprint: key.fingerprint,
-          })}
-          {key.retiresAt ? formatDate(key.retiresAt) : t("removed")}
-          {t(". Add the new key to every machine, then ")}
-          <button type="button" className="underline" onClick={() => retire.mutate()}>
-            {t("stop the old key now")}
-          </button>
-          .
-        </div>
-      ))}
+      {mode === "manage" &&
+        older.map((key) => (
+          <div key={key.id} className="mt-3 rounded bg-warning-subtle p-2 text-xs">
+            {t("The previous key ({fingerprint}) still works until ", {
+              fingerprint: key.fingerprint,
+            })}
+            {key.retiresAt ? formatDate(key.retiresAt) : t("removed")}
+            {t(". Add the new key to every machine, then ")}
+            <button type="button" className="underline" onClick={() => retire.mutate()}>
+              {t("stop the old key now")}
+            </button>
+            .
+          </div>
+        ))}
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     </section>
   );
@@ -344,7 +375,7 @@ function KindChooser({
             </span>
           }
           description={t(
-            "For a machine Zelyq can reach on its SSH port: Linux, macOS or Windows. Uses the team’s SSH key below.",
+            "For a machine Zelyq can reach on its SSH port: Linux, macOS or Windows. Next you get the command that lets the team’s SSH key in.",
           )}
           footer={
             <Button size="sm" onClick={() => onPick("ssh")}>
