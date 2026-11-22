@@ -74,7 +74,7 @@ import {
 } from "../lib/video-command";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { AgentPresence } from "./AgentPresence";
-import { type ModelChoice, ModelPicker } from "./ModelPicker";
+import { type ModelChoice, ModelPicker, teamDefaultLabel } from "./ModelPicker";
 import {
   Chip,
   IconButton,
@@ -760,12 +760,14 @@ export function ChatPanel({
             {modelChoice.label}
           </span>
         ) : (
-          model && (
+          // What "Default" really sends for this team (its own provider and
+          // model), not what the agent process happened to start with.
+          (teamDefaultLabel(providers.data) ?? model) && (
             <span
               className="truncate font-mono text-2xs text-fg-muted"
-              title={t("Instance default — pick a model below to use something else")}
+              title={t("Your team’s default — pick a model below to use something else")}
             >
-              {model}
+              {teamDefaultLabel(providers.data) ?? model}
             </span>
           )
         )}

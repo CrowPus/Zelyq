@@ -83,13 +83,40 @@ export interface CleanupReport {
   cleared: Array<{ projectId: string; name: string; bytes: number; folders: string[] }>;
 }
 
-/** Whether git keeps any file under this folder: then it is the person's, never cleared. */
+/**
+ * Whether git keeps any file under this folder: then it is the person's, never cleared.
+ *
+ * Runs on the server, in a folder the team's container can write to, so the
+ * repository's own config is not trusted: a `.git/config` naming a command
+ * (core.fsmonitor, a hook) would otherwise run here, outside the sandbox.
+ * Settings given with -c win over the repository's.
+ */
+export const UNTRUSTED_REPO_GIT_ARGS = [
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.untrackedCache=false",
+  "-c",
+  "protocol.allow=never",
+];
+export const UNTRUSTED_REPO_GIT_ENV = {
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_TERMINAL_PROMPT: "0",
+};
+
 function gitTracks(root: string, relative: string): Promise<boolean> {
   return new Promise((resolve) => {
     execFile(
       "git",
-      ["-C", root, "ls-files", "--", relative],
-      { timeout: 20_000, maxBuffer: 1024 * 1024 },
+      [...UNTRUSTED_REPO_GIT_ARGS, "-C", root, "ls-files", "--", relative],
+      {
+        timeout: 20_000,
+        maxBuffer: 1024 * 1024,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", ...UNTRUSTED_REPO_GIT_ENV },
+      },
       (error, stdout) => resolve(error ? true : stdout.trim().length > 0),
     );
   });

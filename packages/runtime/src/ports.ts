@@ -9,6 +9,10 @@ import net from "node:net";
  * HTTPS origin. Without one, the raw `http://<host>:<port>`.
  */
 export function previewUrl(template: string | undefined, host: string, port: number): string {
+  // `{name}` needs the project, which only the server knows (see
+  // previewAddress in @zelyq/core); here, and for the agent's own look at a
+  // preview, the address stays the internal one.
+  if (template?.includes("{name}")) return `http://${host}:${port}`;
   return template ? template.replaceAll("{port}", String(port)) : `http://${host}:${port}`;
 }
 

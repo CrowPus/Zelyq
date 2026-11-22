@@ -3,6 +3,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import type { Readable } from "node:stream";
 import { ZelyqError } from "@zelyq/core";
+import {
+  ensureSandbox,
+  NO_SANDBOX,
+  type SandboxOptions,
+  sandboxNetworkArgs,
+  sandboxRunArgs,
+} from "./sandbox.js";
 
 /**
  * Where a pipeline's steps run when they do not run over SSH: the server's
@@ -107,6 +114,8 @@ export interface PipelineContainerOptions {
   engine?: string;
   memory?: string;
   cpus?: string;
+  /** The strict sandbox: gVisor, and the sandbox network behind the firewall. */
+  sandbox?: SandboxOptions;
 }
 
 /** A fresh container for one run. */
@@ -115,7 +124,38 @@ export async function startPipelineContainer(
 ): Promise<PipelineMachine> {
   const engine = options.engine ?? "docker";
   const name = `zelyq-run-${options.runId.replace(/[^A-Za-z0-9_-]/g, "").slice(-24)}`;
+  const sandbox = options.sandbox ?? NO_SANDBOX;
+  let networkName = PROJECT_NETWORK;
+  if (sandbox.strict) {
+    // Fails closed: no run without gVisor and the firewall. Each run gets a
+    // network of its own, named like its container, from the start: gVisor
+    // cannot join a network after it started, so its services join this one.
+    await ensureSandbox(engine, sandbox);
+    await capture(engine, ["network", "rm", name], 30_000);
+    const created = await capture(
+      engine,
+      [
+        "network",
+        "create",
+        ...sandboxNetworkArgs(name, sandbox),
+        "--label",
+        `${RUN_LABEL}=${options.runId}`,
+        "--label",
+        `${INSTANCE_LABEL}=${options.instance}`,
+        name,
+      ],
+      30_000,
+    );
+    if (created.code !== 0) {
+      throw new ZelyqError(
+        "runtime_unavailable",
+        `Could not create the run's network: ${created.out.trim().split("\n").pop()}`,
+      );
+    }
+    networkName = name;
+  }
   const network =
+    sandbox.strict ||
     (await capture(engine, ["network", "inspect", PROJECT_NETWORK], 10_000)).code === 0;
   const started = await capture(
     engine,
@@ -140,7 +180,8 @@ export async function startPipelineContainer(
       options.memory ?? "4g",
       "--cpus",
       options.cpus ?? "2",
-      ...(network ? ["--network", PROJECT_NETWORK] : []),
+      ...(network ? ["--network", networkName] : []),
+      ...(await sandboxRunArgs(sandbox)),
       "--entrypoint",
       "tail",
       options.image,
@@ -151,6 +192,7 @@ export async function startPipelineContainer(
     600_000,
   );
   if (started.code !== 0) {
+    if (sandbox.strict) await capture(engine, ["network", "rm", name], 30_000);
     throw new ZelyqError(
       "runtime_unavailable",
       `The local runner could not start a container from ${options.image}: ${started.out.trim().split("\n").pop()}`,
@@ -169,6 +211,7 @@ export async function startPipelineContainer(
       ),
     close: async () => {
       await capture(engine, ["rm", "-f", name], 60_000);
+      if (sandbox.strict) await capture(engine, ["network", "rm", name], 30_000);
     },
   };
 }
@@ -250,19 +293,29 @@ export async function startServiceContainers(input: {
   instance: string;
   services: ServiceSpec[];
   engine?: string;
+  sandbox?: SandboxOptions;
 }): Promise<{ hosts: Record<string, { host: string; port: number }>; stop(): Promise<void> }> {
   const engine = input.engine ?? "docker";
+  const sandbox = input.sandbox ?? NO_SANDBOX;
+  if (sandbox.strict) {
+    // Services are images a team chose: the same sandbox as its run. On the
+    // server itself (no run container) is refused before this in strict mode.
+    if (!input.runContainer) throw new Error("Services need the run's container here.");
+    await ensureSandbox(engine, sandbox);
+  }
   const short = input.runId.replace(/[^A-Za-z0-9_-]/g, "").slice(-24);
-  const network = input.runContainer ? `zelyq-run-${short}` : null;
+  // Strict: the run's own network, made with its container (see startPipelineContainer).
+  const shared = sandbox.strict;
+  const network = input.runContainer ? (shared ? input.runContainer : `zelyq-run-${short}`) : null;
   const names: string[] = [];
   const stop = async () => {
     if (names.length) await capture(engine, ["rm", "-f", ...names], 60_000);
-    if (network && input.runContainer) {
+    if (network && input.runContainer && !shared) {
       await capture(engine, ["network", "disconnect", "-f", network, input.runContainer], 30_000);
       await capture(engine, ["network", "rm", network], 30_000);
     }
   };
-  if (network && input.runContainer) {
+  if (network && input.runContainer && !shared) {
     const created = await capture(
       engine,
       [
@@ -309,6 +362,7 @@ export async function startServiceContainers(input: {
           ? ["--network", network, "--network-alias", service.name]
           : ["-p", `127.0.0.1::${service.port}`]),
         ...Object.keys(service.env).flatMap((key) => ["-e", key]),
+        ...(await sandboxRunArgs(sandbox)),
         service.image,
       ],
       600_000,
@@ -319,6 +373,43 @@ export async function startServiceContainers(input: {
       throw new Error(
         `The service ${service.name} (${service.image}) did not start: ${started.out.trim().split("\n").pop()}`,
       );
+    }
+    if (network && sandbox.strict) {
+      // gVisor cannot use Docker's name server: the run reaches the service
+      // by its address, and its name is written into the run's /etc/hosts.
+      const inspected = await capture(
+        engine,
+        [
+          "inspect",
+          "--format",
+          `{{(index .NetworkSettings.Networks "${network}").IPAddress}}`,
+          name,
+        ],
+        15_000,
+      );
+      const address = inspected.out.trim();
+      if (inspected.code !== 0 || !/^\d+\.\d+\.\d+\.\d+$/.test(address)) {
+        await stop();
+        throw new Error(`Could not find the address of the service ${service.name}.`);
+      }
+      await capture(
+        engine,
+        [
+          "exec",
+          "-u",
+          "0",
+          input.runContainer as string,
+          "sh",
+          "-c",
+          'printf "%s %s\\n" "$1" "$2" >> /etc/hosts',
+          "sh",
+          address,
+          service.name,
+        ],
+        15_000,
+      );
+      hosts[service.name] = { host: address, port: service.port };
+      continue;
     }
     if (network) {
       hosts[service.name] = { host: service.name, port: service.port };

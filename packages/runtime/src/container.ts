@@ -26,6 +26,15 @@ import {
   readRuntimeManifest,
 } from "./managed.js";
 import { allocatePort, previewUrl, releasePort } from "./ports.js";
+import {
+  ensureSandbox,
+  ensureSandboxNetwork,
+  NO_SANDBOX,
+  SANDBOX_NETWORK,
+  type SandboxOptions,
+  sandboxRunArgs,
+  withFirewallHelper,
+} from "./sandbox.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -181,8 +190,6 @@ const IMAGE_BUILD_WAIT_MS = 2_000;
  * itself, no authentication required.
  */
 const METADATA_ADDRESS = "169.254.169.254/32";
-/** Only used to install `iptables`/`ipset` inside the throwaway helper container. */
-const FIREWALL_HELPER_IMAGE = "alpine";
 /**
  * One set, shared the same way `DEFAULT_NETWORK` is: two Zelyq instances on
  * one host sharing this name end up with the union of both allowlists, which
@@ -242,6 +249,12 @@ export interface ContainerOptions {
    * deployment.
    */
   egressAllowlist?: string[];
+  /**
+   * The strict sandbox (managed servers): gVisor, the `zelyq-sandbox`
+   * network behind Zelyq's firewall, and nothing starts until both are in
+   * place. See sandbox.ts.
+   */
+  sandbox?: SandboxOptions;
 }
 
 export class ContainerRuntimeDriver implements RuntimeDriver {
@@ -272,6 +285,9 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   private readonly pidsLimit: number;
   private readonly engine: string;
   private readonly network: string;
+  private readonly sandbox: SandboxOptions;
+  /** Why the strict sandbox is not ready, for `health()`. */
+  private sandboxFailure: string | undefined;
   private readonly execTimeoutMs: number;
   private readonly portRange: [number, number];
   /** What the preview URL names — the address a browser on this machine reaches it at. */
@@ -358,7 +374,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     this.cpus = options.cpus ?? DEFAULT_CPUS;
     this.pidsLimit = options.pidsLimit ?? DEFAULT_PIDS;
     this.engine = options.engine ?? "docker";
-    this.network = options.network ?? DEFAULT_NETWORK;
+    this.sandbox = options.sandbox ?? NO_SANDBOX;
+    this.network = options.network ?? (this.sandbox.strict ? SANDBOX_NETWORK : DEFAULT_NETWORK);
     this.blockMetadataEndpoint = options.blockMetadataEndpoint ?? true;
     this.egressAllowlist = (options.egressAllowlist ?? [])
       .map((hostname) => hostname.trim())
@@ -427,6 +444,12 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
               this.egressAllowlist.length === 1 ? "" : "s"
             })`;
 
+    const sandboxStatus = !this.sandbox.strict
+      ? null
+      : this.sandboxFailure
+        ? `strict sandbox NOT READY, no project can start: ${this.sandboxFailure}`
+        : `strict sandbox on (${this.sandbox.runtime ?? "default runtime"})`;
+
     return {
       kind: this.kind,
       ok: true,
@@ -434,7 +457,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         `${local.detail} · ${this.engine} ${firstLine(probe.stdout)} · image ${this.resolvedImage} · ` +
         (this.imageFailure ? `${imageStatus} · ` : "") +
         metadataStatus +
-        (egressStatus ? ` · ${egressStatus}` : ""),
+        (egressStatus ? ` · ${egressStatus}` : "") +
+        (sandboxStatus ? ` · ${sandboxStatus}` : ""),
       version: process.version,
       capabilities: await this.managedCapabilities(),
     };
@@ -997,7 +1021,19 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         this.imageFailure = error instanceof Error ? error.message : String(error);
         this.resolvedImage = BASE_IMAGE;
       });
-      await this.ensureNetwork();
+      if (this.sandbox.strict) {
+        // Fails closed: no team container without gVisor and the firewall.
+        try {
+          await ensureSandbox(this.engine, this.sandbox);
+          await ensureSandboxNetwork(this.engine, this.network);
+          this.sandboxFailure = undefined;
+        } catch (error) {
+          this.sandboxFailure = error instanceof Error ? error.message : String(error);
+          throw error;
+        }
+      } else {
+        await this.ensureNetwork();
+      }
       // The rule is scoped by source to this network's subnet, so it has to
       // exist first — but it does not have to succeed before a container can
       // be created. A firewall problem should not also be a "cannot open any
@@ -1023,7 +1059,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       }
       await this.engineRun(["rm", "-f", name], 30_000).catch(() => undefined);
       const created = await this.engineRun(
-        this.runArgs(name, root, publishPort),
+        this.runArgs(name, root, publishPort, await sandboxRunArgs(this.sandbox)),
         ENGINE_TIMEOUT_MS,
       );
       if (created.exitCode !== 0) {
@@ -1237,86 +1273,11 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     });
   }
 
-  /**
-   * Runs `fn` inside a short-lived, privileged helper container with
-   * `iptables` and `ipset` installed — the one mechanism `installMetadataBlock`
-   * and the egress allowlist below both use to touch the host's own firewall
-   * state. Started, used, removed, every time: never a persistent privileged
-   * container, the same posture `installMetadataBlock` established first.
-   */
-  private async withFirewallHelper<T>(
+  /** The shared helper: see `withFirewallHelper` in sandbox.ts. */
+  private withFirewallHelper<T>(
     fn: (execIn: (args: string[]) => Promise<ExecResult>) => Promise<T>,
   ): Promise<T> {
-    const helper = `zelyq-firewall-setup-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    const started = await runCaptured(
-      this.engine,
-      [
-        "run",
-        "--detach",
-        "--rm",
-        "--name",
-        helper,
-        "--network",
-        "host",
-        "--cap-add",
-        "NET_ADMIN",
-        FIREWALL_HELPER_IMAGE,
-        "sh",
-        "-c",
-        // Stays up long enough for `fn`'s exec calls. Neither tool is in the
-        // base image, so the first thing this container does is fetch them —
-        // over the host's own network, before any project container or
-        // restriction exists, so nothing here is circular.
-        "apk add --no-cache iptables ipset bind-tools >/dev/null 2>&1 && sleep 60",
-      ],
-      { timeoutMs: 60_000, maxOutputBytes: 5_000 },
-    );
-    if (started.exitCode !== 0) {
-      throw new ZelyqError(
-        "runtime_unavailable",
-        `Could not start the firewall setup helper: ${
-          firstLine(started.stderr) || firstLine(started.stdout) || "unknown error"
-        }`,
-      );
-    }
-
-    try {
-      // Waiting for `apk add` to finish, not for the container to exist —
-      // `docker exec` against a container whose entrypoint has not reached
-      // `sleep` yet just fails, and would read as "the tools are broken"
-      // rather than "still installing them".
-      const deadline = Date.now() + 30_000;
-      let ready = false;
-      while (Date.now() < deadline) {
-        const probe = await runCaptured(this.engine, ["exec", helper, "which", "iptables"], {
-          timeoutMs: 5_000,
-          maxOutputBytes: 1_000,
-        });
-        if (probe.exitCode === 0) {
-          ready = true;
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      if (!ready) {
-        throw new ZelyqError(
-          "runtime_unavailable",
-          "The firewall setup helper could not install iptables/ipset in time.",
-        );
-      }
-
-      return await fn((args) =>
-        runCaptured(this.engine, ["exec", helper, ...args], {
-          timeoutMs: 10_000,
-          maxOutputBytes: 2_000,
-        }),
-      );
-    } finally {
-      await runCaptured(this.engine, ["rm", "-f", helper], {
-        timeoutMs: 30_000,
-        maxOutputBytes: 1_000,
-      });
-    }
+    return withFirewallHelper(this.engine, fn);
   }
 
   /**
@@ -1620,7 +1581,12 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   /**
    * Every flag here is a decision, and the first one is the one that breaks.
    */
-  private runArgs(name: string, root: string, publishPort?: number): string[] {
+  private runArgs(
+    name: string,
+    root: string,
+    publishPort?: number,
+    sandboxArgs: string[] = [],
+  ): string[] {
     return [
       "run",
       "--detach",
@@ -1666,6 +1632,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       "HOME=/tmp",
       "--env",
       "npm_config_cache=/tmp/.npm",
+      // gVisor, and the name servers it needs, on a strict server.
+      ...sandboxArgs,
       this.resolvedImage,
       // Something that stays up so `exec` has a container to enter. `sleep
       // infinity` is a bash builtin loop here, not a binary, so it survives an

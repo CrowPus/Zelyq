@@ -452,6 +452,11 @@ export function encodeSse(event: AgentEvent): string {
  */
 export const availableProvidersSchema = z.object({
   default: providerIdSchema,
+  /**
+   * The model "Default" sends for this team, resolved the way a turn
+   * resolves it. Absent when the server cannot tell.
+   */
+  defaultModel: z.string().optional(),
   providers: z.array(
     z.object({
       id: providerIdSchema,

@@ -38,6 +38,12 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
     queryKey: ["pipeline-plugins", team.id],
     queryFn: () => api.pipelines.plugins(team.id),
   });
+  // A server that keeps teams' code in a sandbox installs only signed registry plugins.
+  const registry = useQuery({
+    queryKey: ["plugin-registry"],
+    queryFn: api.pipelines.registryStatus,
+  });
+  const uploads = registry.data?.uploads !== false;
   const input = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [installed, setInstalled] = useState<string | null>(null);
@@ -74,7 +80,7 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
             { code: <code className="font-mono">plugin: publisher/name@version</code> },
           )}
         </p>
-        {isAdmin && (
+        {isAdmin && uploads && (
           <>
             <input
               ref={input}
@@ -116,9 +122,13 @@ export function PluginsTab({ team }: { team: TeamMembership }) {
         <EmptyState
           title={t("No plugins yet")}
           description={
-            isAdmin
-              ? t("Install a plugin package (.tar.gz) to use it in this team’s pipelines.")
-              : t("A team admin installs plugins.")
+            !isAdmin
+              ? t("A team admin installs plugins.")
+              : uploads
+                ? t("Install a plugin package (.tar.gz) to use it in this team’s pipelines.")
+                : t(
+                    "Install a plugin from the Zelyq registry above to use it in this team’s pipelines.",
+                  )
           }
         />
       ) : (

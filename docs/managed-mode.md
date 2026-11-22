@@ -103,6 +103,18 @@ read-only for every session, even a server administrator's. They change only thr
 (`settings`, `plans` and the rest), from the admin, behind its own sign-in. A guessed password here
 opens nothing. Keys are made on the server: `pnpm --filter @zelyq/server admin-key create`.
 
+## Teams' code stays in a sandbox
+
+A managed server always runs the [strict sandbox](./strict-sandbox.md). Every team's code
+runs under gVisor, behind a firewall that keeps it away from this server and from private
+networks. Plugins come only from Zelyq's signed registry, and pipelines never run on the
+server itself. Zelyq refuses to start without `ZELYQ_RUNTIME=container` and
+`ZELYQ_CONTAINER_RUNTIME=runsc`.
+
+Previews are served by name on a domain of their own ([previews.md](./previews.md)). The domain is
+set in the admin portal; Zelyq checks it every hour and emails its administrators when it needs
+attention.
+
 ## What stays private
 
 Data stays on the server that made it: nothing is sent anywhere unless a receiver is set or a key is

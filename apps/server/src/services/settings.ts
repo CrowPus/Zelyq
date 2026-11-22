@@ -33,6 +33,7 @@ import {
 import { GoogleModelDiscovery, type GoogleModelList } from "./google-models.js";
 import { OpenAIModelDiscovery, type OpenAIModelList } from "./openai-models.js";
 import { automaticLocalConcurrency } from "./pipelines/capacity.js";
+import { hostsOf, previewDomainProblem } from "./preview-domain.js";
 import type { SecretBox } from "./secrets.js";
 import { maskSecret } from "./secrets.js";
 
@@ -574,6 +575,19 @@ const DEFINITIONS: Definition[] = [
     restartRequired: true,
   },
   {
+    key: "previewDomain",
+    label: "Preview domain",
+    description:
+      "Serve every preview at its own name under this domain, e.g. shop-a1b2c3.zelyq.app, with no port opened. It needs a wildcard DNS record and certificate for the domain pointing at this server (deploy/enable-named-previews.sh does both). Use a domain of its own, never the app's. Takes effect at once; empty turns it off.",
+    kind: "text",
+    group: "Preview",
+    envVar: "ZELYQ_PREVIEW_DOMAIN",
+    // The admin portal sets it on a managed server; an operator's .env only seeds it.
+    envOverridable: true,
+    fallback: "",
+    placeholder: "zelyq.app",
+  },
+  {
     key: "keepUndoPoints",
     label: "Undo points kept per app",
     description:
@@ -1037,6 +1051,19 @@ export class SettingsService {
    * start-up, once the Vault exists.
    */
   vaultLookup?: (reference: VaultReference) => Promise<string | null>;
+
+  /** The strict sandbox is on: pipelines may never run on the server itself. */
+  strictSandbox = false;
+
+  /** The app's address from the server's own configuration, when it has one. */
+  appPublicUrl?: string;
+
+  private readonly changeListeners: Array<(keys: string[]) => void> = [];
+
+  /** Told the keys that changed after every saved change (e.g. the preview domain). */
+  onChange(listener: (keys: string[]) => void): void {
+    this.changeListeners.push(listener);
+  }
 
   constructor(
     private readonly store: Store,
@@ -1878,6 +1905,40 @@ export class SettingsService {
       changes.provider !== previousProvider
         ? changes.provider
         : undefined;
+    // Everything is checked before anything is written: a refused key never
+    // leaves the keys before it saved and the rest not.
+    for (const [key, raw] of Object.entries(changes)) {
+      const definition = BY_KEY.get(key);
+      if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
+      if (!definition.secret && this.env[definition.envVar] && !definition.envOverridable) {
+        throw new ZelyqError(
+          "conflict",
+          `${definition.label} is set by ${definition.envVar} in the environment. Remove it there to manage this setting here.`,
+        );
+      }
+      const value = raw === null ? "" : String(raw).trim();
+      if (value !== "" && !definition.secret) this.validate(definition, value);
+    }
+    if ("previewDomain" in changes || "publicUrl" in changes) {
+      const problem = await this.previewDomainProblem({
+        ...("previewDomain" in changes
+          ? { previewDomain: String(changes.previewDomain ?? "").trim() }
+          : {}),
+        ...("publicUrl" in changes ? { publicUrl: String(changes.publicUrl ?? "").trim() } : {}),
+      });
+      if (problem) throw ZelyqError.badRequest(problem);
+    }
+    try {
+      await this.write(changes, switchingToCurated);
+    } finally {
+      for (const listener of this.changeListeners) listener(Object.keys(changes));
+    }
+  }
+
+  private async write(
+    changes: Record<string, string | number | boolean | null>,
+    switchingToCurated: string | undefined,
+  ): Promise<void> {
     for (const [key, raw] of Object.entries(changes)) {
       const definition = BY_KEY.get(key);
       if (!definition) throw ZelyqError.badRequest(`Unknown setting: ${key}`);
@@ -1896,7 +1957,6 @@ export class SettingsService {
       } else if (definition.secret) {
         await this.store.settings.set(key, this.secrets.encrypt(value));
       } else {
-        this.validate(definition, value);
         await this.store.settings.set(key, value);
       }
 
@@ -1921,7 +1981,38 @@ export class SettingsService {
     }
   }
 
+  /**
+   * Why the preview domain (the one given, or the one saved) may not be used
+   * with the app's address (the one given, or every one known), or null.
+   * Checked when either changes and at start, so an address set later, or a
+   * value seeded from the environment, is held to the same rule.
+   */
+  async previewDomainProblem(
+    next: { previewDomain?: string; publicUrl?: string } = {},
+  ): Promise<string | null> {
+    const domain = (next.previewDomain ?? (await this.value("previewDomain"))).toLowerCase();
+    if (!domain) return null;
+    const publicUrl = next.publicUrl ?? (await this.value("publicUrl").catch(() => ""));
+    return previewDomainProblem(
+      domain,
+      hostsOf([publicUrl, this.env.ZELYQ_PUBLIC_URL, this.appPublicUrl]),
+      this.env.ZELYQ_ALLOW_SAME_SITE_PREVIEWS === "true",
+    );
+  }
+
   private validate(definition: Definition, value: string): void {
+    if (definition.key === "previewDomain") {
+      if (!/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(value)) {
+        throw ZelyqError.badRequest(
+          "Preview domain must be a domain name, such as zelyq.app: lower case, no https:// and no path.",
+        );
+      }
+    }
+    if (definition.key === "pipelineLocalRunner" && value === "host" && this.strictSandbox) {
+      throw ZelyqError.badRequest(
+        "This server keeps every team's code in a sandbox, so pipelines cannot run on the server itself.",
+      );
+    }
     if (["videoHourlyLimit", "videoConcurrency"].includes(definition.key)) {
       const max = definition.key === "videoConcurrency" ? 10 : 1000;
       if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > max)

@@ -179,5 +179,9 @@ export interface RuntimeConfig {
     cpus?: string;
     pidsLimit?: number;
     engine?: string;
+    blockMetadataEndpoint?: boolean;
+    egressAllowlist?: string[];
+    /** The strict sandbox; see sandbox.ts. */
+    sandbox?: import("./sandbox.js").SandboxOptions;
   };
 }

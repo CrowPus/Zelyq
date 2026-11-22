@@ -6,7 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import type { ProductFeature } from "@zelyq/core";
-import { isZelyqError, toError, type User, ZelyqError } from "@zelyq/core";
+import { isZelyqError, previewDomainSuffix, toError, type User, ZelyqError } from "@zelyq/core";
 import { resolveFromRepoRoot } from "@zelyq/core/node";
 import { createStore, type Store } from "@zelyq/db";
 import { createRuntimeDriver, type RuntimeDriver } from "@zelyq/runtime";
@@ -31,6 +31,7 @@ import { registerPipelineRoutes } from "./routes/pipelines.js";
 import { registerPlanRoutes } from "./routes/plans.js";
 import { registerPluginRegistryRoutes } from "./routes/plugin-registry.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
+import { registerPreviewProxy } from "./routes/preview-proxy.js";
 import { registerProjectBackendRoutes } from "./routes/project-backend.js";
 import { registerProjectVariableRoutes } from "./routes/project-variables.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -86,9 +87,13 @@ import { PipelinePluginService } from "./services/pipelines/plugins.js";
 import { PluginRegistryClient, ZELYQ_REGISTRY_KEYS } from "./services/pipelines/registry.js";
 import { RunnerService } from "./services/pipelines/runners.js";
 import { PipelineService } from "./services/pipelines/service.js";
+import { SshSession } from "./services/pipelines/ssh.js";
+import { statusGuard } from "./services/pipelines/status.js";
 import { ToolService } from "./services/pipelines/tools.js";
 import { PipelineTriggerService } from "./services/pipelines/triggers.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
+import { PreviewHealth, watchPreviewHealth } from "./services/preview-health.js";
+import { PreviewRouter } from "./services/preview-router.js";
 import { ProductActivity } from "./services/product-activity.js";
 import { ProjectBackendService } from "./services/project-backend.js";
 import { ProjectVariableService } from "./services/project-variables.js";
@@ -213,6 +218,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     config.claudeCredentialsPath,
     config.codexCredentialsPath,
   );
+  settings.strictSandbox = config.sandbox?.strict ?? false;
+  if (config.publicUrl) settings.appPublicUrl = config.publicUrl;
   // Access-related settings are read at call time, so changing them in the UI
   // takes effect without a restart.
   const auth = new AuthService(store, {
@@ -312,6 +319,10 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     access,
     path.join(pipelinesDir, "plugins"),
   );
+  pipelinePlugins.signedOnly = config.sandbox?.strict ?? false;
+  // A team's runner is the team's own machine, never ours: see SshSession.guardPrivate.
+  SshSession.guardPrivate = config.sandbox?.strict ?? false;
+  statusGuard.strict = config.sandbox?.strict ?? false;
   const pipelineEngine = new PipelineEngine({
     store,
     vault,
@@ -328,6 +339,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     cacheDir: path.join(pipelinesDir, "cache"),
     deploys,
     plugins: pipelinePlugins,
+    ...(config.sandbox ? { sandbox: config.sandbox } : {}),
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
   pipelines.teamStatus = teamStatus;
@@ -387,6 +399,33 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   // Vault shows which Settings fields use its secrets.
   settings.vaultLookup = async ({ name, scope }) =>
     (await vault.resolve(scope, [name])).get(name) ?? null;
+  // Previews by name rather than by port, when the deployment's preview
+  // address template has {name} (try.zelyq.com and the cloud). Registered
+  // before any route: a request on a preview hostname is not for Zelyq at all.
+  // The preview domain (Settings → Preview, set from the admin portal on a
+  // managed server) wins over ZELYQ_PREVIEW_URL_TEMPLATE, and applies at once.
+  let previewTemplate = config.runtime.previewUrlTemplate;
+  /** True while the template comes from the preview domain setting: previews only there. */
+  let previewDomainDedicated = false;
+  const refreshPreviewTemplate = async () => {
+    const domain = (await settings.value("previewDomain").catch(() => "")).trim().toLowerCase();
+    // A domain that breaks the rule (e.g. seeded from the environment, or the
+    // app's address changed since) is not served: previews would share the app's site.
+    const problem = domain ? await settings.previewDomainProblem().catch(() => null) : null;
+    if (problem) app.log.error(`Preview domain ${domain} is not used: ${problem}`);
+    previewDomainDedicated = Boolean(domain && !problem);
+    previewTemplate = previewDomainDedicated
+      ? `https://{name}.${domain}`
+      : config.runtime.previewUrlTemplate;
+  };
+  await refreshPreviewTemplate();
+  const previewRouter = new PreviewRouter(
+    store,
+    config.runtime.workspaceDir,
+    () => previewTemplate,
+    () => previewDomainDedicated,
+  );
+  await registerPreviewProxy(app, { router: previewRouter });
   const supabaseConnections = new SupabaseConnectionService(store, secrets, access, {
     oauth: config.supabaseOAuth,
     verifyEmailDomain: config.supabaseVerifyEmailDomain,
@@ -577,6 +616,48 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   registerSupportRoutes(app, { support, access });
   directory.activity = activity;
   directory.teamStatus = teamStatus;
+  // Named previews: checked from outside every hour; the administrators hear
+  // when they start needing attention and when they are fine again.
+  const previewHealth = new PreviewHealth(
+    () => previewDomainSuffix(previewTemplate)?.slice(1) ?? null,
+  );
+  settings.onChange((keys) => {
+    if (keys.includes("previewDomain") || keys.includes("publicUrl")) {
+      void refreshPreviewTemplate().then(() => previewHealth.forget());
+    }
+  });
+  const stopPreviewWatch = watchPreviewHealth(
+    previewHealth,
+    {
+      get: () => store.settings.get("preview-health:last-said"),
+      set: (status) => store.settings.set("preview-health:last-said", status),
+    },
+    async ({ status, report }) => {
+      eventsOut.emit(status === "ok" ? "previews.recovered" : "previews.attention", {
+        status,
+        detail: report.detail,
+        domain: report.domain,
+      });
+      const admins = (await store.users.list(500))
+        .filter((person) => person.instanceRole === "admin" && person.email)
+        .map((person) => person.email);
+      await mail.send({
+        to: admins,
+        subject:
+          status === "ok"
+            ? `Previews on ${report.domain} are working again`
+            : `Previews on ${report.domain} need attention`,
+        text:
+          status === "ok"
+            ? `Named previews on ${report.domain} are fine again: ${report.detail}.`
+            : `Named previews on ${report.domain} need attention: ${report.detail}.\n\n` +
+              "Certificates renew by themselves (deploy/enable-named-previews.sh set that up). " +
+              "If renewal failed, run `sudo certbot renew` on the server and read its message. " +
+              "This is checked every hour; you will hear again when it is fine.",
+      });
+    },
+  );
+  app.addHook("onClose", async () => stopPreviewWatch());
   const checkHealth = () =>
     deepHealth({
       store,
@@ -586,6 +667,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       mailConfigured: () => mail.configured(),
       lastCleanup: () => usage.lastCleanup(),
       stats: requestStats,
+      previews: () => previewHealth.asHealthCheck(),
     });
   const healthWatch = new HealthWatch(checkHealth, {
     listening: () => eventsOut.anyoneListening(),
@@ -609,6 +691,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     errors,
     requestStats,
     health: checkHealth,
+    previewHealth,
   });
   registerTeamRoutes(app, {
     limits: usage,
@@ -641,6 +724,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     thumbnails,
     activity,
     maintenance: messages,
+    previewUrlTemplate: () => previewTemplate,
   });
   registerSupabaseConnectionRoutes(app, {
     supabase: supabaseConnections,
@@ -734,7 +818,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       : ZELYQ_REGISTRY_KEYS,
     zelyqVersion: process.env.npm_package_version ?? "0.1.0",
   });
-  registerPluginRegistryRoutes(app, { registry: pluginRegistry, access });
+  registerPluginRegistryRoutes(app, {
+    registry: pluginRegistry,
+    access,
+    uploads: () => !pipelinePlugins.signedOnly,
+  });
   registerPipelineRoutes(app, {
     access,
     pipelines,

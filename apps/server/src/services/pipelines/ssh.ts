@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import { lookup } from "node:dns/promises";
 import type { Readable, Writable } from "node:stream";
 import type { RunnerOs } from "@zelyq/core";
 import ssh2, { type ClientChannel } from "ssh2";
+import { refusedAddress } from "../net-guard.js";
 
 const { Client } = ssh2;
 type Client = InstanceType<typeof Client>;
@@ -63,10 +65,40 @@ export class SshSession {
     return hostKeyFingerprint(this.hostKey);
   }
 
-  static open(target: SshTarget, options: { timeoutMs?: number } = {}): Promise<SshSession> {
+  /**
+   * Set by the strict sandbox: a team's runner may not be this server, a
+   * private network or a cloud metadata address. Checked on the address the
+   * connection is then made to, so a name cannot pass and resolve elsewhere.
+   */
+  static guardPrivate = false;
+
+  static async open(target: SshTarget, options: { timeoutMs?: number } = {}): Promise<SshSession> {
     if (target.keys.length === 0) {
-      return Promise.reject(new SshError("This team has no SSH key yet.", "auth"));
+      throw new SshError("This team has no SSH key yet.", "auth");
     }
+    if (!SshSession.guardPrivate) return SshSession.connect(target, options);
+    const addresses = await lookup(target.host, { all: true }).catch(() => {
+      throw new SshError(`Could not find ${target.host}.`, "unreachable");
+    });
+    for (const { address } of addresses) {
+      const reason = refusedAddress(address, "strict");
+      if (reason) {
+        throw new SshError(
+          `${target.host} cannot be a runner on this server: ${reason}`,
+          "unreachable",
+        );
+      }
+    }
+    const first = addresses[0];
+    if (!first) throw new SshError(`Could not find ${target.host}.`, "unreachable");
+    return SshSession.connect(target, options, first.address);
+  }
+
+  private static connect(
+    target: SshTarget,
+    options: { timeoutMs?: number },
+    address?: string,
+  ): Promise<SshSession> {
     return new Promise((resolve, reject) => {
       const client = new Client();
       let seenHostKey: Buffer | null = null;
@@ -116,7 +148,7 @@ export class SshSession {
         );
       });
       client.connect({
-        host: target.host,
+        host: address ?? target.host,
         port: target.port,
         username: target.username,
         readyTimeout: options.timeoutMs ?? 15_000,

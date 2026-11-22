@@ -1,5 +1,5 @@
-import { chromium } from "playwright";
 import { z } from "zod";
+import { openBrowser } from "./browser-sandbox.js";
 import { defineTool, type ToolResult, truncate } from "./types.js";
 
 export const startPreviewTool = defineTool({
@@ -110,17 +110,19 @@ export const viewPreviewTool = defineTool({
       };
     }
 
-    let target: string;
-    try {
-      target = input.path ? new URL(input.path, preview.url).href : preview.url;
-    } catch {
-      return { output: `Not a valid path: "${input.path}".`, isError: true };
+    const target = previewTarget(preview.url, input.path);
+    if (!target) {
+      return {
+        output: `Not a path inside the preview: "${input.path}". Give a path such as /about.`,
+        isError: true,
+      };
     }
 
     try {
       const screenshot = await capturePage(target, {
         width: input.width ?? 1024,
         height: input.height ?? 768,
+        previewUrl: preview.url,
       });
       return {
         output: `Screenshot of the running preview at ${target}.`,
@@ -145,17 +147,53 @@ export const viewPreviewTool = defineTool({
  */
 export async function capturePage(
   url: string,
-  options: { width: number; height: number; settleMs?: number; quality?: number },
+  options: {
+    width: number;
+    height: number;
+    settleMs?: number;
+    quality?: number;
+    /** The preview `url` belongs to, when `url` is a page inside it. */
+    previewUrl?: string;
+  },
 ): Promise<Buffer> {
-  const browser = await chromium.launch();
+  // The team's own preview is the one private address the page may load,
+  // and its address comes from the runtime, never from the caller.
+  const previewUrl = options.previewUrl ?? url;
+  if (!previewTarget(previewUrl, url)) throw new Error("Not a page inside the preview.");
+  const browser = await openBrowser({ trustedOrigin: new URL(previewUrl).origin });
   try {
-    const page = await browser.newPage({
+    const context = await browser.newContext({
       viewport: { width: options.width, height: options.height },
     });
+    const page = await context.newPage();
     await page.goto(url, { waitUntil: "load", timeout: 30_000 });
     if (options.settleMs) await page.waitForTimeout(options.settleMs);
     return await page.screenshot({ type: "jpeg", quality: options.quality ?? 70 });
   } finally {
     await browser.close().catch(() => undefined);
+  }
+}
+
+/**
+ * A page inside the running preview, or null. The path is the agent's (or
+ * whoever asked it), so an absolute or protocol-relative address that would
+ * leave the preview's origin is refused: it could name this server's own
+ * services or another team's preview.
+ */
+export function previewTarget(previewUrl: string, path: string | undefined): string | null {
+  if (!path) return previewUrl;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith("//") || path.startsWith("\\")) {
+    try {
+      // A full address is accepted only when it is the preview itself.
+      return new URL(path).origin === new URL(previewUrl).origin ? new URL(path).href : null;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const target = new URL(path, previewUrl);
+    return target.origin === new URL(previewUrl).origin ? target.href : null;
+  } catch {
+    return null;
   }
 }

@@ -1,5 +1,5 @@
-import { chromium } from "playwright";
 import { z } from "zod";
+import { openBrowser } from "./browser-sandbox.js";
 import {
   DEFAULT_DWELL_MS,
   DEFAULT_STOPS,
@@ -9,6 +9,7 @@ import {
   summarizeWalk,
   walkPage,
 } from "./page-walk.js";
+import { previewTarget } from "./preview.js";
 import { defineTool, type ToolResult } from "./types.js";
 
 /**
@@ -71,20 +72,22 @@ export const walkPreviewTool = defineTool({
       };
     }
 
-    let target: string;
-    try {
-      target = input.path ? new URL(input.path, preview.url).href : preview.url;
-    } catch {
-      return { output: `Not a valid path: "${input.path}".`, isError: true };
+    const target = previewTarget(preview.url, input.path);
+    if (!target) {
+      return {
+        output: `Not a path inside the preview: "${input.path}". Give a path such as /about.`,
+        isError: true,
+      };
     }
 
     const width = input.width ?? 1280;
-    const browser = await chromium.launch({
-      headless: true,
+    const browser = await openBrowser({
       args: ["--autoplay-policy=no-user-gesture-required"],
+      trustedOrigin: new URL(preview.url).origin,
     });
     try {
-      const page = await browser.newPage({ viewport: { width, height: 800 } });
+      const browserContext = await browser.newContext({ viewport: { width, height: 800 } });
+      const page = await browserContext.newPage();
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(String(error).slice(0, 200)));
 

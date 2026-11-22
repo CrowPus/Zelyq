@@ -95,7 +95,7 @@ test("view_preview rejects a malformed path instead of navigating to the root", 
   });
 
   assert.equal(result.isError, true);
-  assert.match(result.output, /Not a valid path/);
+  assert.match(result.output, /Not a path inside the preview/);
 });
 
 test("view_preview fails cleanly, without touching a browser, when nothing is running", async () => {

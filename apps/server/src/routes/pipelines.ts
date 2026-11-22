@@ -465,7 +465,7 @@ export function registerPipelineRoutes(
       const body = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
       reply.code(201);
       return {
-        plugin: await plugins.install(access.requireUser(request), request.params.teamId, body),
+        plugin: await plugins.upload(access.requireUser(request), request.params.teamId, body),
       };
     });
   });

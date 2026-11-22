@@ -1,6 +1,6 @@
 import { resolveFromRepoRoot } from "@zelyq/core/node";
 import { createStore, resolveSetting } from "@zelyq/db";
-import type { RuntimeConfig } from "@zelyq/runtime";
+import { type RuntimeConfig, sandboxFromEnv } from "@zelyq/runtime";
 import {
   apiKeyFromEnv,
   baseUrlFor,
@@ -98,6 +98,8 @@ async function containerOptionsFromEnv() {
 
 export async function loadAgentConfig(): Promise<AgentConfig> {
   const runtimeKind = runtimeKindFromEnv();
+  // The agent runs teams' commands: the same sandbox as the server, refused the same way.
+  const sandbox = sandboxFromEnv(process.env, runtimeKind);
 
   const effort = (process.env.ZELYQ_EFFORT ?? "high") as AgentConfig["effort"];
 
@@ -145,7 +147,7 @@ export async function loadAgentConfig(): Promise<AgentConfig> {
         intFromEnv("ZELYQ_PREVIEW_PORT_MIN", 4300),
         intFromEnv("ZELYQ_PREVIEW_PORT_MAX", 4399),
       ],
-      container: await containerOptionsFromEnv(),
+      container: { ...(await containerOptionsFromEnv()), sandbox },
     },
   };
 }

@@ -43,7 +43,30 @@ export class PipelinePluginService {
     return rows.map((row) => present(row, people, usage));
   }
 
-  /** Installs a package for a team (admins). The same version twice must be the same file. */
+  /**
+   * Only packages signed by a trusted registry, never a file a person
+   * uploads: on by the strict sandbox, where a team's plugin runs beside
+   * other teams' code.
+   */
+  signedOnly = false;
+
+  /** A package file a team admin uploads by hand. */
+  async upload(user: User, teamId: string, body: Buffer): Promise<PipelinePluginSummary> {
+    if (this.signedOnly) {
+      await this.access.requireTeamRole(user, teamId, "viewer");
+      throw new ZelyqError(
+        "forbidden",
+        "This server only installs plugins from Zelyq's plugin registry, where each one is reviewed and signed. Choose one under “From the Zelyq registry” on this page.",
+      );
+    }
+    return this.install(user, teamId, body);
+  }
+
+  /**
+   * Installs a package for a team (admins): an upload, or a registry package
+   * whose signature was already checked. The same version twice must be the
+   * same file.
+   */
   async install(user: User, teamId: string, body: Buffer): Promise<PipelinePluginSummary> {
     await this.access.requireTeamRole(user, teamId, "admin");
     const { manifest, sha256 } = readPluginPackage(body);

@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { loadEnvFile, resolveFromRepoRoot } from "@zelyq/core/node";
 import { runMigrations } from "@zelyq/db";
-import { ALL_TOOLS } from "@zelyq/tools";
+import { ALL_TOOLS, configureBrowserSandbox } from "@zelyq/tools";
 import { aiProviderCatalogText, buildUseAiProviderTool, loadAiProviders } from "./ai-providers.js";
 import { loadAgentConfig } from "./config.js";
 import { buildUseDesignRefTool, designRefCatalogText, loadDesignRefs } from "./design-refs.js";
@@ -20,6 +21,16 @@ const envFile = loadEnvFile();
 await runMigrations(process.env.DATABASE_URL ?? "file:./data/zelyq.db");
 
 const config = await loadAgentConfig();
+// On a strict server every browser the agent opens runs in a gVisor container
+// that reaches nothing; see packages/tools/src/browser-sandbox.ts.
+if (config.runtime.container?.sandbox) {
+  configureBrowserSandbox(
+    config.runtime.container.sandbox,
+    config.runtime.container.engine,
+    // Two Zelyqs on one machine must not remove each other's browsers.
+    createHash("sha256").update(config.runtime.workspaceDir).digest("hex").slice(0, 12),
+  );
+}
 // Boot-time only, before the server exists to accept a prompt. `ALL_TOOLS`
 // is the same array every session's tool list already defaults to, so
 // appending to it here is enough; nothing downstream needs to know a tool

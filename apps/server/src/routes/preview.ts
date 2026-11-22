@@ -1,3 +1,4 @@
+import { type Preview, previewAddress } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
@@ -29,17 +30,33 @@ export function registerPreviewRoutes(
     activity?: ProductActivity;
     /** Maintenance that pauses building also holds new previews. */
     maintenance?: { requireBuildsAllowed(): Promise<void> };
+    /** The preview address template now (preview domain or ZELYQ_PREVIEW_URL_TEMPLATE). */
+    previewUrlTemplate?: () => string | undefined;
   },
 ): void {
   const { access } = deps;
+
+  /**
+   * The address a person should see. With `{name}` in the template, previews
+   * are served by hostname (see preview-proxy.ts) and the port-based address
+   * the runtime built is an internal detail; without it, nothing changes.
+   */
+  const show = (project: { id: string; slug: string }, preview: Preview): Preview => {
+    const named = previewAddress(deps.previewUrlTemplate?.(), project, preview.port);
+    return named ? { ...preview, url: named } : preview;
+  };
   app.get<{ Params: { id: string } }>("/api/projects/:id/preview", async (request) => {
-    await access.requireProject(access.requireUser(request), request.params.id, "viewer");
+    const { project } = await access.requireProject(
+      access.requireUser(request),
+      request.params.id,
+      "viewer",
+    );
     const preview = await deps.runtime.previewStatus(request.params.id);
     // An app made before thumbnails, or never previewed until now, gets its
     // picture the first time someone has it open and running. The editor
     // polls this, so nothing else has to ask.
     if (preview.status === "running") void deps.thumbnails?.captureIfMissing(request.params.id);
-    return { preview };
+    return { preview: show(project, preview) };
   });
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/preview/start", async (request) => {
@@ -72,7 +89,7 @@ export function registerPreviewRoutes(
           detail: { seconds: (Date.now() - started) / 1000 },
         });
       }
-      return { preview };
+      return { preview: show(project.project, preview) };
     } catch (error) {
       deps.activity?.record("preview.failed", {
         ...where,
@@ -83,8 +100,12 @@ export function registerPreviewRoutes(
   });
 
   app.post<{ Params: { id: string } }>("/api/projects/:id/preview/stop", async (request) => {
-    await access.requireProject(access.requireUser(request), request.params.id, "editor");
-    return { preview: await deps.runtime.stopPreview(request.params.id) };
+    const { project } = await access.requireProject(
+      access.requireUser(request),
+      request.params.id,
+      "editor",
+    );
+    return { preview: show(project, await deps.runtime.stopPreview(request.params.id)) };
   });
 
   app.get<{ Params: { id: string }; Querystring: { lines?: string } }>(
