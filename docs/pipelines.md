@@ -140,6 +140,10 @@ admin.
 3. Within seconds the runner shows **Online**. **Test connection** shows what the machine has.
 
 The machine needs to reach your Zelyq's address over HTTPS (port 443, outgoing), nothing else.
+If something in front of Zelyq lets only some visitors in (an IP allowlist, a login page), let these
+three through to Zelyq for everyone: `/runner-agent/` (the program), `/api/runner-agent/` (the
+one-time code) and `/ws/runner-agent` (the connection). Each one protects itself: the program is
+checked against its checksum, the code works once, and the connection must prove the runner's key.
 Zelyq's address is `ZELYQ_PUBLIC_URL` when it is set, otherwise the address you opened Zelyq at.
 
 **How it stays safe.** Each time it connects, the runner signs a fresh random value from Zelyq with
