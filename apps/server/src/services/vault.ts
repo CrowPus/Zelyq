@@ -1,5 +1,7 @@
 import {
   parseDotEnv,
+  parsePipelineFile,
+  pipelineVaultNames,
   type Role,
   roleAtLeast,
   type User,
@@ -404,6 +406,21 @@ export class VaultService {
           variable: use.variable,
         });
       }
+      for (const pipeline of await this.store.pipelines.pipelines.listForTeam(grant.teamId)) {
+        for (const name of pipelineSecretNames(pipeline.source)) {
+          add(name, { kind: "pipeline", pipelineId: pipeline.id, pipelineName: pipeline.name });
+        }
+      }
+      for (const environment of await this.store.deploy.environments.listForTeam(grant.teamId)) {
+        for (const [variable, name] of environmentSecretNames(environment.variables)) {
+          add(name, {
+            kind: "environment",
+            environmentId: environment.id,
+            environmentName: environment.name,
+            variable,
+          });
+        }
+      }
     }
     for (const use of (await this.listeners.settingUsages?.(grant.scopeKey)) ?? []) {
       add(use.vaultName, { kind: "setting", key: use.key, label: use.label });
@@ -451,4 +468,36 @@ export class VaultService {
     }
     return found;
   }
+}
+
+/** The Vault secrets a saved pipeline file names. A file that no longer
+ * parses still counts: its `vault://` references are read from the text. */
+function pipelineSecretNames(source: string): string[] {
+  const parsed = parsePipelineFile(source);
+  if (parsed.ok) return pipelineVaultNames(parsed.file);
+  const names = new Set<string>();
+  for (const match of source.matchAll(/vault:\/\/([A-Za-z][A-Za-z0-9_.-]{0,127})/g)) {
+    if (match[1]) names.add(match[1]);
+  }
+  return [...names].sort();
+}
+
+/** A deploy environment's variables that point into the Vault, as [variable, secret]. */
+function environmentSecretNames(stored: string): [string, string][] {
+  let variables: unknown;
+  try {
+    variables = JSON.parse(stored);
+  } catch {
+    return [];
+  }
+  if (!variables || typeof variables !== "object") return [];
+  const pairs: [string, string][] = [];
+  for (const [variable, entry] of Object.entries(variables)) {
+    const name =
+      entry && typeof entry === "object" && "vault" in entry && typeof entry.vault === "string"
+        ? entry.vault
+        : null;
+    if (name) pairs.push([variable, name]);
+  }
+  return pairs.sort(([a], [b]) => a.localeCompare(b));
 }

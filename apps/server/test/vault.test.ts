@@ -300,6 +300,54 @@ test("a project variable is typed, or taken from Vault — and the app gets both
   ]);
 });
 
+test("Vault counts pipelines and deploy environments as uses, not only apps", async () => {
+  await addSecret("PIPE_DEPLOY_KEY", "one");
+  await addSecret("ENV_DB_URL", "two");
+  const created = await call(users.owner, "POST", `/api/teams/${teamId}/pipelines`, {
+    source:
+      "name: Ship it\nruns-on: local\nenv:\n  KEY: vault://PIPE_DEPLOY_KEY\nstages:\n  - name: A\n    steps:\n      - run: echo\n",
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const pipelineId = created.json().pipeline.id;
+  const now = new Date().toISOString();
+  await server.store.deploy.environments.create({
+    id: "env_vault_use",
+    teamId,
+    name: "production",
+    runnerId: null,
+    address: null,
+    domain: null,
+    https: "auto",
+    httpPort: 80,
+    httpsPort: 443,
+    protected: false,
+    frozen: false,
+    frozenReason: null,
+    opsTrust: "ask",
+    variables: JSON.stringify({ DATABASE_URL: { vault: "ENV_DB_URL" }, PLAIN: { value: "x" } }),
+    createdBy: null,
+    updatedBy: null,
+    createdAt: now,
+    updatedAt: now,
+  } as Parameters<typeof server.store.deploy.environments.create>[0]);
+
+  const secrets = (await call(users.viewer, "GET", vault())).json().secrets as {
+    name: string;
+    usedBy: unknown[];
+  }[];
+  assert.deepEqual(secrets.find((s) => s.name === "PIPE_DEPLOY_KEY")?.usedBy, [
+    { kind: "pipeline", pipelineId, pipelineName: "Ship it" },
+  ]);
+  assert.deepEqual(secrets.find((s) => s.name === "ENV_DB_URL")?.usedBy, [
+    {
+      kind: "environment",
+      environmentId: "env_vault_use",
+      environmentName: "production",
+      variable: "DATABASE_URL",
+    },
+  ]);
+});
+
 test("a change in Vault reaches every app that uses it, and restarts its preview", async () => {
   const secret = await addSecret("SHARED_TOKEN", "one");
   await call(users.editor, "POST", vars(), { name: "SHARED", vaultName: "SHARED_TOKEN" });

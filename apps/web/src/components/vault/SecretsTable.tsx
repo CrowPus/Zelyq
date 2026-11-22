@@ -53,8 +53,32 @@ function scopeKey(scope: VaultScope): string {
 }
 
 /** "Stripe (STRIPE_KEY)" for an app's variable, the setting's own name otherwise. */
-function usageLabel(use: VaultEntry["usedBy"][number]): string {
-  return use.kind === "project" ? `${use.projectName} · ${use.variable}` : use.label;
+type Usage = VaultEntry["usedBy"][number];
+
+function usageLabel(use: Usage): string {
+  switch (use.kind) {
+    case "project":
+      return `${use.projectName} · ${use.variable}`;
+    case "pipeline":
+      return t("Pipeline {pipelineName}", { pipelineName: use.pipelineName });
+    case "environment":
+      return `${use.environmentName} · ${use.variable}`;
+    default:
+      return use.label;
+  }
+}
+
+function usageKey(use: Usage): string {
+  switch (use.kind) {
+    case "project":
+      return `project:${use.projectId}:${use.variable}`;
+    case "pipeline":
+      return `pipeline:${use.pipelineId}`;
+    case "environment":
+      return `environment:${use.environmentId}:${use.variable}`;
+    default:
+      return `setting:${use.key}`;
+  }
 }
 
 /**
@@ -134,9 +158,7 @@ export function SecretsTable({
             {t("These will lose it:")}
             <ul className="mt-1 list-disc pl-5">
               {secret.usedBy.map((use) => (
-                <li key={use.kind === "project" ? `${use.projectId}:${use.variable}` : use.key}>
-                  {usageLabel(use)}
-                </li>
+                <li key={usageKey(use)}>{usageLabel(use)}</li>
               ))}
             </ul>
           </>
@@ -150,6 +172,18 @@ export function SecretsTable({
   }
 
   const settingsHref = scope.kind === "instance" ? globalPaths.admin() : teamHref("/settings");
+  const usageHref = (use: Usage): string => {
+    switch (use.kind) {
+      case "project":
+        return paths.appPanel(use.projectId, "variables");
+      case "pipeline":
+        return paths.pipeline(use.pipelineId);
+      case "environment":
+        return paths.deployments;
+      default:
+        return settingsHref;
+    }
+  };
 
   const columns: Column<VaultEntry>[] = [
     {
@@ -186,10 +220,8 @@ export function SecretsTable({
           <span className="flex max-w-xs flex-wrap gap-1">
             {secret.usedBy.slice(0, 3).map((use) => (
               <Link
-                key={use.kind === "project" ? `${use.projectId}:${use.variable}` : use.key}
-                to={
-                  use.kind === "project" ? paths.appPanel(use.projectId, "variables") : settingsHref
-                }
+                key={usageKey(use)}
+                to={usageHref(use)}
                 className="inline-flex max-w-full items-center truncate rounded-sm border border-border-default bg-surface-subtle px-1.5 py-0.5 text-2xs text-fg-secondary hover:border-border-strong hover:text-fg"
               >
                 {usageLabel(use)}
