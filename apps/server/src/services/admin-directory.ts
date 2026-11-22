@@ -53,6 +53,13 @@ export const updateAccountSchema = z
     message: "Give an email or a name to change.",
   });
 
+export const accountRoleSchema = z
+  .object({
+    /** admin: administers this server (Server admin in Zelyq); member: does not. */
+    role: z.enum(["admin", "member"]),
+  })
+  .strict();
+
 export const accountStatusSchema = z
   .object({
     status: z.enum(["active", "suspended"]),
@@ -283,6 +290,31 @@ export class AdminDirectory {
       }
     }
     await this.store.users.updateProfile(id, { name: input.name, email: input.email });
+    return await this.account(id);
+  }
+
+  /**
+   * Makes a person this server's administrator, or not. The last administrator stays one, and a service
+   * account or a suspended person never becomes one.
+   */
+  async setAccountRole(id: string, raw: unknown): Promise<AccountSummary> {
+    const input = accountRoleSchema.parse(raw);
+    const account = await this.account(id);
+    if (account.instanceRole === input.role) return account;
+    if (input.role === "admin") {
+      if (await this.store.users.isService(id)) {
+        throw ZelyqError.badRequest("A service account cannot administer the server.");
+      }
+      if (account.status === "suspended") {
+        throw new ZelyqError("conflict", "This account is suspended. Make it active first.");
+      }
+    } else if ((await this.store.users.countAdmins()) <= 1) {
+      throw new ZelyqError(
+        "conflict",
+        "This is the server's last administrator. Make someone else one first.",
+      );
+    }
+    await this.store.users.setInstanceRole(id, input.role);
     return await this.account(id);
   }
 

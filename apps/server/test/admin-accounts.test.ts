@@ -465,3 +465,93 @@ test("changes are in the audit log with who they were about", async () => {
   const teamLog = await server.store.auditLog.listForTeam(ama.teams[0].id);
   assert.ok(teamLog.some((entry) => entry.action === "admin_api.call"));
 });
+
+test("server administrators: made and unmade only with the admins scope; the last one stays", async () => {
+  const person = (
+    await api("POST", "/accounts", {
+      email: "ops@example.com",
+      name: "Ops",
+      externalId: "cloud-ops-1",
+    })
+  ).json().account;
+  // The account service's own key (accounts, teams, plans, usage) cannot.
+  assert.equal(
+    (await api("PUT", `/accounts/${person.id}/role`, { role: "admin" })).statusCode,
+    403,
+  );
+
+  const admins = (
+    await new AdminKeyService(server.store).create(null, {
+      name: "Admin portal",
+      scopes: ["admins", "accounts"],
+    })
+  ).key;
+  const role = (id: string, value: string) =>
+    api("PUT", `/accounts/${id}/role`, { role: value }, admins);
+  assert.equal((await role(person.id, "owner")).statusCode, 400, "admin or member only");
+
+  const made = await role(person.id, "admin");
+  assert.equal(made.statusCode, 200, made.body);
+  assert.equal(made.json().instanceRole, "admin");
+  assert.equal((await role(person.id, "admin")).statusCode, 200, "again is no change");
+
+  const signedIn = cookieOf(
+    await signInThroughService({ sub: "cloud-ops-1", email: "ops@example.com", name: "Ops" }),
+  );
+  assert.ok(signedIn);
+  assert.equal((await me(signedIn!)).json().user.instanceRole, "admin");
+
+  assert.equal((await role(person.id, "member")).json().instanceRole, "member");
+  // The server's own administrator is the last one: not unmade.
+  const admin = (await me(adminCookie)).json().user;
+  const last = await role(admin.id, "member");
+  assert.equal(last.statusCode, 409, last.body);
+  assert.match(last.json().error.message, /last administrator/);
+});
+
+test("extra storage raises a team's storage limit; a team without a limit stays without one", async () => {
+  const owner = (
+    await api("POST", "/accounts", {
+      email: "extra@example.com",
+      name: "Extra",
+      externalId: "cloud-extra-1",
+    })
+  ).json().account;
+  await api("PUT", "/plans", {
+    plans: [
+      { id: "free", name: "Free", limits: { apps: 3 } },
+      { id: "pro", name: "Pro", limits: { apps: 30, storageMb: 1024 } },
+    ],
+    defaultPlan: "free",
+  });
+  const team = (
+    await api("POST", "/teams", { ownerId: owner.id, name: "Big files", plan: "pro" })
+  ).json();
+  const storage = async () =>
+    (await api("GET", `/teams/${team.id}/usage`))
+      .json()
+      .lines.find((l: { key: string }) => l.key === "storageMb");
+
+  assert.deepEqual((await api("GET", `/teams/${team.id}/extras`)).json(), { storageMb: 0 });
+  assert.equal((await storage()).limit, 1024);
+
+  const bought = await api("PUT", `/teams/${team.id}/extras`, { storageMb: 20480 });
+  assert.equal(bought.statusCode, 200, bought.body);
+  assert.equal((await storage()).limit, 1024 + 20480);
+  assert.deepEqual((await api("GET", `/teams/${team.id}/extras`)).json(), { storageMb: 20480 });
+
+  assert.equal((await api("PUT", `/teams/${team.id}/extras`, { storageMb: -1 })).statusCode, 400);
+  assert.equal(
+    (await api("PUT", `/teams/${team.id}/extras`, { storageMb: 1, apps: 5 })).statusCode,
+    400,
+  );
+  assert.equal((await api("PUT", "/teams/tem_nope/extras", { storageMb: 1 })).statusCode, 404);
+
+  // On a plan without a storage limit, extras change nothing.
+  await api("PUT", `/teams/${team.id}/plan`, { plan: "free" });
+  assert.equal((await storage()).limit, null);
+
+  await api("PUT", `/teams/${team.id}/plan`, { plan: "pro" });
+  await api("PUT", `/teams/${team.id}/extras`, { storageMb: 0 });
+  assert.equal((await storage()).limit, 1024, "back to the plan's own");
+});

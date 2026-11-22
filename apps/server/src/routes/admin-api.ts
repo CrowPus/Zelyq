@@ -227,6 +227,19 @@ export function registerAdminApi(
         return await usage.usage(id);
       });
 
+      /** What a team bought on top of its plan (extra storage): set by the account service that sells it. */
+      route("GET", "/teams/:id/extras", "teams", async (request) => {
+        const { id } = request.params as { id: string };
+        if (!(await store.teams.findById(id))) throw ZelyqError.notFound("Team", id);
+        return await usage.extrasOf(id);
+      });
+      route("PUT", "/teams/:id/extras", "teams", async (request) => {
+        const { id } = request.params as { id: string };
+        if (!(await store.teams.findById(id))) throw ZelyqError.notFound("Team", id);
+        await usage.setExtras(id, request.body);
+        return await usage.usage(id);
+      });
+
       // ------------------------------------------- people
 
       type Id = { id: string };
@@ -257,6 +270,9 @@ export function registerAdminApi(
       );
       route("PATCH", "/accounts/:id", "accounts", async (request) =>
         directory.updateAccount(idOf(request), request.body),
+      );
+      route("PUT", "/accounts/:id/role", "admins", async (request) =>
+        directory.setAccountRole(idOf(request), request.body),
       );
       route("POST", "/accounts/:id/sign-out", "accounts", async (request) =>
         directory.signOut(idOf(request)),

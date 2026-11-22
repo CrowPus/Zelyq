@@ -9,6 +9,8 @@ export const ADMIN_KEY_PREFIX = "zlq_admin_";
 
 export const ADMIN_SCOPES = {
   accounts: "Create, change, sign out, suspend and delete people",
+  admins:
+    "Make people this server's administrators, or not (kept apart from accounts: an account service never needs it)",
   teams: "Create teams, change their plan and status, delete them",
   plans: "Read and set the plans and their limits",
   usage: "Read what each team uses, and when it was last active",
