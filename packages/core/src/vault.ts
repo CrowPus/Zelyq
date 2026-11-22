@@ -92,6 +92,8 @@ export interface VaultActor {
 /** Where a Vault secret is used, so a delete can say what it would break. */
 export type VaultUsage =
   | { kind: "project"; projectId: string; projectName: string; variable: string }
+  | { kind: "pipeline"; pipelineId: string; pipelineName: string }
+  | { kind: "environment"; environmentId: string; environmentName: string; variable: string }
   | { kind: "setting"; key: string; label: string };
 
 /** A Vault secret as everyone but an audited reveal sees it. No value field. */

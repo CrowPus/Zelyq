@@ -1480,6 +1480,7 @@
   "Pipeline settings": "Pipeline-Einstellungen",
   "Pipeline time on this server's own runner, this month. Runs on the team's own machines are free.": "Pipeline-Zeit auf dem eigenen Runner dieses Servers in diesem Monat. Läufe auf den eigenen Maschinen des Teams sind kostenlos.",
   "Pipeline to run": "Auszuführende Pipeline",
+  "Pipeline {pipelineName}": "Pipeline {pipelineName}",
   "Pipelines": "Pipelines",
   "Pipelines belong to a team. Create or join one first.": "Pipelines gehören zu einem Team. Erstellen Sie zuerst eines oder treten Sie einem bei.",
   "Pipelines in the team.": "Pipelines im Team.",
