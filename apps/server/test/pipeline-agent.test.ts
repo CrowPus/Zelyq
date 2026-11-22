@@ -12,6 +12,7 @@ import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 import { AgentHub, agentKeyFingerprint } from "../src/services/pipelines/agents.js";
 import { probeMachine, type RunnerSession } from "../src/services/pipelines/ssh.js";
+import { runnerProgram } from "./helpers/agent-runner.js";
 
 /**
  * Runners that connect out to Zelyq, end to end: the real runner program (apps/runner, built)
@@ -19,7 +20,8 @@ import { probeMachine, type RunnerSession } from "../src/services/pipelines/ssh.
  */
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
-const agentFile = path.join(repoRoot, "apps", "runner", "dist", "agent.js");
+// Built before the server starts: the server serves this program to machines that install it.
+const agentFile = runnerProgram();
 const tmp = path.join(os.tmpdir(), `zelyq-agent-${Date.now()}`);
 const SECRET = "tok_agent-7f3a-never-in-a-log";
 const children: ChildProcess[] = [];
