@@ -1,5 +1,6 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,7 +8,25 @@ import { WebSocketServer } from "ws";
 import { AgentHub, agentKeyFingerprint } from "../../src/services/pipelines/agents.js";
 import type { RunnerSession } from "../../src/services/pipelines/ssh.js";
 
-const agentFile = path.resolve(import.meta.dirname, "..", "..", "..", "runner", "dist", "agent.js");
+const runnerDir = path.resolve(import.meta.dirname, "..", "..", "..", "runner");
+const agentFile = path.join(runnerDir, "dist", "agent.js");
+
+/**
+ * The runner program, built (apps/runner/dist/agent.js). A check that builds only the shared packages, as
+ * the Zelyq Cloud pipeline does, has not built it: then it is built here, once, from its source.
+ */
+export function runnerProgram(): string {
+  if (!existsSync(agentFile)) {
+    execFileSync(
+      path.join(runnerDir, "node_modules", ".bin", "tsc"),
+      ["-p", path.join(runnerDir, "tsconfig.json")],
+      {
+        stdio: "inherit",
+      },
+    );
+  }
+  return agentFile;
+}
 
 /**
  * A runner that connects out to Zelyq, on this machine: the real program (apps/runner, built)
@@ -57,7 +76,7 @@ export async function startAgentRunner(): Promise<{
       mode: 0o600,
     },
   );
-  const child: ChildProcess = spawn(process.execPath, [agentFile, "run"], {
+  const child: ChildProcess = spawn(process.execPath, [runnerProgram(), "run"], {
     env: { ...process.env, ZELYQ_RUNNER_HOME: state, HOME: home, SHELL: "/bin/bash" },
     stdio: "ignore",
   });
