@@ -332,6 +332,7 @@
   "The plugin registry refused this installation.",
   "The provider selected when you open Image Studio. You can also choose a configured provider in Studio.",
   "The provider selected when you open Video Studio.",
+  "The runner program is not built on this server.",
   "The sender people see, such as Zelyq <ops@example.com>. The mail server must allow it.",
   "The server's own administrators cannot be deleted through the admin API.",
   "The server's own administrators cannot be suspended through the admin API.",

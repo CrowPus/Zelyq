@@ -26,6 +26,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@zelyq/core": "workspace:*",
     "@zelyq/db": "workspace:*",
+    "@zelyq/runner": "workspace:*",
     "@zelyq/runtime": "workspace:*",
     "@zelyq/tools": "workspace:*",
     "fast-xml-parser": "^5.11.2",

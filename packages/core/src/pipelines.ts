@@ -1817,10 +1817,42 @@ export const sshRunnerUpdateSchema = z
   .strict();
 export type SshRunnerUpdate = z.input<typeof sshRunnerUpdateSchema>;
 
+/**
+ * A runner that connects out to Zelyq (kind "agent"): nothing on the machine is open, it keeps one
+ * HTTPS connection to Zelyq and is sent its commands down it, like GitHub Actions' and GitLab's.
+ */
+export const agentRunnerInputSchema = z
+  .object({
+    name: sshRunnerInputSchema.shape.name,
+    labels: sshRunnerInputSchema.shape.labels,
+    description: sshRunnerInputSchema.shape.description,
+    maxConcurrent: sshRunnerInputSchema.shape.maxConcurrent,
+  })
+  .strict();
+export type AgentRunnerInput = z.input<typeof agentRunnerInputSchema>;
+
+/** What the install command needs, given once when it is made (the code is never shown again). */
+export interface RunnerAgentInstall {
+  /** One-time: it registers the machine's own key, then it is spent. */
+  code: string;
+  expiresAt: string;
+  /** Zelyq's address, as the machine will reach it. */
+  url: string;
+  /** SHA-256 of the runner program the machine downloads; the install command checks it. */
+  agentSha256: string;
+}
+
 export interface RunnerSummary {
   id: string;
   teamId: string;
-  kind: "ssh";
+  /** "ssh": Zelyq connects to the machine. "agent": the machine connects to Zelyq. */
+  kind: "ssh" | "agent";
+  /** An agent: connected to Zelyq now. Always false for SSH (Zelyq connects only when it needs to). */
+  online: boolean;
+  /** An agent: when it was last connected; its version; and whether an install code is waiting. */
+  lastSeenAt: string | null;
+  agentVersion: string | null;
+  installPending: boolean;
   name: string;
   host: string;
   port: number;
@@ -2168,6 +2200,102 @@ export function runnerSetupScript(input: {
     '  echo "Note: this SSH server only lets in listed users (AllowUsers/AllowGroups in sshd_config). Add $U there."',
     "fi",
     'echo "Done. In Zelyq, add a runner with SSH user: $U"',
+    "ZELYQ",
+    "",
+  ].join("\n");
+}
+
+/** The text without slashes at its end (a loop, not a regex: no slow cases on many slashes). */
+function trimSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 47) end--;
+  return text.slice(0, end);
+}
+
+/**
+ * The command that makes a Linux machine a runner that connects out to Zelyq: pasted once, as a
+ * user who can use sudo. It makes the runner's user, gives it a Node of its own (checked against
+ * nodejs.org's checksums) and the runner program (checked against `agentSha256`), registers the
+ * machine's key with the one-time code, and starts the runner as a service that comes back after
+ * every restart. Running it again (with a new code) reinstalls it with a new key.
+ */
+export function runnerAgentSetupScript(input: {
+  user: string;
+  admin: boolean;
+  install: RunnerAgentInstall;
+}): string {
+  if (!RUNNER_USER.test(input.user)) {
+    throw new Error("Use lower-case letters, digits, '_' or '-' for the user (zelyq).");
+  }
+  const { url, code, agentSha256 } = input.install;
+  if (!/^https?:\/\/[A-Za-z0-9.:[\]/_-]+$/.test(url))
+    throw new Error("That is not Zelyq's address.");
+  if (!/^[A-Za-z0-9_-]+$/.test(code)) throw new Error("That is not an install code.");
+  if (!/^[a-f0-9]{64}$/.test(agentSha256)) throw new Error("That is not a checksum.");
+  return [
+    "sudo bash -s <<'ZELYQ'",
+    "set -euo pipefail",
+    `U='${input.user}'`,
+    `URL='${trimSlashes(url)}'`,
+    `CODE='${code}'`,
+    `SUM='${agentSha256}'`,
+    "D=/opt/zelyq-runner",
+    'command -v systemctl >/dev/null 2>&1 || { echo "This needs a Linux machine with systemd."; exit 1; }',
+    'fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"; else wget -qO "$2" "$1"; fi; }',
+    'if ! id "$U" >/dev/null 2>&1; then',
+    '  if command -v useradd >/dev/null 2>&1; then useradd -m -s /bin/bash "$U" 2>/dev/null || useradd -m "$U"',
+    '  else adduser -D "$U"; fi',
+    "fi",
+    'if grep -q \'^docker:\' /etc/group; then usermod -aG docker "$U" 2>/dev/null || addgroup "$U" docker; fi',
+    ...(input.admin
+      ? [
+          "mkdir -p /etc/sudoers.d",
+          'echo "$U ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/zelyq-$U"',
+          'chmod 440 "/etc/sudoers.d/zelyq-$U"',
+        ]
+      : []),
+    'case "$(uname -m)" in x86_64) A=x64 ;; aarch64|arm64) A=arm64 ;; *) echo "This processor ($(uname -m)) is not supported yet."; exit 1 ;; esac',
+    "T=$(mktemp -d); trap 'rm -rf \"$T\"' EXIT",
+    'mkdir -p "$D"',
+    "# A Node of its own, from nodejs.org, checked against its published checksums.",
+    'fetch https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt "$T/sums"',
+    'F=$(grep -oE "node-v22\\.[0-9]+\\.[0-9]+-linux-$A\\.tar\\.gz" "$T/sums" | head -1 || true)',
+    '[ -n "$F" ] || { echo "nodejs.org lists no Node 22 for this machine ($A)."; exit 1; }',
+    'if [ "$(cat "$D/node/.file" 2>/dev/null || true)" != "$F" ]; then',
+    '  fetch "https://nodejs.org/dist/latest-v22.x/$F" "$T/$F"',
+    '  (cd "$T" && grep " $F$" sums | sha256sum -c - >/dev/null)',
+    '  rm -rf "$D/node" && mkdir -p "$D/node" && tar -xzf "$T/$F" -C "$D/node" --strip-components=1',
+    '  echo "$F" > "$D/node/.file"',
+    "fi",
+    "# The runner program, from your Zelyq, checked against the checksum Zelyq gave with this command.",
+    'fetch "$URL/runner-agent/zelyq-runner.mjs" "$T/zelyq-runner.mjs"',
+    'echo "$SUM  $T/zelyq-runner.mjs" | sha256sum -c - >/dev/null',
+    'install -m 755 "$T/zelyq-runner.mjs" "$D/zelyq-runner.mjs"',
+    'chown -R root:root "$D"',
+    'H=$(eval echo "~$U")',
+    'if command -v runuser >/dev/null 2>&1; then AS="runuser -u $U --"; else AS="sudo -u $U"; fi',
+    '$AS env HOME="$H" "$D/node/bin/node" "$D/zelyq-runner.mjs" register --url "$URL" --code "$CODE"',
+    "cat > /etc/systemd/system/zelyq-runner.service <<UNIT",
+    "[Unit]",
+    "Description=Zelyq runner (connects out to Zelyq; nothing listens on this machine)",
+    "After=network-online.target",
+    "Wants=network-online.target",
+    "",
+    "[Service]",
+    "User=$U",
+    "WorkingDirectory=$H",
+    "ExecStart=$D/node/bin/node $D/zelyq-runner.mjs run",
+    "Restart=always",
+    "RestartSec=5",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+    "UNIT",
+    "systemctl daemon-reload",
+    "systemctl enable zelyq-runner >/dev/null 2>&1",
+    "# Registered before this: a code that no longer works leaves a runner already here running.",
+    "systemctl restart zelyq-runner",
+    'echo "Done. The runner is connecting to Zelyq: it shows as Online in Pipelines → Runners."',
     "ZELYQ",
     "",
   ].join("\n");

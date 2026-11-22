@@ -6,6 +6,7 @@ import type {
   AgentCreate,
   AgentCreated,
   AgentProposal,
+  AgentRunnerInput,
   AgentUpdate,
   AppAction,
   AppAddressInput,
@@ -71,6 +72,7 @@ import type {
   RegistryPluginSummary,
   Role,
   RunLogLine,
+  RunnerAgentInstall,
   RunnerDisk,
   RunnerSummary,
   RunnerTestResult,
@@ -815,6 +817,16 @@ export const api = {
       request<{ runner: RunnerSummary }>(`/teams/${teamId}/runners`, {
         method: "POST",
         body: JSON.stringify(input),
+      }),
+    /** A runner that connects out to Zelyq; its install code is given only here. */
+    createAgent: (teamId: string, input: AgentRunnerInput) =>
+      request<{ runner: RunnerSummary; install: RunnerAgentInstall }>(
+        `/teams/${teamId}/runners/agent`,
+        { method: "POST", body: JSON.stringify(input) },
+      ),
+    installCode: (teamId: string, id: string) =>
+      request<{ install: RunnerAgentInstall }>(`/teams/${teamId}/runners/${id}/install-code`, {
+        method: "POST",
       }),
     update: (teamId: string, id: string, input: SshRunnerUpdate) =>
       request<{ runner: RunnerSummary }>(`/teams/${teamId}/runners/${id}`, {

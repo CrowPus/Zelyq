@@ -20,11 +20,13 @@ import {
 import {
   type MachineFacts,
   probeMachine,
+  type RunnerSession,
   SshSession,
   type SshTarget,
 } from "../src/services/pipelines/ssh.js";
 import { cacheRestoreScript, cacheSaveScript } from "../src/services/pipelines/steps.js";
 import { posixInstallScript, windowsInstallScript } from "../src/services/pipelines/tools.js";
+import { startAgentRunner } from "./helpers/agent-runner.js";
 import { type SshServer, sshImageAvailable, startSshServer } from "./helpers/ssh-server.js";
 
 /**
@@ -34,15 +36,18 @@ import { type SshServer, sshImageAvailable, startSshServer } from "./helpers/ssh
  *
  * CI points this at macOS and Windows runners through ZELYQ_TEST_SSH_HOST,
  * ZELYQ_TEST_SSH_USER and ZELYQ_TEST_SSH_KEY_FILE; without them it uses the
- * Linux OpenSSH container.
+ * Linux OpenSSH container. ZELYQ_TEST_RUNNER_AGENT=1 runs it all through a runner that connects
+ * out to Zelyq instead (apps/runner, on this machine): it must behave the same.
  */
 
 const { utils } = ssh2;
 const external = process.env.ZELYQ_TEST_SSH_HOST;
-const enabled = Boolean(external) || sshImageAvailable();
+const viaAgent = process.env.ZELYQ_TEST_RUNNER_AGENT === "1";
+const enabled = viaAgent || Boolean(external) || sshImageAvailable();
+let stopAgent: (() => Promise<void>) | null = null;
 let container: SshServer | null = null;
 let target: SshTarget;
-let session: SshSession;
+let session: RunnerSession;
 let facts: MachineFacts;
 let ws: string;
 
@@ -63,6 +68,14 @@ async function run(commands: string, env: Record<string, string> = {}) {
 
 before(async () => {
   if (!enabled) return;
+  if (viaAgent) {
+    const agent = await startAgentRunner();
+    stopAgent = agent.stop;
+    session = agent.session;
+    facts = await probeMachine(session);
+    ws = workspacePath(facts.os, facts.home, `run_contract${Date.now()}`);
+    return;
+  }
   if (external) {
     const privateKey = fs.readFileSync(process.env.ZELYQ_TEST_SSH_KEY_FILE ?? "", "utf8");
     target = {
@@ -91,6 +104,7 @@ before(async () => {
 after(async () => {
   session?.close();
   container?.stop();
+  await stopAgent?.();
 });
 
 test("the machine says what it is, and has its default shell", { skip: !enabled }, () => {

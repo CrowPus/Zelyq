@@ -357,6 +357,40 @@ export function registerPipelineRoutes(
       ),
     };
   });
+  // A runner that connects out to Zelyq: added here, installed on the machine with the code.
+  app.post<Team>("/api/teams/:teamId/runners/agent", async (request, reply) => {
+    const created = await runners.createAgent(
+      access.requireUser(request),
+      request.params.teamId,
+      request.body as never,
+      requestOrigin(request),
+    );
+    return reply.code(201).send(created);
+  });
+
+  app.post<Runner>("/api/teams/:teamId/runners/:runnerId/install-code", async (request) => ({
+    install: await runners.newInstallCode(
+      access.requireUser(request),
+      request.params.teamId,
+      request.params.runnerId,
+      requestOrigin(request),
+    ),
+  }));
+
+  // The machine's side: no person, only the one-time code (it is spent here).
+  app.post("/api/runner-agent/register", {
+    config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+    handler: async (request) => {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      return runners.registerAgent({
+        code: String(body.code ?? ""),
+        publicKey: String(body.publicKey ?? ""),
+        version: String(body.version ?? ""),
+        facts: (typeof body.facts === "object" && body.facts ? body.facts : {}) as never,
+      });
+    },
+  });
+
   app.patch<Runner>("/api/teams/:teamId/runners/:runnerId", async (request) => ({
     runner: await runners.update(
       access.requireUser(request),
@@ -490,4 +524,13 @@ export function registerPipelineRoutes(
       },
     });
   });
+}
+
+/** Zelyq's address as the person's browser reached it: what a machine on their network reaches too. */
+function requestOrigin(request: {
+  headers: Record<string, string | string[] | undefined>;
+}): string | null {
+  const origin = request.headers.origin;
+  if (typeof origin === "string" && /^https?:\/\/[^/]+$/.test(origin)) return origin;
+  return null;
 }

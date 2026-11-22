@@ -30,6 +30,26 @@ export interface SshTarget {
   pinnedHostKey: string | null;
 }
 
+/**
+ * A connection to a runner, whichever way it was made: Zelyq's SSH connection to the machine, or
+ * the connection a runner of kind "agent" made out to Zelyq (agents.ts). Pipelines, deploys and
+ * Ops use only this, so both kinds of runner do everything the same way.
+ */
+export interface RunnerSession {
+  /** Which key proved the connection: the team key the machine accepted, or the agent's own key. */
+  readonly acceptedKeyFingerprint: string;
+  exec(
+    command: string,
+    options?: ExecOptions,
+  ): Promise<{ code: number | null; signal: string | null }>;
+  capture(
+    command: string,
+    timeoutMs?: number,
+    stdin?: string,
+  ): Promise<{ code: number | null; stdout: string; stderr: string }>;
+  close(): void;
+}
+
 export class SshError extends Error {
   constructor(
     message: string,
@@ -54,7 +74,7 @@ export interface ExecOptions {
   signal?: AbortSignal;
 }
 
-export class SshSession {
+export class SshSession implements RunnerSession {
   private constructor(
     private readonly client: Client,
     readonly hostKey: Buffer,
@@ -260,7 +280,7 @@ function count(text: string | undefined): number | null {
  * wrapped in `sh -c` on POSIX so a login shell such as fish does not change
  * how it is read.
  */
-export async function probeMachine(session: SshSession): Promise<MachineFacts> {
+export async function probeMachine(session: RunnerSession): Promise<MachineFacts> {
   const started = Date.now();
   const uname = await session.capture("uname -s");
   const latencyMs = Date.now() - started;

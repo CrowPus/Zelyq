@@ -31,6 +31,8 @@ New to pipelines? Follow [the tutorial](./tutorial.md) once, from an empty Zelyq
 tested, deployed and rolled back. This page is the full reference.
 
 - [Where a pipeline runs](#where-a-pipeline-runs)
+- [Adding a machine that connects to Zelyq](#adding-a-machine-that-connects-to-zelyq): nothing
+  open on the machine
 - [Adding a machine (SSH runner)](#adding-a-machine-ssh-runner), and
   [firewalls and ports](#firewalls-and-ports)
 - [Visual or YAML: two ways to edit](#visual-or-yaml-two-ways-to-edit)
@@ -62,8 +64,8 @@ tested, deployed and rolled back. This page is the full reference.
 | `runs-on` | Runs on |
 | --- | --- |
 | `local` | The Zelyq server itself, in a fresh container that is thrown away after the run. |
-| `build-01` | The SSH runner called build-01. |
-| `[linux, docker]` | Any SSH runner that has all of these labels. A runner also has its operating system (`linux`, `macos`, `windows`) and the tools it was found to have (`docker`, `git`) as labels. |
+| `build-01` | Your runner called build-01: one that connects to Zelyq, or an SSH runner. |
+| `[linux, docker]` | Any of your runners that has all of these labels. A runner also has its operating system (`linux`, `macos`, `windows`) and the tools it was found to have (`docker`, `git`) as labels. |
 
 The **local runner** needs Docker on the Zelyq server. Its image is `node:22-bookworm` (bash, git,
 node, python3). An instance admin can change the image, how many local runs may run at once, or switch
@@ -111,6 +113,46 @@ gets its groups when it starts.
 Starting Zelyq again without stopping the old one is not enough: the new server cannot take the port
 the old one still holds, and the browser keeps talking to the old server.
 
+## Adding a machine that connects to Zelyq
+
+The machine opens one connection to Zelyq, over HTTPS, and keeps it. Zelyq sends each step down
+that connection. **Nothing on the machine is open to the internet**: no public address, no SSH
+port, no firewall rule. This is how GitHub Actions and GitLab runners work, and it is the way for
+production servers and for machines behind a firewall or NAT. Linux with systemd, for now.
+
+Open **Pipelines → Runners → Add runner → The machine connects to Zelyq**. You need to be a team
+admin.
+
+1. **Name it** the way pipelines will call it (`runs-on: prod-01`), with labels if you want them.
+2. **Paste the install command** Zelyq shows, once, on the machine, as a user who can use `sudo`.
+   It:
+
+   - creates the runner's user (`zelyq` unless you choose another name) and adds it to the
+     `docker` group when Docker is installed; only if you tick it, lets it use `sudo`;
+   - installs a Node of its own in `/opt/zelyq-runner`, from nodejs.org, checked against nodejs.org's
+     published checksums;
+   - downloads the runner program from your Zelyq and checks it against the checksum in the command;
+   - makes the machine's own key and registers its public half with Zelyq, using the **one-time
+     code** in the command. The code works once, for an hour, and is shown only then. The private
+     key never leaves the machine;
+   - starts the runner as the service `zelyq-runner`, which comes back after every restart.
+
+3. Within seconds the runner shows **Online**. **Test connection** shows what the machine has.
+
+The machine needs to reach your Zelyq's address over HTTPS (port 443, outgoing), nothing else.
+Zelyq's address is `ZELYQ_PUBLIC_URL` when it is set, otherwise the address you opened Zelyq at.
+
+**How it stays safe.** Each time it connects, the runner signs a fresh random value from Zelyq with
+its key; any other key is refused. It runs only what comes from your Zelyq, over verified HTTPS.
+Secrets reach it only for the runs on it, the same way as an SSH runner. **Remove** on the runner
+ends its connection at once, and it cannot come back. **Install again** makes a new code: the
+machine that installs with it takes the runner over, and the one before is cut off.
+
+**When the connection drops** (a restart, a network blip) the runner connects again by itself,
+waiting a little longer each time. A step that was running fails, as with a lost SSH connection; a
+run that starts while the runner is reconnecting waits up to 30 seconds for it. On the machine,
+`systemctl status zelyq-runner` and `journalctl -u zelyq-runner` say what it is doing.
+
 ## Adding a machine (SSH runner)
 
 Any machine with an SSH server can be a runner: a cloud VM, a Mac mini, a Windows build box. Open
@@ -153,7 +195,8 @@ that fails, so you can sign in and look.
 
 | From → to | Port | Needed for |
 | --- | --- | --- |
-| Zelyq server → runner | the runner's SSH port (`22` unless you changed it) | every run and deploy on that runner. Zelyq always connects out; a runner never connects in to Zelyq. |
+| Zelyq server → SSH runner | the runner's SSH port (`22` unless you changed it) | every run and deploy on an SSH runner. |
+| Runner that connects to Zelyq → Zelyq | `443` (Zelyq behind HTTPS) | every run and deploy on it. Nothing comes in to the machine. |
 | GitHub / GitLab → Zelyq | `443` (Zelyq behind HTTPS) | push and pull-request triggers. Zelyq must be reachable from the internet, and `ZELYQ_PUBLIC_URL` set to its public address so the webhook URL it shows is right. |
 | People → a deploy machine | each app's `host-port` | opening a deployed app. See [Deploy](./deploy.md#ports-and-firewalls). |
 

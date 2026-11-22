@@ -8,8 +8,7 @@ import {
   roleAtLeast,
 } from "@zelyq/core";
 import type { OpsAlertRow, OpsCheckRow, RunnerRow, Store } from "@zelyq/db";
-import type { RunnerService } from "../../pipelines/runners.js";
-import { SshSession } from "../../pipelines/ssh.js";
+import { type RunnerService, runnerAddress } from "../../pipelines/runners.js";
 import { type OpsScope, scopedStore } from "../access.js";
 import { checkBlocks } from "../blocks.js";
 import {
@@ -79,7 +78,7 @@ export class CheckService {
 
   constructor(
     private readonly store: Store,
-    private readonly runners: Pick<RunnerService, "target">,
+    private readonly runners: Pick<RunnerService, "session">,
     private readonly probes = {
       probeAddress,
       probeCertificate,
@@ -171,10 +170,11 @@ export class CheckService {
         // not for http, nor for certificates from Zelyq's own authority ("internal").
         const publicHttps =
           parsed.protocol === "https:" && ["auto", "external"].includes(environment.https);
-        if (realName(host) && runner && publicHttps) {
+        const machineAddress = runner ? (environment.address ?? runnerAddress(runner)) : null;
+        if (realName(host) && runner && publicHttps && machineAddress) {
           domains.set(host, {
             environment: environment.name,
-            machine: environment.address ?? runner.host,
+            machine: machineAddress,
             runnerId: runner.id,
           });
         }
@@ -830,10 +830,10 @@ export function machineResult(visit: MachineFacts): ProbeResult {
 /** One visit to a machine: the fixed script over SSH. */
 export async function machineFacts(
   runner: RunnerRow,
-  runners: Pick<RunnerService, "target">,
+  runners: Pick<RunnerService, "session">,
   parts: { machine: boolean; containers: boolean } = { machine: true, containers: true },
 ): Promise<MachineFacts> {
-  const session = await SshSession.open(await runners.target(runner));
+  const session = await runners.session(runner, 0);
   try {
     const script = `${parts.machine ? MACHINE_SCRIPT : ""}${parts.containers ? CONTAINERS_SCRIPT : ""}\nexit 0\n`;
     const result = await session.capture("sh -s", 20_000, script);

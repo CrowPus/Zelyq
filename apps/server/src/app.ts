@@ -1,4 +1,6 @@
-import fs from "node:fs";
+import { createHash } from "node:crypto";
+import fs, { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -81,6 +83,7 @@ import { OpsMailer } from "./services/ops/mailer.js";
 import { OpsService } from "./services/ops/service.js";
 import { OpsVoice } from "./services/ops/voice.js";
 import { CheckService } from "./services/ops/watch/checks.js";
+import { AGENT_SOCKET_PATH, AgentHub } from "./services/pipelines/agents.js";
 import { PipelineEngine } from "./services/pipelines/engine.js";
 import { TeamSshKeyService } from "./services/pipelines/keys.js";
 import { PipelinePluginService } from "./services/pipelines/plugins.js";
@@ -311,7 +314,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const pipelinesDir =
     config.pipelinesDir ?? path.join(path.dirname(config.attachmentsDir), "pipelines");
   const sshKeys = new TeamSshKeyService(store, access, secrets);
-  const runners = new RunnerService(store, access, sshKeys);
+  // Runners that connect out to Zelyq (apps/runner): the machine downloads this program from here.
+  const agentHub = new AgentHub(store);
+  const runners = new RunnerService(store, access, sshKeys, agentHub);
+  runners.publicUrl = config.publicUrl ?? null;
+  const agentProgram = loadAgentProgram();
+  runners.agentProgram = agentProgram ? { sha256: agentProgram.sha256 } : null;
   const deploys = new DeployService(store, access, secrets, vault, runners);
   deploys.activity = activity;
   const pipelinePlugins = new PipelinePluginService(
@@ -507,7 +515,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
-  await app.register(websocket);
+  // 16 MB a message at most (ws allows 100 MB): nothing Zelyq's pages, voice or runners send is
+  // near it, and a connection that has not signed in yet cannot make the server hold more.
+  await app.register(websocket, { options: { maxPayload: 16 * 1024 * 1024 } });
 
   /**
    * Resolve the session on every request, including WebSocket upgrades. This
@@ -1046,6 +1056,20 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     if (project) await pipelineTriggers.appChanged(project);
   };
 
+  // A runner that connects out to Zelyq: no person here; it signs Zelyq's nonce with its own key.
+  app.get(AGENT_SOCKET_PATH, { websocket: true }, (socket) => {
+    agentHub.accept(socket as never);
+  });
+  // The runner program itself, which the install command downloads and checks against its SHA-256.
+  app.get("/runner-agent/zelyq-runner.mjs", async (_request, reply) => {
+    if (!agentProgram)
+      return reply.code(404).send({ message: "The runner program is not built on this server." });
+    return reply
+      .header("content-type", "text/javascript; charset=utf-8")
+      .header("cache-control", "no-cache")
+      .send(agentProgram.source);
+  });
+
   // Talking to Ops live: the microphone streams here and on to Gemini Live (services/ops/voice.ts).
   app.get<{ Params: { teamId: string }; Querystring: { job?: string } }>(
     "/ws/ops/:teamId",
@@ -1199,5 +1223,16 @@ function readPipelineGuide(): string {
     );
   } catch {
     return "";
+  }
+}
+
+/** The runner program (apps/runner, built), and its SHA-256 for the install command to check. */
+function loadAgentProgram(): { source: Buffer; sha256: string } | null {
+  try {
+    const file = createRequire(import.meta.url).resolve("@zelyq/runner/agent");
+    const source = readFileSync(file);
+    return { source, sha256: createHash("sha256").update(source).digest("hex") };
+  } catch {
+    return null;
   }
 }

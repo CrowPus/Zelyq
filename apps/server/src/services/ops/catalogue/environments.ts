@@ -2,7 +2,7 @@ import { connect } from "node:net";
 import { automaticConcurrency } from "@zelyq/core";
 import { z } from "zod";
 import { guardedLookup, refusedHost } from "../../net-guard.js";
-import { SshSession } from "../../pipelines/ssh.js";
+import { runnerAddress } from "../../pipelines/runners.js";
 import { environmentByName, environmentRef, type OpsAction, servesLiveSite } from "../actions.js";
 import { environmentRow, machineByName, nameField } from "./shared.js";
 
@@ -84,7 +84,7 @@ const machinePorts: OpsAction<z.infer<typeof portsInMachine>> = {
   words: (inputs) => `Look at which ports are in use on ${inputs.machine}`,
   async run(ctx, inputs) {
     const runner = await machineByName(ctx, inputs.machine);
-    const session = await SshSession.open(await ctx.services.runners.target(runner));
+    const session = await ctx.services.runners.session(runner, 0);
     try {
       const result = await session.capture(PORTS_COMMAND, 20_000);
       const inUse = listeningPorts(result.stdout);
@@ -131,7 +131,7 @@ const checkPorts: OpsAction<z.infer<typeof portsInput>> = {
     const runner = environment.runnerId
       ? await ctx.services.store.pipelines.runners.findById(environment.runnerId)
       : null;
-    const host = environment.address ?? runner?.host;
+    const host = environment.address ?? (runner ? runnerAddress(runner) : null);
     if (!host) return { ok: false, summary: `${environment.name} has no address to check.` };
     const refused = await refusedHost(host, "deployment");
     if (refused) return { ok: false, summary: refused };
@@ -196,7 +196,13 @@ const createEnvironment: OpsAction<z.infer<typeof createInput>> = {
   undo: (inputs) => `Remove the environment ${inputs.name} (nothing runs there yet)`,
   async run(ctx, inputs) {
     const runner = await machineByName(ctx, inputs.machine);
-    const address = inputs.address ?? runner.host;
+    const address = inputs.address ?? runnerAddress(runner);
+    if (!address) {
+      return {
+        ok: false,
+        summary: `${runner.name} connects to Zelyq, so Zelyq does not know its public address: give the environment's address.`,
+      };
+    }
     const refused = await refusedHost(address, "deployment");
     if (refused) return { ok: false, summary: refused };
     const created = await ctx.services.deploys.create(ctx.user, ctx.teamId, {

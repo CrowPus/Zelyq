@@ -477,6 +477,16 @@ export const runners = pgTable(
     lastLatencyMs: integer("last_latency_ms"),
     lastTestMessage: text("last_test_message"),
     acceptedKeyFingerprint: text("accepted_key_fingerprint"),
+    /**
+     * A runner of kind "agent" connects out to Zelyq itself (nothing open on the machine). Its
+     * one-time install code (SHA-256, never the code) until the machine registers its own key,
+     * which then sits in hostKey / hostKeyFingerprint.
+     */
+    agentCodeHash: text("agent_code_hash"),
+    agentCodeExpiresAt: text("agent_code_expires_at"),
+    /** When an agent was last connected, and the version it said it is. */
+    lastSeenAt: text("last_seen_at"),
+    agentVersion: text("agent_version"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),

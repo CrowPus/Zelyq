@@ -589,6 +589,7 @@ export const auditActionSchema = z.enum([
   "runner.updated",
   "runner.removed",
   "runner.host_key_confirmed",
+  "runner.agent_registered",
   "ssh_key.created",
   "ssh_key.rotated",
   "agent.created",
