@@ -1,4 +1,5 @@
 import {
+  agentMediaSchema,
   parseDotEnv,
   parsePipelineFile,
   pipelineVaultNames,
@@ -21,6 +22,10 @@ import {
 import type { Store, VaultEntryRow, VaultEntrySummaryRow, VersionRow } from "@zelyq/db";
 import type { AccessControl } from "./access.js";
 import type { SecretBox } from "./secrets.js";
+import { isPeekingVault } from "./vault-peek.js";
+
+/** A secret read many times a minute is written down once a minute. */
+const USE_RECORDED_EVERY_MS = 60_000;
 
 type VaultAction =
   | "vault.secret.created"
@@ -295,10 +300,12 @@ export class VaultService {
    */
   async resolve(scopeKey: string, names: string[]): Promise<Map<string, string>> {
     const values = new Map<string, string>();
-    for (const row of await this.store.vault.findByNames(scopeKey, [...new Set(names)])) {
+    const rows = await this.store.vault.findByNames(scopeKey, [...new Set(names)]);
+    for (const row of rows) {
       const plain = this.secrets.decrypt(row.value);
       if (plain !== null) values.set(row.name, plain);
     }
+    if (!isPeekingVault()) await this.recordUse(rows.filter((row) => values.has(row.name)));
     return values;
   }
 
@@ -319,6 +326,22 @@ export class VaultService {
   }
 
   // ---------------------------------------------------------------- helpers
+
+  /** "Last used" on the Vault page. Never fails the read that triggered it. */
+  private async recordUse(rows: { id: string; lastUsedAt: string | null }[]): Promise<void> {
+    const now = Date.now();
+    const stale = rows.filter(
+      (row) => !row.lastUsedAt || now - Date.parse(row.lastUsedAt) >= USE_RECORDED_EVERY_MS,
+    );
+    try {
+      await this.store.vault.markUsed(
+        stale.map((row) => row.id),
+        new Date(now).toISOString(),
+      );
+    } catch {
+      // Losing one "last used" time is better than failing what uses the secret.
+    }
+  }
 
   private async grant(user: User, scope: VaultScope, minimum: Role): Promise<Grant> {
     if (scope.kind === "instance") {
@@ -411,6 +434,18 @@ export class VaultService {
           add(name, { kind: "pipeline", pipelineId: pipeline.id, pipelineName: pipeline.name });
         }
       }
+      for (const agent of await this.store.agents.listForTeam(grant.teamId)) {
+        if (agent.revokedAt) continue;
+        for (const [purpose, choice] of Object.entries(agentMedia(agent.media))) {
+          if (!choice) continue;
+          add(choice.secret, {
+            kind: "agent",
+            agentId: agent.id,
+            agentName: agent.name,
+            purpose: purpose as "image" | "video",
+          });
+        }
+      }
       for (const environment of await this.store.deploy.environments.listForTeam(grant.teamId)) {
         for (const [variable, name] of environmentSecretNames(environment.variables)) {
           add(name, {
@@ -443,6 +478,7 @@ export class VaultService {
       protected: row.protected,
       version: row.version,
       usedBy: usages.get(row.name) ?? [],
+      lastUsedAt: row.lastUsedAt ?? null,
       createdBy: actor(row.createdBy),
       updatedBy: actor(row.updatedBy),
       createdAt: row.createdAt,
@@ -500,4 +536,13 @@ function environmentSecretNames(stored: string): [string, string][] {
     if (name) pairs.push([variable, name]);
   }
   return pairs.sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** Which secrets pay for an outside agent's images and video. */
+function agentMedia(stored: string | null) {
+  try {
+    return agentMediaSchema.parse(stored ? JSON.parse(stored) : {});
+  } catch {
+    return { image: null, video: null };
+  }
 }

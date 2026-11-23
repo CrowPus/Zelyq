@@ -36,6 +36,7 @@ import { automaticLocalConcurrency } from "./pipelines/capacity.js";
 import { hostsOf, previewDomainProblem } from "./preview-domain.js";
 import type { SecretBox } from "./secrets.js";
 import { maskSecret } from "./secrets.js";
+import { peekVault } from "./vault-peek.js";
 
 /**
  * One definition per setting, and the only list of them.
@@ -1301,7 +1302,7 @@ export class SettingsService {
       await this.store.settings.remove(key);
       return;
     }
-    if ((await this.vaultLookup?.(reference)) == null) {
+    if ((await peekVault(async () => this.vaultLookup?.(reference))) == null) {
       throw ZelyqError.badRequest(`${reference.name} is not in that Vault.`);
     }
     await this.store.settings.set(
@@ -1746,6 +1747,11 @@ export class SettingsService {
 
   /** Everything the settings screen renders. Secrets are described, not sent. */
   async describe(): Promise<SettingsResponse> {
+    // Showing Settings is not using the credentials it points at.
+    return await peekVault(() => this.describeNow());
+  }
+
+  private async describeNow(): Promise<SettingsResponse> {
     const stored = await this.store.settings.all();
     // Read once, outside the loop below: the `model` field's suggestions
     // depend on whichever provider is actually in effect right now.

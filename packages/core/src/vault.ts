@@ -94,6 +94,7 @@ export type VaultUsage =
   | { kind: "project"; projectId: string; projectName: string; variable: string }
   | { kind: "pipeline"; pipelineId: string; pipelineName: string }
   | { kind: "environment"; environmentId: string; environmentName: string; variable: string }
+  | { kind: "agent"; agentId: string; agentName: string; purpose: "image" | "video" }
   | { kind: "setting"; key: string; label: string };
 
 /** A Vault secret as everyone but an audited reveal sees it. No value field. */
@@ -106,6 +107,8 @@ export interface VaultEntry {
   protected: boolean;
   version: number;
   usedBy: VaultUsage[];
+  /** When Zelyq last read it to use it — by anything, even something not in `usedBy`. */
+  lastUsedAt: string | null;
   createdBy: VaultActor | null;
   updatedBy: VaultActor | null;
   createdAt: string;

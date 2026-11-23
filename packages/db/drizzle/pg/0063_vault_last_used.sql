@@ -1,0 +1,1 @@
+ALTER TABLE "vault_entries" ADD COLUMN "last_used_at" text;

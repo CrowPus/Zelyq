@@ -63,9 +63,18 @@ function usageLabel(use: Usage): string {
       return t("Pipeline {pipelineName}", { pipelineName: use.pipelineName });
     case "environment":
       return `${use.environmentName} · ${use.variable}`;
+    case "agent":
+      return use.purpose === "image"
+        ? t("{agentName} · images", { agentName: use.agentName })
+        : t("{agentName} · video", { agentName: use.agentName });
     default:
       return use.label;
   }
+}
+
+/** Nothing points at it, and Zelyq has never read it to use it. */
+function isUnused(secret: VaultEntry): boolean {
+  return secret.usedBy.length === 0 && !secret.lastUsedAt;
 }
 
 function usageKey(use: Usage): string {
@@ -76,6 +85,8 @@ function usageKey(use: Usage): string {
       return `pipeline:${use.pipelineId}`;
     case "environment":
       return `environment:${use.environmentId}:${use.variable}`;
+    case "agent":
+      return `agent:${use.agentId}:${use.purpose}`;
     default:
       return `setting:${use.key}`;
   }
@@ -180,6 +191,8 @@ export function SecretsTable({
         return paths.pipeline(use.pipelineId);
       case "environment":
         return paths.deployments;
+      case "agent":
+        return paths.agents;
       default:
         return settingsHref;
     }
@@ -212,12 +225,18 @@ export function SecretsTable({
       id: "used",
       header: t("Used by"),
       hideBelow: "md",
-      sortValue: (secret) => secret.usedBy.length,
+      sortValue: (secret) => secret.usedBy.length * 1e13 + Date.parse(secret.lastUsedAt ?? "0"),
       cell: (secret) =>
         secret.usedBy.length === 0 ? (
-          <span className="text-xs text-fg-muted">{t("Not used yet")}</span>
+          secret.lastUsedAt ? (
+            <span className="text-xs text-fg-secondary">
+              {t("Last used")} <RelativeTime value={secret.lastUsedAt} />
+            </span>
+          ) : (
+            <span className="text-xs text-fg-muted">{t("Not used yet")}</span>
+          )
         ) : (
-          <span className="flex max-w-xs flex-wrap gap-1">
+          <span className="flex max-w-xs flex-wrap items-center gap-1">
             {secret.usedBy.slice(0, 3).map((use) => (
               <Link
                 key={usageKey(use)}
@@ -233,6 +252,11 @@ export function SecretsTable({
                 title={secret.usedBy.slice(3).map(usageLabel).join(", ")}
               >
                 {t("+{more} more", { more: secret.usedBy.length - 3 })}
+              </span>
+            )}
+            {secret.lastUsedAt && (
+              <span className="basis-full text-2xs text-fg-muted">
+                {t("Last used")} <RelativeTime value={secret.lastUsedAt} />
               </span>
             )}
           </span>
@@ -309,13 +333,13 @@ export function SecretsTable({
   const shown = secrets.filter(
     (secret) =>
       (show !== "protected" || secret.protected) &&
-      (show !== "unused" || secret.usedBy.length === 0) &&
+      (show !== "unused" || isUnused(secret)) &&
       matches(query, secret.name, secret.description, ...secret.usedBy.map(usageLabel)),
   );
   const sort = parseSort(filters.get("sort"), { id: "name", dir: "asc" });
   const { rows, page } = pageOf(sortRows(shown, columns, sort), filters.page, SECRETS_PER_PAGE);
   const protectedCount = secrets.filter((secret) => secret.protected).length;
-  const unusedCount = secrets.filter((secret) => secret.usedBy.length === 0).length;
+  const unusedCount = secrets.filter(isUnused).length;
 
   return (
     <>

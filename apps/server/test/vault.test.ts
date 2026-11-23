@@ -348,6 +348,59 @@ test("Vault counts pipelines and deploy environments as uses, not only apps", as
   ]);
 });
 
+test("an outside agent's image key counts as a use", async () => {
+  await addSecret("AGENT_IMAGE_KEY", "sk-image");
+  const now = new Date().toISOString();
+  await server.store.agents.create({
+    id: "agt_vault_use",
+    teamId,
+    name: "Designer bot",
+    job: "",
+    projectIds: null,
+    pipelineIds: null,
+    environmentIds: null,
+    media: JSON.stringify({
+      image: { provider: "openai", secret: "AGENT_IMAGE_KEY" },
+      video: null,
+    }),
+    permissions: "{}",
+    keyPrefix: "zq_test",
+    keyHash: "hash-vault-use",
+    revokedAt: null,
+    lastUsedAt: null,
+    lastUsedIp: null,
+    createdBy: null,
+    createdAt: now,
+  } as Parameters<typeof server.store.agents.create>[0]);
+  const secret = (await call(users.viewer, "GET", vault()))
+    .json()
+    .secrets.find((s: { name: string }) => s.name === "AGENT_IMAGE_KEY");
+  assert.deepEqual(secret.usedBy, [
+    { kind: "agent", agentId: "agt_vault_use", agentName: "Designer bot", purpose: "image" },
+  ]);
+});
+
+test("anything that reads a secret to use it shows as its last use; a reveal does not", async () => {
+  const added = await addSecret("ONE_OFF_TOKEN", "tok");
+  const lastUsed = async () =>
+    (await call(users.viewer, "GET", vault()))
+      .json()
+      .secrets.find((s: { name: string }) => s.name === "ONE_OFF_TOKEN").lastUsedAt as
+      | string
+      | null;
+  assert.equal(await lastUsed(), null);
+  const revealed = await call(users.editor, "POST", vault(`/${added.id}/reveal`));
+  assert.equal(revealed.statusCode, 200, revealed.body);
+  assert.equal(await lastUsed(), null, "a person looking at it is not a use");
+  // e.g. a clone or a push reading a git token once, with nothing kept pointing at it
+  await server.vault.resolve(teamId, ["ONE_OFF_TOKEN"]);
+  const first = await lastUsed();
+  assert.ok(first);
+  // Within a minute it is not written again.
+  await server.vault.resolve(teamId, ["ONE_OFF_TOKEN"]);
+  assert.equal(await lastUsed(), first);
+});
+
 test("a change in Vault reaches every app that uses it, and restarts its preview", async () => {
   const secret = await addSecret("SHARED_TOKEN", "one");
   await call(users.editor, "POST", vars(), { name: "SHARED", vaultName: "SHARED_TOKEN" });

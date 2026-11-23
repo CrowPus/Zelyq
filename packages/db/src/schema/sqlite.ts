@@ -324,6 +324,8 @@ export const vaultEntries = sqliteTable(
     updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
+    /** When Zelyq last read the value to use it (not a person revealing it). */
+    lastUsedAt: text("last_used_at"),
   },
   (table) => ({
     nameIdx: uniqueIndex("vault_entries_scope_name_idx").on(table.scopeKey, table.name),

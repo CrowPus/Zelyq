@@ -2,6 +2,7 @@ import { type User, ZelyqError } from "@zelyq/core";
 import type { AccessControl } from "./access.js";
 import { type SettingsService, TEAM_KEY_NAME } from "./settings.js";
 import type { VaultService } from "./vault.js";
+import { peekVault } from "./vault-peek.js";
 
 /**
  * A team's own AI keys (Claude, Gemini, OpenAI, …). On a shared server each
@@ -52,6 +53,26 @@ export class TeamKeys {
     teamId: string,
   ): Promise<{ keys: TeamKeyStatus[]; usesServerKeys: boolean }> {
     await this.access.requireTeamRole(user, teamId, "viewer");
+    // Showing which keys are set is not using them.
+    return await peekVault(() => this.statusOf(teamId));
+  }
+
+  /** The team's AI keys that come from its Vault — for that Vault's "where used". */
+  async vaultUsages(teamId: string): Promise<{ key: string; label: string; vaultName: string }[]> {
+    const uses: { key: string; label: string; vaultName: string }[] = [];
+    for (const provider of TEAM_KEY_PROVIDERS) {
+      uses.push({
+        key: `teamKey:${provider.id}`,
+        label: `AI key · ${provider.label}`,
+        vaultName: await this.settings.teamKeyName(teamId, provider.id),
+      });
+    }
+    return uses;
+  }
+
+  private async statusOf(
+    teamId: string,
+  ): Promise<{ keys: TeamKeyStatus[]; usesServerKeys: boolean }> {
     const usesServerKeys = await this.settings.serverKeysFor(teamId);
     const keys: TeamKeyStatus[] = [];
     for (const provider of TEAM_KEY_PROVIDERS) {
@@ -103,7 +124,9 @@ export class TeamKeys {
     this.nameOf(provider);
     const scope = { kind: "team" as const, teamId };
     await this.vault.requireUse(user, scope, vaultName);
-    const value = (await this.vault.resolve(teamId, [vaultName])).get(vaultName);
+    const value = await peekVault(async () =>
+      (await this.vault.resolve(teamId, [vaultName])).get(vaultName),
+    );
     if (!value?.trim()) throw ZelyqError.badRequest(`${vaultName} is empty in the team's Vault.`);
     await this.settings.chooseTeamKey(teamId, provider, vaultName);
   }

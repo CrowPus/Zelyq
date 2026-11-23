@@ -261,7 +261,21 @@ test("a team's key can come from a secret already in its Vault; removing it neve
   const google = chosen.json().keys.find((key: { provider: string }) => key.provider === "google");
   assert.equal(google.vaultName, "OUR_GEMINI");
   assert.equal(google.source, "team");
+  const ourGemini = async () =>
+    (await call(guestCookie, "GET", `/api/teams/${guestTeam}/vault`))
+      .json()
+      .secrets.find((row: { name: string }) => row.name === "OUR_GEMINI");
+  // The Vault says the builder uses it; choosing it and showing the keys is not a use.
+  const before = await ourGemini();
+  assert.deepEqual(before.usedBy, [
+    { kind: "setting", key: "teamKey:google", label: "AI key · Gemini" },
+  ]);
+  assert.equal(before.lastUsedAt, null);
+  await call(guestCookie, "GET", `/api/teams/${guestTeam}/ai-keys`);
+  assert.equal((await ourGemini()).lastUsedAt, null);
+  // The builder reading it is a use, and the Vault shows when.
   assert.equal(await server.settings.apiKeyFor("google", guestTeam), "AIza-from-the-vault-4242");
+  assert.ok((await ourGemini()).lastUsedAt, "reading the key did not record a use");
   // A secret that is not there is refused, and an editor cannot choose one.
   const missing = await call(guestCookie, "PUT", `/api/teams/${guestTeam}/ai-keys/openai/vault`, {
     vaultName: "NOT_THERE",
