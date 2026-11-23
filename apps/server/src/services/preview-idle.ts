@@ -51,6 +51,8 @@ export class PreviewIdle {
   private timer: NodeJS.Timeout | undefined;
   private readonly waking = new Map<string, Promise<void>>();
   private readonly wakeFailed = new Map<string, number>();
+  /** One sweep at a time: a slow one (many stops) is never overtaken by the next. */
+  private sweeping: Promise<string[]> | undefined;
 
   constructor(private readonly deps: PreviewIdleDeps) {
     this.began = this.now();
@@ -81,6 +83,16 @@ export class PreviewIdle {
 
   /** Stops each preview unused for longer than the setting; returns the ones it stopped. */
   async sweep(now = this.now()): Promise<string[]> {
+    if (this.sweeping) return [];
+    this.sweeping = this.sweepOnce(now);
+    try {
+      return await this.sweeping;
+    } finally {
+      this.sweeping = undefined;
+    }
+  }
+
+  private async sweepOnce(now: number): Promise<string[]> {
     const minutes = await this.deps.minutes();
     if (!(minutes > 0)) return [];
     const limit = minutes * 60_000;
