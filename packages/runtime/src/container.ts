@@ -1189,13 +1189,13 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   }
 
   /**
-   * A container kept on an older image for its preview is replaced, unless a
-   * command of this process runs in it (then it stays, once more) or it was
-   * already replaced (by the other half of Zelyq).
+   * A container kept on an older image for its preview is replaced when that
+   * preview restarts, unless the other half of Zelyq already replaced it.
+   * (A preview start recreates its container for the new port anyway, so a
+   * command still running in it ends either way, as it always has.)
    */
   private async replaceIfOutdated(projectId: string): Promise<void> {
     if (!this.outdated.has(projectId)) return;
-    if (this.commandsRunning.has(projectId)) return;
     const name = containerName(projectId);
     const found = await this.engineRun(
       ["inspect", "--format", "{{.Config.Image}} {{.Image}}", name],
