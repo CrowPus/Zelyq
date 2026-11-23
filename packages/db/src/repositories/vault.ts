@@ -144,6 +144,7 @@ export function vaultRepository(db: ZelyqDb) {
         updatedBy: input.userId,
         createdAt: input.now,
         updatedAt: input.now,
+        lastUsedAt: null,
       };
       await inTransaction(db, async (tx) => {
         await tx.insert(entries).values(row);
