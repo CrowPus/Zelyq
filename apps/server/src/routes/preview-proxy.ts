@@ -3,6 +3,7 @@ import type { Duplex } from "node:stream";
 import replyFrom from "@fastify/reply-from";
 import type { FastifyInstance } from "fastify";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
+import type { PreviewIdle } from "../services/preview-idle.js";
 import type { PreviewRouter } from "../services/preview-router.js";
 
 /**
@@ -30,7 +31,11 @@ import type { PreviewRouter } from "../services/preview-router.js";
  */
 export async function registerPreviewProxy(
   app: FastifyInstance,
-  deps: { router: PreviewRouter },
+  deps: {
+    router: PreviewRouter;
+    /** Unused previews stop and wake on a visit (preview-idle.ts); absent: neither. */
+    idle?: Pick<PreviewIdle, "seen" | "wake" | "wakeInProgress">;
+  },
 ): Promise<void> {
   // Registered even with no preview domain yet: it can be set later from the
   // admin portal, and until then no host matches and every request passes by.
@@ -47,7 +52,24 @@ export async function registerPreviewProxy(
 
     const target = await deps.router.resolve(request.hostname);
     if (!target) {
+      // A preview stopped for being unused starts again when someone opens
+      // it — a page load, never a dev server's own reconnect ping.
+      if (deps.idle && isPageVisit(request.headers)) {
+        const project = await deps.router.projectFor(request.hostname);
+        const woken = project ? await deps.idle.wake(project.id) : "no";
+        if (woken === "starting") {
+          deps.router.forget(request.hostname);
+          return reply.status(503).header("retry-after", "3").type("text/html").send(wakingPage());
+        }
+      }
       return reply.status(404).type("text/html").send(notRunningPage());
+    }
+    if (!isReconnectPing(request.headers)) deps.idle?.seen(target.project.id);
+    // Waking: its record is written before its dev server listens, so until
+    // the start is done a person keeps the page that reloads itself.
+    const waking = Boolean(deps.idle?.wakeInProgress(target.project.id));
+    if (waking && isPageVisit(request.headers)) {
+      return reply.status(503).header("retry-after", "3").type("text/html").send(wakingPage());
     }
 
     return reply.from(`http://127.0.0.1:${target.port}${request.url}`, {
@@ -74,6 +96,14 @@ export async function registerPreviewProxy(
           code === "ECONNRESET" ||
           /ECONNREFUSED|ECONNRESET/.test(failure.message ?? "");
         if (gone) {
+          if (deps.idle?.wakeInProgress(target.project.id) && isPageVisit(request.headers)) {
+            void errorReply
+              .status(503)
+              .header("retry-after", "3")
+              .type("text/html")
+              .send(wakingPage());
+            return;
+          }
           void errorReply.status(404).type("text/html").send(notRunningPage());
           return;
         }
@@ -119,6 +149,7 @@ export async function registerPreviewProxy(
           socket.destroy();
           return;
         }
+        deps.idle?.seen(target.project.id);
         proxyWebSocket(request, socket, head, target.port);
       })();
     });
@@ -193,6 +224,45 @@ function proxyWebSocket(
 }
 
 /** What a visitor sees when the preview behind an address is not running. */
+/** A person opening the page, not a script asking for something in it. */
+function isPageVisit(headers: Record<string, string | string[] | undefined>): boolean {
+  const mode = headers["sec-fetch-mode"];
+  if (typeof mode === "string") return mode === "navigate";
+  return String(headers.accept ?? "").includes("text/html");
+}
+
+/** What Vite's client sends, over and over, while its server is gone. */
+function isReconnectPing(headers: Record<string, string | string[] | undefined>): boolean {
+  return String(headers.accept ?? "").includes("text/x-vite-ping");
+}
+
+/** Shown while a preview stopped for being unused starts again; reloads itself. */
+function wakingPage(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content="3" />
+    <title>Starting…</title>
+    <style>
+      body { font: 16px/1.6 system-ui, sans-serif; margin: 0; display: grid;
+             place-items: center; min-height: 100vh; background: #0b0b0c; color: #e7e7ea; }
+      div { max-width: 28rem; padding: 2rem; }
+      h1 { font-size: 1.1rem; margin: 0 0 .5rem; }
+      p { margin: 0; color: #a1a1aa; }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h1>Starting this app…</h1>
+      <p>It was stopped because nobody used it for a while. This page reloads by itself
+         in a few seconds.</p>
+    </div>
+  </body>
+</html>`;
+}
+
 function notRunningPage(): string {
   return `<!doctype html>
 <html lang="en">

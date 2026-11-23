@@ -32,6 +32,8 @@ export function registerPreviewRoutes(
     maintenance?: { requireBuildsAllowed(): Promise<void> };
     /** The preview address template now (preview domain or ZELYQ_PREVIEW_URL_TEMPLATE). */
     previewUrlTemplate?: () => string | undefined;
+    /** Started or stopped by its person: not one to wake on a visit (preview-idle.ts). */
+    idle?: { forget(projectId: string): Promise<void> };
   },
 ): void {
   const { access } = deps;
@@ -79,6 +81,8 @@ export function registerPreviewRoutes(
     const where = { userId: user.id, teamId: project.project.teamId, projectId: request.params.id };
     const started = Date.now();
     try {
+      // Started by its person: no longer one stopped for being unused.
+      await deps.idle?.forget(request.params.id);
       const preview = await deps.runtime.startPreview(
         request.params.id,
         deps.backend ? await deps.backend.previewOptions(request.params.id, env) : { env },
@@ -105,6 +109,8 @@ export function registerPreviewRoutes(
       request.params.id,
       "editor",
     );
+    // Stopped by its person: stays stopped, a visit does not wake it.
+    await deps.idle?.forget(request.params.id);
     return { preview: show(project, await deps.runtime.stopPreview(request.params.id)) };
   });
 

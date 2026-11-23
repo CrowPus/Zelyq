@@ -104,6 +104,12 @@ export class ChatGateway {
   errors?: { capture(error: unknown, context?: { route?: string; userId?: string }): void };
   private readonly rooms = new Map<string, Room>();
 
+  /** Someone has the app open in an editor, or an AI turn runs on it. */
+  inUse(projectId: string): boolean {
+    const room = this.rooms.get(projectId);
+    return Boolean(room && (room.sockets.size > 0 || room.turn || room.busy));
+  }
+
   constructor(
     private readonly store: Store,
     private readonly projects: ProjectService,
