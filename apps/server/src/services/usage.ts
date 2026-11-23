@@ -243,8 +243,12 @@ export class UsageService {
   /** How many idle days before clearing (Server settings); 0: never. */
   idleDays?: () => Promise<number>;
 
+  /** Told of every use, unthrottled (idle previews, preview-idle.ts). */
+  onUse?: (projectId: string) => void;
+
   /** Someone opened, talked to or previewed an app: it is not idle. At most once an hour. */
   touch(projectId: string): void {
+    this.onUse?.(projectId);
     const now = Date.now();
     if (now - (this.touched.get(projectId) ?? 0) < TOUCH_EVERY_MS) return;
     this.touched.set(projectId, now);

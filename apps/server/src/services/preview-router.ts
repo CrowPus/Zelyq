@@ -111,6 +111,25 @@ export class PreviewRouter {
     return target;
   }
 
+  /** Drops what was remembered for a project's addresses: its preview just stopped or started. */
+  forgetProject(projectId: string): void {
+    for (const [tail, entry] of this.recent) {
+      if (entry.target?.project.id === projectId || this.byTail.get(tail) === projectId) {
+        this.recent.delete(tail);
+      }
+    }
+  }
+
+  /** The project a preview address names, running or not; null when it names none. */
+  async projectFor(hostname: string): Promise<Project | null> {
+    const suffix = this.domainSuffix;
+    if (!suffix) return null;
+    const host = hostname.toLowerCase().split(":")[0] ?? "";
+    if (!host.endsWith(suffix)) return null;
+    const tail = previewTailFromHost(host.slice(0, -suffix.length));
+    return tail ? await this.projectForTail(tail) : null;
+  }
+
   /** Drops what was remembered for a hostname, so the next request looks
    * again — used when the port it pointed at turned out to be dead. */
   forget(hostname: string | undefined): void {

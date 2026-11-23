@@ -168,6 +168,24 @@ export async function recordedPreviewPorts(workspaceDir: string): Promise<Set<nu
   }
   return ports;
 }
+/** Every recorded preview, whichever process started it: the apps with a preview up. */
+export async function listPreviewRecords(
+  workspaceDir: string,
+): Promise<{ projectId: string; record: PreviewRecord }[]> {
+  const dir = containedPath(workspaceDir, PREVIEW_STATE_DIR);
+  const names = await fs.readdir(dir).catch(() => [] as string[]);
+  const found: { projectId: string; record: PreviewRecord }[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      const record = JSON.parse(await fs.readFile(path.join(dir, name), "utf8")) as PreviewRecord;
+      found.push({ projectId: name.slice(0, -".json".length), record });
+    } catch {
+      // A record being written or removed right now.
+    }
+  }
+  return found;
+}
 export async function clearPreviewRecord(workspaceDir: string, projectId: string): Promise<void> {
   await fs.rm(previewStateFile(workspaceDir, projectId), { force: true }).catch(() => undefined);
 }

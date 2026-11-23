@@ -600,6 +600,17 @@ const DEFINITIONS: Definition[] = [
     fallback: "30",
   },
   {
+    key: "previewIdleMinutes",
+    label: "Stop previews nobody uses after (minutes)",
+    description:
+      "A preview with no visit, no edit and no AI work for this many minutes is stopped, so its memory goes back to the server. Opening its address starts it again by itself. 0: never.",
+    kind: "number",
+    group: "Runtime",
+    envVar: "ZELYQ_PREVIEW_IDLE_MINUTES",
+    envOverridable: true,
+    fallback: "0",
+  },
+  {
     key: "cleanIdleAfterDays",
     label: "Clear installed packages of idle apps after (days)",
     description:

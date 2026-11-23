@@ -7,7 +7,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
-import type { ProductFeature } from "@zelyq/core";
+import type { Preview, ProductFeature } from "@zelyq/core";
 import { isZelyqError, previewDomainSuffix, toError, type User, ZelyqError } from "@zelyq/core";
 import { resolveFromRepoRoot } from "@zelyq/core/node";
 import { createStore, type Store } from "@zelyq/db";
@@ -96,6 +96,7 @@ import { ToolService } from "./services/pipelines/tools.js";
 import { PipelineTriggerService } from "./services/pipelines/triggers.js";
 import { makePreviewEnvResolver } from "./services/preview-env.js";
 import { PreviewHealth, watchPreviewHealth } from "./services/preview-health.js";
+import { PreviewIdle } from "./services/preview-idle.js";
 import { PreviewRouter } from "./services/preview-router.js";
 import { ProductActivity } from "./services/product-activity.js";
 import { ProjectBackendService } from "./services/project-backend.js";
@@ -142,6 +143,8 @@ export interface ZelyqServer {
   runtime: RuntimeDriver;
   /** What each team uses, and its plan: exposed so tests measure when they choose. */
   usage: UsageService;
+  /** Unused previews stopping and waking (preview-idle.ts). */
+  previewIdle: PreviewIdle;
   /** Ops, the team's DevOps engineer: exposed so tests can act as the engineer does. */
   ops: OpsService;
   /** Talking to Ops live: exposed so tests can drive a conversation. */
@@ -435,7 +438,27 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     () => previewTemplate,
     () => previewDomainDedicated,
   );
-  await registerPreviewProxy(app, { router: previewRouter });
+  // Previews nobody uses stop, and wake on the next visit (Settings: "Stop
+  // previews nobody uses after"). What it needs from further down is reached
+  // through these, set once each exists.
+  let previewInUse: (projectId: string) => boolean = () => false;
+  let startPreviewOnVisit: (projectId: string) => Promise<Preview> = async () => {
+    throw new Error("not ready");
+  };
+  const previewIdle = new PreviewIdle({
+    minutes: () => settings.numberValue("previewIdleMinutes"),
+    workspaceDir: config.runtime.workspaceDir,
+    stopPreview: (projectId) => runtime.stopPreview(projectId),
+    startPreview: (projectId) => startPreviewOnVisit(projectId),
+    inUse: (projectId) => previewInUse(projectId),
+    changed: (projectId) => previewRouter.forgetProject(projectId),
+    settings: store.settings,
+    log: { info: (message) => app.log.info(message), error: (e, m) => app.log.error(e, m) },
+  });
+  await registerPreviewProxy(app, {
+    router: previewRouter,
+    ...(config.runtime.kind === "remote" ? {} : { idle: previewIdle }),
+  });
   const supabaseConnections = new SupabaseConnectionService(store, secrets, access, {
     oauth: config.supabaseOAuth,
     verifyEmailDomain: config.supabaseVerifyEmailDomain,
@@ -495,6 +518,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
   usage.previewRunning = async (projectId) =>
     (await runtime.previewStatus(projectId)).status === "running";
+  usage.onUse = (projectId) => previewIdle.seen(projectId);
   // An app whose agent is working is never cleared under it.
   usage.appBusy = async (projectId) =>
     (await store.projects.findById(projectId))?.status === "building";
@@ -740,6 +764,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     activity,
     maintenance: messages,
     previewUrlTemplate: () => previewTemplate,
+    idle: previewIdle,
   });
   registerSupabaseConnectionRoutes(app, {
     supabase: supabaseConnections,
@@ -795,6 +820,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     projects,
     variables,
     startPreview: async (projectId, restart) => {
+      previewIdle.seen(projectId);
+      await previewIdle.forget(projectId);
       await ensureInspectorScript(runtime, config.templatesDir, projectId);
       const env = await resolvePreviewEnv(projectId);
       if (restart) await runtime.stopPreview(projectId);
@@ -906,6 +933,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     await deploys.recover();
     await pipelineEngine.start();
     pipelineTriggers.start();
+    if (config.runtime.kind !== "remote") previewIdle.start();
     // The watch: checks on a timer for every team with Ops (no model, whatever the spending cap).
     // Not under the test runner: tests run its ticks themselves, at the times they choose.
     if (!process.env.NODE_TEST_CONTEXT || process.env.ZELYQ_WATCH === "1") {
@@ -914,6 +942,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     }
   });
   app.addHook("onClose", async () => {
+    previewIdle.stop();
     usage.stop();
     watch.stop();
     opsChannels.stop();
@@ -946,6 +975,22 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     { extract: figmaExtract, enabled: config.figmaEnabled && Boolean(config.figmaOAuth) },
   );
   gateway.limits = usage;
+  previewInUse = (projectId) => gateway.inUse(projectId);
+  // A visit to a preview stopped for being unused: started as its person
+  // would start it, within the team's plan, its status and any maintenance.
+  startPreviewOnVisit = async (projectId) => {
+    const project = await store.projects.findById(projectId);
+    if (!project) throw ZelyqError.notFound("Project", projectId);
+    await teamStatus.requireRunnable(project.teamId);
+    await usage.check(project.teamId, "previews");
+    await messages.requireBuildsAllowed();
+    await ensureInspectorScript(runtime, config.templatesDir, projectId);
+    const env = await resolvePreviewEnv(projectId);
+    return await runtime.startPreview(
+      projectId,
+      projectBackend ? await projectBackend.previewOptions(projectId, env) : { env },
+    );
+  };
   gateway.activity = activity;
   gateway.errors = errors;
   gateway.teamStatus = teamStatus;
@@ -1180,6 +1225,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     store,
     runtime,
     usage,
+    previewIdle,
     /** Read at startup to warn when an exposed instance also accepts signups. */
     async registrationOpen(): Promise<boolean> {
       return await settings.booleanValue("allowRegistration").catch(() => false);
