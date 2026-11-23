@@ -23,9 +23,12 @@ export function previewUrl(template: string | undefined, host: string, port: num
  */
 const reserved = new Set<number>();
 
-export async function allocatePort([min, max]: [number, number]): Promise<number> {
+export async function allocatePort(
+  [min, max]: [number, number],
+  taken: ReadonlySet<number> = new Set(),
+): Promise<number> {
   for (let port = min; port <= max; port++) {
-    if (reserved.has(port)) continue;
+    if (reserved.has(port) || taken.has(port)) continue;
     if (await isFree(port)) {
       reserved.add(port);
       return port;

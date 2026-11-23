@@ -303,6 +303,7 @@ Migrations run automatically when the server boots.
 | `ZELYQ_CONTAINER_MEMORY` | `2g` | Memory ceiling per project container. |
 | `ZELYQ_CONTAINER_CPUS` | `2` | CPU ceiling per project container. |
 | `ZELYQ_CONTAINER_ENGINE` | `docker` | The engine binary. `podman` works as a drop-in. |
+| `ZELYQ_PREVIEWS_SURVIVE_RESTART` | `false` | `true` leaves project containers and their previews running when Zelyq stops, and the next start picks them up, so a deploy or restart does not take everyone's preview down. Off, closing Zelyq stops them, which suits one person's machine. A preview on an older sandbox image keeps running and moves to the new image the next time it stops or restarts. |
 | `ZELYQ_CONTAINER_BLOCK_METADATA` | `true` | Set `false` to disable blocking the cloud metadata endpoint. See below. |
 | `ZELYQ_CONTAINER_EGRESS_ALLOWLIST` | — | Comma-separated hostnames; unset means egress is unfiltered. See below. |
 | `ZELYQ_CONTAINER_RUNTIME` | Docker's default | The runtime for team containers (apps, agent commands, pipeline runs and services). A managed server requires gVisor: `runsc`. See [strict-sandbox.md](./strict-sandbox.md). |

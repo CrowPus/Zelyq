@@ -81,6 +81,11 @@ async function containerOptionsFromEnv() {
     ...(process.env.ZELYQ_CONTAINER_MEMORY ? { memory: process.env.ZELYQ_CONTAINER_MEMORY } : {}),
     ...(process.env.ZELYQ_CONTAINER_CPUS ? { cpus: process.env.ZELYQ_CONTAINER_CPUS } : {}),
     ...(process.env.ZELYQ_CONTAINER_ENGINE ? { engine: process.env.ZELYQ_CONTAINER_ENGINE } : {}),
+    // Off inside the driver, which is right for one person's machine; a server
+    // other people use turns it on so a deploy does not take every preview down.
+    ...(process.env.ZELYQ_PREVIEWS_SURVIVE_RESTART === "true"
+      ? { keepPreviewsOnShutdown: true }
+      : {}),
     // Defaults on inside the driver itself; this is only how to turn it off.
     ...(process.env.ZELYQ_CONTAINER_BLOCK_METADATA === "false"
       ? { blockMetadataEndpoint: false }
