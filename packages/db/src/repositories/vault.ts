@@ -63,6 +63,7 @@ const entrySummary = {
   updatedBy: entries.updatedBy,
   createdAt: entries.createdAt,
   updatedAt: entries.updatedAt,
+  lastUsedAt: entries.lastUsedAt,
 };
 
 const variableSummary = {
@@ -106,6 +107,12 @@ export function vaultRepository(db: ZelyqDb) {
     },
 
     /** Ciphertext for several names at once — a reference being resolved. */
+    /** Records that Zelyq just read these entries to use them. */
+    async markUsed(ids: string[], at: string): Promise<void> {
+      if (ids.length === 0) return;
+      await db.update(entries).set({ lastUsedAt: at }).where(inArray(entries.id, ids));
+    },
+
     async findByNames(scopeKey: string, names: string[]): Promise<VaultEntryRow[]> {
       if (names.length === 0) return [];
       return await db

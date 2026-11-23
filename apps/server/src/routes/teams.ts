@@ -17,6 +17,7 @@ import type { SettingsService } from "../services/settings.js";
 import type { TeamKeys } from "../services/team-keys.js";
 import type { UsageService } from "../services/usage.js";
 import type { VaultService } from "../services/vault.js";
+import { peekVault } from "../services/vault-peek.js";
 
 export function registerTeamRoutes(
   app: FastifyInstance,
@@ -189,7 +190,9 @@ export function registerTeamRoutes(
     const fromVault = (request.body as { passwordVault?: unknown } | null)?.passwordVault;
     if (typeof fromVault === "string" && fromVault) {
       await vault.requireUse(user, { kind: "team", teamId: request.params.id }, fromVault);
-      const value = (await vault.resolve(request.params.id, [fromVault])).get(fromVault);
+      const value = await peekVault(async () =>
+        (await vault.resolve(request.params.id, [fromVault])).get(fromVault),
+      );
       if (!value?.trim()) throw ZelyqError.badRequest(`${fromVault} is empty in the team's Vault.`);
     }
     await settings.setTeamMail(request.params.id, request.body);

@@ -159,6 +159,8 @@ export interface ZelyqServer {
   previewGrants: Pick<ProjectBackendService, "mint">;
   /** Exposed so tests can see exactly what a project's app would be given. */
   projectVariables: ProjectVariableService;
+  /** Vault: exposed so tests can read a secret the way a pipeline or a clone does. */
+  vault: Pick<VaultService, "resolve">;
   /** Exposed so tests can ask which credential Zelyq would actually use. */
   settings: SettingsService;
   /** Exposed so tests can run the schedule at a chosen time, or say an app changed. */
@@ -438,9 +440,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     oauth: config.supabaseOAuth,
     verifyEmailDomain: config.supabaseVerifyEmailDomain,
   });
-  // Where each secret is used, on the Vault page: settings, a team's email, Supabase.
+  const teamKeys = new TeamKeys(settings, vault, access);
+  // Where each secret is used, on the Vault page: settings, a team's email,
+  // its AI keys, Supabase.
   vault.listeners.settingUsages = async (scope) => [
     ...(await settings.vaultUsages(scope)),
+    ...(scope === "instance" ? [] : await teamKeys.vaultUsages(scope)),
     ...(await supabaseConnections.vaultUsages(scope)),
   ];
   // A team's email password and a Supabase token can be Vault secrets, read when used.
@@ -708,7 +713,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     store,
     access,
     links: emailLinks,
-    keys: new TeamKeys(settings, vault, access),
+    keys: teamKeys,
     settings,
     mail,
     vault,
@@ -1154,6 +1159,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
 
   return {
     app,
+    vault,
     activity,
     errors,
     eventsOut,
