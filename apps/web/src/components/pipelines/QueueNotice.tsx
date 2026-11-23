@@ -27,6 +27,7 @@ export function startsIn(startsAt: string | null, now = Date.now()): string | nu
 /** One line for a list: "Waiting · 2nd in line · starts in about 3 min". */
 export function queueSummary(queue: RunQueueInfo | null): string {
   if (!queue) return t("Waiting to start");
+  if (queue.reason === "update") return t("Waiting for the Zelyq update");
   const when = startsIn(queue.startsAt);
   return [
     queue.position <= 1
@@ -69,7 +70,14 @@ export function QueueNotice({ queue }: { queue: RunQueueInfo | null }) {
                   { position: queue.position },
                 )}
         </p>
-        {queue && (
+        {queue?.reason === "update" && (
+          <p className="mt-0.5 text-xs text-fg-secondary">
+            {t(
+              "Zelyq is being updated. Runs already going finish first; this one starts as soon as the update is done.",
+            )}
+          </p>
+        )}
+        {queue && queue.reason !== "update" && (
           <p className="mt-0.5 text-xs text-fg-secondary">
             {queue.reason === "machine" ? (
               <>
@@ -100,7 +108,7 @@ export function QueueNotice({ queue }: { queue: RunQueueInfo | null }) {
             .
           </p>
         )}
-        {queue && (
+        {queue && queue.reason !== "update" && (
           <p className="mt-0.5 text-xs text-fg-secondary">
             {when
               ? t("It should start {when}, going by how long these runs usually take.", { when })

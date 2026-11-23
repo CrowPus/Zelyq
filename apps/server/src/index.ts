@@ -14,8 +14,21 @@ await runMigrations(config.databaseUrl);
 
 const server = await buildServer(config);
 
+let stopping = false;
 async function shutdown(signal: string): Promise<void> {
+  // A second signal while runs finish: stop now.
+  if (stopping) process.exit(1);
+  stopping = true;
   server.app.log.info(`${signal} received, shutting down`);
+  // A deploy sends SIGTERM: let the pipeline runs already going finish first,
+  // so an update does not fail them. Ctrl+C (SIGINT) never waits.
+  if (signal === "SIGTERM" && config.shutdownDrainSeconds > 0) {
+    server.app.log.info(
+      `letting pipeline runs finish first (up to ${config.shutdownDrainSeconds} s); nothing new starts`,
+    );
+    const left = await server.drain(config.shutdownDrainSeconds * 1000);
+    if (left > 0) server.app.log.warn(`${left} pipeline run(s) still going; they are stopped now`);
+  }
   await server.close();
   process.exit(0);
 }

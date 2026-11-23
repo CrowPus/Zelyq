@@ -10,6 +10,12 @@ export interface ServerConfig {
   logLevel: string;
   isProduction: boolean;
   /**
+   * On SIGTERM (a deploy stopping the server), how long pipeline runs already
+   * going get to finish before it stops: nothing new starts meanwhile, and the
+   * app keeps answering. 0 (the default): stop at once, as Ctrl+C always does.
+   */
+  shutdownDrainSeconds: number;
+  /**
    * Whether to believe `X-Forwarded-*` — off unless `ZELYQ_TRUST_PROXY` says
    * otherwise. It decides two things that are wrong in opposite directions
    * depending on the deployment: whether `request.protocol` reports the
@@ -251,6 +257,7 @@ export function loadServerConfig(): ServerConfig {
     port: intFromEnv("ZELYQ_SERVER_PORT", 8787),
     logLevel: process.env.LOG_LEVEL ?? "info",
     isProduction: process.env.NODE_ENV === "production",
+    shutdownDrainSeconds: Math.max(0, intFromEnv("ZELYQ_SHUTDOWN_DRAIN_SECONDS", 0)),
     trustProxy: trustProxyFromEnv(),
     corsOrigin: (process.env.ZELYQ_CORS_ORIGIN ?? "http://localhost:5173")
       .split(",")

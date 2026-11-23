@@ -252,6 +252,8 @@ export class PipelineEngine {
   private ticking = false;
   private again = false;
   private closed = false;
+  /** Shutting down for an update: runs going finish, nothing new starts here. */
+  private draining = false;
   private docker: { at: number; ok: boolean } | null = null;
   /** Set by the server: how a `pipeline` step starts another pipeline, and who hears a run ended. */
   hooks: {
@@ -329,6 +331,28 @@ export class PipelineEngine {
     }
   }
 
+  /**
+   * Before an update: no new run starts here, and the runs already going get
+   * up to `ms` to finish, so a deploy does not fail them. Runs waiting for a
+   * person stay waiting (the next start resumes them); queued runs stay
+   * queued and start in the new process. Returns how many were still going.
+   */
+  async drain(ms: number): Promise<number> {
+    this.draining = true;
+    this.wake();
+    const going = () => [...this.active.values()].filter((run) => !run.waiting).length;
+    const deadline = Date.now() + ms;
+    while (going() > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return going();
+  }
+
+  /** Whether runs are being let finish before an update. */
+  isDraining(): boolean {
+    return this.draining;
+  }
+
   /** Looks at the queue now rather than at the next tick. */
   wake(): void {
     if (this.closed) return;
@@ -397,6 +421,23 @@ export class PipelineEngine {
 
   private async tick(): Promise<void> {
     const queued = await this.deps.store.pipelines.runs.listByStatus("queued");
+    if (this.draining) {
+      // Nothing new starts during an update: each queued run says why.
+      this.queue = new Map(
+        queued.map((run, index) => [
+          run.id,
+          {
+            reason: "update",
+            machine: null,
+            places: null,
+            position: index + 1,
+            blockers: [],
+            startsAt: null,
+          } satisfies RunQueueInfo,
+        ]),
+      );
+      return;
+    }
     const waits: { run: PipelineRunRow; wait: Wait }[] = [];
     for (const run of queued) {
       if (this.closed) return;
