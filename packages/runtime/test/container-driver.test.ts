@@ -784,3 +784,228 @@ test("a project container has the git a turn's commit needs", { skip: !hasEngine
     await driver.dispose().catch(() => undefined);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Previews through a restart (ZELYQ_PREVIEWS_SURVIVE_RESTART)
+// ---------------------------------------------------------------------------
+
+/** A tiny dev server, for the restart tests. */
+const tinyServer = [
+  {
+    path: "package.json",
+    content: JSON.stringify({ name: "x", scripts: { dev: "node server.js" } }),
+  },
+  {
+    path: "server.js",
+    content:
+      "require('http').createServer((_,res)=>res.end('ok'))" +
+      ".listen(process.env.PORT,'0.0.0.0',()=>console.log('Local: http://localhost:'+process.env.PORT+'/'));",
+  },
+];
+
+function inspect(name: string, format: string): string {
+  try {
+    return execFileSync("docker", ["inspect", name, "--format", format], { stdio: "pipe" })
+      .toString()
+      .trim();
+  } catch {
+    return "";
+  }
+}
+
+/** Two images with different contents, both able to run a project (bash, node, git). */
+const OLD_IMAGE = "zelyq-test/sandbox-old:1";
+const NEW_IMAGE = "zelyq-test/sandbox-new:1";
+/** NEW_IMAGE's contents under another name, as each release names the sandbox after itself. */
+const NEW_IMAGE_RENAMED = "zelyq-test/sandbox-new:2";
+
+function makeTestImages(): boolean {
+  try {
+    execFileSync("docker", ["image", "inspect", "zelyq/sandbox:node22-python311"], {
+      stdio: "pipe",
+    });
+    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311", NEW_IMAGE]);
+    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311", NEW_IMAGE_RENAMED]);
+    // Different contents: one more layer on top.
+    execFileSync("docker", ["build", "-q", "-t", OLD_IMAGE, "-"], {
+      input: `FROM ${NEW_IMAGE}\nRUN echo old > /etc/zelyq-test-old\n`,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const hasTestImages = hasEngine && makeTestImages();
+
+test("off (the default), stopping Zelyq removes the project's container and its preview", {
+  skip: !hasEngine,
+}, async () => {
+  const driver = makeDriver(previewConfig([4700, 4702]));
+  const name = containerName("prj_restart_off");
+  try {
+    await driver.ensureProject("prj_restart_off");
+    await driver.scaffold("prj_restart_off", tinyServer);
+    const started = await driver.startPreview("prj_restart_off");
+    assert.equal(started.status, "running", JSON.stringify(started));
+    await driver.dispose();
+    assert.equal(inspect(name, "{{.State.Running}}"), "", "the container should be gone");
+  } finally {
+    await makeDriver(previewConfig([4700, 4702]))
+      .removeProject("prj_restart_off")
+      .catch(() => undefined);
+  }
+});
+
+test("on, a preview keeps answering through a restart and the next process adopts it", {
+  skip: !hasEngine,
+}, async () => {
+  const options = { keepPreviewsOnShutdown: true };
+  const first = new ContainerRuntimeDriver(previewConfig([4703, 4705]), {
+    blockMetadataEndpoint: false,
+    ...options,
+  });
+  const name = containerName("prj_restart_on");
+  let second: ContainerRuntimeDriver | undefined;
+  try {
+    await first.ensureProject("prj_restart_on");
+    await first.scaffold("prj_restart_on", tinyServer);
+    const started = await first.startPreview("prj_restart_on");
+    assert.equal(started.status, "running", JSON.stringify(started));
+    const created = inspect(name, "{{.Created}}");
+
+    await first.dispose();
+    // Between the two processes, as during a deploy: still serving.
+    assert.equal(await (await fetch(started.url as string)).text(), "ok");
+
+    second = new ContainerRuntimeDriver(previewConfig([4703, 4705]), {
+      blockMetadataEndpoint: false,
+      ...options,
+    });
+    assert.equal((await second.previewStatus("prj_restart_on")).status, "running");
+    // A command and a second start with nothing changed reuse it as it is.
+    const inside = await second.exec("prj_restart_on", { command: "cat server.js | head -c 7" });
+    assert.equal(inside.exitCode, 0, inside.stderr);
+    const again = await second.startPreview("prj_restart_on");
+    assert.equal(again.port, started.port);
+    assert.equal(inspect(name, "{{.Created}}"), created, "the container must not be recreated");
+    assert.equal(await (await fetch(started.url as string)).text(), "ok");
+  } finally {
+    await (second ?? first).removeProject("prj_restart_on").catch(() => undefined);
+  }
+});
+
+test("the same image under a new name is not stale: the container is kept", {
+  skip: !hasTestImages,
+}, async () => {
+  const name = containerName("prj_same_image");
+  const first = new ContainerRuntimeDriver(previewConfig([4706, 4707]), {
+    blockMetadataEndpoint: false,
+    keepPreviewsOnShutdown: true,
+    image: NEW_IMAGE,
+  });
+  let second: ContainerRuntimeDriver | undefined;
+  try {
+    await first.ensureProject("prj_same_image");
+    await first.exec("prj_same_image", { command: "true" });
+    const created = inspect(name, "{{.Created}}");
+    await first.dispose();
+
+    second = new ContainerRuntimeDriver(previewConfig([4706, 4707]), {
+      blockMetadataEndpoint: false,
+      keepPreviewsOnShutdown: true,
+      image: NEW_IMAGE_RENAMED,
+    });
+    const result = await second.exec("prj_same_image", { command: "true" });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.equal(inspect(name, "{{.Created}}"), created, "renamed, not changed: keep it");
+  } finally {
+    await (second ?? first).removeProject("prj_same_image").catch(() => undefined);
+  }
+});
+
+test("a preview on an older image keeps running, and moves to the new image when it restarts", {
+  skip: !hasTestImages,
+}, async () => {
+  const name = containerName("prj_old_image");
+  const first = new ContainerRuntimeDriver(previewConfig([4708, 4710]), {
+    blockMetadataEndpoint: false,
+    keepPreviewsOnShutdown: true,
+    image: OLD_IMAGE,
+  });
+  let second: ContainerRuntimeDriver | undefined;
+  try {
+    await first.ensureProject("prj_old_image");
+    await first.scaffold("prj_old_image", tinyServer);
+    const started = await first.startPreview("prj_old_image");
+    assert.equal(started.status, "running", JSON.stringify(started));
+    const created = inspect(name, "{{.Created}}");
+    await first.dispose();
+
+    second = new ContainerRuntimeDriver(previewConfig([4708, 4710]), {
+      blockMetadataEndpoint: false,
+      keepPreviewsOnShutdown: true,
+      image: NEW_IMAGE,
+    });
+    // Someone is looking at it: kept, commands still run in it.
+    const inside = await second.exec("prj_old_image", { command: "cat /etc/zelyq-test-old" });
+    assert.equal(inside.stdout.trim(), "old", inside.stderr);
+    assert.equal(inspect(name, "{{.Created}}"), created);
+    assert.equal(await (await fetch(started.url as string)).text(), "ok");
+
+    // Restarted: now on the new image.
+    const restarted = await second.startPreview("prj_old_image", { configurationRevision: "2" });
+    assert.equal(restarted.status, "running", JSON.stringify(restarted));
+    assert.equal(inspect(name, "{{.Config.Image}}"), NEW_IMAGE);
+    const now = await second.exec("prj_old_image", { command: "test -e /etc/zelyq-test-old" });
+    assert.notEqual(now.exitCode, 0, "the old image's file should be gone");
+  } finally {
+    await (second ?? first).removeProject("prj_old_image").catch(() => undefined);
+  }
+});
+
+test("a container on an older image with no preview running is replaced at once", {
+  skip: !hasTestImages,
+}, async () => {
+  const name = containerName("prj_old_idle");
+  const first = new ContainerRuntimeDriver(previewConfig([4711, 4712]), {
+    blockMetadataEndpoint: false,
+    keepPreviewsOnShutdown: true,
+    image: OLD_IMAGE,
+  });
+  let second: ContainerRuntimeDriver | undefined;
+  try {
+    await first.ensureProject("prj_old_idle");
+    await first.exec("prj_old_idle", { command: "true" });
+    await first.dispose();
+
+    second = new ContainerRuntimeDriver(previewConfig([4711, 4712]), {
+      blockMetadataEndpoint: false,
+      keepPreviewsOnShutdown: true,
+      image: NEW_IMAGE,
+    });
+    await second.exec("prj_old_idle", { command: "true" });
+    assert.equal(inspect(name, "{{.Config.Image}}"), NEW_IMAGE);
+  } finally {
+    await (second ?? first).removeProject("prj_old_idle").catch(() => undefined);
+  }
+});
+
+test("a command whose container another process replaced runs in the new one", {
+  skip: !hasEngine,
+}, async () => {
+  const driver = makeDriver(previewConfig([4713, 4714]));
+  try {
+    await driver.ensureProject("prj_replaced");
+    await driver.exec("prj_replaced", { command: "true" });
+    // The other half of Zelyq takes it away behind this driver's back.
+    execFileSync("docker", ["rm", "-f", containerName("prj_replaced")], { stdio: "pipe" });
+    const result = await driver.exec("prj_replaced", { command: "echo here" });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "here");
+  } finally {
+    await driver.removeProject("prj_replaced").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
+});
