@@ -152,6 +152,22 @@ export async function readPreviewRecord(
     return null;
   }
 }
+/** The ports every recorded preview holds, whichever process started it. */
+export async function recordedPreviewPorts(workspaceDir: string): Promise<Set<number>> {
+  const dir = containedPath(workspaceDir, PREVIEW_STATE_DIR);
+  const names = await fs.readdir(dir).catch(() => [] as string[]);
+  const ports = new Set<number>();
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      const record = JSON.parse(await fs.readFile(path.join(dir, name), "utf8")) as PreviewRecord;
+      if (Number.isInteger(record.port)) ports.add(record.port);
+    } catch {
+      // A record being written or removed right now: not a port to avoid.
+    }
+  }
+  return ports;
+}
 export async function clearPreviewRecord(workspaceDir: string, projectId: string): Promise<void> {
   await fs.rm(previewStateFile(workspaceDir, projectId), { force: true }).catch(() => undefined);
 }

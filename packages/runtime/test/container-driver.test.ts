@@ -908,7 +908,8 @@ test("the same image under a new name is not stale: the container is kept", {
   let second: ContainerRuntimeDriver | undefined;
   try {
     await first.ensureProject("prj_same_image");
-    await first.exec("prj_same_image", { command: "true" });
+    await first.scaffold("prj_same_image", tinyServer);
+    assert.equal((await first.startPreview("prj_same_image")).status, "running");
     const created = inspect(name, "{{.Created}}");
     await first.dispose();
 
@@ -954,7 +955,12 @@ test("a preview on an older image keeps running, and moves to the new image when
     assert.equal(inspect(name, "{{.Created}}"), created);
     assert.equal(await (await fetch(started.url as string)).text(), "ok");
 
-    // Restarted: now on the new image.
+    // Stopped: kept for now (a command may still run in it); the next start replaces it.
+    await second.stopPreview("prj_old_image");
+    assert.equal(inspect(name, "{{.State.Running}}"), "true");
+    assert.equal(inspect(name, "{{.Created}}"), created);
+
+    // Started again: now on the new image.
     const restarted = await second.startPreview("prj_old_image", { configurationRevision: "2" });
     assert.equal(restarted.status, "running", JSON.stringify(restarted));
     assert.equal(inspect(name, "{{.Config.Image}}"), NEW_IMAGE);
@@ -1006,6 +1012,55 @@ test("a command whose container another process replaced runs in the new one", {
     assert.equal(result.stdout.trim(), "here");
   } finally {
     await driver.removeProject("prj_replaced").catch(() => undefined);
+    await driver.dispose().catch(() => undefined);
+  }
+});
+
+test("on, stopping Zelyq still removes containers with no preview running", {
+  skip: !hasEngine,
+}, async () => {
+  const driver = new ContainerRuntimeDriver(previewConfig([4715, 4717]), {
+    blockMetadataEndpoint: false,
+    keepPreviewsOnShutdown: true,
+  });
+  const idle = containerName("prj_idle_on");
+  const live = containerName("prj_live_on");
+  try {
+    await driver.ensureProject("prj_idle_on");
+    await driver.exec("prj_idle_on", { command: "true" });
+    await driver.ensureProject("prj_live_on");
+    await driver.scaffold("prj_live_on", tinyServer);
+    assert.equal((await driver.startPreview("prj_live_on")).status, "running");
+    await driver.dispose();
+    assert.equal(inspect(idle, "{{.State.Running}}"), "", "no preview: removed");
+    assert.equal(inspect(live, "{{.State.Running}}"), "true", "a preview: kept");
+  } finally {
+    const cleanup = makeDriver(previewConfig([4715, 4717]));
+    await cleanup.removeProject("prj_idle_on").catch(() => undefined);
+    await cleanup.removeProject("prj_live_on").catch(() => undefined);
+  }
+});
+
+test("a port a surviving preview holds is not handed to a new one", {
+  skip: !hasEngine,
+}, async () => {
+  // As after a restart: a record names port 4718, and nothing in this process reserved it.
+  const dir = path.join(scratch, ".zelyq-previews");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "prj_port_holder.json"),
+    JSON.stringify({ pid: 1, port: 4718, startedAt: new Date().toISOString(), ownerPid: 1 }),
+  );
+  const driver = makeDriver(previewConfig([4718, 4720]));
+  try {
+    await driver.ensureProject("prj_port_new");
+    await driver.scaffold("prj_port_new", tinyServer);
+    const started = await driver.startPreview("prj_port_new");
+    assert.equal(started.status, "running", JSON.stringify(started));
+    assert.notEqual(started.port, 4718);
+  } finally {
+    await fs.rm(path.join(dir, "prj_port_holder.json"), { force: true });
+    await driver.removeProject("prj_port_new").catch(() => undefined);
     await driver.dispose().catch(() => undefined);
   }
 });

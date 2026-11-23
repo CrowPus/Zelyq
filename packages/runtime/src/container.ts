@@ -11,6 +11,7 @@ import {
   LocalRuntimeDriver,
   PREVIEW_READY_TIMEOUT_MS,
   readPreviewRecord,
+  recordedPreviewPorts,
   runCaptured,
   stoppedPreview,
   writePreviewRecord,
@@ -317,6 +318,8 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
    * restarts, never while someone is looking at it.
    */
   private readonly outdated = new Set<string>();
+  /** Commands running now in each project's container, from this process. */
+  private readonly commandsRunning = new Map<string, number>();
   /** The id of each image name, as `docker image inspect` gave it: one look per name. */
   private readonly imageIds = new Map<string, Promise<string | null>>();
   /** The preview port published on that container, if any. */
@@ -560,17 +563,26 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         env: { ...cleanProcessEnv(), ...env },
       });
 
-    const result = await run();
-    // The other half of Zelyq (agent or server, each with its own driver)
-    // may have replaced the container since this one last looked: forget it,
-    // make sure there is one, and run the command once more.
-    if (result.exitCode !== 0 && containerGone(result.stderr)) {
-      this.started.delete(projectId);
-      this.containerPort.delete(projectId);
-      await this.ensureContainer(projectId, root);
-      return await run();
+    this.commandsRunning.set(projectId, (this.commandsRunning.get(projectId) ?? 0) + 1);
+    try {
+      const result = await run();
+      // The other half of Zelyq (agent or server, each with its own driver)
+      // may have replaced the container since this one last looked: forget
+      // it, make sure there is one, and run the command once more. Docker
+      // says this before the command starts, so it never runs twice.
+      if (result.exitCode !== 0 && containerGone(result.stderr)) {
+        this.started.delete(projectId);
+        this.containerPort.delete(projectId);
+        this.outdated.delete(projectId);
+        await this.ensureContainer(projectId, root);
+        return await run();
+      }
+      return result;
+    } finally {
+      const left = (this.commandsRunning.get(projectId) ?? 1) - 1;
+      if (left > 0) this.commandsRunning.set(projectId, left);
+      else this.commandsRunning.delete(projectId);
     }
-    return result;
   }
 
   async removeProject(projectId: string): Promise<void> {
@@ -583,8 +595,18 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
   async dispose(): Promise<void> {
     if (this.egressRefreshTimer) clearInterval(this.egressRefreshTimer);
     if (this.keepPreviewsOnShutdown) {
-      // The containers stay, and their preview records with them: the next
-      // process finds them running and adopts them (`ensureContainer`).
+      // Containers with a preview running stay, and their records with them:
+      // the next process finds them and adopts them (`ensureContainer`). The
+      // rest go, as before, so a deploy does not leave idle containers behind.
+      for (const projectId of [...this.started]) {
+        if (this.commandsRunning.has(projectId)) continue;
+        if (await this.previewRunsIn(projectId, containerName(projectId)).catch(() => true)) {
+          continue;
+        }
+        await this.withProjectLock(projectId, () => this.destroyContainer(projectId)).catch(
+          () => undefined,
+        );
+      }
       await this.local.dispose();
       return;
     }
@@ -673,9 +695,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       }
       // Kept on an older image only while its preview ran; that preview is
       // being replaced, so the container is too.
-      if (this.outdated.has(projectId)) {
-        await this.withProjectLock(projectId, () => this.destroyContainer(projectId));
-      }
+      await this.replaceIfOutdated(projectId);
 
       const { root } = await this.local.ensureProject(projectId);
       this.lastFailure.delete(projectId);
@@ -723,7 +743,11 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       }
 
       const requestedPort = normalizePreviewPort(options.port);
-      const port = requestedPort ?? (await allocatePort(this.portRange));
+      // Ports of previews that outlived the last process are taken even where
+      // the engine does not hold them open on the host.
+      const port =
+        requestedPort ??
+        (await allocatePort(this.portRange, await recordedPreviewPorts(this.workspaceDir)));
       // The container must have exactly this port published. If it does not —
       // the common case, since the install above did not ask for one — it is
       // recreated. Safe: nothing lives in the container's own layer.
@@ -833,11 +857,9 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         releasePort(record.port);
       }
       await clearPreviewRecord(this.workspaceDir, projectId);
-      // Kept on an older image only for this preview: the next start gets
-      // the current one.
-      if (this.outdated.has(projectId)) {
-        await this.withProjectLock(projectId, () => this.destroyContainer(projectId));
-      }
+      // A container kept on an older image is not removed here: a command
+      // may still be running in it. The next preview start replaces it, and
+      // so does the next process, now that no preview runs in it.
       return stoppedPreview(projectId);
     });
   }
@@ -1044,6 +1066,7 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
       const keepForPreview =
         state === "true" && staleImage && (await this.previewRunsIn(projectId, name));
       if (keepForPreview) this.outdated.add(projectId);
+      else this.outdated.delete(projectId);
       if (state === "true" && staleImage && !keepForPreview) {
         await this.engineRun(["rm", "-f", name], 30_000);
       } else if (running.exitCode === 0 && state === "true") {
@@ -1112,11 +1135,19 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
           this.egressAllowlistFailure = error instanceof Error ? error.message : String(error);
         });
       }
+      // The other half of Zelyq may have made it meanwhile: use that one if
+      // it is from the current image and has the port, rather than removing
+      // what it may be starting a preview in.
+      if (await this.adoptIfCurrent(projectId, name, publishPort)) return;
       await this.engineRun(["rm", "-f", name], 30_000).catch(() => undefined);
-      const created = await this.engineRun(
-        this.runArgs(name, root, publishPort, await sandboxRunArgs(this.sandbox)),
-        ENGINE_TIMEOUT_MS,
-      );
+      const runArgs = this.runArgs(name, root, publishPort, await sandboxRunArgs(this.sandbox));
+      let created = await this.engineRun(runArgs, ENGINE_TIMEOUT_MS);
+      if (created.exitCode !== 0 && /is already in use/.test(created.stderr)) {
+        // Made between our removal and our run: same choice once more.
+        if (await this.adoptIfCurrent(projectId, name, publishPort)) return;
+        await this.engineRun(["rm", "-f", name], 30_000).catch(() => undefined);
+        created = await this.engineRun(runArgs, ENGINE_TIMEOUT_MS);
+      }
       if (created.exitCode !== 0) {
         throw new ZelyqError(
           "runtime_unavailable",
@@ -1126,9 +1157,62 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
         );
       }
       this.started.add(projectId);
+      this.outdated.delete(projectId);
       if (publishPort === undefined) this.containerPort.delete(projectId);
       else this.containerPort.set(projectId, publishPort);
     });
+  }
+
+  /** A running container from the current image, with `publishPort` if one is asked for: taken as it is. */
+  private async adoptIfCurrent(
+    projectId: string,
+    name: string,
+    publishPort: number | undefined,
+  ): Promise<boolean> {
+    const found = await this.engineRun(
+      ["inspect", "--format", "{{.State.Running}} {{.Config.Image}} {{.Image}}", name],
+      10_000,
+    );
+    const [state, ranFrom, ranFromId] = found.stdout.trim().split(/\s+/, 3);
+    if (found.exitCode !== 0 || state !== "true" || ranFrom === undefined) return false;
+    if (!(await this.isCurrentImage(ranFrom, ranFromId))) return false;
+    if (publishPort !== undefined) {
+      const published = await this.engineRun(["port", name, `${publishPort}/tcp`], 10_000);
+      if (published.exitCode !== 0 || published.stdout.trim() === "") return false;
+      this.containerPort.set(projectId, publishPort);
+    } else {
+      this.containerPort.delete(projectId);
+    }
+    this.started.add(projectId);
+    this.outdated.delete(projectId);
+    return true;
+  }
+
+  /**
+   * A container kept on an older image for its preview is replaced, unless a
+   * command of this process runs in it (then it stays, once more) or it was
+   * already replaced (by the other half of Zelyq).
+   */
+  private async replaceIfOutdated(projectId: string): Promise<void> {
+    if (!this.outdated.has(projectId)) return;
+    if (this.commandsRunning.has(projectId)) return;
+    const name = containerName(projectId);
+    const found = await this.engineRun(
+      ["inspect", "--format", "{{.Config.Image}} {{.Image}}", name],
+      10_000,
+    );
+    const [ranFrom, ranFromId] = found.stdout.trim().split(/\s+/, 2);
+    if (
+      found.exitCode !== 0 ||
+      ranFrom === undefined ||
+      (await this.isCurrentImage(ranFrom, ranFromId))
+    ) {
+      this.outdated.delete(projectId);
+      this.started.delete(projectId);
+      this.containerPort.delete(projectId);
+      return;
+    }
+    await this.withProjectLock(projectId, () => this.destroyContainer(projectId));
   }
 
   /** Whether a container made from `name` (image id `id`) is from the image this driver uses now. */
