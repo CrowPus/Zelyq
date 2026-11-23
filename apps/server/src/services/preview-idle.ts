@@ -86,6 +86,10 @@ export class PreviewIdle {
     const limit = minutes * 60_000;
     const stopped: string[] = [];
     for (const { projectId, record } of await listPreviewRecords(this.deps.workspaceDir)) {
+      // Running again, however it was started: no longer one stopped for being unused.
+      if (!this.waking.has(projectId) && (await this.stoppedForIdle(projectId))) {
+        await this.deps.settings.remove(markKey(projectId)).catch(() => undefined);
+      }
       if (this.deps.inUse?.(projectId)) {
         this.seen(projectId);
         continue;

@@ -31,6 +31,7 @@ let devPort: number;
 let host: string;
 const records = path.join(tmp, "workspace", ".zelyq-previews");
 let starts = 0;
+let startDelayMs = 0;
 let stops = 0;
 
 async function writeRecord(startedAt = new Date().toISOString()) {
@@ -118,7 +119,9 @@ before(async () => {
   };
   server.runtime.startPreview = async (projectId: string) => {
     starts++;
+    // As the real drivers do: the record first, then the wait for the dev server.
     await writeRecord();
+    await new Promise((resolve) => setTimeout(resolve, startDelayMs));
     return running(projectId);
   };
   server.runtime.previewStatus = async (projectId: string) =>
@@ -233,5 +236,31 @@ test("stopped for being unused, then started by hand: no longer woken by a visit
     headers: { cookie },
   });
   assert.equal(started.statusCode, 200, started.body);
+  assert.equal(await server.previewIdle.stoppedForIdle(project.id), false);
+});
+
+test("while it wakes, a visit keeps the page that reloads itself, even once its record is there", async () => {
+  await server.previewIdle.sweep(Date.now() + 61 * MINUTE);
+  startDelayMs = 800;
+  try {
+    assert.equal((await visit()).statusCode, 503);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(await recordExists(), true, "the record is written before the start is done");
+    const meanwhile = await visit();
+    assert.equal(meanwhile.statusCode, 503);
+    assert.match(meanwhile.body, /Starting this app/);
+    await server.previewIdle.wakeInProgress(project.id);
+    assert.equal((await visit()).statusCode, 200);
+  } finally {
+    startDelayMs = 0;
+  }
+});
+
+test("a preview started again some other way loses its mark at the next look", async () => {
+  await server.previewIdle.sweep(Date.now() + 61 * MINUTE);
+  assert.equal(await server.previewIdle.stoppedForIdle(project.id), true);
+  // Started by the AI in its own process: a record appears, no route was called.
+  await writeRecord();
+  await server.previewIdle.sweep(Date.now());
   assert.equal(await server.previewIdle.stoppedForIdle(project.id), false);
 });

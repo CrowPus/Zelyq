@@ -34,7 +34,7 @@ export async function registerPreviewProxy(
   deps: {
     router: PreviewRouter;
     /** Unused previews stop and wake on a visit (preview-idle.ts); absent: neither. */
-    idle?: Pick<PreviewIdle, "seen" | "wake">;
+    idle?: Pick<PreviewIdle, "seen" | "wake" | "wakeInProgress">;
   },
 ): Promise<void> {
   // Registered even with no preview domain yet: it can be set later from the
@@ -65,6 +65,12 @@ export async function registerPreviewProxy(
       return reply.status(404).type("text/html").send(notRunningPage());
     }
     if (!isReconnectPing(request.headers)) deps.idle?.seen(target.project.id);
+    // Waking: its record is written before its dev server listens, so until
+    // the start is done a person keeps the page that reloads itself.
+    const waking = Boolean(deps.idle?.wakeInProgress(target.project.id));
+    if (waking && isPageVisit(request.headers)) {
+      return reply.status(503).header("retry-after", "3").type("text/html").send(wakingPage());
+    }
 
     return reply.from(`http://127.0.0.1:${target.port}${request.url}`, {
       rewriteRequestHeaders: (original, headers) => ({
@@ -90,6 +96,14 @@ export async function registerPreviewProxy(
           code === "ECONNRESET" ||
           /ECONNREFUSED|ECONNRESET/.test(failure.message ?? "");
         if (gone) {
+          if (deps.idle?.wakeInProgress(target.project.id) && isPageVisit(request.headers)) {
+            void errorReply
+              .status(503)
+              .header("retry-after", "3")
+              .type("text/html")
+              .send(wakingPage());
+            return;
+          }
           void errorReply.status(404).type("text/html").send(notRunningPage());
           return;
         }
