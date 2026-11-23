@@ -339,9 +339,13 @@ export class PipelineEngine {
    */
   async drain(ms: number): Promise<number> {
     this.draining = true;
+    const deadline = Date.now() + ms;
+    // A look at the queue already under way may still be starting a run: let it end first.
+    while (this.ticking && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     this.wake();
     const going = () => [...this.active.values()].filter((run) => !run.waiting).length;
-    const deadline = Date.now() + ms;
     while (going() > 0 && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
@@ -460,6 +464,8 @@ export class PipelineEngine {
         await this.failQueued(run, placement.fail);
         continue;
       }
+      // Draining began while this look at the queue was under way: leave it queued.
+      if (this.draining || this.closed) continue;
       const claimed = await this.deps.store.pipelines.runs.claim(
         run.id,
         placement.runner?.id ?? null,
