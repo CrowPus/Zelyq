@@ -171,6 +171,8 @@ export interface ZelyqServer {
   pipelines: Pick<PipelineService, "repoFiles" | "create" | "startTriggered">;
   /** Read at startup to warn when an exposed instance also accepts signups. */
   registrationOpen(): Promise<boolean>;
+  /** Before stopping for an update: lets pipeline runs going finish (up to `ms`); how many were still going. */
+  drain(ms: number): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -1183,6 +1185,13 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     /** Read at startup to warn when an exposed instance also accepts signups. */
     async registrationOpen(): Promise<boolean> {
       return await settings.booleanValue("allowRegistration").catch(() => false);
+    },
+    /**
+     * Before stopping for an update: pipeline runs already going get up to `ms`
+     * to finish, and nothing new starts. Returns how many were still going.
+     */
+    async drain(ms: number): Promise<number> {
+      return await pipelineEngine.drain(ms);
     },
     async close() {
       await app.close();

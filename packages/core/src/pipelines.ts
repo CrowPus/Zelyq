@@ -1632,8 +1632,10 @@ export interface RunQueueInfo {
   /**
    * "machine": every place on the machine it runs on is taken.
    * "earlier": the pipeline runs one at a time, and an earlier run goes first.
+   * "update": Zelyq is being updated; runs already going finish first, and
+   * this one starts once the update is done.
    */
-  reason: "machine" | "earlier";
+  reason: "machine" | "earlier" | "update";
   /** The machine it waits for: "the local runner" or a runner's name. */
   machine: string | null;
   /** How many runs that machine takes at once. */
