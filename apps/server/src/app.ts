@@ -526,6 +526,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     (await store.projects.findById(projectId))?.status === "building";
   usage.idleDays = () => settings.numberValue("cleanIdleAfterDays");
   usage.managed = Boolean(config.accounts);
+  usage.runsGoing = (teamId) => pipelineEngine.teamGoing(teamId);
   // Announcements, messages to one person, maintenance: from the server's operators.
   const messages = new MessagesToPeople(store, usage);
   usage.activity = activity;
@@ -1093,6 +1094,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       return pipelineTriggers.runFinished(run);
     },
     preApproved: (run, environmentId) => ops.preApproved(run, environmentId),
+    runsAtOnce: async (teamId) => (await usage.planOf(teamId)).limits.runsAtOnce ?? null,
   };
 
   gateway.appChanged = async (projectId) => {

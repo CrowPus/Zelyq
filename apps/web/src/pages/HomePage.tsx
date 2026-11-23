@@ -91,7 +91,11 @@ export function HomePage() {
   const failing = (pipelines.data?.pipelines ?? []).filter((pl) => pl.lastRun?.status === "failed");
   const waiting = approvals.data?.approvals ?? [];
   const nearLimit = (usage.data?.lines ?? []).filter(
-    (line) => line.limit !== null && line.limit > 0 && line.used / line.limit >= 0.8,
+    (line) =>
+      line.key !== "runsAtOnce" &&
+      line.limit !== null &&
+      line.limit > 0 &&
+      line.used / line.limit >= 0.8,
   );
 
   return (

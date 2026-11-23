@@ -1634,11 +1634,13 @@ export interface RunQueueInfo {
    * "earlier": the pipeline runs one at a time, and an earlier run goes first.
    * "update": Zelyq is being updated; runs already going finish first, and
    * this one starts once the update is done.
+   * "plan": the team's plan runs this many at a time ("places"), and that
+   * many are going.
    */
-  reason: "machine" | "earlier" | "update";
+  reason: "machine" | "earlier" | "update" | "plan";
   /** The machine it waits for: "the local runner" or a runner's name. */
   machine: string | null;
-  /** How many runs that machine takes at once. */
+  /** How many runs that machine (or, for "plan", the team's plan) takes at once. */
   places: number | null;
   /** Its place in line for that machine (or that pipeline): 1 is next. */
   position: number;

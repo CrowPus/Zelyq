@@ -3031,5 +3031,11 @@
   "— {nameCount, plural, one {# variable} other {# variables}} set {at}. Read them with {code}.": "— {nameCount, plural, one {# Variable} other {# Variablen}} gesetzt {at}. Lesen Sie sie mit {code}.",
   "“{name}” is ready. Copy the key now: it is not shown again.": "„{name}“ ist bereit. Kopieren Sie den Schlüssel jetzt: Er wird nicht wieder angezeigt.",
   "→ the run it started: #{number}": "→ der Lauf, den es gestartet hat: #{number}",
-  "−{removed} removed": "−{removed} entfernt"
+  "−{removed} removed": "−{removed} entfernt",
+  "{places, plural, one {Your plan runs one at a time} other {Your plan runs # at a time}}": "{places, plural, one {Ihr Plan führt einen Lauf gleichzeitig aus} other {Ihr Plan führt # Läufe gleichzeitig aus}}",
+  "A bigger plan runs more at once.": "Ein größerer Plan führt mehr gleichzeitig aus.",
+  "Pipeline runs at once": "Gleichzeitige Pipeline-Läufe",
+  "Pipeline runs the team has going at the same time, on its own machines or this server's. More wait in line and start as soon as one ends; none fail for it.": "Pipeline-Läufe, die das Team gleichzeitig laufen hat, auf eigenen Maschinen oder denen dieses Servers. Weitere warten in der Schlange und starten, sobald einer endet; keiner schlägt deswegen fehl.",
+  "{places, plural, one {Your team's plan runs one pipeline at a time} other {Your team's plan runs # pipelines at a time}}": "{places, plural, one {Der Plan Ihres Teams führt eine Pipeline gleichzeitig aus} other {Der Plan Ihres Teams führt # Pipelines gleichzeitig aus}}",
+  "{going, plural, one {, and one is going} other {, and # are going}}": "{going, plural, one {, und eine läuft} other {, und # laufen}}"
 }

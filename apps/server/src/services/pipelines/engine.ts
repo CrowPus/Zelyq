@@ -168,7 +168,9 @@ type Wait =
       machine: string;
       places: number;
     }
-  | { reason: "earlier"; ahead: PipelineRunRow };
+  | { reason: "earlier"; ahead: PipelineRunRow }
+  /** The team's plan runs this many at a time, and that many are going. */
+  | { reason: "plan"; places: number };
 
 interface ActiveRun {
   /** The run as it started: what a waiting run's "waits for" names. */
@@ -252,6 +254,8 @@ export class PipelineEngine {
   private ticking = false;
   private again = false;
   private closed = false;
+  /** Each team's runs at once, for one look at the queue. */
+  private planCache = new Map<string, number | null>();
   /** Shutting down for an update: runs going finish, nothing new starts here. */
   private draining = false;
   private docker: { at: number; ok: boolean } | null = null;
@@ -269,6 +273,8 @@ export class PipelineEngine {
      * engine asks an admin; never makes an unprotected deploy wait.
      */
     preApproved?: (run: PipelineRunRow, environmentId: string) => Promise<boolean>;
+    /** How many runs the team's plan has going at once; null is no limit. */
+    runsAtOnce?: (teamId: string) => Promise<number | null>;
   } = {};
   private cleaner: NodeJS.Timeout | null = null;
   /** Wakes a run waiting for an approval, by run id. */
@@ -443,6 +449,7 @@ export class PipelineEngine {
       return;
     }
     const waits: { run: PipelineRunRow; wait: Wait }[] = [];
+    this.planCache = new Map();
     for (const run of queued) {
       if (this.closed) return;
       const parsed = parsePipelineFile(run.source, runInputs(run));
@@ -491,6 +498,20 @@ export class PipelineEngine {
     });
   }
 
+  /**
+   * A team's runs going now. One waiting for a person or for another
+   * pipeline does not count (so the one it waits for can start), and one
+   * that started carries on after that wait even when others started
+   * meanwhile: the plan decides when runs start, never stops one.
+   */
+  teamGoing(teamId: string): number {
+    let going = 0;
+    for (const active of this.active.values()) {
+      if (active.row.teamId === teamId && !active.waiting) going += 1;
+    }
+    return going;
+  }
+
   /** The local runner now: how many runs it takes at once, and how many it has. */
   async localStatus(): Promise<LocalRunnerStatus> {
     const set = await this.deps.settings.numberValue("pipelineLocalConcurrency");
@@ -520,7 +541,9 @@ export class PipelineEngine {
     const lineOf = (entry: { run: PipelineRunRow; wait: Wait }) =>
       entry.wait.reason === "machine"
         ? `machine:${entry.wait.line}`
-        : `pipeline:${entry.run.pipelineId}`;
+        : entry.wait.reason === "plan"
+          ? `team:${entry.run.teamId}`
+          : `pipeline:${entry.run.pipelineId}`;
     const lines = new Map<string, PipelineRunRow[]>();
     for (const entry of waits) {
       const line = lines.get(lineOf(entry)) ?? [];
@@ -549,6 +572,21 @@ export class PipelineEngine {
           }
         }
         while (free && free.length < wait.places) free.push(now);
+      } else if (wait.reason === "plan") {
+        for (const active of this.active.values()) {
+          if (active.row.teamId !== entry.run.teamId || active.waiting) continue;
+          blockers.push(active.row);
+          const typical = await this.typicalMs(active.row.pipelineId);
+          if (typical === null || !active.row.startedAt) free = null;
+          else free?.push(Math.max(now, Date.parse(active.row.startedAt) + typical));
+        }
+        // More going than the plan allows (runs resumed after a wait): a place
+        // frees only once enough of them end, so keep the latest ones.
+        if (free && free.length > wait.places) {
+          free.sort((a, b) => a - b);
+          free = free.slice(free.length - wait.places);
+        }
+        while (free && free.length < wait.places) free.push(now);
       } else {
         blockers = [wait.ahead];
         const typical = await this.typicalMs(wait.ahead.pipelineId);
@@ -572,7 +610,7 @@ export class PipelineEngine {
       out.set(entry.run.id, {
         reason: wait.reason,
         machine: wait.reason === "machine" ? wait.machine : null,
-        places: wait.reason === "machine" ? wait.places : null,
+        places: wait.reason === "earlier" ? null : wait.places,
         position,
         blockers: await Promise.all(
           blockers.map(async (blocker) => ({
@@ -658,6 +696,8 @@ export class PipelineEngine {
         runnerKey: runner?.id ?? "local",
         lanes: [],
         holding: false,
+        // It is waiting for a person: it holds no place in the team's plan.
+        waiting: true,
       },
       true,
     );
@@ -677,7 +717,34 @@ export class PipelineEngine {
       );
       if (ahead) return { wait: { reason: "earlier", ahead } };
     }
-    return this.pick(run, file);
+    const picked = await this.pick(run, file);
+    if (!("runner" in picked)) return picked;
+    // The team's plan: this many runs going at once, the rest in line.
+    const places = await this.planPlaces(run.teamId);
+    if (places === 0) {
+      return {
+        fail: "Your team's plan runs no pipelines. A bigger plan runs them.",
+      };
+    }
+    if (places !== null && this.teamGoing(run.teamId) >= places) {
+      return { wait: { reason: "plan", places } };
+    }
+    return picked;
+  }
+
+  /** The team's plan's runs at once, looked up once per look at the queue; null is no limit. */
+  private async planPlaces(teamId: string): Promise<number | null> {
+    const known = this.planCache.get(teamId);
+    if (known !== undefined) return known;
+    const places = this.hooks.runsAtOnce
+      ? await this.hooks.runsAtOnce(teamId).catch((error: Error) => {
+          // Never fail or hold a run over the plan lookup itself.
+          this.deps.log.error(error, "could not read the team's plan for its runs at once");
+          return null;
+        })
+      : null;
+    this.planCache.set(teamId, places);
+    return places;
   }
 
   /** A runner for this target with room now, later, or none at all. */
@@ -1364,9 +1431,9 @@ export class PipelineEngine {
     await store.pipelines.steps.update(row.id, { status: "waiting" });
     await store.pipelines.runs.update(run.id, { status: "waiting" });
     await log.flush();
+    active.waiting = true;
     await input.release();
     input.clock.pause();
-    active.waiting = true;
     for (;;) {
       const current = await store.pipelines.runs.findById(child.id);
       if (!current || !["queued", "running", "waiting"].includes(current.status)) {
@@ -1588,9 +1655,9 @@ export class PipelineEngine {
         this.deps.log.error(caught, `pipeline run ${run.id}: notification failed`),
       );
     }
+    active.waiting = true;
     await input.release();
     input.clock.pause();
-    active.waiting = true;
 
     // Until someone answers, the time runs out, or the run is cancelled.
     const deadline = Date.parse(record.deadline);

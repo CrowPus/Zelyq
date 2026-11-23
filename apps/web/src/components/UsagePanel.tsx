@@ -41,7 +41,10 @@ export function UsagePanel({ teamId, canEdit = false }: { teamId: string; canEdi
   if (usage.isLoading) return <Spinner />;
   const data = usage.data;
   if (!data) return null;
-  const near = data.lines.filter((line) => line.limit !== null && line.used >= line.limit * 0.8);
+  // Runs at once is not "nearly full": past it, runs wait in line rather than being refused.
+  const near = data.lines.filter(
+    (line) => line.key !== "runsAtOnce" && line.limit !== null && line.used >= line.limit * 0.8,
+  );
   const accounts = session?.accounts ?? null;
   // Changing the plan is paying for it: the team's owner does that, at the account service.
   const isOwner = teams.find((team) => team.id === teamId)?.role === "owner";
