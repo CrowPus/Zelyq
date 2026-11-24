@@ -91,6 +91,11 @@ import type { ToolService } from "./tools.js";
 
 const TICK_MS = 2000;
 const DEFAULT_RUN_TIMEOUT_S = 60 * 60;
+const LOST_LOOK_MS = 60_000;
+const LOST_RUN =
+  "Zelyq lost track of this run: its end could not be saved. Its log says how far it got.";
+/** How long stopping a step may take to be asked for, over a connection that may be stuck. */
+const STOP_ASK_MS = 15_000;
 /** After this much log a run keeps going, but stops recording output. */
 const MAX_LOG_BYTES = 20 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
@@ -256,6 +261,8 @@ export class PipelineEngine {
   private closed = false;
   /** Shutting down for an update: runs going finish, nothing new starts here. */
   private draining = false;
+  private lostLookAt = Date.now();
+  private seemLost = new Set<string>();
   private docker: { at: number; ok: boolean } | null = null;
   /** Set by the server: how a `pipeline` step starts another pipeline, and who hears a run ended. */
   hooks: {
@@ -425,12 +432,81 @@ export class PipelineEngine {
         finishedAt: now,
       });
       await this.finishSteps(run.id, "cancelled");
+      return;
+    }
+    // Just starting: it is here in a moment, and is stopped as any run is.
+    for (let i = 0; i < 10; i++) {
+      const starting = this.active.get(run.id);
+      if (starting) {
+        starting.reason ??= "cancelled";
+        starting.controller.abort();
+        return;
+      }
+      await sleep(200);
+    }
+    // Shown as going, but nothing here runs it: Cancel still ends it.
+    await this.endLost(run.id, "cancelled", null);
+  }
+
+  /** Ends a run this engine does not have, if it has not ended meanwhile. */
+  private async endLost(
+    runId: string,
+    status: "cancelled" | "failed",
+    error: string | null,
+  ): Promise<void> {
+    const now = await this.deps.store.pipelines.runs.findById(runId);
+    if (!now || (now.status !== "running" && now.status !== "waiting")) return;
+    // It started meanwhile: stopped as any run is.
+    if (status === "cancelled" && this.active.has(runId)) {
+      const active = this.active.get(runId) as ActiveRun;
+      active.reason ??= "cancelled";
+      active.controller.abort();
+      return;
+    }
+    await this.finishSteps(runId, status === "cancelled" ? "cancelled" : "failed");
+    await this.deps.store.pipelines.runs.update(runId, {
+      status,
+      error,
+      finishedAt: new Date().toISOString(),
+    });
+    this.waiters.get(`child:${runId}`)?.();
+  }
+
+  /**
+   * Runs shown as going that nothing here runs: their end could not be
+   * written. Found twice, some time apart, so one that is just ending is
+   * never taken for lost.
+   */
+  private async endLostRuns(): Promise<void> {
+    const before = this.seemLost;
+    this.seemLost = new Set();
+    for (const status of ["running", "waiting"]) {
+      for (const run of await this.deps.store.pipelines.runs.listByStatus(status)) {
+        if (this.active.has(run.id)) continue;
+        if (!before.has(run.id)) {
+          this.seemLost.add(run.id);
+          continue;
+        }
+        // One waiting for a person could not be picked up after a restart: tried again.
+        if (status === "waiting") {
+          await this.resumeWaiting(run);
+          continue;
+        }
+        this.deps.log.error(new Error(LOST_RUN), `pipeline run ${run.id} was lost`);
+        await this.endLost(run.id, "failed", LOST_RUN);
+      }
     }
   }
 
   // ------------------------------------------------------------- scheduling
 
   private async tick(): Promise<void> {
+    if (!this.closed && Date.now() - this.lostLookAt > LOST_LOOK_MS) {
+      this.lostLookAt = Date.now();
+      await this.endLostRuns().catch((error: Error) =>
+        this.deps.log.error(error, "could not look for lost pipeline runs"),
+      );
+    }
     const queued = await this.deps.store.pipelines.runs.listByStatus("queued");
     if (this.draining) {
       // Nothing new starts during an update: each queued run says why.
@@ -655,7 +731,11 @@ export class PipelineEngine {
   ): void {
     this.active.set(run.id, active);
     void this.execute(run, file, runner, active, resume)
-      .catch((error) => this.deps.log.error(error, `pipeline run ${run.id} failed unexpectedly`))
+      .catch(async (error) => {
+        this.deps.log.error(error, `pipeline run ${run.id} failed unexpectedly`);
+        // Its end could not be written: once more, and the look for lost runs is the last resort.
+        if (!this.closed) await this.endLost(run.id, "failed", LOST_RUN).catch(() => undefined);
+      })
       .finally(() => {
         this.active.delete(run.id);
         this.release(active);
@@ -1327,7 +1407,12 @@ export class PipelineEngine {
       );
     }
     if (finalMachine) {
-      if (file.artifacts?.length) await this.collectArtifacts(run, file, finalMachine, log);
+      if (file.artifacts?.length) {
+        await this.collectArtifacts(run, file, finalMachine, log).catch((caught: Error) => {
+          this.deps.log.error(caught, `pipeline run ${run.id}: its artifacts were not kept`);
+          log.add(null, "system", "The run's artifacts could not be kept.");
+        });
+      }
       if (status === "passed") {
         await finalMachine
           .exec(cleanupCommand(finalMachine.os, finalMachine.workspace))
@@ -1344,12 +1429,17 @@ export class PipelineEngine {
 
     await this.finishSteps(run.id, status === "cancelled" ? "cancelled" : "skipped");
     log.add(null, "system", `Run ${STATUS_WORDS[status]}.`);
-    await log.close();
-    const finished = await store.pipelines.runs.update(run.id, {
-      status,
-      error,
-      finishedAt: new Date().toISOString(),
-    });
+    // Log lines that could not be written never leave the run without its end.
+    await log
+      .close()
+      .catch((caught) =>
+        this.deps.log.error(caught, `pipeline run ${run.id}: its last log lines were not written`),
+      );
+    const end = { status, error, finishedAt: new Date().toISOString() };
+    const save = () => store.pipelines.runs.update(run.id, end);
+    const finished = await save()
+      .catch(() => sleep(1000).then(save))
+      .catch(() => sleep(5000).then(save));
     if (finished && file.notify) {
       await this.notify(finished, file).catch((caught) =>
         this.deps.log.error(caught, `pipeline run ${run.id}: notification failed`),
@@ -2078,6 +2168,12 @@ export class PipelineEngine {
     let ended: EndReason | null = null;
     let done = false;
     const channel = new AbortController();
+    // A connection that answers nothing must not hold up Cancel or a timeout.
+    const ask = (force: boolean) =>
+      Promise.race([
+        machine.exec(stopCommand(machine.os, machine.workspace, force)).catch(() => undefined),
+        sleep(STOP_ASK_MS),
+      ]);
     const stop = async (why: EndReason) => {
       if (ended || done) return;
       ended = why;
@@ -2086,10 +2182,10 @@ export class PipelineEngine {
         "system",
         why === "timed_out" ? "Timed out — stopping the step." : "Cancelled — stopping the step.",
       );
-      await machine.exec(stopCommand(machine.os, machine.workspace, false)).catch(() => undefined);
+      await ask(false);
       await sleep(STOP_GRACE_MS);
       if (done) return;
-      await machine.exec(stopCommand(machine.os, machine.workspace, true)).catch(() => undefined);
+      await ask(true);
       await sleep(STOP_GRACE_MS);
       if (!done) channel.abort();
     };
@@ -2392,7 +2488,7 @@ export class RunLog {
       return;
     }
     this.push(stepId, stream, text, bytes);
-    if (this.pending.length >= 500) void this.flush();
+    if (this.pending.length >= 500) void this.flush().catch(() => undefined);
   }
 
   private push(stepId: string | null, stream: string, text: string, bytes: number): void {
