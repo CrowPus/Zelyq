@@ -8,6 +8,7 @@ import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as pgSchema from "./schema/pg.js";
 import * as sqliteSchema from "./schema/sqlite.js";
+import { insideTransaction, takeTurns } from "./sqlite-writes.js";
 
 export type Dialect = "sqlite" | "postgres";
 
@@ -109,12 +110,16 @@ export function createDatabase(url: string): DatabaseHandle {
   // went black. `timeout` reaches every connection libsql opens, including the
   // fresh one it opens after each transaction, which a one-off PRAGMA would not.
   const client = createClient({ url: resolved, timeout: SQLITE_BUSY_TIMEOUT_MS });
+  takeTurns(client);
   // WAL lets readers carry on while one process writes, where the default
   // rollback journal blocks everybody. The setting lives in the file, so it
   // holds for every process from here on. Best-effort: if another process has
   // the file busy right now, the next open sets it.
   client.execute("PRAGMA journal_mode=WAL").catch(() => undefined);
   const db = drizzleLibsql(client, { schema: sqliteSchema });
+  const transaction = db.transaction.bind(db);
+  db.transaction = (work, config) =>
+    transaction((tx) => insideTransaction(client, () => work(tx)), config);
   return {
     db,
     dialect,
