@@ -215,7 +215,10 @@ export class UsageService {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.measureAll(), MEASURE_EVERY_MS);
+    this.timer = setInterval(() => {
+      void this.measureAll();
+      void this.loadRunsAtOnce();
+    }, MEASURE_EVERY_MS);
     this.timer.unref();
     this.cleanTimer = setInterval(
       () => void this.cleanIdle().catch(() => undefined),
@@ -406,6 +409,7 @@ export class UsageService {
       defaultPlan: input.defaultPlan,
     };
     await this.store.settings.set(PLANS_KEY, JSON.stringify(clean));
+    await this.loadRunsAtOnce();
     return clean;
   }
 
@@ -460,6 +464,45 @@ export class UsageService {
       throw ZelyqError.notFound("Plan", planId);
     }
     await this.store.settings.set(`team:${teamId}:plan`, planId);
+    await this.refreshRunsAtOnce(teamId);
+  }
+
+  // ----------------------------------------------------------- runs at once
+
+  /** Each team's runs at once, kept in memory for the pipeline queue. */
+  private readonly runLimits = new Map<string, number | null>();
+  /** The latest read of each team's limit: an older one that ends later is dropped. */
+  private readonly runLimitReads = new Map<string, number>();
+
+  /**
+   * How many pipeline runs the team's plan has going at once; null is no
+   * limit. Read once when the server starts, then again when the plans or the
+   * team's plan change, whenever the team starts a run, and every few minutes
+   * (who is in the team can change its plan).
+   */
+  runsAtOnce(teamId: string): number | null {
+    return this.runLimits.get(teamId) ?? null;
+  }
+
+  /** Reads the team's limit again. A failed read keeps the last one known: never a reason to stop a run. */
+  async refreshRunsAtOnce(teamId: string): Promise<void> {
+    const read = (this.runLimitReads.get(teamId) ?? 0) + 1;
+    this.runLimitReads.set(teamId, read);
+    try {
+      const limit = (await this.planOf(teamId)).limits.runsAtOnce ?? null;
+      if (this.runLimitReads.get(teamId) === read) this.runLimits.set(teamId, limit);
+    } catch {
+      // The last one known stays.
+    }
+  }
+
+  /** Reads every team's limit again. */
+  async loadRunsAtOnce(): Promise<void> {
+    try {
+      for (const team of await this.store.teams.listAll()) await this.refreshRunsAtOnce(team.id);
+    } catch {
+      // The last ones known stay.
+    }
   }
 
   // ------------------------------------------------------------------ usage
