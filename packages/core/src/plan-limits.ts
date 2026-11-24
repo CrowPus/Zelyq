@@ -32,6 +32,13 @@ export const PLAN_LIMITS = {
     unit: "",
     description: "The team's own servers (runners).",
   },
+  runsAtOnce: {
+    one: "run at once",
+    label: "Pipeline runs at once",
+    unit: "",
+    description:
+      "Pipeline runs the team has going at the same time, on its own machines or this server's. More wait in line and start as soon as one ends; none fail for it.",
+  },
   members: {
     label: "Members",
     unit: "",

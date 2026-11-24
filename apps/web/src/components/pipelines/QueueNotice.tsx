@@ -28,6 +28,15 @@ export function startsIn(startsAt: string | null, now = Date.now()): string | nu
 export function queueSummary(queue: RunQueueInfo | null): string {
   if (!queue) return t("Waiting to start");
   if (queue.reason === "update") return t("Waiting for the Zelyq update");
+  if (queue.reason === "plan")
+    return [
+      t("{places, plural, one {Your plan runs one at a time} other {Your plan runs # at a time}}", {
+        places: queue.places ?? 1,
+      }),
+      startsIn(queue.startsAt) ? t("starts {when}", { when: startsIn(queue.startsAt) }) : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   const when = startsIn(queue.startsAt);
   return [
     queue.position <= 1
@@ -79,7 +88,18 @@ export function QueueNotice({ queue }: { queue: RunQueueInfo | null }) {
         )}
         {queue && queue.reason !== "update" && (
           <p className="mt-0.5 text-xs text-fg-secondary">
-            {queue.reason === "machine" ? (
+            {queue.reason === "plan" ? (
+              <>
+                {t(
+                  "{places, plural, one {Your team's plan runs one pipeline at a time} other {Your team's plan runs # pipelines at a time}}",
+                  { places: queue.places ?? 1 },
+                )}
+                {t("{going, plural, one {, and one is going} other {, and # are going}}", {
+                  going: Math.max(blockers.length, queue.places ?? 1),
+                })}
+                {blockers.length > 0 && <>: </>}
+              </>
+            ) : queue.reason === "machine" ? (
               <>
                 {queue.places === 1
                   ? t("{value} takes one run at a time, and it is busy", {
@@ -113,6 +133,7 @@ export function QueueNotice({ queue }: { queue: RunQueueInfo | null }) {
             {when
               ? t("It should start {when}, going by how long these runs usually take.", { when })
               : t("No estimate yet: these pipelines have no passed runs to go by.")}
+            {queue.reason === "plan" && <> {t("A bigger plan runs more at once.")}</>}
             {queue.reason === "machine" && (
               <>
                 {t(" To run more at once, raise ")}

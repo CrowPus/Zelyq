@@ -408,7 +408,14 @@ export class ProductActivity {
       const used = await usage.usage(team.id);
       perPlan[used.plan.id] = (perPlan[used.plan.id] ?? 0) + 1;
       const near = used.lines
-        .filter((line) => line.limit !== null && line.limit > 0 && line.used >= line.limit * 0.8)
+        // Runs at once only means busy: past it, runs wait rather than being refused.
+        .filter(
+          (line) =>
+            line.key !== "runsAtOnce" &&
+            line.limit !== null &&
+            line.limit > 0 &&
+            line.used >= line.limit * 0.8,
+        )
         .map((line) => line.key);
       if (near.length) nearLimit.push({ teamId: team.id, plan: used.plan.id, limits: near });
     }

@@ -220,6 +220,8 @@
   "Password reset and invitations by email",
   "Paste a Supabase access token.",
   "People in the team, with invitations still waiting.",
+  "Pipeline runs at once",
+  "Pipeline runs the team has going at the same time, on its own machines or this server's. More wait in line and start as soon as one ends; none fail for it.",
   "Pipeline time on this server's own runner, this month. Runs on the team's own machines are free.",
   "Pipelines",
   "Pipelines in the team.",

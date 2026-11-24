@@ -205,6 +205,8 @@ export class UsageService {
   private timer: NodeJS.Timeout | null = null;
   /** Whether an app's preview is running (set by the app: the runtime knows). */
   previewRunning?: (projectId: string) => Promise<boolean>;
+  /** The team's pipeline runs going right now (the pipeline engine's count). */
+  runsGoing?: (teamId: string) => number;
 
   constructor(
     private readonly store: Store,
@@ -494,6 +496,7 @@ export class UsageService {
       members: counts.members,
       previews: counts.previews,
       runnerMinutes: Math.ceil(counts.localSeconds / 60),
+      runsAtOnce: this.runsGoing?.(teamId) ?? 0,
     };
     return {
       plan: { id: plan.id, name: plan.name },
