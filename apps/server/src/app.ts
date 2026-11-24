@@ -934,6 +934,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     eventsOut.start();
     healthWatch.start();
     await deploys.recover();
+    await usage.loadRunsAtOnce();
     await pipelineEngine.start();
     pipelineTriggers.start();
     if (config.runtime.kind !== "remote") previewIdle.start();
@@ -1094,7 +1095,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       return pipelineTriggers.runFinished(run);
     },
     preApproved: (run, environmentId) => ops.preApproved(run, environmentId),
-    runsAtOnce: async (teamId) => (await usage.planOf(teamId)).limits.runsAtOnce ?? null,
+    runsAtOnce: (teamId) => usage.runsAtOnce(teamId),
   };
 
   gateway.appChanged = async (projectId) => {

@@ -708,7 +708,7 @@ export class PipelineService {
    * checked against the Vault when an editor saved it.
    */
   /** What the team's plan allows (set by the app); none: no limits. */
-  limits?: Pick<UsageService, "check" | "usesLocalRunner">;
+  limits?: Pick<UsageService, "check" | "usesLocalRunner" | "refreshRunsAtOnce">;
   /** Set by the app: a reason a triggered run must not start (Ops's access, 076), or null. */
   mayStartTriggered?: (pipeline: PipelineRow) => Promise<string | null>;
   /** A team that is not active runs nothing by itself (schedules, webhooks, "after" triggers). */
@@ -1156,6 +1156,8 @@ export class PipelineService {
       throw ZelyqError.badRequest(
         `The pipeline file is not valid with these inputs: ${parsed.issues[0]?.message ?? ""}`,
       );
+    // What the queue goes by when it looks at this run.
+    await this.limits?.refreshRunsAtOnce(pipeline.teamId);
     // newest-wins: what is still queued or running gives way to this run.
     const replaced: PipelineRunRow[] = [];
     if (parsed.file.concurrency === "newest-wins") {

@@ -254,8 +254,6 @@ export class PipelineEngine {
   private ticking = false;
   private again = false;
   private closed = false;
-  /** Each team's runs at once, for one look at the queue. */
-  private planCache = new Map<string, number | null>();
   /** Shutting down for an update: runs going finish, nothing new starts here. */
   private draining = false;
   private docker: { at: number; ok: boolean } | null = null;
@@ -273,8 +271,11 @@ export class PipelineEngine {
      * engine asks an admin; never makes an unprotected deploy wait.
      */
     preApproved?: (run: PipelineRunRow, environmentId: string) => Promise<boolean>;
-    /** How many runs the team's plan has going at once; null is no limit. */
-    runsAtOnce?: (teamId: string) => Promise<number | null>;
+    /**
+     * How many runs the team's plan has going at once; null is no limit.
+     * Answered from memory: the look at the queue never waits for it.
+     */
+    runsAtOnce?: (teamId: string) => number | null;
   } = {};
   private cleaner: NodeJS.Timeout | null = null;
   /** Wakes a run waiting for an approval, by run id. */
@@ -449,7 +450,6 @@ export class PipelineEngine {
       return;
     }
     const waits: { run: PipelineRunRow; wait: Wait }[] = [];
-    this.planCache = new Map();
     for (const run of queued) {
       if (this.closed) return;
       const parsed = parsePipelineFile(run.source, runInputs(run));
@@ -720,7 +720,7 @@ export class PipelineEngine {
     const picked = await this.pick(run, file);
     if (!("runner" in picked)) return picked;
     // The team's plan: this many runs going at once, the rest in line.
-    const places = await this.planPlaces(run.teamId);
+    const places = this.hooks.runsAtOnce?.(run.teamId) ?? null;
     if (places === 0) {
       return {
         fail: "Your team's plan runs no pipelines. A bigger plan runs them.",
@@ -730,21 +730,6 @@ export class PipelineEngine {
       return { wait: { reason: "plan", places } };
     }
     return picked;
-  }
-
-  /** The team's plan's runs at once, looked up once per look at the queue; null is no limit. */
-  private async planPlaces(teamId: string): Promise<number | null> {
-    const known = this.planCache.get(teamId);
-    if (known !== undefined) return known;
-    const places = this.hooks.runsAtOnce
-      ? await this.hooks.runsAtOnce(teamId).catch((error: Error) => {
-          // Never fail or hold a run over the plan lookup itself.
-          this.deps.log.error(error, "could not read the team's plan for its runs at once");
-          return null;
-        })
-      : null;
-    this.planCache.set(teamId, places);
-    return places;
   }
 
   /** A runner for this target with room now, later, or none at all. */
