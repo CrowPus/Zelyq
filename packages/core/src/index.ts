@@ -4,6 +4,7 @@ export * from "./admin-api.js";
 export * from "./agents.js";
 export * from "./anthropic-models.js";
 export * from "./auth.js";
+export * from "./command-error.js";
 export * from "./errors.js";
 export * from "./google-models.js";
 export * from "./guide.js";

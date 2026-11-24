@@ -9,6 +9,7 @@ import {
   type AppStatus,
   appAddress,
   appAddressSchema,
+  commandErrorReason,
   type DeploymentDetail,
   type DeploymentStatus,
   type DeploymentSummary,
@@ -656,7 +657,7 @@ export class DeployService {
     );
     if (result.code !== 0) {
       throw ZelyqError.badRequest(
-        result.stderr.trim().split("\n").pop() || `Could not ${action} ${app} on ${runner.name}.`,
+        commandErrorReason(result.stderr, `Could not ${action} ${app} on ${runner.name}.`),
       );
     }
     await this.access.recordChange(user, {
@@ -1395,7 +1396,7 @@ export class DeployService {
           );
           if (removed.code !== 0) {
             throw ZelyqError.badRequest(
-              `Could not remove ${app} from ${runner.name}: ${removed.stderr.trim().split("\n").pop() ?? ""}`,
+              `Could not remove ${app} from ${runner.name}: ${commandErrorReason(removed.stderr)}`,
             );
           }
         } finally {
@@ -1594,7 +1595,7 @@ export class DeployService {
         }
         if (switched.code !== 0) {
           throw ZelyqError.badRequest(
-            `The proxy did not accept ${host}: ${switched.stderr.trim().split("\n").pop() ?? ""}`,
+            `The proxy did not accept ${host}: ${commandErrorReason(switched.stderr)}`,
           );
         }
       } finally {

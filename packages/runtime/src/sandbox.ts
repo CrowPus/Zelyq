@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ZelyqError } from "@zelyq/core";
+import { commandErrorReason, ZelyqError } from "@zelyq/core";
 import { runCaptured } from "./local.js";
 import type { ExecResult } from "./types.js";
 
@@ -289,7 +289,7 @@ async function installSandboxFirewall(engine: string): Promise<void> {
         sandboxFirewallScript(),
       ]);
       if (result.exitCode !== 0 || !result.stdout.includes("ZELYQ_SANDBOX_FIREWALL_OK")) {
-        const why = result.stderr.trim().split("\n").pop() || "unknown error";
+        const why = commandErrorReason(result.stderr, "unknown error");
         throw new ZelyqError(
           "runtime_unavailable",
           `Could not install the sandbox firewall, so no team code can run: ${

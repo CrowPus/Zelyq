@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import type { Readable } from "node:stream";
-import { ZelyqError } from "@zelyq/core";
+import { commandErrorReason, ZelyqError } from "@zelyq/core";
 import {
   ensureSandbox,
   NO_SANDBOX,
@@ -149,7 +149,7 @@ export async function startPipelineContainer(
     if (created.code !== 0) {
       throw new ZelyqError(
         "runtime_unavailable",
-        `Could not create the run's network: ${created.out.trim().split("\n").pop()}`,
+        `Could not create the run's network: ${commandErrorReason(created.out)}`,
       );
     }
     networkName = name;
@@ -195,7 +195,7 @@ export async function startPipelineContainer(
     if (sandbox.strict) await capture(engine, ["network", "rm", name], 30_000);
     throw new ZelyqError(
       "runtime_unavailable",
-      `The local runner could not start a container from ${options.image}: ${started.out.trim().split("\n").pop()}`,
+      `The local runner could not start a container from ${options.image}: ${commandErrorReason(started.out)}`,
     );
   }
   return {
@@ -371,7 +371,7 @@ export async function startServiceContainers(input: {
     if (started.code !== 0) {
       await stop();
       throw new Error(
-        `The service ${service.name} (${service.image}) did not start: ${started.out.trim().split("\n").pop()}`,
+        `The service ${service.name} (${service.image}) did not start: ${commandErrorReason(started.out)}`,
       );
     }
     if (network && sandbox.strict) {
