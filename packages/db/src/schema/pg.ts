@@ -763,6 +763,8 @@ export const pipelineTriggers = pgTable(
     secret: text("secret"),
     enabled: boolean("enabled").notNull().default(true),
     lastFiredAt: text("last_fired_at"),
+    /** Push only, JSON (`PipelineTriggerSkip`): the last push or pull request that started no run, and why. */
+    lastSkip: text("last_skip"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: text("created_at").notNull(),
   },

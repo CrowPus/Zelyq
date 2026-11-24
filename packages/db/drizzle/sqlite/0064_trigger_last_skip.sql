@@ -1,0 +1,1 @@
+ALTER TABLE `pipeline_triggers` ADD `last_skip` text;

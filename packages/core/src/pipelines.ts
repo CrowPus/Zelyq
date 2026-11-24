@@ -1992,6 +1992,16 @@ export interface PipelineVersionSummary {
   current: boolean;
 }
 
+/** A push or pull request a trigger got and started no run for. */
+export interface PipelineTriggerSkip {
+  at: string;
+  /** "off": turned off; "branch": another branch; "paths": none of its paths changed;
+   * "fork": a pull request from a fork; "base": a pull request into another branch. */
+  reason: "off" | "branch" | "paths" | "fork" | "base";
+  /** The branch it was about, when known. */
+  branch: string | null;
+}
+
 export interface PipelineTriggerSummary {
   id: string;
   kind: "push" | "schedule" | "app" | "pipeline";
@@ -2003,6 +2013,8 @@ export interface PipelineTriggerSummary {
   cron: string | null;
   enabled: boolean;
   lastFiredAt: string | null;
+  /** Push only: the last push skipped, unless a run started since or the trigger was changed. */
+  lastSkip: PipelineTriggerSkip | null;
   /** Push only: the address to give GitHub or GitLab. */
   webhookUrl: string | null;
   createdAt: string;
