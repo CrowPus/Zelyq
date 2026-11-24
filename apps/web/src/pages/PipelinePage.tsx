@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PIPELINE_TEMPLATES,
   type PipelineRunSummary,
+  type PipelineTriggerSkip,
   type PipelineTriggerSummary,
   parsePipelineFile,
   roleAtLeast,
@@ -763,6 +764,23 @@ function absolute(url: string | null): string {
   return url.startsWith("/") ? `${window.location.origin}${url}` : url;
 }
 
+/** Why a push started no run, in words. */
+function skipReason(skip: PipelineTriggerSkip): string {
+  const branch = skip.branch ?? "";
+  switch (skip.reason) {
+    case "off":
+      return t("this trigger was off.");
+    case "branch":
+      return t("{branch} is not one of its branches.", { branch });
+    case "paths":
+      return t("it changed none of the files listed here.");
+    case "fork":
+      return t("a pull request from a fork never runs.");
+    case "base":
+      return t("pull requests into {branch} do not run this pipeline.", { branch });
+  }
+}
+
 function Triggers({
   teamId,
   pipelineId,
@@ -936,6 +954,14 @@ function Triggers({
                           ),
                         })}
                     {trigger.pullRequests ? <> {t("· also pull requests")}</> : null}
+                    {trigger.lastSkip ? (
+                      <span className="block text-xs text-warning">
+                        {t("Last push skipped {when}: {reason}", {
+                          when: formatRelative(trigger.lastSkip.at),
+                          reason: skipReason(trigger.lastSkip),
+                        })}
+                      </span>
+                    ) : null}
                     <span className="block truncate font-mono text-2xs text-fg-muted">
                       {absolute(trigger.webhookUrl)}
                     </span>

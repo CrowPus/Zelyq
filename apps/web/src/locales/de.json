@@ -3037,5 +3037,11 @@
   "Pipeline runs at once": "Gleichzeitige Pipeline-Läufe",
   "Pipeline runs the team has going at the same time, on its own machines or this server's. More wait in line and start as soon as one ends; none fail for it.": "Pipeline-Läufe, die das Team gleichzeitig laufen hat, auf eigenen Maschinen oder denen dieses Servers. Weitere warten in der Schlange und starten, sobald einer endet; keiner schlägt deswegen fehl.",
   "{places, plural, one {Your team's plan runs one pipeline at a time} other {Your team's plan runs # pipelines at a time}}": "{places, plural, one {Der Plan Ihres Teams führt eine Pipeline gleichzeitig aus} other {Der Plan Ihres Teams führt # Pipelines gleichzeitig aus}}",
-  "{going, plural, one {, and one is going} other {, and # are going}}": "{going, plural, one {, und eine läuft} other {, und # laufen}}"
+  "{going, plural, one {, and one is going} other {, and # are going}}": "{going, plural, one {, und eine läuft} other {, und # laufen}}",
+  "Last push skipped {when}: {reason}": "Letzter Push übersprungen, {when}: {reason}",
+  "this trigger was off.": "dieser Auslöser war aus.",
+  "{branch} is not one of its branches.": "{branch} gehört nicht zu seinen Branches.",
+  "it changed none of the files listed here.": "er hat keine der hier genannten Dateien geändert.",
+  "a pull request from a fork never runs.": "ein Pull Request aus einem Fork läuft nie.",
+  "pull requests into {branch} do not run this pipeline.": "Pull Requests nach {branch} starten diese Pipeline nicht."
 }

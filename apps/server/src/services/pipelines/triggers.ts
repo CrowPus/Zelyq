@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   cronMatches,
   newId,
+  type PipelineTriggerSkip,
   type PipelineTriggerSummary,
   parseCron,
   parsePipelineFile,
@@ -77,6 +78,7 @@ export class PipelineTriggerService {
       secret: secret ? this.box.encrypt(secret) : null,
       enabled: true,
       lastFiredAt: null,
+      lastSkip: null,
       createdBy: user.id,
       createdAt: new Date().toISOString(),
     };
@@ -109,13 +111,13 @@ export class PipelineTriggerService {
     }
     await this.checkUpstream(teamId, pipelineId, input);
     const config = configOf(input);
-    await this.store.pipelines.triggers.update(row.id, { config });
+    await this.store.pipelines.triggers.update(row.id, { config, lastSkip: null });
     await this.access.recordChange(user, {
       teamId,
       action: "pipeline.trigger_changed",
       detail: { label: pipeline.name, kind: input.kind },
     });
-    return await this.present({ ...row, config });
+    return await this.present({ ...row, config, lastSkip: null });
   }
 
   private async checkUpstream(
@@ -142,8 +144,8 @@ export class PipelineTriggerService {
   ): Promise<PipelineTriggerSummary> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const row = await this.find(teamId, pipelineId, triggerId);
-    await this.store.pipelines.triggers.update(row.id, { enabled });
-    return await this.present({ ...row, enabled });
+    await this.store.pipelines.triggers.update(row.id, { enabled, lastSkip: null });
+    return await this.present({ ...row, enabled, lastSkip: null });
   }
 
   async remove(user: User, teamId: string, pipelineId: string, triggerId: string): Promise<void> {
@@ -174,7 +176,7 @@ export class PipelineTriggerService {
     }
     const event = header(headers, "x-github-event") ?? header(headers, "x-gitlab-event");
     if (event === "ping") return { status: 200, message: "pong" };
-    if (!row.enabled) return { status: 202, message: "This trigger is turned off." };
+    if (!row.enabled) return this.skip(row, "off", null, "This trigger is turned off.");
     let payload: WebhookPayload;
     try {
       const text = body.toString("utf8");
@@ -199,17 +201,20 @@ export class PipelineTriggerService {
         return { status: 202, message: "This trigger does not run for pull requests." };
       if (request.ignored) return { status: 202, message: request.ignored };
       if (request.fork) {
-        return {
-          status: 202,
-          message:
-            "Pull requests from forks do not run: their code would run with this team's secrets.",
-        };
+        return this.skip(
+          row,
+          "fork",
+          request.branch,
+          "Pull requests from forks do not run: their code would run with this team's secrets.",
+        );
       }
       if (!branches.some((pattern) => branchMatches(pattern, request.base))) {
-        return {
-          status: 202,
-          message: `Pull requests into ${request.base} do not run this pipeline.`,
-        };
+        return this.skip(
+          row,
+          "base",
+          request.base,
+          `Pull requests into ${request.base} do not run this pipeline.`,
+        );
       }
       const run = await this.pipelines.startTriggered(
         row.pipelineId,
@@ -226,7 +231,10 @@ export class PipelineTriggerService {
           },
         },
       );
-      await this.store.pipelines.triggers.update(row.id, { lastFiredAt: new Date().toISOString() });
+      await this.store.pipelines.triggers.update(row.id, {
+        lastFiredAt: new Date().toISOString(),
+        lastSkip: null,
+      });
       return { status: 201, message: `Started run #${run.number}.` };
     }
 
@@ -239,7 +247,7 @@ export class PipelineTriggerService {
       return { status: 202, message: "A deleted branch; nothing to run." };
     }
     if (!branches.some((pattern) => branchMatches(pattern, branch))) {
-      return { status: 202, message: `${branch} is not one of this trigger's branches.` };
+      return this.skip(row, "branch", branch, `${branch} is not one of this trigger's branches.`);
     }
     // Paths: only when the push changed a matching file. A push too big for
     // the webhook to list every file runs anyway: one run too many is better
@@ -251,7 +259,7 @@ export class PipelineTriggerService {
         changed !== null &&
         !changed.some((file) => paths.some((pattern) => pathMatches(pattern, file)))
       ) {
-        return { status: 202, message: "The push changed none of this trigger's paths." };
+        return this.skip(row, "paths", branch, "The push changed none of this trigger's paths.");
       }
     }
     const run = await this.pipelines.startTriggered(
@@ -267,8 +275,29 @@ export class PipelineTriggerService {
           null,
       },
     );
-    await this.store.pipelines.triggers.update(row.id, { lastFiredAt: new Date().toISOString() });
+    await this.store.pipelines.triggers.update(row.id, {
+      lastFiredAt: new Date().toISOString(),
+      lastSkip: null,
+    });
     return { status: 201, message: `Started run #${run.number}.` };
+  }
+
+  /** A push that starts no run: said to the git host, and kept for the trigger's own page. */
+  private async skip(
+    row: PipelineTriggerRow,
+    reason: PipelineTriggerSkip["reason"],
+    branch: string | null,
+    message: string,
+  ): Promise<{ status: number; message: string }> {
+    const lastSkip: PipelineTriggerSkip = {
+      at: new Date().toISOString(),
+      reason,
+      branch: branch?.slice(0, 200) ?? null,
+    };
+    await this.store.pipelines.triggers
+      .update(row.id, { lastSkip: JSON.stringify(lastSkip) })
+      .catch((error: unknown) => this.log.error(error, `trigger ${row.id}: its skip was not kept`));
+    return { status: 202, message };
   }
 
   /**
@@ -391,6 +420,7 @@ export class PipelineTriggerService {
       cron: config.cron ?? null,
       enabled: row.enabled,
       lastFiredAt: row.lastFiredAt,
+      lastSkip: row.lastSkip ? (JSON.parse(row.lastSkip) as PipelineTriggerSkip) : null,
       webhookUrl: row.kind === "push" ? `${base}/api/hooks/pipelines/${row.id}` : null,
       createdAt: row.createdAt,
     };

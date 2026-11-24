@@ -185,6 +185,35 @@ test("paths: a push runs only when it changed a matching file", async () => {
   assert.deepEqual(listed[0].paths, ["frontend/**", "package.json"]);
 });
 
+test("a push that starts no run says why on its trigger, until a run starts or it is changed", async () => {
+  const id = await create(SIMPLE("Skips"));
+  const hook = await pushTrigger(id, { paths: ["src/**"] });
+  const push = (file: string, branch = "main") => ({
+    ref: `refs/heads/${branch}`,
+    after: "e".repeat(40),
+    commits: [{ added: [], modified: [file], removed: [] }],
+  });
+  const triggers = team(`/pipelines/${id}/triggers`);
+  const skip = async () => {
+    const last = (await call("GET", triggers)).json().triggers[0].lastSkip;
+    return last && { reason: last.reason, branch: last.branch };
+  };
+  assert.equal(await skip(), null);
+  await hook("push", push("docs/a.md"));
+  assert.deepEqual(await skip(), { reason: "paths", branch: "main" });
+  await hook("push", push("src/a.ts", "develop"));
+  assert.deepEqual(await skip(), { reason: "branch", branch: "develop" });
+  assert.equal((await hook("push", push("src/a.ts"))).statusCode, 201);
+  assert.equal(await skip(), null);
+
+  const address = `${triggers}/${lastSecret.id}`;
+  assert.equal((await call("PATCH", address, { enabled: false })).statusCode, 200);
+  await hook("push", push("src/a.ts"));
+  assert.deepEqual(await skip(), { reason: "off", branch: null });
+  assert.equal((await call("PATCH", address, { enabled: true })).statusCode, 200);
+  assert.equal(await skip(), null);
+});
+
 test("pull requests: run on the newest commit, never from a fork, only when asked", async () => {
   const id = await create(SIMPLE("Pull requests"));
   const hook = await pushTrigger(id, { pullRequests: true });

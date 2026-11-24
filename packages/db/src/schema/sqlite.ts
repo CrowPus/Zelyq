@@ -774,6 +774,8 @@ export const pipelineTriggers = sqliteTable(
     secret: text("secret"),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     lastFiredAt: text("last_fired_at"),
+    /** Push only, JSON (`PipelineTriggerSkip`): the last push or pull request that started no run, and why. */
+    lastSkip: text("last_skip"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: text("created_at").notNull(),
   },
