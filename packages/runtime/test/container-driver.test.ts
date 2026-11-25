@@ -821,11 +821,11 @@ const NEW_IMAGE_RENAMED = "zelyq-test/sandbox-new:2";
 
 function makeTestImages(): boolean {
   try {
-    execFileSync("docker", ["image", "inspect", "zelyq/sandbox:node22-python311"], {
+    execFileSync("docker", ["image", "inspect", "zelyq/sandbox:node22-python311-2"], {
       stdio: "pipe",
     });
-    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311", NEW_IMAGE]);
-    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311", NEW_IMAGE_RENAMED]);
+    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311-2", NEW_IMAGE]);
+    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311-2", NEW_IMAGE_RENAMED]);
     // Different contents: one more layer on top.
     execFileSync("docker", ["build", "-q", "-t", OLD_IMAGE, "-"], {
       input: `FROM ${NEW_IMAGE}\nRUN echo old > /etc/zelyq-test-old\n`,

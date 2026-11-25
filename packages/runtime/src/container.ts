@@ -137,7 +137,11 @@ const BASE_IMAGE = "node:22-bookworm-slim";
  * repository or a single commit — and the first anyone heard of it was a push
  * failing with git's own "command not found".
  */
-const DEFAULT_IMAGE = "zelyq/sandbox:node22-python311";
+// The tag's last part changes whenever SANDBOX_DOCKERFILE does: the image is
+// built only when its tag is missing, so an install keeps the old one forever
+// otherwise. -2 added curl, which the image and API tools run inside the
+// project (they failed with "curl: command not found", 5 of 5 recorded).
+const DEFAULT_IMAGE = "zelyq/sandbox:node22-python311-2";
 /**
  * Kept in step with `docker/sandbox.Dockerfile` — that file is the copy a
  * person reads and can build by hand; this is the copy the runtime builds
@@ -149,7 +153,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.16 /uv /bin/uv
 
 RUN apt-get update \\
     && apt-get install --no-install-recommends -y \\
-        git \\
+        git curl \\
         ca-certificates \\
         openssh-client python3 python3-venv \\
     && rm -rf /var/lib/apt/lists/*
