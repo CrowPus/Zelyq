@@ -2871,7 +2871,6 @@ export class AgentSession {
         const textBeforeStep = assistantText.length;
         const result = await (async () => {
           for (let attempt = 0; ; attempt++) {
-            let streamedThisAttempt = false;
             // Thinking alone is not an answer. A reply that was only thinking
             // (or a Gemini MALFORMED_FUNCTION_CALL, which maps to "other" with
             // nothing else) used to skip the retry and end the turn as done.
@@ -2894,7 +2893,6 @@ export class AgentSession {
               let next = await turn.next();
               while (!next.done) {
                 const event = next.value;
-                streamedThisAttempt = true;
                 if (event.type === "text") {
                   textThisAttempt = true;
                   assistantText += event.text;
@@ -4476,13 +4474,20 @@ export class AgentSession {
 
     if (check.checks) {
       for (const step of check.checks) {
-        // A running check cannot be interrupted, but Stop is not kept waiting
-        // for the rest — a Python project's full set takes over half a minute.
+        // Stop ends the running check and skips the rest — a Python
+        // project's full set takes over half a minute.
         if (context.signal.aborted) {
           parts.push(`${step.name}: not run (stopped)`);
           continue;
         }
-        const result = await context.runtime.exec(context.projectId, step);
+        const result = await context.runtime.exec(context.projectId, {
+          ...step,
+          signal: context.signal,
+        });
+        if (result.stopped) {
+          parts.push(`${step.name}: not finished (stopped)`);
+          continue;
+        }
         const ok = result.exitCode === 0;
         if (!ok) failed = true;
         parts.push(
@@ -4494,8 +4499,10 @@ export class AgentSession {
       const result = await context.runtime.exec(context.projectId, {
         command: `npm run ${check.script}`,
         timeoutMs: 120_000,
+        signal: context.signal,
       });
-      if (result.exitCode !== 0) {
+      if (result.stopped) parts.push(`npm run ${check.script}: not finished (stopped)`);
+      else if (result.exitCode !== 0) {
         failed = true;
         const output = [result.stdout, result.stderr].filter((s) => s.trim()).join("\n");
         parts.push(`npm run ${check.script} failed (exit ${result.exitCode}):\n${output}`);

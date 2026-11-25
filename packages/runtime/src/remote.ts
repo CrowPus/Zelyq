@@ -91,14 +91,32 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
   }
 
   async exec(projectId: string, options: ExecOptions): Promise<ExecResult> {
-    return await this.request<ExecResult>(
-      "POST",
-      `/v1/projects/${projectId}/exec`,
-      { ...options, timeoutMs: options.timeoutMs ?? this.execTimeoutMs },
-      // Give the host a little longer than the command itself, so a host-side
-      // timeout produces a structured result instead of a socket error.
-      (options.timeoutMs ?? this.execTimeoutMs) + 15_000,
-    );
+    const { signal, ...body } = options;
+    const startedAt = Date.now();
+    try {
+      return await this.request<ExecResult>(
+        "POST",
+        `/v1/projects/${projectId}/exec`,
+        { ...body, timeoutMs: body.timeoutMs ?? this.execTimeoutMs },
+        // Give the host a little longer than the command itself, so a host-side
+        // timeout produces a structured result instead of a socket error.
+        (body.timeoutMs ?? this.execTimeoutMs) + 15_000,
+        // Closing the request is the stop: the host kills the command when
+        // the connection goes.
+        signal,
+      );
+    } catch (error) {
+      if (!signal?.aborted) throw error;
+      return {
+        exitCode: 130,
+        stdout: "",
+        stderr: "[stopped]",
+        durationMs: Date.now() - startedAt,
+        timedOut: false,
+        truncated: false,
+        stopped: true,
+      };
+    }
   }
 
   async listFiles(projectId: string, options: ListOptions = {}): Promise<FileEntry[]> {
@@ -221,9 +239,13 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
     path: string,
     body?: unknown,
     timeoutMs = 30_000,
+    signal?: AbortSignal,
   ): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const onAbort = () => controller.abort();
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
@@ -263,6 +285,7 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
       );
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
     }
   }
 }

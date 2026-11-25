@@ -1064,3 +1064,45 @@ test("a port a surviving preview holds is not handed to a new one", {
     await driver.dispose().catch(() => undefined);
   }
 });
+
+// Killing `docker exec` ends the client and leaves the command running inside
+// the container. Both ways a run is cut short must reach the command itself.
+for (const how of ["stop", "timeout"] as const) {
+  test(`a ${how} ends the command inside the container, not just the client`, {
+    skip: !hasEngine,
+  }, async () => {
+    const driver = makeDriver(config("container"));
+    const projectId = `prj_cut_${how}`;
+    try {
+      await driver.ensureProject(projectId);
+      // The first command creates the container; this is about the second.
+      await driver.exec(projectId, { command: "true" });
+      const command =
+        "(while true; do date +%s%N > tick; sleep 0.1; done) & " + "while true; do sleep 0.1; done";
+      const stop = new AbortController();
+      const running = driver.exec(projectId, {
+        command,
+        ...(how === "stop" ? { signal: stop.signal } : { timeoutMs: 3_000 }),
+      });
+      if (how === "stop") {
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        stop.abort();
+      }
+      const result = await running;
+      if (how === "stop") assert.equal(result.stopped, true);
+      else assert.equal(result.timedOut, true);
+
+      // TERM, then KILL two seconds later, so give it time.
+      await new Promise((resolve) => setTimeout(resolve, 4_000));
+      const read = async () =>
+        (await driver.exec(projectId, { command: "cat tick" })).stdout.trim();
+      const first = await read();
+      assert.ok(first, "the command never started");
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      assert.equal(await read(), first, "the command is still running in the container");
+    } finally {
+      await driver.removeProject(projectId).catch(() => undefined);
+      await driver.dispose().catch(() => undefined);
+    }
+  });
+}

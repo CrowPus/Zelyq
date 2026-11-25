@@ -321,3 +321,32 @@ test("one file comes back from a snapshot through the reference host, byte for b
     remote.restoreSnapshotFile("prj_restore_one", snapshot.id, "public/never.mp4"),
   );
 });
+
+test("Stop reaches a command running on the reference host", async () => {
+  const driver = new RemoteRuntimeDriver({
+    kind: "remote",
+    workspaceDir: "unused",
+    url: hostUrl,
+    token: TOKEN,
+    execTimeoutMs: 20_000,
+    previewPortRange: [4820, 4829],
+    previewHost: "127.0.0.1",
+  });
+  await driver.ensureProject("prj_remote_stop");
+  const stop = new AbortController();
+  const running = driver.exec("prj_remote_stop", {
+    command: "(while true; do date +%s%N > tick; sleep 0.1; done) & while true; do sleep 0.1; done",
+    signal: stop.signal,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  stop.abort();
+  const result = await running;
+  assert.equal(result.stopped, true);
+
+  // The host kills the tree when the connection closes: TERM, KILL after 2 s.
+  await new Promise((resolve) => setTimeout(resolve, 3_000));
+  const tick = path.join(hostWorkspace, "prj_remote_stop", "tick");
+  const first = await fs.readFile(tick, "utf8");
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(await fs.readFile(tick, "utf8"), first, "the command is still running on the host");
+});

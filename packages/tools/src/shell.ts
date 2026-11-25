@@ -101,12 +101,13 @@ export const runCommandTool = defineTool({
     const result = await context.runtime.exec(context.projectId, {
       command: `(set -o pipefail) 2>/dev/null && set -o pipefail\n${input.command}`,
       timeoutMs: input.timeout_ms,
+      signal: context.signal,
     });
 
     const parts = [
       result.stdout.trim() && `stdout:\n${result.stdout.trim()}`,
       result.stderr.trim() && `stderr:\n${result.stderr.trim()}`,
-      `exit code: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}`,
+      `exit code: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}${result.stopped ? " (stopped by the person)" : ""}`,
     ].filter(Boolean);
 
     return {

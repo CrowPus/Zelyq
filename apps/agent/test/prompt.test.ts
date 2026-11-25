@@ -88,7 +88,10 @@ test("the skills catalog warns against assuming a backend the project does not h
     template: "vite-react",
     skills: [{ name: "x", description: "y" }],
   });
-  assert.match(prompt, /never on\s+the assumption that this project has, or needs, a backend it does not/);
+  assert.match(
+    prompt,
+    /never on\s+the assumption that this project has, or needs, a backend it does not/,
+  );
 });
 
 test("no stack is told it has no backend — react-fastapi has one", () => {
