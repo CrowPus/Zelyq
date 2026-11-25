@@ -113,7 +113,7 @@ corrects import order and outdated syntax — the rules are listed in
 `dark:` classes follow a `dark` class on `<html>`, which `index.html` sets before
 first paint from `localStorage.theme` or, failing that, the OS. So:
 
-- A theme toggle flips the class and saves the choice —
+- A theme toggle (only when the person asks for one) flips the class and saves the choice —
   `const on = document.documentElement.classList.toggle("dark"); localStorage.setItem("theme", on ? "dark" : "light");`
   — and never reads `prefers-color-scheme` itself.
 - **Click the toggle in the preview before saying it works**, and check the page
