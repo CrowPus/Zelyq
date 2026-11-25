@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Content } from "@google/genai";
-import { OMITTED_TOOL_INPUT_MARKER } from "@zelyq/core";
+import { containsOmittedMarker } from "@zelyq/core";
 import { reduceChatGptHistory } from "../src/providers/chatgpt-responses.js";
 import { reduceGoogleHistory } from "../src/providers/google.js";
 import {
@@ -24,9 +24,12 @@ import { reduceChatHistory } from "../src/providers/openai-compatible.js";
 
 const BIG = "x".repeat(60_000);
 
-test("a heavy write_file body is replaced with the same marker the persisted side uses", () => {
+test("a heavy write_file body is removed the same way the persisted side does it", () => {
   const reduced = reduceToolInput("write_file", { path: "src/App.tsx", content: BIG });
-  assert.deepEqual(reduced, { path: "src/App.tsx", content: OMITTED_TOOL_INPUT_MARKER });
+  assert.deepEqual(reduced, {
+    path: "src/App.tsx",
+    content_omitted: `${BIG.length} characters, not kept in history. The file on disk is current; read_file to see it.`,
+  });
 });
 
 test("a small edit stays inline — the saving is all in the large ones", () => {
@@ -74,7 +77,8 @@ test("Gemini: past the threshold the bodies go and the shape survives", () => {
   assert.equal(out.length, contents.length, "no entry may be dropped — pairs must stay intact");
 
   const args = out[0]?.parts?.[0]?.functionCall?.args as Record<string, unknown>;
-  assert.equal(args.content, OMITTED_TOOL_INPUT_MARKER);
+  assert.equal("content" in args, false);
+  assert.ok(args.content_omitted);
   assert.equal(args.path, "f0.tsx", "the path is what makes the body re-readable — keep it");
 
   // The round in flight is never touched.
@@ -106,7 +110,8 @@ test("OpenAI dialect: same threshold, same untouched tail", () => {
   assert.equal(out.length, messages.length);
   const first = out[0];
   assert.ok(first?.role === "assistant" && first.tool_calls);
-  assert.ok(first.tool_calls[0]!.function.arguments.includes(OMITTED_TOOL_INPUT_MARKER));
+  assert.ok(first.tool_calls[0]!.function.arguments.includes("content_omitted"));
+  assert.equal(containsOmittedMarker(first.tool_calls[0]!.function.arguments), false);
   const last = out[out.length - 2];
   assert.ok(last?.role === "assistant" && last.tool_calls);
   assert.ok(last.tool_calls[0]!.function.arguments.includes(BIG), "newest call untouched");
@@ -128,7 +133,7 @@ test("Responses API: same rule over its flat input array", () => {
   assert.equal(out.length, items.length);
   const first = out[0];
   assert.ok(first?.type === "function_call");
-  assert.ok(first.arguments.includes(OMITTED_TOOL_INPUT_MARKER));
+  assert.ok(first.arguments.includes("content_omitted"));
   const last = out[out.length - 2];
   assert.ok(last?.type === "function_call" && last.arguments.includes(BIG));
 });
@@ -158,7 +163,7 @@ test("a realistic Zelyq session trips the threshold — the 200k it used to be n
   const out = reduceGoogleHistory(bodies);
   assert.notEqual(out, bodies, "a dozen component writes must be enough to trip a sweep");
   const first = out[0]?.parts?.[0]?.functionCall?.args as Record<string, unknown>;
-  assert.equal(first.content, OMITTED_TOOL_INPUT_MARKER);
+  assert.equal("content" in first, false);
 });
 
 // ---------------------------------------------------------------------------

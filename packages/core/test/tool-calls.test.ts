@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { OMITTED_TOOL_INPUT_MARKER, stripHeavyToolInputs, type ToolCall } from "../src/models.js";
+import {
+  containsOmittedMarker,
+  OMITTED_TOOL_INPUT_MARKER,
+  stripHeavyToolInputs,
+  type ToolCall,
+} from "../src/models.js";
 
 const call = (name: string, input: Record<string, unknown>): ToolCall => ({
   id: `t_${name}`,
@@ -9,12 +14,23 @@ const call = (name: string, input: Record<string, unknown>): ToolCall => ({
   result: "ok",
 });
 
-test("write_file content over the keep length is replaced with the marker", () => {
+test("write_file content over the keep length is removed, leaving a note beside it", () => {
   const [stripped] = stripHeavyToolInputs([
     call("write_file", { path: "src/App.tsx", content: "x".repeat(5000) }),
   ]);
   assert.equal(stripped.input.path, "src/App.tsx");
-  assert.equal(stripped.input.content, OMITTED_TOOL_INPUT_MARKER);
+  // The field is gone, not replaced: a model imitating this call produces one
+  // the schema rejects, instead of a placeholder written to disk as content.
+  assert.equal("content" in stripped.input, false);
+  assert.match(String(stripped.input.content_omitted), /^5000 characters/);
+});
+
+test("the stripped form never contains the legacy placeholder", () => {
+  const [stripped] = stripHeavyToolInputs([
+    call("write_file", { path: "a.ts", content: "x".repeat(5000) }),
+  ]);
+  assert.equal(containsOmittedMarker(JSON.stringify(stripped.input)), false);
+  assert.equal(containsOmittedMarker(OMITTED_TOOL_INPUT_MARKER), true);
 });
 
 test("a short edit is kept inline — the saving is only in the big ones", () => {
@@ -35,8 +51,10 @@ test("edit_file drops both old_text and new_text when large", () => {
       new_text: "b".repeat(300),
     }),
   ]);
-  assert.equal(stripped.input.old_text, OMITTED_TOOL_INPUT_MARKER);
-  assert.equal(stripped.input.new_text, OMITTED_TOOL_INPUT_MARKER);
+  assert.equal("old_text" in stripped.input, false);
+  assert.equal("new_text" in stripped.input, false);
+  assert.match(String(stripped.input.old_text_omitted), /^300 characters/);
+  assert.match(String(stripped.input.new_text_omitted), /^300 characters/);
 });
 
 test("other tools are untouched, even with long string inputs", () => {

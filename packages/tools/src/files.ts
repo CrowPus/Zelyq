@@ -1,3 +1,4 @@
+import { containsOmittedMarker } from "@zelyq/core";
 import { z } from "zod";
 import { defineTool, type ToolContext, type ToolResult, truncate } from "./types.js";
 
@@ -142,6 +143,24 @@ export const readFileTool = defineTool({
   },
 });
 
+/**
+ * Older history replaced stored file contents with a one-line placeholder, and
+ * models copied it back as real content. Never let it reach disk.
+ */
+function omittedMarkerRefusal(path: string, field: string): ToolResult {
+  return {
+    output:
+      `Refused: ${field} for ${path} contains the history placeholder "[omitted from history ...]". ` +
+      "That text is not file content — it marks where earlier content was left out of the conversation. " +
+      `Nothing was written. read_file ${path} to see what is on disk, then send the real text.`,
+    isError: true,
+  };
+}
+
+/** A rewrite this drastic is almost always a mistake, not an intent. */
+const SHRINK_MIN_PRIOR_LINES = 40;
+const SHRINK_MAX_NEW_LINES = 3;
+
 export const writeFileTool = defineTool({
   name: "write_file",
   description:
@@ -150,8 +169,15 @@ export const writeFileTool = defineTool({
   schema: z.object({
     path: z.string().describe("Path relative to the project root"),
     content: z.string().describe("The complete new contents of the file"),
+    replace_large_file: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true only when you mean to cut an existing file of 40+ lines down to 3 lines or fewer.",
+      ),
   }),
   async run(context, input): Promise<ToolResult> {
+    if (containsOmittedMarker(input.content)) return omittedMarkerRefusal(input.path, "content");
     return withPathLock(lockKey(context.projectId, input.path), async () => {
       let prior: string | null = null;
       try {
@@ -159,6 +185,19 @@ export const writeFileTool = defineTool({
         if (existing.encoding === "utf8") prior = existing.content;
       } catch {
         // New file — no prior content to diff.
+      }
+      if (prior !== null && !input.replace_large_file) {
+        const priorLines = prior.split("\n").length;
+        const newLines = input.content.split("\n").length;
+        if (priorLines >= SHRINK_MIN_PRIOR_LINES && newLines <= SHRINK_MAX_NEW_LINES) {
+          return {
+            output:
+              `Refused: this would replace all ${priorLines} lines of ${input.path} with ${newLines}. ` +
+              "Nothing was written. To change part of the file use edit_file; if you really mean to " +
+              "empty it, send the call again with replace_large_file: true.",
+            isError: true,
+          };
+        }
       }
       await context.runtime.writeFile(context.projectId, input.path, input.content);
       context.onFileChanged(input.path);
@@ -185,6 +224,15 @@ export const editFileTool = defineTool({
     new_text: z.string().describe("Replacement text"),
   }),
   async run(context, input): Promise<ToolResult> {
+    if (containsOmittedMarker(input.new_text)) return omittedMarkerRefusal(input.path, "new_text");
+    if (containsOmittedMarker(input.old_text)) {
+      return {
+        output:
+          `old_text for ${input.path} is the history placeholder "[omitted from history ...]", not text from the file. ` +
+          `Nothing was changed. read_file ${input.path} and copy the exact lines you want to replace.`,
+        isError: true,
+      };
+    }
     return withPathLock(lockKey(context.projectId, input.path), async () => {
       const file = await context.runtime.readFile(context.projectId, input.path);
       if (file.encoding !== "utf8") {

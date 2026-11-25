@@ -283,21 +283,43 @@ const HEAVY_TOOL_INPUT_FIELDS: Record<string, readonly string[]> = {
   edit_file: ["old_text", "new_text"],
 };
 
+/**
+ * The text older Zelyq versions put in place of a stripped field. Weak models
+ * copied it back as the new value: on one instance, 86 `write_file` calls
+ * replaced real files with this single line (Sept–Oct 2026). It is no longer
+ * written; it stays exported so the file tools can refuse it and so history
+ * stored before the change is still recognised.
+ */
 export const OMITTED_TOOL_INPUT_MARKER = "[omitted from history — on disk, use read_file]";
+
+/** True when `text` contains the legacy placeholder (any version of its wording). */
+export function containsOmittedMarker(text: string): boolean {
+  return text.includes("[omitted from history");
+}
 
 /** A heavy field longer than this is replaced; shorter ones stay inline. */
 const HEAVY_TOOL_INPUT_KEEP = 200;
+
+/**
+ * The note left beside a stripped field. The field itself is removed, so a
+ * model that imitates the stripped call produces one with the field missing
+ * — which the tool's schema rejects — instead of one whose value is a
+ * placeholder that would be written to disk as the file's contents.
+ */
+export const OMITTED_NOTE_SUFFIX = "_omitted";
 
 export function stripHeavyToolInputs(calls: ToolCall[]): ToolCall[] {
   return calls.map((call) => {
     const heavy = HEAVY_TOOL_INPUT_FIELDS[call.name];
     if (!heavy) return call;
     let changed = false;
-    const input = { ...call.input };
+    const input: Record<string, unknown> = { ...call.input };
     for (const field of heavy) {
       const value = input[field];
       if (typeof value === "string" && value.length > HEAVY_TOOL_INPUT_KEEP) {
-        input[field] = OMITTED_TOOL_INPUT_MARKER;
+        delete input[field];
+        input[`${field}${OMITTED_NOTE_SUFFIX}`] =
+          `${value.length} characters, not kept in history. The file on disk is current; read_file to see it.`;
         changed = true;
       }
     }
