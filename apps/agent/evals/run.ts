@@ -45,6 +45,8 @@ const { values } = parseArgs({
     // The old harness-only agent: no skills, design references, plugins or
     // libraries. Kept for comparison with results recorded before 2026-11.
     bare: { type: "boolean", default: false },
+    // "bench": the benchmark tasks, graded by hidden flows (evals/bench.ts).
+    suite: { type: "string", default: "evals" },
   },
 });
 
@@ -60,6 +62,7 @@ zelyq evals — measure whether the agent actually builds working software
   pnpm eval --keep                   leave projects on disk to inspect
   pnpm eval --repeat 3               run every case three times
   pnpm eval --bare                   the old agent: no skills, plugins or libraries
+  pnpm eval --suite bench            the benchmark tasks, graded by hidden flows
 
 This spends real money on real model calls. Start with --limit.
 `);
@@ -131,6 +134,7 @@ const selected = selectCases({
   only: values.only?.split(",").map((id) => id.trim()),
   tag: values.tag,
   limit: values.limit ? Number.parseInt(values.limit, 10) : undefined,
+  suite: values.suite,
 });
 const repeat = Math.max(1, Number.parseInt(values.repeat, 10) || 1);
 // Repeats are interleaved (all cases once, then again) so a provider having a

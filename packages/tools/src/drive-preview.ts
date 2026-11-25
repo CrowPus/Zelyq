@@ -163,7 +163,16 @@ async function resolve(page: Page, target: Target | undefined): Promise<Locator 
   const locator = await locateWithFallback(page, target);
   if (!locator)
     return "the target names nothing: give role+name, label, placeholder, text or selector";
-  const count = await locator.count();
+  let count = await locator.count();
+  if (count === 0) {
+    // Not there yet is not the same as not there: content that arrives after
+    // a fetch, or a dev server reloading the page once, gets a moment.
+    await locator
+      .first()
+      .waitFor({ state: "attached", timeout: ACTION_TIMEOUT_MS })
+      .catch(() => undefined);
+    count = await locator.count();
+  }
   if (count === 0) return `nothing matches ${describeTarget(target)}`;
   if (target.nth !== undefined) {
     if (target.nth >= count) return `${describeTarget(target)}: only ${count} match`;

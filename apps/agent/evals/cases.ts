@@ -1,3 +1,4 @@
+import { BENCH_CASES } from "./bench.js";
 import type { EvalCase } from "./types.js";
 
 /**
@@ -941,8 +942,10 @@ export function selectCases(options: {
   only?: string[];
   tag?: string[];
   limit?: number;
+  /** "bench": the benchmark tasks with hidden flows, not the eval cases. */
+  suite?: string;
 }): EvalCase[] {
-  let cases = CASES;
+  let cases: EvalCase[] = options.suite === "bench" ? BENCH_CASES : CASES;
   if (options.only?.length) {
     const wanted = new Set(options.only);
     cases = cases.filter((item) => wanted.has(item.id));
