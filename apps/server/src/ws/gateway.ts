@@ -44,7 +44,15 @@ interface Room {
    * and two prompts sent together both got through that gap — found in
    * review, the second person's tokens then cut off the first one's turn. */
   busy: boolean;
+  /** Every event broadcast during the running turn, so a tab that opens or
+   * reconnects mid-turn is replayed what it missed instead of seeing a
+   * conversation with no sign of the build still going. Cleared when the turn
+   * ends; see `LIVE_REPLAY_MAX_BYTES`. */
+  live: { events: string[]; bytes: number; full: boolean };
 }
+
+/** Above this, a running turn's replay keeps everything except more text. */
+const LIVE_REPLAY_MAX_BYTES = 4_000_000;
 
 /** What the chat's own controls picked for one prompt. */
 type TurnOverride = {
@@ -153,6 +161,13 @@ export class ChatGateway {
 
     const history = await this.store.messages.listForSession(session.id);
     send(socket, { type: "connected", sessionId: session.id, projectId: project.id, history });
+    // A turn already running (this person reloaded, or another tab started
+    // it): catch this tab up, then it streams like the others.
+    if (room.busy) {
+      for (const event of room.live.events) {
+        if (socket.readyState === socket.OPEN) socket.send(event);
+      }
+    }
 
     socket.on("message", (raw: Buffer) => {
       void this.handleMessage(socket, room, raw, connection).catch((error) => {
@@ -169,7 +184,10 @@ export class ChatGateway {
 
     socket.on("close", () => {
       room.sockets.delete(socket);
-      if (room.sockets.size === 0) this.rooms.delete(room.projectId);
+      // Kept while a turn runs: the turn belongs to the project, not to the
+      // tab. Deleting it here lost a running build's progress on a reload,
+      // and let a second prompt start beside the first.
+      this.releaseIfIdle(room);
     });
   }
 
@@ -248,10 +266,13 @@ export class ChatGateway {
       return;
     }
     room.busy = true;
+    room.live = { events: [], bytes: 0, full: false };
     try {
       await this.startTurn(room, userId, prompt, override);
     } finally {
       room.busy = false;
+      room.live = { events: [], bytes: 0, full: false };
+      this.releaseIfIdle(room);
     }
   }
 
@@ -853,7 +874,14 @@ export class ChatGateway {
   private roomFor(projectId: string, sessionId: string): Room {
     const existing = this.rooms.get(projectId);
     if (existing) return existing;
-    const room: Room = { projectId, sessionId, sockets: new Set(), turn: null, busy: false };
+    const room: Room = {
+      projectId,
+      sessionId,
+      sockets: new Set(),
+      turn: null,
+      busy: false,
+      live: { events: [], bytes: 0, full: false },
+    };
     this.rooms.set(projectId, room);
     return room;
   }
@@ -869,7 +897,30 @@ export class ChatGateway {
   }
 
   private broadcast(room: Room, event: AgentEvent): void {
-    for (const socket of room.sockets) send(socket, event);
+    const payload = JSON.stringify(event);
+    if (room.busy) {
+      const isText = event.type === "text.delta" || event.type === "thinking.delta";
+      if (room.live.bytes + payload.length > LIVE_REPLAY_MAX_BYTES) room.live.full = true;
+      if (!room.live.full || !isText) {
+        room.live.events.push(payload);
+        room.live.bytes += payload.length;
+      }
+    }
+    for (const socket of room.sockets) {
+      if (socket.readyState === socket.OPEN) socket.send(payload);
+    }
+  }
+
+  /** A room with nobody watching and no turn running is forgotten. */
+  private releaseIfIdle(room: Room): void {
+    if (
+      room.sockets.size === 0 &&
+      !room.busy &&
+      !room.turn &&
+      this.rooms.get(room.projectId) === room
+    ) {
+      this.rooms.delete(room.projectId);
+    }
   }
 }
 
