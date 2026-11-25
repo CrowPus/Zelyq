@@ -4457,6 +4457,47 @@ export class AgentSession {
   }
 
   /**
+   * Loads the running preview's landing page in the sandboxed browser. Fails
+   * on an error thrown while it loads, or a page with nothing on it. A
+   * browser that cannot start is not the app's fault and fails nothing.
+   */
+  private async loadCheck(context: ToolContext): Promise<{ failed: boolean; output: string }> {
+    const result = await executeTool(context, "check_console_errors", {}).catch(
+      (error: unknown) => ({ output: String(error), isError: true }),
+    );
+    let report: { pageErrors?: string[]; blankPage?: boolean } | null = null;
+    try {
+      report = JSON.parse(result.output) as { pageErrors?: string[]; blankPage?: boolean };
+    } catch {
+      report = null;
+    }
+    if (!report) {
+      return { failed: false, output: `The page was not loaded: ${result.output.slice(0, 300)}` };
+    }
+    const thrown = report.pageErrors ?? [];
+    if (thrown.length) {
+      return {
+        failed: true,
+        output:
+          `The app throws when it loads, so a person sees a broken page:\n` +
+          thrown
+            .slice(0, 3)
+            .map((e) => `- ${e.slice(0, 500)}`)
+            .join("\n"),
+      };
+    }
+    if (report.blankPage) {
+      return {
+        failed: true,
+        output:
+          "The app loads to a blank page: nothing is rendered. Read preview_logs and check the " +
+          "entry component.",
+      };
+    }
+    return { failed: false, output: "The page loads without errors." };
+  }
+
+  /**
    * Whether there is anything for `runVerification` to actually do — checked
    * before emitting a `tool.start`, so a project with no typecheck/build
    * script and a preview that has not crashed produces no visible step at
@@ -4468,6 +4509,8 @@ export class AgentSession {
   private async needsVerification(context: ToolContext): Promise<{
     script: "typecheck" | "build" | null;
     crashedPreview: Preview | null;
+    /** The preview is up, so the check can load the page. */
+    previewRunning?: boolean;
     checks?: Array<{ name: string; command: string; cwd: string; timeoutMs: number }>;
     /** The programme's phase table, when the project has one — checked for
      * DONE rows without tests or evidence (programme.ts). */
@@ -4483,6 +4526,7 @@ export class AgentSession {
       return {
         script: null,
         crashedPreview: preview.status === "crashed" ? preview : null,
+        previewRunning: preview.status === "running",
         checks: manifest.checks,
         programme,
       };
@@ -4498,9 +4542,10 @@ export class AgentSession {
 
     const preview = await context.runtime.previewStatus(context.projectId).catch(() => null);
     const crashedPreview = preview?.status === "crashed" ? preview : null;
+    const previewRunning = preview?.status === "running";
 
-    if (!script && !crashedPreview && !programme) return null;
-    return { script, crashedPreview, programme };
+    if (!script && !crashedPreview && !programme && !previewRunning) return null;
+    return { script, crashedPreview, previewRunning, programme };
   }
 
   /**
@@ -4515,6 +4560,7 @@ export class AgentSession {
     check: {
       script: "typecheck" | "build" | null;
       crashedPreview: Preview | null;
+      previewRunning?: boolean;
       checks?: Array<{ name: string; command: string; cwd: string; timeoutMs: number }>;
       programme?: string;
     },
@@ -4591,12 +4637,23 @@ export class AgentSession {
       );
     }
 
+    // A running dev server is not a working app: Vite serves a page that
+    // throws on load as happily as one that works. So the page is loaded.
+    let pageNote = "";
+    if (check.previewRunning && !context.signal.aborted) {
+      const loaded = await this.loadCheck(context);
+      if (loaded.failed) {
+        failed = true;
+        parts.push(loaded.output);
+      } else pageNote = loaded.output;
+    }
+
     return {
       failed,
       output:
         check.checks || check.programme || failed
-          ? parts.join("\n\n")
-          : "Typecheck and the preview both look fine.",
+          ? [...parts, pageNote].filter(Boolean).join("\n\n")
+          : pageNote || "Typecheck and the preview both look fine.",
     };
   }
 }

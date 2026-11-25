@@ -182,13 +182,19 @@ export const checkConsoleErrorsTool = defineTool({
   schema: z.object({ ...pathField }),
   async run(context, input) {
     return withPage(context, { path: input.path }, async (page, telemetry) => {
+      // No text and nothing drawn: a game on a canvas or an image gallery is
+      // not blank.
       const blank =
         (
           await page
             .locator("body")
             .innerText()
             .catch(() => "")
-        ).trim() === "";
+        ).trim() === "" &&
+        (await page
+          .locator("canvas, svg, img, video")
+          .count()
+          .catch(() => 0)) === 0;
       return json({
         consoleErrors: telemetry.consoleErrors,
         pageErrors: telemetry.pageErrors,
