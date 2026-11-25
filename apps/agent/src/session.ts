@@ -323,6 +323,8 @@ export interface SessionOptions {
   sessionId: string;
   projectId: string;
   projectName: string;
+  /** What the person said the app is for, when they gave one. */
+  projectDescription?: string;
   template: string;
   /** One-line stack summary for the `<project>` block. Absent ⇒ the
    * built-in `React 19 + Vite + Tailwind` line, so a vite-react session's
@@ -1696,6 +1698,9 @@ export class AgentSession {
           }`
         : buildSystemPrompt({
             projectName: options.projectName,
+            ...(options.projectDescription
+              ? { projectDescription: options.projectDescription }
+              : {}),
             template: options.template,
             skills: options.skills,
             ...(options.stack ? { stack: options.stack } : {}),
@@ -2113,6 +2118,9 @@ export class AgentSession {
       sessionId: `${this.id}#sub${n}`,
       projectId: this.projectId,
       projectName: this.options.projectName,
+      ...(this.options.projectDescription
+        ? { projectDescription: this.options.projectDescription }
+        : {}),
       template: this.options.template,
       stack: this.options.stack,
       stackSkill: this.options.stackSkill,

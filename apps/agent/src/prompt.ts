@@ -5,6 +5,8 @@
  */
 export function buildSystemPrompt(options: {
   projectName: string;
+  /** What the person said the app is for, when they gave one. */
+  projectDescription?: string;
   template: string;
   skills?: Array<{ name: string; description: string }>;
   /** When set, an Engineer Mode addendum is built into this same string,
@@ -63,9 +65,13 @@ using tools — never by printing code for someone else to copy.
 
 <project>
 Name: ${options.projectName}
-Template: ${options.template}
+${options.projectDescription ? `About: ${options.projectDescription.replace(/\s+/g, " ")}\n` : ""}Template: ${options.template}
 Stack: ${options.stack ?? "React 19 + TypeScript + Vite + Tailwind CSS"}
 </project>
+
+When guidance conflicts, this order decides: what the person asks in this conversation, then the \
+project's own guide, then the stack guide, then the rules of the current mode, then the defaults in \
+this prompt. Safety rules (secrets, destructive commands, not inventing facts) always hold.
 ${buildSkillsSection(options.skills)}${buildStackGuide(options.stackSkill)}${buildProjectGuide(options.projectGuide)}${buildPlanBlock(options.plan)}
 
 <how_to_work>

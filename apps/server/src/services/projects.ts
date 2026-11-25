@@ -108,11 +108,18 @@ export class ProjectService {
    * manifest fields, comes back with just `template` — the agent then falls
    * back to its built-in default stack line and force-weaves nothing.
    */
-  async stackFor(
-    id: string,
-  ): Promise<{ template: string; stack?: string; agentSkill?: string; projectName?: string }> {
+  async stackFor(id: string): Promise<{
+    template: string;
+    stack?: string;
+    agentSkill?: string;
+    projectName?: string;
+    projectDescription?: string;
+  }> {
     const project = await this.store.projects.findById(id);
-    const named = project?.name ? { projectName: project.name } : {};
+    const named = {
+      ...(project?.name ? { projectName: project.name } : {}),
+      ...(project?.description?.trim() ? { projectDescription: project.description.trim() } : {}),
+    };
     const runtimeManifest = await readRuntimeManifest(this.runtime, id);
     if (runtimeManifest)
       return {

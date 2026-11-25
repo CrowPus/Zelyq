@@ -65,6 +65,7 @@ export class AgentClient {
     sessionId: string;
     projectId: string;
     projectName?: string;
+    projectDescription?: string;
     provider?: string;
     model?: string;
     effort?: string;
@@ -140,6 +141,7 @@ export class AgentClient {
     sessionId: string;
     projectId: string;
     projectName?: string;
+    projectDescription?: string;
     provider?: string;
     model?: string;
     effort?: string;

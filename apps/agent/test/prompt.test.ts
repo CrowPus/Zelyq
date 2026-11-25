@@ -562,3 +562,23 @@ test("D1: no projectGuide means no <project_guide> block — byte-identical defa
   assert.doesNotMatch(withGuide, /<project_guide>/);
   assert.equal(withGuide, without);
 });
+
+test("the project's description is in the <project> block, on one line", () => {
+  const prompt = buildSystemPrompt({
+    projectName: "Harbour Bakery",
+    projectDescription: "Orders for a small bakery.\n\nPickup only.",
+    template: "vite-react",
+  });
+  assert.match(
+    prompt,
+    /Name: Harbour Bakery\nAbout: Orders for a small bakery\. Pickup only\.\nTemplate:/,
+  );
+  const none = buildSystemPrompt({ projectName: "Harbour Bakery", template: "vite-react" });
+  assert.doesNotMatch(none, /About:/);
+});
+
+test("the prompt says the person's request outranks the guides and defaults", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.match(prompt, /what the person asks in this conversation, then the project's own guide/);
+  assert.match(prompt, /Safety rules .* always hold/);
+});
