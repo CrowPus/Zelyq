@@ -340,11 +340,9 @@ function line(result: CaseResult, model: string): string {
         : result.intact
           ? "~"
           : "✗";
-  const detail = result.error
-    ? result.error
-    : failed.length
-      ? failed.map((check) => check.label).join(", ")
-      : "";
+  const detail = [result.error, failed.map((check) => check.label).join(", ")]
+    .filter(Boolean)
+    .join(" — ");
   const cost = estimateCostUsd(model, tokenCountsOf(result));
   return [
     ` ${mark} ${result.id.padEnd(22)}`,

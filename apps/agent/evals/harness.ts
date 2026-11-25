@@ -139,6 +139,9 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
           if (event.call.isError) result.toolErrors += 1;
           break;
         case "error":
+          // A retry is a notice that the model call is being tried again,
+          // not how the case ended; recording it hid the real failures.
+          if (event.code === "retrying") break;
           result.error ??= `${event.code}: ${event.message}`;
           break;
         case "aborted":
