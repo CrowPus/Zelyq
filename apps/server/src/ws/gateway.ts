@@ -48,11 +48,17 @@ interface Room {
    * reconnects mid-turn is replayed what it missed instead of seeing a
    * conversation with no sign of the build still going. Cleared when the turn
    * ends; see `LIVE_REPLAY_MAX_BYTES`. */
-  live: { events: string[]; bytes: number; full: boolean };
+  live: { events: string[]; bytes: number; full: boolean; messageIds: Set<string> };
 }
 
 /** Above this, a running turn's replay keeps everything except more text. */
 const LIVE_REPLAY_MAX_BYTES = 4_000_000;
+/** How often a running turn's reply is saved, so a restart loses little of it. */
+const CHECKPOINT_MS = 3_000;
+/** Added to a reply whose turn a restart cut off. */
+export const INTERRUPTED_NOTE =
+  "_Interrupted: Zelyq restarted before this turn finished. What it did up to here is kept. " +
+  "Ask again to carry on._";
 
 /** What the chat's own controls picked for one prompt. */
 type TurnOverride = {
@@ -159,7 +165,11 @@ export class ChatGateway {
     const room = this.roomFor(project.id, session.id);
     room.sockets.add(socket);
 
-    const history = await this.store.messages.listForSession(session.id);
+    // The running turn's replies are saved as it goes, and the replay below
+    // rebuilds them, so they are left out of the history here.
+    const history = (await this.store.messages.listForSession(session.id)).filter(
+      (message) => !(room.busy && room.live.messageIds.has(message.id)),
+    );
     send(socket, { type: "connected", sessionId: session.id, projectId: project.id, history });
     // A turn already running (this person reloaded, or another tab started
     // it): catch this tab up, then it streams like the others.
@@ -266,12 +276,12 @@ export class ChatGateway {
       return;
     }
     room.busy = true;
-    room.live = { events: [], bytes: 0, full: false };
+    room.live = { events: [], bytes: 0, full: false, messageIds: new Set() };
     try {
       await this.startTurn(room, userId, prompt, override);
     } finally {
       room.busy = false;
-      room.live = { events: [], bytes: 0, full: false };
+      room.live = { events: [], bytes: 0, full: false, messageIds: new Set() };
       this.releaseIfIdle(room);
     }
   }
@@ -709,15 +719,65 @@ export class ChatGateway {
     // when the next turn begins, so the `finally` below saves only a turn that
     // ended without one (an abort, an error mid-stream).
     let saved = false;
-    const save = async (): Promise<void> => {
-      if (saved) return;
-      saved = true;
+    // Whether `assistant` has a row yet. The message is written while the turn
+    // runs, not only when it ends: a restart mid-turn used to lose everything
+    // the agent had said and done, and startup can only mark a turn
+    // interrupted if something of it is there.
+    let written = false;
+    let lastCheckpoint = 0;
+    let checkpointTimer: NodeJS.Timeout | null = null;
+    // One write at a time, in order: a checkpoint still running must not land
+    // after the final save and put back an older copy.
+    let writing: Promise<void> = Promise.resolve();
+    const writeNow = async (): Promise<void> => {
       // Persist without the whole-file bodies in write_file / edit_file inputs:
       // the transcript never shows them, and a session rebuilt from this
       // history would otherwise recarry ~68% of the tool-call bytes for content
       // that is already on disk. The live broadcast kept the full copy.
       assistant.toolCalls = stripHeavyToolInputs([...toolCalls.values()]);
-      await this.store.messages.append(assistant);
+      if (!written) {
+        written = true;
+        room.live.messageIds.add(assistant.id);
+        await this.store.messages.append(assistant);
+        return;
+      }
+      await this.store.messages.update(assistant.id, {
+        content: assistant.content,
+        thinking: assistant.thinking,
+        toolCalls: assistant.toolCalls,
+        tokensIn: assistant.tokensIn,
+        tokensOut: assistant.tokensOut,
+        cacheReadTokens: assistant.cacheReadTokens,
+        cacheCreationTokens: assistant.cacheCreationTokens,
+        usageSchema: assistant.usageSchema,
+      });
+    };
+    const write = (): Promise<void> => {
+      const next = writing.then(writeNow);
+      writing = next.catch(() => undefined);
+      return next;
+    };
+    /**
+     * Saves the reply so far at most every few seconds — on a timer, so a turn
+     * that goes quiet (a long install, a slow model) still has its last words
+     * saved. Never a reason to fail the turn.
+     */
+    const checkpoint = (): void => {
+      if (saved || checkpointTimer) return;
+      const wait = Math.max(0, CHECKPOINT_MS - (Date.now() - lastCheckpoint));
+      checkpointTimer = setTimeout(() => {
+        checkpointTimer = null;
+        if (saved) return;
+        lastCheckpoint = Date.now();
+        write().catch((error) => this.log.error(error, "could not save the turn so far"));
+      }, wait);
+    };
+    const save = async (): Promise<void> => {
+      if (checkpointTimer) clearTimeout(checkpointTimer);
+      checkpointTimer = null;
+      if (saved) return;
+      saved = true;
+      await write();
       await this.store.sessions.addUsage(room.sessionId, assistant.tokensIn, assistant.tokensOut);
     };
 
@@ -763,6 +823,8 @@ export class ChatGateway {
             assistant = newAssistant(passSnapshot);
             toolCalls = new Map<string, ToolCall>();
             saved = false;
+            written = false;
+            lastCheckpoint = 0;
           }
         }
 
@@ -803,6 +865,7 @@ export class ChatGateway {
           default:
             break;
         }
+        checkpoint();
       }
     } catch (error) {
       turnOk = false;
@@ -871,6 +934,58 @@ export class ChatGateway {
     }
   }
 
+  /**
+   * At startup, every session still marked running was cut off by the
+   * restart: nothing in this process is running it. Its reply so far is kept
+   * and marked interrupted (or one saying so is added, if the restart came
+   * before the first word), and the session and project are released — a
+   * project left "building" refused outside agents for good.
+   */
+  async recoverInterruptedTurns(): Promise<number> {
+    const stranded = await this.store.sessions.listByStatus("running");
+    for (const session of stranded) {
+      try {
+        const last = await this.store.messages.lastForSession(session.id);
+        if (last?.role === "assistant") {
+          if (!last.content.includes(INTERRUPTED_NOTE)) {
+            const content = last.content.trim()
+              ? `${last.content.trimEnd()}\n\n${INTERRUPTED_NOTE}`
+              : INTERRUPTED_NOTE;
+            await this.store.messages.update(last.id, { content });
+          }
+        } else if (last) {
+          await this.store.messages.append({
+            id: newId("message"),
+            sessionId: session.id,
+            role: "assistant",
+            content: INTERRUPTED_NOTE,
+            thinking: null,
+            toolCalls: [],
+            attachments: [],
+            snapshotId: null,
+            tokensIn: 0,
+            tokensOut: 0,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            usageSchema: 1,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        await this.store.sessions.setStatus(session.id, "idle");
+        const project = await this.store.projects.findById(session.projectId);
+        if (project?.status === "building") {
+          await this.store.projects.setStatus(session.projectId, "ready");
+        }
+      } catch (error) {
+        this.log.error(error, "could not recover an interrupted turn");
+      }
+    }
+    if (stranded.length) {
+      this.log.info(`marked ${stranded.length} turn(s) cut off by the restart as interrupted`);
+    }
+    return stranded.length;
+  }
+
   private roomFor(projectId: string, sessionId: string): Room {
     const existing = this.rooms.get(projectId);
     if (existing) return existing;
@@ -880,7 +995,7 @@ export class ChatGateway {
       sockets: new Set(),
       turn: null,
       busy: false,
-      live: { events: [], bytes: 0, full: false },
+      live: { events: [], bytes: 0, full: false, messageIds: new Set() },
     };
     this.rooms.set(projectId, room);
     return room;

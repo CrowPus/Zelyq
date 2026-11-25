@@ -998,6 +998,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   gateway.activity = activity;
   gateway.errors = errors;
   gateway.teamStatus = teamStatus;
+  // Before anyone connects: turns the last process was running when it went
+  // down are marked interrupted, and their projects released.
+  await gateway
+    .recoverInterruptedTurns()
+    .catch((error) => app.log.error(error, "could not recover turns interrupted by the restart"));
   gateway.maintenance = messages;
   teamStatus.stopPreview = (projectId) => runtime.stopPreview(projectId);
   agents.teamStatus = teamStatus;

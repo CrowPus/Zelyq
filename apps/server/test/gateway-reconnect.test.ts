@@ -8,6 +8,7 @@ import { runMigrations } from "@zelyq/db";
 import { WebSocket } from "ws";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
+import { INTERRUPTED_NOTE } from "../src/ws/gateway.js";
 
 /**
  * A running turn belongs to the project, not to the browser tab. Found in
@@ -96,6 +97,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 let agent: http.Server;
 let server: ZelyqServer;
 let cookie: string;
+let serverConfig: ServerConfig;
 
 before(async () => {
   await fs.mkdir(tmp, { recursive: true });
@@ -133,6 +135,7 @@ before(async () => {
       previewHost: "127.0.0.1",
     },
   };
+  serverConfig = config;
   await runMigrations(config.databaseUrl);
   server = await buildServer(config);
   await server.app.listen({ host: "127.0.0.1", port: 0 });
@@ -214,6 +217,10 @@ test("a tab that reconnects mid-turn is caught up, and a second prompt waits its
 
   const types = seen.map((m) => m.type);
   assert.equal(types[0], "connected");
+  // The reply so far is saved as the turn runs; the replay rebuilds it, so the
+  // history must not carry it too, or the tab shows it twice.
+  const history = (seen[0] as { history?: Array<{ role: string }> }).history ?? [];
+  assert.equal(history.filter((m) => m.role === "assistant").length, 0);
   assert.ok(types.includes("turn.start"), "the reconnected tab knows a turn is running");
   assert.ok(
     seen.some((m) => m.type === "error" && m.code === "conflict"),
@@ -231,9 +238,61 @@ test("a tab that reconnects mid-turn is caught up, and a second prompt waits its
     assistants = (await server.store.messages.listForSession(sessionId)).filter(
       (m) => m.role === "assistant",
     );
-    if (assistants.length >= 1) break;
+    if (assistants[0]?.content === "First half. Second half.") break;
     await new Promise((r) => setTimeout(r, 50));
   }
   assert.equal(assistants.length, 1);
   assert.equal(assistants[0]?.content, "First half. Second half.");
+});
+
+test("a turn cut off by a restart keeps what it did and is marked interrupted", async () => {
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "Restart" },
+    })
+  ).json().project;
+
+  const tab = open(project.id);
+  let sessionId = "";
+  await new Promise<void>((resolve, reject) => {
+    tab.on("error", reject);
+    tab.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected") {
+        sessionId = msg.sessionId;
+        tab.send(JSON.stringify({ type: "prompt", message: "build it" }));
+      }
+      if (msg.type === "text.delta") resolve();
+    });
+  });
+
+  // Saved while the turn runs, not only at its end.
+  let partial: Awaited<ReturnType<typeof server.store.messages.lastForSession>> = null;
+  // Every few seconds, on a timer: the fake agent has gone quiet by now.
+  for (let i = 0; i < 100 && partial?.content !== "First half. "; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    partial = await server.store.messages.lastForSession(sessionId);
+  }
+  assert.equal(partial?.role, "assistant");
+  assert.equal(partial?.content, "First half. ");
+  assert.equal((await server.store.sessions.findById(sessionId))?.status, "running");
+  assert.equal((await server.store.projects.findById(project.id))?.status, "building");
+
+  // The restart: a new process on the same database, with the old one's turn
+  // never finished.
+  const restarted = await buildServer({ ...serverConfig, port: 0 });
+  try {
+    const last = await restarted.store.messages.lastForSession(sessionId);
+    assert.equal(last?.id, partial?.id);
+    assert.equal(last?.content, `First half.\n\n${INTERRUPTED_NOTE}`);
+    assert.equal((await restarted.store.sessions.findById(sessionId))?.status, "idle");
+    assert.equal((await restarted.store.projects.findById(project.id))?.status, "ready");
+  } finally {
+    await restarted.close();
+    tab.close();
+    release();
+  }
 });
