@@ -1,5 +1,6 @@
 import { chromium } from "@playwright/test";
 import type { RuntimeDriver } from "@zelyq/runtime";
+import { type FlowStep, type FlowTelemetry, runFlow } from "@zelyq/tools";
 import { type Check, type CheckResult, CRITICAL_KINDS } from "./types.js";
 import { type ProjectFingerprint, packageNames } from "./workspace.js";
 
@@ -192,6 +193,8 @@ export function describe(check: Check): string {
       return check.why;
     case "changed_something":
       return "changed something";
+    case "flow":
+      return `a person can ${check.name}`;
     case "renders":
       return "renders without throwing";
   }
@@ -266,6 +269,9 @@ async function evaluate(
 
     case "renders":
       return await checkRenders(runtime, projectId);
+
+    case "flow":
+      return await checkFlow(runtime, projectId, check.steps, check.path);
 
     case "changed_something":
       return {
@@ -433,6 +439,58 @@ export async function renderReport(url: string): Promise<{ ok: boolean; detail: 
     }
     if (!mounted) return { ok: false, detail: "#root is empty — the app rendered nothing" };
     return { ok: true, detail: "" };
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Runs a hidden flow against the app the agent built. A fresh browser each
+ * time, so nothing the agent did in its own browser (a saved todo) leaks in.
+ */
+export async function checkFlow(
+  runtime: RuntimeDriver,
+  projectId: string,
+  steps: FlowStep[],
+  path?: string,
+): Promise<{ ok: boolean; detail: string }> {
+  const preview = await runtime.startPreview(projectId);
+  if (preview.status !== "running" || !preview.url) {
+    return { ok: false, detail: `preview ${preview.status}` };
+  }
+  return await flowReport(preview.url, steps, path);
+}
+
+/** Separated from the runtime so a grader can be tested against a page we control. */
+export async function flowReport(
+  base: string,
+  steps: FlowStep[],
+  path?: string,
+): Promise<{ ok: boolean; detail: string }> {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const telemetry: FlowTelemetry = { pageErrors: [], consoleErrors: [], httpErrors: [] };
+    page.on("pageerror", (error) => telemetry.pageErrors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") telemetry.consoleErrors.push(message.text());
+    });
+    page.on("response", (response) => {
+      if (response.status() >= 400) {
+        telemetry.httpErrors.push({ url: response.url(), status: response.status() });
+      }
+    });
+    const start = new URL(path ?? "/", base).href;
+    await page.goto(start, { waitUntil: "load", timeout: 30_000 });
+    // Same patience as `renderReport`: a slow mount is not the agent's bug.
+    await page.waitForFunction(ROOT_HAS_CONTENT, null, { timeout: 15_000 }).catch(() => undefined);
+    if (telemetry.pageErrors.length) {
+      return { ok: false, detail: `threw on load: ${telemetry.pageErrors[0]?.split("\n")[0]}` };
+    }
+    const outcome = await runFlow(page, telemetry, steps, base);
+    if (outcome.ok) return { ok: true, detail: "" };
+    const failed = outcome.lines.find((line) => /FAILED|threw:/.test(line)) ?? "failed";
+    return { ok: false, detail: failed.replace(/\s+/g, " ").slice(0, 300) };
   } finally {
     await browser.close().catch(() => undefined);
   }

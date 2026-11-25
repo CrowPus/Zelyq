@@ -99,6 +99,8 @@ const stepSchema = z.object({
 });
 
 type Step = z.infer<typeof stepSchema>;
+/** One step of a flow: what to do in the app, or what to expect of it. */
+export type FlowStep = Step;
 type Target = z.infer<typeof targetSchema>;
 
 const schema = z.object({
@@ -328,26 +330,41 @@ const CONTROLS = `(() => {
 
 const newSince = (list: string[], from: number) => list.slice(from).map((e) => e.slice(0, 300));
 
-async function drive(
-  context: ToolContext,
-  page: Page,
-  telemetry: Telemetry,
-  input: z.infer<typeof schema>,
-): Promise<ToolResult> {
-  const preview = await context.runtime.previewStatus(context.projectId);
-  const base = preview.url ?? telemetry.url;
-  const origin = new URL(base).origin;
-  const lines: string[] = [`Drove the preview from ${input.path ?? "/"}:`];
-  if (telemetry.pageErrors.length) {
-    lines.push(
-      `  (while loading, the page threw: ${newSince(telemetry.pageErrors, 0).join(" | ")})`,
-    );
-  }
+/** The browser-side record a flow reads: what the page threw, logged and failed. */
+export interface FlowTelemetry {
+  pageErrors: string[];
+  consoleErrors: string[];
+  httpErrors: Array<{ url: string; status: number }>;
+}
 
-  for (const [index, step] of input.steps.entries()) {
-    if (context.signal.aborted) {
+export interface FlowOutcome {
+  ok: boolean;
+  /** One line per step run, with the errors that step caused. */
+  lines: string[];
+  /** Index of the step that failed, or -1. */
+  failedAt: number;
+}
+
+/**
+ * Runs steps on a page that is already open at the app, stopping at the first
+ * failure. An uncaught error fails a step even when the step itself went
+ * through: the person would be looking at a broken app. Shared by
+ * `drive_preview` and by graders that judge an app the agent built, so both
+ * use the app the same way.
+ */
+export async function runFlow(
+  page: Page,
+  telemetry: FlowTelemetry,
+  steps: FlowStep[],
+  base: string,
+  signal?: AbortSignal,
+): Promise<FlowOutcome> {
+  const origin = new URL(base).origin;
+  const lines: string[] = [];
+  for (const [index, step] of steps.entries()) {
+    if (signal?.aborted) {
       lines.push(`${index + 1}. stopped`);
-      break;
+      return { ok: false, lines, failedAt: index };
     }
     const errorsBefore = telemetry.pageErrors.length;
     const consoleBefore = telemetry.consoleErrors.length;
@@ -372,27 +389,47 @@ async function drive(
       `${index + 1}. ${describeStep(step)} — ${failure ? `FAILED: ${failure}` : "ok"}` +
         (notes.length ? `\n   ${notes.join("\n   ")}` : ""),
     );
-
-    // An uncaught error is a failure even when the step itself went through:
-    // the person would be looking at a broken app.
     if (failure || thrown.length) {
-      const remaining = input.steps.length - index - 1;
+      const remaining = steps.length - index - 1;
       if (remaining > 0) lines.push(`(${remaining} later step(s) not run)`);
-      const controls = (await page.evaluate(CONTROLS).catch(() => [])) as string[];
-      lines.push(
-        `\nNow at ${page.url()}.`,
-        `Controls on the page: ${controls.length ? controls.join(", ") : "none found"}`,
-        `Visible text:\n${(await bodyText(page)).slice(0, 1500)}`,
-        "\nThis is how the app behaves for a person. Fix the app, or the step if it aimed at the " +
-          "wrong thing, and drive it again.",
-      );
-      const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
-      return {
-        output: lines.join("\n"),
-        isError: true,
-        ...(shot ? { images: [{ mimeType: "image/jpeg", data: shot.toString("base64") }] } : {}),
-      };
+      return { ok: false, lines, failedAt: index };
     }
+  }
+  return { ok: true, lines, failedAt: -1 };
+}
+
+async function drive(
+  context: ToolContext,
+  page: Page,
+  telemetry: Telemetry,
+  input: z.infer<typeof schema>,
+): Promise<ToolResult> {
+  const preview = await context.runtime.previewStatus(context.projectId);
+  const base = preview.url ?? telemetry.url;
+  const lines: string[] = [`Drove the preview from ${input.path ?? "/"}:`];
+  if (telemetry.pageErrors.length) {
+    lines.push(
+      `  (while loading, the page threw: ${newSince(telemetry.pageErrors, 0).join(" | ")})`,
+    );
+  }
+  const flow = await runFlow(page, telemetry, input.steps, base, context.signal);
+  lines.push(...flow.lines);
+
+  if (!flow.ok) {
+    const controls = (await page.evaluate(CONTROLS).catch(() => [])) as string[];
+    lines.push(
+      `\nNow at ${page.url()}.`,
+      `Controls on the page: ${controls.length ? controls.join(", ") : "none found"}`,
+      `Visible text:\n${(await bodyText(page)).slice(0, 1500)}`,
+      "\nThis is how the app behaves for a person. Fix the app, or the step if it aimed at the " +
+        "wrong thing, and drive it again.",
+    );
+    const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
+    return {
+      output: lines.join("\n"),
+      isError: true,
+      ...(shot ? { images: [{ mimeType: "image/jpeg", data: shot.toString("base64") }] } : {}),
+    };
   }
 
   lines.push(`\nEvery step passed. Now at ${page.url()}.`);

@@ -1,4 +1,5 @@
 import type { ScaffoldFile } from "@zelyq/runtime";
+import type { FlowStep } from "@zelyq/tools";
 
 /**
  * A check is an assertion about the project *after* the agent has finished.
@@ -85,7 +86,14 @@ type CheckKind =
    * without this a case whose remaining assertions the template already
    * satisfies would score as done.
    */
-  | { kind: "changed_something" };
+  | { kind: "changed_something" }
+  /**
+   * A person can actually do the thing: steps run against the running app in
+   * a browser — fill, click, reload — then expectations about what it shows.
+   * The agent never sees these steps; they are the hidden test. Same engine
+   * as the agent's own `drive_preview`, so "works" means the same to both.
+   */
+  | { kind: "flow"; name: string; path?: string; steps: FlowStep[] };
 
 /**
  * The checks that decide whether the project is still *intact* — that the agent
