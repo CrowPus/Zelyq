@@ -45,6 +45,15 @@ export const MODEL_RATES: Record<string, ModelRate> = {
   // Estimates — older OpenAI models the suite has historically run on.
   "gpt-5.2": { inputPer1M: 1.25, outputPer1M: 10, cacheReadFactor: 0.1, cacheCreationFactor: 0 },
   "gpt-5.1": { inputPer1M: 1.25, outputPer1M: 10, cacheReadFactor: 0.1, cacheCreationFactor: 0 },
+  // Google list price read 2026-11-25 (introductory until 2026-12-31). Cached
+  // input is billed at a tenth; the 3.7 Flash line below predates that and is
+  // kept only so old results still price the way they did.
+  "gemini-3.8-flash": {
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cacheReadFactor: 0.1,
+    cacheCreationFactor: 0,
+  },
   "gemini-3.7-flash": { inputPer1M: 0.3, outputPer1M: 2.5, ...NO_CACHE },
   "gemini-2.5-flash": { inputPer1M: 0.3, outputPer1M: 2.5, ...NO_CACHE },
   "gemini-pro-latest": { inputPer1M: 1.25, outputPer1M: 10, ...NO_CACHE },
