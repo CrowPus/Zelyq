@@ -2225,10 +2225,19 @@ export class AgentSession {
     }
 
     let reply = "";
+    // The text since the child's last tool call: its final report. `reply`
+    // holds everything it said, and its head is narration ("Let me look at
+    // the files…"), which is what the parent used to be handed.
+    let lastText = "";
+    let afterTool = false;
     let tokIn = 0;
     let tokOut = 0;
+    let cacheRead = 0;
+    let cacheCreation = 0;
     let rounds = 0;
     let hitTurnCap = false;
+    let endedBroken = false;
+    const childErrors: string[] = [];
     const changed = new Set<string>();
     const wallclock = setTimeout(() => child.abort(), wallclockMs);
     const onParentAbort = () => child.abort();
@@ -2236,12 +2245,24 @@ export class AgentSession {
     const startedAt = Date.now();
     try {
       await child.run(prompt, (e) => {
-        if (e.type === "text.delta") reply += e.text;
+        if (e.type === "text.delta") {
+          if (afterTool) lastText = "";
+          afterTool = false;
+          reply += e.text;
+          lastText += e.text;
+        }
+        if (e.type === "tool.start") afterTool = true;
         if (e.type === "usage") {
           tokIn = e.tokensIn;
           tokOut = e.tokensOut;
+          cacheRead = e.cacheReadTokens ?? 0;
+          cacheCreation = e.cacheCreationTokens ?? 0;
           rounds += 1;
           if (tokIn + tokOut > tokenCap) child.abort();
+        }
+        if (e.type === "error") {
+          if (e.code === "ended_broken") endedBroken = true;
+          else if (!parentSignal.aborted) childErrors.push(`${e.code}: ${e.message}`.slice(0, 400));
         }
         if (e.type === "files.changed") {
           for (const p of e.paths) {
@@ -2264,14 +2285,33 @@ export class AgentSession {
             ),
           });
         }
-        if (e.type === "turn.end" && e.stopReason === "end_turn" && rounds >= childTurnCap) {
+        // A child that runs out of steps ends with "max_iterations". Only
+        // "end_turn" was checked, so a cap was never reported.
+        if (
+          e.type === "turn.end" &&
+          (e.stopReason === "max_iterations" ||
+            (e.stopReason === "end_turn" && rounds >= childTurnCap))
+        ) {
           hitTurnCap = true;
         }
       });
     } finally {
       clearTimeout(wallclock);
       parentSignal.removeEventListener("abort", onParentAbort);
+      this.addChildUsage(emit, { tokensIn: tokIn, tokensOut: tokOut, cacheRead, cacheCreation });
     }
+    // What the parent is shown: the final report, cut from its end if long.
+    const report = (max: number): string => {
+      const text = (lastText.trim() ? lastText : reply).trim();
+      return text.length <= max ? text : `…${text.slice(-max)}`;
+    };
+    const problems = [
+      endedBroken ? "its own end-of-turn check was still FAILING when it stopped" : "",
+      ...childErrors,
+    ].filter(Boolean);
+    const problemNote = problems.length
+      ? `\nERRORS in this run (do not call it clean): ${problems.join(" | ")}\n`
+      : "";
 
     this.orchestration.tokens += tokIn + tokOut;
     this.orchestration.autoTokens += tokIn + tokOut;
@@ -2348,7 +2388,7 @@ export class AgentSession {
           "your own. Do NOT repeat it. Do NOT say anything was built or verified. It is a deliberate " +
           'pause: the user adds the file(s) to the named folder and replies "go" to resume.\n\n' +
           "-----\n" +
-          `${reply.slice(0, 6000)}\n` +
+          `${report(6000)}\n` +
           "-----\n" +
           `(context, not for the user: ${filesChanged.length} docs/staging file(s) written — ${
             filesChanged.join(", ") || "none"
@@ -2368,7 +2408,7 @@ export class AgentSession {
             "not run or produced only text. Do NOT relay a review as if work happened, and do NOT " +
             `say anything was "applied". Tell the user plainly: the ${spec.label} made no changes. ` +
             "Show what it reported below.\n\n" +
-            `${spec.label}'s report:\n${reply.slice(0, 3000)}`,
+            `${spec.label}'s report:\n${report(3000)}`,
           isError: true,
         };
       }
@@ -2381,7 +2421,7 @@ export class AgentSession {
             `The project does NOT yet match the ${spec.guideNoun}. Do NOT call this done. Tell the ` +
             `user: the ${spec.label} produced/updated its spec, and the next pass (or "keep going") ` +
             "will implement it — cheaper now that the spec exists. Relay the review below verbatim.\n\n" +
-            `${spec.label}'s report:\n${reply.slice(0, 5000)}`,
+            `${spec.label}'s report:\n${report(5000)}`,
           isError: true,
         };
       }
@@ -2399,7 +2439,7 @@ export class AgentSession {
               "must do.\n\nDo NOT call this done. Tell the user: the " +
               `${spec.label} worked without establishing its spec. Run the pass again (or ` +
               '"keep going") — it must write the spec first. Relay the review below verbatim.\n\n' +
-              `${spec.label}'s report:\n${reply.slice(0, 4000)}`,
+              `${spec.label}'s report:\n${report(4000)}`,
             isError: true,
           };
         }
@@ -2432,26 +2472,26 @@ export class AgentSession {
                 "found (report only — the Engineer fixes those).";
       return {
         output:
-          `${spec.passNoun} finished${capNote}\n` +
+          `${spec.passNoun} finished${capNote}\n${problemNote}` +
           `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
           `files changed (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
           `This is the ${spec.label}'s own report. Relay its REVIEW to the user VERBATIM — do not ` +
           "write your own, do not turn a FAIL / NOT DONE / NOT CLEARED into a PASS, do not add " +
           '"done". Report only the files it actually changed.\n\n' +
-          `${reply.slice(0, 6000)}\n\n` +
+          `${report(6000)}\n\n` +
           handBack,
       };
     }
     if (isVerify) {
       return {
         output:
-          `Verification finished${capNote}\n` +
+          `Verification finished${capNote}\n${problemNote}` +
           `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
           `files written (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
           "This is the verifier's own report. Your final message to the user is THIS CHECKLIST, " +
           "verbatim — do not write a checklist of your own, do not change a FAIL to a PASS, do not " +
           'add "verified" or "all done".\n\n' +
-          `${reply.slice(0, 6000)}\n\n` +
+          `${report(6000)}\n\n` +
           "Then, based only on what it says: if it starts with NOT VERIFIED, or any line is FAIL, or " +
           "it hit a cap — the build is NOT working. Say plainly what failed, and that the user can " +
           'reply "keep going" (the build continues and re-verifies) or switch to Engineer Mode to ' +
@@ -2461,15 +2501,56 @@ export class AgentSession {
     }
     return {
       output:
-        `Builder #${n} finished${capNote}\n` +
+        `Builder #${n} finished${capNote}\n${problemNote}` +
         `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
         `files changed (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n` +
         `run total so far: ${this.orchestration.subagents}/${ORCH_MAX_SUBAGENTS} builders, ` +
         `${this.orchestration.tokens} tokens\n\n` +
-        `Builder's report:\n${reply.slice(0, 3000)}\n\n` +
+        `Builder's report:\n${report(3000)}\n\n` +
         "Review the changed files. Mark the task done in build-plan.md, then dispatch the next one — " +
         "or stop and report if a cap was hit or the result is wrong.",
     };
+  }
+
+  /** The session's usage so far, cumulative and for this turn. */
+  private emitUsage(emit: (event: AgentEvent) => void): void {
+    emit({
+      type: "usage",
+      sessionId: this.id,
+      // Cumulative — the live gauge.
+      tokensIn: this.tokensIn,
+      tokensOut: this.tokensOut,
+      ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
+      ...(this.cacheCreationTokens > 0 ? { cacheCreationTokens: this.cacheCreationTokens } : {}),
+      // This turn only — what the gateway stores and sums.
+      turnTokensIn: this.turnTokensIn,
+      turnTokensOut: this.turnTokensOut,
+      ...(this.turnCacheReadTokens > 0 ? { turnCacheReadTokens: this.turnCacheReadTokens } : {}),
+      ...(this.turnCacheCreationTokens > 0
+        ? { turnCacheCreationTokens: this.turnCacheCreationTokens }
+        : {}),
+    });
+  }
+
+  /**
+   * A helper agent's tokens are this turn's tokens. They were counted only
+   * against the orchestration caps, so the stored usage, plan limits and
+   * eval cost left out every builder, verifier and specialist.
+   */
+  private addChildUsage(
+    emit: (event: AgentEvent) => void,
+    usage: { tokensIn: number; tokensOut: number; cacheRead: number; cacheCreation: number },
+  ): void {
+    if (usage.tokensIn + usage.tokensOut === 0) return;
+    this.tokensIn += usage.tokensIn;
+    this.tokensOut += usage.tokensOut;
+    this.cacheReadTokens += usage.cacheRead;
+    this.cacheCreationTokens += usage.cacheCreation;
+    this.turnTokensIn += usage.tokensIn;
+    this.turnTokensOut += usage.tokensOut;
+    this.turnCacheReadTokens += usage.cacheRead;
+    this.turnCacheCreationTokens += usage.cacheCreation;
+    this.emitUsage(emit);
   }
 
   /**
@@ -2933,26 +3014,7 @@ export class AgentSession {
         this.turnTokensOut += result.usage.outputTokens;
         this.turnCacheReadTokens += result.usage.cacheReadInputTokens ?? 0;
         this.turnCacheCreationTokens += result.usage.cacheCreationInputTokens ?? 0;
-        emit({
-          type: "usage",
-          sessionId: this.id,
-          // Cumulative — the live gauge.
-          tokensIn: this.tokensIn,
-          tokensOut: this.tokensOut,
-          ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
-          ...(this.cacheCreationTokens > 0
-            ? { cacheCreationTokens: this.cacheCreationTokens }
-            : {}),
-          // This turn only — what the gateway stores and sums.
-          turnTokensIn: this.turnTokensIn,
-          turnTokensOut: this.turnTokensOut,
-          ...(this.turnCacheReadTokens > 0
-            ? { turnCacheReadTokens: this.turnCacheReadTokens }
-            : {}),
-          ...(this.turnCacheCreationTokens > 0
-            ? { turnCacheCreationTokens: this.turnCacheCreationTokens }
-            : {}),
-        });
+        this.emitUsage(emit);
 
         if (result.stopReason === "refusal") {
           emit({
