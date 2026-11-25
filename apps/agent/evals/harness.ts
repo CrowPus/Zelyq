@@ -1,5 +1,6 @@
 import type { AgentEvent } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
+import { type AgentAssets, assetSessionOptions } from "../src/assets.js";
 import type { Effort, ProviderId } from "../src/providers/index.js";
 import { AgentSession } from "../src/session.js";
 import { runCheck } from "./checks.js";
@@ -36,6 +37,12 @@ export interface RunOptions {
    * flag. */
   engineerMode?: boolean;
   engineerModeSkill?: { body: string; resources: string[] };
+  /** The skills, design references and libraries the shipped agent loads.
+   * Absent only for `--bare`, the old harness-only agent. */
+  assets?: AgentAssets;
+  /** Called with each session once it is built, so the run can record the
+   * exact prompt and tool list that were measured. */
+  onSession?: (session: AgentSession) => void;
 }
 
 /**
@@ -101,7 +108,9 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
       ...(options.engineerModeSkill ? { engineerModeSkill: options.engineerModeSkill } : {}),
       runtime,
       maxIterations: evalCase.maxIterations ?? options.maxIterations,
+      ...(options.assets ? assetSessionOptions(options.assets) : {}),
     });
+    options.onSession?.(session);
 
     const timer = setTimeout(() => {
       result.error = `timed out after ${Math.round(options.timeoutMs / 1000)}s`;

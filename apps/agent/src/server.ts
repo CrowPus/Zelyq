@@ -12,6 +12,7 @@ import { createRuntimeDriver, type RuntimeDriver } from "@zelyq/runtime";
 import { capturePage } from "@zelyq/tools";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
+import { assetSessionOptions } from "./assets.js";
 import type { AgentConfig } from "./config.js";
 import { opsTurnSchema, runOpsTurn } from "./ops-turn.js";
 import {
@@ -93,9 +94,6 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
 
   const runtime = createRuntimeDriver(config.runtime);
   const sessions = new Map<string, AgentSession>();
-  // Built once — skills load only at boot, never re-scanned while running,
-  // so this never goes stale for the life of the process.
-  const skillsByName = new Map((deps.skills ?? []).map((skill) => [skill.name, skill]));
 
   app.register(cors, { origin: config.corsOrigin, methods: ["GET", "POST", "DELETE"] });
 
@@ -373,16 +371,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
       runtime,
       maxIterations: config.maxTurnIterations,
       history: input.history,
-      skills: deps.skills,
-      resolveSkillBody: (name) => skillsByName.get(name),
-      // The design reference catalog + the UI-craft checklist. Only
-      // meaningful in Architect/Engineer Mode (where the prompt renders
-      // them), but threaded unconditionally — the constructor decides.
-      ...(deps.designRefCatalogText ? { designRefCatalogText: deps.designRefCatalogText } : {}),
-      ...(deps.agentMd ? { agentMd: deps.agentMd } : {}),
-      // The AI provider catalog + integration rules, for an AI build.
-      ...(deps.aiProviderCatalogText ? { aiProviderCatalogText: deps.aiProviderCatalogText } : {}),
-      ...(deps.aiProvidersAgentMd ? { aiProvidersAgentMd: deps.aiProvidersAgentMd } : {}),
+      // Skills, design references, UI guidelines and the AI provider library:
+      // the same helper the eval harness uses, so both build one prompt.
+      ...assetSessionOptions(deps),
       ...(deps.providerFactory ? { providerFactory: deps.providerFactory } : {}),
     });
 

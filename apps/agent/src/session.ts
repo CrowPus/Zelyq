@@ -1480,6 +1480,13 @@ export class AgentSession {
   // Presence is capability, not instruction: the prompt and each pass tool's
   // own description already bind these to an explicit user ask.
   private readonly liveTools: ToolDefinition[];
+  /** The exact system prompt this session sends. Read by the eval harness so a
+   * score is tied to the prompt users actually get, not a reconstruction. */
+  readonly systemPrompt: string;
+  /** Names of the tools this session offers the model, in order. */
+  get toolNames(): string[] {
+    return this.liveTools.map((tool) => tool.name);
+  }
 
   private abortController: AbortController | null = null;
   private busy = false;
@@ -1667,47 +1674,48 @@ export class AgentSession {
     const liveTools = toolDefinitions(toolPool);
     this.liveTools = liveTools;
 
+    const systemPrompt =
+      // A lean specialist child (systemPrompt + toolNames) gets
+      // `Agent.md` appended as a gate; the full prompt for a top-level
+      // session gets the catalog + `agentMd` woven in by buildSystemPrompt.
+      options.systemPrompt
+        ? // A child's prompt is assembled here, not by
+          // buildSystemPrompt: <design_references> first (it is what the
+          // Designer's step 2 reads before writing DESIGN.md), then the
+          // hand-written prompt, then <ui_guidelines> as the closing gate.
+          `${designReferencesBlock(options.designRefCatalogText)}${options.systemPrompt}${options.template === "react-fastapi" ? `\n\n${PYTHON_BUILDER_SYSTEM_PROMPT}\n${options.stackSkill?.body ?? ""}` : ""}${
+            options.agentMd
+              ? `\n\n<ui_guidelines>\nThese MUST/SHOULD/NEVER rules are the UI-quality bar. Check the observable ones against the running preview and fix or report any failure.\n\n${options.agentMd}\n</ui_guidelines>`
+              : ""
+          }`
+        : buildSystemPrompt({
+            projectName: options.projectName,
+            template: options.template,
+            skills: options.skills,
+            ...(options.stack ? { stack: options.stack } : {}),
+            ...(options.autoMode && options.engineerMode ? { engineerAuto: true } : {}),
+            ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
+            ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
+            ...(options.plan ? { plan: options.plan } : {}),
+            ...(options.agentMd ? { agentMd: options.agentMd } : {}),
+            ...(options.designRefCatalogText
+              ? { designRefCatalogText: options.designRefCatalogText }
+              : {}),
+            ...(options.aiProviderCatalogText
+              ? { aiProviderCatalogText: options.aiProviderCatalogText }
+              : {}),
+            ...(options.aiProvidersAgentMd
+              ? { aiProvidersAgentMd: options.aiProvidersAgentMd }
+              : {}),
+            ...(options.engineerMode ? { engineerMode: { skill: options.engineerModeSkill } } : {}),
+            ...(options.architectMode
+              ? { architectMode: { skill: options.architectModeSkill } }
+              : {}),
+          });
+    this.systemPrompt = systemPrompt;
+
     this.conversation = provider.createConversation({
-      systemPrompt:
-        // A lean specialist child (systemPrompt + toolNames) gets
-        // `Agent.md` appended as a gate; the full prompt for a top-level
-        // session gets the catalog + `agentMd` woven in by buildSystemPrompt.
-        options.systemPrompt
-          ? // A child's prompt is assembled here, not by
-            // buildSystemPrompt: <design_references> first (it is what the
-            // Designer's step 2 reads before writing DESIGN.md), then the
-            // hand-written prompt, then <ui_guidelines> as the closing gate.
-            `${designReferencesBlock(options.designRefCatalogText)}${options.systemPrompt}${options.template === "react-fastapi" ? `\n\n${PYTHON_BUILDER_SYSTEM_PROMPT}\n${options.stackSkill?.body ?? ""}` : ""}${
-              options.agentMd
-                ? `\n\n<ui_guidelines>\nThese MUST/SHOULD/NEVER rules are the UI-quality bar. Check the observable ones against the running preview and fix or report any failure.\n\n${options.agentMd}\n</ui_guidelines>`
-                : ""
-            }`
-          : buildSystemPrompt({
-              projectName: options.projectName,
-              template: options.template,
-              skills: options.skills,
-              ...(options.stack ? { stack: options.stack } : {}),
-              ...(options.autoMode && options.engineerMode ? { engineerAuto: true } : {}),
-              ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
-              ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
-              ...(options.plan ? { plan: options.plan } : {}),
-              ...(options.agentMd ? { agentMd: options.agentMd } : {}),
-              ...(options.designRefCatalogText
-                ? { designRefCatalogText: options.designRefCatalogText }
-                : {}),
-              ...(options.aiProviderCatalogText
-                ? { aiProviderCatalogText: options.aiProviderCatalogText }
-                : {}),
-              ...(options.aiProvidersAgentMd
-                ? { aiProvidersAgentMd: options.aiProvidersAgentMd }
-                : {}),
-              ...(options.engineerMode
-                ? { engineerMode: { skill: options.engineerModeSkill } }
-                : {}),
-              ...(options.architectMode
-                ? { architectMode: { skill: options.architectModeSkill } }
-                : {}),
-            }),
+      systemPrompt,
       tools: liveTools,
       effort: options.effort,
       history: mergeConsecutiveTurns(

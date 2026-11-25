@@ -199,5 +199,13 @@ export interface SuiteResult {
    * this exists to measure. Absent means off, same as before this field
    * existed. */
   engineerMode?: boolean;
+  /** Hash of the measured session's own system prompt and tool names. */
+  agentHash?: string;
+  /** The commit measured; `-dirty` when the tree had uncommitted changes. */
+  commit?: string;
+  /** True for `--bare`: the harness-only agent without skills or plugins. */
+  bare?: boolean;
+  /** How many times each case ran. */
+  repeat?: number;
   cases: CaseResult[];
 }

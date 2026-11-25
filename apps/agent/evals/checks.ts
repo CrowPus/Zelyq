@@ -1,7 +1,7 @@
 import { chromium } from "@playwright/test";
 import type { RuntimeDriver } from "@zelyq/runtime";
 import { type Check, type CheckResult, CRITICAL_KINDS } from "./types.js";
-import type { ProjectFingerprint } from "./workspace.js";
+import { type ProjectFingerprint, packageNames } from "./workspace.js";
 
 export interface CheckContext {
   runtime: RuntimeDriver;
@@ -238,7 +238,11 @@ async function evaluate(
     case "file_matches": {
       if (!after.files.has(check.path)) return { ok: false, detail: `${check.path} not found` };
       const file = await runtime.readFile(projectId, check.path);
-      return match(file.content, check.pattern, check.expect ?? "present");
+      return match(
+        stripComments(file.content, check.path),
+        check.pattern,
+        check.expect ?? "present",
+      );
     }
 
     case "project_matches": {
@@ -470,26 +474,11 @@ async function checkDependencies(
 ): Promise<{ ok: boolean; detail: string }> {
   if (before.files.get("package.json") === undefined) return { ok: true, detail: "" };
   const file = await runtime.readFile(projectId, "package.json");
-  const parsed = JSON.parse(file.content) as {
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-  };
-  const names = [
-    ...Object.keys(parsed.dependencies ?? {}),
-    ...Object.keys(parsed.devDependencies ?? {}),
-  ];
-  const expected = new Set([
-    "react",
-    "react-dom",
-    "@tailwindcss/vite",
-    "@types/react",
-    "@types/react-dom",
-    "@vitejs/plugin-react",
-    "tailwindcss",
-    "typescript",
-    "vite",
-  ]);
-  const added = names.filter((name) => !expected.has(name));
+  // Compared with what this project started with, not a hand-kept list: the
+  // list went stale when the template gained clsx, lucide-react and
+  // tailwind-merge, and six cases became impossible to pass.
+  const expected = new Set(before.packages ?? []);
+  const added = packageNames(file.content).filter((name) => !expected.has(name));
   return { ok: added.length === 0, detail: added.length ? `added ${added.join(", ")}` : "" };
 }
 
@@ -527,9 +516,26 @@ async function readAllText(
   for (const file of after.files.keys()) {
     if (!/\.(tsx?|jsx?|css|html)$/.test(file)) continue;
     const content = await runtime.readFile(projectId, file).catch(() => null);
-    if (content?.encoding === "utf8") parts.push(content.content);
+    if (content?.encoding === "utf8") parts.push(stripComments(content.content, file));
   }
   return parts.join("\n");
+}
+
+/**
+ * Source with its comments removed, so a pattern check sees code, not words.
+ * Without this, appending one comment that names the feature passed the
+ * content checks of nine cases whose request was not done at all.
+ *
+ * Deliberately simple: block comments, JSX comments and HTML comments go
+ * whole; a `//` comment goes when it starts a line or follows whitespace, so a
+ * URL such as `https://x` inside a string stays. Strings that contain `/*` are
+ * rare enough in these small projects not to need a tokenizer.
+ */
+export function stripComments(text: string, path: string): string {
+  if (/\.html?$/.test(path)) return text.replace(/<!--[\s\S]*?-->/g, "");
+  let out = text.replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  if (!/\.css$/.test(path)) out = out.replace(/(^|\s)\/\/.*$/gm, "$1");
+  return out;
 }
 
 function match(
