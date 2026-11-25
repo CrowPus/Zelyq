@@ -139,7 +139,7 @@ const cases =
   repeat === 1
     ? selected
     : Array.from({ length: repeat }, (_, n) =>
-        selected.map((evalCase) => ({ ...evalCase, id: `${evalCase.id}#${n + 1}` })),
+        selected.map((evalCase) => ({ ...evalCase, id: `${evalCase.id}--r${n + 1}` })),
       ).flat();
 
 if (cases.length === 0) {
