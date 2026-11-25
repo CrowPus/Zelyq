@@ -116,11 +116,14 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   `new URL(path, previewUrl)`, so a hash route (`/#/x`) or a real path
   both work. The prompt forbids editing routing to make a screen
   reachable for a screenshot.
-- **Reference images** — `fetch_reference_image` (image-assets plugin)
-  searches a stock-photo service (`ZELYQ_IMAGE_PROVIDER`: keyless
-  `openverse` by default, or `unsplash`/`pexels` with
-  `ZELYQ_IMAGE_PROVIDER_KEY`), downloads the top hit into the project,
-  and returns it so the model confirms the subject before captioning it.
+- **Reference images** — `fetch_reference_image` (built in) searches a
+  stock-photo service (`ZELYQ_IMAGE_PROVIDER`: keyless `openverse` by
+  default, limited to licenses that allow commercial use and changes, or
+  `unsplash`/`pexels` with `ZELYQ_IMAGE_PROVIDER_KEY`), downloads the top
+  hit into the project, and returns it so the model confirms the subject
+  before captioning it. The agent process fetches through the same guard as
+  `capture_reference` (public hosts only), so the project runtime needs no
+  curl and no way out.
   No provider or no network ⇒ a labelled SVG placeholder. The prompt
   bans hardcoding a remote photo ID from memory.
 - **Generated images** — `generate_image`, `place_generated_image` and

@@ -22,6 +22,7 @@ import {
 } from "./orchestrate.js";
 import { updatePlanTool } from "./plan.js";
 import { previewLogsTool, startPreviewTool, viewPreviewTool } from "./preview.js";
+import { fetchReferenceImageTool } from "./reference-image.js";
 import { runCommandTool } from "./shell.js";
 import {
   supabaseApplyMigrationTool,
@@ -93,6 +94,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   viewPreviewTool,
   walkPreviewTool,
   ...BROWSER_QA_TOOLS,
+  fetchReferenceImageTool,
   listProjectVariablesTool,
   browsePageTool,
   captureReferenceTool,

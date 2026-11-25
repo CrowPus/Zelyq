@@ -597,8 +597,7 @@ const DESIGNER_TOOL_NAMES = [
   // pick one, when it authors DESIGN.md from scratch).
   "use_design_ref",
   // Real imagery without guessing: a searched, downloaded, and
-  // shown-back photo, or a labelled placeholder. Only present when the
-  // image-assets plugin is loaded; harmless in the filter when it is not.
+  // shown-back photo, or a labelled placeholder.
   "fetch_reference_image",
   "generate_placeholder_asset",
 ];
