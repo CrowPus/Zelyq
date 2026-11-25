@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { posix as pathPosix } from "node:path";
 import {
   type AgentEvent,
@@ -277,6 +278,12 @@ function headAndTail(text: string, max: number): string {
 // dropped) is retried this many times, backing off 0.8s → 1.6s → 3.2s,
 // before it surfaces as a visible error.
 const MODEL_RETRY_MAX = 3;
+/**
+ * How many times a turn's own failing end-of-turn check sends the model back to
+ * fix it before the turn ends marked broken. 17% of file-changing turns used to
+ * end with their check failing, usually after one try.
+ */
+const MAX_REPAIR_ROUNDS = 3;
 const MODEL_RETRY_BASE_MS = 800;
 // A builder takes at most this many named files. A task with more is refused
 // at dispatch, forcing the Architect to split it before a bounded builder
@@ -2595,6 +2602,8 @@ export class AgentSession {
     // Auto Mode, which must not take "REMAINING: none" as done over a failing
     // check.
     let endedBroken = verificationNeeded;
+    // Failed end-of-turn checks this turn; see MAX_REPAIR_ROUNDS.
+    let verifyFailures = 0;
     // The turn's last reply was the model's own summary — see where it is set.
     let finalReplyWasSummary = false;
     // One-shot re-nudge when the user picked a specialist from the
@@ -2729,6 +2738,9 @@ export class AgentSession {
     // file's path; past the limit, refuse further work on THAT path this turn.
     const PATH_CHURN_LIMIT = 8;
     const pathChurnCounts = new Map<string, number>();
+    // The last read_file result per path, to tell a repeat read that learned
+    // nothing from one after the file changed.
+    const lastReadHashes = new Map<string, string>();
     let assistantText = "";
     let thinkingText = "";
 
@@ -2860,6 +2872,10 @@ export class AgentSession {
         const result = await (async () => {
           for (let attempt = 0; ; attempt++) {
             let streamedThisAttempt = false;
+            // Thinking alone is not an answer. A reply that was only thinking
+            // (or a Gemini MALFORMED_FUNCTION_CALL, which maps to "other" with
+            // nothing else) used to skip the retry and end the turn as done.
+            let textThisAttempt = false;
             const backoff = async (why: string): Promise<void> => {
               const waitMs = MODEL_RETRY_BASE_MS * 2 ** attempt;
               emit({
@@ -2880,6 +2896,7 @@ export class AgentSession {
                 const event = next.value;
                 streamedThisAttempt = true;
                 if (event.type === "text") {
+                  textThisAttempt = true;
                   assistantText += event.text;
                   emit({ type: "text.delta", sessionId: this.id, messageId, text: event.text });
                 } else {
@@ -2890,9 +2907,10 @@ export class AgentSession {
               }
               const value = next.value;
               const emptyCompletion =
-                !streamedThisAttempt &&
+                !textThisAttempt &&
                 value.toolCalls.length === 0 &&
-                value.stopReason !== "refusal";
+                value.stopReason !== "refusal" &&
+                value.stopReason !== "max_tokens";
               if (emptyCompletion && !signal.aborted && attempt < MODEL_RETRY_MAX) {
                 await backoff("The model returned an empty response");
                 continue;
@@ -2902,12 +2920,7 @@ export class AgentSession {
               const code = classifyProviderError(this.options.provider, err);
               const transient =
                 code === "model_error" || code === "rate_limited" || code === "connection";
-              if (
-                !transient ||
-                streamedThisAttempt ||
-                signal.aborted ||
-                attempt >= MODEL_RETRY_MAX
-              ) {
+              if (!transient || textThisAttempt || signal.aborted || attempt >= MODEL_RETRY_MAX) {
                 throw err;
               }
               await backoff(describeProviderError(this.options.provider, err));
@@ -2987,6 +3000,40 @@ export class AgentSession {
           break;
         }
 
+        // Cut off at the output limit while writing tool calls: their input
+        // may be incomplete (a truncated write_file landed on disk as half a
+        // file and the turn said "Done."). None of them run; each gets a
+        // result telling the model to send it again, smaller.
+        if (result.stopReason === "max_tokens" && result.toolCalls.length > 0) {
+          this.conversation.addToolResults(
+            result.toolCalls.map((toolCall) => ({
+              id: toolCall.id,
+              name: toolCall.name,
+              output:
+                "Not run: your reply was cut off at the output length limit while writing this " +
+                "call, so its input may be incomplete. Send it again, smaller — split a large " +
+                "file into several files, or change an existing one with edit_file.",
+              isError: true,
+            })),
+          );
+          if (maxTokensContinuations < 2) {
+            maxTokensContinuations += 1;
+            continue;
+          }
+          emit({
+            type: "error",
+            sessionId: this.id,
+            code: "max_tokens",
+            message:
+              "The model's replies kept running past the output limit, so its last changes were " +
+              "not applied. Ask for the change in smaller pieces.",
+            fatal: false,
+          });
+          stoppedByBreak = true;
+          truncatedByMaxTokens = true;
+          break;
+        }
+
         // Whether this reply is the model's own account: words, and no more
         // tool calls. Only the last reply of a turn counts — one early line
         // ("Working on it.") followed by forty tool calls is not a summary.
@@ -3017,11 +3064,27 @@ export class AgentSession {
               this.orchestration.lastCheckFailure = outcome.failed ? outcome.output : "";
 
               if (outcome.failed) {
-                this.conversation.addUserMessage(
-                  `Automatic verification found a problem before this turn ended:\n\n${outcome.output}\n\n` +
-                    "Fix it, or explain why you can't, before finishing.",
-                );
-                continue;
+                verifyFailures += 1;
+                if (verifyFailures <= MAX_REPAIR_ROUNDS) {
+                  // Repairing is the point now. A file the turn already
+                  // worked hard on must not be locked by the churn cap, and
+                  // in Engineer Mode the new-file checkpoint must not freeze
+                  // the edit that fixes it — 36 of 55 turns that ended on a
+                  // failed check had one of those refusals in effect.
+                  finishPhase = true;
+                  pathChurnCounts.clear();
+                  // Check again before the turn ends, even if the model only
+                  // answers in words: one sentence must not close a failing
+                  // check.
+                  verificationNeeded = true;
+                  this.conversation.addUserMessage(
+                    `Automatic verification found a problem before this turn ended ` +
+                      `(repair round ${verifyFailures} of ${MAX_REPAIR_ROUNDS}):\n\n${outcome.output}\n\n` +
+                      "Fix it now. Files you already edited are open to you again. The check runs " +
+                      "again before the turn can end.",
+                  );
+                  continue;
+                }
               }
             }
           }
@@ -3376,8 +3439,12 @@ export class AgentSession {
               (isReadishTool || toolCall.name === "edit_file" || toolCall.name === "write_file")
                 ? pathPosix.normalize((toolCall.input as { path: string }).path)
                 : null;
+            // Counted after the call runs, and only when it made no progress
+            // (see below). Counting every touch locked the one file of a small
+            // app after eight successful edits: 31 refusals came after at least
+            // four successful edits, and 13 turns then wrote the file through
+            // the shell instead.
             const priorChurn = churnPath ? (pathChurnCounts.get(churnPath) ?? 0) : 0;
-            if (churnPath) pathChurnCounts.set(churnPath, priorChurn + 1);
             const pathChurnCapped = churnPath !== null && priorChurn >= PATH_CHURN_LIMIT;
             const preOutcome = identicalCallCapped
               ? {
@@ -3392,7 +3459,7 @@ export class AgentSession {
               : pathChurnCapped
                 ? {
                     output:
-                      `You have read / searched / edited "${churnPath}" ${priorChurn} times this ` +
+                      `Your work on "${churnPath}" has failed or repeated itself ${priorChurn} times this ` +
                       "turn without converging. Stop working this file: either the change is larger " +
                       "than one turn — say so plainly and stop, the user's next message continues it " +
                       "— or you are going in circles. Do NOT read, search, or edit this file again " +
@@ -3532,6 +3599,25 @@ export class AgentSession {
               isReportWrite && !preOutcome.isError
                 ? await this.validateReportAfterWrite(preOutcome, reportPriorContent)
                 : preOutcome;
+            if (churnPath && !pathChurnCapped) {
+              // No progress: the call failed, or it re-read the file and got
+              // exactly what the last read of it returned.
+              const readHash =
+                toolCall.name === "read_file" && !outcome.isError
+                  ? createHash("sha1").update(outcome.output).digest("hex")
+                  : null;
+              const repeatRead = readHash !== null && lastReadHashes.get(churnPath) === readHash;
+              if (readHash) lastReadHashes.set(churnPath, readHash);
+              if (
+                !outcome.isError &&
+                (toolCall.name === "edit_file" || toolCall.name === "write_file")
+              ) {
+                lastReadHashes.delete(churnPath);
+              }
+              if (outcome.isError || repeatRead) {
+                pathChurnCounts.set(churnPath, (pathChurnCounts.get(churnPath) ?? 0) + 1);
+              }
+            }
             const finished: ToolCall = {
               ...call,
               result: headAndTail(outcome.output, 4000),
@@ -3856,6 +3942,20 @@ export class AgentSession {
         // No status line at all: keep what the last step decided — a turn
         // that used its whole budget continues, one that simply answered
         // does not.
+      }
+
+      // Said on screen, not left to the model's summary: a turn whose own
+      // check still fails is not finished, whatever the reply says.
+      if (verifyFailures > 0 && endedBroken && !refused && !signal.aborted) {
+        emit({
+          type: "error",
+          sessionId: this.id,
+          code: "ended_broken",
+          message:
+            "This turn ended with its own check still failing, so the app is not working yet. " +
+            "Reply “fix it” to continue, or describe what you see.",
+          fatal: false,
+        });
       }
 
       emit({
