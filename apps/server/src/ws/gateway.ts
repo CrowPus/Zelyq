@@ -560,6 +560,7 @@ export class ChatGateway {
         template: stackInfo.template,
         ...(stackInfo.stack ? { stack: stackInfo.stack } : {}),
         ...(stackInfo.agentSkill ? { agentSkill: stackInfo.agentSkill } : {}),
+        ...(stackInfo.projectName ? { projectName: stackInfo.projectName } : {}),
         // Everything except the message we just stored — that is the prompt.
         history: history.slice(0, -1),
       });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { browsePageTool } from "./browse-page.js";
+import { BROWSER_QA_TOOLS } from "./browser-qa.js";
 import { captureReferenceTool } from "./capture-reference.js";
 import {
   deleteFileTool,
@@ -45,8 +46,13 @@ export { capturePage } from "./preview.js";
 export { type Screencast, type ScreencastSink, startScreencast } from "./screencast.js";
 export * from "./types.js";
 export { VIDEO_TOOL_NAMES } from "./videos.js";
+/**
+ * Order matters a little: the model reads this list top to bottom, and putting
+ * navigation before mutation nudges it to look before it writes.
+ */
 export {
   addMotionTool,
+  BROWSER_QA_TOOLS,
   browsePageTool,
   captureReferenceTool,
   cinematicPassTool,
@@ -72,11 +78,6 @@ export {
   walkPreviewTool,
   writeFileTool,
 };
-
-/**
- * Order matters a little: the model reads this list top to bottom, and putting
- * navigation before mutation nudges it to look before it writes.
- */
 export const ALL_TOOLS: ZelyqTool[] = [
   listFilesTool,
   findFilesTool,
@@ -91,6 +92,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   previewLogsTool,
   viewPreviewTool,
   walkPreviewTool,
+  ...BROWSER_QA_TOOLS,
   listProjectVariablesTool,
   browsePageTool,
   captureReferenceTool,

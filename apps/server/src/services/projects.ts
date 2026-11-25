@@ -108,11 +108,15 @@ export class ProjectService {
    * manifest fields, comes back with just `template` — the agent then falls
    * back to its built-in default stack line and force-weaves nothing.
    */
-  async stackFor(id: string): Promise<{ template: string; stack?: string; agentSkill?: string }> {
+  async stackFor(
+    id: string,
+  ): Promise<{ template: string; stack?: string; agentSkill?: string; projectName?: string }> {
     const project = await this.store.projects.findById(id);
+    const named = project?.name ? { projectName: project.name } : {};
     const runtimeManifest = await readRuntimeManifest(this.runtime, id);
     if (runtimeManifest)
       return {
+        ...named,
         template: "react-fastapi",
         stack:
           "React + Vite + TypeScript; Python 3.11 + FastAPI API; user-selected PostgreSQL/MySQL/SQLite or Supabase",
@@ -121,6 +125,7 @@ export class ProjectService {
     const template = project?.template ?? "vite-react";
     const manifest = await templateManifest(this.config.templatesDir, template);
     return {
+      ...named,
       template,
       ...(manifest?.stack ? { stack: manifest.stack } : {}),
       ...(manifest?.agentSkill ? { agentSkill: manifest.agentSkill } : {}),

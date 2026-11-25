@@ -1,16 +1,26 @@
 ---
 name: stripe-checkout
-description: Wire a Stripe Checkout redirect flow into this React + Vite template, without inventing a secret key. Use when asked for a "buy now", "checkout", "subscribe", or "pay" button.
+description: Wire a Stripe Checkout redirect flow into a project, without inventing a secret key. Use when asked for a "buy now", "checkout", "subscribe", or "pay" button.
 ---
 
 # Stripe Checkout
 
 Stripe Checkout is a redirect flow: the app never collects a card number
 itself. A button calls your backend, your backend calls Stripe with a
-**secret** key and gets back a URL, and the browser is sent there. This
-project has no backend of its own, so the honest version of this task is
-the frontend half, wired to a placeholder for the half that needs a real
-server and a real secret key.
+**secret** key and gets back a URL, and the browser is sent there.
+
+First look at what this project is (<project> names its stack):
+
+- **A frontend-only project** (React + Vite, no `backend/`): build the
+  frontend half below, wired to `/api/checkout`, and say plainly that the
+  server half still has to exist.
+- **A project with its own backend** (react-fastapi has `backend/`): build
+  both halves. Add a `POST /api/checkout` route that reads the secret key
+  from the environment (`STRIPE_SECRET_KEY`), creates the Checkout Session
+  server-side and returns `{ url }`; and a webhook route that verifies
+  Stripe's signature (`STRIPE_WEBHOOK_SECRET`) before trusting an event.
+  With no key set, the route answers 503 "Payments are not configured" and
+  the button shows that — never a fake success.
 
 ## What to actually build
 
@@ -34,8 +44,8 @@ server and a real secret key.
 
 ## What not to build
 
-- **No `/api/checkout` implementation.** There is no server in this
-  project to put one in. Leave the fetch pointed at that path and say so
+- **No `/api/checkout` implementation in a frontend-only project.** There
+  is no server there to put one in. Leave the fetch pointed at that path and say so
   plainly in your final message: "This calls `POST /api/checkout`, which
   needs to exist on your backend — it should create a Stripe Checkout
   Session server-side with your secret key and return `{ url }`."

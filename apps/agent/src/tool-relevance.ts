@@ -14,16 +14,16 @@ import type { ZelyqTool } from "@zelyq/tools";
  * for.
  *
  * Kept: the built-ins, plus the plugin families a UI build genuinely uses —
- * `ai-docs` (provider docs mid-build), `image-assets` (placeholder / reference
- * imagery), and `browser-qa` (does the page actually render, no console errors,
- * a11y). Dropped: the connectors (a `github_*` tool with no token in the
+ * `ai-docs` (provider docs mid-build) and `image-assets` (placeholder /
+ * reference imagery). The browser checks (inspect_page, check_console_errors…)
+ * used to be the `browser-qa` plugin and are now built in. Dropped: the connectors (a `github_*` tool with no token in the
  * runtime is 100 tokens of schema, not a capability) and the remaining
  * inspection families (`static-analysis`, `test-intelligence`, `git-inspector`,
  * `database-inspector`, `container-inspector`, `deployment-readiness`,
  * `design-system-auditor`, `documentation-generator`, `api-tester`,
  * `project-intelligence`).
  */
-const DEFAULT_MODE_PLUGIN_FILES = new Set(["ai-docs.mjs", "image-assets.mjs", "browser-qa.mjs"]);
+const DEFAULT_MODE_PLUGIN_FILES = new Set(["ai-docs.mjs", "image-assets.mjs"]);
 
 /**
  * MCP tools carry `source: "mcp:<server>"` and are never gated. The rule above

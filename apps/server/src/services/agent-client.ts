@@ -64,6 +64,7 @@ export class AgentClient {
   async createSession(input: {
     sessionId: string;
     projectId: string;
+    projectName?: string;
     provider?: string;
     model?: string;
     effort?: string;
@@ -138,6 +139,7 @@ export class AgentClient {
   async ensureSession(input: {
     sessionId: string;
     projectId: string;
+    projectName?: string;
     provider?: string;
     model?: string;
     effort?: string;

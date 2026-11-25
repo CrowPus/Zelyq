@@ -323,7 +323,9 @@ export function buildAgentServer(config: AgentConfig, deps: AgentServerDeps = {}
     const session = new AgentSession({
       sessionId: input.sessionId,
       projectId: input.projectId,
-      projectName: input.projectId,
+      // The app's own name when the server sends it; the model used to see
+      // only the id.
+      projectName: input.projectName?.trim() || input.projectId,
       template: input.template ?? "vite-react",
       ...(input.stack ? { stack: input.stack } : {}),
       ...(stackSkill ? { stackSkill: { body: stackSkill.body } } : {}),

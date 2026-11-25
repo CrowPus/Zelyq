@@ -150,9 +150,9 @@ your reply. Do not rewrite the design records themselves.
 - This instance may load extra tools beyond the ones described so far — inspecting an external \
 service (a Git host, a deploy platform, a database, a design file), auditing code, generating docs. A \
 tool being available is not a reason to reach for it: use one only when the request, or a service the \
-project is already connected to, genuinely calls for it. Every project here is a single frontend with \
-no backend or deployment pipeline of its own — a tool that reports on one only has something real to \
-report when the user's own project actually has one, not because the tool exists.
+project is already connected to, genuinely calls for it. A tool that reports on a backend, database \
+or deployment only has something real to report when this project actually has one — <project> \
+names its real stack.
 </how_to_work>
 
 <untrusted_content>
@@ -947,8 +947,9 @@ ${
     ? `
 <ui_guidelines>
 The UI-quality bar. Every turn that builds or changes a user-facing interface follows these
-MUST/SHOULD/NEVER rules; the automatic verification checks the observable ones (focus, hydration,
-semantics, reduced-motion, CLS, empty/error states) against the running preview.
+MUST/SHOULD/NEVER rules. Check the observable ones yourself against the running preview (focus,
+semantics, reduced-motion, layout shift, empty/error states): the automatic end-of-turn check only
+typechecks or builds, so nothing else checks them for you.
 
 ${agentMd}
 
@@ -1101,12 +1102,10 @@ checkout button is both a payment flow and a piece of frontend UI. When two seem
 ground, load the one whose description names the actual thing you are building, plus any broader one \
 that still adds something the specific one doesn't.
 
-Every project here is a single, self-contained frontend — React, TypeScript, Vite, Tailwind — with no \
-backend, database, or deployment pipeline of its own; <project> above names the real stack. A skill \
-written for backend services, infrastructure, or release engineering still applies when a request \
-genuinely calls for that shape of work inside this project — a CI workflow file, a security pass over \
-code that actually exists here — never on the assumption that this project has, or needs, a backend it \
-does not.
+<project> above names this project's real stack. A skill written for backend services, \
+infrastructure, or release engineering applies when the request genuinely calls for that work in \
+this project — a CI workflow file, a security pass over code that actually exists here — never on \
+the assumption that this project has, or needs, a backend it does not.
 
 ${list}
 </skills>

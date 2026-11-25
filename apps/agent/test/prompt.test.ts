@@ -29,7 +29,7 @@ test("how_to_work tells the model a loaded plugin tool is not a reason to use it
   // both.
   const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
   assert.match(prompt, /A tool being available is not a reason to reach for it/);
-  assert.match(prompt, /no backend or deployment pipeline of its own/);
+  assert.match(prompt, /only has something real to report when this project actually has one/);
 });
 
 test("how_to_work tells the model to read and build to an architecture/ package if one exists", () => {
@@ -77,7 +77,7 @@ test("the skills catalog tells the model a task can match more than one, and how
   assert.match(prompt, /Load each that does/);
 });
 
-test("the skills catalog states plainly that projects here have no backend of their own", () => {
+test("the skills catalog warns against assuming a backend the project does not have", () => {
   // A skill written for backend services or release
   // engineering, sitting in the same catalog as the frontend-only
   // template's actual stack, with nothing in the prompt saying so —
@@ -88,7 +88,21 @@ test("the skills catalog states plainly that projects here have no backend of th
     template: "vite-react",
     skills: [{ name: "x", description: "y" }],
   });
-  assert.match(prompt, /no backend, database, or deployment pipeline of its own/);
+  assert.match(prompt, /never on\s+the assumption that this project has, or needs, a backend it does not/);
+});
+
+test("no stack is told it has no backend — react-fastapi has one", () => {
+  // The prompt used to say "every project here is a single frontend with no
+  // backend" to every project, next to the FastAPI stack guide.
+  for (const template of ["vite-react", "react-fastapi", "expo-react-native"]) {
+    const prompt = buildSystemPrompt({
+      projectName: "p",
+      template,
+      skills: [{ name: "x", description: "y" }],
+    });
+    assert.doesNotMatch(prompt, /single (self-contained )?frontend/i, template);
+    assert.doesNotMatch(prompt, /no backend, database, or deployment pipeline/i, template);
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -97,3 +97,15 @@ test("the eval harness builds the same prompt and tools as the agent server", as
   assert.ok(session.toolNames.includes("use_skill"), "the shipped agent offers use_skill");
   assert.match(session.systemPrompt, /<skills>|use_skill/, "the skill catalogue is in the prompt");
 });
+
+test("the model sees the app's own name, not only its id", async () => {
+  const before = fromServer.length;
+  const created = await server.app.inject({
+    method: "POST",
+    url: "/sessions",
+    payload: { sessionId: "s_named", projectId: "prj_named", projectName: "Corner Bakery" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const prompt = fromServer[before]?.systemPrompt ?? "";
+  assert.match(prompt, /Corner Bakery/);
+});

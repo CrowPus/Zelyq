@@ -19,7 +19,7 @@ suite("tool relevance gating", () => {
   });
 
   it("keeps the build-relevant plugin families", () => {
-    for (const source of ["ai-docs.mjs", "image-assets.mjs", "browser-qa.mjs"]) {
+    for (const source of ["ai-docs.mjs", "image-assets.mjs"]) {
       assert.equal(isTaskOnlyPluginTool(tool("t", source)), false, source);
     }
   });
@@ -44,7 +44,8 @@ suite("tool relevance gating", () => {
   it("gateToolsForDefaultMode filters a mixed pool", () => {
     const pool = [
       tool("read_file"),
-      tool("accessibility_audit", "browser-qa.mjs"),
+      // Built in now, so it carries no plugin source.
+      tool("accessibility_audit"),
       tool("fetch_provider_docs", "ai-docs.mjs"),
       tool("github_issues", "github.mjs"),
       tool("stripe_prices", "stripe.mjs"),

@@ -202,6 +202,8 @@ export type AgentEventType = AgentEvent["type"];
 export const createAgentSessionSchema = z.object({
   sessionId: z.string(),
   projectId: z.string(),
+  /** The app's own name, shown to the model. Absent ⇒ the project id. */
+  projectName: z.string().max(200).optional(),
   provider: providerIdSchema.optional(),
   model: z.string().optional(),
   effort: effortSchema.optional(),

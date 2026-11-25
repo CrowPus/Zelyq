@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import apiTools from "../../plugins/api-tester.mjs";
-import browserTools from "../../plugins/browser-qa.mjs";
 import gitTools from "../../plugins/git-inspector.mjs";
 import { z } from "../../plugins/node_modules/zod/index.js";
 import projectTools from "../../plugins/project-intelligence.mjs";
 import staticTools from "../../plugins/static-analysis.mjs";
 import testTools from "../../plugins/test-intelligence.mjs";
 
-const bundles = [projectTools, testTools, staticTools, browserTools, apiTools, gitTools];
+const bundles = [projectTools, testTools, staticTools, apiTools, gitTools];
 const tools = bundles.flat();
 
 function context(overrides = {}) {
@@ -72,9 +71,10 @@ function context(overrides = {}) {
   };
 }
 
-test("all six bundles export unique, loader-compatible tools", () => {
-  assert.equal(bundles.length, 6);
-  assert.equal(tools.length, 25);
+// The browser checks moved into the built-in tools (packages/tools/src/browser-qa.ts).
+test("all five bundles export unique, loader-compatible tools", () => {
+  assert.equal(bundles.length, 5);
+  assert.equal(tools.length, 20);
   assert.equal(new Set(tools.map((tool) => tool.name)).size, tools.length);
   for (const tool of tools) {
     assert.ok(tool.name && tool.description && typeof tool.run === "function");
@@ -112,11 +112,4 @@ test("OpenAPI inspection and Git inspection are bounded and non-mutating", async
   await gitTools.find((tool) => tool.name === "git_history").run(ctx.value, { limit: 5 });
   assert.match(ctx.commands[0], /^git log -n 5 /);
   assert.doesNotMatch(ctx.commands[0], /push|reset|checkout|clean/);
-});
-
-test("browser tools fail cleanly when preview is stopped", async () => {
-  const ctx = context();
-  const result = await browserTools[0].run(ctx.value, {});
-  assert.equal(result.isError, true);
-  assert.match(result.output, /not running/);
 });
