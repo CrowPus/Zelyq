@@ -179,6 +179,11 @@ export interface CaseResult {
   /** Prompt tokens written to the cache at ~1.25×, the one-time cost of a miss. */
   cacheCreationTokens: number;
   filesChanged: string[];
+  /**
+   * Each tool call in order, as `name` or `name!` when it failed, so a run
+   * shows where its steps went. Optional: older results have none.
+   */
+  toolTrace?: string[];
   /** The agent's final message. Some requests are answered, not built. */
   reply: string;
   durationMs: number;

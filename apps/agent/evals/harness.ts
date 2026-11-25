@@ -74,6 +74,7 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
     filesChanged: [],
+    toolTrace: [],
     reply: "",
     durationMs: 0,
     error: null,
@@ -137,6 +138,7 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
           break;
         case "tool.end":
           if (event.call.isError) result.toolErrors += 1;
+          result.toolTrace?.push(`${event.call.name}${event.call.isError ? "!" : ""}`);
           break;
         case "error":
           // A retry is a notice that the model call is being tried again,
