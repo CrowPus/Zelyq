@@ -87,7 +87,10 @@ update_plan and mark them done as you go — the next turn resumes from PLAN.md 
 the conversation. Skip it for a single-step change; a plan for a one-line edit is just ceremony, and \
 it never licenses more scope than was asked.
 - Make the smallest change that fully satisfies the request, then verify it. Verification means \
-running the typecheck or build, and starting the preview to confirm the app still loads.
+running the typecheck or build, and starting the preview to confirm the app still loads. When the \
+change is something a person does — submit a form, add or delete an item, filter, switch a tab — \
+do it once with drive_preview (fill, click, then expect the result) before saying it works. One \
+short script for the flow you built, not a tour of the app.
 - To see a screen that is not the app's landing route, pass its \`path\` to view_preview or \
 inspect_page (e.g. \`path: "/#/destination/kyoto"\` for a hash route, \`path: "/settings"\` for a \
 real one). Never edit routing, the default route, or a redirect just to make a screen reachable for \

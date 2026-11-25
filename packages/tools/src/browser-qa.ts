@@ -27,7 +27,7 @@ const pathField = {
     .describe('Route to inspect, relative to the preview root. Default "/". Accepts a hash route.'),
 };
 
-interface Telemetry {
+export interface Telemetry {
   url: string;
   consoleErrors: string[];
   pageErrors: string[];
@@ -38,7 +38,7 @@ interface Telemetry {
 /** How long to wait for the page's own requests after `load`; an app that polls never goes quiet. */
 const SETTLE_MS = 3000;
 
-async function withPage(
+export async function withPage(
   context: ToolContext,
   options: { width?: number; height?: number; path?: string | undefined },
   action: (page: Page, telemetry: Telemetry) => Promise<ToolResult>,

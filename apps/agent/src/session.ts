@@ -84,6 +84,7 @@ const MUTATING_TOOL_NAMES = new Set(["write_file", "edit_file", "delete_file", "
 const VERIFICATION_TOOL_NAMES = new Set([
   "start_preview",
   "view_preview",
+  "drive_preview",
   "preview_logs",
   "inspect_page",
   "check_console_errors",
@@ -471,6 +472,7 @@ const VERIFIER_EXTRA_TOOL_NAMES = [
   "start_preview",
   "preview_logs",
   "view_preview",
+  "drive_preview",
   "check_console_errors",
   "check_network_failures",
   "inspect_page",
@@ -506,7 +508,7 @@ const VERIFIER_SYSTEM_PROMPT = `You are the verifier. A team of builders just fi
 Verify it for real, in this order:
 1. Run the project's typecheck and build commands (npm run typecheck, npm run build, or what the project declares). Read the real output. A non-zero exit is a FAIL.
 2. start_preview. Then check_console_errors and inspect_page against the RUNNING app. Confirm it renders the real application — not the starter template, not a blank page, not an error overlay. Read preview_logs if it does not come up.
-3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. Use view_preview / inspect_page with a \`path\` to reach a screen that is not the landing route; never edit routing to see one. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
+3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. PERFORM each primary action with drive_preview (fill the form, click the button, expect the result) — looking at a screen does not show that its button works. Use view_preview / inspect_page with a \`path\` to reach a screen that is not the landing route; never edit routing to see one. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
 4. Run any design / accessibility / security tool you were given. Note each finding. If any visible text names a specific real place, product, or person, confirm the adjacent image plausibly depicts it — a caption-to-image mismatch is a FAIL, reported with the screen and what you saw.
    If the project has a \`supabase/migrations/\` folder, run \`supabase_verify_backend\` and record each check; any FAIL there is a FAIL here. (If the tool is unavailable, no Supabase backend is linked — note that and move on.)
 
@@ -590,6 +592,7 @@ const DESIGNER_TOOL_NAMES = [
   "start_preview",
   "preview_logs",
   "view_preview",
+  "drive_preview",
   "inspect_page",
   "check_console_errors",
   "check_network_failures",
@@ -1247,6 +1250,8 @@ function specialistActivityTitle(
       return "Opening the preview";
     case "view_preview":
       return "Looking at the rendered page";
+    case "drive_preview":
+      return "Using the app like a person";
     case "inspect_page":
       return "Inspecting the page";
     case "check_console_errors":

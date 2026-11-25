@@ -2,6 +2,7 @@ import { z } from "zod";
 import { browsePageTool } from "./browse-page.js";
 import { BROWSER_QA_TOOLS } from "./browser-qa.js";
 import { captureReferenceTool } from "./capture-reference.js";
+import { drivePreviewTool } from "./drive-preview.js";
 import {
   deleteFileTool,
   editFileTool,
@@ -94,6 +95,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   viewPreviewTool,
   walkPreviewTool,
   ...BROWSER_QA_TOOLS,
+  drivePreviewTool,
   fetchReferenceImageTool,
   listProjectVariablesTool,
   browsePageTool,

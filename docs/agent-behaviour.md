@@ -116,6 +116,12 @@ The user-facing guide is [modes.md](./modes.md). Where the behaviour lives:
   `new URL(path, previewUrl)`, so a hash route (`/#/x`) or a real path
   both work. The prompt forbids editing routing to make a screen
   reachable for a screenshot.
+- **Using the app** — `drive_preview` runs a short script against the running
+  preview in one browser session: click, fill, press, select, check, goto,
+  reload, then expect text, visibility or a URL. Each step reports the errors
+  the app threw during it; a failed step returns a screenshot, the page's
+  controls and its text. The prompt asks for one short script for any flow a
+  person performs; the verifier performs each primary action with it.
 - **Reference images** — `fetch_reference_image` (built in) searches a
   stock-photo service (`ZELYQ_IMAGE_PROVIDER`: keyless `openverse` by
   default, limited to licenses that allow commercial use and changes, or
