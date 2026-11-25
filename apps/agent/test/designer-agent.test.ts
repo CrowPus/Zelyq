@@ -568,8 +568,13 @@ test("the same read-only call repeated past the limit is refused", async () => {
       (e) => e.type === "tool.end" && (e.call as { name: string }).name === "search_files",
     ) as Array<{ call: { isError: boolean; result?: string } }>;
     const refused = ends.filter((e) => e.call.isError);
-    assert.ok(refused.length >= 1, "at least one repeat was refused");
-    assert.match(refused[0]!.call.result ?? "", /already run this exact/i);
+    // The path does not exist, so the first call is itself an honest error
+    // ("No such file") — search_files no longer reports that as "no matches".
+    // The repeats after it must still be refused as repeats.
+    assert.ok(
+      refused.some((e) => /already run this exact/i.test(e.call.result ?? "")),
+      "a repeat was refused as a repeat",
+    );
   } finally {
     await close();
   }

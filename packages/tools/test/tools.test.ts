@@ -515,3 +515,15 @@ test("ordinary rewrites and small files are not affected by the shrink guard", a
     undefined,
   );
 });
+
+test("read_file can page a short file whose lines are very long", async () => {
+  // 300 lines of 400 characters: under the line limit, over the size cap.
+  const content = Array.from({ length: 300 }, (_, i) => `L${i + 1} ${"x".repeat(400)}`).join("\n");
+  const context = stubContext({
+    readFile: async () => ({ path: "big.css", content, encoding: "utf8", truncated: false }),
+  });
+  const first = await executeTool(context, "read_file", { path: "big.css" });
+  assert.match(first.output, /call read_file again with offset: \d+/);
+  const tail = await executeTool(context, "read_file", { path: "big.css", offset: 290 });
+  assert.match(tail.output, /L300 /);
+});

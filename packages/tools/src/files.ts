@@ -1,5 +1,6 @@
 import { containsOmittedMarker } from "@zelyq/core";
 import { z } from "zod";
+import { applyEdit } from "./edit-match.js";
 import { defineTool, type ToolContext, type ToolResult, truncate } from "./types.js";
 
 /**
@@ -49,15 +50,19 @@ export const MIN_READ_WINDOW = 200;
 function numberedSlice(content: string, offset?: number, limit?: number): string {
   const lines = content.split("\n");
   const total = lines.length;
-  const short = total <= WHOLE_FILE_LINES;
+  // "Short" means it comes back whole. A file under the line limit with very
+  // long lines (minified CSS, a data file) can still be over the size cap, and
+  // then offset/limit must work or its end can never be read.
+  const HARD = 60_000;
+  const short = total <= WHOLE_FILE_LINES && content.length + total * 7 <= HARD;
   const start = short ? 0 : Math.max(0, (offset ?? 1) - 1);
   const count = short ? total : Math.max(limit ?? 2000, MIN_READ_WINDOW);
   const shown = lines.slice(start, start + count);
   const end = start + shown.length;
   let body = shown.map((line, i) => `${String(start + i + 1).padStart(5)}\t${line}`).join("\n");
-  const HARD = 60_000;
   if (body.length > HARD) {
-    body = `${body.slice(0, HARD)}\n\n[cut at ${HARD} chars — narrow with offset/limit]`;
+    const lastWhole = body.slice(0, HARD).split("\n").length - 1;
+    body = `${body.slice(0, HARD)}\n\n[cut at ${HARD} chars — call read_file again with offset: ${start + Math.max(lastWhole, 1)} for the rest]`;
   } else if (short && (offset !== undefined || limit !== undefined)) {
     // Said explicitly, or the model keeps paging a file it already has.
     body += `\n\n[the whole file — ${total} lines. Files up to ${WHOLE_FILE_LINES} lines always come back in full; there is nothing more to page]`;
@@ -216,12 +221,18 @@ export const writeFileTool = defineTool({
 export const editFileTool = defineTool({
   name: "edit_file",
   description:
-    "Replace an exact string in a file. `old_text` must appear exactly once — include surrounding " +
-    "context to make it unique. Preferred over write_file for changes to existing files.",
+    "Replace a string in a file. `old_text` must appear exactly once — include surrounding " +
+    "context to make it unique — or pass replace_all. If it is not found exactly, the same lines " +
+    "ignoring trailing whitespace or indentation are used when they occur once, and the result " +
+    "says so. Preferred over write_file for changes to existing files.",
   schema: z.object({
     path: z.string(),
     old_text: z.string().describe("Exact text to replace, including whitespace and indentation"),
     new_text: z.string().describe("Replacement text"),
+    replace_all: z
+      .boolean()
+      .optional()
+      .describe("Replace every occurrence of old_text instead of requiring exactly one."),
   }),
   async run(context, input): Promise<ToolResult> {
     if (containsOmittedMarker(input.new_text)) return omittedMarkerRefusal(input.path, "new_text");
@@ -239,32 +250,27 @@ export const editFileTool = defineTool({
         return { output: `${input.path} is not a text file.`, isError: true };
       }
 
-      const occurrences = file.content.split(input.old_text).length - 1;
-      if (occurrences === 0) {
+      const edit = applyEdit(file.content, input.old_text, input.new_text, {
+        ...(input.replace_all ? { replaceAll: true } : {}),
+      });
+      if (!edit.ok) {
         return {
-          output: `No match in ${input.path}. The text to replace was not found exactly — check whitespace and indentation, and read the file again if needed.`,
+          output: `${edit.message.startsWith("Found") ? "" : `No match in ${input.path}. `}${edit.message}`,
           isError: true,
         };
       }
-      if (occurrences > 1) {
-        return {
-          output: `Found ${occurrences} matches in ${input.path}. Include more surrounding context so the text appears exactly once.`,
-          isError: true,
-        };
-      }
-
-      const at = file.content.indexOf(input.old_text);
-      const startLine = file.content.slice(0, at).split("\n").length;
-      const updated = file.content.replace(input.old_text, input.new_text);
-      await context.runtime.writeFile(context.projectId, input.path, updated);
+      await context.runtime.writeFile(context.projectId, input.path, edit.updated);
       context.onFileChanged(input.path);
       // Hand back the resulting region so the model can verify its own
       // edit without a full confirmatory read_file.
-      const throughLine = startLine + input.new_text.split("\n").length - 1;
+      const what =
+        edit.replacements > 1
+          ? `${edit.replacements} replacements; the first at line ${edit.startLine}`
+          : `1 replacement at line ${edit.startLine}`;
       return {
         output:
-          `Edited ${input.path} (1 replacement at line ${startLine}).\n\n` +
-          truncate(regionSnippet(updated, startLine, throughLine), 4000),
+          `Edited ${input.path} (${what}).${edit.note ? ` ${edit.note}` : ""}\n\n` +
+          truncate(regionSnippet(edit.updated, edit.startLine, edit.endLine), 4000),
       };
     });
   },
@@ -399,24 +405,62 @@ export const searchFilesTool = defineTool({
     const target = input.path ? input.path.replaceAll("'", "'\\''") : ".";
     const excludes =
       "--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build";
-    const include = input.glob ? ` --include='${input.glob.replaceAll("'", "'\\''")}'` : "";
+    // grep's --include has no brace expansion, so `*.{ts,tsx}` — the
+    // example in this tool's own description — used to match nothing.
+    const include = input.glob
+      ? expandBraces(input.glob)
+          .map((glob) => ` --include='${glob.replaceAll("'", "'\\''")}'`)
+          .join("")
+      : "";
     const contextFlag = ctx > 0 ? ` -C ${ctx}` : "";
     // No -m: that is grep's PER-FILE limit, so `-m 50` could mean "50 matches
     // from the first file". `head` is the real global cap. With context on, a
     // match is up to `2*ctx + 1` lines plus a `--` separator, so widen the
     // line budget to still deliver ~`max` matches.
     const lineBudget = ctx > 0 ? max * (2 * ctx + 2) : max;
+    // grep's own exit code tells "no match" (1) from "bad pattern" (2); piping
+    // straight into `head` lost it, so a broken regex read as no matches.
+    // `-e` keeps a pattern that starts with "-" from being read as an option.
     const command =
-      `grep -rnE --binary-files=without-match ${excludes}${include}${contextFlag} ` +
-      `'${pattern}' '${target}' | head -n ${lineBudget}`;
+      `out=$(grep -rnE --binary-files=without-match ${excludes}${include}${contextFlag} ` +
+      `-e '${pattern}' '${target}' 2>&1); code=$?; ` +
+      `printf '%s\\n' "$out" | head -n ${lineBudget}; exit $code`;
 
     const result = await context.runtime.exec(context.projectId, { command, timeoutMs: 30_000 });
-    if (result.exitCode !== 0 && result.stdout.trim() === "") {
-      return { output: `No matches for /${input.pattern}/.` };
+    const output = result.stdout.trim();
+    if (result.exitCode === 1 && output === "") {
+      return {
+        output: `No matches for /${input.pattern}/${input.glob ? ` in ${input.glob}` : ""}.`,
+      };
+    }
+    // Exit 2 with matches: some file could not be read, the rest searched.
+    const lines = output.split("\n");
+    const found = lines.filter((line) => !line.startsWith("grep:"));
+    if (result.exitCode === 2 && found.some((line) => /^[^:\n]+[:-]\d+[:-]/.test(line))) {
+      return { output: truncate(found.join("\n"), 15_000) };
+    }
+    if (result.exitCode !== 0 && result.exitCode !== 1) {
+      return {
+        output: `search_files failed: ${output || result.stderr.trim() || `grep exited ${result.exitCode}`}. Check the pattern — it is an extended regular expression (grep -E).`,
+        isError: true,
+      };
     }
     return { output: truncate(result.stdout, 15_000) };
   },
 });
+
+/** `*.{ts,tsx}` → `*.ts`, `*.tsx`. One level of braces, which is all a glob here needs. */
+export function expandBraces(glob: string): string[] {
+  const open = glob.indexOf("{");
+  const close = open === -1 ? -1 : glob.indexOf("}", open);
+  if (open === -1 || close === -1) return [glob];
+  const head = glob.slice(0, open);
+  const tail = glob.slice(close + 1);
+  return glob
+    .slice(open + 1, close)
+    .split(",")
+    .flatMap((alt) => expandBraces(`${head}${alt}${tail}`));
+}
 
 /**
  * A shell-style glob → anchored RegExp over a POSIX path. Supports `**`
