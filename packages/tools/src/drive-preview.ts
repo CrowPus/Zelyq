@@ -178,10 +178,55 @@ async function resolve(page: Page, target: Target | undefined): Promise<Locator 
     if (target.nth >= count) return `${describeTarget(target)}: only ${count} match`;
     return locator.nth(target.nth);
   }
+  if (count > 1 && !target.exact) {
+    // "Kilometres" also loosely matches "Kilometres to miles"; a person means
+    // the one named exactly that, so when there is exactly one, take it.
+    const exactly = locate(page, { ...target, exact: true });
+    if (exactly && (await exactly.count()) === 1) return exactly;
+  }
   if (count > 1) {
     return `${count} elements match ${describeTarget(target)}; add nth, exact, or a role`;
   }
   return locator;
+}
+
+/**
+ * A styled checkbox or switch often hides its real input behind a drawn
+ * one, so clicking the input times out though a person clicks it fine. When
+ * the click fails, click the input's own label, which is what a person hits.
+ */
+async function clickLikeAPerson(
+  page: Page,
+  element: Locator,
+  options: { timeout: number },
+): Promise<void> {
+  try {
+    await element.click(options);
+  } catch (error) {
+    const marked = await element
+      .evaluate((el) => {
+        // No DOM types in this package; an input's \`labels\` is all we need.
+        type Marked = { setAttribute(name: string, value: string): void };
+        const label = (el as unknown as { labels?: ArrayLike<Marked> | null }).labels?.[0];
+        if (!label) return false;
+        label.setAttribute("data-zelyq-click", "");
+        return true;
+      })
+      .catch(() => false);
+    if (!marked) throw error;
+    const label = page.locator("[data-zelyq-click]").first();
+    try {
+      await label.click(options);
+    } finally {
+      await label
+        .evaluate((el) =>
+          (el as unknown as { removeAttribute(name: string): void }).removeAttribute(
+            "data-zelyq-click",
+          ),
+        )
+        .catch(() => undefined);
+    }
+  }
 }
 
 async function settle(page: Page): Promise<void> {
@@ -283,7 +328,7 @@ async function runStep(
       const element = await resolve(page, step.target);
       if (typeof element === "string") return element;
       const options = { timeout: ACTION_TIMEOUT_MS };
-      if (step.action === "click") await element.click(options);
+      if (step.action === "click") await clickLikeAPerson(page, element, options);
       else if (step.action === "fill") {
         if (step.value === undefined) return "fill needs a value";
         await element.fill(step.value, options);

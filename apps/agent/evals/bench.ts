@@ -110,14 +110,17 @@ export const BENCH_CASES: BenchCase[] = [
     checks: [
       ...INTACT,
       flow("add, delete and reload todos", [
+        // One todo at a time, so the list's order (newest first or last)
+        // never decides which one a Delete removes.
         { action: "fill", target: { label: "New todo" }, value: "Buy milk" },
         { action: "click", target: { role: "button", name: "Add", exact: true } },
+        { action: "expect_text", text: "Buy milk" },
+        { action: "reload" },
+        { action: "expect_text", text: "Buy milk" },
+        { action: "click", target: { role: "button", name: "Delete" } },
+        { action: "expect_text", text: "Buy milk", absent: true },
         { action: "fill", target: { label: "New todo" }, value: "Walk the dog" },
         { action: "click", target: { role: "button", name: "Add", exact: true } },
-        { action: "expect_text", text: "Buy milk" },
-        { action: "expect_text", text: "Walk the dog" },
-        { action: "click", target: { role: "button", name: "Delete", nth: 0 } },
-        { action: "expect_text", text: "Buy milk", absent: true },
         { action: "reload" },
         { action: "expect_text", text: "Walk the dog" },
         { action: "expect_text", text: "Buy milk", absent: true },

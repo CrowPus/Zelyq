@@ -37,11 +37,34 @@ const TODO = `<!doctype html><html lang="en"><body><main>
   render();
 </script></main></body></html>`;
 
+// A converter whose field label also appears inside a longer label, and a
+// styled switch whose real checkbox sits under a drawn cover.
+const WIDGETS = `<!doctype html><html lang="en"><body><main>
+<label>Kilometres <input id="km" type="number"></label>
+<label>Kilometres to miles table <input type="checkbox"></label>
+<p id="out">0.00 miles</p>
+<label id="sw" style="position:relative;display:inline-block;padding:8px">Yearly billing
+<input id="y" type="checkbox" style="position:absolute;inset:0;opacity:0">
+<span style="position:absolute;inset:0;background:#ccc"></span></label>
+<p id="price">$9</p>
+<script>
+  document.getElementById("km").addEventListener("input", (e) => {
+    document.getElementById("out").textContent = (Number(e.target.value) * 0.621371).toFixed(2) + " miles";
+  });
+  document.getElementById("y").addEventListener("change", (e) => {
+    document.getElementById("price").textContent = e.target.checked ? "$90" : "$9";
+  });
+</script></main></body></html>`;
+
 let server: http.Server;
 let url = "";
 
 before(async () => {
   server = http.createServer((request, response) => {
+    if (request.url === "/w") {
+      response.writeHead(200, { "content-type": "text/html" }).end(WIDGETS);
+      return;
+    }
     if (request.url === "/" || request.url?.startsWith("/?")) {
       response.writeHead(200, { "content-type": "text/html" }).end(TODO);
       return;
@@ -113,6 +136,28 @@ describe("drive_preview", () => {
     });
     assert.equal(result.isError, true);
     assert.match(result.output, /2 elements match button; add nth, exact, or a role/);
+  });
+
+  it("a label that loosely matches two fields means the one named exactly that", async () => {
+    const result = await executeTool(context(), "drive_preview", {
+      steps: [
+        { action: "goto", path: "/w" },
+        { action: "fill", target: { label: "Kilometres" }, value: "10" },
+        { action: "expect_text", text: "6.21 miles" },
+      ],
+    });
+    assert.ok(!result.isError, result.output);
+  });
+
+  it("a switch drawn over its checkbox is clicked through its label, as a person would", async () => {
+    const result = await executeTool(context(), "drive_preview", {
+      steps: [
+        { action: "goto", path: "/w" },
+        { action: "click", target: { label: "Yearly billing" } },
+        { action: "expect_text", text: "$90" },
+      ],
+    });
+    assert.ok(!result.isError, result.output);
   });
 
   it("goto refuses a site outside the app", async () => {
