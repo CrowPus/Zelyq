@@ -91,10 +91,14 @@ test("a starter project's turn carries <first_build>; after the build, the next 
 
 test("<first_build> asks for a finished product, inside what was asked", () => {
   assert.match(FIRST_BUILD_BLOCK, /src\/lib\//);
-  assert.match(FIRST_BUILD_BLOCK, /\*\.test\.ts/);
+  assert.match(FIRST_BUILD_BLOCK, /one short test file/);
   assert.match(FIRST_BUILD_BLOCK, /meta description/);
-  assert.match(FIRST_BUILD_BLOCK, /no extra features/);
-  assert.match(FIRST_BUILD_BLOCK, /if they ask for something minimal or plain, keep it so/);
+  assert.match(FIRST_BUILD_BLOCK, /Build exactly what it asks for/);
+  assert.match(
+    FIRST_BUILD_BLOCK,
+    /No extra features, presets, buttons, panels, tables, facts or sections/,
+  );
+  assert.doesNotMatch(FIRST_BUILD_BLOCK, /useful fact|smallest change/);
   assert.doesNotMatch(
     buildSystemPrompt({ projectName: "p", template: "vite-react" }),
     /first_build/,

@@ -1214,22 +1214,16 @@ ${body}
  * only while the project is still its starter, so edits keep the small-change rule.
  */
 export const FIRST_BUILD_BLOCK = `<first_build>
-This project is still its starter. If this message asks for the app to be built, it is the app's \
-first build, and people judge the product by it. That is not "the smallest change": finish it as a \
-small, complete product.
-- Design the page: a clear hierarchy and a visual direction chosen for this app (type, colour, \
-spacing), and one or two details specific to its subject — a useful fact, a sensible default value, \
-an honest empty state. Not a lone centred card on a blank page.
-- Logic that computes something (a conversion, a total, a rule, a filter) goes in its own module \
-under src/lib/; the component only shows the result. When the project has a test runner \
-(\`npm test\`), put a \`*.test.ts\` beside that module covering the person's own example and the \
-edges (zero, empty, invalid), and run it.
-- Give the page a real <title> and a meta description, and rewrite the starter README to say what \
-the app does and how to run and test it.
-- Keep to the scope asked for: no extra features, pages or settings. Finish means how it looks and \
-holds up, not more of it.
-The person's own words win: if they ask for something minimal or plain, keep it so. Every later \
-request is an edit and stays as small as asked.
+This project is still its starter, so this message may be the app's first build. Build exactly what \
+it asks for: the same fields, buttons, text and behaviour, and nothing more. No extra features, \
+presets, buttons, panels, tables, facts or sections it did not ask for. Within that scope, finish it:
+- Give what was asked a considered look: a heading with the app's name, a clear type scale, and \
+spacing and colour chosen for this app. Polish the requested elements; do not add new ones.
+- If it computes something, put that in one function in src/lib/ and one short test file beside it \
+(the person's own example, plus empty and invalid input: a few cases). Run \`npm test\` once.
+- Set the page <title> and a one-line meta description, and replace the starter README with two or \
+three lines on what the app does and how to run it.
+The app is judged by the thing asked for working well and looking finished, not by how much is there.
 </first_build>`;
 
 /** The turn's message with the first-build guidance in front of it. */
