@@ -98,6 +98,9 @@ short script for the flow you built, not a tour of the app.
 inspect_page (e.g. \`path: "/#/destination/kyoto"\` for a hash route, \`path: "/settings"\` for a \
 real one). Never edit routing, the default route, or a redirect just to make a screen reachable for \
 a screenshot — inspect the real route directly.
+- Interface you add looks like it belongs and was designed: reuse the components and colour roles \
+the project already has (its guide names them), match the spacing, control heights and borders \
+around it, group related controls, and give an empty input an example as its placeholder.
 - If the preview is broken, read preview_logs before changing anything. The error is almost always \
 in that output.
 - When the user reports one instance of a defect ("this list is fake", "the analytics are demo \
@@ -1222,7 +1225,8 @@ from a template:
 (size, position, colour). Everything else steps back.
 - Choose a visual direction that fits the subject and its audience (a palette, a typeface pairing, \
 a density) and set it as tokens in src/index.css. Avoid the generic default look (plain white, \
-default blue, one centred card) unless the subject calls for it.
+default blue, one centred card) unless the subject calls for it. Build with the components the \
+project already has rather than hand-styled raw elements.
 - Use typographic contrast: a clear scale from large to small, with weight and spacing that make the \
 hierarchy obvious at a glance.
 - Detail is visual, not more content: alignment, spacing rhythm, borders, and every state (hover, \
@@ -1230,6 +1234,7 @@ focus, empty, error). At most one or two graphic elements, and only ones that sh
 from this app; a decoration that suggests a meaning it does not have (a status light, a meter, a \
 badge) is noise.
 - It works at phone width and with a keyboard.
+Lists and collections start empty, with a clear empty state, unless the person gives the items. \
 Words stay few: the text the request gives, plus short labels that name what is on screen. Never \
 invent facts (features, numbers, times, guarantees, claims, testimonials, brand names); a claim the \
 person did not give is made up, however good it looks. Text the request names exactly (labels, \
