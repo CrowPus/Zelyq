@@ -438,6 +438,38 @@ export const modelOptionSchema = z.object({
 });
 export type ModelOption = z.infer<typeof modelOptionSchema>;
 
+/**
+ * The real model ID for what a person typed in a model field. People type the
+ * name they see ("GPT-6 Astra", "gpt-6 astra") rather than the ID
+ * ("gpt-6-astra"), and the provider refuses anything but the ID, so every
+ * message on that setting failed. A known ID, alias or label, matched without
+ * regard to case or to spaces versus dashes, becomes its ID; anything else is
+ * returned trimmed and unchanged, since a custom or brand-new model must
+ * still be usable.
+ */
+export function canonicalModelId(
+  typed: string,
+  models: ReadonlyArray<{ value: string; label?: string; aliases?: readonly string[] }>,
+): string {
+  const trimmed = typed.trim();
+  if (!trimmed) return trimmed;
+  const key = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+  const wanted = key(trimmed);
+  // An exact ID or dated alias is already what the provider takes: unchanged.
+  for (const model of models) {
+    if (model.value === trimmed || model.aliases?.includes(trimmed)) return trimmed;
+  }
+  for (const model of models) {
+    const names = [model.value, ...(model.aliases ?? []), ...(model.label ? [model.label] : [])];
+    if (names.some((name) => key(name) === wanted)) return model.value;
+  }
+  return trimmed;
+}
+
 export const sessionStatusSchema = z.enum(["idle", "running", "closed", "error"]);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 

@@ -1473,9 +1473,13 @@ test("OpenAI Auto and explicit selections resolve from Settings and project chat
       });
       return agent.created.at(-1)!;
     }
-    assert.equal((await prompt()).model, "gpt-5.6-terra");
+    // The access check here falls back to the whole catalog (unverified), so
+    // Auto lands on the catalog default.
+    assert.equal((await prompt()).model, "gpt-6.1-terra");
     assert.equal((await prompt("gpt-6-astra")).model, "gpt-6-astra");
-    assert.equal((await prompt("auto")).model, "gpt-5.6-terra");
+    assert.equal((await prompt("auto")).model, "gpt-6.1-terra");
+    // Typed as the name people see, it still reaches OpenAI as the real ID.
+    assert.equal((await prompt("GPT-6 Astra")).model, "gpt-6-astra");
     await fs.writeFile(
       path.join(tmp, "codex-auth.json"),
       JSON.stringify({ tokens: { access_token: "fixture-token", account_id: "fixture-account" } }),

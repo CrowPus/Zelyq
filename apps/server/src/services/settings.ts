@@ -3,6 +3,7 @@ import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core"
 import {
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_MODELS,
+  canonicalModelId,
   chooseAnthropicAutoModel,
   chooseGoogleAutoModel,
   chooseOpenAIAutoModel,
@@ -1651,7 +1652,8 @@ export class SettingsService {
     return { ...result, models: withGoogleAuto(result.models) as GoogleModelList["models"] };
   }
 
-  async resolveGoogleModel(model: string): Promise<string> {
+  async resolveGoogleModel(typed: string): Promise<string> {
+    const model = canonicalModelId(typed, GOOGLE_MODELS);
     if (model && model !== "auto") return model;
     const catalog = await this.googleModels();
     const chosen = chooseGoogleAutoModel(catalog.models);
@@ -1692,7 +1694,8 @@ export class SettingsService {
     return { ...result, models: withAnthropicAuto(result.models) as AnthropicModelList["models"] };
   }
 
-  async resolveAnthropicModel(model: string): Promise<string> {
+  async resolveAnthropicModel(typed: string): Promise<string> {
+    const model = canonicalModelId(typed, ANTHROPIC_MODELS);
     if (model && model !== "auto") return model;
     if ((await this.authModeFor("anthropic")) === "subscription") {
       if (model === "auto")
@@ -1737,7 +1740,8 @@ export class SettingsService {
     return { ...result, models: withOpenAIAuto(result.models) };
   }
 
-  async resolveOpenAIModel(model: string): Promise<string> {
+  async resolveOpenAIModel(typed: string): Promise<string> {
+    const model = canonicalModelId(typed, OPENAI_MODELS);
     if (model && model !== "auto") return model;
     if ((await this.authModeFor("openai")) === "subscription") {
       if (model === "auto")

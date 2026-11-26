@@ -56,7 +56,14 @@ test("a model listed only under a dated snapshot is still offered, under its bar
   );
 });
 
-test("Auto prefers Opus 5 and never invents access it was not shown", () => {
+test("Auto prefers Opus 5.5 and never invents access it was not shown", () => {
+  assert.equal(
+    chooseAnthropicAutoModel(
+      withAnthropicAuto(availableAnthropicModels(["claude-opus-5", "claude-opus-5-5"])),
+    ),
+    "claude-opus-5-5",
+  );
+  // A key that cannot reach Opus 5.5 yet keeps getting Opus 5.
   assert.equal(
     chooseAnthropicAutoModel(
       withAnthropicAuto(availableAnthropicModels(["claude-sonnet-5", "claude-opus-5"])),

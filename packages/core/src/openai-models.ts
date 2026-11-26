@@ -1,6 +1,8 @@
 import type { Effort, ModelOption } from "./models.js";
 
-/** Verified against the official model catalog on 2026-09-10.
+/** Verified against the official model catalog on 2026-09-10; the GPT-6.x
+ * entries against the live model list, a tool call and the pricing page on
+ * 2026-11-26.
  * https://developers.openai.com/api/docs/models
  * Shared by the agent, Settings, and the project chat selector. */
 export interface OpenAIModel extends ModelOption {
@@ -16,21 +18,60 @@ export interface OpenAIModel extends ModelOption {
 const currentEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
 const extendedEfforts = ["low", "medium", "high", "xhigh"] as const;
 const baseEfforts = ["low", "medium", "high"] as const;
-export const OPENAI_DEFAULT_MODEL = "gpt-5.6-terra";
+export const OPENAI_DEFAULT_MODEL = "gpt-6.1-terra";
 export const OPENAI_AUTO_MODEL = "auto";
 export const OPENAI_MODELS: OpenAIModel[] = [
   {
-    value: "gpt-6-astra",
-    label: "GPT-6 Astra",
+    value: "gpt-6.2-astra",
+    label: "GPT-6.2 Astra",
     description: "Best · hardest engineering tasks",
     group: "recommended",
     tier: "strong",
     reasoning: currentEfforts,
     contextWindow: 1_050_000,
     maxOutputTokens: 128_000,
-    inputPricePerMillion: 10,
-    cachedInputPricePerMillion: 1,
-    outputPricePerMillion: 50,
+    inputPricePerMillion: 8,
+    cachedInputPricePerMillion: 0.4,
+    outputPricePerMillion: 40,
+  },
+  {
+    value: "gpt-6.2-sol",
+    label: "GPT-6.2 Sol",
+    description: "Advanced · complex coding and debugging",
+    group: "recommended",
+    tier: "strong",
+    reasoning: currentEfforts,
+    contextWindow: 1_050_000,
+    maxOutputTokens: 128_000,
+    inputPricePerMillion: 2,
+    cachedInputPricePerMillion: 0.1,
+    outputPricePerMillion: 10,
+  },
+  {
+    value: "gpt-6.1-terra",
+    label: "GPT-6.1 Terra",
+    description: "Balanced · default for everyday builds",
+    group: "recommended",
+    tier: "standard",
+    reasoning: currentEfforts,
+    contextWindow: 1_050_000,
+    maxOutputTokens: 128_000,
+    inputPricePerMillion: 1,
+    cachedInputPricePerMillion: 0.05,
+    outputPricePerMillion: 5,
+  },
+  {
+    value: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    description: "Fast · inexpensive, focused tasks",
+    group: "recommended",
+    tier: "cheap",
+    reasoning: currentEfforts,
+    contextWindow: 1_050_000,
+    maxOutputTokens: 128_000,
+    inputPricePerMillion: 0.1,
+    cachedInputPricePerMillion: 0.01,
+    outputPricePerMillion: 0.5,
   },
   {
     value: "gpt-5.3-codex",
@@ -46,10 +87,21 @@ export const OPENAI_MODELS: OpenAIModel[] = [
     outputPricePerMillion: 14,
   },
   {
+    value: "gpt-6-astra",
+    label: "GPT-6 Astra",
+    group: "previous",
+    tier: "strong",
+    reasoning: currentEfforts,
+    contextWindow: 1_050_000,
+    maxOutputTokens: 128_000,
+    inputPricePerMillion: 10,
+    cachedInputPricePerMillion: 1,
+    outputPricePerMillion: 50,
+  },
+  {
     value: "gpt-5.6-sol",
     label: "GPT-5.6 Sol",
-    description: "Advanced · complex coding and debugging",
-    group: "recommended",
+    group: "previous",
     tier: "strong",
     reasoning: currentEfforts,
     aliases: ["gpt-5.6"],
@@ -62,8 +114,7 @@ export const OPENAI_MODELS: OpenAIModel[] = [
   {
     value: "gpt-5.6-terra",
     label: "GPT-5.6 Terra",
-    description: "Balanced · default for everyday builds",
-    group: "recommended",
+    group: "previous",
     tier: "standard",
     reasoning: currentEfforts,
     contextWindow: 1_050_000,
@@ -75,8 +126,7 @@ export const OPENAI_MODELS: OpenAIModel[] = [
   {
     value: "gpt-5.6-luna",
     label: "GPT-5.6 Luna",
-    description: "Fast · inexpensive, focused tasks",
-    group: "recommended",
+    group: "previous",
     tier: "cheap",
     reasoning: currentEfforts,
     contextWindow: 1_050_000,
@@ -190,6 +240,8 @@ export function availableOpenAIModels(ids: readonly string[]): OpenAIModel[] {
 export function chooseOpenAIAutoModel(models: readonly ModelOption[]): string | undefined {
   const preferred = [
     OPENAI_DEFAULT_MODEL,
+    "gpt-6.2-sol",
+    "gpt-5.6-terra",
     "gpt-5.6-sol",
     "gpt-5.6",
     "gpt-6-astra",
@@ -208,7 +260,7 @@ export function withOpenAIAuto(models: readonly ModelOption[]): ModelOption[] {
         {
           value: OPENAI_AUTO_MODEL,
           label: "Auto",
-          description: "Best available balance · prefers GPT-5.6 Terra",
+          description: "Best available balance · prefers GPT-6.1 Terra",
           group: "recommended",
         },
         ...models,

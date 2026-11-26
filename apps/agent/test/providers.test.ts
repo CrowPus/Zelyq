@@ -53,7 +53,7 @@ test("provider ids are validated, not trusted", () => {
 });
 
 test("each provider brings its own default model", () => {
-  assert.equal(defaultModelFor("anthropic"), "claude-opus-5");
+  assert.equal(defaultModelFor("anthropic"), "claude-opus-5-5");
   assert.match(defaultModelFor("google"), /^gemini-/);
   assert.equal(defaultModelFor("deepseek"), "deepseek-v4-flash");
   assert.equal(defaultModelFor("mistral"), "mistral-large-latest");
