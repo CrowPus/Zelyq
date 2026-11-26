@@ -19,6 +19,7 @@ import {
   executeTool,
   IMAGE_TOOL_NAMES,
   opsPassTool,
+  PLATFORM_TOOL_NAMES,
   qaPassTool,
   stripAnsi,
   type ToolContext,
@@ -1677,6 +1678,10 @@ export class AgentSession {
       .filter((t) => videosGenerate || t.name !== "generate_video")
       // Variables are read through the preview grant; without one there is no way in.
       .filter((t) => t.name !== "list_project_variables" || Boolean(options.previewBridge))
+      // Zelyq's pipelines and deploys are reached through the same grant.
+      .filter(
+        (t) => !PLATFORM_TOOL_NAMES.includes(t.name as never) || Boolean(options.previewBridge),
+      )
       // One plan, one owner. Architect Mode's plan is `build-plan.md`;
       // `update_plan` (which writes `PLAN.md`) belongs to default and Engineer
       // Mode only, so the two never compete.
@@ -1713,6 +1718,8 @@ export class AgentSession {
             ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
             ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
             ...(options.plan ? { plan: options.plan } : {}),
+            // Only when the session can actually reach Zelyq's pipelines.
+            ...(liveTools.some((tool) => tool.name === "zelyq_platform") ? { platform: true } : {}),
             ...(options.agentMd ? { agentMd: options.agentMd } : {}),
             ...(options.designRefCatalogText
               ? { designRefCatalogText: options.designRefCatalogText }

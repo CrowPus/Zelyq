@@ -12,6 +12,7 @@ does not come up, the previous one is put back by itself.
 - [Your own address, HTTPS, and no downtime](#your-own-address-https-and-no-downtime)
 - [Roll back](#roll-back)
 - [Ports and firewalls](#ports-and-firewalls)
+- [Ask the agent](#ask-the-agent)
 - [Deploy every change the agent makes](#deploy-every-change-the-agent-makes)
 - [Who can do what](#who-can-do-what)
 
@@ -298,6 +299,23 @@ app's name when there is none.
   `host-port`, and set the step's `url:` so Deployments links to the right address.
 - Zelyq reaches the machine over SSH only; see [Pipelines → firewalls and
   ports](./pipelines.md#firewalls-and-ports).
+
+## Ask the agent
+
+In an app's chat, ask for it in your own words: *"set up CI"*, *"deploy this so my team can open
+it"*, *"why is staging broken?"*. The agent looks at what your team has (machines, environments,
+what is live), writes the app's pipeline at `.zelyq/pipelines/<app>.yml`, checks and saves it in
+Zelyq, runs it, fixes what fails, and gives you the link of what it deployed. It is the same
+pipeline you see under **Pipelines**, with a version saved as *Saved by the build agent*.
+
+It acts as you, with your role: a viewer's agent can look but not save or run. It only touches
+pipelines whose `source:` is the app you are chatting about, and it never changes an environment,
+approves a protected deploy, adds a trigger, rolls back or promotes. Those stay with people. A
+deploy to a protected environment waits for an admin, and the agent tells you so. If someone changed
+the pipeline in Zelyq since the agent read it, its save is refused rather than written over yours.
+
+It reaches for GitHub Actions or another host only when you name one, or the app already deploys
+from there.
 
 ## Deploy every change the agent makes
 

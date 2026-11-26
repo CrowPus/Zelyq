@@ -313,6 +313,12 @@ with `Error: no match`. The first tells the model what to do next.
 - `edit_file` refuses ambiguous matches rather than replacing the first one.
 - Every path is confined to the project root by the runtime, not by the tool.
 - Tool output is truncated head-and-tail with a note, so one large file cannot eat the context.
+- Zelyq's own pipelines and deploys (`zelyq_platform`, `save_pipeline`, `run_pipeline`,
+  `pipeline_run`, `deployed_app`) ride the session's preview grant to `/api/internal/platform/*`
+  (`services/agent-platform.ts`). They act as the person in the chat, with their current role, only
+  on pipelines whose `source:` is this app; nothing there approves, rolls back, promotes, adds a
+  trigger or changes an environment. The `<shipping>` block in the prompt appears only when these
+  tools do.
 
 ## Caching
 

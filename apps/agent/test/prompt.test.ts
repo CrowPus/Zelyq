@@ -582,3 +582,23 @@ test("the prompt says the person's request outranks the guides and defaults", ()
   assert.match(prompt, /what the person asks in this conversation, then the project's own guide/);
   assert.match(prompt, /Safety rules .* always hold/);
 });
+
+test("<shipping> is there only when the session has Zelyq's pipeline tools", () => {
+  const without = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.equal(
+    buildSystemPrompt({ projectName: "p", template: "vite-react", platform: false }),
+    without,
+    "off is byte-identical to before",
+  );
+  assert.doesNotMatch(without, /<shipping>/);
+  const shipping = buildSystemPrompt({ projectName: "p", template: "vite-react", platform: true });
+  assert.match(shipping, /<shipping>[\s\S]*<\/shipping>/);
+  // Zelyq's own CI/CD first; a third-party host only when asked for.
+  assert.match(
+    shipping,
+    /GitHub Actions, Vercel, Netlify and other hosts are for when the user asks/,
+  );
+  // Never claims a protected deploy is live, never invents a link.
+  assert.match(shipping, /approval, which you cannot give/);
+  assert.match(shipping, /Never invent a host, a domain or a link/);
+});

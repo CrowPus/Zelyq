@@ -22,6 +22,7 @@ import {
   qaPassTool,
 } from "./orchestrate.js";
 import { updatePlanTool } from "./plan.js";
+import { PLATFORM_TOOLS } from "./platform.js";
 import { previewLogsTool, startPreviewTool, viewPreviewTool } from "./preview.js";
 import { fetchReferenceImageTool } from "./reference-image.js";
 import { runCommandTool } from "./shell.js";
@@ -45,6 +46,7 @@ export { CaptureBlockedError, guardedFetch } from "./capture-fetch-guard.js";
 export { type FlowOutcome, type FlowStep, type FlowTelemetry, runFlow } from "./drive-preview.js";
 export { IMAGE_TOOL_NAMES } from "./images.js";
 export { PLAN_FILE } from "./plan.js";
+export { PIPELINE_REFERENCE, PLATFORM_TOOL_NAMES } from "./platform.js";
 export { capturePage } from "./preview.js";
 export { type Screencast, type ScreencastSink, startScreencast } from "./screencast.js";
 export * from "./types.js";
@@ -99,6 +101,7 @@ export const ALL_TOOLS: ZelyqTool[] = [
   drivePreviewTool,
   fetchReferenceImageTool,
   listProjectVariablesTool,
+  ...PLATFORM_TOOLS,
   browsePageTool,
   captureReferenceTool,
   addMotionTool,
