@@ -25,6 +25,23 @@ export function pipelineBase(source: string): string {
   return createHash("sha256").update(source).digest("hex").slice(0, 16);
 }
 
+/**
+ * A top-level `key: value` line of a pipeline file, read line by line (no
+ * regular expression over the whole file, so no input can make it slow).
+ */
+export function topLevelValue(source: string, key: string): string | null {
+  for (const line of source.split("\n")) {
+    if (!line.startsWith(`${key}:`)) continue;
+    let value = line.slice(key.length + 1).trim();
+    const quote = value[0];
+    if ((quote === '"' || quote === "'") && value.endsWith(quote) && value.length >= 2) {
+      value = value.slice(1, -1);
+    }
+    return value || null;
+  }
+  return null;
+}
+
 const ENDED = new Set(["passed", "failed", "cancelled", "timed_out"]);
 const LOG_TAIL = 60;
 
@@ -147,7 +164,7 @@ export class AgentPlatform {
         name: row.name,
         base: pipelineBase(row.source),
         source: row.source,
-        runsOn: /^runs-on:\s*(.+)$/m.exec(row.source)?.[1]?.trim() ?? "",
+        runsOn: topLevelValue(row.source, "runs-on") ?? "",
         deploysTo: targets.environments,
         keptInRepository: row.repoPath,
         triggers: triggers.map((trigger) => ({ kind: trigger.kind, enabled: trigger.enabled })),
@@ -225,10 +242,7 @@ export class AgentPlatform {
     }
     if (!input.save) return { ok: true, issues, warnings, saved: null };
 
-    const name = /^name:\s*(.+)$/m
-      .exec(input.source)?.[1]
-      ?.trim()
-      .replace(/^["']|["']$/g, "");
+    const name = topLevelValue(input.source, "name");
     const existing = name ? await this.store.pipelines.pipelines.findByName(teamId, name) : null;
     if (existing) {
       const existingTargets = await this.pipelines.targets(user, teamId, existing.source);

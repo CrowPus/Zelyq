@@ -8,6 +8,7 @@ import { runMigrations } from "@zelyq/db";
 import { PIPELINE_REFERENCE } from "@zelyq/tools";
 import { buildServer, type ZelyqServer } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
+import { topLevelValue } from "../src/services/agent-platform.js";
 
 /**
  * The build agent's way into Zelyq's pipelines and deploys: it sees what the
@@ -412,4 +413,14 @@ test("the reference the agent is given is itself a valid pipeline", () => {
     .replace("<exact app name>", "Shop");
   const parsed = parsePipelineFile(yaml);
   assert.ok(parsed.ok, JSON.stringify(!parsed.ok && parsed.issues));
+});
+
+test("a file's name and machine are read line by line, quickly, whatever the file holds", () => {
+  assert.equal(topLevelValue("runs-on: local\nname: Shop CI\r\n", "name"), "Shop CI");
+  assert.equal(topLevelValue('name: "Shop CI"\n', "name"), "Shop CI");
+  assert.equal(topLevelValue("stages:\n  name: nested\n", "name"), null);
+  const crafted = `name:${" ".repeat(200_000)}x`;
+  const started = Date.now();
+  assert.equal(topLevelValue(crafted, "name"), "x");
+  assert.ok(Date.now() - started < 200);
 });
