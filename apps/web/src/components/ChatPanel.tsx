@@ -48,6 +48,7 @@ import {
 import { fileToBase64 } from "../lib/files";
 import { t } from "../lib/i18n";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
+import { readModelChoice, writeModelChoice } from "../lib/model-choice";
 import {
   buildMotionDirective,
   MOTION_SKILL,
@@ -177,9 +178,22 @@ export function ChatPanel({
   videoGeneration,
 }: Props) {
   const [draft, setDraft] = useState("");
-  /** Picked from the composer's own model control. Null means the instance
-   * default, unchanged. */
-  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
+  /** Picked from the composer's own model control. Null means the team
+   * default. Kept per project in this browser, so a refresh does not send the
+   * next message to a different model than the one on screen. */
+  const [modelChoice, setModelChoiceState] = useState<ModelChoice | null>(() =>
+    readModelChoice(projectId),
+  );
+  const [choiceProject, setChoiceProject] = useState(projectId);
+  if (choiceProject !== projectId) {
+    // Another project in the same panel: its own remembered choice.
+    setChoiceProject(projectId);
+    setModelChoiceState(readModelChoice(projectId));
+  }
+  const setModelChoice = (choice: ModelChoice | null): void => {
+    setModelChoiceState(choice);
+    writeModelChoice(projectId, choice);
+  };
   /** Uploaded and ready to send with the next prompt. */
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   /** Picked from the `/` menu, guaranteed to be used. */
@@ -269,6 +283,19 @@ export function ChatPanel({
     queryFn: () => api.getProviders(activeTeam?.id),
     staleTime: 60_000,
   });
+  // A remembered choice whose provider has since lost its key would fail
+  // every turn: go back to Default instead.
+  const rememberedUnusable =
+    modelChoice !== null &&
+    providers.data !== undefined &&
+    !providers.data.providers.some(
+      (provider) => provider.id === modelChoice.provider && provider.configured,
+    );
+  useEffect(() => {
+    if (!rememberedUnusable) return;
+    setModelChoiceState(null);
+    writeModelChoice(projectId, null);
+  }, [rememberedUnusable, projectId]);
   // Only fetched once someone actually starts a `/figma` command — it gates
   // the send with "connect first" rather than letting the turn fail server-side.
   const figmaConnection = useQuery({
