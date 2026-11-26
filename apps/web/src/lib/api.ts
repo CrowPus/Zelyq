@@ -1379,7 +1379,12 @@ export const api = {
 
   updateProject: (
     id: string,
-    input: { imageGenerationEnabled?: boolean; videoGenerationEnabled?: boolean; name?: string },
+    input: {
+      imageGenerationEnabled?: boolean;
+      videoGenerationEnabled?: boolean;
+      name?: string;
+      description?: string | null;
+    },
   ) =>
     request<{ project: Project }>(`/projects/${id}`, {
       method: "PATCH",
