@@ -27,7 +27,7 @@ import {
 } from "./managed.js";
 import { assertRealPathInside, isIgnored, resolveInside, toPosix } from "./paths.js";
 import { allocatePort, previewUrl, releasePort, waitForPort } from "./ports.js";
-import { boundedTimeout } from "./timeout.js";
+import { boundedTimeout, MAX_TIMEOUT_MS } from "./timeout.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -1207,10 +1207,15 @@ export function runCaptured(
     child.stdout?.on("data", (chunk: Buffer) => append("out", chunk));
     child.stderr?.on("data", (chunk: Buffer) => append("err", chunk));
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      cut();
-    }, boundedTimeout(options.timeoutMs));
+    // The bound is checked here, at the timer, as well as in boundedTimeout.
+    const waitMs = boundedTimeout(options.timeoutMs);
+    const timer = setTimeout(
+      () => {
+        timedOut = true;
+        cut();
+      },
+      waitMs <= MAX_TIMEOUT_MS ? waitMs : MAX_TIMEOUT_MS,
+    );
     if (options.signal?.aborted) queueMicrotask(onAbort);
     else options.signal?.addEventListener("abort", onAbort, { once: true });
     const settle = () => {

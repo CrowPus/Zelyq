@@ -1,7 +1,7 @@
 import type { FileContent, FileEntry, Preview, Snapshot } from "@zelyq/core";
 import { ZelyqError } from "@zelyq/core";
 import { previewUrl } from "./ports.js";
-import { boundedTimeout } from "./timeout.js";
+import { boundedTimeout, MAX_TIMEOUT_MS } from "./timeout.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -243,7 +243,12 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
     signal?: AbortSignal,
   ): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), boundedTimeout(timeoutMs));
+    // The bound is checked here, at the timer, as well as in boundedTimeout.
+    const waitMs = boundedTimeout(timeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(),
+      waitMs <= MAX_TIMEOUT_MS ? waitMs : MAX_TIMEOUT_MS,
+    );
     const onAbort = () => controller.abort();
     if (signal?.aborted) controller.abort();
     else signal?.addEventListener("abort", onAbort, { once: true });
