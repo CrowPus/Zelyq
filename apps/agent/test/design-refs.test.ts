@@ -145,3 +145,35 @@ test("064: use_design_ref's description no longer assumes a prompt-side list", a
   // And it names the failure mode it exists to prevent.
   assert.match(tool.description, /dark-background-and-purple-gradient/);
 });
+
+test("use_design_ref gives a long reference's essentials, and the rest by section", async () => {
+  const dir = await tmpDir();
+  const pad = (word: string) => `${word} `.repeat(600);
+  await writeRef(
+    dir,
+    "bigref",
+    `---\nname: B\ndescription: a calm fintech look\ncolors:\n  primary: "#123456"\n---\n# Bigref\n\n## Overview\n${pad("overview")}\n\n## Colors\nPrimary #123456.\n\n## Typography\nInter.\n\n## Components\n### Buttons\n${pad("button")}\n### Cards\n${pad("card")}\n\n## Do's and Don'ts\nDo stay calm.\n`,
+  );
+  const { refs } = await loadDesignRefs(dir, undefined, silent);
+  const tool = buildUseDesignRefTool(refs);
+
+  const essentials = (await tool.run({} as never, { slug: "bigref" })).output;
+  assert.match(essentials, /a calm fintech look/);
+  assert.match(essentials, /## Colors\nPrimary #123456\./);
+  assert.match(essentials, /## Do's and Don'ts\nDo stay calm\./);
+  assert.match(essentials, /read with section: "Components"/);
+  assert.doesNotMatch(essentials, /button button/);
+  assert.doesNotMatch(essentials, /colors:\n {2}primary/, "front matter left out");
+
+  const buttons = (await tool.run({} as never, { slug: "bigref", section: "Buttons" })).output;
+  assert.match(buttons, /^### Buttons\nbutton/);
+  assert.doesNotMatch(buttons, /card card/);
+
+  const all = (await tool.run({} as never, { slug: "bigref", section: "all" })).output;
+  assert.match(all, /colors:\n {2}primary/);
+  assert.match(all, /card card/);
+
+  const none = await tool.run({} as never, { slug: "bigref", section: "Motion" });
+  assert.equal(none.isError, true);
+  assert.match(none.output, /Its headings:[\s\S]*Components/);
+});

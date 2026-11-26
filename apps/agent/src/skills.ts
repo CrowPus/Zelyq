@@ -3,6 +3,7 @@ import path from "node:path";
 import { parseSkillFile } from "@zelyq/core";
 import { defineTool, type ToolResult, truncate, type ZelyqTool } from "@zelyq/tools";
 import { z } from "zod";
+import { condense, findSection, headings } from "./sections.js";
 
 export interface Skill {
   name: string;
@@ -159,16 +160,21 @@ export function buildUseSkillTool(skills: Skill[]): ZelyqTool {
     name: "use_skill",
     description:
       "Load a skill named in the <skills> list in your system prompt. Called with just a name, " +
-      "this returns the skill's own short instructions plus a list of every deeper file it has — " +
-      "a reference doc, a worked recipe, a starting template, a script's source. Call it again " +
-      "with one of those paths to actually read that file. Skip this tool entirely when no task " +
-      "matches a skill's description.",
+      "this returns the skill's instructions, with its longest sections folded to their headings, " +
+      "plus a list of every deeper file it has — a reference doc, a worked recipe, a starting " +
+      "template, a script's source. Read a folded section with `section` (its heading) when the " +
+      "task needs it, and a file with `path`. Skip this tool entirely when no task matches a " +
+      "skill's description.",
     schema: z.object({
       name: z.string().describe("A skill name from the <skills> list"),
       path: z
         .string()
         .optional()
         .describe("A path from a previous call's file list, to read that specific file"),
+      section: z
+        .string()
+        .optional()
+        .describe("A heading in the skill, to read that section in full"),
     }),
     async run(_context, input): Promise<ToolResult> {
       const skill = byName.get(input.name);
@@ -177,12 +183,22 @@ export function buildUseSkillTool(skills: Skill[]): ZelyqTool {
         return { output: `No skill named "${input.name}". Available: ${known}`, isError: true };
       }
 
+      if (input.section && !input.path) {
+        const found = findSection(skill.body, input.section);
+        return found
+          ? { output: truncate(found, 20_000) }
+          : {
+              output: `No section "${input.section}" in ${skill.name}. Its headings:\n${headings(skill.body).join("\n")}`,
+              isError: true,
+            };
+      }
+
       if (!input.path) {
         const resources = await listResources(skill.dir);
         const list = resources.length
           ? `\n\nOther files this skill has, readable with path:\n${resources.map((r) => `- ${r}`).join("\n")}`
           : "";
-        return { output: `${truncate(skill.body, 20_000)}${list}` };
+        return { output: `${truncate(condense(skill.body), 20_000)}${list}` };
       }
 
       // Resolved and checked before ever touching the filesystem — a

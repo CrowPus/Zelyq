@@ -44,6 +44,7 @@ import {
   designReferencesBlock,
   ENGINEER_MODE_PURPOSE_MARKER,
   withAgents,
+  withFirstBuild,
   withPlugins,
   withSkills,
 } from "./prompt.js";
@@ -61,6 +62,7 @@ import {
   type ProviderId,
   pinsToolPrefixCache,
 } from "./providers/index.js";
+import { isStarterProject } from "./starter.js";
 import { gateToolsForDefaultMode } from "./tool-relevance.js";
 
 /** Every tool that can change the project, refused once Engineer Mode's
@@ -2881,7 +2883,17 @@ export class AgentSession {
         ? withSkills(withAgentHint, skillNames, this.options.resolveSkillBody)
         : withAgentHint;
 
-    this.conversation.addUserMessage(messageForModel, attachments);
+    // Nothing built yet: this turn may be the app's first build. Checked each
+    // turn, so the guidance stops the moment the starter screen is replaced.
+    // A dispatched child (its own prompt) never gets it.
+    const firstBuild =
+      !this.options.systemPrompt &&
+      (await isStarterProject(this.options.runtime, this.options.projectId));
+
+    this.conversation.addUserMessage(
+      firstBuild ? withFirstBuild(messageForModel) : messageForModel,
+      attachments,
+    );
 
     const toolContext: ToolContext = {
       projectId: this.projectId,

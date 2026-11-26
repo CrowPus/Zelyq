@@ -535,3 +535,31 @@ test("a live turn: the model reads a skill's entry point, then follows up for a 
     if (index !== -1) ALL_TOOLS.splice(index, 1);
   }
 });
+
+test("use_skill folds a long skill's longest section, and reads it by heading", async () => {
+  const root = path.join(tmp, "long-skill");
+  const workflow = `## Required workflow\n### 1. Inspect\n${"inspect carefully. ".repeat(250)}\n### 2. Build\n${"build well. ".repeat(250)}`;
+  await writeSkillDir(
+    root,
+    "long-skill",
+    `---\nname: long-skill\ndescription: d\n---\n\n## Mission\nThe mission.\n\n${workflow}\n\n## Definition of done\nVerified.\n`,
+  );
+  const { skills } = await loadSkills(root, undefined, undefined, {
+    warn: () => undefined,
+    info: () => undefined,
+  });
+  const tool = buildUseSkillTool(skills);
+  const summary = await tool.run(fakeContext(), { name: "long-skill" });
+  assert.match(summary.output, /The mission\./);
+  assert.match(summary.output, /## Definition of done\nVerified\./);
+  assert.match(summary.output, /Read it with section: "Required workflow"/);
+  assert.doesNotMatch(summary.output, /inspect carefully/);
+
+  const part = await tool.run(fakeContext(), { name: "long-skill", section: "Inspect" });
+  assert.match(part.output, /^### 1\. Inspect\ninspect carefully/);
+  assert.doesNotMatch(part.output, /build well/);
+
+  const missing = await tool.run(fakeContext(), { name: "long-skill", section: "Deploy" });
+  assert.equal(missing.isError, true);
+  assert.match(missing.output, /Its headings:[\s\S]*Required workflow/);
+});

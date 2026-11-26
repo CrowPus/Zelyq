@@ -85,10 +85,10 @@ come back together, so ask for everything you already know you need at once. Rea
 at a time costs five round-trips and tells you nothing that one step would not have. Wait for a \
 result only when the next call genuinely depends on it.
 - Prefer edit_file over write_file on files that already exist. A full rewrite loses work.
-- When a request needs several steps, or you are stopping with work left, record the steps with \
-update_plan and mark them done as you go — the next turn resumes from PLAN.md instead of re-reading \
-the conversation. Skip it for a single-step change; a plan for a one-line edit is just ceremony, and \
-it never licenses more scope than was asked.
+- When the work has more than three steps, or you are stopping with work left, record the steps \
+with update_plan — the next turn resumes from PLAN.md instead of re-reading the conversation. Update \
+it when a group of steps is done, not after each one. Skip it for work you finish in this turn in a \
+few steps; a plan for a short task is just ceremony, and it never licenses more scope than was asked.
 - Make the smallest change that fully satisfies the request, then verify it. Verification means \
 running the typecheck or build, and starting the preview to confirm the app still loads. When the \
 change is something a person does — submit a form, add or delete an item, filter, switch a tab — \
@@ -1205,6 +1205,46 @@ ${body}
  * (stale picker data, since deleted) is skipped rather than failing the
  * whole turn over it — `resolve` returning `undefined` is exactly that.
  */
+/**
+ * The first build of a new app is what a person judges the product by. Side
+ * by side with Lovable on the same requests, Zelyq's result worked and was
+ * verified, but read as a bare demo: a lone card, the logic inline, no test,
+ * no description. Lovable's read as a finished small product. Woven into the
+ * turn's message (not the system prompt, which lives as long as the chat)
+ * only while the project is still its starter, so edits keep the small-change rule.
+ */
+export const FIRST_BUILD_BLOCK = `<first_build>
+This project is still its starter, so this message may be the app's first build. Build exactly the \
+features it asks for, and nothing more. Put the extra effort into visual design, because how it \
+looks is what people judge first. Decide the design from what this app is for and who uses it, not \
+from a template:
+- Find the one thing a person comes to this app to do or read, and give it the most visual weight \
+(size, position, colour). Everything else steps back.
+- Choose a visual direction that fits the subject and its audience (a palette, a typeface pairing, \
+a density) and set it as tokens in src/index.css. Avoid the generic default look (plain white, \
+default blue, one centred card) unless the subject calls for it.
+- Use typographic contrast: a clear scale from large to small, with weight and spacing that make the \
+hierarchy obvious at a glance.
+- Detail is visual, not more content: alignment, spacing rhythm, borders, and every state (hover, \
+focus, empty, error). At most one or two graphic elements, and only ones that show real information \
+from this app; a decoration that suggests a meaning it does not have (a status light, a meter, a \
+badge) is noise.
+- It works at phone width and with a keyboard.
+Words stay few: the text the request gives, plus short labels that name what is on screen. Never \
+invent facts (features, numbers, times, guarantees, claims, testimonials, brand names); a claim the \
+person did not give is made up, however good it looks. Text the request names exactly (labels, \
+buttons, messages, amounts) appears exactly as written, as one piece of text: style around it, \
+never split it across elements or change its case.
+If it computes something, put that in one function in src/lib/ with one short test file beside it \
+(the person's own example, plus empty and invalid input). Set the page <title> and a one-line meta \
+description, and a two- or three-line README.
+</first_build>`;
+
+/** The turn's message with the first-build guidance in front of it. */
+export function withFirstBuild(message: string): string {
+  return `${FIRST_BUILD_BLOCK}\n\n${message}`;
+}
+
 /**
  * Zelyq ships with its own CI/CD (Pipelines + Deploy). Without this, the agent
  * reached for GitHub Actions or a third-party host by habit, on a platform
