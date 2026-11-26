@@ -3045,5 +3045,6 @@
   "“{name}” is ready. Copy the key now: it is not shown again.": "« {name} » est prête. Copiez la clé maintenant : elle n’est plus affichée.",
   "→ the run it started: #{number}": "→ l’exécution qu’il a lancée : #{number}",
   "−{removed} removed": "−{removed} supprimées",
-  "The model is used for this visit but could not be saved: {message}": "Le modèle est utilisé pour cette visite mais n’a pas pu être enregistré : {message}"
+  "The model is used for this visit but could not be saved: {message}": "Le modèle est utilisé pour cette visite mais n’a pas pu être enregistré : {message}",
+  "This team already has an app called \"{0}\". Pick another name, for example \"{1}\".": "Cette équipe a déjà une app appelée « {0} ». Choisissez un autre nom, par exemple « {1} »."
 }

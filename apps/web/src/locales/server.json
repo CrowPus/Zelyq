@@ -397,6 +397,7 @@
   "This service key may not access '{0}'.",
   "This service key may not be used from {0}.",
   "This starting image belongs to a saved video. Delete its video entries first.",
+  "This team already has an app called \"{0}\". Pick another name, for example \"{1}\".",
   "This team has not let support look inside its apps. One of its admins can, in Team settings → Support access.",
   "This team is active. Pause it, make it read-only or suspend it before deleting it.",
   "This video could not be split into frames.",
