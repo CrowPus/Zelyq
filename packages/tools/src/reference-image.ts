@@ -157,7 +157,8 @@ async function writePlaceholder(
       `Point your <img> or background at ${svgPath}, and do NOT write copy that claims it shows a ` +
       "real place. For real photos the operator sets ZELYQ_IMAGE_PROVIDER (unsplash | pexels) and " +
       "ZELYQ_IMAGE_PROVIDER_KEY, or the person supplies the image.",
-    images: [{ mimeType: "image/svg+xml", data: Buffer.from(svg).toString("base64") }],
+    // No picture of the placeholder: it is a grey box with a label, and an
+    // SVG is a format OpenAI and Claude refuse outright.
   };
 }
 
@@ -201,36 +202,44 @@ export const fetchReferenceImageTool = defineTool({
     if (provider.error && !provider.key && provider.id !== "openverse") {
       return writePlaceholder(context, input.output_path, input.query, `${provider.error}.`);
     }
-    const request = searchRequest(provider, input.query, input.orientation);
-
-    let candidates: Candidate[];
-    try {
-      const search = await fetchImpl(request.url, request.headers);
-      if (search.status !== 200) {
+    // A long, descriptive query ("restaurant table dinner plates glasses warm
+    // elegant dining") usually matches nothing in a stock library, which
+    // searches for every word. Before settling for a placeholder, the same
+    // search is tried with its first three words, then its first two.
+    let candidates: Candidate[] = [];
+    let usedQuery = input.query;
+    for (const query of shorterQueries(input.query)) {
+      const request = searchRequest(provider, query, input.orientation);
+      try {
+        const search = await fetchImpl(request.url, request.headers);
+        if (search.status !== 200) {
+          return writePlaceholder(
+            context,
+            input.output_path,
+            input.query,
+            `The ${provider.id} search answered ${search.status}.`,
+          );
+        }
+        candidates = request
+          .pick(obj(JSON.parse(search.body.toString("utf8"))))
+          .filter((c) => c.image);
+      } catch (error) {
         return writePlaceholder(
           context,
           input.output_path,
           input.query,
-          `The ${provider.id} search answered ${search.status}.`,
+          `Could not search ${provider.id}: ${describeFailure(error)}.`,
         );
       }
-      candidates = request
-        .pick(obj(JSON.parse(search.body.toString("utf8"))))
-        .filter((c) => c.image);
-    } catch (error) {
-      return writePlaceholder(
-        context,
-        input.output_path,
-        input.query,
-        `Could not search ${provider.id}: ${describeFailure(error)}.`,
-      );
+      usedQuery = query;
+      if (candidates.length > 0) break;
     }
     if (candidates.length === 0) {
       return writePlaceholder(
         context,
         input.output_path,
         input.query,
-        `No ${provider.id} result for "${input.query}".`,
+        `No ${provider.id} result for "${input.query}", nor for a shorter "${usedQuery}".`,
       );
     }
 
@@ -266,7 +275,7 @@ export const fetchReferenceImageTool = defineTool({
         output:
           `Wrote ${input.output_path} (${buffer.length} bytes) from ${provider.id}. ` +
           `Credit: ${chosen.credit ?? "unknown"} · ${chosen.license ?? "see source"} · ` +
-          `${chosen.source ?? "n/a"}. Query was "${input.query}". LOOK at the image: if it does ` +
+          `${chosen.source ?? "n/a"}. Query was "${usedQuery}". LOOK at the image: if it does ` +
           "not show what your caption will claim, call this again with a better query or use a " +
           "placeholder. Credit the photographer where the license asks for it.",
         images: [{ mimeType: mime, data: buffer.toString("base64") }],
@@ -280,3 +289,10 @@ export const fetchReferenceImageTool = defineTool({
     );
   },
 });
+
+/** The query, then its first three words, then its first two — no repeats. */
+export function shorterQueries(query: string): string[] {
+  const words = query.trim().split(/\s+/).filter(Boolean);
+  const tries = [words.join(" "), words.slice(0, 3).join(" "), words.slice(0, 2).join(" ")];
+  return [...new Set(tries.filter((q) => q.length >= 2))];
+}

@@ -3705,11 +3705,13 @@ export class AgentSession {
               // Content the tool fetched from outside the user's control
               // is wrapped so the model treats it as data, not instruction.
               // Done here, once, rather than in each of ~80 tools.
-              output: outcome.untrusted
-                ? wrapUntrusted(outcome.output, toolCall.name, outcome.untrusted.source)
-                : outcome.output,
+              ...withModelReadableImages(
+                outcome.untrusted
+                  ? wrapUntrusted(outcome.output, toolCall.name, outcome.untrusted.source)
+                  : outcome.output,
+                outcome.images,
+              ),
               isError: outcome.isError ?? false,
-              images: outcome.images,
             };
           }),
         );
@@ -4678,3 +4680,27 @@ zelyq.runtime.json when your turn ends and hands back what fails; to check soone
 \`npm run check\` once — never chain your own commands or add stricter checks.
 Use the write scope of your assigned specialist role. Do not add unrelated features. Report each
 acceptance criterion and any check that could not run.`;
+
+/** The picture formats every model Zelyq talks to accepts in a tool result. */
+const MODEL_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+/**
+ * Keeps only pictures a model can read. OpenAI and Claude refuse anything else
+ * (an SVG placeholder failed a whole GPT turn with "unsupported image format"),
+ * where Gemini happened to let it through. A picture left out is said so in
+ * words, so the model does not believe it saw one.
+ */
+export function withModelReadableImages(
+  output: string,
+  images: Array<{ mimeType: string; data: string }> | undefined,
+): { output: string; images?: Array<{ mimeType: string; data: string }> } {
+  if (!images?.length) return { output };
+  const readable = images.filter((image) => MODEL_IMAGE_TYPES.has(image.mimeType.toLowerCase()));
+  const left = images.length - readable.length;
+  const note = left
+    ? `\n[${left} picture(s) not shown to you: ${[
+        ...new Set(images.filter((i) => !readable.includes(i)).map((i) => i.mimeType)),
+      ].join(", ")} is not a format models can read. Open the file itself if you need it.]`
+    : "";
+  return { output: output + note, ...(readable.length ? { images: readable } : {}) };
+}

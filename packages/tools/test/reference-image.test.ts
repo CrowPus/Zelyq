@@ -129,9 +129,32 @@ test("no results gives a labelled SVG placeholder at the same path, never a gues
 
   assert.match(result.output, /PLACEHOLDER/);
   assert.match(result.output, /do NOT write copy/);
-  assert.equal(result.images?.[0]?.mimeType, "image/svg+xml");
+  // No picture of the grey box: OpenAI and Claude refuse an SVG outright.
+  assert.equal(result.images, undefined);
   assert.ok(ctx.files.has("public/hero.svg"));
   assert.ok(!ctx.files.has("public/hero.jpg"));
+});
+
+test("a long query that finds nothing is tried again shorter before a placeholder", async () => {
+  // What a real GPT turn asked for, which Openverse matched with nothing.
+  network((url) => {
+    if (!url.includes("openverse")) return ok(JPEG);
+    const q = decodeURIComponent(new URL(url).searchParams.get("q") ?? "");
+    return ok(
+      JSON.stringify({
+        results: q === "restaurant table" ? [{ url: "https://cdn.example/table.jpg" }] : [],
+      }),
+    );
+  });
+  const ctx = context();
+  const result = await run(ctx, {
+    query: "restaurant table dinner plates glasses warm elegant dining",
+    output_path: "src/assets/table.jpg",
+  });
+  assert.equal(result.images?.[0]?.mimeType, "image/jpeg", result.output);
+  assert.match(result.output, /Query was "restaurant table"/);
+  const searches = requests.filter((r) => r.url.includes("openverse")).length;
+  assert.equal(searches, 3, "the full query, then three words, then two");
 });
 
 test("unsplash without a key writes a placeholder and makes no request", async () => {
