@@ -58,3 +58,11 @@ test("a pasted key loses the quotes and spaces it was copied with, nothing else"
   assert.equal(cleanApiKey("sk-ab“c"), "sk-ab“c", "the inside is never touched");
   assert.equal(cleanApiKey(""), "");
 });
+
+test("cleaning a long crafted key stays fast", async () => {
+  const { cleanApiKey } = await import("../src/index.js");
+  const crafted = `sk-a${"\t".repeat(100_000)}b`;
+  const started = Date.now();
+  assert.equal(cleanApiKey(crafted), crafted);
+  assert.ok(Date.now() - started < 200, "linear, not quadratic");
+});

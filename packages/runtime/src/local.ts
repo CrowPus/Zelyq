@@ -27,6 +27,7 @@ import {
 } from "./managed.js";
 import { assertRealPathInside, isIgnored, resolveInside, toPosix } from "./paths.js";
 import { allocatePort, previewUrl, releasePort, waitForPort } from "./ports.js";
+import { boundedTimeout } from "./timeout.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -1209,7 +1210,7 @@ export function runCaptured(
     const timer = setTimeout(() => {
       timedOut = true;
       cut();
-    }, options.timeoutMs);
+    }, boundedTimeout(options.timeoutMs));
     if (options.signal?.aborted) queueMicrotask(onAbort);
     else options.signal?.addEventListener("abort", onAbort, { once: true });
     const settle = () => {

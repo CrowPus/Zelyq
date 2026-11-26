@@ -1,6 +1,7 @@
 import type { FileContent, FileEntry, Preview, Snapshot } from "@zelyq/core";
 import { ZelyqError } from "@zelyq/core";
 import { previewUrl } from "./ports.js";
+import { boundedTimeout } from "./timeout.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -242,7 +243,7 @@ export class RemoteRuntimeDriver implements RuntimeDriver {
     signal?: AbortSignal,
   ): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), boundedTimeout(timeoutMs));
     const onAbort = () => controller.abort();
     if (signal?.aborted) controller.abort();
     else signal?.addEventListener("abort", onAbort, { once: true });

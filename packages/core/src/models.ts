@@ -760,5 +760,12 @@ export type UploadSkillInput = z.infer<typeof uploadSkillSchema>;
  * convert argument to a ByteString". Keys never start or end with these.
  */
 export function cleanApiKey(key: string): string {
-  return key.replace(/^[\s"'`\u2018\u2019\u201C\u201D]+|[\s"'`\u2018\u2019\u201C\u201D]+$/g, "");
+  // A loop, not a regex: a trailing-run pattern is slow on a long crafted input.
+  const wrapping = (char: string | undefined) =>
+    char !== undefined && /[\s"'`\u2018\u2019\u201C\u201D]/.test(char);
+  let start = 0;
+  let end = key.length;
+  while (start < end && wrapping(key[start])) start++;
+  while (end > start && wrapping(key[end - 1])) end--;
+  return key.slice(start, end);
 }

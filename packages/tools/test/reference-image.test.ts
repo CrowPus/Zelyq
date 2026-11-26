@@ -76,7 +76,7 @@ test("it is a built-in tool, present without any plugin", () => {
 test("an Openverse hit is downloaded into the project and shown back", async () => {
   delete process.env.ZELYQ_IMAGE_PROVIDER;
   network((url) =>
-    url.includes("api.openverse.org")
+    new URL(url).hostname === "api.openverse.org"
       ? ok(
           JSON.stringify({
             results: [
@@ -170,7 +170,7 @@ test("an unsplash key goes in the search request's header only", async () => {
   process.env.ZELYQ_IMAGE_PROVIDER = "unsplash";
   process.env.ZELYQ_IMAGE_PROVIDER_KEY = "secret-key-123";
   network((url) =>
-    url.includes("api.unsplash.com")
+    new URL(url).hostname === "api.unsplash.com"
       ? ok(
           JSON.stringify({
             results: [{ urls: { regular: "https://images.unsplash.com/x" }, user: { name: "U" } }],

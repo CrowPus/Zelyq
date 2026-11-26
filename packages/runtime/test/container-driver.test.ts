@@ -1078,7 +1078,10 @@ for (const how of ["stop", "timeout"] as const) {
       // The first command creates the container; this is about the second.
       await driver.exec(projectId, { command: "true" });
       const command =
-        "(while true; do date +%s%N > tick; sleep 0.1; done) & " + "while true; do sleep 0.1; done";
+        // Written beside and moved into place, so a kill between the two never
+        // leaves an empty tick that reads as "never started".
+        "(while true; do date +%s%N > tick.new && mv tick.new tick; sleep 0.1; done) & " +
+        "while true; do sleep 0.1; done";
       const stop = new AbortController();
       const running = driver.exec(projectId, {
         command,

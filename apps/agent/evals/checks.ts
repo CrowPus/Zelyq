@@ -590,7 +590,15 @@ async function readAllText(
  * rare enough in these small projects not to need a tokenizer.
  */
 export function stripComments(text: string, path: string): string {
-  if (/\.html?$/.test(path)) return text.replace(/<!--[\s\S]*?-->/g, "");
+  if (/\.html?$/.test(path)) {
+    // Until nothing changes: removing one comment can join the halves of another.
+    let out = text;
+    for (let before = ""; before !== out; ) {
+      before = out;
+      out = out.replace(/<!--[\s\S]*?-->/g, "");
+    }
+    return out;
+  }
   let out = text.replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
   if (!/\.css$/.test(path)) out = out.replace(/(^|\s)\/\/.*$/gm, "$1");
   return out;
