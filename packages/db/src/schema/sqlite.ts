@@ -200,6 +200,10 @@ export const projects = sqliteTable(
     videoGenerationEnabled: integer("video_generation_enabled", { mode: "boolean" })
       .notNull()
       .default(false),
+    /** The model this app's chat uses, picked in the chat and kept for
+     * everyone on every device. Null means the team default. */
+    modelProvider: text("model_provider"),
+    model: text("model"),
     status: text("status").notNull().default("creating"),
     statusMessage: text("status_message"),
     createdAt: text("created_at").notNull(),

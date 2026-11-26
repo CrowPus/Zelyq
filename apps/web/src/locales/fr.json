@@ -3044,5 +3044,6 @@
   "— {nameCount, plural, one {# variable} other {# variables}} set {at}. Read them with {code}.": "— {nameCount, plural, one {# variable définie} other {# variables définies}} {at}. Lisez-les avec {code}.",
   "“{name}” is ready. Copy the key now: it is not shown again.": "« {name} » est prête. Copiez la clé maintenant : elle n’est plus affichée.",
   "→ the run it started: #{number}": "→ l’exécution qu’il a lancée : #{number}",
-  "−{removed} removed": "−{removed} supprimées"
+  "−{removed} removed": "−{removed} supprimées",
+  "The model is used for this visit but could not be saved: {message}": "Le modèle est utilisé pour cette visite mais n’a pas pu être enregistré : {message}"
 }

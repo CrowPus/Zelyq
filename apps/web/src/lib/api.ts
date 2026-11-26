@@ -1384,6 +1384,8 @@ export const api = {
       videoGenerationEnabled?: boolean;
       name?: string;
       description?: string | null;
+      modelProvider?: string | null;
+      model?: string | null;
     },
   ) =>
     request<{ project: Project }>(`/projects/${id}`, {

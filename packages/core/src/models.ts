@@ -28,6 +28,10 @@ export const projectSchema = z.object({
   /** Permission for this project's agent to generate video. Separate from the
    *  image permission: a clip costs far more than a picture. */
   videoGenerationEnabled: z.boolean().default(false),
+  /** The model this app's chat uses — picked in the chat, kept for everyone
+   *  on every device. Null means the team default. */
+  modelProvider: z.string().nullable().optional(),
+  model: z.string().nullable().optional(),
   /** When the picture on the app's card was taken; null when there is none
    *  yet. Only the app list carries it. */
   thumbnailAt: z.string().datetime().nullable().optional(),
@@ -244,6 +248,10 @@ export const updateProjectSchema = z.object({
    *  the agent, so images are the same kind of decision. */
   imageGenerationEnabled: z.boolean().optional(),
   videoGenerationEnabled: z.boolean().optional(),
+  /** The app's own model; null for both goes back to the team default. A
+   *  provider without a key here is ignored at send time, not refused now. */
+  modelProvider: z.string().min(1).max(64).nullable().optional(),
+  model: z.string().max(200).nullable().optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 

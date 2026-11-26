@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AttachmentRef, Message, ToolCall } from "@zelyq/core";
 import {
   ArrowRight,
@@ -48,7 +48,6 @@ import {
 import { fileToBase64 } from "../lib/files";
 import { t } from "../lib/i18n";
 import { describeElement, type SelectedElement, withPointedElement } from "../lib/inspector";
-import { readModelChoice, writeModelChoice } from "../lib/model-choice";
 import {
   buildMotionDirective,
   MOTION_SKILL,
@@ -75,7 +74,7 @@ import {
 } from "../lib/video-command";
 import { insertTranscript, preferredRecordingMimeType } from "../lib/voice";
 import { AgentPresence } from "./AgentPresence";
-import { type ModelChoice, ModelPicker, teamDefaultLabel } from "./ModelPicker";
+import { type ModelChoice, ModelPicker, modelChoiceLabel, teamDefaultLabel } from "./ModelPicker";
 import {
   Chip,
   IconButton,
@@ -87,6 +86,7 @@ import {
   MenuSeparator,
   Spinner,
   StatusDot,
+  toast,
 } from "./ui";
 
 /**
@@ -178,22 +178,16 @@ export function ChatPanel({
   videoGeneration,
 }: Props) {
   const [draft, setDraft] = useState("");
-  /** Picked from the composer's own model control. Null means the team
-   * default. Kept per project in this browser, so a refresh does not send the
-   * next message to a different model than the one on screen. */
-  const [modelChoice, setModelChoiceState] = useState<ModelChoice | null>(() =>
-    readModelChoice(projectId),
-  );
+  /** Picked from the composer's own model control, this visit. Undefined
+   * means "whatever the app has saved"; null means the team default. */
+  const [pickedChoice, setPickedChoice] = useState<ModelChoice | null | undefined>(undefined);
   const [choiceProject, setChoiceProject] = useState(projectId);
   if (choiceProject !== projectId) {
-    // Another project in the same panel: its own remembered choice.
+    // Another app in the same panel: its own saved model.
     setChoiceProject(projectId);
-    setModelChoiceState(readModelChoice(projectId));
+    setPickedChoice(undefined);
   }
-  const setModelChoice = (choice: ModelChoice | null): void => {
-    setModelChoiceState(choice);
-    writeModelChoice(projectId, choice);
-  };
+  const queryClient = useQueryClient();
   /** Uploaded and ready to send with the next prompt. */
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   /** Picked from the `/` menu, guaranteed to be used. */
@@ -283,19 +277,48 @@ export function ChatPanel({
     queryFn: () => api.getProviders(activeTeam?.id),
     staleTime: 60_000,
   });
-  // A remembered choice whose provider has since lost its key would fail
-  // every turn: go back to Default instead.
-  const rememberedUnusable =
-    modelChoice !== null &&
-    providers.data !== undefined &&
-    !providers.data.providers.some(
-      (provider) => provider.id === modelChoice.provider && provider.configured,
-    );
-  useEffect(() => {
-    if (!rememberedUnusable) return;
-    setModelChoiceState(null);
-    writeModelChoice(projectId, null);
-  }, [rememberedUnusable, projectId]);
+  // The app's own model is saved with the app, so it is the same after a
+  // refresh, on another device, and for everyone else working on it.
+  const appProject = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId),
+    staleTime: 30_000,
+  });
+  const saved = appProject.data?.project;
+  const savedChoice: ModelChoice | null = saved?.modelProvider
+    ? {
+        provider: saved.modelProvider,
+        ...(saved.model ? { model: saved.model } : {}),
+        label: modelChoiceLabel(providers.data, saved.modelProvider, saved.model ?? undefined),
+      }
+    : null;
+  const wantedChoice = pickedChoice !== undefined ? pickedChoice : savedChoice;
+  // A provider that has since lost its key would fail every turn; the
+  // server skips it too, so show what will really be used: Default.
+  const modelChoice =
+    wantedChoice &&
+    (providers.data === undefined ||
+      providers.data.providers.some(
+        (provider) => provider.id === wantedChoice.provider && provider.configured,
+      ))
+      ? wantedChoice
+      : null;
+  const setModelChoice = (choice: ModelChoice | null): void => {
+    setPickedChoice(choice);
+    api
+      .updateProject(projectId, {
+        modelProvider: choice?.provider ?? null,
+        model: choice?.model ?? null,
+      })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["project", projectId] }))
+      .catch((error: Error) =>
+        toast.error(
+          t("The model is used for this visit but could not be saved: {message}", {
+            message: error.message,
+          }),
+        ),
+      );
+  };
   // Only fetched once someone actually starts a `/figma` command — it gates
   // the send with "connect first" rather than letting the turn fail server-side.
   const figmaConnection = useQuery({

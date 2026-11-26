@@ -17,6 +17,8 @@ function toProject(row: Row): Project {
     statusMessage: row.statusMessage,
     imageGenerationEnabled: row.imageGenerationEnabled ?? false,
     videoGenerationEnabled: row.videoGenerationEnabled ?? false,
+    modelProvider: row.modelProvider ?? null,
+    model: row.model ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -110,6 +112,8 @@ export function projectRepository(db: ZelyqDb) {
           | "statusMessage"
           | "imageGenerationEnabled"
           | "videoGenerationEnabled"
+          | "modelProvider"
+          | "model"
         >
       >,
     ): Promise<Project | null> {

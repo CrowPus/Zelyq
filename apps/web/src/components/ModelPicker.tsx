@@ -267,3 +267,18 @@ export function teamDefaultLabel(data: AvailableProviders | undefined): string |
   const named = provider.models?.find((option) => option.value === model)?.label ?? model;
   return named ? `${provider.label} — ${named}` : provider.label;
 }
+
+/**
+ * The picker's own words for a saved provider and model, e.g. "Gemini 3.8
+ * Flash", the same label choosing it from the menu shows.
+ */
+export function modelChoiceLabel(
+  data: AvailableProviders | undefined,
+  providerId: string,
+  model: string | undefined,
+): string {
+  const provider = data?.providers.find((entry) => entry.id === providerId);
+  if (!provider) return model ?? providerId;
+  if (!model) return provider.label;
+  return provider.models?.find((option) => option.value === model)?.label ?? model;
+}

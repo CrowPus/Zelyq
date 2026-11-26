@@ -442,7 +442,8 @@ export class ChatGateway {
       // settings say now would pin every session to its original provider
       // forever.
       // The app's team: its own settings and keys, from here to the end of this turn.
-      const teamId = (await this.store.projects.findById(room.projectId))?.teamId ?? null;
+      const projectRow = await this.store.projects.findById(room.projectId);
+      const teamId = projectRow?.teamId ?? null;
       this.settings.enterTeam(teamId);
       // Over the team's storage: the agent writes no more until it has room again.
       if (teamId) await this.limits?.check(teamId, "storageMb", 0);
@@ -455,7 +456,25 @@ export class ChatGateway {
       // A pick from the chat's own model control wins over the instance
       // default for this turn onward. Omitted means what it always meant:
       // the live setting.
-      const provider = override.provider ?? settingsProvider;
+      // Then the app's own model, kept on the project so it stays the same
+      // for everyone on every device — unless its provider has no key here
+      // any more, when the team default is better than a turn that fails.
+      let appPick: { provider?: string; model?: string } = {};
+      if (!override.provider && projectRow?.modelProvider) {
+        const usable =
+          (await this.settings.apiKeyFor(
+            projectRow.modelProvider as typeof settingsProvider,
+            teamId,
+          )) || (teamId ? await this.settings.serverKeysFor(teamId) : false);
+        if (usable) {
+          appPick = {
+            provider: projectRow.modelProvider,
+            ...(projectRow.model ? { model: projectRow.model } : {}),
+          };
+        }
+      }
+      const pick = override.provider ? override : appPick;
+      const provider = (pick.provider ?? settingsProvider) as typeof settingsProvider;
       const pickedDifferentProvider = provider !== settingsProvider;
       // The team's own key first; the server's only when this team may use it.
       const apiKey = await this.settings.apiKeyFor(provider, teamId);
@@ -482,7 +501,9 @@ export class ChatGateway {
       // session. `modelFor` only forces empty when nothing is genuinely
       // stored; a real, deliberate choice always wins regardless of mode.
       const requestedModel =
-        override.model ?? (pickedDifferentProvider ? "" : await this.settings.modelFor(provider));
+        pick.model ??
+        override.model ??
+        (pickedDifferentProvider ? "" : await this.settings.modelFor(provider));
       const model =
         provider === "openai"
           ? await this.settings.resolveOpenAIModel(requestedModel)

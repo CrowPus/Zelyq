@@ -147,7 +147,12 @@ export class ProjectService {
 
   async update(
     id: string,
-    patch: { name?: string; description?: string | null },
+    patch: {
+      name?: string;
+      description?: string | null;
+      modelProvider?: string | null;
+      model?: string | null;
+    },
   ): Promise<Project> {
     await this.get(id);
     const updated = await this.store.projects.update(id, patch);
