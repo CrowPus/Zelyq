@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { browsePageTool } from "./browse-page.js";
+import { BROWSER_QA_TOOLS } from "./browser-qa.js";
 import { captureReferenceTool } from "./capture-reference.js";
+import { drivePreviewTool } from "./drive-preview.js";
 import {
   deleteFileTool,
   editFileTool,
@@ -21,6 +23,7 @@ import {
 } from "./orchestrate.js";
 import { updatePlanTool } from "./plan.js";
 import { previewLogsTool, startPreviewTool, viewPreviewTool } from "./preview.js";
+import { fetchReferenceImageTool } from "./reference-image.js";
 import { runCommandTool } from "./shell.js";
 import {
   supabaseApplyMigrationTool,
@@ -39,14 +42,20 @@ import { walkPreviewTool } from "./walk-preview.js";
 
 export { browserSandboxed, configureBrowserSandbox, openBrowser } from "./browser-sandbox.js";
 export { CaptureBlockedError, guardedFetch } from "./capture-fetch-guard.js";
+export { type FlowOutcome, type FlowStep, type FlowTelemetry, runFlow } from "./drive-preview.js";
 export { IMAGE_TOOL_NAMES } from "./images.js";
 export { PLAN_FILE } from "./plan.js";
 export { capturePage } from "./preview.js";
 export { type Screencast, type ScreencastSink, startScreencast } from "./screencast.js";
 export * from "./types.js";
 export { VIDEO_TOOL_NAMES } from "./videos.js";
+/**
+ * Order matters a little: the model reads this list top to bottom, and putting
+ * navigation before mutation nudges it to look before it writes.
+ */
 export {
   addMotionTool,
+  BROWSER_QA_TOOLS,
   browsePageTool,
   captureReferenceTool,
   cinematicPassTool,
@@ -72,11 +81,6 @@ export {
   walkPreviewTool,
   writeFileTool,
 };
-
-/**
- * Order matters a little: the model reads this list top to bottom, and putting
- * navigation before mutation nudges it to look before it writes.
- */
 export const ALL_TOOLS: ZelyqTool[] = [
   listFilesTool,
   findFilesTool,
@@ -91,6 +95,9 @@ export const ALL_TOOLS: ZelyqTool[] = [
   previewLogsTool,
   viewPreviewTool,
   walkPreviewTool,
+  ...BROWSER_QA_TOOLS,
+  drivePreviewTool,
+  fetchReferenceImageTool,
   listProjectVariablesTool,
   browsePageTool,
   captureReferenceTool,

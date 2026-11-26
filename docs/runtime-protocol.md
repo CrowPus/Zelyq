@@ -46,7 +46,8 @@ These are what `LocalRuntimeDriver` guarantees, and what callers assume:
    `..`, an absolute path, or a symlink — must be **rejected**, not clamped. Returning `400` is
    correct; silently writing elsewhere is a vulnerability.
 2. **Termination.** `exec` always returns within `timeoutMs`. Kill the whole process group, not just
-   the direct child, or dev servers will leak and hold ports.
+   the direct child, or dev servers will leak and hold ports. When the client closes an `exec`
+   request before it answers, the person pressed Stop: kill the command the same way.
 3. **Truncation, not failure.** Output beyond `maxOutputBytes` is cut with `truncated: true`.
 4. **Idempotence.** Creating an existing project or deleting a missing one both succeed.
 5. **Unknown project → `404`,** which the driver surfaces as a `not_found` error.

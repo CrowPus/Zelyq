@@ -1,15 +1,12 @@
 import { createHash } from "node:crypto";
-import { loadEnvFile, resolveFromRepoRoot } from "@zelyq/core/node";
+import { loadEnvFile } from "@zelyq/core/node";
 import { runMigrations } from "@zelyq/db";
 import { ALL_TOOLS, configureBrowserSandbox } from "@zelyq/tools";
-import { aiProviderCatalogText, buildUseAiProviderTool, loadAiProviders } from "./ai-providers.js";
+import { loadAgentAssets } from "./assets.js";
 import { loadAgentConfig } from "./config.js";
-import { buildUseDesignRefTool, designRefCatalogText, loadDesignRefs } from "./design-refs.js";
 import { loadMcpServers } from "./mcp.js";
-import { loadPlugins } from "./plugins.js";
 import { PROVIDERS } from "./providers/index.js";
 import { buildAgentServer } from "./server.js";
-import { buildUseSkillTool, listResources, loadSkills } from "./skills.js";
 
 // Before anything reads process.env.
 const envFile = loadEnvFile();
@@ -31,81 +28,19 @@ if (config.runtime.container?.sandbox) {
     createHash("sha256").update(config.runtime.workspaceDir).digest("hex").slice(0, 12),
   );
 }
-// Boot-time only, before the server exists to accept a prompt. `ALL_TOOLS`
-// is the same array every session's tool list already defaults to, so
-// appending to it here is enough; nothing downstream needs to know a tool
-// came from a plugin rather than a built-in. Loaded before `buildAgentServer`
-// so `/health` can report the names back without the agent's own boot log
-// being the only place to see them.
-const plugins = await loadPlugins(process.env.ZELYQ_PLUGIN_DIR, ALL_TOOLS);
+// Plugins, skills, design references and the AI provider library, appended to
+// `ALL_TOOLS` before `buildAgentServer` so `/health` can report them. The eval
+// harness calls the same function, so it measures this exact agent.
+const assets = await loadAgentAssets();
 
-// Same idea, same array. A server that is down or misconfigured costs its
-// tools, never the agent's boot.
+// MCP tools join the same array. A server that is down or misconfigured costs
+// its tools, never the agent's boot.
 const mcp = await loadMcpServers(process.env.ZELYQ_MCP_CONFIG, ALL_TOOLS);
 
-// The same directory the server's upload route writes into. Both are
-// repo-root-anchored (`resolveFromRepoRoot`) so the two processes agree even
-// under `pnpm --filter <app> dev`, where each runs from its own package dir.
-const uploadedSkillsDir = resolveFromRepoRoot(process.env.ZELYQ_SKILLS_UPLOAD_DIR ?? "data/skills");
-const skillsResult = await loadSkills(
-  resolveFromRepoRoot("skills"),
-  uploadedSkillsDir,
-  process.env.ZELYQ_SKILLS_DIR,
-);
-if (skillsResult.skills.length > 0) ALL_TOOLS.push(buildUseSkillTool(skillsResult.skills));
-
-// Resolved once at boot, here, rather than inside `server.ts` on every
-// Engineer Mode session creation — `dir` is deliberately internal to
-// `skills.ts` (never shown to the model), so this is the one place with
-// legitimate access to it, same as `buildUseSkillTool` above. Baking a
-// skill straight into the system prompt bypasses the live `use_skill` call
-// that would normally list its deeper files, so the addendum needs this
-// listing supplied another way.
-const skillsWithResources = await Promise.all(
-  skillsResult.skills.map(async (skill) => ({
-    name: skill.name,
-    description: skill.description,
-    body: skill.body,
-    resources: await listResources(skill.dir),
-  })),
-);
-
-// The design reference library. `design-md/` sits beside `skills/` in
-// the repo; an operator can point ZELYQ_DESIGN_REFS_DIR at their own set.
-const designRefs = await loadDesignRefs(
-  resolveFromRepoRoot("design-md"),
-  process.env.ZELYQ_DESIGN_REFS_DIR,
-);
-if (designRefs.refs.length > 0) ALL_TOOLS.push(buildUseDesignRefTool(designRefs.refs));
-
-// The AI provider knowledge library. `ai-providers/` sits beside
-// `skills/` and `design-md/`; an operator can point ZELYQ_AI_PROVIDERS_DIR at
-// their own set.
-const aiProviders = await loadAiProviders(
-  resolveFromRepoRoot("ai-providers"),
-  process.env.ZELYQ_AI_PROVIDERS_DIR,
-);
-if (aiProviders.providers.length > 0) {
-  ALL_TOOLS.push(buildUseAiProviderTool(aiProviders.providers));
-}
-
-const server = buildAgentServer(config, {
-  pluginNames: plugins.loaded,
-  mcpToolNames: mcp.loaded,
-  skills: skillsWithResources,
-  designRefCatalog: designRefs.refs.map((r) => ({ slug: r.slug, description: r.description })),
-  designRefCatalogText: designRefCatalogText(designRefs.refs),
-  agentMd: designRefs.agentMd,
-  aiProviderCatalog: aiProviders.providers.map((p) => ({
-    slug: p.slug,
-    description: p.description,
-  })),
-  aiProviderCatalogText: aiProviderCatalogText(aiProviders.providers),
-  aiProvidersAgentMd: aiProviders.agentMd,
-});
-if (plugins.loaded.length > 0) {
+const server = buildAgentServer(config, { ...assets, mcpToolNames: mcp.loaded });
+if (assets.pluginNames.length > 0) {
   server.app.log.info(
-    `${plugins.loaded.length} plugin tool(s) loaded: ${plugins.loaded.join(", ")}`,
+    `${assets.pluginNames.length} plugin tool(s) loaded: ${assets.pluginNames.join(", ")}`,
   );
 }
 if (mcp.loaded.length > 0) {
@@ -114,19 +49,19 @@ if (mcp.loaded.length > 0) {
 for (const skipped of mcp.skipped) {
   server.app.log.warn(`MCP server "${skipped.server}" unavailable: ${skipped.reason}`);
 }
-if (skillsResult.skills.length > 0) {
+if (assets.skills.length > 0) {
   server.app.log.info(
-    `${skillsResult.skills.length} skill(s) loaded: ${skillsResult.skills.map((s) => s.name).join(", ")}`,
+    `${assets.skills.length} skill(s) loaded: ${assets.skills.map((s) => s.name).join(", ")}`,
   );
 }
-if (designRefs.refs.length > 0 || designRefs.agentMd) {
+if (assets.designRefCatalog.length > 0 || assets.agentMd) {
   server.app.log.info(
-    `${designRefs.refs.length} design reference(s) loaded${designRefs.agentMd ? " + Agent.md UI guidelines" : ""}`,
+    `${assets.designRefCatalog.length} design reference(s) loaded${assets.agentMd ? " + Agent.md UI guidelines" : ""}`,
   );
 }
-if (aiProviders.providers.length > 0 || aiProviders.agentMd) {
+if (assets.aiProviderCatalog.length > 0 || assets.aiProvidersAgentMd) {
   server.app.log.info(
-    `${aiProviders.providers.length} AI provider(s) loaded${aiProviders.agentMd ? " + Agent.md integration rules" : ""}`,
+    `${assets.aiProviderCatalog.length} AI provider(s) loaded${assets.aiProvidersAgentMd ? " + Agent.md integration rules" : ""}`,
   );
 }
 

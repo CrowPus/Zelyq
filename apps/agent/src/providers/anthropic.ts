@@ -216,6 +216,24 @@ export function buildAnthropicToolResultContent(
   return content;
 }
 
+/**
+ * One tool result as Anthropic takes it. Anthropic refuses a result marked
+ * `is_error` that carries anything but text, which failed the whole request
+ * whenever a failing browser step sent back its screenshot. Such a result
+ * keeps its picture, drops the flag, and says it failed in words instead.
+ */
+export function buildAnthropicToolResult(result: ToolResult): Anthropic.ToolResultBlockParam {
+  const withPictures = Boolean(result.isError && result.images?.length);
+  return {
+    type: "tool_result",
+    tool_use_id: result.id,
+    content: buildAnthropicToolResultContent(
+      withPictures ? { ...result, output: `Error: ${result.output}` } : result,
+    ),
+    is_error: withPictures ? false : result.isError,
+  };
+}
+
 export class AnthropicProvider implements ModelProvider {
   readonly id = "anthropic" as const;
 
@@ -290,12 +308,7 @@ class AnthropicConversation implements Conversation {
     // messages teaches the model to stop calling tools in parallel.
     this.messages.push({
       role: "user",
-      content: results.map((result) => ({
-        type: "tool_result" as const,
-        tool_use_id: result.id,
-        content: buildAnthropicToolResultContent(result),
-        is_error: result.isError,
-      })),
+      content: results.map(buildAnthropicToolResult),
     });
   }
 

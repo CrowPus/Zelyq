@@ -1,7 +1,8 @@
 import { chromium } from "@playwright/test";
 import type { RuntimeDriver } from "@zelyq/runtime";
+import { type FlowStep, type FlowTelemetry, runFlow } from "@zelyq/tools";
 import { type Check, type CheckResult, CRITICAL_KINDS } from "./types.js";
-import type { ProjectFingerprint } from "./workspace.js";
+import { type ProjectFingerprint, packageNames } from "./workspace.js";
 
 export interface CheckContext {
   runtime: RuntimeDriver;
@@ -192,6 +193,8 @@ export function describe(check: Check): string {
       return check.why;
     case "changed_something":
       return "changed something";
+    case "flow":
+      return `a person can ${check.name}`;
     case "renders":
       return "renders without throwing";
   }
@@ -238,7 +241,11 @@ async function evaluate(
     case "file_matches": {
       if (!after.files.has(check.path)) return { ok: false, detail: `${check.path} not found` };
       const file = await runtime.readFile(projectId, check.path);
-      return match(file.content, check.pattern, check.expect ?? "present");
+      return match(
+        stripComments(file.content, check.path),
+        check.pattern,
+        check.expect ?? "present",
+      );
     }
 
     case "project_matches": {
@@ -262,6 +269,9 @@ async function evaluate(
 
     case "renders":
       return await checkRenders(runtime, projectId);
+
+    case "flow":
+      return await checkFlow(runtime, projectId, check.steps, check.path);
 
     case "changed_something":
       return {
@@ -435,6 +445,58 @@ export async function renderReport(url: string): Promise<{ ok: boolean; detail: 
 }
 
 /**
+ * Runs a hidden flow against the app the agent built. A fresh browser each
+ * time, so nothing the agent did in its own browser (a saved todo) leaks in.
+ */
+export async function checkFlow(
+  runtime: RuntimeDriver,
+  projectId: string,
+  steps: FlowStep[],
+  path?: string,
+): Promise<{ ok: boolean; detail: string }> {
+  const preview = await runtime.startPreview(projectId);
+  if (preview.status !== "running" || !preview.url) {
+    return { ok: false, detail: `preview ${preview.status}` };
+  }
+  return await flowReport(preview.url, steps, path);
+}
+
+/** Separated from the runtime so a grader can be tested against a page we control. */
+export async function flowReport(
+  base: string,
+  steps: FlowStep[],
+  path?: string,
+): Promise<{ ok: boolean; detail: string }> {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const telemetry: FlowTelemetry = { pageErrors: [], consoleErrors: [], httpErrors: [] };
+    page.on("pageerror", (error) => telemetry.pageErrors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") telemetry.consoleErrors.push(message.text());
+    });
+    page.on("response", (response) => {
+      if (response.status() >= 400) {
+        telemetry.httpErrors.push({ url: response.url(), status: response.status() });
+      }
+    });
+    const start = new URL(path ?? "/", base).href;
+    await page.goto(start, { waitUntil: "load", timeout: 30_000 });
+    // Same patience as `renderReport`: a slow mount is not the agent's bug.
+    await page.waitForFunction(ROOT_HAS_CONTENT, null, { timeout: 15_000 }).catch(() => undefined);
+    if (telemetry.pageErrors.length) {
+      return { ok: false, detail: `threw on load: ${telemetry.pageErrors[0]?.split("\n")[0]}` };
+    }
+    const outcome = await runFlow(page, telemetry, steps, base);
+    if (outcome.ok) return { ok: true, detail: "" };
+    const failed = outcome.lines.find((line) => /FAILED|threw:/.test(line)) ?? "failed";
+    return { ok: false, detail: failed.replace(/\s+/g, " ").slice(0, 300) };
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
+/**
  * A compile error comes back as a 500 with the message in the body. A dropped
  * connection is something else entirely: Vite re-optimises dependencies when it
  * meets a new import — precisely when the agent has just added a component —
@@ -470,26 +532,11 @@ async function checkDependencies(
 ): Promise<{ ok: boolean; detail: string }> {
   if (before.files.get("package.json") === undefined) return { ok: true, detail: "" };
   const file = await runtime.readFile(projectId, "package.json");
-  const parsed = JSON.parse(file.content) as {
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-  };
-  const names = [
-    ...Object.keys(parsed.dependencies ?? {}),
-    ...Object.keys(parsed.devDependencies ?? {}),
-  ];
-  const expected = new Set([
-    "react",
-    "react-dom",
-    "@tailwindcss/vite",
-    "@types/react",
-    "@types/react-dom",
-    "@vitejs/plugin-react",
-    "tailwindcss",
-    "typescript",
-    "vite",
-  ]);
-  const added = names.filter((name) => !expected.has(name));
+  // Compared with what this project started with, not a hand-kept list: the
+  // list went stale when the template gained clsx, lucide-react and
+  // tailwind-merge, and six cases became impossible to pass.
+  const expected = new Set(before.packages ?? []);
+  const added = packageNames(file.content).filter((name) => !expected.has(name));
   return { ok: added.length === 0, detail: added.length ? `added ${added.join(", ")}` : "" };
 }
 
@@ -527,9 +574,34 @@ async function readAllText(
   for (const file of after.files.keys()) {
     if (!/\.(tsx?|jsx?|css|html)$/.test(file)) continue;
     const content = await runtime.readFile(projectId, file).catch(() => null);
-    if (content?.encoding === "utf8") parts.push(content.content);
+    if (content?.encoding === "utf8") parts.push(stripComments(content.content, file));
   }
   return parts.join("\n");
+}
+
+/**
+ * Source with its comments removed, so a pattern check sees code, not words.
+ * Without this, appending one comment that names the feature passed the
+ * content checks of nine cases whose request was not done at all.
+ *
+ * Deliberately simple: block comments, JSX comments and HTML comments go
+ * whole; a `//` comment goes when it starts a line or follows whitespace, so a
+ * URL such as `https://x` inside a string stays. Strings that contain `/*` are
+ * rare enough in these small projects not to need a tokenizer.
+ */
+export function stripComments(text: string, path: string): string {
+  if (/\.html?$/.test(path)) {
+    // Until nothing changes: removing one comment can join the halves of another.
+    let out = text;
+    for (let before = ""; before !== out; ) {
+      before = out;
+      out = out.replace(/<!--[\s\S]*?-->/g, "");
+    }
+    return out;
+  }
+  let out = text.replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  if (!/\.css$/.test(path)) out = out.replace(/(^|\s)\/\/.*$/gm, "$1");
+  return out;
 }
 
 function match(

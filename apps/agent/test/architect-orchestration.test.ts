@@ -619,3 +619,57 @@ test("an architect+auto session reports autoMode and does not auto-loop a normal
     await close();
   }
 });
+
+test("a builder's final report is what the parent sees, not its opening narration", async () => {
+  const parent = [dispatch("build the widget", ["src/widget.ts"]), say("done")];
+  const child = [
+    call("write_file", { path: "src/widget.ts", content: "export const x = 1;\n" }),
+    say("FINAL REPORT: widget written, criteria met."),
+  ];
+  const { base, close } = await setup([parent, child], "architect");
+  try {
+    const events = await turn(base);
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "dispatch_task",
+    ) as { call: { result: string } };
+    const report = end.call.result.split("Builder's report:\n")[1] ?? "";
+    assert.match(report, /^FINAL REPORT: widget written/);
+    assert.doesNotMatch(report, /calling write_file/);
+  } finally {
+    await close();
+  }
+});
+
+test("a builder's tokens count as the turn's tokens", async () => {
+  const parent = [dispatch("build the widget", ["src/widget.ts"]), say("done")];
+  const child = builderWrites("src/widget.ts");
+  const { base, close } = await setup([parent, child], "architect");
+  try {
+    const events = await turn(base);
+    const usage = events.filter((e) => e.type === "usage").at(-1) as {
+      turnTokensIn: number;
+      turnTokensOut: number;
+    };
+    // Parent: dispatch (5) + reply (2). Builder: write (5) + reply (2).
+    assert.equal(usage.turnTokensIn, 14);
+    assert.equal(usage.turnTokensOut, 14);
+  } finally {
+    await close();
+  }
+});
+
+test("a builder that runs out of steps is reported as stopped at its cap", async () => {
+  const parent = [dispatch("build the widget", ["src/widget.ts"]), say("done")];
+  // Never stops calling tools: the last step repeats.
+  const child = [call("list_files", {})];
+  const { base, close } = await setup([parent, child], "architect");
+  try {
+    const events = await turn(base);
+    const end = events.find(
+      (e) => e.type === "tool.end" && (e.call as { name: string }).name === "dispatch_task",
+    ) as { call: { result: string } };
+    assert.match(end.call.result, /Builder #1 finished — HIT the \d+-turn cap/);
+  } finally {
+    await close();
+  }
+});

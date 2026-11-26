@@ -33,6 +33,7 @@ import {
   StatusBadge,
   Switch,
   statusOf,
+  Textarea,
   toast,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
@@ -393,6 +394,9 @@ function SettingsTab({ projectId }: { projectId: string }) {
   const app = project.data!.project;
   const [name, setName] = useState(app.name);
   useEffect(() => setName(app.name), [app.name]);
+  const savedDescription = app.description ?? "";
+  const [description, setDescription] = useState(savedDescription);
+  useEffect(() => setDescription(savedDescription), [savedDescription]);
 
   const update = useMutation({
     mutationFn: (input: Parameters<typeof api.updateProject>[1]) =>
@@ -425,7 +429,9 @@ function SettingsTab({ projectId }: { projectId: string }) {
     }
   }
 
-  const dirty = name.trim() !== app.name && name.trim().length > 0;
+  const nameChanged = name.trim() !== app.name && name.trim().length > 0;
+  const descriptionChanged = description.trim() !== savedDescription.trim();
+  const dirty = nameChanged || descriptionChanged;
 
   return (
     <>
@@ -440,7 +446,13 @@ function SettingsTab({ projectId }: { projectId: string }) {
             canEdit && (
               <>
                 {dirty && (
-                  <Button variant="ghost" onClick={() => setName(app.name)}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setName(app.name);
+                      setDescription(savedDescription);
+                    }}
+                  >
                     {t("Discard")}
                   </Button>
                 )}
@@ -450,8 +462,11 @@ function SettingsTab({ projectId }: { projectId: string }) {
                   loading={update.isPending}
                   onClick={() =>
                     update.mutate(
-                      { name: name.trim() },
-                      { onSuccess: () => toast.success(t("Name saved")) },
+                      {
+                        ...(nameChanged ? { name: name.trim() } : {}),
+                        ...(descriptionChanged ? { description: description.trim() || null } : {}),
+                      },
+                      { onSuccess: () => toast.success(t("Saved")) },
                     )
                   }
                 >
@@ -469,6 +484,20 @@ function SettingsTab({ projectId }: { projectId: string }) {
               value={name}
               onChange={(event) => setName(event.target.value)}
               maxLength={120}
+              disabled={!canEdit}
+            />
+          </Field>
+          <Field
+            label={t("Description")}
+            help={t(
+              "What the app is for, who uses it, and anything the agent should always keep in mind. The agent reads it with every message.",
+            )}
+          >
+            <Textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              maxLength={2000}
+              rows={3}
               disabled={!canEdit}
             />
           </Field>

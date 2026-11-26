@@ -113,6 +113,11 @@ export interface ExecOptions {
   env?: Record<string, string>;
   /** Bytes of combined stdout+stderr to keep. Output beyond this is truncated. */
   maxOutputBytes?: number;
+  /**
+   * Stops the command when aborted — the person pressed Stop. The whole
+   * process tree goes, wherever it runs, and the result says it was stopped.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ExecResult {
@@ -122,6 +127,8 @@ export interface ExecResult {
   durationMs: number;
   timedOut: boolean;
   truncated: boolean;
+  /** Ended by the caller's signal rather than finishing. */
+  stopped?: boolean;
 }
 
 export interface ListOptions {

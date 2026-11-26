@@ -3,9 +3,11 @@ import type { SettingField, SettingsGroup, SettingsResponse } from "@zelyq/core"
 import {
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_MODELS,
+  canonicalModelId,
   chooseAnthropicAutoModel,
   chooseGoogleAutoModel,
   chooseOpenAIAutoModel,
+  cleanApiKey,
   DEFAULT_REGISTRY_URL,
   GOOGLE_DEFAULT_MODEL,
   GOOGLE_MODELS,
@@ -1391,6 +1393,10 @@ export class SettingsService {
    * through the normal env-first `value()` path once `authModeFor` says so.
    */
   async apiKeyFor(provider: string, given?: string | null): Promise<string> {
+    return cleanApiKey(await this.rawApiKeyFor(provider, given));
+  }
+
+  private async rawApiKeyFor(provider: string, given?: string | null): Promise<string> {
     const teamId = given ?? teamContext.getStore() ?? null;
     // A team's own key first; the server's only for a team allowed to use it.
     if (teamId) {
@@ -1651,7 +1657,8 @@ export class SettingsService {
     return { ...result, models: withGoogleAuto(result.models) as GoogleModelList["models"] };
   }
 
-  async resolveGoogleModel(model: string): Promise<string> {
+  async resolveGoogleModel(typed: string): Promise<string> {
+    const model = canonicalModelId(typed, GOOGLE_MODELS);
     if (model && model !== "auto") return model;
     const catalog = await this.googleModels();
     const chosen = chooseGoogleAutoModel(catalog.models);
@@ -1692,7 +1699,8 @@ export class SettingsService {
     return { ...result, models: withAnthropicAuto(result.models) as AnthropicModelList["models"] };
   }
 
-  async resolveAnthropicModel(model: string): Promise<string> {
+  async resolveAnthropicModel(typed: string): Promise<string> {
+    const model = canonicalModelId(typed, ANTHROPIC_MODELS);
     if (model && model !== "auto") return model;
     if ((await this.authModeFor("anthropic")) === "subscription") {
       if (model === "auto")
@@ -1737,7 +1745,8 @@ export class SettingsService {
     return { ...result, models: withOpenAIAuto(result.models) };
   }
 
-  async resolveOpenAIModel(model: string): Promise<string> {
+  async resolveOpenAIModel(typed: string): Promise<string> {
+    const model = canonicalModelId(typed, OPENAI_MODELS);
     if (model && model !== "auto") return model;
     if ((await this.authModeFor("openai")) === "subscription") {
       if (model === "auto")

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { posix as pathPosix } from "node:path";
 import {
   type AgentEvent,
@@ -83,6 +84,7 @@ const MUTATING_TOOL_NAMES = new Set(["write_file", "edit_file", "delete_file", "
 const VERIFICATION_TOOL_NAMES = new Set([
   "start_preview",
   "view_preview",
+  "drive_preview",
   "preview_logs",
   "inspect_page",
   "check_console_errors",
@@ -277,6 +279,12 @@ function headAndTail(text: string, max: number): string {
 // dropped) is retried this many times, backing off 0.8s → 1.6s → 3.2s,
 // before it surfaces as a visible error.
 const MODEL_RETRY_MAX = 3;
+/**
+ * How many times a turn's own failing end-of-turn check sends the model back to
+ * fix it before the turn ends marked broken. 17% of file-changing turns used to
+ * end with their check failing, usually after one try.
+ */
+const MAX_REPAIR_ROUNDS = 3;
 const MODEL_RETRY_BASE_MS = 800;
 // A builder takes at most this many named files. A task with more is refused
 // at dispatch, forcing the Architect to split it before a bounded builder
@@ -316,6 +324,8 @@ export interface SessionOptions {
   sessionId: string;
   projectId: string;
   projectName: string;
+  /** What the person said the app is for, when they gave one. */
+  projectDescription?: string;
   template: string;
   /** One-line stack summary for the `<project>` block. Absent ⇒ the
    * built-in `React 19 + Vite + Tailwind` line, so a vite-react session's
@@ -462,6 +472,7 @@ const VERIFIER_EXTRA_TOOL_NAMES = [
   "start_preview",
   "preview_logs",
   "view_preview",
+  "drive_preview",
   "check_console_errors",
   "check_network_failures",
   "inspect_page",
@@ -481,7 +492,7 @@ Do exactly that task:
 - Write the code for this task and only this task. Do not build features the task does not name. Do not refactor unrelated code.
 - Keep the project building. If there is a typecheck or build script, run it after your changes and fix what you broke. Install a dependency only if the task genuinely needs it.
 - Wire your work in: if you add a component or module the app is meant to use, connect it to the entry point or the place the plan says it belongs — do not leave it orphaned.
-- Never invent API keys, secrets, or backend URLs. Build against clearly-marked placeholder data and note what the user must supply.
+- Never invent API keys, secrets, or backend URLs. Where a key or service is missing, show a clear "not configured" state, never fake data, and note what the user must supply.
 - If the task is a Supabase backend task (from backend.md): write \`supabase/migrations/0001_init.sql\` to backend.md (RLS on every table, grants revoked and re-granted, one policy per operation), then apply it with \`supabase_apply_migration({ name, path })\` and check it with \`supabase_verify_backend\`; fix any FAIL in the SQL and re-apply. Wire \`@supabase/supabase-js\` from \`src/lib/supabase.ts\` reading \`import.meta.env.VITE_SUPABASE_URL\` / \`VITE_SUPABASE_PUBLISHABLE_KEY\`. The publishable key is the only Supabase key the browser gets — never put an \`sb_secret_*\` or \`service_role\` key in \`src/\`, \`.env.example\`, or anywhere committed. Do not add a server, a \`dev\`/\`start\` script for one, or a backend framework. If \`supabase_apply_migration\` is not available, no backend is linked — say so and stop; do not tell the user to run SQL by hand.
 
 When done, state in two or three sentences what you changed and whether each acceptance criterion is met. If you could not finish, say exactly what remains.`;
@@ -497,7 +508,7 @@ const VERIFIER_SYSTEM_PROMPT = `You are the verifier. A team of builders just fi
 Verify it for real, in this order:
 1. Run the project's typecheck and build commands (npm run typecheck, npm run build, or what the project declares). Read the real output. A non-zero exit is a FAIL.
 2. start_preview. Then check_console_errors and inspect_page against the RUNNING app. Confirm it renders the real application — not the starter template, not a blank page, not an error overlay. Read preview_logs if it does not come up.
-3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. Use view_preview / inspect_page with a \`path\` to reach a screen that is not the landing route; never edit routing to see one. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
+3. Walk the core flows the Definition of Done names — the main screens and the primary action of each. PERFORM each primary action with drive_preview (fill the form, click the button, expect the result) — looking at a screen does not show that its button works. Use view_preview / inspect_page with a \`path\` to reach a screen that is not the landing route; never edit routing to see one. A blank screen, a control that does nothing, a route that 404s, or a thrown console error means that flow FAILS.
 4. Run any design / accessibility / security tool you were given. Note each finding. If any visible text names a specific real place, product, or person, confirm the adjacent image plausibly depicts it — a caption-to-image mismatch is a FAIL, reported with the screen and what you saw.
    If the project has a \`supabase/migrations/\` folder, run \`supabase_verify_backend\` and record each check; any FAIL there is a FAIL here. (If the tool is unavailable, no Supabase backend is linked — note that and move on.)
 
@@ -581,6 +592,7 @@ const DESIGNER_TOOL_NAMES = [
   "start_preview",
   "preview_logs",
   "view_preview",
+  "drive_preview",
   "inspect_page",
   "check_console_errors",
   "check_network_failures",
@@ -590,8 +602,7 @@ const DESIGNER_TOOL_NAMES = [
   // pick one, when it authors DESIGN.md from scratch).
   "use_design_ref",
   // Real imagery without guessing: a searched, downloaded, and
-  // shown-back photo, or a labelled placeholder. Only present when the
-  // image-assets plugin is loaded; harmless in the filter when it is not.
+  // shown-back photo, or a labelled placeholder.
   "fetch_reference_image",
   "generate_placeholder_asset",
 ];
@@ -1239,6 +1250,8 @@ function specialistActivityTitle(
       return "Opening the preview";
     case "view_preview":
       return "Looking at the rendered page";
+    case "drive_preview":
+      return "Using the app like a person";
     case "inspect_page":
       return "Inspecting the page";
     case "check_console_errors":
@@ -1480,6 +1493,13 @@ export class AgentSession {
   // Presence is capability, not instruction: the prompt and each pass tool's
   // own description already bind these to an explicit user ask.
   private readonly liveTools: ToolDefinition[];
+  /** The exact system prompt this session sends. Read by the eval harness so a
+   * score is tied to the prompt users actually get, not a reconstruction. */
+  readonly systemPrompt: string;
+  /** Names of the tools this session offers the model, in order. */
+  get toolNames(): string[] {
+    return this.liveTools.map((tool) => tool.name);
+  }
 
   private abortController: AbortController | null = null;
   private busy = false;
@@ -1667,47 +1687,51 @@ export class AgentSession {
     const liveTools = toolDefinitions(toolPool);
     this.liveTools = liveTools;
 
+    const systemPrompt =
+      // A lean specialist child (systemPrompt + toolNames) gets
+      // `Agent.md` appended as a gate; the full prompt for a top-level
+      // session gets the catalog + `agentMd` woven in by buildSystemPrompt.
+      options.systemPrompt
+        ? // A child's prompt is assembled here, not by
+          // buildSystemPrompt: <design_references> first (it is what the
+          // Designer's step 2 reads before writing DESIGN.md), then the
+          // hand-written prompt, then <ui_guidelines> as the closing gate.
+          `${designReferencesBlock(options.designRefCatalogText)}${options.systemPrompt}${options.template === "react-fastapi" ? `\n\n${PYTHON_BUILDER_SYSTEM_PROMPT}\n${options.stackSkill?.body ?? ""}` : ""}${
+            options.agentMd
+              ? `\n\n<ui_guidelines>\nThese MUST/SHOULD/NEVER rules are the UI-quality bar. Check the observable ones against the running preview and fix or report any failure.\n\n${options.agentMd}\n</ui_guidelines>`
+              : ""
+          }`
+        : buildSystemPrompt({
+            projectName: options.projectName,
+            ...(options.projectDescription
+              ? { projectDescription: options.projectDescription }
+              : {}),
+            template: options.template,
+            skills: options.skills,
+            ...(options.stack ? { stack: options.stack } : {}),
+            ...(options.autoMode && options.engineerMode ? { engineerAuto: true } : {}),
+            ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
+            ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
+            ...(options.plan ? { plan: options.plan } : {}),
+            ...(options.agentMd ? { agentMd: options.agentMd } : {}),
+            ...(options.designRefCatalogText
+              ? { designRefCatalogText: options.designRefCatalogText }
+              : {}),
+            ...(options.aiProviderCatalogText
+              ? { aiProviderCatalogText: options.aiProviderCatalogText }
+              : {}),
+            ...(options.aiProvidersAgentMd
+              ? { aiProvidersAgentMd: options.aiProvidersAgentMd }
+              : {}),
+            ...(options.engineerMode ? { engineerMode: { skill: options.engineerModeSkill } } : {}),
+            ...(options.architectMode
+              ? { architectMode: { skill: options.architectModeSkill } }
+              : {}),
+          });
+    this.systemPrompt = systemPrompt;
+
     this.conversation = provider.createConversation({
-      systemPrompt:
-        // A lean specialist child (systemPrompt + toolNames) gets
-        // `Agent.md` appended as a gate; the full prompt for a top-level
-        // session gets the catalog + `agentMd` woven in by buildSystemPrompt.
-        options.systemPrompt
-          ? // A child's prompt is assembled here, not by
-            // buildSystemPrompt: <design_references> first (it is what the
-            // Designer's step 2 reads before writing DESIGN.md), then the
-            // hand-written prompt, then <ui_guidelines> as the closing gate.
-            `${designReferencesBlock(options.designRefCatalogText)}${options.systemPrompt}${options.template === "react-fastapi" ? `\n\n${PYTHON_BUILDER_SYSTEM_PROMPT}\n${options.stackSkill?.body ?? ""}` : ""}${
-              options.agentMd
-                ? `\n\n<ui_guidelines>\nThese MUST/SHOULD/NEVER rules are the UI-quality bar. Check the observable ones against the running preview and fix or report any failure.\n\n${options.agentMd}\n</ui_guidelines>`
-                : ""
-            }`
-          : buildSystemPrompt({
-              projectName: options.projectName,
-              template: options.template,
-              skills: options.skills,
-              ...(options.stack ? { stack: options.stack } : {}),
-              ...(options.autoMode && options.engineerMode ? { engineerAuto: true } : {}),
-              ...(options.stackSkill ? { stackSkill: options.stackSkill } : {}),
-              ...(options.projectGuide ? { projectGuide: options.projectGuide } : {}),
-              ...(options.plan ? { plan: options.plan } : {}),
-              ...(options.agentMd ? { agentMd: options.agentMd } : {}),
-              ...(options.designRefCatalogText
-                ? { designRefCatalogText: options.designRefCatalogText }
-                : {}),
-              ...(options.aiProviderCatalogText
-                ? { aiProviderCatalogText: options.aiProviderCatalogText }
-                : {}),
-              ...(options.aiProvidersAgentMd
-                ? { aiProvidersAgentMd: options.aiProvidersAgentMd }
-                : {}),
-              ...(options.engineerMode
-                ? { engineerMode: { skill: options.engineerModeSkill } }
-                : {}),
-              ...(options.architectMode
-                ? { architectMode: { skill: options.architectModeSkill } }
-                : {}),
-            }),
+      systemPrompt,
       tools: liveTools,
       effort: options.effort,
       history: mergeConsecutiveTurns(
@@ -1751,6 +1775,8 @@ export class AgentSession {
       architectMode: this.options.architectMode ?? false,
       autoMode: this.orchestration.auto,
       authMode: this.options.authMode ?? "api_key",
+      projectName: this.options.projectName ?? null,
+      projectDescription: this.options.projectDescription ?? null,
       busy: this.busy,
       turns: this.turns,
       tokensIn: this.tokensIn,
@@ -2099,6 +2125,9 @@ export class AgentSession {
       sessionId: `${this.id}#sub${n}`,
       projectId: this.projectId,
       projectName: this.options.projectName,
+      ...(this.options.projectDescription
+        ? { projectDescription: this.options.projectDescription }
+        : {}),
       template: this.options.template,
       stack: this.options.stack,
       stackSkill: this.options.stackSkill,
@@ -2210,10 +2239,19 @@ export class AgentSession {
     }
 
     let reply = "";
+    // The text since the child's last tool call: its final report. `reply`
+    // holds everything it said, and its head is narration ("Let me look at
+    // the files…"), which is what the parent used to be handed.
+    let lastText = "";
+    let afterTool = false;
     let tokIn = 0;
     let tokOut = 0;
+    let cacheRead = 0;
+    let cacheCreation = 0;
     let rounds = 0;
     let hitTurnCap = false;
+    let endedBroken = false;
+    const childErrors: string[] = [];
     const changed = new Set<string>();
     const wallclock = setTimeout(() => child.abort(), wallclockMs);
     const onParentAbort = () => child.abort();
@@ -2221,12 +2259,24 @@ export class AgentSession {
     const startedAt = Date.now();
     try {
       await child.run(prompt, (e) => {
-        if (e.type === "text.delta") reply += e.text;
+        if (e.type === "text.delta") {
+          if (afterTool) lastText = "";
+          afterTool = false;
+          reply += e.text;
+          lastText += e.text;
+        }
+        if (e.type === "tool.start") afterTool = true;
         if (e.type === "usage") {
           tokIn = e.tokensIn;
           tokOut = e.tokensOut;
+          cacheRead = e.cacheReadTokens ?? 0;
+          cacheCreation = e.cacheCreationTokens ?? 0;
           rounds += 1;
           if (tokIn + tokOut > tokenCap) child.abort();
+        }
+        if (e.type === "error") {
+          if (e.code === "ended_broken") endedBroken = true;
+          else if (!parentSignal.aborted) childErrors.push(`${e.code}: ${e.message}`.slice(0, 400));
         }
         if (e.type === "files.changed") {
           for (const p of e.paths) {
@@ -2249,14 +2299,33 @@ export class AgentSession {
             ),
           });
         }
-        if (e.type === "turn.end" && e.stopReason === "end_turn" && rounds >= childTurnCap) {
+        // A child that runs out of steps ends with "max_iterations". Only
+        // "end_turn" was checked, so a cap was never reported.
+        if (
+          e.type === "turn.end" &&
+          (e.stopReason === "max_iterations" ||
+            (e.stopReason === "end_turn" && rounds >= childTurnCap))
+        ) {
           hitTurnCap = true;
         }
       });
     } finally {
       clearTimeout(wallclock);
       parentSignal.removeEventListener("abort", onParentAbort);
+      this.addChildUsage(emit, { tokensIn: tokIn, tokensOut: tokOut, cacheRead, cacheCreation });
     }
+    // What the parent is shown: the final report, cut from its end if long.
+    const report = (max: number): string => {
+      const text = (lastText.trim() ? lastText : reply).trim();
+      return text.length <= max ? text : `…${text.slice(-max)}`;
+    };
+    const problems = [
+      endedBroken ? "its own end-of-turn check was still FAILING when it stopped" : "",
+      ...childErrors,
+    ].filter(Boolean);
+    const problemNote = problems.length
+      ? `\nERRORS in this run (do not call it clean): ${problems.join(" | ")}\n`
+      : "";
 
     this.orchestration.tokens += tokIn + tokOut;
     this.orchestration.autoTokens += tokIn + tokOut;
@@ -2333,7 +2402,7 @@ export class AgentSession {
           "your own. Do NOT repeat it. Do NOT say anything was built or verified. It is a deliberate " +
           'pause: the user adds the file(s) to the named folder and replies "go" to resume.\n\n' +
           "-----\n" +
-          `${reply.slice(0, 6000)}\n` +
+          `${report(6000)}\n` +
           "-----\n" +
           `(context, not for the user: ${filesChanged.length} docs/staging file(s) written — ${
             filesChanged.join(", ") || "none"
@@ -2353,7 +2422,7 @@ export class AgentSession {
             "not run or produced only text. Do NOT relay a review as if work happened, and do NOT " +
             `say anything was "applied". Tell the user plainly: the ${spec.label} made no changes. ` +
             "Show what it reported below.\n\n" +
-            `${spec.label}'s report:\n${reply.slice(0, 3000)}`,
+            `${spec.label}'s report:\n${report(3000)}`,
           isError: true,
         };
       }
@@ -2366,7 +2435,7 @@ export class AgentSession {
             `The project does NOT yet match the ${spec.guideNoun}. Do NOT call this done. Tell the ` +
             `user: the ${spec.label} produced/updated its spec, and the next pass (or "keep going") ` +
             "will implement it — cheaper now that the spec exists. Relay the review below verbatim.\n\n" +
-            `${spec.label}'s report:\n${reply.slice(0, 5000)}`,
+            `${spec.label}'s report:\n${report(5000)}`,
           isError: true,
         };
       }
@@ -2384,7 +2453,7 @@ export class AgentSession {
               "must do.\n\nDo NOT call this done. Tell the user: the " +
               `${spec.label} worked without establishing its spec. Run the pass again (or ` +
               '"keep going") — it must write the spec first. Relay the review below verbatim.\n\n' +
-              `${spec.label}'s report:\n${reply.slice(0, 4000)}`,
+              `${spec.label}'s report:\n${report(4000)}`,
             isError: true,
           };
         }
@@ -2417,26 +2486,26 @@ export class AgentSession {
                 "found (report only — the Engineer fixes those).";
       return {
         output:
-          `${spec.passNoun} finished${capNote}\n` +
+          `${spec.passNoun} finished${capNote}\n${problemNote}` +
           `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
           `files changed (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
           `This is the ${spec.label}'s own report. Relay its REVIEW to the user VERBATIM — do not ` +
           "write your own, do not turn a FAIL / NOT DONE / NOT CLEARED into a PASS, do not add " +
           '"done". Report only the files it actually changed.\n\n' +
-          `${reply.slice(0, 6000)}\n\n` +
+          `${report(6000)}\n\n` +
           handBack,
       };
     }
     if (isVerify) {
       return {
         output:
-          `Verification finished${capNote}\n` +
+          `Verification finished${capNote}\n${problemNote}` +
           `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
           `files written (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n\n` +
           "This is the verifier's own report. Your final message to the user is THIS CHECKLIST, " +
           "verbatim — do not write a checklist of your own, do not change a FAIL to a PASS, do not " +
           'add "verified" or "all done".\n\n' +
-          `${reply.slice(0, 6000)}\n\n` +
+          `${report(6000)}\n\n` +
           "Then, based only on what it says: if it starts with NOT VERIFIED, or any line is FAIL, or " +
           "it hit a cap — the build is NOT working. Say plainly what failed, and that the user can " +
           'reply "keep going" (the build continues and re-verifies) or switch to Engineer Mode to ' +
@@ -2446,15 +2515,56 @@ export class AgentSession {
     }
     return {
       output:
-        `Builder #${n} finished${capNote}\n` +
+        `Builder #${n} finished${capNote}\n${problemNote}` +
         `model: ${model} · rounds: ${rounds} · tokens: ${tokIn + tokOut} · ${secs}s\n` +
         `files changed (${filesChanged.length}): ${filesChanged.join(", ") || "(none)"}\n` +
         `run total so far: ${this.orchestration.subagents}/${ORCH_MAX_SUBAGENTS} builders, ` +
         `${this.orchestration.tokens} tokens\n\n` +
-        `Builder's report:\n${reply.slice(0, 3000)}\n\n` +
+        `Builder's report:\n${report(3000)}\n\n` +
         "Review the changed files. Mark the task done in build-plan.md, then dispatch the next one — " +
         "or stop and report if a cap was hit or the result is wrong.",
     };
+  }
+
+  /** The session's usage so far, cumulative and for this turn. */
+  private emitUsage(emit: (event: AgentEvent) => void): void {
+    emit({
+      type: "usage",
+      sessionId: this.id,
+      // Cumulative — the live gauge.
+      tokensIn: this.tokensIn,
+      tokensOut: this.tokensOut,
+      ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
+      ...(this.cacheCreationTokens > 0 ? { cacheCreationTokens: this.cacheCreationTokens } : {}),
+      // This turn only — what the gateway stores and sums.
+      turnTokensIn: this.turnTokensIn,
+      turnTokensOut: this.turnTokensOut,
+      ...(this.turnCacheReadTokens > 0 ? { turnCacheReadTokens: this.turnCacheReadTokens } : {}),
+      ...(this.turnCacheCreationTokens > 0
+        ? { turnCacheCreationTokens: this.turnCacheCreationTokens }
+        : {}),
+    });
+  }
+
+  /**
+   * A helper agent's tokens are this turn's tokens. They were counted only
+   * against the orchestration caps, so the stored usage, plan limits and
+   * eval cost left out every builder, verifier and specialist.
+   */
+  private addChildUsage(
+    emit: (event: AgentEvent) => void,
+    usage: { tokensIn: number; tokensOut: number; cacheRead: number; cacheCreation: number },
+  ): void {
+    if (usage.tokensIn + usage.tokensOut === 0) return;
+    this.tokensIn += usage.tokensIn;
+    this.tokensOut += usage.tokensOut;
+    this.cacheReadTokens += usage.cacheRead;
+    this.cacheCreationTokens += usage.cacheCreation;
+    this.turnTokensIn += usage.tokensIn;
+    this.turnTokensOut += usage.tokensOut;
+    this.turnCacheReadTokens += usage.cacheRead;
+    this.turnCacheCreationTokens += usage.cacheCreation;
+    this.emitUsage(emit);
   }
 
   /**
@@ -2587,6 +2697,8 @@ export class AgentSession {
     // Auto Mode, which must not take "REMAINING: none" as done over a failing
     // check.
     let endedBroken = verificationNeeded;
+    // Failed end-of-turn checks this turn; see MAX_REPAIR_ROUNDS.
+    let verifyFailures = 0;
     // The turn's last reply was the model's own summary — see where it is set.
     let finalReplyWasSummary = false;
     // One-shot re-nudge when the user picked a specialist from the
@@ -2721,6 +2833,9 @@ export class AgentSession {
     // file's path; past the limit, refuse further work on THAT path this turn.
     const PATH_CHURN_LIMIT = 8;
     const pathChurnCounts = new Map<string, number>();
+    // The last read_file result per path, to tell a repeat read that learned
+    // nothing from one after the file changed.
+    const lastReadHashes = new Map<string, string>();
     let assistantText = "";
     let thinkingText = "";
 
@@ -2851,7 +2966,10 @@ export class AgentSession {
         const textBeforeStep = assistantText.length;
         const result = await (async () => {
           for (let attempt = 0; ; attempt++) {
-            let streamedThisAttempt = false;
+            // Thinking alone is not an answer. A reply that was only thinking
+            // (or a Gemini MALFORMED_FUNCTION_CALL, which maps to "other" with
+            // nothing else) used to skip the retry and end the turn as done.
+            let textThisAttempt = false;
             const backoff = async (why: string): Promise<void> => {
               const waitMs = MODEL_RETRY_BASE_MS * 2 ** attempt;
               emit({
@@ -2870,8 +2988,8 @@ export class AgentSession {
               let next = await turn.next();
               while (!next.done) {
                 const event = next.value;
-                streamedThisAttempt = true;
                 if (event.type === "text") {
+                  textThisAttempt = true;
                   assistantText += event.text;
                   emit({ type: "text.delta", sessionId: this.id, messageId, text: event.text });
                 } else {
@@ -2882,9 +3000,10 @@ export class AgentSession {
               }
               const value = next.value;
               const emptyCompletion =
-                !streamedThisAttempt &&
+                !textThisAttempt &&
                 value.toolCalls.length === 0 &&
-                value.stopReason !== "refusal";
+                value.stopReason !== "refusal" &&
+                value.stopReason !== "max_tokens";
               if (emptyCompletion && !signal.aborted && attempt < MODEL_RETRY_MAX) {
                 await backoff("The model returned an empty response");
                 continue;
@@ -2894,12 +3013,7 @@ export class AgentSession {
               const code = classifyProviderError(this.options.provider, err);
               const transient =
                 code === "model_error" || code === "rate_limited" || code === "connection";
-              if (
-                !transient ||
-                streamedThisAttempt ||
-                signal.aborted ||
-                attempt >= MODEL_RETRY_MAX
-              ) {
+              if (!transient || textThisAttempt || signal.aborted || attempt >= MODEL_RETRY_MAX) {
                 throw err;
               }
               await backoff(describeProviderError(this.options.provider, err));
@@ -2914,26 +3028,7 @@ export class AgentSession {
         this.turnTokensOut += result.usage.outputTokens;
         this.turnCacheReadTokens += result.usage.cacheReadInputTokens ?? 0;
         this.turnCacheCreationTokens += result.usage.cacheCreationInputTokens ?? 0;
-        emit({
-          type: "usage",
-          sessionId: this.id,
-          // Cumulative — the live gauge.
-          tokensIn: this.tokensIn,
-          tokensOut: this.tokensOut,
-          ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
-          ...(this.cacheCreationTokens > 0
-            ? { cacheCreationTokens: this.cacheCreationTokens }
-            : {}),
-          // This turn only — what the gateway stores and sums.
-          turnTokensIn: this.turnTokensIn,
-          turnTokensOut: this.turnTokensOut,
-          ...(this.turnCacheReadTokens > 0
-            ? { turnCacheReadTokens: this.turnCacheReadTokens }
-            : {}),
-          ...(this.turnCacheCreationTokens > 0
-            ? { turnCacheCreationTokens: this.turnCacheCreationTokens }
-            : {}),
-        });
+        this.emitUsage(emit);
 
         if (result.stopReason === "refusal") {
           emit({
@@ -2979,6 +3074,40 @@ export class AgentSession {
           break;
         }
 
+        // Cut off at the output limit while writing tool calls: their input
+        // may be incomplete (a truncated write_file landed on disk as half a
+        // file and the turn said "Done."). None of them run; each gets a
+        // result telling the model to send it again, smaller.
+        if (result.stopReason === "max_tokens" && result.toolCalls.length > 0) {
+          this.conversation.addToolResults(
+            result.toolCalls.map((toolCall) => ({
+              id: toolCall.id,
+              name: toolCall.name,
+              output:
+                "Not run: your reply was cut off at the output length limit while writing this " +
+                "call, so its input may be incomplete. Send it again, smaller — split a large " +
+                "file into several files, or change an existing one with edit_file.",
+              isError: true,
+            })),
+          );
+          if (maxTokensContinuations < 2) {
+            maxTokensContinuations += 1;
+            continue;
+          }
+          emit({
+            type: "error",
+            sessionId: this.id,
+            code: "max_tokens",
+            message:
+              "The model's replies kept running past the output limit, so its last changes were " +
+              "not applied. Ask for the change in smaller pieces.",
+            fatal: false,
+          });
+          stoppedByBreak = true;
+          truncatedByMaxTokens = true;
+          break;
+        }
+
         // Whether this reply is the model's own account: words, and no more
         // tool calls. Only the last reply of a turn counts — one early line
         // ("Working on it.") followed by forty tool calls is not a summary.
@@ -3009,11 +3138,27 @@ export class AgentSession {
               this.orchestration.lastCheckFailure = outcome.failed ? outcome.output : "";
 
               if (outcome.failed) {
-                this.conversation.addUserMessage(
-                  `Automatic verification found a problem before this turn ended:\n\n${outcome.output}\n\n` +
-                    "Fix it, or explain why you can't, before finishing.",
-                );
-                continue;
+                verifyFailures += 1;
+                if (verifyFailures <= MAX_REPAIR_ROUNDS) {
+                  // Repairing is the point now. A file the turn already
+                  // worked hard on must not be locked by the churn cap, and
+                  // in Engineer Mode the new-file checkpoint must not freeze
+                  // the edit that fixes it — 36 of 55 turns that ended on a
+                  // failed check had one of those refusals in effect.
+                  finishPhase = true;
+                  pathChurnCounts.clear();
+                  // Check again before the turn ends, even if the model only
+                  // answers in words: one sentence must not close a failing
+                  // check.
+                  verificationNeeded = true;
+                  this.conversation.addUserMessage(
+                    `Automatic verification found a problem before this turn ended ` +
+                      `(repair round ${verifyFailures} of ${MAX_REPAIR_ROUNDS}):\n\n${outcome.output}\n\n` +
+                      "Fix it now. Files you already edited are open to you again. The check runs " +
+                      "again before the turn can end.",
+                  );
+                  continue;
+                }
               }
             }
           }
@@ -3368,8 +3513,12 @@ export class AgentSession {
               (isReadishTool || toolCall.name === "edit_file" || toolCall.name === "write_file")
                 ? pathPosix.normalize((toolCall.input as { path: string }).path)
                 : null;
+            // Counted after the call runs, and only when it made no progress
+            // (see below). Counting every touch locked the one file of a small
+            // app after eight successful edits: 31 refusals came after at least
+            // four successful edits, and 13 turns then wrote the file through
+            // the shell instead.
             const priorChurn = churnPath ? (pathChurnCounts.get(churnPath) ?? 0) : 0;
-            if (churnPath) pathChurnCounts.set(churnPath, priorChurn + 1);
             const pathChurnCapped = churnPath !== null && priorChurn >= PATH_CHURN_LIMIT;
             const preOutcome = identicalCallCapped
               ? {
@@ -3384,7 +3533,7 @@ export class AgentSession {
               : pathChurnCapped
                 ? {
                     output:
-                      `You have read / searched / edited "${churnPath}" ${priorChurn} times this ` +
+                      `Your work on "${churnPath}" has failed or repeated itself ${priorChurn} times this ` +
                       "turn without converging. Stop working this file: either the change is larger " +
                       "than one turn — say so plainly and stop, the user's next message continues it " +
                       "— or you are going in circles. Do NOT read, search, or edit this file again " +
@@ -3524,6 +3673,25 @@ export class AgentSession {
               isReportWrite && !preOutcome.isError
                 ? await this.validateReportAfterWrite(preOutcome, reportPriorContent)
                 : preOutcome;
+            if (churnPath && !pathChurnCapped) {
+              // No progress: the call failed, or it re-read the file and got
+              // exactly what the last read of it returned.
+              const readHash =
+                toolCall.name === "read_file" && !outcome.isError
+                  ? createHash("sha1").update(outcome.output).digest("hex")
+                  : null;
+              const repeatRead = readHash !== null && lastReadHashes.get(churnPath) === readHash;
+              if (readHash) lastReadHashes.set(churnPath, readHash);
+              if (
+                !outcome.isError &&
+                (toolCall.name === "edit_file" || toolCall.name === "write_file")
+              ) {
+                lastReadHashes.delete(churnPath);
+              }
+              if (outcome.isError || repeatRead) {
+                pathChurnCounts.set(churnPath, (pathChurnCounts.get(churnPath) ?? 0) + 1);
+              }
+            }
             const finished: ToolCall = {
               ...call,
               result: headAndTail(outcome.output, 4000),
@@ -3539,11 +3707,13 @@ export class AgentSession {
               // Content the tool fetched from outside the user's control
               // is wrapped so the model treats it as data, not instruction.
               // Done here, once, rather than in each of ~80 tools.
-              output: outcome.untrusted
-                ? wrapUntrusted(outcome.output, toolCall.name, outcome.untrusted.source)
-                : outcome.output,
+              ...withModelReadableImages(
+                outcome.untrusted
+                  ? wrapUntrusted(outcome.output, toolCall.name, outcome.untrusted.source)
+                  : outcome.output,
+                outcome.images,
+              ),
               isError: outcome.isError ?? false,
-              images: outcome.images,
             };
           }),
         );
@@ -3848,6 +4018,20 @@ export class AgentSession {
         // No status line at all: keep what the last step decided — a turn
         // that used its whole budget continues, one that simply answered
         // does not.
+      }
+
+      // Said on screen, not left to the model's summary: a turn whose own
+      // check still fails is not finished, whatever the reply says.
+      if (verifyFailures > 0 && endedBroken && !refused && !signal.aborted) {
+        emit({
+          type: "error",
+          sessionId: this.id,
+          code: "ended_broken",
+          message:
+            "This turn ended with its own check still failing, so the app is not working yet. " +
+            "Reply “fix it” to continue, or describe what you see.",
+          fatal: false,
+        });
       }
 
       emit({
@@ -4277,6 +4461,47 @@ export class AgentSession {
   }
 
   /**
+   * Loads the running preview's landing page in the sandboxed browser. Fails
+   * on an error thrown while it loads, or a page with nothing on it. A
+   * browser that cannot start is not the app's fault and fails nothing.
+   */
+  private async loadCheck(context: ToolContext): Promise<{ failed: boolean; output: string }> {
+    const result = await executeTool(context, "check_console_errors", {}).catch(
+      (error: unknown) => ({ output: String(error), isError: true }),
+    );
+    let report: { pageErrors?: string[]; blankPage?: boolean } | null = null;
+    try {
+      report = JSON.parse(result.output) as { pageErrors?: string[]; blankPage?: boolean };
+    } catch {
+      report = null;
+    }
+    if (!report) {
+      return { failed: false, output: `The page was not loaded: ${result.output.slice(0, 300)}` };
+    }
+    const thrown = report.pageErrors ?? [];
+    if (thrown.length) {
+      return {
+        failed: true,
+        output:
+          `The app throws when it loads, so a person sees a broken page:\n` +
+          thrown
+            .slice(0, 3)
+            .map((e) => `- ${e.slice(0, 500)}`)
+            .join("\n"),
+      };
+    }
+    if (report.blankPage) {
+      return {
+        failed: true,
+        output:
+          "The app loads to a blank page: nothing is rendered. Read preview_logs and check the " +
+          "entry component.",
+      };
+    }
+    return { failed: false, output: "The page loads without errors." };
+  }
+
+  /**
    * Whether there is anything for `runVerification` to actually do — checked
    * before emitting a `tool.start`, so a project with no typecheck/build
    * script and a preview that has not crashed produces no visible step at
@@ -4288,6 +4513,8 @@ export class AgentSession {
   private async needsVerification(context: ToolContext): Promise<{
     script: "typecheck" | "build" | null;
     crashedPreview: Preview | null;
+    /** The preview is up, so the check can load the page. */
+    previewRunning?: boolean;
     checks?: Array<{ name: string; command: string; cwd: string; timeoutMs: number }>;
     /** The programme's phase table, when the project has one — checked for
      * DONE rows without tests or evidence (programme.ts). */
@@ -4303,6 +4530,7 @@ export class AgentSession {
       return {
         script: null,
         crashedPreview: preview.status === "crashed" ? preview : null,
+        previewRunning: preview.status === "running",
         checks: manifest.checks,
         programme,
       };
@@ -4318,9 +4546,10 @@ export class AgentSession {
 
     const preview = await context.runtime.previewStatus(context.projectId).catch(() => null);
     const crashedPreview = preview?.status === "crashed" ? preview : null;
+    const previewRunning = preview?.status === "running";
 
-    if (!script && !crashedPreview && !programme) return null;
-    return { script, crashedPreview, programme };
+    if (!script && !crashedPreview && !programme && !previewRunning) return null;
+    return { script, crashedPreview, previewRunning, programme };
   }
 
   /**
@@ -4335,6 +4564,7 @@ export class AgentSession {
     check: {
       script: "typecheck" | "build" | null;
       crashedPreview: Preview | null;
+      previewRunning?: boolean;
       checks?: Array<{ name: string; command: string; cwd: string; timeoutMs: number }>;
       programme?: string;
     },
@@ -4368,13 +4598,20 @@ export class AgentSession {
 
     if (check.checks) {
       for (const step of check.checks) {
-        // A running check cannot be interrupted, but Stop is not kept waiting
-        // for the rest — a Python project's full set takes over half a minute.
+        // Stop ends the running check and skips the rest — a Python
+        // project's full set takes over half a minute.
         if (context.signal.aborted) {
           parts.push(`${step.name}: not run (stopped)`);
           continue;
         }
-        const result = await context.runtime.exec(context.projectId, step);
+        const result = await context.runtime.exec(context.projectId, {
+          ...step,
+          signal: context.signal,
+        });
+        if (result.stopped) {
+          parts.push(`${step.name}: not finished (stopped)`);
+          continue;
+        }
         const ok = result.exitCode === 0;
         if (!ok) failed = true;
         parts.push(
@@ -4386,8 +4623,10 @@ export class AgentSession {
       const result = await context.runtime.exec(context.projectId, {
         command: `npm run ${check.script}`,
         timeoutMs: 120_000,
+        signal: context.signal,
       });
-      if (result.exitCode !== 0) {
+      if (result.stopped) parts.push(`npm run ${check.script}: not finished (stopped)`);
+      else if (result.exitCode !== 0) {
         failed = true;
         const output = [result.stdout, result.stderr].filter((s) => s.trim()).join("\n");
         parts.push(`npm run ${check.script} failed (exit ${result.exitCode}):\n${output}`);
@@ -4402,12 +4641,23 @@ export class AgentSession {
       );
     }
 
+    // A running dev server is not a working app: Vite serves a page that
+    // throws on load as happily as one that works. So the page is loaded.
+    let pageNote = "";
+    if (check.previewRunning && !context.signal.aborted) {
+      const loaded = await this.loadCheck(context);
+      if (loaded.failed) {
+        failed = true;
+        parts.push(loaded.output);
+      } else pageNote = loaded.output;
+    }
+
     return {
       failed,
       output:
         check.checks || check.programme || failed
-          ? parts.join("\n\n")
-          : "Typecheck and the preview both look fine.",
+          ? [...parts, pageNote].filter(Boolean).join("\n\n")
+          : pageNote || "Typecheck and the preview both look fine.",
     };
   }
 }
@@ -4432,3 +4682,27 @@ zelyq.runtime.json when your turn ends and hands back what fails; to check soone
 \`npm run check\` once — never chain your own commands or add stricter checks.
 Use the write scope of your assigned specialist role. Do not add unrelated features. Report each
 acceptance criterion and any check that could not run.`;
+
+/** The picture formats every model Zelyq talks to accepts in a tool result. */
+const MODEL_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+/**
+ * Keeps only pictures a model can read. OpenAI and Claude refuse anything else
+ * (an SVG placeholder failed a whole GPT turn with "unsupported image format"),
+ * where Gemini happened to let it through. A picture left out is said so in
+ * words, so the model does not believe it saw one.
+ */
+export function withModelReadableImages(
+  output: string,
+  images: Array<{ mimeType: string; data: string }> | undefined,
+): { output: string; images?: Array<{ mimeType: string; data: string }> } {
+  if (!images?.length) return { output };
+  const readable = images.filter((image) => MODEL_IMAGE_TYPES.has(image.mimeType.toLowerCase()));
+  const left = images.length - readable.length;
+  const note = left
+    ? `\n[${left} picture(s) not shown to you: ${[
+        ...new Set(images.filter((i) => !readable.includes(i)).map((i) => i.mimeType)),
+      ].join(", ")} is not a format models can read. Open the file itself if you need it.]`
+    : "";
+  return { output: output + note, ...(readable.length ? { images: readable } : {}) };
+}

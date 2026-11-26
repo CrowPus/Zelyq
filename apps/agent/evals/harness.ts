@@ -1,5 +1,6 @@
 import type { AgentEvent } from "@zelyq/core";
 import type { RuntimeDriver } from "@zelyq/runtime";
+import { type AgentAssets, assetSessionOptions } from "../src/assets.js";
 import type { Effort, ProviderId } from "../src/providers/index.js";
 import { AgentSession } from "../src/session.js";
 import { runCheck } from "./checks.js";
@@ -36,6 +37,26 @@ export interface RunOptions {
    * flag. */
   engineerMode?: boolean;
   engineerModeSkill?: { body: string; resources: string[] };
+  /** The skills, design references and libraries the shipped agent loads.
+   * Absent only for `--bare`, the old harness-only agent. */
+  assets?: AgentAssets;
+  /** Called with each session once it is built, so the run can record the
+   * exact prompt and tool list that were measured. */
+  onSession?: (session: AgentSession) => void;
+  /**
+   * Another agent instead of Zelyq's: given the project's folder and the
+   * prompt, it does the work its own way. Everything around it — the starting
+   * project, the checks, the hidden flows — is unchanged, so the comparison is
+   * like for like.
+   */
+  externalAgent?: (input: {
+    root: string;
+    projectId: string;
+    prompt: string;
+    timeoutMs: number;
+  }) => Promise<{ reply: string; error?: string }>;
+  /** Replaces the model — for validating cases with a scripted agent. */
+  providerFactory?: ConstructorParameters<typeof AgentSession>[0]["providerFactory"];
 }
 
 /**
@@ -67,6 +88,7 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
     filesChanged: [],
+    toolTrace: [],
     reply: "",
     durationMs: 0,
     error: null,
@@ -87,61 +109,82 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
 
     const before = await fingerprint(runtime, projectId);
 
-    const session = new AgentSession({
-      sessionId: `evalsession-${projectId}`,
-      projectId,
-      projectName: evalCase.title,
-      template: options.template,
-      provider: options.provider,
-      model: options.model,
-      effort: options.effort,
-      apiKey: options.apiKey,
-      ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
-      ...(options.engineerMode ? { engineerMode: true } : {}),
-      ...(options.engineerModeSkill ? { engineerModeSkill: options.engineerModeSkill } : {}),
-      runtime,
-      maxIterations: evalCase.maxIterations ?? options.maxIterations,
-    });
+    if (options.externalAgent) {
+      const outside = await options.externalAgent({
+        root,
+        projectId,
+        prompt: evalCase.prompt,
+        timeoutMs: options.timeoutMs,
+      });
+      result.reply = outside.reply;
+      if (outside.error) result.error = outside.error;
+      // It ran: there is no per-round count to read from another agent.
+      else result.rounds = 1;
+    } else {
+      const session = new AgentSession({
+        sessionId: `evalsession-${projectId}`,
+        projectId,
+        projectName: evalCase.title,
+        ...(evalCase.projectDescription ? { projectDescription: evalCase.projectDescription } : {}),
+        template: options.template,
+        provider: options.provider,
+        model: options.model,
+        effort: options.effort,
+        apiKey: options.apiKey,
+        ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+        ...(options.engineerMode ? { engineerMode: true } : {}),
+        ...(options.engineerModeSkill ? { engineerModeSkill: options.engineerModeSkill } : {}),
+        runtime,
+        maxIterations: evalCase.maxIterations ?? options.maxIterations,
+        ...(options.assets ? assetSessionOptions(options.assets) : {}),
+        ...(options.providerFactory ? { providerFactory: options.providerFactory } : {}),
+      });
+      options.onSession?.(session);
 
-    const timer = setTimeout(() => {
-      result.error = `timed out after ${Math.round(options.timeoutMs / 1000)}s`;
-      session.abort();
-    }, options.timeoutMs);
+      const timer = setTimeout(() => {
+        result.error = `timed out after ${Math.round(options.timeoutMs / 1000)}s`;
+        session.abort();
+      }, options.timeoutMs);
 
-    const emit = (event: AgentEvent): void => {
-      switch (event.type) {
-        case "usage":
-          // One `usage` event per model round-trip; the counts are cumulative.
-          result.rounds += 1;
-          result.tokensIn = event.tokensIn;
-          result.tokensOut = event.tokensOut;
-          // Absent on providers without prompt caching — keep the last non-zero
-          // rather than clobbering with an undefined-coalesced 0.
-          result.cacheReadTokens = event.cacheReadTokens ?? result.cacheReadTokens;
-          result.cacheCreationTokens = event.cacheCreationTokens ?? result.cacheCreationTokens;
-          break;
-        case "text.delta":
-          result.reply += event.text;
-          break;
-        case "tool.start":
-          result.toolCalls += 1;
-          break;
-        case "tool.end":
-          if (event.call.isError) result.toolErrors += 1;
-          break;
-        case "error":
-          result.error ??= `${event.code}: ${event.message}`;
-          break;
-        case "aborted":
-          result.error ??= "aborted";
-          break;
+      const emit = (event: AgentEvent): void => {
+        switch (event.type) {
+          case "usage":
+            // One `usage` event per model round-trip; the counts are cumulative.
+            result.rounds += 1;
+            result.tokensIn = event.tokensIn;
+            result.tokensOut = event.tokensOut;
+            // Absent on providers without prompt caching — keep the last non-zero
+            // rather than clobbering with an undefined-coalesced 0.
+            result.cacheReadTokens = event.cacheReadTokens ?? result.cacheReadTokens;
+            result.cacheCreationTokens = event.cacheCreationTokens ?? result.cacheCreationTokens;
+            break;
+          case "text.delta":
+            result.reply += event.text;
+            break;
+          case "tool.start":
+            result.toolCalls += 1;
+            break;
+          case "tool.end":
+            if (event.call.isError) result.toolErrors += 1;
+            result.toolTrace?.push(`${event.call.name}${event.call.isError ? "!" : ""}`);
+            break;
+          case "error":
+            // A retry is a notice that the model call is being tried again,
+            // not how the case ended; recording it hid the real failures.
+            if (event.code === "retrying") break;
+            result.error ??= `${event.code}: ${event.message}`;
+            break;
+          case "aborted":
+            result.error ??= "aborted";
+            break;
+        }
+      };
+
+      try {
+        await session.run(evalCase.prompt, emit);
+      } finally {
+        clearTimeout(timer);
       }
-    };
-
-    try {
-      await session.run(evalCase.prompt, emit);
-    } finally {
-      clearTimeout(timer);
     }
 
     // The model was never reached — a bad key, a provider/model mismatch, an

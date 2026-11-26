@@ -5,6 +5,8 @@
  */
 export function buildSystemPrompt(options: {
   projectName: string;
+  /** What the person said the app is for, when they gave one. */
+  projectDescription?: string;
   template: string;
   skills?: Array<{ name: string; description: string }>;
   /** When set, an Engineer Mode addendum is built into this same string,
@@ -63,9 +65,13 @@ using tools — never by printing code for someone else to copy.
 
 <project>
 Name: ${options.projectName}
-Template: ${options.template}
+${options.projectDescription ? `About: ${options.projectDescription.replace(/\s+/g, " ")}\n` : ""}Template: ${options.template}
 Stack: ${options.stack ?? "React 19 + TypeScript + Vite + Tailwind CSS"}
 </project>
+
+When guidance conflicts, this order decides: what the person asks in this conversation, then the \
+project's own guide, then the stack guide, then the rules of the current mode, then the defaults in \
+this prompt. Safety rules (secrets, destructive commands, not inventing facts) always hold.
 ${buildSkillsSection(options.skills)}${buildStackGuide(options.stackSkill)}${buildProjectGuide(options.projectGuide)}${buildPlanBlock(options.plan)}
 
 <how_to_work>
@@ -81,7 +87,10 @@ update_plan and mark them done as you go — the next turn resumes from PLAN.md 
 the conversation. Skip it for a single-step change; a plan for a one-line edit is just ceremony, and \
 it never licenses more scope than was asked.
 - Make the smallest change that fully satisfies the request, then verify it. Verification means \
-running the typecheck or build, and starting the preview to confirm the app still loads.
+running the typecheck or build, and starting the preview to confirm the app still loads. When the \
+change is something a person does — submit a form, add or delete an item, filter, switch a tab — \
+do it once with drive_preview (fill, click, then expect the result) before saying it works. One \
+short script for the flow you built, not a tour of the app.
 - To see a screen that is not the app's landing route, pass its \`path\` to view_preview or \
 inspect_page (e.g. \`path: "/#/destination/kyoto"\` for a hash route, \`path: "/settings"\` for a \
 real one). Never edit routing, the default route, or a redirect just to make a screen reachable for \
@@ -150,9 +159,9 @@ your reply. Do not rewrite the design records themselves.
 - This instance may load extra tools beyond the ones described so far — inspecting an external \
 service (a Git host, a deploy platform, a database, a design file), auditing code, generating docs. A \
 tool being available is not a reason to reach for it: use one only when the request, or a service the \
-project is already connected to, genuinely calls for it. Every project here is a single frontend with \
-no backend or deployment pipeline of its own — a tool that reports on one only has something real to \
-report when the user's own project actually has one, not because the tool exists.
+project is already connected to, genuinely calls for it. A tool that reports on a backend, database \
+or deployment only has something real to report when this project actually has one — <project> \
+names its real stack.
 </how_to_work>
 
 <untrusted_content>
@@ -947,8 +956,9 @@ ${
     ? `
 <ui_guidelines>
 The UI-quality bar. Every turn that builds or changes a user-facing interface follows these
-MUST/SHOULD/NEVER rules; the automatic verification checks the observable ones (focus, hydration,
-semantics, reduced-motion, CLS, empty/error states) against the running preview.
+MUST/SHOULD/NEVER rules. Check the observable ones yourself against the running preview (focus,
+semantics, reduced-motion, layout shift, empty/error states): the automatic end-of-turn check only
+typechecks or builds, so nothing else checks them for you.
 
 ${agentMd}
 
@@ -1101,12 +1111,10 @@ checkout button is both a payment flow and a piece of frontend UI. When two seem
 ground, load the one whose description names the actual thing you are building, plus any broader one \
 that still adds something the specific one doesn't.
 
-Every project here is a single, self-contained frontend — React, TypeScript, Vite, Tailwind — with no \
-backend, database, or deployment pipeline of its own; <project> above names the real stack. A skill \
-written for backend services, infrastructure, or release engineering still applies when a request \
-genuinely calls for that shape of work inside this project — a CI workflow file, a security pass over \
-code that actually exists here — never on the assumption that this project has, or needs, a backend it \
-does not.
+<project> above names this project's real stack. A skill written for backend services, \
+infrastructure, or release engineering applies when the request genuinely calls for that work in \
+this project — a CI workflow file, a security pass over code that actually exists here — never on \
+the assumption that this project has, or needs, a backend it does not.
 
 ${list}
 </skills>

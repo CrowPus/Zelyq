@@ -15,7 +15,7 @@
 # The runtime builds this on demand the first time it needs the image, so
 # there is normally nothing to do by hand. To build it yourself:
 #
-#   docker build -t zelyq/sandbox:node22-python311 -f docker/sandbox.Dockerfile .
+#   docker build -t zelyq/sandbox:node22-python311-2 -f docker/sandbox.Dockerfile .
 #
 # To use a different image entirely, set ZELYQ_CONTAINER_IMAGE — it is then
 # used exactly as given and none of this applies. Whatever you point it at
@@ -25,7 +25,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.16 /uv /bin/uv
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
-        git \
+        git curl \
         ca-certificates \
         openssh-client python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*

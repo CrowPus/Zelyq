@@ -1,9 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { loadEnvFile } from "@zelyq/core/node";
 import { createRuntimeDriver } from "@zelyq/runtime";
+import { loadAgentAssets } from "../src/assets.js";
 import { loadAgentConfig } from "../src/config.js";
 import { buildSystemPrompt } from "../src/prompt.js";
 import { PROVIDERS, speaksOpenAIDialect } from "../src/providers/index.js";
@@ -37,6 +39,14 @@ const { values } = parseArgs({
     // Runs the scope-discipline criterion: Engineer Mode on, same cases,
     // same checks.
     "engineer-mode": { type: "boolean", default: false },
+    // Each case this many times. One run of a case is an anecdote: the same
+    // prompt flips between pass and fail on the same model.
+    repeat: { type: "string", default: "1" },
+    // The old harness-only agent: no skills, design references, plugins or
+    // libraries. Kept for comparison with results recorded before 2026-11.
+    bare: { type: "boolean", default: false },
+    // "bench": the benchmark tasks, graded by hidden flows (evals/bench.ts).
+    suite: { type: "string", default: "evals" },
   },
 });
 
@@ -50,6 +60,9 @@ zelyq evals — measure whether the agent actually builds working software
   pnpm eval --limit 5 --concurrency 2
   pnpm eval --compare evals/results/<file>.json
   pnpm eval --keep                   leave projects on disk to inspect
+  pnpm eval --repeat 3               run every case three times
+  pnpm eval --bare                   the old agent: no skills, plugins or libraries
+  pnpm eval --suite bench            the benchmark tasks, graded by hidden flows
 
 This spends real money on real model calls. Start with --limit.
 `);
@@ -99,6 +112,10 @@ if (
   process.exit(1);
 }
 
+// The agent users get: the same plugins, skills, design references and AI
+// provider library the agent server loads at boot.
+const assets = values.bare ? undefined : await loadAgentAssets();
+
 let engineerModeSkill: { body: string; resources: string[] } | undefined;
 if (values["engineer-mode"]) {
   const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -113,11 +130,21 @@ if (values["engineer-mode"]) {
   engineerModeSkill = { body: skill.body, resources: await listResources(skill.dir) };
 }
 
-const cases = selectCases({
+const selected = selectCases({
   only: values.only?.split(",").map((id) => id.trim()),
   tag: values.tag,
   limit: values.limit ? Number.parseInt(values.limit, 10) : undefined,
+  suite: values.suite,
 });
+const repeat = Math.max(1, Number.parseInt(values.repeat, 10) || 1);
+// Repeats are interleaved (all cases once, then again) so a provider having a
+// bad few minutes does not land on every attempt of one case.
+const cases =
+  repeat === 1
+    ? selected
+    : Array.from({ length: repeat }, (_, n) =>
+        selected.map((evalCase) => ({ ...evalCase, id: `${evalCase.id}--r${n + 1}` })),
+      ).flat();
 
 if (cases.length === 0) {
   console.error("No cases matched that selection.");
@@ -142,6 +169,8 @@ const started = Date.now();
 const configErrors = new Map<string, number>();
 let abortReason: string | null = null;
 
+let measured: { systemPrompt: string; toolNames: string[] } | null = null;
+
 const results = await pool(cases, Number.parseInt(values.concurrency, 10), async (evalCase) => {
   if (abortReason) return skipped(evalCase);
 
@@ -158,6 +187,10 @@ const results = await pool(cases, Number.parseInt(values.concurrency, 10), async
     timeoutMs: Number.parseInt(values.timeout, 10) * 1000,
     keep: values.keep,
     log,
+    ...(assets ? { assets } : {}),
+    onSession: (session) => {
+      measured ??= { systemPrompt: session.systemPrompt, toolNames: session.toolNames };
+    },
     ...(values["engineer-mode"] ? { engineerMode: true } : {}),
     ...(engineerModeSkill ? { engineerModeSkill } : {}),
   });
@@ -192,6 +225,13 @@ const suite: SuiteResult = {
     .digest("hex")
     .slice(0, 12),
   ...(values["engineer-mode"] ? { engineerMode: true } : {}),
+  // What was actually measured: the session's own prompt and tool list, and
+  // the code it came from. `promptHash` above is the older, narrower hash the
+  // committed baselines are keyed on.
+  ...(measured ? { agentHash: agentHash(measured) } : {}),
+  commit: gitCommit(),
+  bare: values.bare,
+  repeat,
   cases: results,
 };
 
@@ -246,6 +286,29 @@ process.exit(results.every((result) => result.done) ? 0 : 1);
 
 // ---------------------------------------------------------------------------
 
+/** Prompt + tool names: what the model was shown, besides the case itself. */
+function agentHash(seen: { systemPrompt: string; toolNames: string[] }): string {
+  return createHash("sha256")
+    .update(seen.systemPrompt)
+    .update("\0")
+    .update(seen.toolNames.join(","))
+    .digest("hex")
+    .slice(0, 12);
+}
+
+/** The commit measured, marked dirty when the tree has uncommitted changes. */
+function gitCommit(): string {
+  try {
+    const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+    const dirty = execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+      encoding: "utf8",
+    }).trim();
+    return dirty ? `${head}-dirty` : head;
+  } catch {
+    return "unknown";
+  }
+}
+
 /** A case that never started because the suite aborted first. Scored as errored. */
 function skipped(evalCase: EvalCase): CaseResult {
   return {
@@ -281,11 +344,9 @@ function line(result: CaseResult, model: string): string {
         : result.intact
           ? "~"
           : "✗";
-  const detail = result.error
-    ? result.error
-    : failed.length
-      ? failed.map((check) => check.label).join(", ")
-      : "";
+  const detail = [result.error, failed.map((check) => check.label).join(", ")]
+    .filter(Boolean)
+    .join(" — ");
   const cost = estimateCostUsd(model, tokenCountsOf(result));
   return [
     ` ${mark} ${result.id.padEnd(22)}`,

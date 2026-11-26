@@ -654,3 +654,25 @@ test("a Python project refuses to start on a host that cannot run it", async () 
     resetManagedCapabilities();
   }
 });
+
+test("Stop ends a running command and everything it started", async () => {
+  await driver.ensureProject("prj_stop");
+  // A background child that keeps writing, as an install's workers would.
+  const command =
+    "(while true; do date +%s%N > tick; sleep 0.1; done) & " + "while true; do sleep 0.1; done";
+  const stop = new AbortController();
+  const running = driver.exec("prj_stop", { command, signal: stop.signal });
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  stop.abort();
+  const result = await running;
+  assert.equal(result.stopped, true);
+  assert.equal(result.exitCode, 130);
+  assert.ok(result.durationMs < 5_000, `took ${result.durationMs}ms`);
+
+  await new Promise((resolve) => setTimeout(resolve, 2_500));
+  const root = path.join(workspaceDir, "prj_stop");
+  const first = await fs.readFile(path.join(root, "tick"), "utf8");
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  const second = await fs.readFile(path.join(root, "tick"), "utf8");
+  assert.equal(second, first, "the background child is still running");
+});

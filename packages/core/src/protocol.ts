@@ -202,6 +202,10 @@ export type AgentEventType = AgentEvent["type"];
 export const createAgentSessionSchema = z.object({
   sessionId: z.string(),
   projectId: z.string(),
+  /** The app's own name, shown to the model. Absent ⇒ the project id. */
+  projectName: z.string().max(200).optional(),
+  /** What the person said the app is for, when they gave one. */
+  projectDescription: z.string().max(2000).optional(),
   provider: providerIdSchema.optional(),
   model: z.string().optional(),
   effort: effortSchema.optional(),
@@ -380,6 +384,11 @@ export const agentSessionStateSchema = z.object({
    * CLI-sourced subscription token. `ensureSession` recreates the
    * session when this changes, the same as a changed provider already does. */
   authMode: z.enum(["api_key", "subscription"]),
+  /** What the session's prompt says the app is called and is for. Null when
+   * it has none; absent from an agent too old to say. `ensureSession`
+   * recreates the session when either differs from the app's own now. */
+  projectName: z.string().nullable().optional(),
+  projectDescription: z.string().nullable().optional(),
   busy: z.boolean(),
   turns: z.number().int().nonnegative(),
   tokensIn: z.number().int().nonnegative(),

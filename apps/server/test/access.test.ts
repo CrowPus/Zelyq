@@ -418,3 +418,41 @@ test("team membership is not visible to outsiders", async () => {
   });
   assert.equal(response.statusCode, 404);
 });
+
+test("two apps in one team cannot share a name; other teams are never affected", async () => {
+  const owner = await register("names-owner@example.com", "Names Owner");
+  const other = await register("names-other@example.com", "Names Other");
+  const create = (cookie: string, name: string) =>
+    server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: as(cookie),
+      payload: { name },
+    });
+
+  const first = await create(owner, "Shop");
+  assert.equal(first.statusCode, 201);
+
+  // Case and outer spaces do not make it a different name.
+  const again = await create(owner, "  shop ");
+  assert.equal(again.statusCode, 409);
+  assert.match(again.json().error.message, /already has an app called "shop".*"shop 2"/);
+
+  // Another team, in the cloud another customer, may use the same name.
+  assert.equal((await create(other, "Shop")).statusCode, 201);
+
+  // Renaming into a taken name is refused; changing only the case of its own is not.
+  const second = await create(owner, "Shop 2");
+  assert.equal(second.statusCode, 201);
+  const rename = (id: string, name: string) =>
+    server.app.inject({
+      method: "PATCH",
+      url: `/api/projects/${id}`,
+      headers: as(owner),
+      payload: { name },
+    });
+  const clash = await rename(second.json().project.id, "SHOP");
+  assert.equal(clash.statusCode, 409);
+  assert.match(clash.json().error.message, /already has an app called "SHOP"/);
+  assert.equal((await rename(first.json().project.id, "SHOP")).statusCode, 200);
+});

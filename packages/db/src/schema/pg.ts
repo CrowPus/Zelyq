@@ -190,6 +190,10 @@ export const projects = pgTable(
      * image permission on purpose: an image costs cents, a clip costs
      * dollars, so one does not imply the other. */
     videoGenerationEnabled: boolean("video_generation_enabled").notNull().default(false),
+    /** The model this app's chat uses, picked in the chat and kept for
+     * everyone on every device. Null means the team default. */
+    modelProvider: text("model_provider"),
+    model: text("model"),
     status: text("status").notNull().default("creating"),
     statusMessage: text("status_message"),
     createdAt: text("created_at").notNull(),

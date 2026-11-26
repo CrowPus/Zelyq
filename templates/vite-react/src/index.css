@@ -6,10 +6,11 @@
   toggle can never override the OS: on a light-mode computer its "dark" does
   nothing, and on a dark-mode one it can never go light. The script in
   index.html sets the class before first paint — a saved choice if there is
-  one, else the OS — so nothing changes for an app without a toggle.
+  one, else the OS — so an app follows the OS with nothing more to build.
 
-  A toggle: flip `dark` on document.documentElement and save "dark" or "light"
-  under localStorage "theme".
+  Add a theme toggle only when the person asks for one. If they do, it flips
+  `dark` on document.documentElement and saves "dark" or "light" under
+  localStorage "theme".
 */
 @custom-variant dark (&:where(.dark, .dark *));
 

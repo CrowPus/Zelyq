@@ -137,7 +137,11 @@ const BASE_IMAGE = "node:22-bookworm-slim";
  * repository or a single commit — and the first anyone heard of it was a push
  * failing with git's own "command not found".
  */
-const DEFAULT_IMAGE = "zelyq/sandbox:node22-python311";
+// The tag's last part changes whenever SANDBOX_DOCKERFILE does: the image is
+// built only when its tag is missing, so an install keeps the old one forever
+// otherwise. -2 added curl, which the image and API tools run inside the
+// project (they failed with "curl: command not found", 5 of 5 recorded).
+const DEFAULT_IMAGE = "zelyq/sandbox:node22-python311-2";
 /**
  * Kept in step with `docker/sandbox.Dockerfile` — that file is the copy a
  * person reads and can build by hand; this is the copy the runtime builds
@@ -149,7 +153,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.16 /uv /bin/uv
 
 RUN apt-get update \\
     && apt-get install --no-install-recommends -y \\
-        git \\
+        git curl \\
         ca-certificates \\
         openssh-client python3 python3-venv \\
     && rm -rf /var/lib/apt/lists/*
@@ -553,14 +557,28 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
     const cwd = containerCwd(options.cwd);
     const env = agentCommandEnv(options.env);
 
+    // Killing `docker exec` stops the client, not the command: it carried on
+    // inside the container after a timeout or Stop, still installing or
+    // building. So the command runs in its own session and leaves its pid in a
+    // file, and a run cut short kills that group in the container too.
+    const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const pidFile = `/tmp/zelyq-exec-${runId}.pid`;
+    const wrapper = `setsid /bin/bash -c "$1" & p=$!; echo $p > ${pidFile}; wait $p; c=$?; rm -f ${pidFile}; exit $c`;
+    const name = containerName(projectId);
     const args = ["exec", "--workdir", cwd, ...envNameArgs(env)];
-    args.push(containerName(projectId), "/bin/bash", "-c", options.command);
+    args.push(name, "/bin/bash", "-c", wrapper, "zelyq-exec", options.command);
     const run = () =>
       runCaptured(this.engine, args, {
         timeoutMs: options.timeoutMs ?? this.execTimeoutMs,
         maxOutputBytes: options.maxOutputBytes ?? 200_000,
         // Values travel in our own environment, never in argv — see `envNameArgs`.
         env: { ...cleanProcessEnv(), ...env },
+        ...(options.signal ? { signal: options.signal } : {}),
+        onStop: () => {
+          void this.engineRun(["exec", name, "bash", "-c", killByPidFile(pidFile)], 15_000).catch(
+            () => undefined,
+          );
+        },
       });
 
     this.commandsRunning.set(projectId, (this.commandsRunning.get(projectId) ?? 0) + 1);
@@ -1838,6 +1856,23 @@ export class ContainerRuntimeDriver implements RuntimeDriver {
  * name. Sanitised anyway: a name is passed to the engine as an argument, and a
  * rule that holds today because of a format decision elsewhere is not a rule.
  */
+/**
+ * Kills the process group whose leader's pid is in `pidFile`: TERM, then KILL
+ * two seconds later. Waits briefly for the file, since a stop can arrive
+ * before the command has written it.
+ */
+export function killByPidFile(pidFile: string): string {
+  return [
+    `for i in 1 2 3 4 5 6 7 8 9 10; do [ -s ${pidFile} ] && break; sleep 0.2; done`,
+    `p=$(cat ${pidFile} 2>/dev/null) || exit 0`,
+    `kill -TERM -$p 2>/dev/null || exit 0`,
+    `sleep 2`,
+    `kill -KILL -$p 2>/dev/null`,
+    `rm -f ${pidFile}`,
+    `exit 0`,
+  ].join("; ");
+}
+
 /** What the engine says when the container a command was sent to no longer exists or runs. */
 export function containerGone(stderr: string): boolean {
   // The daemon's own words, so a project command that merely prints

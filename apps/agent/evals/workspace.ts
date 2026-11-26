@@ -125,6 +125,8 @@ export async function linkModules(baseRoot: string, caseRoot: string): Promise<v
 export interface ProjectFingerprint {
   /** Relative path → sha256 of contents. Excludes node_modules and build output. */
   files: Map<string, string>;
+  /** Package names in package.json (dependencies + devDependencies), when it exists. */
+  packages?: string[];
 }
 
 /**
@@ -137,6 +139,7 @@ export async function fingerprint(
 ): Promise<ProjectFingerprint> {
   const entries = await runtime.listFiles(projectId, { depth: 12 });
   const files = new Map<string, string>();
+  let packages: string[] | undefined;
 
   for (const entry of entries) {
     if (entry.type !== "file") continue;
@@ -144,12 +147,29 @@ export async function fingerprint(
     try {
       const file = await runtime.readFile(projectId, entry.path);
       files.set(entry.path, createHash("sha256").update(file.content).digest("hex"));
+      if (entry.path === "package.json") packages = packageNames(file.content);
     } catch {
       // A file that vanished mid-run is a change, and `diff` will report it.
     }
   }
 
-  return { files };
+  return packages ? { files, packages } : { files };
+}
+
+/** Dependency names a package.json declares; empty when it does not parse. */
+export function packageNames(json: string): string[] {
+  try {
+    const parsed = JSON.parse(json) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    return [
+      ...Object.keys(parsed.dependencies ?? {}),
+      ...Object.keys(parsed.devDependencies ?? {}),
+    ];
+  } catch {
+    return [];
+  }
 }
 
 /**

@@ -402,3 +402,128 @@ test("B8: colour codes are stripped from command output", async () => {
   assert.equal(stripAnsi(ruff), "I001 [*] Import block is un-sorted");
   assert.equal(stripAnsi("plain text"), "plain text");
 });
+
+// ---------------------------------------------------------------------------
+// The history placeholder. Older Zelyq versions put this text in place of a
+// stored file body, and Gemini copied it back as real content: 86 write_file
+// calls on one instance replaced whole files with this single line.
+
+const PLACEHOLDER = "[omitted from history — on disk, use read_file]";
+
+function recordingContext(existing: string | null) {
+  const writes: string[] = [];
+  const context = stubContext({
+    readFile: async () => {
+      if (existing === null) throw new Error("ENOENT");
+      return { path: "src/App.tsx", content: existing, encoding: "utf8", truncated: false };
+    },
+    writeFile: async (_project: string, _path: string, content: string) => {
+      writes.push(content);
+    },
+  } as Partial<ToolContext["runtime"]>);
+  return { context, writes };
+}
+
+test("write_file refuses the history placeholder as content and writes nothing", async () => {
+  const { context, writes } = recordingContext("const a = 1;\n".repeat(200));
+  const result = await executeTool(context, "write_file", {
+    path: "src/App.tsx",
+    content: PLACEHOLDER,
+  });
+  assert.equal(result.isError, true);
+  assert.match(result.output, /history placeholder/);
+  assert.match(result.output, /read_file src\/App\.tsx/);
+  assert.deepEqual(writes, []);
+});
+
+test("write_file refuses a new file that is only the placeholder", async () => {
+  const { context, writes } = recordingContext(null);
+  const result = await executeTool(context, "write_file", {
+    path: "public/hero.jpg",
+    content: PLACEHOLDER,
+  });
+  assert.equal(result.isError, true);
+  assert.deepEqual(writes, []);
+});
+
+test("write_file refuses the placeholder buried inside otherwise real content", async () => {
+  const { context, writes } = recordingContext("x\n");
+  const content = `.a { color: red; }\n\n${PLACEHOLDER}\n\n.b { color: blue; }\n`;
+  const result = await executeTool(context, "write_file", { path: "src/index.css", content });
+  assert.equal(result.isError, true);
+  assert.deepEqual(writes, []);
+});
+
+test("edit_file refuses the placeholder as new_text or old_text", async () => {
+  const { context, writes } = recordingContext("one\ntwo\n");
+  const asNew = await executeTool(context, "edit_file", {
+    path: "a.ts",
+    old_text: "one",
+    new_text: PLACEHOLDER,
+  });
+  assert.equal(asNew.isError, true);
+  const asOld = await executeTool(context, "edit_file", {
+    path: "a.ts",
+    old_text: PLACEHOLDER,
+    new_text: "x",
+  });
+  assert.equal(asOld.isError, true);
+  assert.match(asOld.output, /not text from the file/);
+  assert.deepEqual(writes, []);
+});
+
+test("a call copied from stripped history fails the schema instead of reaching disk", async () => {
+  // History now drops the body and leaves `content_omitted` beside the path.
+  const { context, writes } = recordingContext("const a = 1;\n".repeat(200));
+  const result = await executeTool(context, "write_file", {
+    path: "src/App.tsx",
+    content_omitted: "2400 characters, not kept in history.",
+  });
+  assert.equal(result.isError, true);
+  assert.deepEqual(writes, []);
+});
+
+test("write_file refuses to cut a large file to a few lines unless asked to", async () => {
+  const { context, writes } = recordingContext("line\n".repeat(120));
+  const refused = await executeTool(context, "write_file", {
+    path: "src/App.tsx",
+    content: "export {};\n",
+  });
+  assert.equal(refused.isError, true);
+  assert.match(refused.output, /replace_large_file: true/);
+  assert.deepEqual(writes, []);
+
+  const allowed = await executeTool(context, "write_file", {
+    path: "src/App.tsx",
+    content: "export {};\n",
+    replace_large_file: true,
+  });
+  assert.equal(allowed.isError, undefined);
+  assert.deepEqual(writes, ["export {};\n"]);
+});
+
+test("ordinary rewrites and small files are not affected by the shrink guard", async () => {
+  const small = recordingContext("a\nb\nc\n");
+  assert.equal(
+    (await executeTool(small.context, "write_file", { path: "a.ts", content: "x" })).isError,
+    undefined,
+  );
+  const big = recordingContext("line\n".repeat(120));
+  const rewrite = "new line\n".repeat(60);
+  assert.equal(
+    (await executeTool(big.context, "write_file", { path: "a.ts", content: rewrite })).isError,
+    undefined,
+  );
+});
+
+test("read_file can page a short file whose lines are very long", async () => {
+  // 300 lines of 400 characters: under the line limit, over the size cap.
+  const content = Array.from({ length: 300 }, (_, i) => `L${i + 1} ${"x".repeat(400)}`).join("\n");
+  const context = stubContext({
+    readFile: async () => ({ path: "big.css", content, encoding: "utf8", truncated: false }),
+  });
+  const first = await executeTool(context, "read_file", { path: "big.css" });
+  assert.match(first.output, /call read_file again with offset: \d+/);
+  const tail = await executeTool(context, "read_file", { path: "big.css", offset: 290 });
+  assert.match(tail.output, /L300 /);
+});

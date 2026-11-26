@@ -93,7 +93,15 @@ export function messageRepository(db: ZelyqDb) {
       patch: Partial<
         Pick<
           Message,
-          "content" | "thinking" | "toolCalls" | "snapshotId" | "tokensIn" | "tokensOut"
+          | "content"
+          | "thinking"
+          | "toolCalls"
+          | "snapshotId"
+          | "tokensIn"
+          | "tokensOut"
+          | "cacheReadTokens"
+          | "cacheCreationTokens"
+          | "usageSchema"
         >
       >,
     ): Promise<void> {
@@ -106,6 +114,13 @@ export function messageRepository(db: ZelyqDb) {
           ...(patch.snapshotId !== undefined ? { snapshotId: patch.snapshotId } : {}),
           ...(patch.tokensIn !== undefined ? { tokensIn: patch.tokensIn } : {}),
           ...(patch.tokensOut !== undefined ? { tokensOut: patch.tokensOut } : {}),
+          ...(patch.cacheReadTokens !== undefined
+            ? { cacheReadTokens: patch.cacheReadTokens }
+            : {}),
+          ...(patch.cacheCreationTokens !== undefined
+            ? { cacheCreationTokens: patch.cacheCreationTokens }
+            : {}),
+          ...(patch.usageSchema !== undefined ? { usageSchema: patch.usageSchema } : {}),
         })
         .where(eq(messages.id, id));
     },
@@ -123,6 +138,17 @@ export function messageRepository(db: ZelyqDb) {
      * `buildAnthropicHistory` can pair tool calls correctly only given a clean
      * start.
      */
+    /** The newest message in a session, whatever its size. */
+    async lastForSession(sessionId: string): Promise<Message | null> {
+      const rows = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.sessionId, sessionId))
+        .orderBy(desc(messages.createdAt))
+        .limit(1);
+      return rows[0] ? toMessage(rows[0]) : null;
+    },
+
     async listForSession(
       sessionId: string,
       { limit = 400, maxTokens = 180_000 }: { limit?: number; maxTokens?: number } = {},

@@ -1,4 +1,5 @@
 import type { ScaffoldFile } from "@zelyq/runtime";
+import type { FlowStep } from "@zelyq/tools";
 
 /**
  * A check is an assertion about the project *after* the agent has finished.
@@ -85,7 +86,14 @@ type CheckKind =
    * without this a case whose remaining assertions the template already
    * satisfies would score as done.
    */
-  | { kind: "changed_something" };
+  | { kind: "changed_something" }
+  /**
+   * A person can actually do the thing: steps run against the running app in
+   * a browser — fill, click, reload — then expectations about what it shows.
+   * The agent never sees these steps; they are the hidden test. Same engine
+   * as the agent's own `drive_preview`, so "works" means the same to both.
+   */
+  | { kind: "flow"; name: string; path?: string; steps: FlowStep[] };
 
 /**
  * The checks that decide whether the project is still *intact* — that the agent
@@ -111,6 +119,8 @@ export interface EvalCase {
   /** Free-form labels for `--tag`: greenfield, modify, bugfix, restraint, quality. */
   tags: string[];
   prompt: string;
+  /** The app's description, as a person types it in App settings. */
+  projectDescription?: string;
   /** Files laid down after the template and before the prompt — used to plant bugs. */
   setup?: ScaffoldFile[];
   /** Overrides the default iteration cap for cases that legitimately need more. */
@@ -179,6 +189,11 @@ export interface CaseResult {
   /** Prompt tokens written to the cache at ~1.25×, the one-time cost of a miss. */
   cacheCreationTokens: number;
   filesChanged: string[];
+  /**
+   * Each tool call in order, as `name` or `name!` when it failed, so a run
+   * shows where its steps went. Optional: older results have none.
+   */
+  toolTrace?: string[];
   /** The agent's final message. Some requests are answered, not built. */
   reply: string;
   durationMs: number;
@@ -199,5 +214,13 @@ export interface SuiteResult {
    * this exists to measure. Absent means off, same as before this field
    * existed. */
   engineerMode?: boolean;
+  /** Hash of the measured session's own system prompt and tool names. */
+  agentHash?: string;
+  /** The commit measured; `-dirty` when the tree had uncommitted changes. */
+  commit?: string;
+  /** True for `--bare`: the harness-only agent without skills or plugins. */
+  bare?: boolean;
+  /** How many times each case ran. */
+  repeat?: number;
   cases: CaseResult[];
 }

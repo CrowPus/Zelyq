@@ -1,3 +1,4 @@
+import { BENCH_CASES } from "./bench.js";
 import type { EvalCase } from "./types.js";
 
 /**
@@ -935,14 +936,77 @@ export default function App() {
       { kind: "max_files_changed", count: 12 },
     ],
   },
+  // ---------------------------------------------------------------- context
+  {
+    // From a real GPT run: asked to "make the currency right", it asked which
+    // currency rather than read the app's description that says so.
+    id: "description-currency",
+    title: "Café bill",
+    tags: ["context"],
+    projectDescription:
+      "A bill-splitting app for a café in Freetown. Prices are in Leones (Le), not dollars.",
+    prompt: "Make the currency right for this project.",
+    setup: [
+      {
+        path: "src/App.tsx",
+        content: `const ITEMS = [
+  { name: "Rice and stew", price: 45 },
+  { name: "Fresh juice", price: 15 },
+];
+
+const money = (amount: number) => \`$\${amount.toFixed(2)}\`;
+
+export default function App() {
+  const total = ITEMS.reduce((sum, item) => sum + item.price, 0);
+  return (
+    <main className="mx-auto max-w-sm p-6">
+      <h1 className="text-xl font-semibold">Café bill</h1>
+      <ul>
+        {ITEMS.map((item) => (
+          <li key={item.name}>
+            {item.name}: {money(item.price)}
+          </li>
+        ))}
+      </ul>
+      <p>Total: {money(total)}</p>
+    </main>
+  );
+}
+`,
+      },
+    ],
+    checks: [
+      { kind: "typecheck" },
+      { kind: "build" },
+      { kind: "preview" },
+      {
+        kind: "flow",
+        name: "see prices in Leones, not dollars",
+        steps: [
+          { action: "expect_text", text: "Rice and stew" },
+          // No other text on this page contains "le": the currency must.
+          { action: "expect_text", text: "Le" },
+          { action: "expect_text", text: "$", absent: true },
+        ],
+      },
+      {
+        kind: "reply_matches",
+        pattern: "\\?\\s*$",
+        expect: "absent",
+        why: "acts on the description instead of asking which currency",
+      },
+    ],
+  },
 ];
 
 export function selectCases(options: {
   only?: string[];
   tag?: string[];
   limit?: number;
+  /** "bench": the benchmark tasks with hidden flows, not the eval cases. */
+  suite?: string;
 }): EvalCase[] {
-  let cases = CASES;
+  let cases: EvalCase[] = options.suite === "bench" ? BENCH_CASES : CASES;
   if (options.only?.length) {
     const wanted = new Set(options.only);
     cases = cases.filter((item) => wanted.has(item.id));

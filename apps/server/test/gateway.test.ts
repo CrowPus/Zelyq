@@ -444,6 +444,86 @@ test("a specific model picked from the chat reaches the agent, not just its prov
   );
 });
 
+async function promptOnce(
+  cookie: string,
+  projectId: string,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  const address = server.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/projects/${projectId}`, {
+    headers: { cookie },
+  });
+  await new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "connected")
+        ws.send(JSON.stringify({ type: "prompt", message: "hi", ...extra }));
+      if (msg.type === "turn.end") {
+        ws.close();
+        resolve();
+      }
+    });
+  });
+}
+
+test("the app's own model is kept on the project and used for every message, by anyone", async () => {
+  const { cookie } = await register("app-model-test@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "App model test" },
+    })
+  ).json().project;
+
+  const saved = await server.app.inject({
+    method: "PATCH",
+    url: `/api/projects/${project.id}`,
+    headers: { cookie },
+    payload: { modelProvider: "anthropic", model: "claude-haiku-4-5-20251001" },
+  });
+  assert.equal(saved.statusCode, 200, saved.body);
+  const read = (
+    await server.app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}`,
+      headers: { cookie },
+    })
+  ).json().project;
+  assert.equal(read.modelProvider, "anthropic", "the choice is stored with the app");
+  assert.equal(read.model, "claude-haiku-4-5-20251001");
+
+  // No pick in the message itself, as after a refresh or on another device.
+  agent.created.length = 0;
+  await promptOnce(cookie, project.id);
+  assert.equal(agent.created[0]?.provider, "anthropic", "the app's model, not the team default");
+  assert.equal(agent.created[0]?.model, "claude-haiku-4-5-20251001");
+});
+
+test("a model picked in the message itself still wins over the app's own", async () => {
+  const { cookie } = await register("app-model-override@example.com");
+  const project = (
+    await server.app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: { name: "App model override" },
+    })
+  ).json().project;
+  await server.app.inject({
+    method: "PATCH",
+    url: `/api/projects/${project.id}`,
+    headers: { cookie },
+    payload: { modelProvider: "anthropic", model: "claude-haiku-4-5-20251001" },
+  });
+  agent.created.length = 0;
+  await promptOnce(cookie, project.id, { provider: "openai" });
+  assert.equal(agent.created[0]?.provider, "openai");
+});
+
 // ---------------------------------------------------------------------------
 // The live-configured effort setting used to never be read here at all,
 // so the Settings page's "Reasoning effort" field looked live but had no
@@ -1345,13 +1425,16 @@ test("OpenAI Auto and explicit selections resolve from Settings and project chat
   try {
     const { cookie } = await register("openai-auto-routing@example.com");
     const address = server.app.server.address() as { port: number };
+    let made = 0;
     async function prompt(model?: string) {
+      made++;
       const project = (
         await server.app.inject({
           method: "POST",
           url: "/api/projects",
           headers: { cookie },
-          payload: { name: "OpenAI model routing" },
+          // A fresh app each time; one team may not hold two of the same name.
+          payload: { name: `OpenAI model routing ${made}` },
         })
       ).json().project;
       const ws = new WebSocket(`ws://127.0.0.1:${address.port}/ws/projects/${project.id}`, {
@@ -1390,9 +1473,13 @@ test("OpenAI Auto and explicit selections resolve from Settings and project chat
       });
       return agent.created.at(-1)!;
     }
-    assert.equal((await prompt()).model, "gpt-5.6-terra");
+    // The access check here falls back to the whole catalog (unverified), so
+    // Auto lands on the catalog default.
+    assert.equal((await prompt()).model, "gpt-6.1-terra");
     assert.equal((await prompt("gpt-6-astra")).model, "gpt-6-astra");
-    assert.equal((await prompt("auto")).model, "gpt-5.6-terra");
+    assert.equal((await prompt("auto")).model, "gpt-6.1-terra");
+    // Typed as the name people see, it still reaches OpenAI as the real ID.
+    assert.equal((await prompt("GPT-6 Astra")).model, "gpt-6-astra");
     await fs.writeFile(
       path.join(tmp, "codex-auth.json"),
       JSON.stringify({ tokens: { access_token: "fixture-token", account_id: "fixture-account" } }),

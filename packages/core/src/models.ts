@@ -28,6 +28,10 @@ export const projectSchema = z.object({
   /** Permission for this project's agent to generate video. Separate from the
    *  image permission: a clip costs far more than a picture. */
   videoGenerationEnabled: z.boolean().default(false),
+  /** The model this app's chat uses — picked in the chat, kept for everyone
+   *  on every device. Null means the team default. */
+  modelProvider: z.string().nullable().optional(),
+  model: z.string().nullable().optional(),
   /** When the picture on the app's card was taken; null when there is none
    *  yet. Only the app list carries it. */
   thumbnailAt: z.string().datetime().nullable().optional(),
@@ -244,6 +248,10 @@ export const updateProjectSchema = z.object({
    *  the agent, so images are the same kind of decision. */
   imageGenerationEnabled: z.boolean().optional(),
   videoGenerationEnabled: z.boolean().optional(),
+  /** The app's own model; null for both goes back to the team default. A
+   *  provider without a key here is ignored at send time, not refused now. */
+  modelProvider: z.string().min(1).max(64).nullable().optional(),
+  model: z.string().max(200).nullable().optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
@@ -283,21 +291,43 @@ const HEAVY_TOOL_INPUT_FIELDS: Record<string, readonly string[]> = {
   edit_file: ["old_text", "new_text"],
 };
 
+/**
+ * The text older Zelyq versions put in place of a stripped field. Weak models
+ * copied it back as the new value: on one instance, 86 `write_file` calls
+ * replaced real files with this single line (Sept–Oct 2026). It is no longer
+ * written; it stays exported so the file tools can refuse it and so history
+ * stored before the change is still recognised.
+ */
 export const OMITTED_TOOL_INPUT_MARKER = "[omitted from history — on disk, use read_file]";
+
+/** True when `text` contains the legacy placeholder (any version of its wording). */
+export function containsOmittedMarker(text: string): boolean {
+  return text.includes("[omitted from history");
+}
 
 /** A heavy field longer than this is replaced; shorter ones stay inline. */
 const HEAVY_TOOL_INPUT_KEEP = 200;
+
+/**
+ * The note left beside a stripped field. The field itself is removed, so a
+ * model that imitates the stripped call produces one with the field missing
+ * — which the tool's schema rejects — instead of one whose value is a
+ * placeholder that would be written to disk as the file's contents.
+ */
+export const OMITTED_NOTE_SUFFIX = "_omitted";
 
 export function stripHeavyToolInputs(calls: ToolCall[]): ToolCall[] {
   return calls.map((call) => {
     const heavy = HEAVY_TOOL_INPUT_FIELDS[call.name];
     if (!heavy) return call;
     let changed = false;
-    const input = { ...call.input };
+    const input: Record<string, unknown> = { ...call.input };
     for (const field of heavy) {
       const value = input[field];
       if (typeof value === "string" && value.length > HEAVY_TOOL_INPUT_KEEP) {
-        input[field] = OMITTED_TOOL_INPUT_MARKER;
+        delete input[field];
+        input[`${field}${OMITTED_NOTE_SUFFIX}`] =
+          `${value.length} characters, not kept in history. The file on disk is current; read_file to see it.`;
         changed = true;
       }
     }
@@ -407,6 +437,38 @@ export const modelOptionSchema = z.object({
   tier: z.enum(["strong", "standard", "cheap"]).optional(),
 });
 export type ModelOption = z.infer<typeof modelOptionSchema>;
+
+/**
+ * The real model ID for what a person typed in a model field. People type the
+ * name they see ("GPT-6 Astra", "gpt-6 astra") rather than the ID
+ * ("gpt-6-astra"), and the provider refuses anything but the ID, so every
+ * message on that setting failed. A known ID, alias or label, matched without
+ * regard to case or to spaces versus dashes, becomes its ID; anything else is
+ * returned trimmed and unchanged, since a custom or brand-new model must
+ * still be usable.
+ */
+export function canonicalModelId(
+  typed: string,
+  models: ReadonlyArray<{ value: string; label?: string; aliases?: readonly string[] }>,
+): string {
+  const trimmed = typed.trim();
+  if (!trimmed) return trimmed;
+  const key = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+  const wanted = key(trimmed);
+  // An exact ID or dated alias is already what the provider takes: unchanged.
+  for (const model of models) {
+    if (model.value === trimmed || model.aliases?.includes(trimmed)) return trimmed;
+  }
+  for (const model of models) {
+    const names = [model.value, ...(model.aliases ?? []), ...(model.label ? [model.label] : [])];
+    if (names.some((name) => key(name) === wanted)) return model.value;
+  }
+  return trimmed;
+}
 
 export const sessionStatusSchema = z.enum(["idle", "running", "closed", "error"]);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
@@ -690,3 +752,20 @@ export const uploadSkillSchema = z.object({
   files: z.array(uploadSkillFileSchema).min(1),
 });
 export type UploadSkillInput = z.infer<typeof uploadSkillSchema>;
+
+/**
+ * An API key as pasted, without the wrapping a copy often brings along:
+ * spaces, line breaks, and straight or curly quotes. A curly quote reached
+ * OpenAI inside the Authorization header and failed the request with "Cannot
+ * convert argument to a ByteString". Keys never start or end with these.
+ */
+export function cleanApiKey(key: string): string {
+  // A loop, not a regex: a trailing-run pattern is slow on a long crafted input.
+  const wrapping = (char: string | undefined) =>
+    char !== undefined && /[\s"'`\u2018\u2019\u201C\u201D]/.test(char);
+  let start = 0;
+  let end = key.length;
+  while (start < end && wrapping(key[start])) start++;
+  while (end > start && wrapping(key[end - 1])) end--;
+  return key.slice(start, end);
+}

@@ -45,6 +45,12 @@ export function sessionRepository(db: ZelyqDb) {
       return rows[0] ? toSession(rows[0]) : null;
     },
 
+    /** Sessions in one state — at startup, the ones a restart left "running". */
+    async listByStatus(status: SessionStatus): Promise<Session[]> {
+      const rows = await db.select().from(sessions).where(eq(sessions.status, status));
+      return rows.map(toSession);
+    },
+
     async setStatus(id: string, status: SessionStatus): Promise<void> {
       await db
         .update(sessions)

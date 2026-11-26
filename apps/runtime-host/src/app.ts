@@ -146,8 +146,22 @@ export function buildHost(config: HostConfig): RuntimeHost {
     reply.status(204);
   });
 
-  app.post<Id>("/v1/projects/:id/exec", async (request) => {
-    return await runtime.exec(request.params.id, execSchema.parse(request.body));
+  app.post<Id>("/v1/projects/:id/exec", async (request, reply) => {
+    // The client closing the request is how a Stop reaches this host: the
+    // command is killed instead of running on to its timeout.
+    const stop = new AbortController();
+    const onClose = () => {
+      if (!reply.raw.writableEnded) stop.abort();
+    };
+    reply.raw.on("close", onClose);
+    try {
+      return await runtime.exec(request.params.id, {
+        ...execSchema.parse(request.body),
+        signal: stop.signal,
+      });
+    } finally {
+      reply.raw.off("close", onClose);
+    }
   });
 
   app.get<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>(

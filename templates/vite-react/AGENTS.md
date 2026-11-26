@@ -25,7 +25,8 @@ unless you add one because a request needs it.
 ## Dark mode
 
 `dark:` classes follow a `dark` class on `<html>`, set before first paint by
-`index.html` from `localStorage.theme` or the OS. A theme toggle flips that class
-and saves `"dark"` or `"light"` under `theme` — it never reads
+`index.html` from `localStorage.theme` or the OS, so the app follows the OS with
+nothing more to build. Add a theme toggle only when the person asks for one; it
+flips that class and saves `"dark"` or `"light"` under `theme` — it never reads
 `prefers-color-scheme` itself. Click it in the preview and check the page
 actually changes before calling it done.

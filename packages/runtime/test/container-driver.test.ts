@@ -821,11 +821,11 @@ const NEW_IMAGE_RENAMED = "zelyq-test/sandbox-new:2";
 
 function makeTestImages(): boolean {
   try {
-    execFileSync("docker", ["image", "inspect", "zelyq/sandbox:node22-python311"], {
+    execFileSync("docker", ["image", "inspect", "zelyq/sandbox:node22-python311-2"], {
       stdio: "pipe",
     });
-    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311", NEW_IMAGE]);
-    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311", NEW_IMAGE_RENAMED]);
+    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311-2", NEW_IMAGE]);
+    execFileSync("docker", ["tag", "zelyq/sandbox:node22-python311-2", NEW_IMAGE_RENAMED]);
     // Different contents: one more layer on top.
     execFileSync("docker", ["build", "-q", "-t", OLD_IMAGE, "-"], {
       input: `FROM ${NEW_IMAGE}\nRUN echo old > /etc/zelyq-test-old\n`,
@@ -1064,3 +1064,53 @@ test("a port a surviving preview holds is not handed to a new one", {
     await driver.dispose().catch(() => undefined);
   }
 });
+
+// Killing `docker exec` ends the client and leaves the command running inside
+// the container. Both ways a run is cut short must reach the command itself.
+for (const how of ["stop", "timeout"] as const) {
+  test(`a ${how} ends the command inside the container, not just the client`, {
+    skip: !hasEngine,
+  }, async () => {
+    const driver = makeDriver(config("container"));
+    const projectId = `prj_cut_${how}`;
+    try {
+      await driver.ensureProject(projectId);
+      // The first command creates the container; this is about the second.
+      await driver.exec(projectId, { command: "true" });
+      const command =
+        // Written beside and moved into place, so a kill between the two never
+        // leaves an empty tick that reads as "never started".
+        "(while true; do date +%s%N > tick.new && mv tick.new tick; sleep 0.1; done) & " +
+        "while true; do sleep 0.1; done";
+      const stop = new AbortController();
+      const running = driver.exec(projectId, {
+        command,
+        // Long enough to start on a busy machine; the wait below sees it run.
+        ...(how === "stop" ? { signal: stop.signal } : { timeoutMs: 10_000 }),
+      });
+      // Cut it short only once it is really running: on a loaded machine the
+      // command can take seconds to start, and a fixed wait raced that.
+      for (let i = 0; i < 50; i++) {
+        const seen = await driver.exec(projectId, { command: "test -s tick && echo yes" });
+        if (seen.stdout.includes("yes")) break;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      if (how === "stop") stop.abort();
+      const result = await running;
+      if (how === "stop") assert.equal(result.stopped, true);
+      else assert.equal(result.timedOut, true);
+
+      // TERM, then KILL two seconds later, so give it time.
+      await new Promise((resolve) => setTimeout(resolve, 4_000));
+      const read = async () =>
+        (await driver.exec(projectId, { command: "cat tick" })).stdout.trim();
+      const first = await read();
+      assert.ok(first, "the command never started");
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      assert.equal(await read(), first, "the command is still running in the container");
+    } finally {
+      await driver.removeProject(projectId).catch(() => undefined);
+      await driver.dispose().catch(() => undefined);
+    }
+  });
+}

@@ -13,6 +13,9 @@ function fakeAgent() {
     provider: "google",
     model: "gemini-3.7-flash",
     busy: false,
+    /** Undefined: an agent too old to report what its prompt says. */
+    projectName: undefined as string | null | undefined,
+    projectDescription: undefined as string | null | undefined,
     /** Mirrors the real agent: GET only succeeds once POST has created it. */
     created: true,
   };
@@ -36,6 +39,10 @@ function fakeAgent() {
         provider: state.provider,
         model: state.model,
         effort: "high",
+        ...(state.projectName !== undefined ? { projectName: state.projectName } : {}),
+        ...(state.projectDescription !== undefined
+          ? { projectDescription: state.projectDescription }
+          : {}),
         busy: state.busy,
         turns: 1,
         tokensIn: 10,
@@ -62,6 +69,10 @@ function fakeAgent() {
         const input = JSON.parse(body);
         state.provider = input.provider ?? state.provider;
         state.model = input.model ?? state.model;
+        if (state.projectName !== undefined) {
+          state.projectName = input.projectName ?? null;
+          state.projectDescription = input.projectDescription ?? null;
+        }
         state.created = true;
         send(201, {
           sessionId: state.id,
@@ -171,4 +182,67 @@ test("no session cached yet creates one normally", async () => {
   assert.deepEqual(freshAgent.calls, ["GET state", "POST create"]);
   assert.equal(result.provider, "anthropic");
   await new Promise<void>((resolve) => freshAgent.server.close(() => resolve()));
+});
+
+test("a description added after the chat began reaches it: the session is rebuilt", async () => {
+  Object.assign(agent.state, {
+    provider: "google",
+    model: "gemini-3.7-flash",
+    busy: false,
+    created: true,
+    projectName: "Tip Calculator",
+    projectDescription: null,
+  });
+  agent.calls.length = 0;
+  const base = {
+    sessionId: "ses_fixed",
+    projectId: "prj_1",
+    provider: "google",
+    model: "gemini-3.7-flash",
+    projectName: "Tip Calculator",
+  };
+
+  await client.ensureSession({
+    ...base,
+    projectDescription: "A café in Freetown. Prices are in Leones (Le).",
+  });
+  assert.deepEqual(agent.calls, ["GET state", "DELETE", "POST create"]);
+
+  // Unchanged since: kept, so the conversation's cache is not thrown away.
+  agent.calls.length = 0;
+  await client.ensureSession({
+    ...base,
+    projectDescription: "A café in Freetown. Prices are in Leones (Le).",
+  });
+  assert.deepEqual(agent.calls, ["GET state"]);
+
+  // A rename reaches it too.
+  agent.calls.length = 0;
+  await client.ensureSession({
+    ...base,
+    projectName: "Split the bill",
+    projectDescription: "A café in Freetown. Prices are in Leones (Le).",
+  });
+  assert.deepEqual(agent.calls, ["GET state", "DELETE", "POST create"]);
+});
+
+test("an agent that does not report its description is never rebuilt for it", async () => {
+  Object.assign(agent.state, {
+    provider: "google",
+    model: "gemini-3.7-flash",
+    busy: false,
+    created: true,
+    projectName: undefined,
+    projectDescription: undefined,
+  });
+  agent.calls.length = 0;
+  await client.ensureSession({
+    sessionId: "ses_fixed",
+    projectId: "prj_1",
+    provider: "google",
+    model: "gemini-3.7-flash",
+    projectName: "Tip Calculator",
+    projectDescription: "Anything",
+  });
+  assert.deepEqual(agent.calls, ["GET state"]);
 });

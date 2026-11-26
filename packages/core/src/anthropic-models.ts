@@ -51,15 +51,74 @@ const effortOrder = fullEfforts;
  * too. Picking a cheaper balanced default would be a silent downgrade, and that
  * is the operator's decision to make, not this catalog's.
  */
-export const ANTHROPIC_DEFAULT_MODEL = "claude-opus-5";
+export const ANTHROPIC_DEFAULT_MODEL = "claude-opus-5-5";
 export const ANTHROPIC_AUTO_MODEL = "auto";
 
 export const ANTHROPIC_MODELS: AnthropicModel[] = [
+  // The 5.5 / 5.2 generation, checked against Anthropic's model list and a
+  // live tool call on 2026-11-26. Thinking cannot be turned off on Opus 5.5,
+  // Sonnet 5.5 or Fable 5.2 ("always"); effort is always sent, which matters
+  // because Opus 5.5 and Haiku 5.5 default to medium when it is not.
+  {
+    value: "claude-opus-5-5",
+    label: "Claude Opus 5.5",
+    description: "Best · agentic coding and hard debugging",
+    group: "recommended",
+    tier: "strong",
+    effort: fullEfforts,
+    thinking: "always",
+    maxOutputTokens: 128_000,
+    contextWindow: 1_000_000,
+    inputPricePerMillion: 4,
+    cachedInputPricePerMillion: 0.2,
+    outputPricePerMillion: 20,
+  },
+  {
+    value: "claude-fable-5-2",
+    label: "Claude Fable 5.2",
+    description: "Most capable · hardest reasoning, highest cost",
+    group: "recommended",
+    tier: "strong",
+    effort: fullEfforts,
+    thinking: "always",
+    maxOutputTokens: 128_000,
+    contextWindow: 1_000_000,
+    inputPricePerMillion: 8,
+    cachedInputPricePerMillion: 0.2,
+    outputPricePerMillion: 40,
+  },
+  {
+    value: "claude-sonnet-5-5",
+    label: "Claude Sonnet 5.5",
+    description: "Balanced · everyday builds",
+    group: "recommended",
+    tier: "standard",
+    effort: fullEfforts,
+    thinking: "always",
+    maxOutputTokens: 128_000,
+    contextWindow: 1_000_000,
+    inputPricePerMillion: 2,
+    cachedInputPricePerMillion: 0.1,
+    outputPricePerMillion: 10,
+  },
+  {
+    value: "claude-haiku-5-5",
+    label: "Claude Haiku 5.5",
+    description: "Fast · inexpensive, focused tasks",
+    group: "recommended",
+    tier: "cheap",
+    effort: fullEfforts,
+    thinking: "adaptive",
+    maxOutputTokens: 128_000,
+    contextWindow: 1_000_000,
+    // Up to 100K tokens of prompt; longer prompts cost $0.50 / $2.50.
+    inputPricePerMillion: 0.1,
+    outputPricePerMillion: 0.5,
+  },
   {
     value: "claude-opus-5",
     label: "Claude Opus 5",
-    description: "Best · agentic coding and hard debugging",
-    group: "recommended",
+    group: "previous",
     tier: "strong",
     effort: fullEfforts,
     thinking: "adaptive",
@@ -72,8 +131,7 @@ export const ANTHROPIC_MODELS: AnthropicModel[] = [
   {
     value: "claude-fable-5-1",
     label: "Claude Fable 5.1",
-    description: "Most capable · hardest reasoning, highest cost",
-    group: "recommended",
+    group: "previous",
     tier: "strong",
     effort: fullEfforts,
     thinking: "always",
@@ -87,8 +145,7 @@ export const ANTHROPIC_MODELS: AnthropicModel[] = [
   {
     value: "claude-sonnet-5",
     label: "Claude Sonnet 5",
-    description: "Balanced · everyday builds",
-    group: "recommended",
+    group: "previous",
     tier: "standard",
     effort: fullEfforts,
     thinking: "adaptive",
@@ -101,8 +158,7 @@ export const ANTHROPIC_MODELS: AnthropicModel[] = [
   {
     value: "claude-haiku-4-5",
     label: "Claude Haiku 4.5",
-    description: "Fast · inexpensive, focused tasks",
-    group: "recommended",
+    group: "previous",
     tier: "cheap",
     // Rejects `output_config.effort`. Empty on purpose.
     effort: [],
@@ -274,10 +330,13 @@ export function availableAnthropicModels(ids: readonly string[]): AnthropicModel
 export function chooseAnthropicAutoModel(models: readonly ModelOption[]): string | undefined {
   const preferred = [
     ANTHROPIC_DEFAULT_MODEL,
+    "claude-opus-5",
+    "claude-sonnet-5-5",
     "claude-opus-4-8",
     "claude-sonnet-5",
     "claude-fable-5-1",
     "claude-sonnet-4-6",
+    "claude-haiku-5-5",
     "claude-haiku-4-5",
   ];
   return (
@@ -292,7 +351,7 @@ export function withAnthropicAuto(models: readonly ModelOption[]): ModelOption[]
         {
           value: ANTHROPIC_AUTO_MODEL,
           label: "Auto",
-          description: "Best available balance · prefers Claude Opus 5",
+          description: "Best available balance · prefers Claude Opus 5.5",
           group: "recommended",
         },
         ...models,

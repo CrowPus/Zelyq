@@ -32,7 +32,32 @@ export class ProjectService {
 
   private readonly gitService: GitService;
 
+  /**
+   * Two apps in one team may not share a name: their cards look the same, and
+   * an app's page finds its deployments by name, so each would show the
+   * other's. Case and outer spaces do not make a name different. Other teams
+   * are never consulted — in the cloud, one team's names never block
+   * another's, and preview addresses carry the app's id, so they never clash.
+   */
+  private async assertNameFree(teamId: string, name: string, exceptId?: string): Promise<void> {
+    const key = (value: string) => value.trim().toLowerCase();
+    const siblings = (await this.store.projects.listForTeams([teamId], 10_000)).filter(
+      (project) => project.id !== exceptId,
+    );
+    const taken = new Set(siblings.map((project) => key(project.name)));
+    if (!taken.has(key(name))) return;
+    let n = 2;
+    while (taken.has(key(`${name.trim()} ${n}`))) n++;
+    const suggestion = `${name.trim()} ${n}`;
+    throw new ZelyqError(
+      "conflict",
+      `This team already has an app called "${name.trim()}". Pick another name, for example "${suggestion}".`,
+      { reason: "name_taken", suggestion },
+    );
+  }
+
   async create(input: CreateProjectInput & { teamId: string }): Promise<Project> {
+    await this.assertNameFree(input.teamId, input.name);
     const id = newId("project");
     const project = await this.store.projects.create({
       id,
@@ -108,11 +133,22 @@ export class ProjectService {
    * manifest fields, comes back with just `template` — the agent then falls
    * back to its built-in default stack line and force-weaves nothing.
    */
-  async stackFor(id: string): Promise<{ template: string; stack?: string; agentSkill?: string }> {
+  async stackFor(id: string): Promise<{
+    template: string;
+    stack?: string;
+    agentSkill?: string;
+    projectName?: string;
+    projectDescription?: string;
+  }> {
     const project = await this.store.projects.findById(id);
+    const named = {
+      ...(project?.name ? { projectName: project.name } : {}),
+      ...(project?.description?.trim() ? { projectDescription: project.description.trim() } : {}),
+    };
     const runtimeManifest = await readRuntimeManifest(this.runtime, id);
     if (runtimeManifest)
       return {
+        ...named,
         template: "react-fastapi",
         stack:
           "React + Vite + TypeScript; Python 3.11 + FastAPI API; user-selected PostgreSQL/MySQL/SQLite or Supabase",
@@ -121,6 +157,7 @@ export class ProjectService {
     const template = project?.template ?? "vite-react";
     const manifest = await templateManifest(this.config.templatesDir, template);
     return {
+      ...named,
       template,
       ...(manifest?.stack ? { stack: manifest.stack } : {}),
       ...(manifest?.agentSkill ? { agentSkill: manifest.agentSkill } : {}),
@@ -135,9 +172,20 @@ export class ProjectService {
 
   async update(
     id: string,
-    patch: { name?: string; description?: string | null },
+    patch: {
+      name?: string;
+      description?: string | null;
+      modelProvider?: string | null;
+      model?: string | null;
+    },
   ): Promise<Project> {
-    await this.get(id);
+    const current = await this.get(id);
+    if (
+      patch.name !== undefined &&
+      patch.name.trim().toLowerCase() !== current.name.trim().toLowerCase()
+    ) {
+      await this.assertNameFree(current.teamId, patch.name, id);
+    }
     const updated = await this.store.projects.update(id, patch);
     if (!updated) throw ZelyqError.notFound("Project", id);
     return updated;

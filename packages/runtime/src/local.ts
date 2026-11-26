@@ -27,6 +27,7 @@ import {
 } from "./managed.js";
 import { assertRealPathInside, isIgnored, resolveInside, toPosix } from "./paths.js";
 import { allocatePort, previewUrl, releasePort, waitForPort } from "./ports.js";
+import { boundedTimeout, MAX_TIMEOUT_MS } from "./timeout.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -365,6 +366,7 @@ export class LocalRuntimeDriver implements RuntimeDriver {
       },
       timeoutMs: options.timeoutMs ?? this.execTimeoutMs,
       maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
+      ...(options.signal ? { signal: options.signal } : {}),
     });
   }
 
@@ -1132,6 +1134,15 @@ export interface CapturedRun {
   env?: NodeJS.ProcessEnv;
   timeoutMs: number;
   maxOutputBytes: number;
+  /** Aborting it kills the process tree, as a timeout does. */
+  signal?: AbortSignal;
+  /**
+   * Called once when the run is cut short (timeout or signal), after the
+   * local process tree is killed. For a process that lives somewhere the
+   * local kill does not reach — `docker exec` leaves the command running in
+   * the container when its client dies.
+   */
+  onStop?: () => void;
 }
 
 /**
@@ -1164,6 +1175,19 @@ export function runCaptured(
     let stderr = "";
     let truncated = false;
     let timedOut = false;
+    let stopped = false;
+    let cutShort = false;
+
+    const cut = () => {
+      if (cutShort) return;
+      cutShort = true;
+      killTree(child);
+      options.onStop?.();
+    };
+    const onAbort = () => {
+      stopped = true;
+      cut();
+    };
 
     const append = (target: "out" | "err", chunk: Buffer) => {
       const text = chunk.toString("utf8");
@@ -1183,13 +1207,24 @@ export function runCaptured(
     child.stdout?.on("data", (chunk: Buffer) => append("out", chunk));
     child.stderr?.on("data", (chunk: Buffer) => append("err", chunk));
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killTree(child);
-    }, options.timeoutMs);
+    // The bound is checked here, at the timer, as well as in boundedTimeout.
+    const waitMs = boundedTimeout(options.timeoutMs);
+    const timer = setTimeout(
+      () => {
+        timedOut = true;
+        cut();
+      },
+      waitMs <= MAX_TIMEOUT_MS ? waitMs : MAX_TIMEOUT_MS,
+    );
+    if (options.signal?.aborted) queueMicrotask(onAbort);
+    else options.signal?.addEventListener("abort", onAbort, { once: true });
+    const settle = () => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+    };
 
     child.on("error", (error) => {
-      clearTimeout(timer);
+      settle();
       resolve({
         exitCode: 127,
         stdout,
@@ -1201,14 +1236,19 @@ export function runCaptured(
     });
 
     child.on("close", (code) => {
-      clearTimeout(timer);
+      settle();
       resolve({
-        exitCode: timedOut ? 124 : (code ?? 0),
+        exitCode: stopped ? 130 : timedOut ? 124 : (code ?? 0),
         stdout,
-        stderr: timedOut ? `${stderr}\n[timed out after ${options.timeoutMs}ms]` : stderr,
+        stderr: stopped
+          ? `${stderr}\n[stopped]`
+          : timedOut
+            ? `${stderr}\n[timed out after ${options.timeoutMs}ms]`
+            : stderr,
         durationMs: Date.now() - startedAt,
         timedOut,
         truncated,
+        ...(stopped ? { stopped } : {}),
       });
     });
   });

@@ -50,6 +50,7 @@ import {
   Skeleton,
   StatusBadge,
   statusOf,
+  Textarea,
   toast,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
@@ -464,6 +465,7 @@ function NewAppDialog({
   const [source, setSource] = useState<"stack" | "git">("stack");
   const [template, setTemplate] = useState("vite-react");
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [gitUrl, setGitUrl] = useState("");
   const [gitToken, setGitToken] = useState("");
   const [tokenSource, setTokenSource] = useState<"paste" | "vault">("paste");
@@ -473,6 +475,7 @@ function NewAppDialog({
     if (!open) {
       setStep(1);
       setName("");
+      setDescription("");
       setGitUrl("");
       setGitToken("");
     }
@@ -482,6 +485,7 @@ function NewAppDialog({
     mutationFn: () =>
       api.createProject({
         name: name.trim(),
+        ...(description.trim() ? { description: description.trim() } : {}),
         template: source === "stack" ? template : "vite-react",
         ...(teamId ? { teamId } : {}),
         ...(source === "git"
@@ -684,6 +688,19 @@ function NewAppDialog({
                 onChange={(event) => setName(event.target.value)}
                 placeholder={t("Customer portal")}
                 maxLength={120}
+              />
+            </Field>
+            <Field
+              label={t("Description")}
+              help={t(
+                "What the app is for, who uses it, and anything the agent should always keep in mind. The agent reads it with every message.",
+              )}
+            >
+              <Textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                maxLength={2000}
+                rows={3}
               />
             </Field>
             {source === "git" && (
