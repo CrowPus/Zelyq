@@ -1082,12 +1082,17 @@ for (const how of ["stop", "timeout"] as const) {
       const stop = new AbortController();
       const running = driver.exec(projectId, {
         command,
-        ...(how === "stop" ? { signal: stop.signal } : { timeoutMs: 3_000 }),
+        // Long enough to start on a busy machine; the wait below sees it run.
+        ...(how === "stop" ? { signal: stop.signal } : { timeoutMs: 10_000 }),
       });
-      if (how === "stop") {
-        await new Promise((resolve) => setTimeout(resolve, 3_000));
-        stop.abort();
+      // Cut it short only once it is really running: on a loaded machine the
+      // command can take seconds to start, and a fixed wait raced that.
+      for (let i = 0; i < 50; i++) {
+        const seen = await driver.exec(projectId, { command: "test -s tick && echo yes" });
+        if (seen.stdout.includes("yes")) break;
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
+      if (how === "stop") stop.abort();
       const result = await running;
       if (how === "stop") assert.equal(result.stopped, true);
       else assert.equal(result.timedOut, true);
