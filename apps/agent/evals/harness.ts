@@ -51,6 +51,7 @@ export interface RunOptions {
    */
   externalAgent?: (input: {
     root: string;
+    projectId: string;
     prompt: string;
     timeoutMs: number;
   }) => Promise<{ reply: string; error?: string }>;
@@ -111,6 +112,7 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
     if (options.externalAgent) {
       const outside = await options.externalAgent({
         root,
+        projectId,
         prompt: evalCase.prompt,
         timeoutMs: options.timeoutMs,
       });
