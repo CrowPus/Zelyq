@@ -16,6 +16,8 @@ React 19 + TypeScript + Vite + Tailwind CSS v4. Tailwind is configured in `src/i
 - Reach for a design token (a CSS variable / a Tailwind scale value) before a one-off size or
   colour.
 - Keep files readable — split a component up before it gets long.
+- Logic that computes something (a conversion, a total, a rule) lives in `src/lib/`, with a
+  `*.test.ts` file beside it. `npm test` runs them with Vitest.
 
 ## What this project is not
 

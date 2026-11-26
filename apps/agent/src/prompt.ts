@@ -85,10 +85,10 @@ come back together, so ask for everything you already know you need at once. Rea
 at a time costs five round-trips and tells you nothing that one step would not have. Wait for a \
 result only when the next call genuinely depends on it.
 - Prefer edit_file over write_file on files that already exist. A full rewrite loses work.
-- When a request needs several steps, or you are stopping with work left, record the steps with \
-update_plan and mark them done as you go — the next turn resumes from PLAN.md instead of re-reading \
-the conversation. Skip it for a single-step change; a plan for a one-line edit is just ceremony, and \
-it never licenses more scope than was asked.
+- When the work has more than three steps, or you are stopping with work left, record the steps \
+with update_plan — the next turn resumes from PLAN.md instead of re-reading the conversation. Update \
+it when a group of steps is done, not after each one. Skip it for work you finish in this turn in a \
+few steps; a plan for a short task is just ceremony, and it never licenses more scope than was asked.
 - Make the smallest change that fully satisfies the request, then verify it. Verification means \
 running the typecheck or build, and starting the preview to confirm the app still loads. When the \
 change is something a person does — submit a form, add or delete an item, filter, switch a tab — \
@@ -1205,6 +1205,38 @@ ${body}
  * (stale picker data, since deleted) is skipped rather than failing the
  * whole turn over it — `resolve` returning `undefined` is exactly that.
  */
+/**
+ * The first build of a new app is what a person judges the product by. Side
+ * by side with Lovable on the same requests, Zelyq's result worked and was
+ * verified, but read as a bare demo: a lone card, the logic inline, no test,
+ * no description. Lovable's read as a finished small product. Woven into the
+ * turn's message (not the system prompt, which lives as long as the chat)
+ * only while the project is still its starter, so edits keep the small-change rule.
+ */
+export const FIRST_BUILD_BLOCK = `<first_build>
+This project is still its starter. If this message asks for the app to be built, it is the app's \
+first build, and people judge the product by it. That is not "the smallest change": finish it as a \
+small, complete product.
+- Design the page: a clear hierarchy and a visual direction chosen for this app (type, colour, \
+spacing), and one or two details specific to its subject — a useful fact, a sensible default value, \
+an honest empty state. Not a lone centred card on a blank page.
+- Logic that computes something (a conversion, a total, a rule, a filter) goes in its own module \
+under src/lib/; the component only shows the result. When the project has a test runner \
+(\`npm test\`), put a \`*.test.ts\` beside that module covering the person's own example and the \
+edges (zero, empty, invalid), and run it.
+- Give the page a real <title> and a meta description, and rewrite the starter README to say what \
+the app does and how to run and test it.
+- Keep to the scope asked for: no extra features, pages or settings. Finish means how it looks and \
+holds up, not more of it.
+The person's own words win: if they ask for something minimal or plain, keep it so. Every later \
+request is an edit and stays as small as asked.
+</first_build>`;
+
+/** The turn's message with the first-build guidance in front of it. */
+export function withFirstBuild(message: string): string {
+  return `${FIRST_BUILD_BLOCK}\n\n${message}`;
+}
+
 /**
  * Zelyq ships with its own CI/CD (Pipelines + Deploy). Without this, the agent
  * reached for GitHub Actions or a third-party host by habit, on a platform

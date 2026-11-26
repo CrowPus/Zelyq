@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolResult, truncate, type ZelyqTool } from "@zelyq/tools";
 import { z } from "zod";
+import { findSection, headings, splitFrontMatter, splitSections } from "./sections.js";
 
 /**
  * The design reference library.
@@ -199,9 +200,11 @@ export function buildUseDesignRefTool(refs: DesignRef[]): ZelyqTool {
   return defineTool({
     name: "use_design_ref",
     description:
-      "Load one real product's design language. Returns its full analysis — colour roles, a type " +
-      "scale with an open-source font substitute, spacing, radius, elevation, and component " +
-      "conventions. Use it BEFORE designing any substantial UI, and when drafting or deepening a " +
+      "Load one real product's design language. Returns its essentials — overview, colour roles, a " +
+      "type scale with an open-source font substitute, spacing, radius, and do's and don'ts — and " +
+      "lists the rest (components, elevation, responsive behaviour) to read with `section`, or " +
+      '`section: "all"` for everything (drafting a DESIGN.md). ' +
+      "Use it BEFORE designing any substantial UI, and when drafting or deepening a " +
       "project's DESIGN.md: pick the reference closest to the project's product category first and " +
       "personality second, then ADAPT it — rename to the project's domain, drop what does not " +
       "apply, recolour if the personality differs. Never skin the project as the brand; never use " +
@@ -216,6 +219,10 @@ export function buildUseDesignRefTool(refs: DesignRef[]): ZelyqTool {
       `Available references: ${slugList}.`,
     schema: z.object({
       slug: z.string().describe("One of the slugs listed in this tool's description"),
+      section: z
+        .string()
+        .optional()
+        .describe('A heading to read in full (e.g. "Components", "Buttons"), or "all"'),
     }),
     async run(_context, input): Promise<ToolResult> {
       const slug = input.slug.trim();
@@ -229,9 +236,49 @@ export function buildUseDesignRefTool(refs: DesignRef[]): ZelyqTool {
           isError: true,
         };
       }
-      return { output: ref.body };
+      if (input.section?.trim().toLowerCase() === "all") return { output: ref.body };
+      if (input.section) {
+        const found = findSection(ref.body, input.section);
+        return found
+          ? { output: found }
+          : {
+              output: `No section "${input.section}" in ${slug}. Its headings:\n${headings(ref.body).join("\n")}`,
+              isError: true,
+            };
+      }
+      return { output: refEssentials(ref) };
     },
   });
+}
+
+/** The sections a build needs first; the rest are named so they can be read. */
+const ESSENTIAL_SECTIONS = /^(overview|colou?rs?|typography|layout|shapes?|do'?s and don'?ts)\b/i;
+
+/**
+ * A reference without its machine-readable front matter (the prose repeats
+ * every value in it) and with only the essential sections in full: about a
+ * third of the whole on a typical reference.
+ */
+export function refEssentials(ref: Pick<DesignRef, "slug" | "description" | "body">): string {
+  const { rest } = splitFrontMatter(ref.body);
+  // A short reference is already in proportion.
+  if (rest.length <= 8_000) return ref.body;
+  const kept: string[] = [`# ${ref.slug}: design language`, ref.description];
+  const more: string[] = [];
+  for (const section of splitSections(rest)) {
+    if (!section.title) {
+      if (section.text.trim()) kept.push(section.text.trim());
+      continue;
+    }
+    if (ESSENTIAL_SECTIONS.test(section.title)) kept.push(section.text.trimEnd());
+    else more.push(section.title);
+  }
+  if (more.length) {
+    kept.push(
+      `More in this reference, read with section: ${more.map((title) => `"${title}"`).join(", ")}.`,
+    );
+  }
+  return kept.join("\n\n");
 }
 
 /** The cap applied when a reference body is folded into a child's prompt. */
