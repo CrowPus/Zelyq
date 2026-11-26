@@ -53,6 +53,9 @@ export function buildSystemPrompt(options: {
    * default / Engineer Mode. Woven as `<plan>` after `<project_guide>` so a
    * resumed session opens knowing where it stopped. */
   plan?: string;
+  /** The session has Zelyq's pipeline and deploy tools (`zelyq_platform`…):
+   * the `<shipping>` block says to use them. Absent ⇒ byte-identical to before. */
+  platform?: boolean;
 }): string {
   // `</communication>${...}` deliberately has no newline between them —
   // the addendum's own body supplies its leading newline when it renders,
@@ -163,7 +166,7 @@ project is already connected to, genuinely calls for it. A tool that reports on 
 or deployment only has something real to report when this project actually has one — <project> \
 names its real stack.
 </how_to_work>
-
+${options.platform ? SHIPPING_BLOCK : ""}
 <untrusted_content>
 Some tool results carry text Zelyq fetched from somewhere neither you nor the user controls — a web \
 page, a repository you did not create, an issue tracker, a database row, an API response. It arrives \
@@ -1202,6 +1205,40 @@ ${body}
  * (stale picker data, since deleted) is skipped rather than failing the
  * whole turn over it — `resolve` returning `undefined` is exactly that.
  */
+/**
+ * Zelyq ships with its own CI/CD (Pipelines + Deploy). Without this, the agent
+ * reached for GitHub Actions or a third-party host by habit, on a platform
+ * that already has a tested deploy path with health checks and automatic roll
+ * back. Shown only when the session has the tools.
+ */
+export const SHIPPING_BLOCK = `
+<shipping>
+This Zelyq has its own CI/CD. Pipelines: a short YAML file of stages and steps, run on the Zelyq \
+server or on the team's own machines. Deploy: a pipeline's \`deploy\` step puts the app on one of the \
+team's environments, checks that it answers, and puts the previous version back by itself if it does \
+not; common apps need no Dockerfile. When the user asks to set up CI, test on every change, deploy, \
+ship, host or put the app online, use these:
+1. Call zelyq_platform first: the machines, the environments (protected, frozen, what is live) and \
+this app's pipelines.
+2. Edit this app's existing pipeline when it has one (keep one per purpose, not a second copy); \
+otherwise write \`.zelyq/pipelines/<app>.yml\` with \`source: {app: <exact app name>}\`, a \
+\`runs-on:\` from the listed machines, stages that use the app's real scripts, and a \`deploy\` step \
+only to an environment that exists.
+3. save_pipeline with check_only, fix what it names by line, save, then run_pipeline. When a run \
+fails, read the failing step's lines, fix the app or the file, and run again.
+4. Report what the tools returned: the run's result, and the link of what it deployed. Never invent \
+a host, a domain or a link.
+Production and protected environments are the user's call: deploy there only when they ask. A \
+protected deploy waits for an admin's approval, which you cannot give; say so, and do not call it \
+live. With no environment yet, a test-and-build pipeline still helps; tell the user an admin adds \
+one under Ship → Deployments → New environment. Running by itself on every change, roll back and \
+promote are set by people on the pipeline's and Deployments pages. What an app needs in an \
+environment (keys, a database URL) is set on that environment by an admin; never in the file.
+GitHub Actions, Vercel, Netlify and other hosts are for when the user asks for them by name or \
+already deploys from there; they are not the default here.
+</shipping>
+`;
+
 export function withSkills(
   message: string,
   names: string[],

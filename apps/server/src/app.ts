@@ -18,6 +18,7 @@ import type { ServerConfig } from "./config.js";
 import { registerAccountRoutes } from "./routes/accounts.js";
 import { registerAdminApi } from "./routes/admin-api.js";
 import { registerAgentOAuthRoutes } from "./routes/agent-oauth.js";
+import { registerAgentPlatformRoutes } from "./routes/agent-platform.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
@@ -57,6 +58,7 @@ import { AdminKeyService } from "./services/admin-keys.js";
 import { AgentClient } from "./services/agent-client.js";
 import { AgentGateway, pipelineGuide } from "./services/agent-gateway.js";
 import { AgentOAuthService } from "./services/agent-oauth.js";
+import { AgentPlatform } from "./services/agent-platform.js";
 import { AgentReferenceStore } from "./services/agent-references.js";
 import { AgentService } from "./services/agents.js";
 import { AttachmentService } from "./services/attachments.js";
@@ -882,6 +884,11 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     functionSecrets,
     access,
     store,
+    previewGrants: projectBackend,
+  });
+  // The build agent's view of this app's pipelines and deploys, on the same grant.
+  registerAgentPlatformRoutes(app, {
+    platform: new AgentPlatform(store, access, pipelines, runners, deploys),
     previewGrants: projectBackend,
   });
   // With the others, after the error handler — registered before it, these
