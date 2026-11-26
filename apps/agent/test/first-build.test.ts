@@ -89,19 +89,40 @@ test("a starter project's turn carries <first_build>; after the build, the next 
   }
 });
 
-test("<first_build> spends the effort on visual design, never on more features or text", () => {
-  assert.match(FIRST_BUILD_BLOCK, /Build exactly the features it asks for/);
-  assert.match(FIRST_BUILD_BLOCK, /no extra buttons, presets, panels, tables, or paragraphs/);
-  assert.match(FIRST_BUILD_BLOCK, /Compose a whole page/);
-  assert.match(FIRST_BUILD_BLOCK, /graphic details drawn from the subject/);
-  assert.match(FIRST_BUILD_BLOCK, /rather than words/);
+test("<first_build> states principles, never a benchmark task's own example", async () => {
+  assert.match(FIRST_BUILD_BLOCK, /Build exactly the\s+features it asks for/);
+  assert.match(FIRST_BUILD_BLOCK, /Decide the design from what this app is for/);
+  assert.match(FIRST_BUILD_BLOCK, /Never\s+invent facts/);
+  assert.match(FIRST_BUILD_BLOCK, /appears exactly as written/);
   assert.match(FIRST_BUILD_BLOCK, /one short test file/);
-  assert.match(FIRST_BUILD_BLOCK, /Never invent facts/);
-  assert.match(FIRST_BUILD_BLOCK, /stays one piece of text/);
-  assert.match(FIRST_BUILD_BLOCK, /not an invented brand/);
-  assert.doesNotMatch(FIRST_BUILD_BLOCK, /useful fact|smallest change/);
   assert.doesNotMatch(
     buildSystemPrompt({ projectName: "p", template: "vite-react" }),
     /first_build/,
   );
+  // Guidance tuned to the tasks it is measured on teaches the agent to copy
+  // them: one example (a ruler under a distance) came back in every converter.
+  const { BENCH_CASES } = await import("../evals/bench.js");
+  const guidance = FIRST_BUILD_BLOCK.toLowerCase();
+  assert.ok(!/\$\d/.test(guidance), "no amount from a task");
+  for (const word of [
+    "kilomet",
+    "mile",
+    "ruler",
+    "distance",
+    "pricing",
+    "yearly",
+    "contact",
+    "todo",
+    "cart",
+    "shop",
+    "settings",
+    "tab",
+  ]) {
+    assert.ok(!new RegExp(`\\b${word}`).test(guidance), `"${word}" comes from a benchmark task`);
+  }
+  for (const task of BENCH_CASES) {
+    for (const quoted of task.prompt.match(/"[^"]{3,}"/g) ?? []) {
+      assert.ok(!guidance.includes(quoted.toLowerCase()), `${quoted} is quoted from ${task.id}`);
+    }
+  }
 });

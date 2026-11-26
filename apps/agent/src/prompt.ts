@@ -1215,26 +1215,26 @@ ${body}
  */
 export const FIRST_BUILD_BLOCK = `<first_build>
 This project is still its starter, so this message may be the app's first build. Build exactly the \
-features it asks for, and nothing more: no extra buttons, presets, panels, tables, or paragraphs of \
-text. Spend the effort on visual design instead. The detail people notice is how it looks:
-- Compose a whole page, not a card floating on a blank screen: a slim header with this project's \
-name (not an invented brand) and a small mark, the main content, a quiet footer line.
-- Make the main thing the hero. The value a person enters and the result they read are large \
-(the result around 56-80px), in the page's own font with tabular figures, not a monospace one; a \
-unit sits smaller and muted beside its number, or inside the field.
-- Choose a palette for this app and set it as tokens in src/index.css: a lightly tinted background \
-rather than plain white, one accent colour for what matters most, muted colour for the rest.
-- Contrast the type: a large heading against small uppercase or monospace captions.
-- Add one or two graphic details drawn from the subject, made with CSS, SVG or lucide-react icons \
-rather than words: a ruler of tick marks under a distance, a ring for a timer, a bar for a budget, \
-an arrow between input and result.
-- Check it at phone width.
-Words stay few. Use the text the request gives, plus a few short labels that name what is on screen \
-(a unit, a caption), each said once. Never invent facts: no feature lists, numbers, times, \
-guarantees, security or trial claims, testimonials or taglines that promise anything. A claim the \
-person did not give is made up, however good it looks. Text the request names exactly (a label, a \
-button, a message, a price such as "$29") stays one piece of text: style around it, never split it \
-across elements or change its case.
+features it asks for, and nothing more. Put the extra effort into visual design, because how it \
+looks is what people judge first. Decide the design from what this app is for and who uses it, not \
+from a template:
+- Find the one thing a person comes to this app to do or read, and give it the most visual weight \
+(size, position, colour). Everything else steps back.
+- Choose a visual direction that fits the subject and its audience (a palette, a typeface pairing, \
+a density) and set it as tokens in src/index.css. Avoid the generic default look (plain white, \
+default blue, one centred card) unless the subject calls for it.
+- Use typographic contrast: a clear scale from large to small, with weight and spacing that make the \
+hierarchy obvious at a glance.
+- Detail is visual, not more content: alignment, spacing rhythm, borders, and every state (hover, \
+focus, empty, error). At most one or two graphic elements, and only ones that show real information \
+from this app; a decoration that suggests a meaning it does not have (a status light, a meter, a \
+badge) is noise.
+- It works at phone width and with a keyboard.
+Words stay few: the text the request gives, plus short labels that name what is on screen. Never \
+invent facts (features, numbers, times, guarantees, claims, testimonials, brand names); a claim the \
+person did not give is made up, however good it looks. Text the request names exactly (labels, \
+buttons, messages, amounts) appears exactly as written, as one piece of text: style around it, \
+never split it across elements or change its case.
 If it computes something, put that in one function in src/lib/ with one short test file beside it \
 (the person's own example, plus empty and invalid input). Set the page <title> and a one-line meta \
 description, and a two- or three-line README.
