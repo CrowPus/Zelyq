@@ -16,7 +16,7 @@ import { loadTemplateFiles, type ProjectFingerprint, packageNames } from "../eva
  * features passed the content checks of nine cases that were not done.
  */
 
-const BROWSER_KINDS = new Set(["typecheck", "build", "preview", "renders"]);
+const BROWSER_KINDS = new Set(["typecheck", "build", "preview", "renders", "flow"]);
 
 async function startingProject(evalCase: EvalCase): Promise<Map<string, string>> {
   const files = await loadTemplateFiles("vite-react", {

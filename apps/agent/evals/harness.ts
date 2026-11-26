@@ -123,6 +123,7 @@ export async function runCase(evalCase: EvalCase, options: RunOptions): Promise<
         sessionId: `evalsession-${projectId}`,
         projectId,
         projectName: evalCase.title,
+        ...(evalCase.projectDescription ? { projectDescription: evalCase.projectDescription } : {}),
         template: options.template,
         provider: options.provider,
         model: options.model,

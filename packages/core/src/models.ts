@@ -752,3 +752,13 @@ export const uploadSkillSchema = z.object({
   files: z.array(uploadSkillFileSchema).min(1),
 });
 export type UploadSkillInput = z.infer<typeof uploadSkillSchema>;
+
+/**
+ * An API key as pasted, without the wrapping a copy often brings along:
+ * spaces, line breaks, and straight or curly quotes. A curly quote reached
+ * OpenAI inside the Authorization header and failed the request with "Cannot
+ * convert argument to a ByteString". Keys never start or end with these.
+ */
+export function cleanApiKey(key: string): string {
+  return key.replace(/^[\s"'`\u2018\u2019\u201C\u201D]+|[\s"'`\u2018\u2019\u201C\u201D]+$/g, "");
+}

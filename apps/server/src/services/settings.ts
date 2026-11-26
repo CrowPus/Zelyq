@@ -7,6 +7,7 @@ import {
   chooseAnthropicAutoModel,
   chooseGoogleAutoModel,
   chooseOpenAIAutoModel,
+  cleanApiKey,
   DEFAULT_REGISTRY_URL,
   GOOGLE_DEFAULT_MODEL,
   GOOGLE_MODELS,
@@ -1392,6 +1393,10 @@ export class SettingsService {
    * through the normal env-first `value()` path once `authModeFor` says so.
    */
   async apiKeyFor(provider: string, given?: string | null): Promise<string> {
+    return cleanApiKey(await this.rawApiKeyFor(provider, given));
+  }
+
+  private async rawApiKeyFor(provider: string, given?: string | null): Promise<string> {
     const teamId = given ?? teamContext.getStore() ?? null;
     // A team's own key first; the server's only for a team allowed to use it.
     if (teamId) {

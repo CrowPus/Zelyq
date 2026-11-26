@@ -119,6 +119,8 @@ export interface EvalCase {
   /** Free-form labels for `--tag`: greenfield, modify, bugfix, restraint, quality. */
   tags: string[];
   prompt: string;
+  /** The app's description, as a person types it in App settings. */
+  projectDescription?: string;
   /** Files laid down after the template and before the prompt — used to plant bugs. */
   setup?: ScaffoldFile[];
   /** Overrides the default iteration cap for cases that legitimately need more. */

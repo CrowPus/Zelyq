@@ -49,3 +49,12 @@ test("the newest models are offered and are the defaults", async () => {
     assert.equal(new Set(ids).size, ids.length);
   }
 });
+
+test("a pasted key loses the quotes and spaces it was copied with, nothing else", async () => {
+  const { cleanApiKey } = await import("../src/index.js");
+  assert.equal(cleanApiKey("  sk-abc123\n"), "sk-abc123");
+  assert.equal(cleanApiKey("“sk-abc123”"), "sk-abc123");
+  assert.equal(cleanApiKey("'sk-abc123'"), "sk-abc123");
+  assert.equal(cleanApiKey("sk-ab“c"), "sk-ab“c", "the inside is never touched");
+  assert.equal(cleanApiKey(""), "");
+});

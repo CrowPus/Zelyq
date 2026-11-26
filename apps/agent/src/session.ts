@@ -1775,6 +1775,8 @@ export class AgentSession {
       architectMode: this.options.architectMode ?? false,
       autoMode: this.orchestration.auto,
       authMode: this.options.authMode ?? "api_key",
+      projectName: this.options.projectName ?? null,
+      projectDescription: this.options.projectDescription ?? null,
       busy: this.busy,
       turns: this.turns,
       tokensIn: this.tokensIn,

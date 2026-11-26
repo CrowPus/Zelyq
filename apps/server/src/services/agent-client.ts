@@ -189,7 +189,14 @@ export class AgentClient {
         (input.effort !== undefined && input.effort !== state.effort) ||
         (input.engineerMode !== undefined && input.engineerMode !== state.engineerMode) ||
         (input.architectMode !== undefined && input.architectMode !== state.architectMode) ||
-        (input.autoMode !== undefined && input.autoMode !== state.autoMode);
+        (input.autoMode !== undefined && input.autoMode !== state.autoMode) ||
+        // The prompt was written with the app's name and description as they
+        // were then. Edited since (a description added after the first
+        // message), an open session would never see it: a fresh one does,
+        // with the whole conversation replayed from the history.
+        // No name sent means the agent fell back to the id; nothing to compare.
+        (input.projectName !== undefined && aboutChanged(state.projectName, input.projectName)) ||
+        aboutChanged(state.projectDescription, input.projectDescription);
       if (!changed || state.busy) return state;
       await this.destroySession(input.sessionId);
     }
@@ -316,4 +323,17 @@ export interface OpsTurnResult {
   /** Why it stopped early, in plain words; null when it finished. */
   stopped: string | null;
   model: string;
+}
+
+/**
+ * Whether the app's name or description differs from what an open session was
+ * built with. An agent too old to report it (undefined) is left alone rather
+ * than rebuilt on every message.
+ */
+export function aboutChanged(
+  inSession: string | null | undefined,
+  now: string | undefined,
+): boolean {
+  if (inSession === undefined) return false;
+  return (inSession ?? "").trim() !== (now ?? "").trim();
 }
