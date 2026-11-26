@@ -1425,13 +1425,16 @@ test("OpenAI Auto and explicit selections resolve from Settings and project chat
   try {
     const { cookie } = await register("openai-auto-routing@example.com");
     const address = server.app.server.address() as { port: number };
+    let made = 0;
     async function prompt(model?: string) {
+      made++;
       const project = (
         await server.app.inject({
           method: "POST",
           url: "/api/projects",
           headers: { cookie },
-          payload: { name: "OpenAI model routing" },
+          // A fresh app each time; one team may not hold two of the same name.
+          payload: { name: `OpenAI model routing ${made}` },
         })
       ).json().project;
       const ws = new WebSocket(`ws://127.0.0.1:${address.port}/ws/projects/${project.id}`, {
