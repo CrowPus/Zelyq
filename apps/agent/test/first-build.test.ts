@@ -89,15 +89,16 @@ test("a starter project's turn carries <first_build>; after the build, the next 
   }
 });
 
-test("<first_build> asks for a finished product, inside what was asked", () => {
-  assert.match(FIRST_BUILD_BLOCK, /src\/lib\//);
+test("<first_build> spends the effort on visual design, never on more features or text", () => {
+  assert.match(FIRST_BUILD_BLOCK, /Build exactly the features it asks for/);
+  assert.match(FIRST_BUILD_BLOCK, /no extra buttons, presets, panels, tables, or paragraphs/);
+  assert.match(FIRST_BUILD_BLOCK, /Compose a whole page/);
+  assert.match(FIRST_BUILD_BLOCK, /graphic details drawn from the subject/);
+  assert.match(FIRST_BUILD_BLOCK, /rather than words/);
   assert.match(FIRST_BUILD_BLOCK, /one short test file/);
-  assert.match(FIRST_BUILD_BLOCK, /meta description/);
-  assert.match(FIRST_BUILD_BLOCK, /Build exactly what it asks for/);
-  assert.match(
-    FIRST_BUILD_BLOCK,
-    /No extra features, presets, buttons, panels, tables, facts or sections/,
-  );
+  assert.match(FIRST_BUILD_BLOCK, /Never invent facts/);
+  assert.match(FIRST_BUILD_BLOCK, /stays one piece of text/);
+  assert.match(FIRST_BUILD_BLOCK, /not an invented brand/);
   assert.doesNotMatch(FIRST_BUILD_BLOCK, /useful fact|smallest change/);
   assert.doesNotMatch(
     buildSystemPrompt({ projectName: "p", template: "vite-react" }),

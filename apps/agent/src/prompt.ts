@@ -1214,16 +1214,30 @@ ${body}
  * only while the project is still its starter, so edits keep the small-change rule.
  */
 export const FIRST_BUILD_BLOCK = `<first_build>
-This project is still its starter, so this message may be the app's first build. Build exactly what \
-it asks for: the same fields, buttons, text and behaviour, and nothing more. No extra features, \
-presets, buttons, panels, tables, facts or sections it did not ask for. Within that scope, finish it:
-- Give what was asked a considered look: a heading with the app's name, a clear type scale, and \
-spacing and colour chosen for this app. Polish the requested elements; do not add new ones.
-- If it computes something, put that in one function in src/lib/ and one short test file beside it \
-(the person's own example, plus empty and invalid input: a few cases). Run \`npm test\` once.
-- Set the page <title> and a one-line meta description, and replace the starter README with two or \
-three lines on what the app does and how to run it.
-The app is judged by the thing asked for working well and looking finished, not by how much is there.
+This project is still its starter, so this message may be the app's first build. Build exactly the \
+features it asks for, and nothing more: no extra buttons, presets, panels, tables, or paragraphs of \
+text. Spend the effort on visual design instead. The detail people notice is how it looks:
+- Compose a whole page, not a card floating on a blank screen: a slim header with this project's \
+name (not an invented brand) and a small mark, the main content, a quiet footer line.
+- Make the main thing the hero. The value a person enters and the result they read are large \
+(the result around 56-80px), in the page's own font with tabular figures, not a monospace one; a \
+unit sits smaller and muted beside its number, or inside the field.
+- Choose a palette for this app and set it as tokens in src/index.css: a lightly tinted background \
+rather than plain white, one accent colour for what matters most, muted colour for the rest.
+- Contrast the type: a large heading against small uppercase or monospace captions.
+- Add one or two graphic details drawn from the subject, made with CSS, SVG or lucide-react icons \
+rather than words: a ruler of tick marks under a distance, a ring for a timer, a bar for a budget, \
+an arrow between input and result.
+- Check it at phone width.
+Words stay few. Use the text the request gives, plus a few short labels that name what is on screen \
+(a unit, a caption), each said once. Never invent facts: no feature lists, numbers, times, \
+guarantees, security or trial claims, testimonials or taglines that promise anything. A claim the \
+person did not give is made up, however good it looks. Text the request names exactly (a label, a \
+button, a message, a price such as "$29") stays one piece of text: style around it, never split it \
+across elements or change its case.
+If it computes something, put that in one function in src/lib/ with one short test file beside it \
+(the person's own example, plus empty and invalid input). Set the page <title> and a one-line meta \
+description, and a two- or three-line README.
 </first_build>`;
 
 /** The turn's message with the first-build guidance in front of it. */

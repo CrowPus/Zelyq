@@ -482,6 +482,12 @@ export async function flowReport(
     });
     const start = new URL(path ?? "/", base).href;
     await page.goto(start, { waitUntil: "load", timeout: 30_000 });
+    // A dev server's first visit can prepare packages and then reload the
+    // page by itself, mid-flow, wiping what a step typed: the same app passed
+    // and failed by turns. Let it settle, then start from a fresh load.
+    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
+    await page.reload({ waitUntil: "load", timeout: 30_000 });
+    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
     // Same patience as `renderReport`: a slow mount is not the agent's bug.
     await page.waitForFunction(ROOT_HAS_CONTENT, null, { timeout: 15_000 }).catch(() => undefined);
     if (telemetry.pageErrors.length) {
