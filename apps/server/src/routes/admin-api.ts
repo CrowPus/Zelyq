@@ -16,6 +16,7 @@ import type { MessagesToPeople } from "../services/messages-to-people.js";
 import type { ErrorTracker, RequestStats } from "../services/observability.js";
 import type { ProductActivity } from "../services/product-activity.js";
 import type { SettingsService } from "../services/settings.js";
+import { sleepAppsNow, testStorage } from "../services/storage/config.js";
 import type { SupportService } from "../services/support.js";
 import type { UsageService } from "../services/usage.js";
 
@@ -62,6 +63,8 @@ export function registerAdminApi(
     settings: SettingsService;
     /** Every part of the server, checked now. */
     health: () => Promise<{ status: string }>;
+    /** Whether apps here can sleep in storage (the apps are on this machine). */
+    sleepsApps?: boolean;
     /** Named previews' own check (wildcard name, certificates, router). */
     previewHealth?: { report(fresh?: boolean): Promise<unknown> };
   },
@@ -199,6 +202,12 @@ export function registerAdminApi(
         await deps.settings.update(updateSettingsSchema.parse(request.body));
         return await deps.settings.describe();
       });
+
+      // Storage (Server settings → Storage): on a managed server, tested and used from the admin.
+      route("POST", "/storage/test", "settings", async () => await testStorage(deps.settings));
+      route("POST", "/storage/sleep-now", "settings", async (request) =>
+        sleepAppsNow(deps.settings, deps.sleepsApps ? usage : undefined, request.body),
+      );
 
       // Plans: the account service pushes them; this server enforces them.
       route("GET", "/plans", "plans", async () => ({

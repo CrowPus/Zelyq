@@ -1,16 +1,22 @@
-import { roleAtLeast, updateSettingsSchema, vaultNameSchema, ZelyqError } from "@zelyq/core";
+import { roleAtLeast, updateSettingsSchema, vaultNameSchema } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { MailService } from "../services/mail.js";
 import type { SettingsService } from "../services/settings.js";
-import { storeFor } from "../services/storage/app-sleep.js";
-import { storageConfig } from "../services/storage/config.js";
+import { sleepAppsNow, testStorage } from "../services/storage/config.js";
 
 export function registerSettingsRoutes(
   app: FastifyInstance,
-  deps: { settings: SettingsService; access: AccessControl; store: Store; mail: MailService },
+  deps: {
+    settings: SettingsService;
+    access: AccessControl;
+    store: Store;
+    mail: MailService;
+    /** Where idle apps are put to sleep (absent when the apps are on another machine). */
+    usage?: { sleepIdle(options: { days?: number }): Promise<number> };
+  },
 ): void {
   /** Settings → Email: signs in to the mail server and sends the admin a short message. */
   app.post("/api/settings/mail/test", async (request) => {
@@ -22,23 +28,13 @@ export function registerSettingsRoutes(
   /** Settings → Storage: writes, reads and deletes a small file there, and says plainly what is wrong. */
   app.post("/api/settings/storage/test", async (request) => {
     deps.access.requireInstanceAdmin(request);
-    let found: ReturnType<typeof storeFor>;
-    try {
-      found = storeFor(await storageConfig(deps.settings));
-    } catch (error) {
-      throw ZelyqError.badRequest((error as Error).message);
-    }
-    if (!found) {
-      throw ZelyqError.badRequest(
-        "Storage is off or not filled in. Choose where, fill it in and save first.",
-      );
-    }
-    try {
-      await found.store.check();
-    } catch (error) {
-      throw ZelyqError.badRequest((error as Error).message);
-    }
-    return { ok: true, where: found.store.label };
+    return await testStorage(deps.settings);
+  });
+
+  /** Settings → Storage: puts apps not used for at least `days` days to sleep now (0: every app not in use). */
+  app.post("/api/settings/storage/sleep-now", async (request) => {
+    deps.access.requireInstanceAdmin(request);
+    return await sleepAppsNow(deps.settings, deps.usage, request.body);
   });
 
   app.get("/api/settings", async (request) => {

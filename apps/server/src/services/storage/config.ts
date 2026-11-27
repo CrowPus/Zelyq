@@ -1,5 +1,8 @@
+import { ZelyqError } from "@zelyq/core";
+import { z } from "zod";
 import type { SettingsService } from "../settings.js";
 import type { StorageConfig } from "./app-sleep.js";
+import { storeFor } from "./app-sleep.js";
 
 /** Server settings → Storage, as AppSleep reads it (on every use, so a change needs no restart). */
 export async function storageConfig(settings: SettingsService): Promise<StorageConfig> {
@@ -15,4 +18,42 @@ export async function storageConfig(settings: SettingsService): Promise<StorageC
     pathStyle: (await settings.value("storagePathStyle")) === "true",
     folder: await settings.value("storageFolder"),
   };
+}
+
+/** The storage as set, or a plain 400 saying what to fix. */
+async function configured(settings: SettingsService) {
+  let found: ReturnType<typeof storeFor>;
+  try {
+    found = storeFor(await storageConfig(settings));
+  } catch (error) {
+    throw ZelyqError.badRequest((error as Error).message);
+  }
+  if (!found) {
+    throw ZelyqError.badRequest(
+      "Storage is off or not filled in. Choose where, fill it in and save first.",
+    );
+  }
+  return found;
+}
+
+/** Test storage: writes, reads and deletes a small file there (Server settings, or the admin on a managed server). */
+export async function testStorage(settings: SettingsService): Promise<{ ok: true; where: string }> {
+  const found = await configured(settings);
+  try {
+    await found.store.check();
+  } catch (error) {
+    throw ZelyqError.badRequest((error as Error).message);
+  }
+  return { ok: true, where: found.store.label };
+}
+
+/** Puts apps not used for at least `days` days to sleep now (0: every app not open, previewing or building). */
+export async function sleepAppsNow(
+  settings: SettingsService,
+  usage: { sleepIdle(options: { days?: number }): Promise<number> } | undefined,
+  body: unknown,
+): Promise<{ slept: number }> {
+  const { days } = z.object({ days: z.number().int().min(0).max(3650) }).parse(body ?? {});
+  await configured(settings);
+  return { slept: usage ? await usage.sleepIdle({ days }) : 0 };
 }

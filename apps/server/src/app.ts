@@ -707,7 +707,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
   });
   registerAccountRoutes(app, { accounts, auth, access });
-  registerSettingsRoutes(app, { settings, access, store, mail });
+  registerSettingsRoutes(app, { settings, access, store, mail, ...(appSleep ? { usage } : {}) });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerPlanRoutes(app, { usage, access, store });
@@ -781,6 +781,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const adminKeys = new AdminKeyService(store);
   adminKeys.onKeysChanged = () => eventsOut.keysChanged();
   registerAdminApi(app, {
+    sleepsApps: Boolean(appSleep),
     settings,
     adminKeys,
     eventsOut,

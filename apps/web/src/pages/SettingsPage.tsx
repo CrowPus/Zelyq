@@ -15,6 +15,7 @@ import {
   Mail,
   Mic,
   Monitor,
+  MoonStar,
   Puzzle,
   RotateCw,
   Server,
@@ -1040,23 +1041,61 @@ function CredentialInput({
 /** Settings → Storage: proves the saved storage works by writing, reading and deleting a small file. */
 function StorageTest() {
   const test = useMutation({ mutationFn: () => api.testStorage() });
+  const [days, setDays] = useState("7");
+  const sleepNow = useMutation({
+    mutationFn: () => api.sleepAppsNow(Number.parseInt(days, 10) || 0),
+  });
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-      <Button variant="secondary" onClick={() => test.mutate()} disabled={test.isPending}>
-        {test.isPending ? <Spinner /> : <HardDrive size={14} strokeWidth={1.75} />}
-        {t("Test storage")}
-      </Button>
-      {test.isSuccess && (
-        <span className="text-success">
-          {t("Works: Zelyq wrote, read and deleted a test file in {where}.", {
-            where: test.data.where,
-          })}
-        </span>
-      )}
-      {test.isError && <span className="text-danger">{(test.error as Error).message}</span>}
-      {!test.isSuccess && !test.isError && (
-        <span className="text-fg-muted">{t("Save the settings first, then test them.")}</span>
-      )}
+    <div className="mt-4 space-y-4 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" onClick={() => test.mutate()} disabled={test.isPending}>
+          {test.isPending ? <Spinner /> : <HardDrive size={14} strokeWidth={1.75} />}
+          {t("Test storage")}
+        </Button>
+        {test.isSuccess && (
+          <span className="text-success">
+            {t("Works: Zelyq wrote, read and deleted a test file in {where}.", {
+              where: test.data.where,
+            })}
+          </span>
+        )}
+        {test.isError && <span className="text-danger">{(test.error as Error).message}</span>}
+        {!test.isSuccess && !test.isError && (
+          <span className="text-fg-muted">{t("Save the settings first, then test them.")}</span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-fg-muted">
+          {t("Not used for at least")}
+          <Input
+            type="number"
+            min={0}
+            className="w-20"
+            value={days}
+            onChange={(event) => setDays(event.target.value)}
+          />
+          {t("days")}
+        </label>
+        <Button variant="secondary" onClick={() => sleepNow.mutate()} disabled={sleepNow.isPending}>
+          {sleepNow.isPending ? <Spinner /> : <MoonStar size={14} strokeWidth={1.75} />}
+          {t("Put idle apps to sleep now")}
+        </Button>
+        {sleepNow.isSuccess && (
+          <span className="text-success">
+            {t("{count} app(s) put to sleep. Each wakes by itself when it is opened.", {
+              count: sleepNow.data.slept,
+            })}
+          </span>
+        )}
+        {sleepNow.isError && (
+          <span className="text-danger">{(sleepNow.error as Error).message}</span>
+        )}
+        {!sleepNow.isSuccess && !sleepNow.isError && (
+          <span className="text-fg-muted">
+            {t("0 days: every app not open, previewing or building right now.")}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

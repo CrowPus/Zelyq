@@ -3092,5 +3092,10 @@
   "Where apps nobody has opened for a while are kept, so this server's disk holds only the apps in use. Any S3-compatible bucket (Amazon S3, Google Cloud Storage, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, Hetzner, MinIO) or a folder such as a mounted drive. Off: everything stays on this server's disk.": "Wo Apps aufbewahrt werden, die eine Weile niemand geöffnet hat, damit die Festplatte dieses Servers nur die genutzten Apps enthält. Jeder S3-kompatible Bucket (Amazon S3, Google Cloud Storage, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, Hetzner, MinIO) oder ein Ordner wie ein eingebundenes Laufwerk. Aus: Alles bleibt auf der Festplatte dieses Servers.",
   "Where idle apps sleep: a bucket or a folder": "Wo ruhende Apps schlafen: ein Bucket oder ein Ordner",
   "With \"A folder\": where on this machine, such as /mnt/zelyq-archive. Zelyq must be able to write there.": "Mit „Ein Ordner“: wo auf diesem Rechner, etwa /mnt/zelyq-archive. Zelyq muss dort schreiben können.",
-  "Works: Zelyq wrote, read and deleted a test file in {where}.": "Funktioniert: Zelyq hat eine Testdatei in {where} geschrieben, gelesen und gelöscht."
+  "Works: Zelyq wrote, read and deleted a test file in {where}.": "Funktioniert: Zelyq hat eine Testdatei in {where} geschrieben, gelesen und gelöscht.",
+  "Not used for at least": "Nicht benutzt seit mindestens",
+  "days": "Tagen",
+  "Put idle apps to sleep now": "Ruhende Apps jetzt schlafen legen",
+  "{count} app(s) put to sleep. Each wakes by itself when it is opened.": "{count} App(s) schlafen gelegt. Jede wacht von selbst auf, wenn sie geöffnet wird.",
+  "0 days: every app not open, previewing or building right now.": "0 Tage: jede App, die gerade nicht geöffnet, in der Vorschau oder im Bau ist."
 }

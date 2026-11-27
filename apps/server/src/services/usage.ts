@@ -361,9 +361,13 @@ export class UsageService {
    * are cleared first (they come back by themselves); its own files, undo points and chat
    * attachments go. Skips an app whose preview runs or whose agent works. Returns how many slept.
    */
-  async sleepIdle(): Promise<number> {
-    const days = (await this.sleepDays?.()) ?? 0;
-    if (!this.sleeper || !this.paths.workspaceDir || days <= 0) return 0;
+  async sleepIdle(options: { days?: number } = {}): Promise<number> {
+    // An admin's "now" may give any days, 0 included (every app not in use); the timer uses the setting.
+    const set = (await this.sleepDays?.()) ?? 0;
+    const days = options.days ?? set;
+    if (!this.sleeper || !this.paths.workspaceDir || (set <= 0 && options.days === undefined))
+      return 0;
+    if (days < 0) return 0;
     const cutoff = Date.now() - days * DAY_MS;
     await this.sleeper.tidy().catch((error) => this.onSleepProblem?.("", error));
     let slept = 0;

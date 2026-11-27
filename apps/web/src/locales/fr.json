@@ -3092,5 +3092,10 @@
   "Where apps nobody has opened for a while are kept, so this server's disk holds only the apps in use. Any S3-compatible bucket (Amazon S3, Google Cloud Storage, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, Hetzner, MinIO) or a folder such as a mounted drive. Off: everything stays on this server's disk.": "Où sont gardées les apps que personne n’a ouvertes depuis un moment, pour que le disque de ce serveur ne contienne que les apps utilisées. N’importe quel bucket compatible S3 (Amazon S3, Google Cloud Storage, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, Hetzner, MinIO) ou un dossier comme un disque monté. Désactivé : tout reste sur le disque de ce serveur.",
   "Where idle apps sleep: a bucket or a folder": "Où dorment les apps inactives : un bucket ou un dossier",
   "With \"A folder\": where on this machine, such as /mnt/zelyq-archive. Zelyq must be able to write there.": "Avec « Un dossier » : où sur cette machine, par exemple /mnt/zelyq-archive. Zelyq doit pouvoir y écrire.",
-  "Works: Zelyq wrote, read and deleted a test file in {where}.": "Ça marche : Zelyq a écrit, lu et supprimé un fichier de test dans {where}."
+  "Works: Zelyq wrote, read and deleted a test file in {where}.": "Ça marche : Zelyq a écrit, lu et supprimé un fichier de test dans {where}.",
+  "Not used for at least": "Pas utilisées depuis au moins",
+  "days": "jours",
+  "Put idle apps to sleep now": "Endormir les apps inactives maintenant",
+  "{count} app(s) put to sleep. Each wakes by itself when it is opened.": "{count} app(s) endormie(s). Chacune se réveille d’elle-même quand on l’ouvre.",
+  "0 days: every app not open, previewing or building right now.": "0 jour : toutes les apps qui ne sont pas ouvertes, en prévisualisation ou en construction en ce moment."
 }

@@ -409,3 +409,50 @@ test("a finished sleep's leftover is removed, never put back over an app that ha
   assert.equal(await fs.readFile(a.ws("app_8", "a.txt"), "utf8"), "edited after waking");
   assert.deepEqual((await fs.readdir(a.ws())).sort(), ["app_8"]);
 });
+
+test("an admin can put idle apps to sleep now, even ones used today (0 days); every app wakes when opened", async () => {
+  const id = await newApp("Now");
+  await server.store.settings.set(`project:${id}:used`, new Date().toISOString());
+  const kept = await call("POST", "/api/settings/storage/sleep-now", { days: 7 });
+  assert.equal(kept.statusCode, 200, kept.body);
+  assert.equal(
+    await server.store.settings.get(`project:${id}:asleep`),
+    null,
+    "used today: not idle for 7 days",
+  );
+  const now = await call("POST", "/api/settings/storage/sleep-now", { days: 0 });
+  assert.equal(now.statusCode, 200, now.body);
+  assert.ok(now.json().slept >= 1);
+  assert.ok(await server.store.settings.get(`project:${id}:asleep`));
+  assert.equal((await call("GET", `/api/projects/${id}/files`)).statusCode, 200);
+  assert.equal(await exists(path.join(workspace, id, "src", "app.js")), true);
+  assert.equal(
+    (await call("POST", "/api/settings/storage/sleep-now", { days: -1 })).statusCode,
+    400,
+  );
+});
+
+test("on a managed server the admin tests storage and puts apps to sleep through the admin API (settings scope)", async () => {
+  const made = await call("POST", "/api/admin-keys", {
+    name: "Control Tower",
+    scopes: ["settings"],
+  });
+  assert.equal(made.statusCode, 201, made.body);
+  const plain = await call("POST", "/api/admin-keys", { name: "Plans only", scopes: ["plans"] });
+  const api = (key: string, url: string, payload?: unknown) =>
+    server.app.inject({
+      method: "POST",
+      url: `/api/admin/v1${url}`,
+      headers: { authorization: `Bearer ${key}` },
+      ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }),
+    });
+  const key = made.json().key as string;
+  const tested = await api(key, "/storage/test");
+  assert.equal(tested.statusCode, 200, tested.body);
+  assert.match(tested.json().where, /folder/);
+  const id = await newApp("FromTheAdmin");
+  const now = await api(key, "/storage/sleep-now", { days: 0 });
+  assert.equal(now.statusCode, 200, now.body);
+  assert.ok(await server.store.settings.get(`project:${id}:asleep`));
+  assert.equal((await api(plain.json().key, "/storage/sleep-now", { days: 0 })).statusCode, 403);
+});
