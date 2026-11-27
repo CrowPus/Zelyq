@@ -80,6 +80,21 @@ test("server messages: exact, then by their template, else as sent", async () =>
   assert.equal(t("It's {name}'s", { name: "Ada" }), "It's Ada's");
 });
 
+test("why a pipeline run failed is read in the person's language", async () => {
+  await loadLanguage("de");
+  assert.equal(
+    translateServerMessage(
+      "The local runner is off on this instance. Add a runner in Pipelines → Runners and name it in runs-on.",
+    ),
+    "Der lokale Runner ist auf dieser Instanz ausgeschaltet. Fügen Sie unter Pipelines → Runner einen Runner hinzu und tragen Sie seinen Namen bei runs-on ein.",
+  );
+  assert.equal(
+    translateServerMessage("There is no runner called build-01 in this team."),
+    "In diesem Team gibt es keinen Runner namens build-01.",
+  );
+  await loadLanguage("en");
+});
+
 test("display fields from the API are translated, names and values are not", async () => {
   await loadLanguage("fr");
   const payload = translateDisplayFields({

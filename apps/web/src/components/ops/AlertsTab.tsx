@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "../../hooks/useSession";
 import { api } from "../../lib/api";
 import { t } from "../../lib/i18n";
+import { type Brand, BrandIcon } from "../BrandIcon";
 import { Badge, Button, confirmAction, FieldLabel, Input, PasswordInput, Spinner } from "../ui";
 
 /**
@@ -28,6 +29,22 @@ const SERVICE: Record<OpsChannelKind, string> = {
   slack: t("Slack"),
   discord: t("Discord"),
 };
+
+const SERVICE_BRAND: Record<OpsChannelKind, Brand> = {
+  telegram: "telegram",
+  slack: "slack",
+  discord: "discord",
+};
+
+/** A chat service: its logo and its name. */
+function ServiceName({ kind, className = "" }: { kind: OpsChannelKind; className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${className}`}>
+      <BrandIcon brand={SERVICE_BRAND[kind]} />
+      {SERVICE[kind]}
+    </span>
+  );
+}
 
 const AUDIENCE: Array<{ key: OpsNotifyAudience; words: string; hint: string }> = [
   { key: "urgent", words: t("Urgent"), hint: t("a site or machine is down") },
@@ -153,7 +170,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                     key={kind}
                     className="flex flex-wrap items-center gap-3 rounded-md border border-border-default bg-surface px-3 py-2 text-sm"
                   >
-                    <span className="w-20 font-medium">{SERVICE[kind]}</span>
+                    <ServiceName kind={kind} className="w-24 font-medium" />
                     {mine ? (
                       <>
                         <span className="flex-1 text-xs text-fg-secondary">
@@ -255,7 +272,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
                   key={`team-${row.kind}`}
                   className="flex flex-wrap items-center gap-3 rounded-md border border-border-default bg-surface px-3 py-2 text-sm"
                 >
-                  <span className="w-20 font-medium">{SERVICE[row.kind]}</span>
+                  <ServiceName kind={row.kind} className="w-24 font-medium" />
                   <span className="min-w-0 flex-1 text-xs text-fg-secondary">
                     {row.kind === "discord" ? row.name.replace(/^Discord · /, "") : row.teamChat}{" "}
                     {t("is the team’s channel: everyone there sees ")}
@@ -318,7 +335,7 @@ export function AlertsTab({ teamId }: { teamId: string }) {
           <ul className="divide-y divide-border-default rounded-md border border-border-default bg-surface">
             {data.links.map((link) => (
               <li key={link.id} className="flex flex-wrap items-center gap-3 px-3 py-1.5 text-xs">
-                <span className="w-20">{SERVICE[link.kind]}</span>
+                <ServiceName kind={link.kind} className="w-24" />
                 <span className="flex-1">
                   {link.userName}
                   {link.label ? <span className="text-fg-muted"> — {link.label}</span> : null}
@@ -611,7 +628,7 @@ function ServiceCard({
   return (
     <div className="rounded-md border border-border-default bg-surface px-3 py-2 text-sm">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="w-20 font-medium">{SERVICE[kind]}</span>
+        <ServiceName kind={kind} className="w-24 font-medium" />
         {channel ? (
           <>
             <span className="min-w-0 flex-1 text-xs text-fg-secondary">

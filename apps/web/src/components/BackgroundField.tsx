@@ -113,6 +113,122 @@ function ribbonDots(along: number, across: number): Float32Array {
   return dots;
 }
 
+/** The palette of the shader, for the plain canvas: blue, cyan, violet, rose, back to blue. */
+const PLAIN_COLORS = {
+  light: [
+    [41, 107, 219],
+    [20, 153, 209],
+    [120, 87, 230],
+    [199, 87, 179],
+  ],
+  dark: [
+    [102, 158, 255],
+    [92, 214, 250],
+    [168, 140, 255],
+    [240, 143, 224],
+  ],
+} as const;
+
+function plainColor(k: number, dark: boolean): [number, number, number] {
+  const stops = dark ? PLAIN_COLORS.dark : PLAIN_COLORS.light;
+  const at = (((k % 1) + 1) % 1) * 4;
+  const i = Math.floor(at) % 4;
+  const f = at - Math.floor(at);
+  const a = stops[i] as readonly number[];
+  const b = stops[(i + 1) % 4] as readonly number[];
+  return [0, 1, 2].map((c) => Math.round((a[c] ?? 0) + ((b[c] ?? 0) - (a[c] ?? 0)) * f)) as [
+    number,
+    number,
+    number,
+  ];
+}
+
+/**
+ * The ribbons without WebGL: the vertex shader's sums in JavaScript on a 2D canvas, with fewer
+ * dots and fewer frames (a dozen a second) so it stays light on the processor. Returns its cleanup.
+ */
+function drawPlain(
+  canvas: HTMLCanvasElement,
+  darkRef: { current: boolean },
+  redrawRef: { current: () => void },
+): (() => void) | undefined {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return undefined;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const ALONG = 220;
+  const ACROSS = 22;
+  const start = performance.now();
+  let frame = 0;
+  let last = 0;
+
+  function draw(now: number) {
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const t = reduce.matches ? 14 : (now - start) / 1000;
+    const dark = darkRef.current;
+    const size = 2 * dpr;
+    ctx!.clearRect(0, 0, w, h);
+    for (let second = 0; second < 2; second++) {
+      for (let a = 0; a < ALONG; a++) {
+        const u = a / (ALONG - 1);
+        const ends = Math.min(1, u / 0.12, (1 - u) / 0.12);
+        if (ends <= 0) continue;
+        const mid =
+          (second ? 0.34 : 0.66) +
+          (0.1 - 0.03 * second) * Math.sin(u * (2.3 + second) + t * 0.09 + second * 2) +
+          0.04 * Math.sin(u * 5.2 - t * 0.13 + second);
+        const turn = u * (3.4 - 0.8 * second) + t * (0.12 + 0.03 * second) + second * 1.7;
+        const width = (0.13 - 0.04 * second) * (0.55 + 0.45 * Math.sin(u * 1.7 - t * 0.05));
+        const [r, g, b] = plainColor(u * 0.55 + second * 0.35 + t * 0.012, dark);
+        for (let c = 0; c < ACROSS; c++) {
+          const v = (c / (ACROSS - 1)) * 2 - 1;
+          const x = -0.08 + 1.16 * u + v * width * 0.55 * Math.sin(turn) * (h / w);
+          const y = mid + v * width * Math.cos(turn) + 0.006 * Math.sin(u * 40 + v * 3 - t * 0.8);
+          const facing = 0.5 + 0.5 * v * Math.sin(turn);
+          const edge = Math.abs(v) < 0.75 ? 1 : Math.max(0, (1 - Math.abs(v)) / 0.25);
+          const alpha =
+            (dark ? 0.85 : 0.8) * (0.45 + 0.55 * facing) * edge * ends * (1 - 0.4 * second);
+          if (alpha < 0.02) continue;
+          ctx!.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+          ctx!.fillRect(x * w, y * h, size, size);
+        }
+      }
+    }
+    canvas.dataset.on = "true";
+  }
+  function loop(now: number) {
+    frame = requestAnimationFrame(loop);
+    if (now - last < 80) return;
+    last = now;
+    draw(now);
+  }
+  function run() {
+    cancelAnimationFrame(frame);
+    if (document.hidden) return;
+    if (reduce.matches) draw(performance.now());
+    else frame = requestAnimationFrame(loop);
+  }
+  redrawRef.current = () => draw(performance.now());
+  const onResize = () => reduce.matches && draw(performance.now());
+  document.addEventListener("visibilitychange", run);
+  reduce.addEventListener("change", run);
+  window.addEventListener("resize", onResize);
+  run();
+  return () => {
+    cancelAnimationFrame(frame);
+    redrawRef.current = () => {};
+    document.removeEventListener("visibilitychange", run);
+    reduce.removeEventListener("change", run);
+    window.removeEventListener("resize", onResize);
+    delete canvas.dataset.on;
+  };
+}
+
 export function BackgroundField() {
   const { on } = useBackgroundTexture();
   const { resolved } = useTheme();
@@ -134,7 +250,9 @@ export function BackgroundField() {
       premultipliedAlpha: false,
       antialias: true,
     });
-    if (!gl) return;
+    // No WebGL at all (switched off, a blocked graphics driver, some privacy settings): the same
+    // ribbons, drawn with the plain 2D canvas instead.
+    if (!gl) return drawPlain(canvas, darkRef, redrawRef);
     // No graphics card (a browser drawing WebGL on the processor, as in a VM or a test machine):
     // one still frame, so a moving page never costs the machine its speed.
     const still = drawsInSoftware(gl);

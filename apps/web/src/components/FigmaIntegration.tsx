@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Frame, Lock, Plug, Unplug } from "lucide-react";
+import { Lock, Plug, Unplug } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "../hooks/useSession";
 import { api } from "../lib/api";
 import { t } from "../lib/i18n";
+import { BrandIcon } from "./BrandIcon";
 import { Badge, Button, Spinner } from "./ui";
 
 /**
@@ -46,7 +47,7 @@ export function FigmaIntegration() {
   return (
     <section className="mt-7">
       <h2 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-        <Frame size={14} strokeWidth={1.75} className="text-fg-muted" />
+        <BrandIcon brand="figma" className="text-fg-muted" />
         {t("Figma")}
       </h2>
       <p className="mt-0.5 text-xs text-fg-secondary">

@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { type AccountService, accountServiceLinks } from "@zelyq/core";
-import { CircleAlert, ExternalLink, ShieldCheck } from "lucide-react";
+import { CircleAlert, ExternalLink, ShieldCheck, SlidersHorizontal, UserRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
@@ -56,9 +56,13 @@ export function ProfilePage() {
                 setParams(next === "profile" ? {} : { tab: next }, { replace: true })
               }
               items={[
-                { id: "profile", label: t("Profile") },
-                { id: "security", label: t("Security") },
-                { id: "preferences", label: t("Preferences") },
+                { id: "profile", label: t("Profile"), icon: <UserRound size={14} /> },
+                { id: "security", label: t("Security"), icon: <ShieldCheck size={14} /> },
+                {
+                  id: "preferences",
+                  label: t("Preferences"),
+                  icon: <SlidersHorizontal size={14} />,
+                },
               ]}
             />
           }

@@ -16,6 +16,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { useSession } from "../../hooks/useSession";
 import { api } from "../../lib/api";
 import { t } from "../../lib/i18n";
+import { type Brand, BrandIcon, browserBrand } from "../BrandIcon";
 import {
   Badge,
   Button,
@@ -474,8 +475,15 @@ function ConfirmCodeDialog({
 /* ------------------------------------------------------------------------ */
 
 /** "Chrome on macOS", from a user-agent string, in plain words. */
-export function describeDevice(userAgent: string | null): { name: string; phone: boolean } {
-  if (!userAgent) return { name: t("Unknown browser"), phone: false };
+export function describeDevice(userAgent: string | null): {
+  name: string;
+  phone: boolean;
+  /** The browser's logo and the system's, when Zelyq has them. */
+  browserLogo: Brand | null;
+  systemLogo: Brand | null;
+} {
+  if (!userAgent)
+    return { name: t("Unknown browser"), phone: false, browserLogo: null, systemLogo: null };
   const ua = userAgent;
   const browser = /Edg\//.test(ua)
     ? t("Edge")
@@ -506,6 +514,20 @@ export function describeDevice(userAgent: string | null): { name: string; phone:
   return {
     name: os ? `${browser} on ${os}` : browser,
     phone: /iPhone|Android.+Mobile|Mobile Safari/.test(ua),
+    browserLogo: /Edg\//.test(ua)
+      ? null
+      : /OPR\/|Opera/.test(ua)
+        ? "opera"
+        : browserBrand(ua.replace("CriOS", "Chrome")),
+    systemLogo: /iPhone|iPad|Mac OS X|Macintosh/.test(ua)
+      ? "apple"
+      : /Android|CrOS/.test(ua)
+        ? null
+        : /Windows/.test(ua)
+          ? "windows"
+          : /Linux/.test(ua)
+            ? "linux"
+            : null,
   };
 }
 
@@ -577,11 +599,22 @@ export function SessionsCard() {
             return (
               <li key={session.id} className="flex items-center gap-3 px-4 py-3">
                 <span className="grid size-9 shrink-0 place-items-center rounded-md border border-border-default text-fg-muted">
-                  {device.phone ? <Smartphone size={16} /> : <Monitor size={16} />}
+                  {device.browserLogo ? (
+                    <BrandIcon brand={device.browserLogo} size={16} />
+                  ) : device.phone ? (
+                    <Smartphone size={16} />
+                  ) : (
+                    <Monitor size={16} />
+                  )}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-fg">
                     {device.name}
+                    {device.systemLogo && (
+                      <span className="inline-flex text-fg-muted">
+                        <BrandIcon brand={device.systemLogo} size={12} />
+                      </span>
+                    )}
                     {session.current && <Badge tone="accent">{t("This device")}</Badge>}
                   </p>
                   <p className="mt-0.5 truncate text-xs text-fg-muted">

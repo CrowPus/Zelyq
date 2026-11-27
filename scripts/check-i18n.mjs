@@ -126,6 +126,13 @@ for (const file of serverFiles) {
     const message = messageAt(text, match.index + match[0].length);
     if (message) serverKeys.add(message);
   }
+  // Why a pipeline run ended: kept with the run and shown on its page, so it is read like an error.
+  for (const match of text.matchAll(
+    /(?:\bfail:\s*|new RunError\(\s*|const [A-Z][A-Z_]*_REFUSED\s*=\s*)/g,
+  )) {
+    const message = messageAt(text, match.index + match[0].length);
+    if (message) serverKeys.add(message);
+  }
 }
 
 /*

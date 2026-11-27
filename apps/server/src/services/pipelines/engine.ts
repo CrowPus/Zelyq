@@ -158,7 +158,7 @@ export async function refusedImageRegistry(image: string): Promise<string | null
 
 /** Said when the strict sandbox refuses the "On this server" local runner. */
 const HOST_RUNNER_REFUSED =
-  "Pipelines cannot run on the server itself here: set the local runner to In a container, or add an SSH runner.";
+  "Pipelines cannot run on the server itself here: set the local runner to In a container, or add a runner in Pipelines → Runners.";
 
 type EndReason = "cancelled" | "timed_out";
 
@@ -822,13 +822,13 @@ export class PipelineEngine {
       const mode = await this.deps.settings.value("pipelineLocalRunner");
       if (mode === "off") {
         return {
-          fail: "The local runner is off on this instance. Add an SSH runner and name it in runs-on.",
+          fail: "The local runner is off on this instance. Add a runner in Pipelines → Runners and name it in runs-on.",
         };
       }
       if (mode === "host" && this.deps.sandbox?.strict) return { fail: HOST_RUNNER_REFUSED };
       if (mode !== "host" && !(await this.dockerAvailable())) {
         return {
-          fail: "The local runner needs Docker on the Zelyq server, and Docker is not available. Add an SSH runner, or ask an instance admin.",
+          fail: "The local runner needs Docker on the Zelyq server, and Docker is not available. Add a runner in Pipelines → Runners, or ask an instance admin.",
         };
       }
       const limit = await this.localConcurrency();

@@ -24,6 +24,7 @@ import {
   ArrowDownToLine,
   ArrowUpRight,
   Film,
+  Image as ImageIcon,
   ImagePlus,
   LockKeyhole,
   Play,
@@ -37,6 +38,7 @@ import {
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { ProviderMark } from "../components/BrandIcon";
 import {
   Badge,
   Button,
@@ -44,6 +46,7 @@ import {
   NativeSelect,
   PageBody,
   PageHeader,
+  Select,
   Spinner,
   Tabs,
 } from "../components/ui";
@@ -331,8 +334,13 @@ export function VideoStudioPage() {
               label={t("Studio")}
               value={"video" as "image" | "video"}
               items={[
-                { id: "image", label: t("Image"), to: paths.studioImage },
-                { id: "video", label: t("Video"), to: paths.studioVideo },
+                {
+                  id: "image",
+                  label: t("Image"),
+                  icon: <ImageIcon size={14} />,
+                  to: paths.studioImage,
+                },
+                { id: "video", label: t("Video"), icon: <Film size={14} />, to: paths.studioVideo },
               ]}
             />
           }
@@ -367,19 +375,22 @@ export function VideoStudioPage() {
             </div>
             <label className="block text-xs font-medium text-fg-secondary">
               {t("Video model")}
-              <NativeSelect
+              <Select
                 aria-label={t("Video model")}
                 value={provider?.id ?? "google"}
-                onChange={(e) => setProviderId(e.target.value as VideoProviderId)}
+                onValueChange={(next) => setProviderId(next as VideoProviderId)}
                 className={control}
-              >
-                {caps.data?.providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.modelLabel} · {p.label}
-                    {!p.configured ? t(" · Set up key") : ""}
-                  </option>
-                ))}
-              </NativeSelect>
+                options={(caps.data?.providers ?? []).map((p) => ({
+                  value: p.id,
+                  label: (
+                    <span className="flex items-center gap-2">
+                      <ProviderMark provider={p.id} />
+                      {p.modelLabel} · {p.label}
+                      {!p.configured ? t(" · Set up key") : ""}
+                    </span>
+                  ),
+                }))}
+              />
             </label>
             {provider && !provider.configured && (
               <p className="mt-3 rounded-lg bg-canvas p-3 text-xs leading-relaxed text-fg-secondary">

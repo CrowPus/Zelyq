@@ -51,14 +51,17 @@ export function useSession() {
 
   /**
    * Managed: signing out here signs out of the account service too, so the
-   * next person at this computer is not let straight back in.
+   * next person at this computer is not let straight back in. That includes
+   * the server's administrators: they sign in through the service as well, and
+   * the sign-in page would otherwise take them straight back through it. One
+   * who used the local form (`?local=1`) has no service session; the service
+   * just sends them back.
    * `returnTo`: where the service sends them afterwards (a path here).
    */
   const signOut = useCallback(
     async (returnTo?: string) => {
       const session = queryClient.getQueryData<SessionResponse | null>(["session"]);
-      const accounts =
-        session?.accounts && session.user.instanceRole !== "admin" ? session.accounts : null;
+      const accounts = session?.accounts ?? null;
       // Even if the request fails, the local session must end — otherwise a
       // network blip leaves someone looking at a signed-in interface they can no
       // longer use.

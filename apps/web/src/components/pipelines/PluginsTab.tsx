@@ -17,6 +17,7 @@ import { api } from "../../lib/api";
 import { t } from "../../lib/i18n";
 import { teamHref } from "../../lib/routes";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
+import { BrandIcon, osBrand } from "../BrandIcon";
 import { Button, EmptyState, Input, NativeSelect, Spinner } from "../ui";
 import { RegistrySection } from "./RegistrySection";
 
@@ -25,6 +26,17 @@ const OS_LABEL: Record<string, string> = {
   macos: "macOS",
   windows: t("Windows"),
 };
+
+/** A system as its logo, named on hover and for screen readers; a word where there is no logo. */
+function OsMark({ os }: { os: string }) {
+  const brand = osBrand(os);
+  if (!brand) return <Tag>{OS_LABEL[os] ?? os}</Tag>;
+  return (
+    <span className="inline-flex text-fg-secondary">
+      <BrandIcon brand={brand} size={13} title={OS_LABEL[os] ?? os} />
+    </span>
+  );
+}
 
 /**
  * Plugins the team installed: ready-made steps a pipeline uses with
@@ -317,7 +329,7 @@ function PluginRow({
         <span className="hidden shrink-0 items-center gap-1 sm:flex">
           <Tag>{plugin.category}</Tag>
           {(plugin.os ?? []).map((os) => (
-            <Tag key={os}>{OS_LABEL[os] ?? os}</Tag>
+            <OsMark key={os} os={os} />
           ))}
         </span>
         <span className="w-20 shrink-0 text-right text-2xs text-fg-muted">
@@ -366,10 +378,12 @@ function PluginDetails({
         <div className="min-w-0 flex-1 text-xs text-fg-secondary">
           <p>{plugin.description}</p>
           <p className="mt-1">
-            {t("Runs on ")}
-            {(plugin.os ?? ["linux", "macos", "windows"])
-              .map((os) => OS_LABEL[os] ?? os)
-              .join(", ")}
+            <span className="inline-flex items-center gap-1.5 align-middle">
+              {t("Runs on")}
+              {(plugin.os ?? ["linux", "macos", "windows"]).map((os) => (
+                <OsMark key={os} os={os} />
+              ))}
+            </span>
             {plugin.needs.length > 0 && (
               <>
                 {" "}

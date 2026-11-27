@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database, Plug, Unplug } from "lucide-react";
+import { Plug, Unplug } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { api, type SupabaseResource } from "../lib/api";
 import { t } from "../lib/i18n";
+import { BrandIcon } from "./BrandIcon";
 import { type SecretFrom, SecretSource } from "./SecretSource";
 import { Badge, Button, Input, NativeSelect, Spinner } from "./ui";
 
@@ -75,7 +76,7 @@ export function SupabaseIntegration({ teamId }: { teamId?: string } = {}) {
   return (
     <section className="mt-7">
       <h2 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-        <Database size={13} strokeWidth={1.75} /> {t("Supabase")}
+        <BrandIcon brand="supabase" /> {t("Supabase")}
       </h2>
       <p className="mt-0.5 text-xs text-fg-secondary">
         {t(

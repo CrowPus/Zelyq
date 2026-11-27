@@ -29,7 +29,7 @@ import { queueSummary } from "../components/pipelines/QueueNotice";
 import { RepoFileBar } from "../components/pipelines/RepoFile";
 import { StageStrip, StatusIcon } from "../components/pipelines/Stages";
 import { VisualEditor } from "../components/pipelines/VisualEditor";
-import { t } from "../lib/i18n";
+import { t, translateServerMessage } from "../lib/i18n";
 
 // The text editor is a large module; it loads only when the YAML view is opened.
 const YamlEditor = lazy(() => import("../components/pipelines/YamlEditor"));
@@ -227,7 +227,7 @@ function Runs({ teamId, pipelineId }: { teamId: string; pipelineId: string }) {
                   {run.triggeredBy ? run.triggeredBy.name : TRIGGER_WORDS[run.trigger]}
                   {run.runner && <> {t("· on {runner}", { runner: run.runner })}</>}
                   {run.status === "queued" && <> · {queueSummary(run.queue)}</>}
-                  {run.error && <> · {run.error}</>}
+                  {run.error && <> · {translateServerMessage(run.error)}</>}
                 </span>
                 <RunSource run={run} />
               </span>
