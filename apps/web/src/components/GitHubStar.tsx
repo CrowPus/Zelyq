@@ -65,7 +65,7 @@ export function StarButton() {
         />
         {t("Star")}
         <span className="sr-only"> {t("Zelyq on GitHub")}</span>
-      </span>
+      </span>{" "}
       {stars !== null && (
         <span className="flex h-full items-center border-l border-border-default bg-surface-subtle px-2 tabular-nums text-fg">
           {compactCount(stars)}
