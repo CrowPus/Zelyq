@@ -269,7 +269,7 @@ function TeamKey({ teamId, mode }: { teamId: string; mode: "setup" | "manage" })
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
             <span className="flex items-center gap-1">
-              {t("User to create")}
+              <span className="whitespace-nowrap">{t("User to create")}</span>
               <Input
                 aria-label={t("User to create")}
                 value={user}
@@ -528,7 +528,7 @@ function AgentInstall({ install, onDone }: { install: RunnerAgentInstall; onDone
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex items-center gap-1">
-          {t("User to create")}
+          <span className="whitespace-nowrap">{t("User to create")}</span>
           <Input
             aria-label={t("User to create")}
             value={user}
