@@ -20,6 +20,7 @@ import {
   type SelectedElement,
 } from "../lib/inspector";
 import { resolvePreviewUrl } from "../lib/preview-url";
+import { ParticleField } from "./ParticleField";
 import { Button, EmptyState, IconButton, Spinner, StatusBadge } from "./ui";
 
 interface Props {
@@ -30,6 +31,8 @@ interface Props {
   onStop(): void;
   onRefreshLogs(): void;
   reloadToken: number;
+  /** An agent turn is in flight: with nothing to show yet, the panel shows it building. */
+  agentWorking?: boolean;
   /** Clicked in select mode. */
   onElementSelected(element: SelectedElement): void;
 }
@@ -79,6 +82,7 @@ export function PreviewPanel({
   onStop,
   onRefreshLogs,
   reloadToken,
+  agentWorking = false,
   onElementSelected,
 }: Props) {
   const [showLogs, setShowLogs] = useState(false);
@@ -91,6 +95,36 @@ export function PreviewPanel({
   const previewUrl = resolvePreviewUrl(preview, window.location.hostname);
   const running = preview?.status === "running" && Boolean(previewUrl);
   const busy = starting || preview?.status === "starting";
+
+  // While the agent builds and there is no app to show, the panel shows it
+  // building. A preview that is already up is never covered: it stays while
+  // the agent keeps working. When the first preview arrives, the particles
+  // fade out over it once it has loaded.
+  const wantParticles = !running && preview?.status !== "crashed" && (agentWorking || busy);
+  const [particles, setParticles] = useState<"off" | "on" | "leaving">(
+    wantParticles ? "on" : "off",
+  );
+  const [frameLoaded, setFrameLoaded] = useState(false);
+  useEffect(() => {
+    if (wantParticles) {
+      setParticles("on");
+      return;
+    }
+    if (!running) {
+      setFrameLoaded(false);
+      setParticles("off");
+      return;
+    }
+    if (particles !== "on") return;
+    // The app's first paint, or a few seconds, whichever comes first.
+    const leave = setTimeout(() => setParticles("leaving"), frameLoaded ? 150 : 4000);
+    return () => clearTimeout(leave);
+  }, [wantParticles, running, frameLoaded, particles]);
+  useEffect(() => {
+    if (particles !== "leaving") return;
+    const gone = setTimeout(() => setParticles("off"), 750);
+    return () => clearTimeout(gone);
+  }, [particles]);
 
   const viewport = VIEWPORTS.find((v) => v.id === viewportId) ?? VIEWPORTS[0]!;
   const framed = running && viewport.width !== null && viewport.height !== null;
@@ -160,6 +194,7 @@ export function PreviewPanel({
       key={`${reloadToken}-${frameToken}-${viewportId}`}
       src={previewUrl ?? ""}
       title={t("App preview")}
+      onLoad={() => setFrameLoaded(true)}
       className={`size-full border-0 bg-white ${inspecting ? "cursor-crosshair" : ""}`}
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
     />
@@ -360,7 +395,7 @@ export function PreviewPanel({
               {frame}
             </div>
           )
-        ) : busy ? (
+        ) : wantParticles ? null : busy ? (
           <div className="flex h-full flex-col items-center justify-center gap-2.5">
             <Spinner />
             <p className="text-xs text-fg-secondary">
@@ -390,6 +425,22 @@ export function PreviewPanel({
               </Button>
             }
           />
+        )}
+
+        {particles !== "off" && (
+          <div
+            className={`absolute inset-0 flex flex-col bg-surface transition-opacity duration-700 ease-out ${
+              particles === "leaving" ? "pointer-events-none opacity-0" : "opacity-100"
+            }`}
+            role="status"
+          >
+            <ParticleField className="min-h-0 flex-1" />
+            <p className="pb-8 text-center text-xs text-fg-muted">
+              {busy
+                ? t("Installing dependencies and starting the dev server…")
+                : t("Building your app…")}
+            </p>
+          </div>
         )}
 
         {preview?.services && (
