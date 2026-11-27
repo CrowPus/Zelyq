@@ -59,7 +59,14 @@ async function paste(script: string): Promise<{ code: number | null; out: string
     // A file, not standard input: PowerShell reads input line by line and would not run the block.
     const file = path.join(tmp, `install-${Date.now()}.ps1`);
     await fs.writeFile(file, script);
-    child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file]);
+    // As a person opens it: Windows PowerShell finding its own modules, not those of the PowerShell 7
+    // this test may have been started from.
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "psmodulepath"),
+    );
+    child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file], {
+      env,
+    });
   } else {
     child = spawn("bash", ["-c", script]);
   }
