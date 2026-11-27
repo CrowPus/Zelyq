@@ -1078,13 +1078,14 @@ function StorageTest() {
         </label>
         <Button variant="secondary" onClick={() => sleepNow.mutate()} disabled={sleepNow.isPending}>
           {sleepNow.isPending ? <Spinner /> : <MoonStar size={14} strokeWidth={1.75} />}
-          {t("Put idle apps to sleep now")}
+          {t("Put idle apps, images and videos to sleep now")}
         </Button>
         {sleepNow.isSuccess && (
           <span className="text-success">
-            {t("{count} app(s) put to sleep. Each wakes by itself when it is opened.", {
-              count: sleepNow.data.slept,
-            })}
+            {t(
+              "{count} app(s) put to sleep, {media} image(s) and video(s) moved. Each comes back by itself when it is opened.",
+              { count: sleepNow.data.slept, media: sleepNow.data.media },
+            )}
           </span>
         )}
         {sleepNow.isError && (

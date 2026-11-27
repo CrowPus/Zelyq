@@ -255,6 +255,9 @@ export async function registerVideoRoutes(
         const { download } = z.object({ download: z.literal("1").optional() }).parse(request.query);
         const range =
           request.method === "HEAD" ? undefined : videoRange(request.headers.range, size);
+        // On the disk before any header is set: a file kept in storage that cannot be fetched
+        // answers with a plain error, not a broken download.
+        if (request.method !== "HEAD") await videos.assets.prepare(owner.id, id);
         reply
           .type("video/mp4")
           .header("accept-ranges", "bytes")

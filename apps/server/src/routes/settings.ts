@@ -16,6 +16,8 @@ export function registerSettingsRoutes(
     mail: MailService;
     /** Where idle apps are put to sleep (absent when the apps are on another machine). */
     usage?: { sleepIdle(options: { days?: number }): Promise<number> };
+    /** Moves images and videos not opened for `days` days to storage. */
+    sweepMedia?: (days: number) => Promise<number>;
   },
 ): void {
   /** Settings → Email: signs in to the mail server and sends the admin a short message. */
@@ -34,7 +36,7 @@ export function registerSettingsRoutes(
   /** Settings → Storage: puts apps not used for at least `days` days to sleep now (0: every app not in use). */
   app.post("/api/settings/storage/sleep-now", async (request) => {
     deps.access.requireInstanceAdmin(request);
-    return await sleepAppsNow(deps.settings, deps.usage, request.body);
+    return await sleepAppsNow(deps.settings, deps.usage, request.body, deps.sweepMedia);
   });
 
   app.get("/api/settings", async (request) => {

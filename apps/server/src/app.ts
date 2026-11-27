@@ -111,6 +111,7 @@ import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
 import { AppSleep, wakingRuntime } from "./services/storage/app-sleep.js";
 import { storageConfig } from "./services/storage/config.js";
+import { MediaSleep } from "./services/storage/media-sleep.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
 import { SupportService } from "./services/support.js";
@@ -521,6 +522,35 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const videoAssets = new VideoAssetStore(
     config.videoAssetsDir ?? path.join(path.dirname(config.attachmentsDir), "videos"),
   );
+  // Images and videos nobody opened for a while move to storage too, and come back when read.
+  const mediaSleep = (kind: "images" | "videos", root: string) =>
+    new MediaSleep({
+      store,
+      kind,
+      root,
+      config: () => storageConfig(settings),
+      log: (message) => app.log.info(message),
+    });
+  imageAssets.media = mediaSleep("images", imageAssets.root);
+  videoAssets.media = mediaSleep("videos", videoAssets.root);
+  /** Moves idle images and videos to storage: `days` given (an admin's "now"), or the setting's (0: never). */
+  const sweepMedia = async (days?: number): Promise<number> => {
+    const after = days ?? (await settings.numberValue("sleepIdleMediaAfterDays"));
+    if (days === undefined && after <= 0) return 0;
+    let moved = 0;
+    for (const media of [imageAssets.media, videoAssets.media]) {
+      try {
+        moved += (await media?.sweep(after)) ?? 0;
+      } catch (error) {
+        if (days !== undefined) throw error;
+        app.log.warn(
+          { err: error },
+          "Idle images or videos could not be moved to storage; they stay on this disk.",
+        );
+      }
+    }
+    return moved;
+  };
   const videos = new VideoGenerationService(
     store,
     settings,
@@ -571,6 +601,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
         "An idle app could not be put to sleep; it stays on this disk and is tried again later.",
       );
   }
+  // After each round of putting idle apps to sleep, idle images and videos move too.
+  usage.afterSleep = () => sweepMedia().then(() => undefined);
   usage.previewRunning = async (projectId) =>
     (await runtime.previewStatus(projectId)).status === "running";
   usage.onUse = (projectId) => previewIdle.seen(projectId);
@@ -707,7 +739,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
   });
   registerAccountRoutes(app, { accounts, auth, access });
-  registerSettingsRoutes(app, { settings, access, store, mail, ...(appSleep ? { usage } : {}) });
+  registerSettingsRoutes(app, {
+    settings,
+    access,
+    store,
+    mail,
+    sweepMedia,
+    ...(appSleep ? { usage } : {}),
+  });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerPlanRoutes(app, { usage, access, store });
@@ -782,6 +821,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   adminKeys.onKeysChanged = () => eventsOut.keysChanged();
   registerAdminApi(app, {
     sleepsApps: Boolean(appSleep),
+    sweepMedia,
     settings,
     adminKeys,
     eventsOut,

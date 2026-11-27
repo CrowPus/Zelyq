@@ -7,6 +7,7 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { maxVideoBytes, ZelyqError } from "@zelyq/core";
+import type { MediaSleep } from "./storage/media-sleep.js";
 
 const probePath: string = createRequire(import.meta.url)("ffprobe-static").path;
 const runFile = promisify(execFile);
@@ -19,6 +20,9 @@ export interface VideoMetadata {
 }
 
 export class VideoAssetStore {
+  /** Videos nobody opened for a while are kept in storage, and fetched back before a read (storage/media-sleep.ts). */
+  media?: MediaSleep;
+
   /** Public so the frame store can place sets beside the clips they came from. */
   constructor(readonly root: string) {}
   directory(ownerId: string) {
@@ -35,11 +39,17 @@ export class VideoAssetStore {
   }
   /** The whole clip in memory. Only for handing bytes to the agent bridge,
    *  which must write them into a project; playback streams instead. */
-  readVideo(ownerId: string, id: string) {
+  async readVideo(ownerId: string, id: string) {
+    await this.prepare(ownerId, id);
     return fs.readFile(this.file(ownerId, id));
   }
-  readReference(ownerId: string, id: string) {
+  async readReference(ownerId: string, id: string) {
+    await this.prepare(ownerId, id);
     return fs.readFile(this.file(ownerId, id));
+  }
+  /** On the disk before it is read or streamed (fetched back from storage when it moved there). */
+  async prepare(ownerId: string, id: string) {
+    await this.media?.local(this.file(ownerId, id));
   }
   async probe(file: string): Promise<VideoMetadata> {
     const { stdout } = await runFile(
@@ -101,6 +111,7 @@ export class VideoAssetStore {
   }
   async existing(ownerId: string, id: string) {
     try {
+      await this.prepare(ownerId, id);
       return await this.probe(this.file(ownerId, id));
     } catch {
       return null;
@@ -151,9 +162,13 @@ export class VideoAssetStore {
     return createReadStream(this.file(ownerId, id), range);
   }
   async remove(ownerId: string, id: string) {
-    await fs.rm(this.file(ownerId, id), { force: true });
+    const file = this.file(ownerId, id);
+    const rm = () => fs.rm(file, { force: true });
+    await (this.media ? this.media.removed(file, rm) : rm());
   }
   async removeUser(ownerId: string) {
+    const notes = (await this.media?.notesOf(ownerId)) ?? [];
     await fs.rm(this.directory(ownerId), { recursive: true, force: true });
+    await this.media?.forgetOwner(ownerId, notes);
   }
 }
