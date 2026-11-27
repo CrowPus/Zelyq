@@ -2228,14 +2228,35 @@ function trimSlashes(text: string): string {
   return text.slice(0, end);
 }
 
+/** Where the runner keeps its program, its Node and its service, on each kind of machine. */
+export const RUNNER_AGENT_SERVICE: Record<RunnerOs, { status: string; log: string }> = {
+  linux: {
+    status: "systemctl status zelyq-runner",
+    log: "journalctl -u zelyq-runner",
+  },
+  macos: {
+    status: "sudo launchctl print system/dev.zelyq.runner",
+    log: "~zelyq/.zelyq-runner/runner.log",
+  },
+  windows: {
+    status: "Get-ScheduledTask -TaskName 'Zelyq runner' | Get-ScheduledTaskInfo",
+    log: "%USERPROFILE%\\.zelyq-runner\\runner.log (the runner user's folder)",
+  },
+};
+
+const DOWNLOAD_HELP =
+  "If it is your Zelyq, check this machine may reach it (a firewall, or a gate in front of Zelyq, must let /runner-agent/, /api/runner-agent/ and /ws/runner-agent through).";
+
 /**
- * The command that makes a Linux machine a runner that connects out to Zelyq: pasted once, as a
- * user who can use sudo. It makes the runner's user, gives it a Node of its own (checked against
- * nodejs.org's checksums) and the runner program (checked against `agentSha256`), registers the
- * machine's key with the one-time code, and starts the runner as a service that comes back after
- * every restart. Running it again (with a new code) reinstalls it with a new key.
+ * The command that makes a machine a runner that connects out to Zelyq: pasted once, as a user
+ * who can use sudo (on Windows: PowerShell, Run as administrator). It makes the runner's user,
+ * gives it a Node of its own (checked against nodejs.org's checksums) and the runner program
+ * (checked against `agentSha256`), registers the machine's key with the one-time code, and starts
+ * the runner as a service that comes back after every restart: systemd on Linux, launchd on macOS,
+ * a scheduled task on Windows. Running it again (with a new code) reinstalls it with a new key.
  */
 export function runnerAgentSetupScript(input: {
+  os?: RunnerOs;
   user: string;
   admin: boolean;
   install: RunnerAgentInstall;
@@ -2248,6 +2269,15 @@ export function runnerAgentSetupScript(input: {
     throw new Error("That is not Zelyq's address.");
   if (!/^[A-Za-z0-9_-]+$/.test(code)) throw new Error("That is not an install code.");
   if (!/^[a-f0-9]{64}$/.test(agentSha256)) throw new Error("That is not a checksum.");
+  const checked = {
+    user: input.user,
+    admin: input.admin,
+    url: trimSlashes(url),
+    code,
+    sum: agentSha256,
+  };
+  if (input.os === "macos") return macAgentScript(checked);
+  if (input.os === "windows") return windowsAgentScript(checked);
   return [
     "sudo bash -s <<'ZELYQ'",
     "set -euo pipefail",
@@ -2257,7 +2287,7 @@ export function runnerAgentSetupScript(input: {
     `SUM='${agentSha256}'`,
     "D=/opt/zelyq-runner",
     'command -v systemctl >/dev/null 2>&1 || { echo "This needs a Linux machine with systemd."; exit 1; }',
-    'fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"; else wget -qO "$2" "$1"; fi || { echo "Could not download $1. If it is your Zelyq, check this machine may reach it (a firewall, or a gate in front of Zelyq, must let /runner-agent/, /api/runner-agent/ and /ws/runner-agent through)."; exit 1; }; }',
+    `fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"; else wget -qO "$2" "$1"; fi || { echo "Could not download $1. ${DOWNLOAD_HELP}"; exit 1; }; }`,
     'if ! id "$U" >/dev/null 2>&1; then',
     '  if command -v useradd >/dev/null 2>&1; then useradd -m -s /bin/bash "$U" 2>/dev/null || useradd -m "$U"',
     '  else adduser -D "$U"; fi',
@@ -2313,6 +2343,173 @@ export function runnerAgentSetupScript(input: {
     "systemctl restart zelyq-runner",
     'echo "Done. The runner is connecting to Zelyq: it shows as Online in Pipelines → Runners."',
     "ZELYQ",
+    "",
+  ].join("\n");
+}
+
+interface CheckedAgentInstall {
+  user: string;
+  admin: boolean;
+  url: string;
+  code: string;
+  sum: string;
+}
+
+/** macOS: a hidden user of its own, and a launchd daemon that runs as that user. */
+function macAgentScript(input: CheckedAgentInstall): string {
+  return [
+    "sudo bash -s <<'ZELYQ'",
+    "set -euo pipefail",
+    `U='${input.user}'`,
+    `URL='${input.url}'`,
+    `CODE='${input.code}'`,
+    `SUM='${input.sum}'`,
+    "D=/opt/zelyq-runner",
+    "L=dev.zelyq.runner",
+    '[ "$(uname -s)" = Darwin ] || { echo "This command is for macOS."; exit 1; }',
+    `fetch() { curl -fsSL "$1" -o "$2" || { echo "Could not download $1. ${DOWNLOAD_HELP}"; exit 1; }; }`,
+    'if ! id "$U" >/dev/null 2>&1; then',
+    '  sysadminctl -addUser "$U" -fullName "Zelyq runner" -shell /bin/zsh -home "/Users/$U" -password "$(openssl rand -base64 24)"',
+    '  createhomedir -c -u "$U" >/dev/null',
+    "  # Not one of the people who sign in to this Mac: keep it off the login window.",
+    '  dscl . -create "/Users/$U" IsHidden 1',
+    "fi",
+    'if dseditgroup -o read docker >/dev/null 2>&1; then dseditgroup -o edit -a "$U" -t user docker; fi',
+    ...(input.admin
+      ? [
+          'dseditgroup -o edit -a "$U" -t user admin',
+          "mkdir -p /etc/sudoers.d",
+          'echo "$U ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/zelyq-$U"',
+          'chmod 440 "/etc/sudoers.d/zelyq-$U"',
+        ]
+      : []),
+    "H=$(dscl . -read \"/Users/$U\" NFSHomeDirectory | awk '{print $2}')",
+    'case "$(uname -m)" in x86_64) A=x64 ;; arm64) A=arm64 ;; *) echo "This processor ($(uname -m)) is not supported yet."; exit 1 ;; esac',
+    "T=$(mktemp -d); trap 'rm -rf \"$T\"' EXIT",
+    'mkdir -p "$D"',
+    "# A Node of its own, from nodejs.org, checked against its published checksums.",
+    'fetch https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt "$T/sums"',
+    'F=$(grep -oE "node-v22\\.[0-9]+\\.[0-9]+-darwin-$A\\.tar\\.gz" "$T/sums" | head -1 || true)',
+    '[ -n "$F" ] || { echo "nodejs.org lists no Node 22 for this Mac ($A)."; exit 1; }',
+    'if [ "$(cat "$D/node/.file" 2>/dev/null || true)" != "$F" ]; then',
+    '  fetch "https://nodejs.org/dist/latest-v22.x/$F" "$T/$F"',
+    '  (cd "$T" && grep " $F$" sums | shasum -a 256 -c - >/dev/null)',
+    '  rm -rf "$D/node" && mkdir -p "$D/node" && tar -xzf "$T/$F" -C "$D/node" --strip-components=1',
+    '  echo "$F" > "$D/node/.file"',
+    "fi",
+    "# The runner program, from your Zelyq, checked against the checksum Zelyq gave with this command.",
+    'fetch "$URL/runner-agent/zelyq-runner.mjs" "$T/zelyq-runner.mjs"',
+    'echo "$SUM  $T/zelyq-runner.mjs" | shasum -a 256 -c - >/dev/null',
+    'install -m 755 "$T/zelyq-runner.mjs" "$D/zelyq-runner.mjs"',
+    'chown -R root:wheel "$D"',
+    '(cd "$H" && sudo -u "$U" env HOME="$H" "$D/node/bin/node" "$D/zelyq-runner.mjs" register --url "$URL" --code "$CODE")',
+    'cat > "/Library/LaunchDaemons/$L.plist" <<PLIST',
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0"><dict>',
+    "  <key>Label</key><string>$L</string>",
+    "  <key>UserName</key><string>$U</string>",
+    "  <key>ProgramArguments</key><array>",
+    "    <string>$D/node/bin/node</string><string>$D/zelyq-runner.mjs</string><string>run</string>",
+    "    <string>--log</string><string>$H/.zelyq-runner/runner.log</string>",
+    "  </array>",
+    "  <key>WorkingDirectory</key><string>$H</string>",
+    "  <key>EnvironmentVariables</key><dict>",
+    "    <key>HOME</key><string>$H</string>",
+    "    <key>USER</key><string>$U</string>",
+    "    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
+    "  </dict>",
+    "  <key>RunAtLoad</key><true/>",
+    "  <key>KeepAlive</key><true/>",
+    "  <key>ThrottleInterval</key><integer>5</integer>",
+    "</dict></plist>",
+    "PLIST",
+    'chown root:wheel "/Library/LaunchDaemons/$L.plist"',
+    'chmod 644 "/Library/LaunchDaemons/$L.plist"',
+    "# Registered before this: a code that no longer works leaves a runner already here running.",
+    'launchctl bootout "system/$L" 2>/dev/null || true',
+    'launchctl bootstrap system "/Library/LaunchDaemons/$L.plist"',
+    'launchctl enable "system/$L"',
+    'echo "Done. The runner is connecting to Zelyq: it shows as Online in Pipelines → Runners."',
+    "ZELYQ",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Windows: a local user of its own with a long random password nobody sees, and a scheduled task
+ * that starts the runner as that user when the machine starts and restarts it if it stops. All of
+ * it inside one script block, so the first error stops the rest.
+ */
+function windowsAgentScript(input: CheckedAgentInstall): string {
+  return [
+    "# In PowerShell, opened with Run as administrator.",
+    "& {",
+    "$ErrorActionPreference = 'Stop'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12",
+    `$U = '${input.user}'`,
+    `$URL = '${input.url}'`,
+    `$CODE = '${input.code}'`,
+    `$SUM = '${input.sum}'`,
+    "$D = Join-Path $env:ProgramFiles 'Zelyq Runner'",
+    "$Task = 'Zelyq runner'",
+    `function Fetch($From, $To) { try { Invoke-WebRequest -UseBasicParsing -Uri $From -OutFile $To } catch { throw "Could not download $From. ${DOWNLOAD_HELP}" } }`,
+    "$A = switch ($env:PROCESSOR_ARCHITECTURE) { 'AMD64' { 'x64' } 'ARM64' { 'arm64' } default { throw \"This processor ($env:PROCESSOR_ARCHITECTURE) is not supported yet.\" } }",
+    "$T = Join-Path $env:TEMP ('zelyq-runner-' + [guid]::NewGuid())",
+    "New-Item -ItemType Directory -Force -Path $T | Out-Null",
+    "try {",
+    "  # A long random password nobody needs to know: only the task signs in with it.",
+    "  $PwText = (-join ((33..126) | Get-Random -Count 24 | ForEach-Object { [char]$_ })) + 'Aa1!'",
+    "  $Pw = ConvertTo-SecureString $PwText -AsPlainText -Force",
+    "  if (Get-LocalUser -Name $U -ErrorAction SilentlyContinue) { Set-LocalUser -Name $U -Password $Pw }",
+    "  else { New-LocalUser -Name $U -Password $Pw -PasswordNeverExpires -AccountNeverExpires -Description 'Zelyq pipeline runner' | Out-Null }",
+    "  Add-LocalGroupMember -Group 'Users' -Member $U -ErrorAction SilentlyContinue",
+    "  Add-LocalGroupMember -Group 'docker-users' -Member $U -ErrorAction SilentlyContinue",
+    ...(input.admin
+      ? ["  Add-LocalGroupMember -Group 'Administrators' -Member $U -ErrorAction SilentlyContinue"]
+      : []),
+    '  $Cred = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\\$U", $Pw)',
+    "  # Windows makes a user's folder at their first sign-in: sign in once now.",
+    "  Start-Process -FilePath cmd.exe -ArgumentList '/c', 'exit' -Credential $Cred -LoadUserProfile -WindowStyle Hidden -Wait",
+    "  $Sid = (Get-LocalUser -Name $U).SID.Value",
+    "  $UserHome = (Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $Sid }).LocalPath",
+    "  # A runner already here stops while its files are replaced.",
+    "  if (Get-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName $Task }",
+    '  Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$D\\*" } | Stop-Process -Force',
+    "  New-Item -ItemType Directory -Force -Path $D | Out-Null",
+    "  # A Node of its own, from nodejs.org, checked against its published checksums.",
+    "  Fetch 'https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt' \"$T\\sums\"",
+    '  $Line = Select-String -Path "$T\\sums" -Pattern "^([a-f0-9]{64})\\s+(node-v22\\.\\d+\\.\\d+-win-$A\\.zip)$" | Select-Object -First 1',
+    '  if (-not $Line) { throw "nodejs.org lists no Node 22 for this machine ($A)." }',
+    "  $F = $Line.Matches[0].Groups[2].Value",
+    "  $Want = $Line.Matches[0].Groups[1].Value",
+    '  if ((Get-Content "$D\\node\\.file" -ErrorAction SilentlyContinue) -ne $F) {',
+    '    Fetch "https://nodejs.org/dist/latest-v22.x/$F" "$T\\$F"',
+    '    if ((Get-FileHash -Algorithm SHA256 "$T\\$F").Hash -ne $Want) { throw "$F does not match nodejs.org\'s checksum." }',
+    '    Expand-Archive -Path "$T\\$F" -DestinationPath "$T\\node"',
+    '    if (Test-Path "$D\\node") { Remove-Item -Recurse -Force "$D\\node" }',
+    "    Move-Item (Join-Path \"$T\\node\" ($F -replace '\\.zip$', '')) \"$D\\node\"",
+    '    Set-Content -Path "$D\\node\\.file" -Value $F',
+    "  }",
+    "  # The runner program, from your Zelyq, checked against the checksum Zelyq gave with this command.",
+    '  Fetch "$URL/runner-agent/zelyq-runner.mjs" "$T\\zelyq-runner.mjs"',
+    '  if ((Get-FileHash -Algorithm SHA256 "$T\\zelyq-runner.mjs").Hash -ne $SUM) { throw "The runner program does not match the checksum in this command." }',
+    '  Copy-Item -Force "$T\\zelyq-runner.mjs" "$D\\zelyq-runner.mjs"',
+    "  # The machine's key is made as the runner's user, in its own folder.",
+    '  $Reg = Start-Process -FilePath "$D\\node\\node.exe" -ArgumentList "`"$D\\zelyq-runner.mjs`"", \'register\', \'--url\', $URL, \'--code\', $CODE -Credential $Cred -LoadUserProfile -WorkingDirectory $UserHome -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput "$T\\out.txt" -RedirectStandardError "$T\\err.txt"',
+    '  Get-Content "$T\\out.txt", "$T\\err.txt" -ErrorAction SilentlyContinue | Write-Host',
+    '  if ($Reg.ExitCode -ne 0) { throw "The runner could not register with Zelyq." }',
+    '  $Action = New-ScheduledTaskAction -Execute "$D\\node\\node.exe" -Argument "`"$D\\zelyq-runner.mjs`" run --log `"$UserHome\\.zelyq-runner\\runner.log`"" -WorkingDirectory $UserHome',
+    "  $Trigger = New-ScheduledTaskTrigger -AtStartup",
+    "  $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew",
+    `  Register-ScheduledTask -TaskName $Task -Description 'Zelyq runner (connects out to Zelyq; nothing listens on this machine)' -Action $Action -Trigger $Trigger -Settings $Settings -User "$env:COMPUTERNAME\\$U" -Password $PwText -RunLevel ${input.admin ? "Highest" : "Limited"} -Force | Out-Null`,
+    "  Start-ScheduledTask -TaskName $Task",
+    '  Write-Host "Done. The runner is connecting to Zelyq: it shows as Online in Pipelines → Runners."',
+    "} finally {",
+    "  Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue",
+    "}",
+    "}",
     "",
   ].join("\n");
 }

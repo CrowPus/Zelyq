@@ -1,4 +1,5 @@
 import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
+import { RUNNER_AGENT_SERVICE, type RunnerOs } from "@zelyq/core";
 import type { RunnerRow, Store } from "@zelyq/db";
 import type { RawData, WebSocket } from "ws";
 import { type ExecOptions, type RunnerSession, SshError } from "./ssh.js";
@@ -333,7 +334,7 @@ export class AgentHub {
 
   /** A session on the runner; waits up to `waitMs` for it to (re)connect, as after a restart. */
   async session(
-    row: Pick<RunnerRow, "id" | "name" | "lastSeenAt">,
+    row: Pick<RunnerRow, "id" | "name" | "lastSeenAt"> & Partial<Pick<RunnerRow, "os">>,
     waitMs = 0,
   ): Promise<RunnerSession> {
     let link = this.links.get(row.id);
@@ -354,7 +355,7 @@ export class AgentHub {
     if (!link?.open) {
       throw new SshError(
         `${row.name} is not connected to Zelyq${row.lastSeenAt ? ` (last seen ${row.lastSeenAt})` : " yet"}. ` +
-          "Check that its service runs on the machine: systemctl status zelyq-runner.",
+          `Check that its service runs on the machine: ${serviceCheck(row.os)}.`,
         "unreachable",
       );
     }
@@ -510,4 +511,11 @@ export class AgentHub {
   get connected(): number {
     return [...this.links.values()].filter((link) => link.open).length;
   }
+}
+
+/** How to see the runner's service on the machine: its own system's way, or each one's when unknown. */
+function serviceCheck(os: string | null | undefined): string {
+  const known = RUNNER_AGENT_SERVICE[os as RunnerOs];
+  if (known) return known.status;
+  return `${RUNNER_AGENT_SERVICE.linux.status} (Linux), ${RUNNER_AGENT_SERVICE.macos.status} (macOS) or ${RUNNER_AGENT_SERVICE.windows.status} (Windows)`;
 }

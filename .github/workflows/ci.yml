@@ -266,6 +266,52 @@ jobs:
           ZELYQ_TEST_EXPECT_OS: ${{ matrix.expect }}
         run: node --import tsx --test ${{ matrix.tests }}
 
+      # The same, through a runner that connects out to Zelyq (apps/runner) instead of SSH.
+      - name: Runner machine tests (connects to Zelyq)
+        working-directory: apps/server
+        env:
+          ZELYQ_TEST_RUNNER_AGENT: "1"
+          ZELYQ_TEST_EXPECT_OS: ${{ matrix.expect }}
+        run: node --import tsx --test test/pipeline-machine.test.ts
+
+  # The install command for a runner that connects out to Zelyq, pasted for real on each system:
+  # it makes a user and a service, so only on these throwaway machines.
+  runner-install:
+    name: Runner install (${{ matrix.expect }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            expect: linux
+          - os: macos-latest
+            expect: macos
+          - os: windows-latest
+            expect: windows
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm --filter "./packages/*" build
+
+      - name: Install a runner and run a pipeline on it
+        working-directory: apps/server
+        env:
+          ZELYQ_TEST_RUNNER_INSTALL: "1"
+        run: node --import tsx --test test/runner-install.test.ts
+
   # The React/FastAPI starter is scaffolded verbatim into a user's project, so
   # its own checks are the thing that has to keep passing — a green workspace
   # says nothing about whether a generated Python app still installs and runs.
