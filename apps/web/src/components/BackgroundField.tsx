@@ -3,51 +3,34 @@ import { useBackgroundTexture } from "../hooks/useBackgroundTexture";
 import { useTheme } from "../hooks/useTheme";
 
 /*
- * The texture behind the pages: a fine halftone of dots laid on a slightly
- * offset grid. Each dot's size follows a slow field of silk-like bands that
- * drift across the screen, and the colour wanders through Zelyq's blues,
- * cyans and violets. It is kept faint on purpose: it should read as the
- * surface of the page, never as a picture behind it.
+ * The texture behind the pages: two ribbons of fine dots, like silk, drifting
+ * across the screen and slowly turning over as they go. Where a ribbon turns
+ * edge-on its dots crowd into a bright fold; the colour moves along it through
+ * Zelyq's blues, violets and a soft rose. A cousin of the sign-in page's dot
+ * landscape, not a copy: flat, faint, and meant to read as the surface of the
+ * page.
  *
- * Decoration only: hidden from screen readers, never takes the pointer,
- * draws nothing where WebGL is missing, stops while the tab is hidden, holds
- * still for reduced motion, and runs at 30 frames a second at most.
+ * Decoration only: hidden from screen readers, never takes the pointer, draws
+ * nothing where WebGL is missing, stops while the tab is hidden, holds still
+ * for reduced motion and where there is no graphics card, and runs at 30
+ * frames a second at most.
  */
 
 const VERTEX = `
-attribute vec2 aPos;
-void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
-
-const FRAGMENT = `
-#ifdef GL_FRAGMENT_PRECISION_HIGH
-precision highp float;
-#else
-precision mediump float;
-#endif
-uniform vec2 uRes;
+attribute vec3 aDot; // u along the ribbon 0..1, v across it -1..1, which ribbon 0 or 1
 uniform float uTime;
+uniform vec2 uRes;
 uniform float uDark;
-uniform float uCell;
-uniform vec3 uPointer; // x, y in pixels, z = presence 0..1
-
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-}
-float fbm(vec2 p) {
-  float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) { v += a * noise(p); p = p * 2.03 + 17.0; a *= 0.5; }
-  return v;
-}
+uniform float uSize;
+uniform vec3 uPointer; // x, y in 0..1 of the canvas, z = presence 0..1
+varying vec3 vColor;
+varying float vAlpha;
 
 vec3 palette(float k, float dark) {
-  vec3 blue = dark > 0.5 ? vec3(0.36, 0.58, 1.00) : vec3(0.12, 0.37, 0.82);
-  vec3 cyan = dark > 0.5 ? vec3(0.30, 0.82, 0.96) : vec3(0.05, 0.56, 0.78);
-  vec3 violet = dark > 0.5 ? vec3(0.64, 0.52, 1.00) : vec3(0.43, 0.30, 0.88);
-  vec3 rose = dark > 0.5 ? vec3(0.92, 0.52, 0.86) : vec3(0.72, 0.28, 0.66);
+  vec3 blue = dark > 0.5 ? vec3(0.40, 0.62, 1.00) : vec3(0.16, 0.42, 0.86);
+  vec3 cyan = dark > 0.5 ? vec3(0.36, 0.84, 0.98) : vec3(0.08, 0.60, 0.82);
+  vec3 violet = dark > 0.5 ? vec3(0.66, 0.55, 1.00) : vec3(0.47, 0.34, 0.90);
+  vec3 rose = dark > 0.5 ? vec3(0.94, 0.56, 0.88) : vec3(0.78, 0.34, 0.70);
   k = fract(k);
   if (k < 0.25) return mix(blue, cyan, k * 4.0);
   if (k < 0.5) return mix(cyan, violet, (k - 0.25) * 4.0);
@@ -56,54 +39,49 @@ vec3 palette(float k, float dark) {
 }
 
 void main() {
-  vec2 px = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
-  // Offset every other row by half a cell: a softer weave than a square grid.
-  float row = floor(px.y / uCell);
-  vec2 shifted = px + vec2(mod(row, 2.0) * 0.5 * uCell, 0.0);
-  vec2 cell = floor(shifted / uCell);
-  vec2 centre = (cell + 0.5) * uCell - vec2(mod(row, 2.0) * 0.5 * uCell, 0.0);
-  vec2 local = px - centre;
-
-  // The field, sampled once per dot so each dot is one clean size.
-  vec2 p = centre / max(uRes.x, uRes.y) * 3.2;
+  float u = aDot.x;
+  float v = aDot.y;
+  float second = aDot.z;
   float t = uTime;
-  vec2 q = vec2(fbm(p + vec2(0.0, t * 0.035)), fbm(p + vec2(5.2, 1.3) - t * 0.028));
-  float v = fbm(p + 1.7 * q + vec2(t * 0.018, -t * 0.012));
-  // Silk: fine bands that follow the warped field, so the dots line up into soft folds.
-  float bands = pow(0.5 + 0.5 * sin(v * 18.0 - t * 0.22), 2.4);
-  float level = clamp(0.25 * v + 0.75 * bands * smoothstep(0.25, 0.7, v), 0.0, 1.0);
+  // The ribbon's path: a slow wave across the screen, the second one higher and calmer.
+  float x = mix(-0.08, 1.08, u);
+  float mid = mix(0.66, 0.34, second)
+    + (0.10 - 0.03 * second) * sin(u * (2.3 + second) + t * 0.09 + second * 2.0)
+    + 0.04 * sin(u * 5.2 - t * 0.13 + second);
+  // It turns over as it goes: its width swings through zero where it is edge-on.
+  float turn = u * (3.4 - 0.8 * second) + t * (0.12 + 0.03 * second) + second * 1.7;
+  float width = (0.13 - 0.04 * second) * (0.55 + 0.45 * sin(u * 1.7 - t * 0.05));
+  float y = mid + v * width * cos(turn);
+  // Seen a little from the side: across the ribbon the dots lean with its turn, so it reads as cloth.
+  x += v * width * 0.55 * sin(turn) * (uRes.y / uRes.x);
+  // A ripple through the cloth, so the rows of dots never sit quite straight.
+  y += 0.006 * sin(u * 40.0 + v * 3.0 - t * 0.8);
 
-  vec2 uv = centre / uRes;
-  // Now and then a soft band of light crosses the screen on the diagonal.
-  float sweep = fract(t / 16.0) * 2.8 - 0.6;
-  float shine = exp(-pow((uv.x * 0.8 + uv.y * 0.5 - sweep) * 5.0, 2.0));
-  level = clamp(level + shine * 0.3 * (0.4 + bands), 0.0, 1.0);
+  // The pointer parts the dots near it a little.
+  vec2 p = vec2(x, y);
+  vec2 away = p - uPointer.xy;
+  float aspect = uRes.x / uRes.y;
+  float d = length(vec2(away.x * aspect, away.y));
+  p += uPointer.z * normalize(away + 1e-5) * 0.018 * exp(-d * d / 0.012);
 
-  // The pointer lifts the dots near it a little, eased in and out.
-  float d = length(centre - uPointer.xy) / (uCell * 14.0);
-  float lift = uPointer.z * exp(-d * d);
-  level = clamp(level + lift * 0.45, 0.0, 1.0);
+  gl_Position = vec4(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0, 0.0, 1.0);
+  // The face towards us is lit, the far face is in shade; the edges of the ribbon fade.
+  float facing = 0.5 + 0.5 * v * sin(turn);
+  float edge = 1.0 - smoothstep(0.75, 1.0, abs(v));
+  float ends = smoothstep(0.0, 0.12, u) * smoothstep(1.0, 0.88, u);
+  vAlpha = (uDark > 0.5 ? 0.85 : 0.8) * (0.45 + 0.55 * facing) * edge * ends * (1.0 - 0.4 * second);
+  gl_PointSize = uSize * (0.85 + 0.55 * facing);
+  vColor = palette(u * 0.55 + second * 0.35 + t * 0.012, uDark);
+}`;
 
-  // The dot itself.
-  float radius = uCell * mix(0.1, 0.4, level);
-  float dist = length(local);
-  float edge = 1.0 - smoothstep(radius - 0.75, radius + 0.75, dist);
-  vec3 dotCol = palette(v * 0.9 + uv.x * 0.22 - uv.y * 0.12 + t * 0.012, uDark);
-  // Faint at rest, clearer on the folds; quieter at the top, under the headings.
-  float calm = mix(0.5, 1.0, smoothstep(0.0, 0.45, uv.y));
-  float dotA = edge * (uDark > 0.5 ? 0.7 : 0.6) * (0.12 + 0.88 * pow(level, 1.4)) * calm;
-
-  // Under the dots, a wash of colour so faint it reads as light on the page.
-  vec2 fuv = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) / uRes;
-  float glow = 0.5 + 0.5 * sin(fuv.x * 3.1 + t * 0.07) * cos(fuv.y * 2.3 - t * 0.05);
-  glow *= smoothstep(0.05, 0.6, fuv.y + 0.25 * fuv.x);
-  vec3 washCol = palette(fuv.x * 0.45 + fuv.y * 0.3 + t * 0.015 + 0.35, uDark);
-  float washA = (uDark > 0.5 ? 0.075 : 0.06) * glow;
-
-  float a = dotA + washA * (1.0 - dotA);
-  if (a <= 0.001) discard;
-  vec3 col = (dotCol * dotA + washCol * washA * (1.0 - dotA)) / a;
-  gl_FragColor = vec4(col, a);
+const FRAGMENT = `
+precision mediump float;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  float d = length(gl_PointCoord - 0.5);
+  if (d > 0.5) discard;
+  gl_FragColor = vec4(vColor, vAlpha * smoothstep(0.5, 0.2, d));
 }`;
 
 /** Whether WebGL is drawn by the processor (SwiftShader, llvmpipe and the like), not a graphics card. */
@@ -117,6 +95,22 @@ function drawsInSoftware(gl: WebGLRenderingContext): boolean {
   } catch {
     return false;
   }
+}
+
+/** The dots of both ribbons: along, across, and which ribbon. */
+function ribbonDots(along: number, across: number): Float32Array {
+  const dots = new Float32Array(2 * along * across * 3);
+  let i = 0;
+  for (let ribbon = 0; ribbon < 2; ribbon++) {
+    for (let a = 0; a < along; a++) {
+      for (let b = 0; b < across; b++) {
+        dots[i++] = a / (along - 1);
+        dots[i++] = (b / (across - 1)) * 2 - 1;
+        dots[i++] = ribbon;
+      }
+    }
+  }
+  return dots;
 }
 
 export function BackgroundField() {
@@ -138,7 +132,7 @@ export function BackgroundField() {
     const gl = canvas.getContext("webgl", {
       alpha: true,
       premultipliedAlpha: false,
-      antialias: false,
+      antialias: true,
     });
     if (!gl) return;
     // No graphics card (a browser drawing WebGL on the processor, as in a VM or a test machine):
@@ -163,17 +157,23 @@ export function BackgroundField() {
     // biome-ignore lint/correctness/useHookAtTopLevel: WebGL's useProgram, not a React hook.
     gl.useProgram(program);
 
+    // Fewer dots on a small or slow device; still fine-grained.
+    const small =
+      Math.min(window.innerWidth, window.innerHeight) < 700 ||
+      (navigator.hardwareConcurrency || 8) <= 4;
+    const dots = ribbonDots(small ? 260 : 420, small ? 24 : 34);
+    const count = dots.length / 3;
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const aPos = gl.getAttribLocation(program, "aPos");
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.bufferData(gl.ARRAY_BUFFER, dots, gl.STATIC_DRAW);
+    const aDot = gl.getAttribLocation(program, "aDot");
+    gl.enableVertexAttribArray(aDot);
+    gl.vertexAttribPointer(aDot, 3, gl.FLOAT, false, 0, 0);
 
     const uRes = gl.getUniformLocation(program, "uRes");
     const uTime = gl.getUniformLocation(program, "uTime");
     const uDark = gl.getUniformLocation(program, "uDark");
-    const uCell = gl.getUniformLocation(program, "uCell");
+    const uSize = gl.getUniformLocation(program, "uSize");
     const uPointer = gl.getUniformLocation(program, "uPointer");
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -191,13 +191,13 @@ export function BackgroundField() {
       gl!.viewport(0, 0, w, h);
     }
 
-    // The pointer, in canvas pixels, eased so the lift glides rather than jumps.
-    const target = { x: -9999, y: -9999, z: 0 };
-    const pointer = { x: -9999, y: -9999, z: 0 };
+    // The pointer, in 0..1 of the canvas, eased so the dots glide rather than jump.
+    const target = { x: -1, y: -1, z: 0 };
+    const pointer = { x: -1, y: -1, z: 0 };
     function onMove(event: PointerEvent) {
       const box = canvas!.getBoundingClientRect();
-      const x = (event.clientX - box.left) * dpr;
-      const y = (event.clientY - box.top) * dpr;
+      const x = (event.clientX - box.left) / Math.max(1, box.width);
+      const y = (event.clientY - box.top) / Math.max(1, box.height);
       if (pointer.z < 0.01) {
         pointer.x = x;
         pointer.y = y;
@@ -219,13 +219,14 @@ export function BackgroundField() {
       pointer.x += (target.x - pointer.x) * 0.08;
       pointer.y += (target.y - pointer.y) * 0.08;
       pointer.z += (target.z - pointer.z) * 0.05;
+      const calm = reduce.matches || still;
       gl!.uniform2f(uRes, canvas!.width, canvas!.height);
-      gl!.uniform1f(uTime, reduce.matches || still ? 12 : (now - start) / 1000);
+      gl!.uniform1f(uTime, calm ? 14 : (now - start) / 1000);
       gl!.uniform1f(uDark, darkRef.current ? 1 : 0);
-      gl!.uniform1f(uCell, 10 * dpr);
-      gl!.uniform3f(uPointer, pointer.x, pointer.y, reduce.matches || still ? 0 : pointer.z);
+      gl!.uniform1f(uSize, 2.2 * dpr);
+      gl!.uniform3f(uPointer, pointer.x, pointer.y, calm ? 0 : pointer.z);
       gl!.clear(gl!.COLOR_BUFFER_BIT);
-      gl!.drawArrays(gl!.TRIANGLES, 0, 3);
+      gl!.drawArrays(gl!.POINTS, 0, count);
       if (!shown) {
         shown = true;
         canvas!.dataset.on = "true";
