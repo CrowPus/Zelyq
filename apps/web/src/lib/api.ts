@@ -1071,6 +1071,15 @@ export const api = {
 
   /** Settings → Email: signs in to the mail server and sends the admin a test message. */
   testMail: () => request<{ ok: true; to: string }>("/settings/mail/test", { method: "POST" }),
+  /** Instance administrator only: proves Settings → Storage works. */
+  testStorage: () =>
+    request<{ ok: true; where: string }>("/settings/storage/test", { method: "POST" }),
+  /** Instance administrator only: puts apps unused for at least `days` days to sleep now. */
+  sleepAppsNow: (days: number) =>
+    request<{ slept: number }>("/settings/storage/sleep-now", {
+      method: "POST",
+      body: JSON.stringify({ days }),
+    }),
 
   /** Instance administrator only. Takes effect on the agent's next restart. */
   uploadSkill: (input: UploadSkillInput) =>

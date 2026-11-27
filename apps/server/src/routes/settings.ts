@@ -5,16 +5,36 @@ import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { MailService } from "../services/mail.js";
 import type { SettingsService } from "../services/settings.js";
+import { sleepAppsNow, testStorage } from "../services/storage/config.js";
 
 export function registerSettingsRoutes(
   app: FastifyInstance,
-  deps: { settings: SettingsService; access: AccessControl; store: Store; mail: MailService },
+  deps: {
+    settings: SettingsService;
+    access: AccessControl;
+    store: Store;
+    mail: MailService;
+    /** Where idle apps are put to sleep (absent when the apps are on another machine). */
+    usage?: { sleepIdle(options: { days?: number }): Promise<number> };
+  },
 ): void {
   /** Settings → Email: signs in to the mail server and sends the admin a short message. */
   app.post("/api/settings/mail/test", async (request) => {
     const user = deps.access.requireInstanceAdmin(request);
     await deps.mail.test(user.email);
     return { ok: true, to: user.email };
+  });
+
+  /** Settings → Storage: writes, reads and deletes a small file there, and says plainly what is wrong. */
+  app.post("/api/settings/storage/test", async (request) => {
+    deps.access.requireInstanceAdmin(request);
+    return await testStorage(deps.settings);
+  });
+
+  /** Settings → Storage: puts apps not used for at least `days` days to sleep now (0: every app not in use). */
+  app.post("/api/settings/storage/sleep-now", async (request) => {
+    deps.access.requireInstanceAdmin(request);
+    return await sleepAppsNow(deps.settings, deps.usage, request.body);
   });
 
   app.get("/api/settings", async (request) => {

@@ -16,6 +16,9 @@ import {
  * events and can `for await` over a turn.
  */
 export class AgentClient {
+  /** Runs before the agent is sent to an app (a sleeping app wakes first: storage/app-sleep.ts). */
+  beforeProject?: (projectId: string) => Promise<void>;
+
   constructor(private readonly baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
   }
@@ -96,6 +99,7 @@ export class AgentClient {
     stack?: string;
     agentSkill?: string;
   }): Promise<AgentSessionState> {
+    await this.beforeProject?.(input.projectId);
     const response = await fetch(`${this.baseUrl}/sessions`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -172,6 +176,7 @@ export class AgentClient {
     stack?: string;
     agentSkill?: string;
   }): Promise<AgentSessionState> {
+    await this.beforeProject?.(input.projectId);
     const existing = await fetch(`${this.baseUrl}/sessions/${input.sessionId}/state`, {
       signal: AbortSignal.timeout(5000),
     }).catch(() => null);

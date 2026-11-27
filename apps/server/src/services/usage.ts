@@ -18,6 +18,7 @@ import {
 import type { Store } from "@zelyq/db";
 import { z } from "zod";
 import type { ProductActivity } from "./product-activity.js";
+import type { SleepRecord } from "./storage/app-sleep.js";
 
 /**
  * What each team uses, and what its plan allows.
@@ -221,7 +222,11 @@ export class UsageService {
     }, MEASURE_EVERY_MS);
     this.timer.unref();
     this.cleanTimer = setInterval(
-      () => void this.cleanIdle().catch(() => undefined),
+      () =>
+        void this.cleanIdle()
+          .catch(() => undefined)
+          .then(() => this.sleepIdle())
+          .catch(() => undefined),
       CLEAN_EVERY_MS,
     );
     this.cleanTimer.unref();
@@ -247,6 +252,23 @@ export class UsageService {
   managed = false;
   /** How many idle days before clearing (Server settings); 0: never. */
   idleDays?: () => Promise<number>;
+
+  /** Where idle apps sleep, when the server has storage (storage/app-sleep.ts). */
+  sleeper?: {
+    sleep(
+      projectId: string,
+      options: { stillIdle: () => Promise<boolean>; prepare?: () => Promise<void> },
+    ): Promise<SleepRecord | null>;
+    asleep(projectId: string): Promise<SleepRecord | null>;
+    ensureAwake(projectId: string): Promise<void>;
+    tidy(): Promise<void>;
+  };
+  /** Whether an app's preview is stopped (not running, not starting): set by the app. */
+  previewStopped?: (projectId: string) => Promise<boolean>;
+  /** How many idle days before an app sleeps (Server settings → Storage); 0: never, or no storage. */
+  sleepDays?: () => Promise<number>;
+  /** Something went wrong putting an app to sleep: it stays here, and is tried again next time. */
+  onSleepProblem?: (projectId: string, error: unknown) => void;
 
   /** Told of every use, unthrottled (idle previews, preview-idle.ts). */
   onUse?: (projectId: string) => void;
@@ -297,6 +319,7 @@ export class UsageService {
     for (const team of await this.store.teams.listAll()) {
       for (const project of await this.store.projects.listForTeams([team.id], 100_000)) {
         if ((await this.lastUsed(project.id, project.updatedAt)) > cutoff) continue;
+        if (await this.sleeper?.asleep(project.id)) continue;
         if (await this.previewRunning?.(project.id).catch(() => true)) continue;
         if (await this.appBusy?.(project.id).catch(() => true)) continue;
         const root = path.join(this.paths.workspaceDir, project.id);
@@ -331,6 +354,58 @@ export class UsageService {
     // What each team uses has changed.
     this.measured.clear();
     return report;
+  }
+
+  /**
+   * Moves apps nobody has used for the set days to the server's storage. Its installed packages
+   * are cleared first (they come back by themselves); its own files, undo points and chat
+   * attachments go. Skips an app whose preview runs or whose agent works. Returns how many slept.
+   */
+  async sleepIdle(options: { days?: number } = {}): Promise<number> {
+    // An admin's "now" may give any days, 0 included (every app not in use); the timer uses the setting.
+    const set = (await this.sleepDays?.()) ?? 0;
+    const days = options.days ?? set;
+    if (!this.sleeper || !this.paths.workspaceDir || (set <= 0 && options.days === undefined))
+      return 0;
+    if (days < 0) return 0;
+    const cutoff = Date.now() - days * DAY_MS;
+    await this.sleeper.tidy().catch((error) => this.onSleepProblem?.("", error));
+    let slept = 0;
+    for (const team of await this.store.teams.listAll()) {
+      for (const project of await this.store.projects.listForTeams([team.id], 100_000)) {
+        if (await this.sleeper.asleep(project.id)) continue;
+        const idle = async () =>
+          (await this.lastUsed(project.id, project.updatedAt)) <= cutoff &&
+          (this.previewStopped
+            ? await this.previewStopped(project.id).catch(() => false)
+            : !(await this.previewRunning?.(project.id).catch(() => true))) &&
+          !(await this.appBusy?.(project.id).catch(() => true));
+        if (!(await idle())) continue;
+        try {
+          const record = await this.sleeper.sleep(project.id, {
+            stillIdle: idle,
+            // Under the app's lock: nothing is installing while its packages go.
+            prepare: () => this.clearPackages(project.id),
+          });
+          if (record) slept += 1;
+        } catch (error) {
+          this.onSleepProblem?.(project.id, error);
+        }
+      }
+    }
+    if (slept > 0) this.measured.clear();
+    return slept;
+  }
+
+  /** An app's installed packages and build caches, removed (they come back with its next preview). */
+  private async clearPackages(projectId: string): Promise<void> {
+    if (!this.paths.workspaceDir) return;
+    const root = path.join(this.paths.workspaceDir, projectId);
+    for (const relative of await this.clearableFolders(root)) {
+      await fs
+        .rm(path.join(root, relative), { recursive: true, force: true })
+        .catch(() => undefined);
+    }
   }
 
   /** The folders under an app that may go, outermost only, git-kept ones left out. */
@@ -590,6 +665,9 @@ export class UsageService {
     options: { keepUndo?: number; attachments?: boolean; look?: boolean },
   ): Promise<FreeSpaceResult> {
     const look = options.look === true;
+    // A sleeping app: freeing space wakes it (what it frees is then real); looking counts what it took.
+    const asleep = await this.sleeper?.asleep(projectId).catch(() => null);
+    if (asleep && !look) await this.sleeper?.ensureAwake(projectId);
     let freed = 0;
     let undoPointsRemoved = 0;
     if (options.keepUndo !== undefined && this.paths.workspaceDir) {
@@ -613,7 +691,7 @@ export class UsageService {
     let attachmentsRemoved = false;
     if (options.attachments) {
       const dir = path.join(this.paths.attachmentsDir, projectId);
-      const size = await folderBytes(dir, false);
+      const size = asleep && look ? (asleep.bytes.attachments ?? 0) : await folderBytes(dir, false);
       if (look) {
         freed += size;
         attachmentsRemoved = size > 0;
@@ -730,13 +808,21 @@ export class UsageService {
       let attachments = 0;
       const perApp: Measured["perApp"] = [];
       for (const project of projects) {
-        const files = this.paths.workspaceDir
-          ? await folderBytes(path.join(this.paths.workspaceDir, project.id), true)
-          : 0;
-        const undo = this.paths.workspaceDir
-          ? await folderBytes(path.join(this.paths.workspaceDir, ".snapshots", project.id), false)
-          : 0;
-        const sent = await folderBytes(path.join(this.paths.attachmentsDir, project.id), false);
+        // Asleep in storage: what it took when it went, still the team's.
+        const asleep = await this.sleeper?.asleep(project.id).catch(() => null);
+        const files = asleep
+          ? (asleep.bytes.app ?? 0)
+          : this.paths.workspaceDir
+            ? await folderBytes(path.join(this.paths.workspaceDir, project.id), true)
+            : 0;
+        const undo = asleep
+          ? (asleep.bytes.undo ?? 0)
+          : this.paths.workspaceDir
+            ? await folderBytes(path.join(this.paths.workspaceDir, ".snapshots", project.id), false)
+            : 0;
+        const sent = asleep
+          ? (asleep.bytes.attachments ?? 0)
+          : await folderBytes(path.join(this.paths.attachmentsDir, project.id), false);
         apps += files;
         undoPoints += undo;
         attachments += sent;

@@ -119,6 +119,11 @@ const GROUPS: Array<{ name: string; description: string }> = [
     description: "Where runs-on: local pipelines run, and how long runs and artifacts are kept.",
   },
   {
+    name: "Storage",
+    description:
+      "Where apps nobody has opened for a while are kept, so this server's disk holds only the apps in use. Any S3-compatible bucket (Amazon S3, Google Cloud Storage, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, Hetzner, MinIO) or a folder such as a mounted drive. Off: everything stays on this server's disk.",
+  },
+  {
     name: "Ops",
     description:
       "Ops, the team's DevOps engineer. It uses the provider above; its model can differ from the one that builds apps.",
@@ -637,6 +642,120 @@ const DEFINITIONS: Definition[] = [
     envVar: "ZELYQ_CLEAN_IDLE_AFTER_DAYS",
     envOverridable: true,
     fallback: "14",
+  },
+  {
+    key: "storageKind",
+    label: "Keep sleeping apps in",
+    description:
+      "Off keeps every app on this server's disk. A bucket or a folder lets apps nobody has opened for a while sleep there; they wake by themselves when someone opens them. Use Test storage after saving.",
+    kind: "select",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE",
+    envOverridable: true,
+    fallback: "off",
+    options: [
+      { value: "off", label: "Off: this server's disk only" },
+      { value: "s3", label: "An S3-compatible bucket" },
+      { value: "folder", label: "A folder (a mounted drive)" },
+    ],
+  },
+  {
+    key: "storageEndpoint",
+    label: "Bucket address",
+    description:
+      "Empty for Amazon S3. Google Cloud Storage: https://storage.googleapis.com. Cloudflare R2: https://<account id>.r2.cloudflarestorage.com. Backblaze, Wasabi, DigitalOcean, Hetzner, MinIO: the S3 address their console shows.",
+    kind: "text",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE_ENDPOINT",
+    envOverridable: true,
+    fallback: "",
+    placeholder: "https://storage.googleapis.com",
+  },
+  {
+    key: "storageRegion",
+    label: "Region",
+    description:
+      "The region the bucket was made in, such as eu-central-1 or europe-west3. Cloudflare R2: auto.",
+    kind: "text",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE_REGION",
+    envOverridable: true,
+    fallback: "auto",
+  },
+  {
+    key: "storageBucket",
+    label: "Bucket name",
+    description:
+      "Make the bucket first, in your provider's console. Keep it private: Zelyq never makes anything in it public.",
+    kind: "text",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE_BUCKET",
+    envOverridable: true,
+    fallback: "",
+  },
+  {
+    key: "storageAccessKeyId",
+    label: "Access key ID",
+    description:
+      "A key that may read, write and delete in this bucket only. Google Cloud Storage: an HMAC key of a service account.",
+    kind: "text",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE_ACCESS_KEY_ID",
+    envOverridable: true,
+    fallback: "",
+  },
+  {
+    key: "storageSecretAccessKey",
+    label: "Secret access key",
+    description: "Stored encrypted.",
+    kind: "secret",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE_SECRET_ACCESS_KEY",
+    fallback: "",
+    secret: true,
+  },
+  {
+    key: "storagePrefix",
+    label: "Folder in the bucket",
+    description:
+      "Everything Zelyq stores goes under this name, so one bucket can also hold other things.",
+    kind: "text",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE_PREFIX",
+    envOverridable: true,
+    fallback: "zelyq",
+  },
+  {
+    key: "storagePathStyle",
+    label: "Bucket name in the path",
+    description: "On for MinIO and most stores you run yourself; off for the big providers.",
+    kind: "boolean",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE_PATH_STYLE",
+    envOverridable: true,
+    fallback: "false",
+  },
+  {
+    key: "storageFolder",
+    label: "Folder",
+    description:
+      'With "A folder": where on this machine, such as /mnt/zelyq-archive. Zelyq must be able to write there.',
+    kind: "text",
+    group: "Storage",
+    envVar: "ZELYQ_STORAGE_FOLDER",
+    envOverridable: true,
+    fallback: "",
+  },
+  {
+    key: "sleepIdleAppsAfterDays",
+    label: "Put idle apps to sleep after (days)",
+    description:
+      "An app nobody has opened, talked to or previewed for this many days is packed up and moved to the storage above, with its undo points and chat attachments, and removed from this disk. It wakes by itself the next time anyone opens it, which takes a few seconds. It still counts towards its team's storage. 0: never.",
+    kind: "number",
+    group: "Storage",
+    envVar: "ZELYQ_SLEEP_IDLE_APPS_AFTER_DAYS",
+    envOverridable: true,
+    fallback: "7",
   },
   {
     key: "containerEgressAllowlist",

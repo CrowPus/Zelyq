@@ -109,6 +109,8 @@ import { resolveSecretKey, SecretBox } from "./services/secrets.js";
 import { SettingsService } from "./services/settings.js";
 import { SkillUploadService } from "./services/skill-uploads.js";
 import { SpeechService } from "./services/speech.js";
+import { AppSleep, wakingRuntime } from "./services/storage/app-sleep.js";
+import { storageConfig } from "./services/storage/config.js";
 import { SupabaseBridge } from "./services/supabase-bridge.js";
 import { SupabaseConnectionService } from "./services/supabase-connections.js";
 import { SupportService } from "./services/support.js";
@@ -206,8 +208,27 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   });
 
   const store = createStore(config.databaseUrl);
-  const runtime = createRuntimeDriver(config.runtime);
+  // Apps nobody has opened for a while can sleep in a bucket or a folder (Server settings →
+  // Storage); every way into an app wakes it first. Only where the apps are on this machine.
+  const workspaceDir =
+    config.runtime.kind === "remote"
+      ? null
+      : ((config.runtime as { workspaceDir?: string }).workspaceDir ?? null);
+  const appSleep = workspaceDir
+    ? new AppSleep({
+        store,
+        workspaceDir,
+        attachmentsDir: config.attachmentsDir,
+        config: () => storageConfig(settings),
+        log: (message) => app.log.info(message),
+      })
+    : null;
+  const runtime = appSleep
+    ? wakingRuntime(createRuntimeDriver(config.runtime), appSleep)
+    : createRuntimeDriver(config.runtime);
   const agent = new AgentClient(config.agentUrl);
+  // The agent reads an app's files itself: it is woken before the agent is sent to it.
+  if (appSleep) agent.beforeProject = (projectId) => appSleep.ensureAwake(projectId);
   const projects = new ProjectService(store, runtime, config);
   const thumbnails = new ThumbnailStore(
     path.join(path.dirname(config.attachmentsDir), "thumbnails"),
@@ -513,14 +534,43 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     await Promise.all([imageAssets.removeUser(id), videoAssets.removeUser(id)]);
   });
   const attachments = new AttachmentService(config.attachmentsDir);
+  // Attachments sleep with their app: reading or adding one wakes it first.
+  if (appSleep) attachments.guard = (projectId, work) => appSleep.during(projectId, work);
   // What each team uses, and what its plan allows (one plan, Unlimited, until an admin sets more).
   const usage = new UsageService(store, {
-    workspaceDir:
-      config.runtime.kind === "remote"
-        ? null
-        : ((config.runtime as { workspaceDir?: string }).workspaceDir ?? null),
+    workspaceDir,
     attachmentsDir: config.attachmentsDir,
   });
+  if (appSleep) {
+    usage.sleeper = appSleep;
+    usage.sleepDays = async () => {
+      try {
+        return (await appSleep.storage())
+          ? await settings.numberValue("sleepIdleAppsAfterDays")
+          : 0;
+      } catch (error) {
+        app.log.warn(
+          { err: error },
+          "Server settings → Storage cannot work, so no app is put to sleep until it is fixed.",
+        );
+        return 0;
+      }
+    };
+    usage.previewStopped = async (projectId) =>
+      (await runtime.previewStatus(projectId)).status === "stopped";
+    // Only a fully stopped preview: a "crashed" one may still have parts running.
+    // A restart in the middle of a sleep or a wake leaves nothing half-done.
+    void appSleep
+      .tidy()
+      .catch((error) =>
+        app.log.warn({ err: error }, "Tidying after an unfinished sleep or wake failed."),
+      );
+    usage.onSleepProblem = (projectId, error) =>
+      app.log.warn(
+        { projectId, err: error },
+        "An idle app could not be put to sleep; it stays on this disk and is tried again later.",
+      );
+  }
   usage.previewRunning = async (projectId) =>
     (await runtime.previewStatus(projectId)).status === "running";
   usage.onUse = (projectId) => previewIdle.seen(projectId);
@@ -657,7 +707,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     sessionTtlDays: () => settings.numberValue("sessionTtlDays"),
   });
   registerAccountRoutes(app, { accounts, auth, access });
-  registerSettingsRoutes(app, { settings, access, store, mail });
+  registerSettingsRoutes(app, { settings, access, store, mail, ...(appSleep ? { usage } : {}) });
   registerSkillRoutes(app, { skillUploads, access });
   registerProviderRoutes(app, { agent, access, settings });
   registerPlanRoutes(app, { usage, access, store });
@@ -731,6 +781,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
   const adminKeys = new AdminKeyService(store);
   adminKeys.onKeysChanged = () => eventsOut.keysChanged();
   registerAdminApi(app, {
+    sleepsApps: Boolean(appSleep),
     settings,
     adminKeys,
     eventsOut,

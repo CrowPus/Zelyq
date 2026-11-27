@@ -160,6 +160,7 @@ Two things hold state:
 | Generated images | `ZELYQ_IMAGE_ASSETS_DIR` | Volume snapshot or `rsync` |
 | Generated videos | `ZELYQ_VIDEO_ASSETS_DIR` | Volume snapshot or `rsync` — the largest of these by far |
 | Encryption key | `ZELYQ_SECRET_KEY` / `ZELYQ_SECRET_KEY_FILE` | Your secret store — without it, stored API keys and every project's **Vault** secrets cannot be read |
+| Sleeping apps | Server settings → Storage | Only when storage is set up: the bucket's own versioning or a copy of the folder ([storage.md](./storage.md)) |
 
 Do not back up SQLite by copying `zelyq.db`. It runs in WAL mode, so recent writes sit in
 `zelyq.db-wal` until SQLite folds them into the main file, and a copy of `zelyq.db` alone can be
