@@ -232,6 +232,11 @@ function commandEnv(): NodeJS.ProcessEnv {
   for (const [key, value] of Object.entries(process.env)) {
     if (!key.startsWith("ZELYQ_RUNNER_") && !key.startsWith("NODE_")) env[key] = value;
   }
+  // Windows: each PowerShell finds its own modules, as in a fresh session from Windows' SSH server.
+  // A list left by PowerShell 7 hides Windows PowerShell's own commands (Get-FileHash, …).
+  if (WINDOWS) {
+    for (const key of Object.keys(env)) if (key.toLowerCase() === "psmodulepath") delete env[key];
+  }
   return env;
 }
 

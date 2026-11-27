@@ -53,20 +53,24 @@ async function until<T>(what: () => Promise<T | null | undefined | false>, ms: n
  * Runs the command the way a person pastes it: a shell on Linux and macOS, PowerShell on Windows.
  * Not spawnSync: the Zelyq it installs from runs in this process and must keep answering.
  */
-function paste(script: string): Promise<{ code: number | null; out: string }> {
-  const child =
-    here === "windows"
-      ? spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"])
-      : spawn("bash", ["-c", script]);
+async function paste(script: string): Promise<{ code: number | null; out: string }> {
+  let child: ReturnType<typeof spawn>;
+  if (here === "windows") {
+    // A file, not standard input: PowerShell reads input line by line and would not run the block.
+    const file = path.join(tmp, `install-${Date.now()}.ps1`);
+    await fs.writeFile(file, script);
+    child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file]);
+  } else {
+    child = spawn("bash", ["-c", script]);
+  }
   let out = "";
-  child.stdout.on("data", (chunk) => {
+  child.stdout?.on("data", (chunk) => {
     out += chunk;
   });
-  child.stderr.on("data", (chunk) => {
+  child.stderr?.on("data", (chunk) => {
     out += chunk;
   });
-  if (here === "windows") child.stdin.end(script);
-  else child.stdin.end();
+  child.stdin?.end();
   const timer = setTimeout(() => child.kill(), 600_000);
   return new Promise((resolve) => {
     child.on("close", (code) => {
@@ -216,7 +220,7 @@ test(`the install command makes this ${here} machine a runner`, { skip: !enabled
     const log = (await call("GET", team(`/pipeline-runs/${runId}/logs?after=0`))).json();
     return { run, log: log.lines.map((line: { text: string }) => line.text).join("\n") as string };
   }, 180_000);
-  assert.equal(done.run.status, "succeeded", done.log);
+  assert.equal(done.run.status, "passed", done.log);
   assert.match(done.log, /ran-as-runner/);
 
   // Pasting it again (a new code) reinstalls it over the one already there.
