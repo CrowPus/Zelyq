@@ -190,7 +190,7 @@ export function ProjectEditorPage() {
 
   if (project.isLoading) {
     return (
-      <AppShell crumbs={[{ label: t("Build") }]} app={{ id, name: "…" }}>
+      <AppShell crumbs={[{ label: t("Build") }]} app={{ id, name: "…" }} texture={false}>
         <div className="grid h-full place-items-center">
           <Spinner label={t("Opening the app")} />
         </div>
@@ -232,7 +232,7 @@ export function ProjectEditorPage() {
   };
 
   return (
-    <AppShell crumbs={[{ label: t("Build") }]} app={shellApp}>
+    <AppShell crumbs={[{ label: t("Build") }]} app={shellApp} texture={false}>
       {/* The one thank-you, the first time their app is up and the agent is done. */}
       <StarMoment appRunning={preview.data?.preview?.status === "running" && !chat.busy} />
       {canEdit && (
