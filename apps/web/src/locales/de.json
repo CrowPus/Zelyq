@@ -1321,7 +1321,11 @@
   "Nothing of it runs there now. A pipeline’s deploy step puts it there.": "Davon läuft dort gerade nichts. Der Deploy-Schritt einer Pipeline bringt es dorthin.",
   "Nothing recorded yet.": "Noch nichts aufgezeichnet.",
   "Nothing starts this pipeline on its own yet.": "Noch startet nichts diese Pipeline von selbst.",
-  "Nothing to open on it: no public address, no SSH port. It keeps one HTTPS connection to Zelyq. Best for production servers and machines behind a firewall. Linux.": "Auf ihr muss nichts geöffnet werden: keine öffentliche Adresse, kein SSH-Port. Sie hält eine HTTPS-Verbindung zu Zelyq. Ideal für Produktionsserver und Maschinen hinter einer Firewall. Linux.",
+  "The machine’s system": "Betriebssystem der Maschine",
+  "Nothing to open on it: no public address, no SSH port. It keeps one HTTPS connection to Zelyq. Best for production servers and machines behind a firewall. Linux, macOS or Windows.": "Nichts muss darauf geöffnet werden: keine öffentliche Adresse, kein SSH-Port. Sie hält eine einzige HTTPS-Verbindung zu Zelyq. Am besten für Produktionsserver und Maschinen hinter einer Firewall. Linux, macOS oder Windows.",
+  "Paste this once in PowerShell, opened with Run as administrator. It makes the runner’s user, installs the runner as a task that starts with the machine, and registers the machine’s own key with Zelyq. The machine only needs to reach {url} over HTTPS: nothing on it is opened.": "Fügen Sie dies einmal in PowerShell ein, gestartet mit „Als Administrator ausführen“. Es legt den Benutzer des Runners an, installiert den Runner als Aufgabe, die mit der Maschine startet, und registriert den eigenen Schlüssel der Maschine bei Zelyq. Die Maschine muss nur {url} über HTTPS erreichen: Darauf wird nichts geöffnet.",
+  "Paste this once in Terminal, as a user who can use sudo. It makes the runner’s user (hidden from the login window), installs the runner as a service that starts with the Mac, and registers the machine’s own key with Zelyq. The Mac only needs to reach {url} over HTTPS: nothing on it is opened.": "Fügen Sie dies einmal im Terminal ein, als Benutzer, der sudo verwenden darf. Es legt den Benutzer des Runners an (im Anmeldefenster ausgeblendet), installiert den Runner als Dienst, der mit dem Mac startet, und registriert den eigenen Schlüssel der Maschine bei Zelyq. Der Mac muss nur {url} über HTTPS erreichen: Darauf wird nichts geöffnet.",
+  "To see it running on the machine: {command}": "So sehen Sie ihn auf der Maschine laufen: {command}",
   "Nothing to watch yet": "Noch nichts zu beobachten",
   "Nothing uses it.": "Nichts verwendet es.",
   "Nothing waiting for approval.": "Nichts wartet auf Freigabe.",
@@ -3104,5 +3108,6 @@
   "Move idle images and videos to storage after (days)": "Ruhende Bilder und Videos in den Speicher verschieben nach (Tagen)",
   "This file is kept in storage and could not be fetched: {0} (Server settings → Storage).": "Diese Datei liegt im Speicher und konnte nicht geholt werden: {0} (Servereinstellungen → Speicher).",
   "This file is kept in the storage this server used before. Set that storage up again under Server settings → Storage to open it.": "Diese Datei liegt in dem Speicher, den dieser Server vorher benutzt hat. Richten Sie diesen Speicher unter Servereinstellungen → Speicher wieder ein, um sie zu öffnen.",
-  "This file is kept in storage and could not be fetched: {0}": "Diese Datei liegt im Speicher und konnte nicht geholt werden: {0}"
+  "This file is kept in storage and could not be fetched: {0}": "Diese Datei liegt im Speicher und konnte nicht geholt werden: {0}",
+  "If Docker Desktop is installed, the user joins docker-users so pipelines can use Docker. That is as powerful as an administrator on the machine: use a machine for this runner alone.": "Ist Docker Desktop installiert, tritt der Benutzer docker-users bei, damit Pipelines Docker verwenden können. Das ist so mächtig wie ein Administrator auf der Maschine: Verwenden Sie eine Maschine nur für diesen Runner."
 }

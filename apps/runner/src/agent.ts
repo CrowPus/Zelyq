@@ -12,7 +12,8 @@
  * of its own. Its key is made here and never leaves the machine; Zelyq knows only the public half.
  *
  * What it does with a command is what an SSH server does: `$SHELL -c <command>` as this user, in the
- * home folder, with the output streamed back. A command stops when Zelyq says so, and every command
+ * home folder, with the output streamed back. On Windows, as Windows' own OpenSSH server does, the
+ * command runs in cmd.exe: Zelyq's Windows commands are written for it. A command stops when Zelyq says so, and every command
  * stops when the connection to Zelyq is lost (nobody is listening to it any more).
  */
 import { type ChildProcess, spawn } from "node:child_process";
@@ -24,7 +25,16 @@ import {
   type KeyObject,
   sign,
 } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -98,8 +108,45 @@ function stateDir(): string {
   return process.env.ZELYQ_RUNNER_HOME || path.join(os.homedir(), ".zelyq-runner");
 }
 
+/** Where the log also goes (`run --log <file>`): a Windows task has no screen to print to. */
+let logFile: string | null = null;
+const LOG_LIMIT = 1024 * 1024;
+
 function log(line: string): void {
-  process.stdout.write(`${new Date().toISOString()} ${line}\n`);
+  const text = `${new Date().toISOString()} ${line}\n`;
+  process.stdout.write(text);
+  if (!logFile) return;
+  try {
+    // One old file is kept beside it, so the log never grows past twice the limit.
+    if (existsSync(logFile) && statSync(logFile).size > LOG_LIMIT)
+      renameSync(logFile, `${logFile}.old`);
+    appendFileSync(logFile, text);
+  } catch {
+    // A log that cannot be written must not stop the runner.
+  }
+}
+
+const WINDOWS = process.platform === "win32";
+
+/**
+ * How a command starts. Windows: in cmd.exe, the way Windows OpenSSH starts it, with the command
+ * passed as written (`/s /c "…"` keeps its own quotes). Elsewhere: `$SHELL -c`, in a process group
+ * of its own so a stop reaches what it started.
+ */
+export function commandLine(
+  command: string,
+  shell: string,
+  platform: NodeJS.Platform = process.platform,
+): { file: string; args: string[]; windowsVerbatimArguments: boolean; detached: boolean } {
+  if (platform === "win32") {
+    return {
+      file: process.env.ComSpec || "cmd.exe",
+      args: ["/d", "/s", "/c", `"${command}"`],
+      windowsVerbatimArguments: true,
+      detached: false,
+    };
+  }
+  return { file: shell, args: ["-c", command], windowsVerbatimArguments: false, detached: true };
 }
 
 /**
@@ -185,11 +232,28 @@ function commandEnv(): NodeJS.ProcessEnv {
   for (const [key, value] of Object.entries(process.env)) {
     if (!key.startsWith("ZELYQ_RUNNER_") && !key.startsWith("NODE_")) env[key] = value;
   }
+  // Windows: each PowerShell finds its own modules, as in a fresh session from Windows' SSH server.
+  // A list left by PowerShell 7 hides Windows PowerShell's own commands (Get-FileHash, …).
+  if (WINDOWS) {
+    for (const key of Object.keys(env)) if (key.toLowerCase() === "psmodulepath") delete env[key];
+  }
   return env;
 }
 
 function stopTree(child: ChildProcess, signal: NodeJS.Signals): void {
   if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  if (WINDOWS) {
+    // Windows has no process groups to signal: taskkill /T ends the command and what it started.
+    try {
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      }).on("error", () => child.kill(signal));
+    } catch {
+      child.kill(signal);
+    }
+    return;
+  }
   try {
     // detached: the command leads its own process group, so its children stop with it.
     process.kill(-child.pid, signal);
@@ -351,10 +415,16 @@ export class Link {
   private exec(id: number, command: string, hasStdin: boolean): void {
     let child: ChildProcess;
     try {
-      child = spawn(this.shell, ["-c", command], {
+      // Running the command it is sent is this program's job, as it is an SSH server's. It comes
+      // only from the Zelyq this runner registered with: over verified HTTPS, on a connection the
+      // runner signed into with its own key (see "hello" above), and as the runner's own user.
+      const line = commandLine(command, this.shell);
+      child = spawn(line.file, line.args, {
         cwd: os.homedir(),
         env: commandEnv(),
-        detached: true,
+        detached: line.detached,
+        windowsVerbatimArguments: line.windowsVerbatimArguments,
+        windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
       });
     } catch (error) {
@@ -504,11 +574,13 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (command === "run") {
+    const log = parseArgs(rest).get("log");
+    if (log) logFile = path.resolve(log);
     await run();
     return 0;
   }
   process.stderr.write(
-    "Usage: zelyq-runner register --url https://… --code …   |   zelyq-runner run   |   zelyq-runner --version\n",
+    "Usage: zelyq-runner register --url https://… --code …   |   zelyq-runner run [--log <file>]   |   zelyq-runner --version\n",
   );
   return 2;
 }

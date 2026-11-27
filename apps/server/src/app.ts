@@ -194,6 +194,9 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
         : { target: "pino-pretty", options: { colorize: true } },
     },
     bodyLimit: 16 * 1024 * 1024,
+    // Start-up work (moving settings and secrets on the database) can take more than Fastify's 10 s
+    // on a slow disk, a cheap VM or Windows: wait for it rather than refuse to start.
+    pluginTimeout: 60_000,
     // Behind a TLS-terminating proxy this is what makes `request.protocol`
     // report the scheme the browser used, which is what decides whether the
     // session cookie is marked `Secure` (see routes/auth.ts). Without it an

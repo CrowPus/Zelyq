@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type LocalRunnerStatus,
+  RUNNER_AGENT_SERVICE,
+  RUNNER_OS,
   RUNNER_USER,
   type RunnerAgentInstall,
   type RunnerOs,
@@ -40,6 +42,7 @@ import {
   FieldLabel,
   IconButton,
   Input,
+  SegmentedControl,
   Spinner,
 } from "../ui";
 
@@ -261,21 +264,12 @@ function TeamKey({ teamId, mode }: { teamId: string; mode: "setup" | "manage" })
               "Paste this once on the machine, as a user who can use sudo (on Windows: PowerShell, Run as administrator). It creates the runner’s user, lets this team’s key in, and joins the docker group if Docker is there. Running it again is safe.",
             )}
           </p>
+          <div className="mb-2">
+            <OsChoice value={os} onChange={setOs} />
+          </div>
           <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
-            <div className="flex gap-1">
-              {(["linux", "macos", "windows"] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setOs(value)}
-                  className={`rounded px-2 py-0.5 ${os === value ? "bg-surface-hover font-medium" : "text-fg-secondary"}`}
-                >
-                  {OS_LABEL[value]}
-                </button>
-              ))}
-            </div>
             <span className="flex items-center gap-1">
-              {t("User to create")}
+              <span className="whitespace-nowrap">{t("User to create")}</span>
               <Input
                 aria-label={t("User to create")}
                 value={user}
@@ -341,6 +335,19 @@ function TeamKey({ teamId, mode }: { teamId: string; mode: "setup" | "manage" })
   );
 }
 
+/** Which system the machine runs: the command to paste depends on it. */
+function OsChoice({ value, onChange }: { value: RunnerOs; onChange: (os: RunnerOs) => void }) {
+  return (
+    <SegmentedControl
+      size="sm"
+      label={t("The machine’s system")}
+      value={value}
+      onValueChange={onChange}
+      options={RUNNER_OS.map((os) => ({ value: os, label: OS_LABEL[os] }))}
+    />
+  );
+}
+
 /** The two kinds of runner, the way GitHub Actions and GitLab offer the first. */
 function KindChooser({
   onPick,
@@ -360,7 +367,7 @@ function KindChooser({
             </span>
           }
           description={t(
-            "Nothing to open on it: no public address, no SSH port. It keeps one HTTPS connection to Zelyq. Best for production servers and machines behind a firewall. Linux.",
+            "Nothing to open on it: no public address, no SSH port. It keeps one HTTPS connection to Zelyq. Best for production servers and machines behind a firewall. Linux, macOS or Windows.",
           )}
           footer={
             <Button size="sm" variant="primary" onClick={() => onPick("agent")}>
@@ -491,22 +498,37 @@ function AgentRunnerForm({
 
 /** The command that installs the runner on the machine, with its one-time code. */
 function AgentInstall({ install, onDone }: { install: RunnerAgentInstall; onDone: () => void }) {
+  const [os, setOs] = useState<RunnerOs>("linux");
   const [user, setUser] = useState("zelyq");
   const [admin, setAdmin] = useState(false);
   const userOk = RUNNER_USER.test(user);
-  const command = userOk ? runnerAgentSetupScript({ user, admin, install }) : "";
+  const command = userOk ? runnerAgentSetupScript({ os, user, admin, install }) : "";
+  const url = <span className="font-mono">{install.url}</span>;
   return (
     <div className="grid gap-2 text-xs">
       <p className="font-medium">{t("Install it on the machine")}</p>
       <p className="text-fg-secondary">
-        {t(
-          "Paste this once on the machine (Linux with systemd), as a user who can use sudo. It makes the runner’s user, installs the runner as a service that starts with the machine, and registers the machine’s own key with Zelyq. The machine only needs to reach {url} over HTTPS: nothing on it is opened.",
-          { url: <span className="font-mono">{install.url}</span> },
-        )}
+        {os === "windows"
+          ? t(
+              "Paste this once in PowerShell, opened with Run as administrator. It makes the runner’s user, installs the runner as a task that starts with the machine, and registers the machine’s own key with Zelyq. The machine only needs to reach {url} over HTTPS: nothing on it is opened.",
+              { url },
+            )
+          : os === "macos"
+            ? t(
+                "Paste this once in Terminal, as a user who can use sudo. It makes the runner’s user (hidden from the login window), installs the runner as a service that starts with the Mac, and registers the machine’s own key with Zelyq. The Mac only needs to reach {url} over HTTPS: nothing on it is opened.",
+                { url },
+              )
+            : t(
+                "Paste this once on the machine (Linux with systemd), as a user who can use sudo. It makes the runner’s user, installs the runner as a service that starts with the machine, and registers the machine’s own key with Zelyq. The machine only needs to reach {url} over HTTPS: nothing on it is opened.",
+                { url },
+              )}
       </p>
+      <div>
+        <OsChoice value={os} onChange={setOs} />
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex items-center gap-1">
-          {t("User to create")}
+          <span className="whitespace-nowrap">{t("User to create")}</span>
           <Input
             aria-label={t("User to create")}
             value={user}
@@ -520,13 +542,22 @@ function AgentInstall({ install, onDone }: { install: RunnerAgentInstall; onDone
             checked={admin}
             onChange={(event) => setAdmin(event.target.checked)}
           />
-          {t("Let it use sudo")}
+          {os === "windows" ? t("Make it an administrator") : t("Let it use sudo")}
         </label>
       </div>
       <p className="text-2xs text-fg-muted">
-        {t(
-          "If Docker is installed, the user joins the docker group so pipelines can use Docker. That is as powerful as root on the machine: use a machine for this runner alone.",
-        )}
+        {os === "windows"
+          ? t(
+              "If Docker Desktop is installed, the user joins docker-users so pipelines can use Docker. That is as powerful as an administrator on the machine: use a machine for this runner alone.",
+            )
+          : t(
+              "If Docker is installed, the user joins the docker group so pipelines can use Docker. That is as powerful as root on the machine: use a machine for this runner alone.",
+            )}
+      </p>
+      <p className="text-2xs text-fg-muted">
+        {t("To see it running on the machine: {command}", {
+          command: <span className="font-mono">{RUNNER_AGENT_SERVICE[os].status}</span>,
+        })}
       </p>
       {admin && (
         <p className="rounded bg-warning-subtle p-2 text-2xs">

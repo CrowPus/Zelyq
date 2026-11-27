@@ -118,24 +118,30 @@ the old one still holds, and the browser keeps talking to the old server.
 The machine opens one connection to Zelyq, over HTTPS, and keeps it. Zelyq sends each step down
 that connection. **Nothing on the machine is open to the internet**: no public address, no SSH
 port, no firewall rule. This is how GitHub Actions and GitLab runners work, and it is the way for
-production servers and for machines behind a firewall or NAT. Linux with systemd, for now.
+production servers and for machines behind a firewall or NAT. Linux (with systemd), macOS and
+Windows.
 
 Open **Pipelines → Runners → Add runner → The machine connects to Zelyq**. You need to be a team
 admin.
 
 1. **Name it** the way pipelines will call it (`runs-on: prod-01`), with labels if you want them.
-2. **Paste the install command** Zelyq shows, once, on the machine, as a user who can use `sudo`.
-   It:
+2. **Choose the machine's system and paste the install command** Zelyq shows, once, on the
+   machine: on Linux and macOS as a user who can use `sudo`, on Windows in PowerShell opened with
+   **Run as administrator**. It:
 
    - creates the runner's user (`zelyq` unless you choose another name) and adds it to the
-     `docker` group when Docker is installed; only if you tick it, lets it use `sudo`;
-   - installs a Node of its own in `/opt/zelyq-runner`, from nodejs.org, checked against nodejs.org's
-     published checksums;
+     `docker` group (`docker-users` on Windows) when Docker is installed; only if you tick it, lets
+     it use `sudo` (on Windows: makes it an administrator). On macOS the user is hidden from the
+     login window; on Windows it gets a long random password nobody sees;
+   - installs a Node of its own in `/opt/zelyq-runner` (Windows: `C:\Program Files\Zelyq Runner`),
+     from nodejs.org, checked against nodejs.org's published checksums;
    - downloads the runner program from your Zelyq and checks it against the checksum in the command;
    - makes the machine's own key and registers its public half with Zelyq, using the **one-time
      code** in the command. The code works once, for an hour, and is shown only then. The private
      key never leaves the machine;
-   - starts the runner as the service `zelyq-runner`, which comes back after every restart.
+   - starts the runner as that user and keeps it running, also after every restart: the systemd
+     service `zelyq-runner` on Linux, the launchd service `dev.zelyq.runner` on macOS, the scheduled
+     task **Zelyq runner** on Windows.
 
 3. Within seconds the runner shows **Online**. **Test connection** shows what the machine has.
 
@@ -154,8 +160,16 @@ machine that installs with it takes the runner over, and the one before is cut o
 
 **When the connection drops** (a restart, a network blip) the runner connects again by itself,
 waiting a little longer each time. A step that was running fails, as with a lost SSH connection; a
-run that starts while the runner is reconnecting waits up to 30 seconds for it. On the machine,
-`systemctl status zelyq-runner` and `journalctl -u zelyq-runner` say what it is doing.
+run that starts while the runner is reconnecting waits up to 30 seconds for it. On the machine:
+
+| System | Is it running? | What it is doing |
+|---|---|---|
+| Linux | `systemctl status zelyq-runner` | `journalctl -u zelyq-runner` |
+| macOS | `sudo launchctl print system/dev.zelyq.runner` | `.zelyq-runner/runner.log` in the runner user's folder |
+| Windows | `Get-ScheduledTask -TaskName 'Zelyq runner' \| Get-ScheduledTaskInfo` | `.zelyq-runner\runner.log` in the runner user's folder |
+
+On Windows the runner starts each command in `cmd.exe`, as Windows' own SSH server does, so a
+pipeline behaves the same on a Windows runner whichever way it connects.
 
 ## Adding a machine (SSH runner)
 

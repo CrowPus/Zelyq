@@ -366,16 +366,20 @@ stages:
       .trim()
       .split("\n")
       .filter(Boolean);
-    const ours = left.filter((container) =>
-      execFileSync("docker", [
-        "inspect",
-        "-f",
-        '{{index .Config.Labels "zelyq.pipeline-run"}}',
-        container,
-      ])
-        .toString()
-        .startsWith(started),
-    );
+    // A container another test is removing can be gone by the time it is inspected: not ours.
+    const ours = left.filter((container) => {
+      try {
+        return execFileSync(
+          "docker",
+          ["inspect", "-f", '{{index .Config.Labels "zelyq.pipeline-run"}}', container],
+          { stdio: ["ignore", "pipe", "ignore"] },
+        )
+          .toString()
+          .startsWith(started);
+      } catch {
+        return false;
+      }
+    });
     assert.deepEqual(ours, [], "the stages' containers were removed");
   } finally {
     await call("PUT", "/api/settings", { pipelineLocalRunner: "host" });

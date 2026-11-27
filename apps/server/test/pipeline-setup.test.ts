@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { after, test } from "node:test";
-import { runnerSetupScript } from "@zelyq/core";
+import { runnerAgentSetupScript, runnerSetupScript } from "@zelyq/core";
 import ssh2 from "ssh2";
 import { publicKeyFingerprint } from "../src/services/pipelines/keys.js";
 import { SshSession } from "../src/services/pipelines/ssh.js";
@@ -160,4 +160,55 @@ test("the command refuses a user name or key that could break it", () => {
   });
   assert.match(windows, /\$U = 'zelyq'/);
   assert.match(windows, /OpenSSH\.Server/);
+});
+
+test("the install command for a runner that connects to Zelyq fits each system", () => {
+  const install = {
+    url: "https://zelyq.example.com/",
+    code: "abc_DEF-1",
+    agentSha256: "a".repeat(64),
+    expiresAt: "2026-01-01T00:00:00Z",
+  };
+  const linux = runnerAgentSetupScript({ user: "zelyq", admin: false, install });
+  assert.match(linux, /systemctl restart zelyq-runner/);
+  assert.match(linux, /-linux-\$A\\\.tar\\\.gz/);
+  assert.equal(
+    runnerAgentSetupScript({ os: "linux", user: "zelyq", admin: false, install }),
+    linux,
+  );
+
+  const mac = runnerAgentSetupScript({ os: "macos", user: "zelyq", admin: false, install });
+  assert.match(mac, /-darwin-\$A\\\.tar\\\.gz/);
+  assert.match(mac, /shasum -a 256 -c/);
+  assert.match(mac, /launchctl bootstrap system/);
+  assert.match(mac, /<key>UserName<\/key><string>\$U<\/string>/);
+  assert.match(mac, /URL='https:\/\/zelyq\.example\.com'/);
+  assert.doesNotMatch(mac, /sudoers/);
+  assert.match(
+    runnerAgentSetupScript({ os: "macos", user: "zelyq", admin: true, install }),
+    /sudoers\.d/,
+  );
+
+  const windows = runnerAgentSetupScript({ os: "windows", user: "zelyq", admin: false, install });
+  assert.match(windows, /^# In PowerShell, opened with Run as administrator\.\n& \{/);
+  assert.match(windows, /-win-\$A\\\.zip/);
+  assert.match(windows, /Get-FileHash -Algorithm SHA256/);
+  assert.match(windows, /Register-ScheduledTask .* -RunLevel Limited/);
+  assert.doesNotMatch(windows, /-Group 'Administrators'/);
+  const admin = runnerAgentSetupScript({ os: "windows", user: "zelyq", admin: true, install });
+  assert.match(admin, /-Group 'Administrators'/);
+  assert.match(admin, /-RunLevel Highest/);
+
+  // What goes into the commands is checked first, on every system.
+  for (const os of ["linux", "macos", "windows"] as const) {
+    assert.throws(() => runnerAgentSetupScript({ os, user: "x'; rm", admin: false, install }));
+    assert.throws(() =>
+      runnerAgentSetupScript({
+        os,
+        user: "zelyq",
+        admin: false,
+        install: { ...install, code: "a'b" },
+      }),
+    );
+  }
 });

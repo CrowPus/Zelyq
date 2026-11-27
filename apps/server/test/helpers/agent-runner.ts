@@ -17,12 +17,12 @@ const agentFile = path.join(runnerDir, "dist", "agent.js");
  */
 export function runnerProgram(): string {
   if (!existsSync(agentFile)) {
+    // On Windows the command is tsc.cmd, which only a shell can start.
+    const windows = process.platform === "win32";
     execFileSync(
-      path.join(runnerDir, "node_modules", ".bin", "tsc"),
+      path.join(runnerDir, "node_modules", ".bin", windows ? "tsc.cmd" : "tsc"),
       ["-p", path.join(runnerDir, "tsconfig.json")],
-      {
-        stdio: "inherit",
-      },
+      { stdio: "inherit", shell: windows },
     );
   }
   return agentFile;
