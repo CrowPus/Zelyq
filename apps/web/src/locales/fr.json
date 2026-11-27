@@ -3052,7 +3052,6 @@
   "Most capable Gemini · hardest reasoning": "Le Gemini le plus capable · raisonnement le plus difficile",
   "Building your app…": "Création de votre app…",
   "Star Zelyq on GitHub": "Ajouter une étoile à Zelyq sur GitHub",
-  "Star Zelyq on GitHub ({count} stars)": "Ajouter une étoile à Zelyq sur GitHub ({count} étoiles)",
   "Star": "Étoile",
   "Your app is running.": "Votre app tourne.",
   "Zelyq is open source and free to host yourself. If it helped, a star on GitHub helps other builders find it.": "Zelyq est open source et gratuit à héberger vous-même. S’il vous a aidé, une étoile sur GitHub aide d’autres créateurs à le trouver.",
@@ -3062,5 +3061,7 @@
   "Show the GitHub star button": "Afficher le bouton étoile GitHub",
   "Interface": "Interface",
   "What people see around their apps": "Ce que les gens voient autour de leurs apps",
-  "What people see around their apps.": "Ce que les gens voient autour de leurs apps."
+  "What people see around their apps.": "Ce que les gens voient autour de leurs apps.",
+  "Zelyq on GitHub": "Zelyq sur GitHub",
+  "stars": "étoiles"
 }

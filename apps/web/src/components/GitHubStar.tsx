@@ -54,11 +54,6 @@ export function StarButton() {
       href={url}
       target="_blank"
       rel="noreferrer"
-      aria-label={
-        stars === null
-          ? t("Star Zelyq on GitHub")
-          : t("Star Zelyq on GitHub ({count} stars)", { count: stars })
-      }
       className="group hidden h-8 shrink-0 items-center overflow-hidden rounded-md border border-border-default bg-surface text-xs font-medium text-fg-secondary shadow-sm transition-colors hover:border-border-strong hover:text-fg md:flex"
     >
       <span className="flex h-full items-center gap-1.5 px-2.5">
@@ -69,10 +64,12 @@ export function StarButton() {
           className="transition-colors group-hover:fill-star group-hover:text-star"
         />
         {t("Star")}
+        <span className="sr-only"> {t("Zelyq on GitHub")}</span>
       </span>
       {stars !== null && (
         <span className="flex h-full items-center border-l border-border-default bg-surface-subtle px-2 tabular-nums text-fg">
           {compactCount(stars)}
+          <span className="sr-only"> {t("stars")}</span>
         </span>
       )}
     </a>
