@@ -63,6 +63,7 @@ import { AgentReferenceStore } from "./services/agent-references.js";
 import { AgentService } from "./services/agents.js";
 import { AttachmentService } from "./services/attachments.js";
 import { AuthService } from "./services/auth.js";
+import { CommunityStars, ZELYQ_REPOSITORY } from "./services/community.js";
 import { DeployService } from "./services/deploy.js";
 import { EmailLinkService } from "./services/email-links.js";
 import { EventsOut } from "./services/events-out.js";
@@ -613,6 +614,14 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       return;
     }
     reply.status(404).send({ error: { code: "not_found", message: `Not found: ${request.url}` } });
+  });
+
+  // Zelyq on GitHub: whether to show the star button, and the count (asked of GitHub by this server).
+  const community = new CommunityStars();
+  app.get("/api/community", async (request) => {
+    access.requireUser(request);
+    const show = await settings.booleanValue("showGitHubStar").catch(() => true);
+    return { showStar: show, stars: show ? await community.stars() : null, url: ZELYQ_REPOSITORY };
   });
 
   app.get("/api/health", async () => {

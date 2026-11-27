@@ -1334,6 +1334,9 @@ export const api = {
       };
     }>(`/projects/${projectId}/supabase/apply-and-verify`, { method: "POST" }),
 
+  /** Zelyq on GitHub: whether to show the star button, and the count. */
+  community: () => request<{ showStar: boolean; stars: number | null; url: string }>("/community"),
+
   health: () =>
     request<{
       status: string;

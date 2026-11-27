@@ -20,6 +20,7 @@ import {
   ServerCog,
   ShieldCheck,
   ShieldOff,
+  Sparkles,
   Trash2,
   Users,
   Workflow,
@@ -114,6 +115,11 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
     blurb: t("Transcription for the microphone"),
   },
   access: { label: t("Access"), icon: LockKeyhole, blurb: t("Who may sign in, and for how long") },
+  interface: {
+    label: t("Interface"),
+    icon: Sparkles,
+    blurb: t("What people see around their apps"),
+  },
   runtime: { label: t("Runtime"), icon: Server, blurb: t("Where app commands run") },
   pipelines: {
     label: t("Pipelines"),

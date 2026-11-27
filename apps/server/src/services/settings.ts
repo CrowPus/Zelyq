@@ -101,6 +101,10 @@ const GROUPS: Array<{ name: string; description: string }> = [
     description: "Who may sign in, and for how long.",
   },
   {
+    name: "Interface",
+    description: "What people see around their apps.",
+  },
+  {
     name: "Preview",
     description:
       "How running projects are reached. Change these when Zelyq is not on the machine you browse from.",
@@ -556,6 +560,17 @@ const DEFINITIONS: Definition[] = [
     envVar: "ZELYQ_SHARE_SERVER_KEYS",
     envOverridable: true,
     fallback: "false",
+  },
+  {
+    key: "showGitHubStar",
+    label: "Show the GitHub star button",
+    description:
+      "A small Star button with Zelyq's star count in the top bar, and one thank-you card the first time someone's app is running. Turn it off for an instance where people should not see it.",
+    kind: "boolean",
+    group: "Interface",
+    envVar: "ZELYQ_SHOW_GITHUB_STAR",
+    envOverridable: true,
+    fallback: "true",
   },
   {
     key: "sessionTtlDays",
