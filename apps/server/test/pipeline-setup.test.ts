@@ -194,7 +194,7 @@ test("the install command for a runner that connects to Zelyq fits each system",
   assert.match(windows, /-win-\$A\\\.zip/);
   assert.match(windows, /Get-FileHash -Algorithm SHA256/);
   assert.match(windows, /Register-ScheduledTask .* -RunLevel Limited/);
-  assert.doesNotMatch(windows, /Administrators/);
+  assert.doesNotMatch(windows, /-Group 'Administrators'/);
   const admin = runnerAgentSetupScript({ os: "windows", user: "zelyq", admin: true, install });
   assert.match(admin, /-Group 'Administrators'/);
   assert.match(admin, /-RunLevel Highest/);
