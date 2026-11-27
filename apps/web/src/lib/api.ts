@@ -1076,7 +1076,7 @@ export const api = {
     request<{ ok: true; where: string }>("/settings/storage/test", { method: "POST" }),
   /** Instance administrator only: puts apps unused for at least `days` days to sleep now. */
   sleepAppsNow: (days: number) =>
-    request<{ slept: number }>("/settings/storage/sleep-now", {
+    request<{ slept: number; media: number }>("/settings/storage/sleep-now", {
       method: "POST",
       body: JSON.stringify({ days }),
     }),

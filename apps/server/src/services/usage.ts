@@ -226,6 +226,8 @@ export class UsageService {
         void this.cleanIdle()
           .catch(() => undefined)
           .then(() => this.sleepIdle())
+          .catch(() => undefined)
+          .then(() => this.afterSleep?.())
           .catch(() => undefined),
       CLEAN_EVERY_MS,
     );
@@ -267,6 +269,8 @@ export class UsageService {
   previewStopped?: (projectId: string) => Promise<boolean>;
   /** How many idle days before an app sleeps (Server settings → Storage); 0: never, or no storage. */
   sleepDays?: () => Promise<number>;
+  /** Runs after each round of sleeping apps (idle images and videos move to storage). */
+  afterSleep?: () => Promise<void>;
   /** Something went wrong putting an app to sleep: it stays here, and is tried again next time. */
   onSleepProblem?: (projectId: string, error: unknown) => void;
 

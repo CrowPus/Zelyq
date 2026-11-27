@@ -47,13 +47,16 @@ export async function testStorage(settings: SettingsService): Promise<{ ok: true
   return { ok: true, where: found.store.label };
 }
 
-/** Puts apps not used for at least `days` days to sleep now (0: every app not open, previewing or building). */
+/** Puts apps not used for at least `days` days to sleep now (0: every app not open, previewing or building), and moves images and videos not opened for as long. */
 export async function sleepAppsNow(
   settings: SettingsService,
   usage: { sleepIdle(options: { days?: number }): Promise<number> } | undefined,
   body: unknown,
-): Promise<{ slept: number }> {
+  sweepMedia?: (days: number) => Promise<number>,
+): Promise<{ slept: number; media: number }> {
   const { days } = z.object({ days: z.number().int().min(0).max(3650) }).parse(body ?? {});
   await configured(settings);
-  return { slept: usage ? await usage.sleepIdle({ days }) : 0 };
+  const slept = usage ? await usage.sleepIdle({ days }) : 0;
+  const media = sweepMedia ? await sweepMedia(days) : 0;
+  return { slept, media };
 }

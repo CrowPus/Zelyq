@@ -402,7 +402,9 @@ export class ImageGenerationService {
     if (row.status !== "succeeded") throw ZelyqError.notFound("Image");
     try {
       return await this.assets.read(ownerId, id);
-    } catch {
+    } catch (error) {
+      // Kept in storage that cannot be reached: say so, rather than "not found".
+      if (error instanceof ZelyqError) throw error;
       throw ZelyqError.notFound("Saved image");
     }
   }

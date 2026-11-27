@@ -65,6 +65,8 @@ export function registerAdminApi(
     health: () => Promise<{ status: string }>;
     /** Whether apps here can sleep in storage (the apps are on this machine). */
     sleepsApps?: boolean;
+    /** Moves images and videos not opened for `days` days to storage. */
+    sweepMedia?: (days: number) => Promise<number>;
     /** Named previews' own check (wildcard name, certificates, router). */
     previewHealth?: { report(fresh?: boolean): Promise<unknown> };
   },
@@ -206,7 +208,12 @@ export function registerAdminApi(
       // Storage (Server settings → Storage): on a managed server, tested and used from the admin.
       route("POST", "/storage/test", "settings", async () => await testStorage(deps.settings));
       route("POST", "/storage/sleep-now", "settings", async (request) =>
-        sleepAppsNow(deps.settings, deps.sleepsApps ? usage : undefined, request.body),
+        sleepAppsNow(
+          deps.settings,
+          deps.sleepsApps ? usage : undefined,
+          request.body,
+          deps.sweepMedia,
+        ),
       );
 
       // Plans: the account service pushes them; this server enforces them.

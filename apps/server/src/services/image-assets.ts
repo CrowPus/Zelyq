@@ -1,24 +1,28 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import path from "node:path";
 import { maxImageReferences, ZelyqError } from "@zelyq/core";
+import type { MediaSleep } from "./storage/media-sleep.js";
+import { within } from "./storage/within.js";
 
 /** Application data; never placed in a project workspace or public web root. */
 export class ImageAssetStore {
-  constructor(private readonly root: string) {}
+  /** Images nobody opened for a while are kept in storage, and fetched back before a read (storage/media-sleep.ts). */
+  media?: MediaSleep;
+
+  constructor(readonly root: string) {}
 
   private directory(ownerId: string) {
     if (!/^usr_[a-f0-9]{32}$/.test(ownerId)) throw ZelyqError.badRequest("Invalid image owner.");
-    return path.join(this.root, ownerId);
+    return within(this.root, ownerId);
   }
   private file(ownerId: string, id: string) {
     if (!/^img_[a-f0-9]{32}$/.test(id)) throw ZelyqError.badRequest("Invalid image ID.");
-    return path.join(this.directory(ownerId), `${id}.png`);
+    return within(this.directory(ownerId), `${id}.png`);
   }
   private referenceFile(ownerId: string, id: string, index: number) {
     if (!Number.isInteger(index) || index < 0 || index >= maxImageReferences)
       throw ZelyqError.badRequest("Invalid reference image.");
-    return path.join(this.directory(ownerId), `${id}.ref-${index}.png`);
+    return within(this.directory(ownerId), `${id}.ref-${index}.png`);
   }
   async save(ownerId: string, id: string, bytes: Buffer) {
     const target = this.file(ownerId, id);
@@ -32,7 +36,9 @@ export class ImageAssetStore {
     }
   }
   async read(ownerId: string, id: string) {
-    return fs.readFile(this.file(ownerId, id));
+    const file = this.file(ownerId, id);
+    await this.media?.local(file);
+    return fs.readFile(file);
   }
   async saveReference(ownerId: string, id: string, index: number, bytes: Buffer) {
     const target = this.referenceFile(ownerId, id, index);
@@ -47,20 +53,28 @@ export class ImageAssetStore {
   }
   async readReferences(ownerId: string, id: string, count: number) {
     return Promise.all(
-      Array.from({ length: Math.min(count, maxImageReferences) }, (_, index) =>
-        fs.readFile(this.referenceFile(ownerId, id, index)),
-      ),
+      Array.from({ length: Math.min(count, maxImageReferences) }, async (_, index) => {
+        const file = this.referenceFile(ownerId, id, index);
+        await this.media?.local(file);
+        return fs.readFile(file);
+      }),
     );
   }
   async remove(ownerId: string, id: string) {
-    await fs.rm(this.file(ownerId, id), { force: true });
-    await Promise.all(
-      Array.from({ length: maxImageReferences }, (_, index) =>
-        fs.rm(this.referenceFile(ownerId, id, index), { force: true }),
+    const files = [
+      this.file(ownerId, id),
+      ...Array.from({ length: maxImageReferences }, (_, index) =>
+        this.referenceFile(ownerId, id, index),
       ),
+    ];
+    const rm = (file: string) => () => fs.rm(file, { force: true });
+    await Promise.all(
+      files.map((file) => (this.media ? this.media.removed(file, rm(file)) : rm(file)())),
     );
   }
   async removeUser(ownerId: string) {
+    const notes = (await this.media?.notesOf(ownerId)) ?? [];
     await fs.rm(this.directory(ownerId), { recursive: true, force: true });
+    await this.media?.forgetOwner(ownerId, notes);
   }
 }

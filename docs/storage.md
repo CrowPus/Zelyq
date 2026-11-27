@@ -67,6 +67,19 @@ back to sleep.
 A sleeping app still counts towards its team's storage, by the size it had when it went.
 Deleting a sleeping app deletes its stored copy without waking it.
 
+## Images and videos
+
+Generated images and videos nobody has opened for a while move to the same storage, after the days
+set in **Move idle images and videos to storage after (days)** (7 by default; 0 never). Each file is
+uploaded and checked first, then leaves the disk; the next time it is opened, played or used by the
+agent, it comes back by itself and the stored copy is deleted. They go under
+`<folder in the bucket>/media/images/` and `media/videos/`. A moved file leaves a small note beside it
+(`<file>.stored`) naming the storage that holds it, so it comes back from there even after the
+storage settings change. Frames and posters made from a video
+stay on the disk. Deleting an image, a video or a person deletes the stored copies too. **Put idle
+apps, images and videos to sleep now** moves them along with the apps (anything opened in the
+last few minutes stays).
+
 ## Switching it off
 
 Set **Keep sleeping apps in** to *Off*, or the days to 0, and no more apps go to sleep. Apps

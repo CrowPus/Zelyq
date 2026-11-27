@@ -423,6 +423,7 @@ test("an admin can put idle apps to sleep now, even ones used today (0 days); ev
   const now = await call("POST", "/api/settings/storage/sleep-now", { days: 0 });
   assert.equal(now.statusCode, 200, now.body);
   assert.ok(now.json().slept >= 1);
+  assert.equal(typeof now.json().media, "number", "images and videos are swept too");
   assert.ok(await server.store.settings.get(`project:${id}:asleep`));
   assert.equal((await call("GET", `/api/projects/${id}/files`)).statusCode, 200);
   assert.equal(await exists(path.join(workspace, id, "src", "app.js")), true);

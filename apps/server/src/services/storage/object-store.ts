@@ -7,6 +7,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
@@ -31,6 +32,8 @@ export interface ObjectStore {
   /** Its size, or null when there is no such object. */
   size(key: string): Promise<number | null>;
   delete(key: string): Promise<void>;
+  /** Every key under a folder ("media/images/usr_…/"), without the storage's own folder name in front. */
+  list(prefix: string): Promise<string[]>;
   /** Writes, reads and deletes a small test object: says plainly what is wrong. */
   check(): Promise<void>;
 }
@@ -138,6 +141,25 @@ export class S3ObjectStore implements ObjectStore {
     );
   }
 
+  async list(prefix: string): Promise<string[]> {
+    const wanted = `${this.prefix}${safeKey(prefix.replace(/\/+$/, ""))}/`;
+    const keys: string[] = [];
+    let token: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.settings.bucket,
+          Prefix: wanted,
+          ContinuationToken: token,
+        }),
+      );
+      for (const item of page.Contents ?? [])
+        if (item.Key) keys.push(item.Key.slice(this.prefix.length));
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return keys;
+  }
+
   async check(): Promise<void> {
     try {
       await this.client.send(new HeadBucketCommand({ Bucket: this.settings.bucket }));
@@ -228,6 +250,23 @@ export class FolderObjectStore implements ObjectStore {
 
   async delete(key: string): Promise<void> {
     await fs.rm(this.path(key), { force: true });
+  }
+
+  async list(prefix: string): Promise<string[]> {
+    const start = safeKey(prefix.replace(/\/+$/, ""));
+    const found: string[] = [];
+    const walk = async (key: string): Promise<void> => {
+      for (const entry of await fs
+        .readdir(this.path(key), { withFileTypes: true })
+        .catch(() => [])) {
+        if (entry.name.endsWith(".part")) continue;
+        const child = `${key}/${entry.name}`;
+        if (entry.isDirectory()) await walk(child);
+        else found.push(child);
+      }
+    };
+    await walk(start);
+    return found;
   }
 
   async check(): Promise<void> {

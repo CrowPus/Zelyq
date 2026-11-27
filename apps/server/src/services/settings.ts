@@ -758,6 +758,17 @@ const DEFINITIONS: Definition[] = [
     fallback: "7",
   },
   {
+    key: "sleepIdleMediaAfterDays",
+    label: "Move idle images and videos to storage after (days)",
+    description:
+      "A generated image or video nobody has opened for this many days moves to the storage above and leaves this disk. It comes back by itself the next time it is opened. 0: never.",
+    kind: "number",
+    group: "Storage",
+    envVar: "ZELYQ_SLEEP_IDLE_MEDIA_AFTER_DAYS",
+    envOverridable: true,
+    fallback: "7",
+  },
+  {
     key: "containerEgressAllowlist",
     label: "Container egress allowlist",
     description:
