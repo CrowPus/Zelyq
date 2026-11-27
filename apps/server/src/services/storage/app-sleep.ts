@@ -268,7 +268,7 @@ export class AppSleep {
     }
     const started = Date.now();
     const roots = this.roots();
-    const work = await fs.mkdtemp(path.join(this.deps.workspaceDir, `.packing.${projectId}.`));
+    const work = await fs.mkdtemp(within(this.deps.workspaceDir, `.packing.${projectId}.`));
     try {
       for (const [part, key] of Object.entries(record.keys) as [SleepPart, string][]) {
         const packed = path.join(work, `${part}.tar.gz`);
@@ -279,10 +279,10 @@ export class AppSleep {
         }
         // Unpacked beside where it goes (same disk), then put in place: what was stored wins.
         await fs.mkdir(roots[part], { recursive: true });
-        const unpacked = await fs.mkdtemp(path.join(roots[part], `.waking.${projectId}.`));
+        const unpacked = await fs.mkdtemp(within(roots[part], `.waking.${projectId}.`));
         try {
           await run("tar", ["-xzf", packed, "-C", unpacked]);
-          await mergeInto(path.join(unpacked, projectId), path.join(roots[part], projectId));
+          await mergeInto(within(unpacked, projectId), within(roots[part], projectId));
         } finally {
           await fs.rm(unpacked, { recursive: true, force: true });
         }
@@ -322,10 +322,10 @@ export class AppSleep {
       if (await inUse()) return null;
       await options.prepare?.();
       const roots = this.roots();
-      const own = path.join(roots.app, projectId);
+      const own = within(roots.app, projectId);
       if (!(await exists(own))) return null;
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const work = await fs.mkdtemp(path.join(this.deps.workspaceDir, `.packing.${projectId}.`));
+      const work = await fs.mkdtemp(within(this.deps.workspaceDir, `.packing.${projectId}.`));
       const uploaded: string[] = [];
       const moved: Array<{ from: string; aside: string; names: string[] }> = [];
       let committed = false;
@@ -339,7 +339,7 @@ export class AppSleep {
           storage: storage.identity,
         };
         for (const [part, root] of Object.entries(roots) as [SleepPart, string][]) {
-          const folder = path.join(root, projectId);
+          const folder = within(root, projectId);
           if (part !== "app" && (await entries(folder)).length === 0) continue;
           const packed = path.join(work, `${part}.tar.gz`);
           await run("tar", ["-czf", packed, "-C", root, projectId]);
@@ -357,8 +357,8 @@ export class AppSleep {
         // Moved aside, same disk: one rename each, and undone if any fails.
         for (const [part, root] of Object.entries(roots) as [SleepPart, string][]) {
           if (!record.keys[part]) continue;
-          const from = path.join(root, projectId);
-          const aside = path.join(root, `.sleeping.${projectId}.${stamp}`);
+          const from = within(root, projectId);
+          const aside = within(root, `.sleeping.${projectId}.${stamp}`);
           await fs.mkdir(aside);
           const step = { from, aside, names: [] as string[] };
           moved.push(step);
@@ -414,7 +414,7 @@ export class AppSleep {
       await this.deps.store.settings.remove(recordKey(projectId));
       this.records.set(projectId, null);
       for (const root of [this.roots().undo, this.roots().attachments]) {
-        await fs.rmdir(path.join(root, projectId)).catch(() => undefined);
+        await fs.rmdir(within(root, projectId)).catch(() => undefined);
       }
     });
   }
@@ -474,7 +474,7 @@ export class AppSleep {
         const match = /^\.(sleeping|slept|waking|packing)\.([A-Za-z0-9_-]{1,100})\./.exec(name);
         if (!match) continue;
         const [, kind, projectId] = match as unknown as [string, string, string];
-        const leftover = path.join(root, name);
+        const leftover = within(root, name);
         try {
           await this.locked(projectId, async () => {
             if (!(await exists(leftover))) return;
@@ -484,7 +484,7 @@ export class AppSleep {
               !(await exists(path.join(leftover, DONE))) &&
               !(await this.asleep(projectId))
             ) {
-              await mergeInto(leftover, path.join(root, projectId));
+              await mergeInto(leftover, within(root, projectId));
               this.deps.log?.(
                 `app ${projectId}: files moved aside by an unfinished sleep were put back`,
               );
@@ -520,6 +520,17 @@ export class AppSleep {
   }
 }
 
+/**
+ * A path for an app's id (or a leftover's name) under one of Zelyq's own folders, refused if it
+ * would lead anywhere else. Ids are checked when they arrive; this makes sure of it where paths are made.
+ */
+function within(root: string, name: string): string {
+  const base = path.resolve(root);
+  const full = path.resolve(base, name);
+  if (!full.startsWith(base + path.sep)) throw new Error(`Not a name inside ${base}: ${name}`);
+  return full;
+}
+
 async function exists(file: string): Promise<boolean> {
   return await fs.lstat(file).then(
     () => true,
@@ -543,8 +554,8 @@ async function mergeInto(from: string, to: string): Promise<void> {
     return;
   }
   for (const entry of await fs.readdir(from, { withFileTypes: true })) {
-    const source = path.join(from, entry.name);
-    const target = path.join(to, entry.name);
+    const source = within(from, entry.name);
+    const target = within(to, entry.name);
     const there = await fs.lstat(target).catch(() => null);
     if (entry.isDirectory() && there?.isDirectory()) {
       await mergeInto(source, target);
