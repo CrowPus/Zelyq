@@ -41,7 +41,7 @@ import {
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { formatDateTime } from "../lib/format";
-import { t } from "../lib/i18n";
+import { t, translateServerMessage } from "../lib/i18n";
 import { duration, formatBytes, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
 import { teamHref } from "../lib/routes";
 import { vaultErrorMessage } from "../lib/vault";
@@ -324,7 +324,7 @@ export function PipelineRunPage() {
 
         {detail.error && (
           <p className="mb-3 rounded-md border border-danger/30 bg-danger-subtle p-2 text-xs text-danger">
-            {detail.error}
+            {translateServerMessage(detail.error)}
           </p>
         )}
         {(cancel.error || rerun.error) && (
