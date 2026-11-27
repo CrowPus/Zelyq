@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -20,7 +21,30 @@ import { LocalRuntimeDriver } from "../src/local.js";
  */
 
 const scratch = path.join(os.tmpdir(), `zelyq-container-test-${Date.now()}`);
-const HOST_SERVICE_PORT = 4795;
+/**
+ * Every port this file names (4700–4850) moved together to a block nothing on this machine is
+ * using: the machine that runs these tests may also run a Zelyq whose previews hold ports in the
+ * 4700s, and a fixed port taken by it failed a test with "No free port available".
+ */
+async function portFree(port: number): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once("error", () => resolve(false));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
+  });
+}
+async function freeShift(low: number, high: number): Promise<number> {
+  for (let shift = 0; shift < 20_000; shift += 1000) {
+    let free = true;
+    for (let port = low + shift; port <= high + shift && free; port += 1)
+      free = await portFree(port);
+    if (free) return shift;
+  }
+  return 0;
+}
+const SHIFT = await freeShift(4700, 4850);
+const at = (port: number) => port + SHIFT;
+const HOST_SERVICE_PORT = at(4795);
 
 function engineAvailable(): boolean {
   try {
@@ -41,7 +65,7 @@ function config(kind: "local" | "container") {
     kind,
     workspaceDir: scratch,
     execTimeoutMs: 60_000,
-    previewPortRange: [4780, 4789] as [number, number],
+    previewPortRange: [at(4780), at(4789)] as [number, number],
     previewHost: "127.0.0.1",
   };
 }
@@ -222,7 +246,10 @@ test("the health check reports the engine, and fails without one", {
 // ---------------------------------------------------------------------------
 
 function previewConfig(range: [number, number]) {
-  return { ...config("container"), previewPortRange: range };
+  return {
+    ...config("container"),
+    previewPortRange: [at(range[0]), at(range[1])] as [number, number],
+  };
 }
 
 /**
@@ -1044,12 +1071,12 @@ test("on, stopping Zelyq still removes containers with no preview running", {
 test("a port a surviving preview holds is not handed to a new one", {
   skip: !hasEngine,
 }, async () => {
-  // As after a restart: a record names port 4718, and nothing in this process reserved it.
+  // As after a restart: a record names the first port of the range, and nothing in this process reserved it.
   const dir = path.join(scratch, ".zelyq-previews");
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(
     path.join(dir, "prj_port_holder.json"),
-    JSON.stringify({ pid: 1, port: 4718, startedAt: new Date().toISOString(), ownerPid: 1 }),
+    JSON.stringify({ pid: 1, port: at(4718), startedAt: new Date().toISOString(), ownerPid: 1 }),
   );
   const driver = makeDriver(previewConfig([4718, 4720]));
   try {
@@ -1057,7 +1084,7 @@ test("a port a surviving preview holds is not handed to a new one", {
     await driver.scaffold("prj_port_new", tinyServer);
     const started = await driver.startPreview("prj_port_new");
     assert.equal(started.status, "running", JSON.stringify(started));
-    assert.notEqual(started.port, 4718);
+    assert.notEqual(started.port, at(4718));
   } finally {
     await fs.rm(path.join(dir, "prj_port_holder.json"), { force: true });
     await driver.removeProject("prj_port_new").catch(() => undefined);
