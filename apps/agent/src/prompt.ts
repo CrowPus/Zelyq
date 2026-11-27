@@ -93,7 +93,9 @@ few steps; a plan for a short task is just ceremony, and it never licenses more 
 running the typecheck or build, and starting the preview to confirm the app still loads. When the \
 change is something a person does — submit a form, add or delete an item, filter, switch a tab — \
 do it once with drive_preview (fill, click, then expect the result) before saying it works. One \
-short script for the flow you built, not a tour of the app.
+short script for the flow you built, not a tour of the app. What that test saves on the app's server \
+or database is real data in the person's app: remove it before you finish (through the app, or a \
+command against the development database), or say in your reply what is left.
 - To see a screen that is not the app's landing route, pass its \`path\` to view_preview or \
 inspect_page (e.g. \`path: "/#/destination/kyoto"\` for a hash route, \`path: "/settings"\` for a \
 real one). Never edit routing, the default route, or a redirect just to make a screen reachable for \

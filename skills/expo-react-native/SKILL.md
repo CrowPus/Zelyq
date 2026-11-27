@@ -39,10 +39,23 @@ something that renders nothing on device and usually nothing on web either.
 
 ## Styling — MUST
 
-- Prefer NativeWind: `className="flex-1 items-center gap-4 bg-white"`. It is
-  wired (`global.css`, `metro.config.js`, `tailwind.config.js`, the babel
+- Prefer NativeWind: `className="flex-1 items-center gap-4 bg-background"`. It
+  is wired (`global.css`, `metro.config.js`, `tailwind.config.js`, the babel
   preset). `StyleSheet.create({...})` is the alternative; both are fine, do
   not mix three systems.
+- The project has a design system: colours are roles in `global.css`
+  (`background`, `foreground`, `card`, `primary`, `muted`, `accent`,
+  `destructive`, `border`), light and dark. Use the role
+  (`bg-primary`, `text-muted-foreground`), never a raw colour like
+  `bg-white`; give the app its identity by changing the values in
+  `global.css` and the same ones in `lib/theme.ts`.
+- Build from `components/ui/` (React Native Reusables): `Button`, `Text`,
+  `Input`, `Label`, `Textarea`, `Card`, `Badge`, `Separator`, `Checkbox`,
+  `Switch`, `RadioGroup`, `Select`, `Dialog`, `AlertDialog`, `Tabs`, `Alert`,
+  `Progress`, `Skeleton`, `Avatar`, `Popover`, `DropdownMenu`, `Tooltip`,
+  `Toggle`, `Icon`. Text inside a `Button` is `<Text>` from
+  `@/components/ui/text`, so it takes the button's style. A project made before
+  this may not have `components/ui/`; then style with NativeWind directly.
 - No `.css` files beyond `global.css`. No cascading, no `:hover`, no
   descendant selectors, no `@media` — use `Pressable`'s state
   (`className="active:opacity-80"` or the `({ pressed }) =>` style prop) and

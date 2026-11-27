@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { components } from "./lib/api/schema";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 type Note = components["schemas"]["NoteOut"];
 type Report = components["schemas"]["CsvReport"];
@@ -75,9 +77,9 @@ export default function App() {
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-20">
-      <p className="mb-4 text-sm font-medium text-indigo-600">React + Python</p>
-      <h1 className="text-4xl font-semibold tracking-tight">Your backend is ready to build.</h1>
-      <p className="mt-5 text-lg text-slate-600">
+      <p className="mb-4 text-sm font-medium text-primary">React + Python</p>
+      <h1 className="text-4xl font-semibold">Your backend is ready to build.</h1>
+      <p className="mt-5 text-lg text-muted-foreground">
         This project already has its own database — nothing to set up. What you save below
         survives a refresh and a restart.
       </p>
@@ -87,37 +89,33 @@ export default function App() {
           Saved notes
         </h2>
         <form className="mt-3 flex gap-2" onSubmit={save}>
-          <input
-            className="flex-1 rounded-lg border border-slate-300 px-3 py-2"
+          <Input
+            className="flex-1"
             aria-label="Note"
             placeholder="Write something and save it"
             maxLength={500}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <button
-            type="submit"
-            disabled={saving || !draft.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white disabled:opacity-50"
-          >
+          <Button type="submit" disabled={saving || !draft.trim()}>
             {saving ? "Saving…" : "Save"}
-          </button>
+          </Button>
         </form>
         {error && (
-          <p role="alert" className="mt-3 text-red-700">
+          <p role="alert" className="mt-3 text-destructive">
             {error}
           </p>
         )}
         {notes === null ? (
-          <p className="mt-4 text-slate-500">Loading…</p>
+          <p className="mt-4 text-muted-foreground">Loading…</p>
         ) : notes.length === 0 ? (
-          <p className="mt-4 text-slate-500">Nothing saved yet.</p>
+          <p className="mt-4 text-muted-foreground">Nothing saved yet.</p>
         ) : (
-          <ul className="mt-4 divide-y divide-slate-200 rounded-xl border border-slate-200">
+          <ul className="mt-4 divide-y rounded-xl border bg-card">
             {notes.map((note) => (
               <li key={note.id} className="px-4 py-3">
                 <p>{note.body}</p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {new Date(note.created_at).toLocaleString()}
                 </p>
               </li>
@@ -130,10 +128,10 @@ export default function App() {
         <h2 id="csv-heading" className="text-lg font-semibold">
           Process a file in Python
         </h2>
-        <label className="mt-3 block rounded-xl border border-slate-200 p-5">
+        <label className="mt-3 block rounded-xl border bg-card p-5">
           Choose a CSV file (up to 1 MB) — read in memory, not saved
-          <input
-            className="mt-3 block w-full text-sm"
+          <Input
+            className="mt-3"
             type="file"
             accept=".csv,text/csv"
             disabled={busy}
@@ -146,16 +144,16 @@ export default function App() {
           </p>
         )}
         {uploadError && (
-          <p role="alert" className="mt-3 text-red-700">
+          <p role="alert" className="mt-3 text-destructive">
             {uploadError}
           </p>
         )}
         {report && (
-          <section aria-label="CSV report" className="mt-4 rounded-xl bg-slate-50 p-5">
+          <section aria-label="CSV report" className="mt-4 rounded-xl bg-muted p-5">
             <h3 className="font-semibold">
               {report.rows} data rows · {report.columns.length} columns
             </h3>
-            <p className="mt-2 text-slate-600">{report.columns.join(", ")}</p>
+            <p className="mt-2 text-muted-foreground">{report.columns.join(", ")}</p>
           </section>
         )}
       </section>

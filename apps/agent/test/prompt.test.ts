@@ -602,3 +602,9 @@ test("<shipping> is there only when the session has Zelyq's pipeline tools", () 
   assert.match(shipping, /approval, which you cannot give/);
   assert.match(shipping, /Never invent a host, a domain or a link/);
 });
+
+test("data the agent's own test saves in the app is removed, or reported", () => {
+  const prompt = buildSystemPrompt({ projectName: "p", template: "vite-react" });
+  assert.match(prompt, /What that test saves on the app's server\s+or database is real data/);
+  assert.match(prompt, /remove it before you finish/);
+});
