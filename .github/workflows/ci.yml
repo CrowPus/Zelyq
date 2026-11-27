@@ -282,6 +282,8 @@ jobs:
   runner-install:
     name: Runner install (${{ matrix.expect }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -311,6 +313,11 @@ jobs:
 
       - name: Build the runner program
         run: pnpm --filter @zelyq/runner build
+
+      # So a runner that does not start says why (the log is off on a fresh Windows).
+      - name: Turn on the Task Scheduler log (Windows)
+        if: runner.os == 'Windows'
+        run: wevtutil sl Microsoft-Windows-TaskScheduler/Operational /e:true
 
       - name: Install a runner and run a pipeline on it
         working-directory: apps/server

@@ -415,6 +415,9 @@ export class Link {
   private exec(id: number, command: string, hasStdin: boolean): void {
     let child: ChildProcess;
     try {
+      // Running the command it is sent is this program's job, as it is an SSH server's. It comes
+      // only from the Zelyq this runner registered with: over verified HTTPS, on a connection the
+      // runner signed into with its own key (see "hello" above), and as the runner's own user.
       const line = commandLine(command, this.shell);
       child = spawn(line.file, line.args, {
         cwd: os.homedir(),

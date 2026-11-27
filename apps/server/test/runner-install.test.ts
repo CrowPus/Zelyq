@@ -117,7 +117,7 @@ function runnerLog(): string {
             [
               "-NoProfile",
               "-Command",
-              `Get-ScheduledTask -TaskName 'Zelyq runner' | Get-ScheduledTaskInfo | Format-List; Get-Content "C:\\Users\\${USER}\\.zelyq-runner\\runner.log" -ErrorAction SilentlyContinue`,
+              `Get-ScheduledTask -TaskName 'Zelyq runner' | Get-ScheduledTaskInfo | Format-List; Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 15 -ErrorAction SilentlyContinue | Format-List TimeCreated, Id, Message; Get-Content "C:\\Users\\${USER}\\.zelyq-runner\\runner.log" -ErrorAction SilentlyContinue`,
             ],
             { encoding: "utf8" },
           );
