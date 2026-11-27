@@ -24,6 +24,7 @@ import { BackendPanel } from "../components/BackendPanel";
 import { ChatPanel } from "../components/ChatPanel";
 import { CodeViewer } from "../components/CodeViewer";
 import { FileExplorer } from "../components/FileExplorer";
+import { StarMoment } from "../components/GitHubStar";
 import { GitPanel } from "../components/GitPanel";
 import { LiveBrowser } from "../components/LiveBrowser";
 import { PlanPanel } from "../components/PlanPanel";
@@ -232,6 +233,8 @@ export function ProjectEditorPage() {
 
   return (
     <AppShell crumbs={[{ label: t("Build") }]} app={shellApp}>
+      {/* The one thank-you, the first time their app is up and the agent is done. */}
+      <StarMoment appRunning={preview.data?.preview?.status === "running" && !chat.busy} />
       {canEdit && (
         <GitPanel
           projectId={id}

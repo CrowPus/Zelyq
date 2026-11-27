@@ -51,6 +51,7 @@ import { roleName } from "../lib/roles";
 import { globalPaths, type TeamPaths, teamKey, teamPaths, useTeamPaths } from "../lib/routes";
 import { AnnouncementBanner } from "./AnnouncementBanner";
 import { openCommandPalette, openShortcuts } from "./command-palette-store";
+import { StarButton } from "./GitHubStar";
 import { openHelp } from "./help/help-store";
 import { Inbox } from "./Inbox";
 import { NewTeamDialog } from "./NewTeamDialog";
@@ -685,6 +686,7 @@ function TopBar({
             <Search size={16} strokeWidth={1.75} />
           </button>
         </Tooltip>
+        <StarButton />
         <HelpMenu />
         <Inbox />
         <AccountMenu />

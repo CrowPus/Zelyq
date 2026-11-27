@@ -3050,5 +3050,18 @@
   "Fast Gemini 4 · everyday coding": "Schnelles Gemini 4 · alltägliches Programmieren",
   "Frontier · finishes complex work fast": "Spitzenklasse · erledigt komplexe Arbeit schnell",
   "Most capable Gemini · hardest reasoning": "Das leistungsfähigste Gemini · schwierigstes Denken",
-  "Building your app…": "Ihre App wird gebaut…"
+  "Building your app…": "Ihre App wird gebaut…",
+  "Star Zelyq on GitHub": "Zelyq auf GitHub einen Stern geben",
+  "Star": "Stern",
+  "Your app is running.": "Ihre App läuft.",
+  "Zelyq is open source and free to host yourself. If it helped, a star on GitHub helps other builders find it.": "Zelyq ist Open Source und kostenlos selbst zu hosten. Wenn es Ihnen geholfen hat, hilft ein Stern auf GitHub anderen, es zu finden.",
+  "Star Zelyq": "Stern für Zelyq",
+  "Maybe later": "Vielleicht später",
+  "A small Star button with Zelyq's star count in the top bar, and one thank-you card the first time someone's app is running. Turn it off for an instance where people should not see it.": "Ein kleiner Stern-Knopf mit der Anzahl der Sterne von Zelyq in der oberen Leiste und eine einmalige Dankeskarte, wenn die App einer Person zum ersten Mal läuft. Schalten Sie es für eine Instanz aus, in der es niemand sehen soll.",
+  "Show the GitHub star button": "GitHub-Stern-Knopf anzeigen",
+  "Interface": "Oberfläche",
+  "What people see around their apps": "Was Personen rund um ihre Apps sehen",
+  "What people see around their apps.": "Was Personen rund um ihre Apps sehen.",
+  "Zelyq on GitHub": "Zelyq auf GitHub",
+  "stars": "Sterne"
 }
