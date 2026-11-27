@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -49,17 +49,31 @@ async function until<T>(what: () => Promise<T | null | undefined | false>, ms: n
   throw new Error("timed out");
 }
 
-/** Runs the command the way a person pastes it: a shell on Linux and macOS, PowerShell on Windows. */
-function paste(script: string): { code: number | null; out: string } {
-  const result =
+/**
+ * Runs the command the way a person pastes it: a shell on Linux and macOS, PowerShell on Windows.
+ * Not spawnSync: the Zelyq it installs from runs in this process and must keep answering.
+ */
+function paste(script: string): Promise<{ code: number | null; out: string }> {
+  const child =
     here === "windows"
-      ? spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"], {
-          input: script,
-          encoding: "utf8",
-          timeout: 600_000,
-        })
-      : spawnSync("bash", ["-c", script], { encoding: "utf8", timeout: 600_000 });
-  return { code: result.status, out: `${result.stdout ?? ""}${result.stderr ?? ""}` };
+      ? spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"])
+      : spawn("bash", ["-c", script]);
+  let out = "";
+  child.stdout.on("data", (chunk) => {
+    out += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    out += chunk;
+  });
+  if (here === "windows") child.stdin.end(script);
+  else child.stdin.end();
+  const timer = setTimeout(() => child.kill(), 600_000);
+  return new Promise((resolve) => {
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, out });
+    });
+  });
 }
 
 function uninstall(): void {
@@ -156,7 +170,9 @@ test(`the install command makes this ${here} machine a runner`, { skip: !enabled
   assert.equal(added.statusCode, 201, added.body);
   const { runner, install } = added.json();
 
-  const pasted = paste(runnerAgentSetupScript({ os: here, user: USER, admin: false, install }));
+  const pasted = await paste(
+    runnerAgentSetupScript({ os: here, user: USER, admin: false, install }),
+  );
   assert.equal(pasted.code, 0, pasted.out);
   assert.match(pasted.out, /Done\. The runner is connecting to Zelyq/);
 
@@ -205,7 +221,7 @@ test(`the install command makes this ${here} machine a runner`, { skip: !enabled
 
   // Pasting it again (a new code) reinstalls it over the one already there.
   const again = (await call("POST", team(`/runners/${runner.id}/install-code`))).json();
-  const repasted = paste(
+  const repasted = await paste(
     runnerAgentSetupScript({ os: here, user: USER, admin: false, install: again.install }),
   );
   assert.equal(repasted.code, 0, repasted.out);

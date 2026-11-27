@@ -267,6 +267,9 @@ jobs:
         run: node --import tsx --test ${{ matrix.tests }}
 
       # The same, through a runner that connects out to Zelyq (apps/runner) instead of SSH.
+      - name: Build the runner program
+        run: pnpm --filter @zelyq/runner build
+
       - name: Runner machine tests (connects to Zelyq)
         working-directory: apps/server
         env:
@@ -305,6 +308,9 @@ jobs:
 
       - name: Build packages
         run: pnpm --filter "./packages/*" build
+
+      - name: Build the runner program
+        run: pnpm --filter @zelyq/runner build
 
       - name: Install a runner and run a pipeline on it
         working-directory: apps/server
