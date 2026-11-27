@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { roleAtLeast, type VaultEntry, type VaultScope } from "@zelyq/core";
-import { Plus, Upload } from "lucide-react";
+import { History, Key, KeyRound, Plus, Upload } from "lucide-react";
 import { useId, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
@@ -114,9 +114,14 @@ export function VaultPage() {
                 value={tab}
                 onChange={(id) => go({ tab: id })}
                 items={[
-                  { id: "secrets", label: t("Secrets") },
-                  { id: "keys", label: t("Service keys"), hidden: scope.kind !== "team" },
-                  { id: "activity", label: t("Activity") },
+                  { id: "secrets", label: t("Secrets"), icon: <KeyRound size={14} /> },
+                  {
+                    id: "keys",
+                    label: t("Service keys"),
+                    icon: <Key size={14} />,
+                    hidden: scope.kind !== "team",
+                  },
+                  { id: "activity", label: t("Activity"), icon: <History size={14} /> },
                 ]}
               />
             </div>

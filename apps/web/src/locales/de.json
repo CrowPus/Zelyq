@@ -1763,7 +1763,6 @@
   "Runs commands, as you would in a terminal.": "Führt Befehle aus, wie Sie es in einem Terminal täten.",
   "Runs kept per pipeline": "Aufbewahrte Läufe pro Pipeline",
   "Runs on": "Läuft auf",
-  "Runs on ": "Läuft auf",
   "Runs on the request’s newest commit, when it targets one of the branches. Requests from forks never run.": "Läuft auf dem neuesten Commit der Anfrage, wenn sie auf einen der Branches zielt. Anfragen aus Forks laufen nie.",
   "Runs per day": "Läufe pro Tag",
   "Runs per day, passed and failed": "Läufe pro Tag, bestanden und fehlgeschlagen",

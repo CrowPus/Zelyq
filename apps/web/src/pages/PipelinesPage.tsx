@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PipelineSummary } from "@zelyq/core";
 import { roleAtLeast } from "@zelyq/core";
-import { GitBranch, Plus, Star } from "lucide-react";
+import { GitBranch, LayoutDashboard, Plus, Puzzle, Server, Star, Workflow } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import {
@@ -88,10 +88,15 @@ export function PipelinesPage() {
               setParams(name === "pipelines" ? {} : { tab: name }, { replace: true })
             }
             items={[
-              { id: "pipelines", label: t("Pipelines"), count: pipelineCount || undefined },
-              { id: "overview", label: t("Overview") },
-              { id: "runners", label: t("Runners") },
-              { id: "plugins", label: t("Plugins") },
+              {
+                id: "pipelines",
+                label: t("Pipelines"),
+                icon: <Workflow size={14} />,
+                count: pipelineCount || undefined,
+              },
+              { id: "overview", label: t("Overview"), icon: <LayoutDashboard size={14} /> },
+              { id: "runners", label: t("Runners"), icon: <Server size={14} /> },
+              { id: "plugins", label: t("Plugins"), icon: <Puzzle size={14} /> },
             ]}
           />
         </div>

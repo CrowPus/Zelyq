@@ -1,17 +1,27 @@
-import { Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { Check, Copy, Plug } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { t } from "../../lib/i18n";
+import { BrandIcon } from "../BrandIcon";
 import { Button, IconButton } from "../ui";
 
 type Client = "claude" | "connector" | "cursor" | "vscode" | "gemini" | "other";
 
-const CLIENTS: { id: Client; label: string }[] = [
-  { id: "claude", label: t("Claude Code") },
-  { id: "connector", label: t("Claude.ai / ChatGPT") },
-  { id: "cursor", label: t("Cursor") },
-  { id: "vscode", label: t("VS Code") },
-  { id: "gemini", label: t("Gemini CLI") },
-  { id: "other", label: t("Any MCP client") },
+const CLIENTS: { id: Client; label: string; icon: ReactNode }[] = [
+  { id: "claude", label: t("Claude Code"), icon: <BrandIcon brand="claudecode" size={12} /> },
+  {
+    id: "connector",
+    label: t("Claude.ai / ChatGPT"),
+    icon: (
+      <>
+        <BrandIcon brand="claude" size={12} />
+        <BrandIcon brand="openai" size={12} />
+      </>
+    ),
+  },
+  { id: "cursor", label: t("Cursor"), icon: <BrandIcon brand="cursor" size={12} /> },
+  { id: "vscode", label: t("VS Code"), icon: <BrandIcon brand="vscode" size={12} /> },
+  { id: "gemini", label: t("Gemini CLI"), icon: <BrandIcon brand="geminicli" size={12} /> },
+  { id: "other", label: t("Any MCP client"), icon: <Plug size={12} aria-hidden /> },
 ];
 
 /** The gateway's address on this instance. */
@@ -103,10 +113,11 @@ export function ConnectAgent({
               role="tab"
               aria-selected={client === option.id}
               onClick={() => setClient(option.id)}
-              className={`rounded px-2 py-0.5 text-2xs ${
+              className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-2xs ${
                 client === option.id ? "bg-surface text-fg shadow-sm" : "text-fg-secondary"
               }`}
             >
+              {option.icon}
               {option.label}
             </button>
           ))}

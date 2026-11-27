@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useActiveTeam } from "../hooks/useActiveTeam";
 import { api } from "../lib/api";
 import { t } from "../lib/i18n";
+import { ProviderMark } from "./BrandIcon";
 
 export interface ModelChoice {
   provider: string;
@@ -141,6 +142,7 @@ export function ModelPicker({ value, onChange }: Props) {
         title={value?.label ?? t("Default")}
         className="flex w-20 min-w-14 max-w-20 items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
       >
+        {value && <ProviderMark provider={value.provider} size={11} />}
         <span className="min-w-0 flex-1 truncate text-left">{value?.label ?? t("Default")}</span>
         <ChevronDown size={11} strokeWidth={2} className="shrink-0" />
       </button>
@@ -174,7 +176,8 @@ export function ModelPicker({ value, onChange }: Props) {
             {groups.map((provider) => (
               <div key={provider.id} className="mt-1 first:mt-0">
                 <div className="my-1 border-t border-border-default" />
-                <p className="px-2.5 pb-1 text-2xs font-medium tracking-[0.04em] text-fg-muted uppercase">
+                <p className="flex items-center gap-1.5 px-2.5 pb-1 text-2xs font-medium tracking-[0.04em] text-fg-muted uppercase">
+                  <ProviderMark provider={provider.id} size={12} />
                   {provider.label}
                 </p>
                 {provider.modelNotice && (

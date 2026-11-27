@@ -11,7 +11,8 @@ import {
 } from "@zelyq/core";
 import { type FormEvent, useId, useState } from "react";
 import { t } from "../../lib/i18n";
-import { Button, FieldLabel, Input, NativeSelect, Textarea } from "../ui";
+import { ProviderMark } from "../BrandIcon";
+import { Button, FieldLabel, Input, NativeSelect, Select, Textarea } from "../ui";
 
 const LEVEL_LABEL: Record<AgentPermissionLevel, string> = {
   off: t("Off"),
@@ -369,25 +370,26 @@ function MediaKey<P extends string>({
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="w-14 text-fg-secondary">{label}</span>
-      <NativeSelect
+      <Select
         aria-label={t("{label} provider", { label })}
-        className={select}
+        className="min-w-40"
         value={value?.provider ?? ""}
-        onChange={(event) =>
-          onChange(
-            event.target.value
-              ? { provider: event.target.value as P, secret: value?.secret ?? secrets[0] ?? "" }
-              : null,
-          )
+        onValueChange={(next) =>
+          onChange(next ? { provider: next as P, secret: value?.secret ?? secrets[0] ?? "" } : null)
         }
-      >
-        <option value="">{t("None")}</option>
-        {providers.map((provider) => (
-          <option key={provider.id} value={provider.id}>
-            {provider.label}
-          </option>
-        ))}
-      </NativeSelect>
+        options={[
+          { value: "", label: t("None") },
+          ...providers.map((provider) => ({
+            value: provider.id,
+            label: (
+              <span className="flex items-center gap-2">
+                <ProviderMark provider={provider.id} />
+                {provider.label}
+              </span>
+            ),
+          })),
+        ]}
+      />
       {value && (
         <>
           <span className="text-fg-muted">{t("key from Vault")}</span>

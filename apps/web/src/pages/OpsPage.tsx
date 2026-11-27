@@ -1,13 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type OpsJobDetail, type OpsPlanStep, roleAtLeast } from "@zelyq/core";
 import {
+  Activity,
   ArrowLeft,
   Ban,
+  Bell,
+  BookOpen,
   Check,
   CheckCircle2,
   CircleDashed,
   Hand,
   Loader2,
+  LockKeyhole,
+  MessageSquare,
   Mic,
   MicOff,
   Pause,
@@ -15,6 +20,7 @@ import {
   Play,
   Plus,
   Send,
+  Settings,
   XCircle,
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -133,12 +139,12 @@ export function OpsPage() {
               value={tab}
               onChange={(name) => setTab(name)}
               items={[
-                { id: "talk", label: t("Talk") },
-                { id: "status", label: t("Status") },
-                { id: "alerts", label: t("Alerts") },
-                { id: "memory", label: t("Memory") },
-                { id: "access", label: t("Access") },
-                { id: "settings", label: t("Settings") },
+                { id: "talk", label: t("Talk"), icon: <MessageSquare size={14} /> },
+                { id: "status", label: t("Status"), icon: <Activity size={14} /> },
+                { id: "alerts", label: t("Alerts"), icon: <Bell size={14} /> },
+                { id: "memory", label: t("Memory"), icon: <BookOpen size={14} /> },
+                { id: "access", label: t("Access"), icon: <LockKeyhole size={14} /> },
+                { id: "settings", label: t("Settings"), icon: <Settings size={14} /> },
               ]}
             />
             {tab === "talk" && <TalkTab teamId={teamId} canTalk={canTalk} paused={status.paused} />}

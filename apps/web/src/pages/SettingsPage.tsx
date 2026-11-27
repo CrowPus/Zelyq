@@ -31,6 +31,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { AdminKeysPanel } from "../components/AdminKeysPanel";
 import { AppShell } from "../components/AppShell";
+import { type Brand, BrandIcon, ProviderMark, providerBrand } from "../components/BrandIcon";
 import { CliSessionControl } from "../components/CliSessionControl";
 import { FigmaIntegration } from "../components/FigmaIntegration";
 import { PlansPanel } from "../components/PlansPanel";
@@ -45,6 +46,7 @@ import {
   NativeSelect,
   PageBody,
   PageHeader,
+  Select,
   Spinner,
   StatusDot,
   toast,
@@ -806,6 +808,15 @@ function ModelChoice({
   );
 }
 
+/** A provider's key, sign-in mode or workspace: shown with the provider's logo. */
+function fieldBrand(key: string): Brand | null {
+  const match =
+    /^(anthropic|claude|gemini|openai|xai|deepseek|mistral|groq|openrouter)(ApiKey|AuthMode|WorkspaceId)$/.exec(
+      key,
+    );
+  return match ? providerBrand(match[1]) : null;
+}
+
 export function FieldRow({
   field,
   draft,
@@ -822,6 +833,11 @@ export function FieldRow({
     <div className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_260px] sm:items-center sm:gap-4">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-1.5">
+          {fieldBrand(field.key) && (
+            <span className="inline-flex text-fg-secondary">
+              <BrandIcon brand={fieldBrand(field.key) as Brand} />
+            </span>
+          )}
           <span className="text-sm text-fg">{field.label}</span>
           {locked && (
             <span
@@ -856,6 +872,24 @@ export function FieldRow({
             value={String(pending ?? field.value ?? "")}
             providerChanged={field.key === "opsModel" && draft.opsProvider !== undefined}
             onChange={onChange}
+          />
+        ) : field.kind === "select" &&
+          field.options?.some((option) => providerBrand(option.value)) ? (
+          // A choice of AI provider: each with its logo.
+          <Select
+            value={String(pending ?? field.value ?? "")}
+            onValueChange={onChange}
+            aria-label={field.label}
+            className="w-full"
+            options={field.options.map((option) => ({
+              value: option.value,
+              label: (
+                <span className="flex items-center gap-2">
+                  <ProviderMark provider={option.value} />
+                  {option.label}
+                </span>
+              ),
+            }))}
           />
         ) : field.kind === "select" ? (
           <NativeSelect

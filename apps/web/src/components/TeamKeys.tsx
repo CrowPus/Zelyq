@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
+import { ProviderMark } from "./BrandIcon";
 import { Badge, Button, confirmAction, NativeSelect, PasswordInput, Spinner } from "./ui";
 
 /**
@@ -86,7 +87,10 @@ export function TeamKeys({ teamId, canManage }: { teamId: string; canManage: boo
             className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-default px-4 py-2.5 last:border-b-0"
           >
             <KeyRound size={14} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
-            <span className="w-28 shrink-0 text-sm text-fg">{key.label}</span>
+            <span className="flex w-28 shrink-0 items-center gap-1.5 text-sm text-fg">
+              <ProviderMark provider={key.provider} />
+              {key.label}
+            </span>
             <span className="min-w-0 flex-1">
               {key.vaultName ? (
                 <Badge tone={key.vaultMissing ? "danger" : "info"}>

@@ -33,6 +33,7 @@ import { api } from "../../lib/api";
 import { formatDate, formatNumber } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import { formatRelative, vaultErrorMessage } from "../../lib/vault";
+import { type Brand, BrandIcon, osBrand } from "../BrandIcon";
 import {
   Badge,
   Button,
@@ -343,7 +344,11 @@ function OsChoice({ value, onChange }: { value: RunnerOs; onChange: (os: RunnerO
       label={t("The machine’s system")}
       value={value}
       onValueChange={onChange}
-      options={RUNNER_OS.map((os) => ({ value: os, label: OS_LABEL[os] }))}
+      options={RUNNER_OS.map((os) => ({
+        value: os,
+        label: OS_LABEL[os],
+        icon: <BrandIcon brand={osBrand(os) as Brand} size={13} />,
+      }))}
     />
   );
 }
@@ -800,7 +805,16 @@ function RunnerRow({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">{runner.name}</span>
         <Badge tone={state.tone}>{state.label}</Badge>
-        {runner.os && <Badge>{OS_LABEL[runner.os] ?? runner.os}</Badge>}
+        {runner.os && osBrand(runner.os) ? (
+          <span className="inline-flex text-fg-secondary">
+            <BrandIcon
+              brand={osBrand(runner.os) as Brand}
+              title={OS_LABEL[runner.os] ?? runner.os}
+            />
+          </span>
+        ) : (
+          runner.os && <Badge>{OS_LABEL[runner.os] ?? runner.os}</Badge>
+        )}
         {runner.labels.map((label) => (
           <Badge key={label} tone="info">
             {label}
