@@ -264,8 +264,10 @@ function TeamKey({ teamId, mode }: { teamId: string; mode: "setup" | "manage" })
               "Paste this once on the machine, as a user who can use sudo (on Windows: PowerShell, Run as administrator). It creates the runner’s user, lets this team’s key in, and joins the docker group if Docker is there. Running it again is safe.",
             )}
           </p>
-          <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
+          <div className="mb-2">
             <OsChoice value={os} onChange={setOs} />
+          </div>
+          <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
             <span className="flex items-center gap-1">
               {t("User to create")}
               <Input
@@ -521,8 +523,10 @@ function AgentInstall({ install, onDone }: { install: RunnerAgentInstall; onDone
                 { url },
               )}
       </p>
-      <div className="flex flex-wrap items-center gap-3">
+      <div>
         <OsChoice value={os} onChange={setOs} />
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
         <span className="flex items-center gap-1">
           {t("User to create")}
           <Input
@@ -542,9 +546,13 @@ function AgentInstall({ install, onDone }: { install: RunnerAgentInstall; onDone
         </label>
       </div>
       <p className="text-2xs text-fg-muted">
-        {t(
-          "If Docker is installed, the user joins the docker group so pipelines can use Docker. That is as powerful as root on the machine: use a machine for this runner alone.",
-        )}
+        {os === "windows"
+          ? t(
+              "If Docker Desktop is installed, the user joins docker-users so pipelines can use Docker. That is as powerful as an administrator on the machine: use a machine for this runner alone.",
+            )
+          : t(
+              "If Docker is installed, the user joins the docker group so pipelines can use Docker. That is as powerful as root on the machine: use a machine for this runner alone.",
+            )}
       </p>
       <p className="text-2xs text-fg-muted">
         {t("To see it running on the machine: {command}", {

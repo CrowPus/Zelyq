@@ -3106,5 +3106,6 @@
   "Move idle images and videos to storage after (days)": "Déplacer les images et vidéos inactives vers le stockage après (jours)",
   "This file is kept in storage and could not be fetched: {0} (Server settings → Storage).": "Ce fichier est gardé dans le stockage et n’a pas pu être récupéré : {0} (Réglages du serveur → Stockage).",
   "This file is kept in the storage this server used before. Set that storage up again under Server settings → Storage to open it.": "Ce fichier est gardé dans le stockage que ce serveur utilisait avant. Reconfigurez ce stockage dans Réglages du serveur → Stockage pour l’ouvrir.",
-  "This file is kept in storage and could not be fetched: {0}": "Ce fichier est gardé dans le stockage et n’a pas pu être récupéré : {0}"
+  "This file is kept in storage and could not be fetched: {0}": "Ce fichier est gardé dans le stockage et n’a pas pu être récupéré : {0}",
+  "If Docker Desktop is installed, the user joins docker-users so pipelines can use Docker. That is as powerful as an administrator on the machine: use a machine for this runner alone.": "Si Docker Desktop est installé, l’utilisateur rejoint docker-users pour que les pipelines puissent utiliser Docker. Cela donne autant de pouvoir qu’un administrateur sur la machine : utilisez une machine réservée à ce runner."
 }

@@ -3106,5 +3106,6 @@
   "Move idle images and videos to storage after (days)": "Ruhende Bilder und Videos in den Speicher verschieben nach (Tagen)",
   "This file is kept in storage and could not be fetched: {0} (Server settings → Storage).": "Diese Datei liegt im Speicher und konnte nicht geholt werden: {0} (Servereinstellungen → Speicher).",
   "This file is kept in the storage this server used before. Set that storage up again under Server settings → Storage to open it.": "Diese Datei liegt in dem Speicher, den dieser Server vorher benutzt hat. Richten Sie diesen Speicher unter Servereinstellungen → Speicher wieder ein, um sie zu öffnen.",
-  "This file is kept in storage and could not be fetched: {0}": "Diese Datei liegt im Speicher und konnte nicht geholt werden: {0}"
+  "This file is kept in storage and could not be fetched: {0}": "Diese Datei liegt im Speicher und konnte nicht geholt werden: {0}",
+  "If Docker Desktop is installed, the user joins docker-users so pipelines can use Docker. That is as powerful as an administrator on the machine: use a machine for this runner alone.": "Ist Docker Desktop installiert, tritt der Benutzer docker-users bei, damit Pipelines Docker verwenden können. Das ist so mächtig wie ein Administrator auf der Maschine: Verwenden Sie eine Maschine nur für diesen Runner."
 }
