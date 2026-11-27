@@ -2139,7 +2139,9 @@ export function runnerSetupScript(input: {
       "Add-LocalGroupMember -Group 'docker-users' -Member $U -ErrorAction SilentlyContinue",
       "# Windows makes a user's folder at their first sign-in: sign in once now.",
       '$Cred = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\\$U", $Pw)',
-      "Start-Process -FilePath cmd.exe -ArgumentList '/c', 'exit' -Credential $Cred -LoadUserProfile -WindowStyle Hidden -Wait",
+      // A sign-in that ends at once can make Start-Process -Wait fail with "the process has exited":
+      // it lasts a moment, and only the folder it leaves behind matters.
+      "try { Start-Process -FilePath cmd.exe -ArgumentList '/c', 'ping -n 2 127.0.0.1 >nul' -Credential $Cred -LoadUserProfile -WindowStyle Hidden -Wait } catch { }",
       ...(admin
         ? [
             "Add-LocalGroupMember -Group 'Administrators' -Member $U -ErrorAction SilentlyContinue",
@@ -2151,6 +2153,7 @@ export function runnerSetupScript(input: {
         : [
             "$Sid = (Get-LocalUser -Name $U).SID.Value",
             "$UserHome = (Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $Sid }).LocalPath",
+            'if (-not $UserHome) { throw "Windows did not make a folder for $U. Sign in as $U once, then run this again." }',
             'New-Item -ItemType Directory -Force -Path "$UserHome\\.ssh" | Out-Null',
             '$File = "$UserHome\\.ssh\\authorized_keys"',
             "if (-not (Test-Path $File) -or -not (Select-String -Path $File -SimpleMatch $Key -Quiet)) { Add-Content -Path $File -Value $Key -Encoding ascii }",
@@ -2471,9 +2474,10 @@ function windowsAgentScript(input: CheckedAgentInstall): string {
       : []),
     '  $Cred = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\\$U", $Pw)',
     "  # Windows makes a user's folder at their first sign-in: sign in once now.",
-    "  Start-Process -FilePath cmd.exe -ArgumentList '/c', 'exit' -Credential $Cred -LoadUserProfile -WindowStyle Hidden -Wait",
+    "  try { Start-Process -FilePath cmd.exe -ArgumentList '/c', 'ping -n 2 127.0.0.1 >nul' -Credential $Cred -LoadUserProfile -WindowStyle Hidden -Wait } catch { }",
     "  $Sid = (Get-LocalUser -Name $U).SID.Value",
     "  $UserHome = (Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $Sid }).LocalPath",
+    '  if (-not $UserHome) { throw "Windows did not make a folder for $U. Sign in as $U once, then run this again." }',
     "  # A runner already here stops while its files are replaced.",
     "  if (Get-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName $Task }",
     '  Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$D\\*" } | Stop-Process -Force',
