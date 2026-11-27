@@ -290,6 +290,8 @@ delete. Linking a resource to one project needs only project-editor rights.
 | `ZELYQ_WEB_DIR` | `apps/web/dist` in production | Built UI to serve. Unset in development. |
 | `ZELYQ_ATTACHMENTS_DIR` | `<data dir>/attachments` | Where uploaded prompt attachments live — beside the database, never inside a project's own workspace. See [attachments.md](./attachments.md) for why. |
 
+Apps nobody has opened for a while can sleep in an S3-compatible bucket or another folder instead of on this disk (off by default): see [storage.md](./storage.md).
+
 Migrations run automatically when the server boots.
 
 ## Execution

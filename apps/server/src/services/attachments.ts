@@ -30,6 +30,10 @@ interface StoredMeta {
  * without a schema migration.
  */
 export class AttachmentService {
+  /** Wraps work on an app's attachments: a sleeping app wakes first, and it counts as in use (storage/app-sleep.ts). */
+  guard: <T>(projectId: string, work: () => Promise<T>) => Promise<T> = (_projectId, work) =>
+    work();
+
   constructor(private readonly baseDir: string) {}
 
   private dirFor(projectId: string): string {
@@ -47,6 +51,13 @@ export class AttachmentService {
   }
 
   async store(
+    projectId: string,
+    input: { filename: string; mimeType: string; data: string },
+  ): Promise<AttachmentRef> {
+    return await this.guard(projectId, () => this.storeNow(projectId, input));
+  }
+
+  private async storeNow(
     projectId: string,
     input: { filename: string; mimeType: string; data: string },
   ): Promise<AttachmentRef> {
@@ -82,6 +93,13 @@ export class AttachmentService {
 
   /** Null for an id that was never stored, or belongs to a different project. */
   async get(projectId: string, id: string): Promise<{ ref: AttachmentRef; data: Buffer } | null> {
+    return await this.guard(projectId, () => this.getNow(projectId, id));
+  }
+
+  private async getNow(
+    projectId: string,
+    id: string,
+  ): Promise<{ ref: AttachmentRef; data: Buffer } | null> {
     try {
       const [data, metaRaw] = await Promise.all([
         fs.readFile(this.blobPath(projectId, id)),
@@ -95,6 +113,8 @@ export class AttachmentService {
   }
 
   async removeProject(projectId: string): Promise<void> {
-    await fs.rm(this.dirFor(projectId), { recursive: true, force: true });
+    await this.guard(projectId, () =>
+      fs.rm(this.dirFor(projectId), { recursive: true, force: true }),
+    );
   }
 }

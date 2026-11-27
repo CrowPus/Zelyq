@@ -1,10 +1,12 @@
-import { roleAtLeast, updateSettingsSchema, vaultNameSchema } from "@zelyq/core";
+import { roleAtLeast, updateSettingsSchema, vaultNameSchema, ZelyqError } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AccessControl } from "../services/access.js";
 import type { MailService } from "../services/mail.js";
 import type { SettingsService } from "../services/settings.js";
+import { storeFor } from "../services/storage/app-sleep.js";
+import { storageConfig } from "../services/storage/config.js";
 
 export function registerSettingsRoutes(
   app: FastifyInstance,
@@ -15,6 +17,28 @@ export function registerSettingsRoutes(
     const user = deps.access.requireInstanceAdmin(request);
     await deps.mail.test(user.email);
     return { ok: true, to: user.email };
+  });
+
+  /** Settings → Storage: writes, reads and deletes a small file there, and says plainly what is wrong. */
+  app.post("/api/settings/storage/test", async (request) => {
+    deps.access.requireInstanceAdmin(request);
+    let found: ReturnType<typeof storeFor>;
+    try {
+      found = storeFor(await storageConfig(deps.settings));
+    } catch (error) {
+      throw ZelyqError.badRequest((error as Error).message);
+    }
+    if (!found) {
+      throw ZelyqError.badRequest(
+        "Storage is off or not filled in. Choose where, fill it in and save first.",
+      );
+    }
+    try {
+      await found.store.check();
+    } catch (error) {
+      throw ZelyqError.badRequest((error as Error).message);
+    }
+    return { ok: true, where: found.store.label };
   });
 
   app.get("/api/settings", async (request) => {

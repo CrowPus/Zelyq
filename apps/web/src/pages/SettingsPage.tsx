@@ -7,6 +7,7 @@ import {
   Cpu,
   Gauge,
   GraduationCap,
+  HardDrive,
   Image as ImageIcon,
   KeyRound,
   Lock,
@@ -127,6 +128,11 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
     blurb: t("The local runner, and how long runs are kept"),
   },
   preview: { label: t("Preview"), icon: Monitor, blurb: t("How app previews are reached") },
+  storage: {
+    label: t("Storage"),
+    icon: HardDrive,
+    blurb: t("Where idle apps sleep: a bucket or a folder"),
+  },
   ops: { label: t("Ops"), icon: ServerCog, blurb: t("The model the DevOps engineer thinks with") },
   email: { label: t("Email"), icon: Mail, blurb: t("The mail server Zelyq sends through") },
   integrations: {
@@ -204,6 +210,7 @@ export function SettingsPage() {
       "runtime",
       "pipelines",
       "preview",
+      "storage",
     ].filter((id) => fromGroups.includes(id));
     // Anything the server adds later still gets a menu entry rather than
     // silently disappearing from the page.
@@ -437,6 +444,7 @@ export function SettingsPage() {
               .map(renderGroup)}
 
             {active === "email" && <MailTest />}
+            {active === "storage" && <StorageTest />}
 
             {active === "integrations" && (
               <>
@@ -1024,6 +1032,30 @@ function CredentialInput({
         <p role="alert" className="text-2xs text-danger">
           {point.error instanceof Error ? point.error.message : t("Could not change it.")}
         </p>
+      )}
+    </div>
+  );
+}
+
+/** Settings → Storage: proves the saved storage works by writing, reading and deleting a small file. */
+function StorageTest() {
+  const test = useMutation({ mutationFn: () => api.testStorage() });
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+      <Button variant="secondary" onClick={() => test.mutate()} disabled={test.isPending}>
+        {test.isPending ? <Spinner /> : <HardDrive size={14} strokeWidth={1.75} />}
+        {t("Test storage")}
+      </Button>
+      {test.isSuccess && (
+        <span className="text-success">
+          {t("Works: Zelyq wrote, read and deleted a test file in {where}.", {
+            where: test.data.where,
+          })}
+        </span>
+      )}
+      {test.isError && <span className="text-danger">{(test.error as Error).message}</span>}
+      {!test.isSuccess && !test.isError && (
+        <span className="text-fg-muted">{t("Save the settings first, then test them.")}</span>
       )}
     </div>
   );
