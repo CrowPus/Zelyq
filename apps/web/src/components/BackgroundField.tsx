@@ -106,6 +106,19 @@ void main() {
   gl_FragColor = vec4(col, a);
 }`;
 
+/** Whether WebGL is drawn by the processor (SwiftShader, llvmpipe and the like), not a graphics card. */
+function drawsInSoftware(gl: WebGLRenderingContext): boolean {
+  try {
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = String(
+      gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? "",
+    );
+    return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer);
+  } catch {
+    return false;
+  }
+}
+
 export function BackgroundField() {
   const { on } = useBackgroundTexture();
   const { resolved } = useTheme();
@@ -128,6 +141,9 @@ export function BackgroundField() {
       antialias: false,
     });
     if (!gl) return;
+    // No graphics card (a browser drawing WebGL on the processor, as in a VM or a test machine):
+    // one still frame, so a moving page never costs the machine its speed.
+    const still = drawsInSoftware(gl);
 
     const compile = (type: number, source: string) => {
       const shader = gl.createShader(type);
@@ -204,10 +220,10 @@ export function BackgroundField() {
       pointer.y += (target.y - pointer.y) * 0.08;
       pointer.z += (target.z - pointer.z) * 0.05;
       gl!.uniform2f(uRes, canvas!.width, canvas!.height);
-      gl!.uniform1f(uTime, reduce.matches ? 12 : (now - start) / 1000);
+      gl!.uniform1f(uTime, reduce.matches || still ? 12 : (now - start) / 1000);
       gl!.uniform1f(uDark, darkRef.current ? 1 : 0);
       gl!.uniform1f(uCell, 10 * dpr);
-      gl!.uniform3f(uPointer, pointer.x, pointer.y, reduce.matches ? 0 : pointer.z);
+      gl!.uniform3f(uPointer, pointer.x, pointer.y, reduce.matches || still ? 0 : pointer.z);
       gl!.clear(gl!.COLOR_BUFFER_BIT);
       gl!.drawArrays(gl!.TRIANGLES, 0, 3);
       if (!shown) {
@@ -224,11 +240,11 @@ export function BackgroundField() {
     function run() {
       cancelAnimationFrame(frame);
       if (document.hidden) return;
-      if (reduce.matches) draw(performance.now());
+      if (reduce.matches || still) draw(performance.now());
       else frame = requestAnimationFrame(loop);
     }
     redrawRef.current = () => draw(performance.now());
-    const onResize = () => reduce.matches && draw(performance.now());
+    const onResize = () => (reduce.matches || still) && draw(performance.now());
 
     window.addEventListener("pointermove", onMove, { passive: true });
     document.documentElement.addEventListener("pointerleave", onLeave);
