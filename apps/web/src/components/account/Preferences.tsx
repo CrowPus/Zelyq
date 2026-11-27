@@ -1,11 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useBackgroundTexture } from "../../hooks/useBackgroundTexture";
 import { useSession } from "../../hooks/useSession";
 import { useTheme } from "../../hooks/useTheme";
 import { api } from "../../lib/api";
 import { currentLanguage, languageOf, switchLanguage, t } from "../../lib/i18n";
-import { Button, Card, Field, NativeSelect, SegmentedControl, toast } from "../ui";
+import { Button, Card, Field, NativeSelect, SegmentedControl, Switch, toast } from "../ui";
 
 /** Languages offered, each in its own name. */
 const LANGUAGES: Array<{ tag: string; name: string }> = [
@@ -36,6 +37,7 @@ function timeZones(): string[] {
 export function PreferencesCard() {
   const { user, refresh } = useSession();
   const { theme, setTheme } = useTheme();
+  const texture = useBackgroundTexture();
   const [locale, setLocale] = useState(user?.locale ?? "");
   const [timeZone, setTimeZone] = useState(user?.timeZone ?? "");
   useEffect(() => {
@@ -144,7 +146,22 @@ export function PreferencesCard() {
             { value: "system", label: t("Match system"), icon: <Monitor size={14} /> },
           ]}
         />
-        <p className="mt-2 text-xs text-fg-muted">{t("The theme is kept on this device only.")}</p>
+        <div className="mt-4 flex items-start justify-between gap-4">
+          <div>
+            <label htmlFor="background-texture" className="text-sm font-medium text-fg">
+              {t("Background texture")}
+            </label>
+            <p className="mt-0.5 text-xs text-fg-muted">
+              {t(
+                "A faint moving pattern behind the pages. It holds still if your device asks for less motion.",
+              )}
+            </p>
+          </div>
+          <Switch id="background-texture" checked={texture.on} onCheckedChange={texture.setOn} />
+        </div>
+        <p className="mt-3 text-xs text-fg-muted">
+          {t("The theme and texture are kept on this device only.")}
+        </p>
       </div>
     </Card>
   );

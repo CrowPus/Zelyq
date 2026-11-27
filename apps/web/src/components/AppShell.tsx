@@ -50,6 +50,7 @@ import { t } from "../lib/i18n";
 import { roleName } from "../lib/roles";
 import { globalPaths, type TeamPaths, teamKey, teamPaths, useTeamPaths } from "../lib/routes";
 import { AnnouncementBanner } from "./AnnouncementBanner";
+import { BackgroundField } from "./BackgroundField";
 import { openCommandPalette, openShortcuts } from "./command-palette-store";
 import { StarButton } from "./GitHubStar";
 import { openHelp } from "./help/help-store";
@@ -117,6 +118,7 @@ export function AppShell({
   children,
   app,
   scope = "team",
+  texture = true,
 }: {
   crumbs: Crumb[];
   actions?: ReactNode;
@@ -124,6 +126,8 @@ export function AppShell({
   app?: ShellApp;
   /** "global" for pages that are not a team's (account, server admin, docs): the tab title leaves the team out. */
   scope?: "team" | "global";
+  /** The quiet moving texture behind the page; off where the page is a full workspace. */
+  texture?: boolean;
 }) {
   const [railOpen, setRailOpen] = useState(readRailOpen);
   const [mobileNav, setMobileNav] = useState(false);
@@ -196,7 +200,8 @@ export function AppShell({
         </RadixDialog.Portal>
       </RadixDialog.Root>
 
-      <div className="grid min-w-0 grid-rows-[48px_auto_minmax(0,1fr)] overflow-hidden">
+      <div className="relative isolate grid min-w-0 grid-rows-[48px_auto_minmax(0,1fr)] overflow-hidden">
+        {texture && <BackgroundField />}
         <TopBar crumbs={crumbs} actions={actions} app={app} onMenu={() => setMobileNav(true)} />
         <div>
           <AnnouncementBanner />
