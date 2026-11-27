@@ -73,6 +73,8 @@ for (const theme of ["light", "dark"] as const) {
         try {
           localStorage.setItem("zelyq.theme", value);
           localStorage.setItem("zelyq.lang", "en");
+          // The moving background texture never draws the same frame twice.
+          localStorage.setItem("zelyq.texture", "off");
         } catch {
           // The theme follows colorScheme instead.
         }
