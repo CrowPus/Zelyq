@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import path from "node:path";
 import { maxImageReferences, ZelyqError } from "@zelyq/core";
 import type { MediaSleep } from "./storage/media-sleep.js";
+import { within } from "./storage/within.js";
 
 /** Application data; never placed in a project workspace or public web root. */
 export class ImageAssetStore {
@@ -13,16 +13,16 @@ export class ImageAssetStore {
 
   private directory(ownerId: string) {
     if (!/^usr_[a-f0-9]{32}$/.test(ownerId)) throw ZelyqError.badRequest("Invalid image owner.");
-    return path.join(this.root, ownerId);
+    return within(this.root, ownerId);
   }
   private file(ownerId: string, id: string) {
     if (!/^img_[a-f0-9]{32}$/.test(id)) throw ZelyqError.badRequest("Invalid image ID.");
-    return path.join(this.directory(ownerId), `${id}.png`);
+    return within(this.directory(ownerId), `${id}.png`);
   }
   private referenceFile(ownerId: string, id: string, index: number) {
     if (!Number.isInteger(index) || index < 0 || index >= maxImageReferences)
       throw ZelyqError.badRequest("Invalid reference image.");
-    return path.join(this.directory(ownerId), `${id}.ref-${index}.png`);
+    return within(this.directory(ownerId), `${id}.ref-${index}.png`);
   }
   async save(ownerId: string, id: string, bytes: Buffer) {
     const target = this.file(ownerId, id);

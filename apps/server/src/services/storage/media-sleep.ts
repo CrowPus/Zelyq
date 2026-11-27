@@ -5,6 +5,7 @@ import { ZelyqError } from "@zelyq/core";
 import type { Store } from "@zelyq/db";
 import { type StorageConfig, StorageSetupError, storeFor } from "./app-sleep.js";
 import type { ObjectStore } from "./object-store.js";
+import { within } from "./within.js";
 
 /**
  * Generated images and videos nobody has opened for a while move to the server's storage
@@ -90,12 +91,13 @@ export class MediaSleep {
   }
 
   /** The owner and name of a file under this store's folder, or null for anything else. */
-  private parts(file: string): { owner: string; name: string } | null {
+  private parts(file: string): { owner: string; name: string; file: string } | null {
     const relative = path.relative(path.resolve(this.deps.root), path.resolve(file));
     const [owner, name, ...rest] = relative.split(path.sep);
     if (rest.length || !owner || !name || !OWNER.test(owner) || !NAMES[this.deps.kind].test(name))
       return null;
-    return { owner, name };
+    // The path made again from the checked names, inside this store's folder.
+    return { owner, name, file: within(this.deps.root, owner, name) };
   }
 
   /** Where a moved file is: the storage named in its note, or null when it never moved. */
@@ -121,9 +123,10 @@ export class MediaSleep {
    * Makes sure a file is on the disk before it is read: brought back from storage when it moved
    * there. A file that never moved and is missing stays missing (the caller's own "not found").
    */
-  async local(file: string): Promise<void> {
-    const parts = this.parts(file);
+  async local(given: string): Promise<void> {
+    const parts = this.parts(given);
     if (!parts) return;
+    const file = parts.file;
     const now = Date.now();
     const before = this.lastRead.get(file) ?? 0;
     this.lastRead.set(file, now);
@@ -190,9 +193,9 @@ export class MediaSleep {
     let moved = 0;
     for (const owner of await entries(this.deps.root)) {
       if (!OWNER.test(owner)) continue;
-      for (const name of await entries(path.join(this.deps.root, owner))) {
+      for (const name of await entries(within(this.deps.root, owner))) {
         if (!NAMES[this.deps.kind].test(name)) continue;
-        const file = path.join(this.deps.root, owner, name);
+        const file = within(this.deps.root, owner, name);
         try {
           if (await this.moveOne(file, owner, name, storage, started, cutoff)) moved += 1;
         } catch (error) {
@@ -249,9 +252,10 @@ export class MediaSleep {
    * One file deleted (`remove` deletes it from the disk): waits for a move or fetch of the same
    * file, then its stored copy goes too.
    */
-  async removed(file: string, remove: () => Promise<void>): Promise<void> {
-    const parts = this.parts(file);
+  async removed(given: string, remove: () => Promise<void>): Promise<void> {
+    const parts = this.parts(given);
     if (!parts) return await remove();
+    const file = parts.file;
     await this.locked(file, async () => {
       await remove();
       const where = await this.movedTo(file);
@@ -268,11 +272,11 @@ export class MediaSleep {
   async notesOf(owner: string): Promise<Array<{ name: string; where: string }>> {
     if (!OWNER.test(owner)) return [];
     const notes: Array<{ name: string; where: string }> = [];
-    for (const entry of await entries(path.join(this.deps.root, owner))) {
+    for (const entry of await entries(within(this.deps.root, owner))) {
       if (!entry.endsWith(NOTE)) continue;
       const name = entry.slice(0, -NOTE.length);
       if (!NAMES[this.deps.kind].test(name)) continue;
-      const where = await this.movedTo(path.join(this.deps.root, owner, name));
+      const where = await this.movedTo(within(this.deps.root, owner, name));
       if (where) notes.push({ name, where });
     }
     return notes;

@@ -2,12 +2,12 @@ import { execFile } from "node:child_process";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
-import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { maxVideoBytes, ZelyqError } from "@zelyq/core";
 import type { MediaSleep } from "./storage/media-sleep.js";
+import { within } from "./storage/within.js";
 
 const probePath: string = createRequire(import.meta.url)("ffprobe-static").path;
 const runFile = promisify(execFile);
@@ -27,11 +27,11 @@ export class VideoAssetStore {
   constructor(readonly root: string) {}
   directory(ownerId: string) {
     if (!/^usr_[a-f0-9]{32}$/.test(ownerId)) throw ZelyqError.badRequest("Invalid video owner.");
-    return path.join(this.root, ownerId);
+    return within(this.root, ownerId);
   }
   file(ownerId: string, id: string) {
     if (!/^(vid|vrf)_[a-f0-9]{32}$/.test(id)) throw ZelyqError.badRequest("Invalid video asset.");
-    return path.join(this.directory(ownerId), `${id}.${id.startsWith("vrf_") ? "png" : "mp4"}`);
+    return within(this.directory(ownerId), `${id}.${id.startsWith("vrf_") ? "png" : "mp4"}`);
   }
   async saveReference(ownerId: string, id: string, bytes: Buffer) {
     await fs.mkdir(this.directory(ownerId), { recursive: true, mode: 0o700 });
