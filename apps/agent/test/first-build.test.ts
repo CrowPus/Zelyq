@@ -95,6 +95,8 @@ test("<first_build> states principles, never a benchmark task's own example", as
   assert.match(FIRST_BUILD_BLOCK, /Never\s+invent facts/);
   assert.match(FIRST_BUILD_BLOCK, /appears exactly as written/);
   assert.match(FIRST_BUILD_BLOCK, /one short test file/);
+  assert.match(FIRST_BUILD_BLOCK, /Lists and collections start empty/);
+  assert.match(FIRST_BUILD_BLOCK, /components the\s+project already has/);
   assert.doesNotMatch(
     buildSystemPrompt({ projectName: "p", template: "vite-react" }),
     /first_build/,

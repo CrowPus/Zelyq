@@ -17,3 +17,17 @@ project installs, runs and is checked.
 - To check your work, `npm run check` — once. Zelyq also runs every check when a
   turn ends.
 - Credentials go in the editor's Backend settings, never in source or logs.
+
+## Design system
+
+The frontend has one in place. Colours are roles in `src/index.css` (`background`, `foreground`,
+`card`, `primary`, `muted`, `accent`, `destructive`, `border`, `ring`, `chart-1…5`), light and
+dark, with `--radius` and `--font-sans` (Inter); use the roles in classes (`bg-primary`,
+`text-muted-foreground`), never a raw colour, and give the app its identity by changing the values
+there. Components are in `src/components/ui/` (shadcn/ui: button, input, label, textarea, field,
+card, badge, separator, checkbox, switch, radio-group, select, dialog, sheet, popover,
+dropdown-menu, tabs, tooltip, table, alert, progress, skeleton, sonner for toasts). Build with
+them rather than hand-styled raw elements; add more with `npx shadcn@latest add <name>` and keep
+its `cn` import at `@/lib/utils`. New interface matches what is around it: the same components,
+spacing and control heights, related controls grouped, an example value as each placeholder.
+Frontend logic tests: `*.test.ts` beside the code, `npm test` (Vitest).

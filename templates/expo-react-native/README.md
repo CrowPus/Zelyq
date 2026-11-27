@@ -24,15 +24,28 @@ two on a cold machine). After that it is fast and incremental.
 
 ```
 app/
-  _layout.tsx    root layout — the <Stack> navigator, imports global.css
+  _layout.tsx    root layout — theme, the <Stack> navigator, the PortalHost
   index.tsx      the "/" screen
   +html.tsx      web-only HTML shell (native builds ignore it)
-components/
-  ThemedText.tsx small example component
-global.css       Tailwind entry (NativeWind reads it via metro.config.js)
+components/ui/   ready components (React Native Reusables): button, text, input,
+                 card, dialog, select, tabs, switch, checkbox, …
+lib/theme.ts     the colours again, for the navigation bar
+global.css       the design system: colour roles, light and dark
 public/
   zelyq-inspector.js  Zelyq's element-inspector bridge (safe to delete)
 ```
+
+## Design system
+
+Every colour is a role (`background`, `foreground`, `card`, `primary`, `muted`,
+`accent`, `destructive`, `border`, `ring`) in `global.css`, light and dark; use
+the role in classes (`bg-primary`, `text-muted-foreground`), never a raw colour,
+and give the app its identity by changing the values there (and in
+`lib/theme.ts`). Build screens from `components/ui/` — `Button`, `Text`,
+`Input`, `Card`, `Dialog`, `Select`, `Tabs`, `Switch`, `Checkbox`, `Badge`,
+`Progress`, `Alert`, `Avatar`, `Popover`, `DropdownMenu`, `Tooltip` — rather
+than hand-styled `Pressable`s. Text inside a `Button` is a `<Text>` from
+`components/ui/text`, which picks up the button's style.
 
 ## This is React Native, not the DOM
 

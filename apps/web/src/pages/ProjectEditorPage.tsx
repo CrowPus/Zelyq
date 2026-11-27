@@ -394,6 +394,7 @@ export function ProjectEditorPage() {
                 onStop={stopPreview}
                 onRefreshLogs={refreshLogs}
                 reloadToken={reloadToken}
+                agentWorking={chat.busy}
                 onElementSelected={(element) => {
                   setPointedElement(element);
                   // Only matters on a phone, where panes are exclusive tabs —
