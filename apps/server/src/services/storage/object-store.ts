@@ -81,6 +81,10 @@ export class S3ObjectStore implements ObjectStore {
       forcePathStyle: settings.pathStyle,
       credentials: { accessKeyId: settings.accessKeyId, secretAccessKey: settings.secretAccessKey },
       maxAttempts: 4,
+      // Checksums only where the protocol needs them: several S3-compatible stores (Google Cloud
+      // Storage among them) refuse the newer default ones.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
 
