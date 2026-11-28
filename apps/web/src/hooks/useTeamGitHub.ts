@@ -20,16 +20,24 @@ export function useTeamGitHub(teamId: string | null | undefined) {
     staleTime: 60_000,
   });
   const connections: GitHubConnection[] = query.data?.connections ?? [];
+  const oauth = query.data?.status.mode === "oauth";
   return {
     loading: query.isLoading,
     configured: query.data?.status.configured ?? false,
     /** GitHub can reach this server, so pushes arrive by themselves. */
     webhooks: query.data?.status.webhooks ?? false,
     connections,
-    /** True when the team connected the GitHub account this address is on. */
+    /** Zelyq adds a push trigger's webhook on GitHub itself. */
+    hooks: query.data?.status.hooks ?? false,
+    /**
+     * True when the team's GitHub reaches this address: the account it is on (a GitHub App), or
+     * any github.com repository once someone connected (their sign-in, which GitHub checks).
+     */
     covers(url: string | null | undefined): boolean {
       const owner = githubOwnerOf(url);
-      return Boolean(owner) && connections.some((one) => one.account.login.toLowerCase() === owner);
+      if (!owner) return false;
+      if (oauth) return connections.length > 0;
+      return connections.some((one) => one.account.login.toLowerCase() === owner);
     },
   };
 }

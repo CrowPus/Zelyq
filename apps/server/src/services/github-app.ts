@@ -56,6 +56,11 @@ export interface GitHubAppCredentials {
 
 export interface GitHubAppStatus {
   configured: boolean;
+  /**
+   * "app": a GitHub App (people choose repositories on GitHub). "oauth": the server's GitHub
+   * sign-in app (an OAuth App) asked for repository access too; simpler, all-or-nothing.
+   */
+  mode: "app" | "oauth" | null;
   /** "env": given by the server's environment (read-only here); "settings": created here. */
   source: "env" | "settings" | null;
   slug: string | null;
@@ -65,7 +70,20 @@ export interface GitHubAppStatus {
   installUrl: string | null;
   /** GitHub can reach this server, so pushes and pull requests arrive by themselves. */
   webhooks: boolean;
+  /** Zelyq adds a push trigger's webhook to the repository itself (oauth mode). */
+  hooks: boolean;
 }
+
+/** The server's GitHub sign-in app, reused to reach repositories (Zelyq Cloud). */
+export interface GitHubOAuthCredentials {
+  clientId: string;
+  clientSecret: string;
+  /** Where GitHub sends the person back; it must sit under the OAuth App's callback URL. */
+  redirectUrl: string;
+}
+
+/** What an OAuth connection asks GitHub for: repositories, CI files, webhooks, organizations. */
+const OAUTH_SCOPES = "repo workflow admin:repo_hook read:org";
 
 export interface GitHubAccount {
   login: string;
@@ -75,7 +93,8 @@ export interface GitHubAccount {
 
 export interface GitHubConnectionSummary {
   id: string;
-  installationId: number;
+  /** The GitHub App installation; null for an OAuth connection. */
+  installationId: number | null;
   account: GitHubAccount;
   createdAt: string;
   /** Where its repositories are chosen on GitHub. */
@@ -107,6 +126,14 @@ interface InstallationBlob {
   account: GitHubAccount;
   /** The person's own GitHub token, kept only to create repositories in a personal account. */
   userToken: UserToken | null;
+}
+
+/** An OAuth connection: one person's GitHub, used for this team's work as them. */
+interface UserBlob {
+  kind: "github_user";
+  account: GitHubAccount;
+  token: string;
+  scopes: string[];
 }
 
 interface GitHubInstallation {
@@ -233,11 +260,44 @@ export class GitHubAppService {
     return this.fromEnv() ?? (await this.fromSettings());
   }
 
+  /** The sign-in app's keys, when the environment gives them (Zelyq Cloud). */
+  oauth(): GitHubOAuthCredentials | null {
+    const e = this.env;
+    const clientId = e.ZELYQ_GITHUB_OAUTH_CLIENT_ID?.trim();
+    const clientSecret = e.ZELYQ_GITHUB_OAUTH_CLIENT_SECRET?.trim();
+    if (!clientId || !clientSecret) return null;
+    const redirectUrl =
+      e.ZELYQ_GITHUB_OAUTH_REDIRECT_URL?.trim() ||
+      `${(this.publicUrl ?? "http://localhost:8080").replace(/\/$/, "")}/api/integrations/github/callback`;
+    return { clientId, clientSecret, redirectUrl };
+  }
+
+  /** A GitHub App wins; the sign-in app is used only when there is none. */
+  private async oauthMode(): Promise<GitHubOAuthCredentials | null> {
+    return (await this.app()) ? null : this.oauth();
+  }
+
   async status(): Promise<GitHubAppStatus> {
     const env = this.fromEnv();
     const app = env ?? (await this.fromSettings());
+    const oauth = app ? null : this.oauth();
+    if (oauth) {
+      return {
+        configured: true,
+        mode: "oauth",
+        source: "env",
+        slug: null,
+        owner: null,
+        htmlUrl: null,
+        installUrl: null,
+        webhooks: false,
+        hooks: reachableFromGitHub(this.publicUrl),
+      };
+    }
     return {
       configured: Boolean(app),
+      mode: app ? "app" : null,
+      hooks: false,
       source: env ? "env" : app ? "settings" : null,
       slug: app?.slug ?? null,
       owner: app?.owner ?? null,
@@ -360,10 +420,22 @@ export class GitHubAppService {
 
   /** Where a team admin goes to install the app (or pick more repositories for it). */
   async beginConnect(actor: User, teamId: string): Promise<{ url: string }> {
-    const app = await this.requireApp();
+    const oauth = await this.oauthMode();
     this.sweep(this.pending, PENDING_TTL_MS);
     // One connect at a time per person: the callback finds it by who is signed in.
     const state = randomBytes(18).toString("base64url");
+    if (oauth) {
+      this.pending.set(actor.id, { teamId, state, at: this.now() });
+      const query = new URLSearchParams({
+        client_id: oauth.clientId,
+        redirect_uri: oauth.redirectUrl,
+        scope: OAUTH_SCOPES,
+        state,
+        allow_signup: "false",
+      });
+      return { url: `${this.web}/login/oauth/authorize?${query}` };
+    }
+    const app = await this.requireApp();
     this.pending.set(actor.id, { teamId, state, at: this.now() });
     return { url: `${this.web}/apps/${app.slug}/installations/new?state=${state}` };
   }
@@ -385,8 +457,10 @@ export class GitHubAppService {
     state: string | null = null,
   ): Promise<{ teamId: string; linked: number }> {
     const started = this.pending.get(actor.id);
-    if (started && state && state !== started.state) {
-      // A link someone else made: leave the person's own connect waiting.
+    const oauth = await this.oauthMode();
+    // A GitHub App's install may come back without the state; the sign-in app's always has the
+    // one Zelyq made. A wrong one is a link someone else made: the real connect keeps waiting.
+    if (started && (oauth ? state !== started.state : state && state !== started.state)) {
       throw new ZelyqError(
         "bad_request",
         "This GitHub connection was not started here. Start it again.",
@@ -396,6 +470,7 @@ export class GitHubAppService {
     if (!started || this.now() - started.at > PENDING_TTL_MS) {
       throw new ZelyqError("bad_request", "This GitHub connection has expired. Start it again.");
     }
+    if (oauth) return this.completeOAuth(actor, started.teamId, oauth, code);
     const app = await this.requireApp();
     const userToken = await this.exchangeCode(app, code);
     const login = await this.loginOf(userToken.accessToken);
@@ -452,6 +527,18 @@ export class GitHubAppService {
   }
 
   async connections(teamId: string): Promise<GitHubConnectionSummary[]> {
+    const oauth = await this.oauthMode();
+    if (oauth) {
+      return (await this.userRows(teamId)).map(({ row, blob }) => ({
+        id: row.id,
+        installationId: null,
+        account: blob.account,
+        createdAt: row.createdAt,
+        // Where the person sees Zelyq's access, and asks an organization to allow it.
+        manageUrl: `${this.web}/settings/connections/applications/${oauth.clientId}`,
+        canCreateRepositories: true,
+      }));
+    }
     return (await this.activeRows(teamId)).map(({ row, blob }) => ({
       id: row.id,
       installationId: blob.installationId,
@@ -466,6 +553,24 @@ export class GitHubAppService {
   }
 
   async disconnect(teamId: string, connectionId: string): Promise<void> {
+    const oauth = await this.oauthMode();
+    if (oauth) {
+      const user = (await this.userRows(teamId)).find(({ row }) => row.id === connectionId);
+      if (!user) throw new ZelyqError("not_found", "That GitHub account is not connected here.");
+      await this.store.providerConnections.setConnectionStatus(connectionId, "revoked");
+      this.forgetAccess(connectionId);
+      // Also withdraw the token on GitHub (only this one: the person's sign-in is untouched).
+      await this.fetch(`${this.api}/applications/${oauth.clientId}/token`, {
+        method: "DELETE",
+        headers: {
+          ...this.headers(),
+          authorization: `Basic ${Buffer.from(`${oauth.clientId}:${oauth.clientSecret}`).toString("base64")}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ access_token: user.blob.token }),
+      }).catch(() => undefined);
+      return;
+    }
     const found = (await this.activeRows(teamId)).find(({ row }) => row.id === connectionId);
     if (!found) throw new ZelyqError("not_found", "That GitHub account is not connected here.");
     await this.store.providerConnections.setConnectionStatus(connectionId, "revoked");
@@ -476,6 +581,7 @@ export class GitHubAppService {
 
   /** Every repository the team's installations can reach, for the pickers. */
   async repositories(teamId: string): Promise<GitHubRepository[]> {
+    if (await this.oauthMode()) return this.oauthRepositories(teamId);
     const all: GitHubRepository[] = [];
     for (const { row, blob } of await this.activeRows(teamId)) {
       const token = await this.installationToken(blob.installationId, null);
@@ -515,17 +621,30 @@ export class GitHubAppService {
     teamId: string,
     input: { connectionId: string; name: string; private: boolean; description?: string },
   ): Promise<GitHubRepository> {
-    const found = (await this.activeRows(teamId)).find(({ row }) => row.id === input.connectionId);
-    if (!found) throw new ZelyqError("not_found", "That GitHub account is not connected here.");
     if (!/^[A-Za-z0-9._-]{1,100}$/.test(input.name) || /^\.+$/.test(input.name)) {
       throw new ZelyqError(
         "bad_request",
         "A repository name uses letters, digits, ’.’, ’-’ and ’_’ only.",
       );
     }
-    const { blob } = found;
     let token: string;
     let url: string;
+    let account: GitHubAccount;
+    let connectionId: string;
+    if (await this.oauthMode()) {
+      const user = (await this.userRows(teamId)).find(({ row }) => row.id === input.connectionId);
+      if (!user) throw new ZelyqError("not_found", "That GitHub account is not connected here.");
+      token = user.blob.token;
+      url = `${this.api}/user/repos`;
+      account = user.blob.account;
+      connectionId = user.row.id;
+      return this.postRepository(url, token, account, connectionId, input);
+    }
+    const found = (await this.activeRows(teamId)).find(({ row }) => row.id === input.connectionId);
+    if (!found) throw new ZelyqError("not_found", "That GitHub account is not connected here.");
+    const { blob } = found;
+    account = blob.account;
+    connectionId = found.row.id;
     if (blob.account.type === "Organization") {
       token = await this.installationToken(blob.installationId, null);
       url = `${this.api}/orgs/${encodeURIComponent(blob.account.login)}/repos`;
@@ -533,6 +652,16 @@ export class GitHubAppService {
       token = await this.personalToken(found.row.id, blob);
       url = `${this.api}/user/repos`;
     }
+    return this.postRepository(url, token, account, connectionId, input);
+  }
+
+  private async postRepository(
+    url: string,
+    token: string,
+    account: GitHubAccount,
+    connectionId: string,
+    input: { name: string; private: boolean; description?: string },
+  ): Promise<GitHubRepository> {
     const response = await this.fetch(url, {
       method: "POST",
       headers: { ...this.headers(token), "content-type": "application/json" },
@@ -546,13 +675,13 @@ export class GitHubAppService {
     if (response.status === 422) {
       throw new ZelyqError(
         "bad_request",
-        `${blob.account.login} already has a repository called ${input.name}.`,
+        `${account.login} already has a repository called ${input.name}.`,
       );
     }
     if (!response.ok) {
       throw new ZelyqError(
         "bad_request",
-        `GitHub did not create the repository (${response.status}). Check that the app may create repositories on ${blob.account.login}.`,
+        `GitHub did not create the repository (${response.status}). Check that the app may create repositories on ${account.login}.`,
       );
     }
     const repo = (await response.json()) as {
@@ -568,7 +697,7 @@ export class GitHubAppService {
       defaultBranch: repo.default_branch ?? "main",
       cloneUrl: repo.clone_url,
       htmlUrl: repo.html_url,
-      connectionId: found.row.id,
+      connectionId,
     };
   }
 
@@ -586,7 +715,9 @@ export class GitHubAppService {
     options: { minLifeMs?: number } = {},
   ): Promise<string | null> {
     const repo = githubRepoOf(repoUrl);
-    if (!repo || !(await this.app())) return null;
+    if (!repo) return null;
+    if (await this.oauthMode()) return (await this.oauthAccess(teamId, repo))?.token ?? null;
+    if (!(await this.app())) return null;
     const owner = repo.owner.toLowerCase();
     const match = (await this.activeRows(teamId)).find(
       ({ blob }) => blob.account.login.toLowerCase() === owner,
@@ -811,6 +942,199 @@ export class GitHubAppService {
       "user-agent": "Zelyq",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     };
+  }
+
+  // ------------------------------------------------------------------ OAuth mode
+
+  /** Repository access found per connection and repository, for a few minutes. */
+  private readonly access = new Map<string, { ok: boolean; at: number }>();
+
+  private async completeOAuth(
+    actor: User,
+    teamId: string,
+    oauth: GitHubOAuthCredentials,
+    code: string,
+  ): Promise<{ teamId: string; linked: number }> {
+    const response = await this.fetch(`${this.web}/login/oauth/access_token`, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: oauth.clientId,
+        client_secret: oauth.clientSecret,
+        code,
+        redirect_uri: oauth.redirectUrl,
+      }).toString(),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      access_token?: string;
+      scope?: string;
+    };
+    if (!response.ok || !body.access_token) {
+      throw new ZelyqError("bad_request", "GitHub did not confirm the connection. Try again.");
+    }
+    const token = body.access_token;
+    const scopes = (body.scope ?? "").split(/[,\s]+/).filter(Boolean);
+    if (!scopes.includes("repo")) {
+      throw new ZelyqError(
+        "bad_request",
+        "GitHub did not give Zelyq access to repositories. Connect again and allow it.",
+      );
+    }
+    const me = await this.fetch(`${this.api}/user`, { headers: this.headers(token) });
+    if (!me.ok)
+      throw new ZelyqError("bad_request", "GitHub did not confirm the connection. Try again.");
+    const user = (await me.json()) as { login: string; avatar_url?: string };
+    const blob: UserBlob = {
+      kind: "github_user",
+      account: { login: user.login, type: "User", avatarUrl: user.avatar_url ?? null },
+      token,
+      scopes,
+    };
+    const same = (await this.userRows(teamId)).find(
+      ({ blob: one }) => one.account.login.toLowerCase() === user.login.toLowerCase(),
+    );
+    if (same) {
+      await this.store.providerConnections.updateConnectionCredential(same.row.id, {
+        encryptedBlob: this.secrets.encrypt(JSON.stringify(blob)),
+      });
+      this.forgetAccess(same.row.id);
+    } else {
+      await this.store.providerConnections.createConnection({
+        id: newId("providerConnection"),
+        provider: "github",
+        credentialType: "github_oauth",
+        encryptedBlob: this.secrets.encrypt(JSON.stringify(blob)),
+        createdBy: actor.id,
+        teamId,
+      });
+    }
+    return { teamId, linked: 1 };
+  }
+
+  private async userRows(teamId: string) {
+    const rows = await this.store.providerConnections.listConnections("github", teamId);
+    const out: Array<{ row: (typeof rows)[number]; blob: UserBlob }> = [];
+    for (const row of rows) {
+      if (row.status !== "active") continue;
+      const plain = this.secrets.decrypt(row.encryptedBlob);
+      if (!plain) continue;
+      try {
+        const blob = JSON.parse(plain) as UserBlob;
+        if (blob.kind === "github_user" && typeof blob.token === "string") out.push({ row, blob });
+      } catch {
+        // Not an OAuth connection.
+      }
+    }
+    return out;
+  }
+
+  private forgetAccess(connectionId: string): void {
+    for (const key of this.access.keys()) {
+      if (key.startsWith(`${connectionId}:`)) this.access.delete(key);
+    }
+  }
+
+  /**
+   * The connection that may push to a repository: the person's own repositories first, then
+   * any connection GitHub says can push there (organizations, shared repositories).
+   */
+  private async oauthAccess(
+    teamId: string,
+    repo: { owner: string; name: string },
+  ): Promise<{ token: string; connectionId: string } | null> {
+    const rows = await this.userRows(teamId);
+    const owner = repo.owner.toLowerCase();
+    rows.sort(
+      (a, b) =>
+        Number(b.blob.account.login.toLowerCase() === owner) -
+        Number(a.blob.account.login.toLowerCase() === owner),
+    );
+    for (const { row, blob } of rows) {
+      const key = `${row.id}:${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`;
+      const known = this.access.get(key);
+      let ok: boolean;
+      if (known && this.now() - known.at < 10 * 60_000) {
+        ok = known.ok;
+      } else {
+        const response = await this.fetch(
+          `${this.api}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`,
+          { headers: this.headers(blob.token) },
+        ).catch(() => null);
+        const body = response?.ok
+          ? ((await response.json()) as { permissions?: { push?: boolean } })
+          : null;
+        ok = Boolean(body?.permissions?.push);
+        // A failure GitHub did not answer is not remembered.
+        if (response) this.access.set(key, { ok, at: this.now() });
+      }
+      if (ok) {
+        await this.store.providerConnections.markConnectionUsed(row.id).catch(() => undefined);
+        return { token: blob.token, connectionId: row.id };
+      }
+    }
+    return null;
+  }
+
+  private async oauthRepositories(teamId: string): Promise<GitHubRepository[]> {
+    const seen = new Map<string, GitHubRepository>();
+    for (const { row, blob } of await this.userRows(teamId)) {
+      for (let page = 1; page <= 5; page++) {
+        const response = await this.fetch(
+          `${this.api}/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`,
+          { headers: this.headers(blob.token) },
+        );
+        if (!response.ok) break;
+        const batch = (await response.json()) as Array<{
+          full_name: string;
+          private: boolean;
+          default_branch: string;
+          clone_url: string;
+          html_url: string;
+          permissions?: { push?: boolean };
+        }>;
+        for (const repo of batch) {
+          if (repo.permissions && !repo.permissions.push) continue;
+          if (seen.has(repo.full_name.toLowerCase())) continue;
+          seen.set(repo.full_name.toLowerCase(), {
+            fullName: repo.full_name,
+            private: repo.private,
+            defaultBranch: repo.default_branch,
+            cloneUrl: repo.clone_url,
+            htmlUrl: repo.html_url,
+            connectionId: row.id,
+          });
+        }
+        if (batch.length < 100) break;
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.fullName.localeCompare(b.fullName));
+  }
+
+  /**
+   * Puts a pipeline trigger's webhook on its GitHub repository (OAuth mode), so nobody copies
+   * an address and a secret by hand. False when that is not possible here.
+   */
+  async addRepositoryHook(
+    teamId: string,
+    repoUrl: string | null | undefined,
+    hook: { url: string; secret: string; pullRequests: boolean },
+  ): Promise<boolean> {
+    const repo = githubRepoOf(repoUrl);
+    if (!repo || !(await this.oauthMode()) || !reachableFromGitHub(this.publicUrl)) return false;
+    const access = await this.oauthAccess(teamId, repo);
+    if (!access) return false;
+    const base = `${this.api}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/hooks`;
+    const response = await this.fetch(base, {
+      method: "POST",
+      headers: { ...this.headers(access.token), "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "web",
+        active: true,
+        events: hook.pullRequests ? ["push", "pull_request"] : ["push"],
+        config: { url: hook.url, secret: hook.secret, content_type: "json", insecure_ssl: "0" },
+      }),
+    }).catch(() => null);
+    return Boolean(response?.ok);
   }
 
   private seal(blob: InstallationBlob): string {

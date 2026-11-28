@@ -20,7 +20,7 @@ export function providerConnectionRepository(db: ZelyqDb) {
     async createConnection(input: {
       id: string;
       provider: string;
-      credentialType: "oauth" | "pat" | "github_app";
+      credentialType: "oauth" | "pat" | "github_app" | "github_oauth";
       encryptedBlob: string;
       grantedScopes?: string;
       expiresAt?: string | null;

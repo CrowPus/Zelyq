@@ -824,6 +824,7 @@ function Triggers({
   const [created, setCreated] = useState<{
     trigger: PipelineTriggerSummary;
     secret: string | null;
+    addedOnGitHub?: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = () =>
@@ -907,6 +908,16 @@ function Triggers({
 
   return (
     <div className="grid gap-4">
+      {created?.secret && !automatic && created.addedOnGitHub && (
+        <div className="rounded-md border border-border-default bg-surface-subtle p-3 text-xs">
+          <p className="font-medium">
+            {t("Zelyq added the webhook to the repository on GitHub. Nothing to copy.")}
+          </p>
+          <Button size="sm" className="mt-2" onClick={() => setCreated(null)}>
+            {t("Done")}
+          </Button>
+        </div>
+      )}
       {created?.secret && automatic && (
         <div className="rounded-md border border-border-default bg-surface-subtle p-3 text-xs">
           <p className="font-medium">
@@ -922,7 +933,7 @@ function Triggers({
           </Button>
         </div>
       )}
-      {created?.secret && !automatic && (
+      {created?.secret && !automatic && !created.addedOnGitHub && (
         <div className="rounded-md border border-warning/40 bg-warning-subtle p-3 text-xs">
           <p className="font-medium">
             {t("Add this webhook to your repository — the secret is shown only now.")}

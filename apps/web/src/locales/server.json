@@ -136,6 +136,7 @@
   "GitHub did not confirm the connection. Try again.",
   "GitHub did not create the repository ({0}). Check that the app may create repositories on {1}.",
   "GitHub did not finish creating the app ({0}). Start it again.",
+  "GitHub did not give Zelyq access to repositories. Connect again and allow it.",
   "GitHub did not list your installations.",
   "GitHub does not show this installation to your account. Install the app on an account or organization you manage.",
   "GitHub is not set up on this server. A server admin turns it on in Server settings → Integrations.",

@@ -672,10 +672,14 @@ export const api = {
     triggers: (teamId: string, id: string) =>
       request<{ triggers: PipelineTriggerSummary[] }>(`/teams/${teamId}/pipelines/${id}/triggers`),
     addTrigger: (teamId: string, id: string, input: TriggerInput) =>
-      request<{ trigger: PipelineTriggerSummary; secret: string | null }>(
-        `/teams/${teamId}/pipelines/${id}/triggers`,
-        { method: "POST", body: JSON.stringify(input) },
-      ),
+      request<{
+        trigger: PipelineTriggerSummary;
+        secret: string | null;
+        addedOnGitHub?: boolean;
+      }>(`/teams/${teamId}/pipelines/${id}/triggers`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
     editTrigger: (teamId: string, id: string, triggerId: string, input: TriggerInput) =>
       request<{ trigger: PipelineTriggerSummary }>(
         `/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`,
@@ -1636,6 +1640,10 @@ export interface OpsMemoryView {
 /** Zelyq's GitHub App on this server (Server settings → GitHub). */
 export interface GitHubAppStatus {
   configured: boolean;
+  /** "app": a GitHub App. "oauth": the server's GitHub sign-in app, all repositories. */
+  mode: "app" | "oauth" | null;
+  /** Zelyq adds a push trigger's webhook on GitHub itself. */
+  hooks: boolean;
   source: "env" | "settings" | null;
   slug: string | null;
   owner: string | null;
@@ -1647,7 +1655,7 @@ export interface GitHubAppStatus {
 /** A GitHub account or organization a team connected. */
 export interface GitHubConnection {
   id: string;
-  installationId: number;
+  installationId: number | null;
   account: { login: string; type: "User" | "Organization"; avatarUrl: string | null };
   createdAt: string;
   manageUrl: string;

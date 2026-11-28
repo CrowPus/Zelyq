@@ -41,6 +41,13 @@ export class PipelineTriggerService {
     private readonly log: { error(object: unknown, message: string): void },
   ) {}
 
+  /** Puts a push trigger's webhook on its GitHub repository, when the team's GitHub can. */
+  addGitHubHook?: (
+    teamId: string,
+    repoUrl: string,
+    hook: { url: string; secret: string; pullRequests: boolean },
+  ) => Promise<boolean>;
+
   start(): void {
     this.timer = setInterval(() => void this.tick(), 30_000);
     void this.tick();
@@ -64,7 +71,12 @@ export class PipelineTriggerService {
     teamId: string,
     pipelineId: string,
     raw: TriggerInput,
-  ): Promise<{ trigger: PipelineTriggerSummary; secret: string | null }> {
+  ): Promise<{
+    trigger: PipelineTriggerSummary;
+    secret: string | null;
+    /** Zelyq added the webhook on GitHub itself: nothing to copy. */
+    addedOnGitHub: boolean;
+  }> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const pipeline = await this.pipeline(teamId, pipelineId);
     const input = triggerInputSchema.parse(raw);
@@ -89,7 +101,25 @@ export class PipelineTriggerService {
       action: "pipeline.trigger_added",
       detail: { label: pipeline.name, kind: input.kind },
     });
-    return { trigger: await this.present(row), secret };
+    const trigger = await this.present(row);
+    let addedOnGitHub = false;
+    if (
+      secret &&
+      input.kind === "push" &&
+      this.addGitHubHook &&
+      trigger.webhookUrl?.startsWith("https://")
+    ) {
+      const parsed = parsePipelineFile(pipeline.source);
+      const repo = parsed.ok ? parsed.file.source?.repo : null;
+      if (repo) {
+        addedOnGitHub = await this.addGitHubHook(teamId, repo, {
+          url: trigger.webhookUrl,
+          secret,
+          pullRequests: input.pullRequests ?? false,
+        }).catch(() => false);
+      }
+    }
+    return { trigger, secret, addedOnGitHub };
   }
 
   /**

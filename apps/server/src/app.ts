@@ -404,6 +404,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
       error: (object, message) => app.log.error(object, message),
     },
   );
+  pipelineTriggers.addGitHubHook = (teamId, repo, hook) =>
+    github.addRepositoryHook(teamId, repo, hook);
   // Telegram, Slack and Discord: each person's own chats, and the team's shared place.
   const opsChannels = new ChannelService(store, secrets);
   const mail = new MailService(settings);

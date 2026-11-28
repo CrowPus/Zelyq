@@ -47,6 +47,7 @@ export function GitHubIntegration({ teamId, canManage }: { teamId: string; canMa
   if (github.isLoading) return null;
   const status = github.data?.status;
   const connections = github.data?.connections ?? [];
+  const oauth = status?.mode === "oauth";
 
   return (
     <section className="mt-7" id="github">
@@ -55,9 +56,13 @@ export function GitHubIntegration({ teamId, canManage }: { teamId: string; canMa
         {t("GitHub")}
       </h2>
       <p className="mt-0.5 text-xs text-fg-secondary">
-        {t(
-          "Connect GitHub to import repositories, push, open pull requests and run pipelines without a token. GitHub asks which repositories Zelyq may reach.",
-        )}
+        {oauth
+          ? t(
+              "Connect GitHub to import repositories, push, open pull requests and run pipelines without a token. Zelyq works with the repositories your GitHub account can push to.",
+            )
+          : t(
+              "Connect GitHub to import repositories, push, open pull requests and run pipelines without a token. GitHub asks which repositories Zelyq may reach.",
+            )}
       </p>
 
       {!status?.configured ? (
@@ -113,7 +118,8 @@ export function GitHubIntegration({ teamId, canManage }: { teamId: string; canMa
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-fg-secondary underline-offset-2 hover:text-fg hover:underline"
                   >
-                    {t("Choose repositories")} <ExternalLink size={11} aria-hidden />
+                    {oauth ? t("Manage on GitHub") : t("Choose repositories")}{" "}
+                    <ExternalLink size={11} aria-hidden />
                   </a>
                   {canManage && (
                     <Button
@@ -151,7 +157,14 @@ export function GitHubIntegration({ teamId, canManage }: { teamId: string; canMa
               </p>
             )
           )}
-          {!status.webhooks && connections.length > 0 && (
+          {oauth && connections.length > 0 && (
+            <p className="mt-2 text-2xs text-fg-muted">
+              {t(
+                "Missing an organization’s repositories? It may need to allow Zelyq first: open Manage on GitHub and request access for it.",
+              )}
+            </p>
+          )}
+          {!oauth && !status.webhooks && connections.length > 0 && (
             <p className="mt-2 text-2xs text-fg-muted">
               {t(
                 "GitHub cannot reach this server, so a push does not start a pipeline by itself. A pipeline’s push trigger still works with its own webhook.",

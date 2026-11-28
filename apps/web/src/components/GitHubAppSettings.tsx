@@ -69,7 +69,16 @@ export function GitHubAppSettings() {
         </p>
       )}
 
-      {app?.configured ? (
+      {app?.mode === "oauth" ? (
+        <div className="mt-3 rounded-md border border-border-default px-3 py-2.5">
+          <Badge tone="success">{t("Ready")}</Badge>
+          <p className="mt-1.5 text-2xs text-fg-muted">
+            {t(
+              "Uses this server’s GitHub sign-in app, set in its environment. Teams connect GitHub in Team settings → Integrations.",
+            )}
+          </p>
+        </div>
+      ) : app?.configured ? (
         <div className="mt-3 rounded-md border border-border-default px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-3">
             <Badge tone="success">{t("Ready")}</Badge>

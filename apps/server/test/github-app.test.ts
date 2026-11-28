@@ -602,3 +602,137 @@ test("tokens: a pipeline asking for a long life gets a new token; an installatio
   refuse = true;
   assert.equal(await github.tokenFor(teamId, "https://github.com/acme/other"), "ghs_3");
 });
+
+// ------------------------------------------------------------------ the sign-in app (OAuth)
+
+const OAUTH_ENV = {
+  ZELYQ_GITHUB_OAUTH_CLIENT_ID: "Ov23.login",
+  ZELYQ_GITHUB_OAUTH_CLIENT_SECRET: "login-secret",
+};
+
+async function oauthConnected(
+  suffix: string,
+  routes: Array<{ method: string; path: RegExp; status?: number; json: unknown }>,
+  scope = "repo,workflow,admin:repo_hook,read:org",
+) {
+  const { user, teamId } = await person(suffix);
+  const gh = fakeGitHub([
+    ...routes,
+    {
+      method: "POST",
+      path: /^\/login\/oauth\/access_token$/,
+      json: { access_token: `gho_${suffix}`, scope },
+    },
+    { method: "GET", path: /^\/user$/, json: { login: "Ada", avatar_url: null } },
+  ]);
+  const github = new GitHubAppService(store, secrets, {
+    env: OAUTH_ENV,
+    fetch: gh.fetch,
+    publicUrl: "https://zelyq.example.com",
+  });
+  const { url } = await github.beginConnect(user, teamId);
+  const state = new URL(url).searchParams.get("state");
+  return { user, teamId, gh, github, state };
+}
+
+test("sign-in app: a GitHub App wins when both are set; without repository access nothing is linked", async () => {
+  const both = new GitHubAppService(store, secrets, { env: { ...ENV, ...OAUTH_ENV } });
+  assert.equal((await both.status()).mode, "app");
+  const { user, teamId, github, state } = await oauthConnected("noscope", [], "read:user");
+  // The state must come back in this mode.
+  await assert.rejects(github.completeConnect(user, "code", null, null), /not started here/);
+  await assert.rejects(
+    github.completeConnect(user, "code", null, state),
+    /did not give Zelyq access/,
+  );
+  assert.equal((await github.connections(teamId)).length, 0);
+});
+
+test("sign-in app: tokens only for repositories the person can push to; the picker lists those", async () => {
+  const { user, teamId, gh, github, state } = await oauthConnected("push", [
+    { method: "GET", path: /^\/repos\/acme\/shop$/, json: { permissions: { push: true } } },
+    { method: "GET", path: /^\/repos\/acme\/docs$/, json: { permissions: { push: false } } },
+    {
+      method: "GET",
+      path: /^\/user\/repos/,
+      json: [
+        {
+          full_name: "acme/shop",
+          private: true,
+          default_branch: "main",
+          clone_url: "https://github.com/acme/shop.git",
+          html_url: "https://github.com/acme/shop",
+          permissions: { push: true },
+        },
+        {
+          full_name: "acme/docs",
+          private: false,
+          default_branch: "main",
+          clone_url: "https://github.com/acme/docs.git",
+          html_url: "https://github.com/acme/docs",
+          permissions: { push: false },
+        },
+      ],
+    },
+    { method: "DELETE", path: /^\/applications\/Ov23\.login\/token$/, status: 204, json: {} },
+  ]);
+  await github.completeConnect(user, "code", null, state);
+  // Connecting again updates, never duplicates.
+  const again = await github.beginConnect(user, teamId);
+  await github.completeConnect(user, "code", null, new URL(again.url).searchParams.get("state"));
+  const [connection] = await github.connections(teamId);
+  assert.equal((await github.connections(teamId)).length, 1);
+  assert.equal(connection?.account.login, "Ada");
+
+  assert.equal(await github.tokenFor(teamId, "https://github.com/acme/shop.git"), "gho_push");
+  assert.equal(await github.tokenFor(teamId, "https://github.com/acme/docs"), null);
+  assert.equal(await github.tokenFor(teamId, "https://gitlab.com/acme/shop"), null);
+  // Asked GitHub once per repository, then remembered.
+  await github.tokenFor(teamId, "https://github.com/acme/shop");
+  assert.equal(gh.calls.filter((call) => call.url.endsWith("/repos/acme/shop")).length, 1);
+
+  const repositories = await github.repositories(teamId);
+  assert.deepEqual(
+    repositories.map((repo) => repo.fullName),
+    ["acme/shop"],
+  );
+
+  // Another team never gets this person's token.
+  const { teamId: other } = await person("other-team");
+  assert.equal(await github.tokenFor(other, "https://github.com/acme/shop"), null);
+
+  // Disconnecting withdraws this token on GitHub, with the app's own keys.
+  await github.disconnect(teamId, connection?.id as string);
+  const revoke = gh.calls.find((call) => call.method === "DELETE");
+  assert.match(revoke?.headers.authorization ?? "", /^Basic /);
+  assert.deepEqual(JSON.parse(revoke?.body ?? "{}"), { access_token: "gho_push" });
+  assert.equal(await github.tokenFor(teamId, "https://github.com/acme/shop"), null);
+});
+
+test("sign-in app: a webhook goes on GitHub only from a public address and for a reachable repository", async () => {
+  const { user, teamId, gh, github, state } = await oauthConnected("hook", [
+    { method: "GET", path: /^\/repos\/acme\/shop$/, json: { permissions: { push: true } } },
+    { method: "POST", path: /^\/repos\/acme\/shop\/hooks$/, status: 201, json: { id: 9 } },
+  ]);
+  await github.completeConnect(user, "code", null, state);
+  const hook = {
+    url: "https://zelyq.example.com/api/hooks/pipelines/t1",
+    secret: "s3cret",
+    pullRequests: false,
+  };
+  assert.equal(await github.addRepositoryHook(teamId, "https://github.com/acme/shop", hook), true);
+  const posted = gh.calls.find((call) => call.url.endsWith("/hooks"));
+  assert.deepEqual(JSON.parse(posted?.body ?? "{}").events, ["push"]);
+  assert.equal(
+    await github.addRepositoryHook(teamId, "https://github.com/acme/elsewhere", hook),
+    false,
+  );
+
+  const local = new GitHubAppService(store, secrets, {
+    env: OAUTH_ENV,
+    fetch: gh.fetch,
+    publicUrl: "http://192.168.1.4:8080",
+  });
+  assert.equal((await local.status()).hooks, false);
+  assert.equal(await local.addRepositoryHook(teamId, "https://github.com/acme/shop", hook), false);
+});

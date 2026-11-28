@@ -4,11 +4,15 @@ Connect GitHub with a click instead of pasting a token. After a team connects it
 or organization, Zelyq can import repositories, push, open pull requests, create new repositories
 and run pipelines on them, all without a personal access token.
 
-This works through a **GitHub App**: one per Zelyq server.
+It works one of two ways, set once per Zelyq server:
 
-- **Zelyq Cloud** already has one. Teams only press **Connect GitHub**.
-- **Your own server**: a server admin creates the app once, in two clicks (below). Until then
-  everything keeps working with pasted or Vault tokens, as before.
+- **The GitHub sign-in app** (Zelyq Cloud). The same GitHub OAuth App people sign in with also
+  asks, when someone presses **Connect GitHub**, for access to their repositories. Nothing extra
+  to create. Access is all or nothing: Zelyq can use every repository that person can push to.
+- **A GitHub App** (your own server). A server admin creates it once, in two clicks (below).
+  People choose on GitHub which repositories Zelyq may reach.
+
+Until one is set, everything keeps working with pasted or Vault tokens, as before.
 
 ## For a team
 
@@ -36,6 +40,42 @@ the app stays installed on GitHub until you uninstall it there.
 
 Everyone in the team sees what is connected. Only team admins connect and disconnect. Editors use
 the repositories.
+
+## With the sign-in app (Zelyq Cloud)
+
+When someone presses **Connect GitHub**, GitHub asks them to let Zelyq reach their repositories
+(scopes `repo`, `workflow`, `admin:repo_hook`, `read:org`). After that:
+
+- The repository picker lists every repository they can push to, their own and their
+  organizations'.
+- A **push trigger** on a GitHub repository gets its webhook put on the repository by Zelyq
+  (when the server has a public `https://` address): there is nothing to copy.
+- Missing an organization's repositories? Organizations can restrict outside apps. Open
+  **Manage on GitHub** next to the account and request access for the organization; an owner
+  approves it once.
+- New repositories are created in the person's own account.
+- **Disconnect** withdraws this token on GitHub as well. Signing in with GitHub is not affected.
+
+Zelyq uses the connected person's access for the team's work, so connect an account whose
+repositories the team should reach.
+
+### Setting it up
+
+Zelyq reads the sign-in app's keys from its environment:
+
+| Variable | Value |
+| --- | --- |
+| `ZELYQ_GITHUB_OAUTH_CLIENT_ID` | The OAuth App's client ID |
+| `ZELYQ_GITHUB_OAUTH_CLIENT_SECRET` | Its client secret |
+| `ZELYQ_GITHUB_OAUTH_REDIRECT_URL` | Where GitHub sends people back. Default `<ZELYQ_PUBLIC_URL>/api/integrations/github/callback` |
+
+GitHub only sends people back to an address under the OAuth App's **Authorization callback URL**.
+On Zelyq Cloud that URL belongs to Zelyq Accounts (`https://accounts…/signin/github/callback`),
+so Zelyq uses `https://accounts…/signin/github/callback/connect`, and Accounts passes the person
+straight on to Zelyq. The cloud setup fills in all three from the Accounts keys
+(`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`): nothing to change on GitHub.
+
+When a GitHub App is also set, the GitHub App is used.
 
 ## For a server admin: create the app
 
@@ -85,7 +125,11 @@ Register the app by hand (GitHub → Settings → Developer settings → GitHub 
 
 ## How it is kept safe
 
-- **No stored repository tokens.** For git, Zelyq signs a short request with the app's key and
+- **With the sign-in app**, the person's GitHub token is stored sealed with the server's
+  encryption key, used only for this team's git commands and GitHub calls (git hooks switched
+  off), never shown in the browser or a log, and never given to the agent or written into a
+  project. The return from GitHub must carry the one-time `state` Zelyq made for that person.
+- **No stored repository tokens (GitHub App).** For git, Zelyq signs a short request with the app's key and
   GitHub returns a token that lasts one hour, reaches **one repository**, and cannot change the
   repository's settings. It is passed to the one git command (with git hooks switched off) and
   is never written into the project, shown in the browser or a log, or given to the agent.
