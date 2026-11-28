@@ -525,7 +525,13 @@ test("services on an SSH runner with Docker: a vault value as the password, mask
     username: sshMachine.username,
   });
   const runnerId = added.json().runner.id;
-  const tested = (await call("POST", team(`/runners/${runnerId}/test`))).json();
+  // The SSH container can take a moment to answer: test until it shows its fingerprint.
+  let tested = (await call("POST", team(`/runners/${runnerId}/test`))).json();
+  for (let i = 0; i < 30 && !tested.hostKeyFingerprint; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    tested = (await call("POST", team(`/runners/${runnerId}/test`))).json();
+  }
+  assert.ok(tested.hostKeyFingerprint, `the SSH runner never answered: ${JSON.stringify(tested)}`);
   await call("POST", team(`/runners/${runnerId}/confirm`), {
     fingerprint: tested.hostKeyFingerprint,
   });

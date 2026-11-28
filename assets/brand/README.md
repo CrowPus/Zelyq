@@ -1,6 +1,6 @@
 # Brand assets
 
-`zelyq-logo.png` is the source mark. Everything the application loads is derived
+`zelyq-logo.png` is the source mark. `zelyq-banner.png` is the banner at the top of the README and its translations (1672×941). Everything the application loads is derived
 from it and lives in [`apps/web/public/`](../../apps/web/public).
 
 | File | Size | Used for |

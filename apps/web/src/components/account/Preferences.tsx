@@ -22,6 +22,7 @@ const LANGUAGES: Array<{ tag: string; name: string }> = [
   { tag: "nl-NL", name: "Nederlands" },
   { tag: "ar", name: "العربية" },
   { tag: "sw", name: "Kiswahili" },
+  { tag: "hi-IN", name: "हिन्दी" },
   { tag: "ja-JP", name: "日本語" },
   { tag: "zh-CN", name: "简体中文" },
 ];
