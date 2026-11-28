@@ -13,7 +13,7 @@ import serverMessages from "../locales/server.json";
  * module-level constants is translated too; changing it reloads the page.
  */
 
-export type Language = "en" | "fr" | "de" | "es" | "pt" | "zh" | "pseudo";
+export type Language = "en" | "fr" | "de" | "es" | "pt" | "zh" | "hi" | "it" | "ja" | "pseudo";
 
 /** Interface languages, each in its own name. */
 export const LANGUAGES: Array<{
@@ -29,6 +29,9 @@ export const LANGUAGES: Array<{
   { id: "es", name: "Español", dir: "ltr", tag: "es" },
   { id: "pt", name: "Português (Brasil)", dir: "ltr", tag: "pt-BR" },
   { id: "zh", name: "简体中文", dir: "ltr", tag: "zh-CN" },
+  { id: "hi", name: "हिन्दी", dir: "ltr", tag: "hi" },
+  { id: "it", name: "Italiano", dir: "ltr", tag: "it" },
+  { id: "ja", name: "日本語", dir: "ltr", tag: "ja" },
 ];
 
 /* Each catalogue is its own chunk, and only the reader's is loaded. */
@@ -38,6 +41,9 @@ const CATALOGUES: Record<string, () => Promise<{ default: Record<string, string>
   es: () => import("../locales/es.json"),
   pt: () => import("../locales/pt.json"),
   zh: () => import("../locales/zh.json"),
+  hi: () => import("../locales/hi.json"),
+  it: () => import("../locales/it.json"),
+  ja: () => import("../locales/ja.json"),
 };
 
 const STORAGE_KEY = "zelyq.lang";

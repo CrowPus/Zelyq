@@ -105,7 +105,7 @@ export function PreferencesCard() {
         <Field
           label={t("Language")}
           help={t(
-            "Zelyq is in English, French, German, Spanish, Portuguese and Chinese. Other languages set how dates and numbers are written; the screens stay in English.",
+            "Zelyq is in English, French, German, Spanish, Portuguese, Chinese, Hindi, Italian and Japanese. Other languages set how dates and numbers are written; the screens stay in English.",
           )}
         >
           <LanguageMenu

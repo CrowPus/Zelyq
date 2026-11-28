@@ -173,7 +173,7 @@ Uma alteração vale para a equipe inteira assim que é salva.`,
 
 - **Perfil.** Seu nome e o e-mail com que você entra. **Excluir conta** a remove de vez.
 - **Segurança.** Altere sua senha (todos os outros dispositivos são desconectados). Ative o **login em duas etapas** com um app autenticador e guarde os códigos de recuperação em um lugar seguro. **Dispositivos conectados** lista todos os navegadores que usam sua conta; desconecte qualquer um deles.
-- **Preferências.** Seu idioma (inglês, francês, alemão, espanhol, português ou chinês), seu fuso horário e como datas e números são escritos. Todos os dispositivos em que você entra seguem essas escolhas.
+- **Preferências.** Seu idioma (inglês, francês, alemão, espanhol, português, chinês, hindi, italiano ou japonês), seu fuso horário e como datas e números são escritos. Todos os dispositivos em que você entra seguem essas escolhas.
 
 O tema (claro, escuro ou igual ao sistema) fica no menu embaixo da sua foto.`,
   },
