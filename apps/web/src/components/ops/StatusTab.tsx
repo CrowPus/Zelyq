@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api } from "../../lib/api";
 import { formatTime } from "../../lib/format";
 import { t } from "../../lib/i18n";
+import { opsText } from "../../lib/opsWords";
 import { formatRelative } from "../../lib/vault";
 import { Badge, Button, EmptyState, NativeSelect, Spinner } from "../ui";
 
@@ -152,7 +153,7 @@ export function StatusTab({
               <li key={alert.id} className="flex gap-2 py-0.5">
                 <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-success" />
                 <span>
-                  {alert.title} — {alert.closedHow ?? t("over")},{" "}
+                  {opsText(alert.title)} — {alert.closedHow ? opsText(alert.closedHow) : t("over")},{" "}
                   {formatRelative(alert.closedAt ?? alert.openedAt)}
                 </span>
               </li>
@@ -188,14 +189,14 @@ function AlertRow({
     >
       <div className="min-w-0 flex-1">
         <p className="font-medium">
-          {alert.title}{" "}
+          {opsText(alert.title)}{" "}
           <Badge tone={alert.severity === "urgent" ? "danger" : "warning"}>
             {alert.severity === "urgent" ? t("urgent") : t("warning")}
           </Badge>
         </p>
         <p className="text-xs text-fg-secondary">
           {t("{detail} · since {openedAt}{value}{value2}", {
-            detail: alert.detail,
+            detail: opsText(alert.detail),
             openedAt: formatRelative(alert.openedAt),
             value: alert.acknowledgedAt ? t(" · someone is on it") : "",
             value2: silenced
@@ -256,7 +257,10 @@ function AppCard({
         <span className={`size-2.5 rounded-full ${light.dot}`} aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">
-            {app.app} <span className="font-normal text-fg-secondary">on {app.environment}</span>
+            {t("{app} on {name}", {
+              app: app.app,
+              name: <span className="font-normal text-fg-secondary">{app.environment}</span>,
+            })}
           </p>
           <p className="text-xs text-fg-secondary">
             {light.words}
@@ -310,9 +314,9 @@ function CheckRow({
         {check.enabled ? STATE_WORDS[check.state] : t("switched off")}
       </span>
       <span className="min-w-0 flex-1">
-        {check.title}
+        {opsText(check.title)}
         {check.lastDetail && check.enabled && (
-          <span className="text-fg-muted"> — {check.lastDetail}</span>
+          <span className="text-fg-muted"> — {opsText(check.lastDetail)}</span>
         )}
       </span>
       {check.lastCheckedAt && check.enabled && (
