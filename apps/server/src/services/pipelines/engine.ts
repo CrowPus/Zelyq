@@ -72,6 +72,7 @@ import { type ReportState, reportStatus, type StatusTarget } from "./status.js";
 import {
   applyTool,
   type Machine,
+  REPO_TOKEN,
   type RunState,
   runStepKind,
   type StepContext,
@@ -127,6 +128,8 @@ export interface EngineDeps {
   };
   /** The strict sandbox (managed servers): runs never on the server itself, always under gVisor. */
   sandbox?: SandboxOptions;
+  /** A token for a GitHub repository from the team's GitHub App installation, when the file names none. */
+  repoToken?: (teamId: string, repo: string) => Promise<string | null>;
 }
 
 /**
@@ -1050,10 +1053,15 @@ export class PipelineEngine {
 
     try {
       const secrets = await this.resolveSecrets(run, file);
+      // A GitHub repository with no token: the team's GitHub App installation gives one.
+      if (!file.source?.token && file.source?.repo && this.deps.repoToken) {
+        const appToken = await this.deps.repoToken(run.teamId, file.source.repo).catch(() => null);
+        if (appToken) secrets.set(REPO_TOKEN, appToken);
+      }
       const sensitive = [...secrets.values()];
       const token = file.source?.token
         ? secrets.get(vaultReferenceName(file.source.token) ?? "")
-        : undefined;
+        : secrets.get(REPO_TOKEN);
       if (token)
         sensitive.push(
           checkoutCommands({ shell: "bash", repo: "", ref: null }).env(token).GIT_CONFIG_VALUE_0 ??

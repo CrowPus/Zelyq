@@ -65,6 +65,15 @@ export class GitService {
    * the cost of being only as fresh as the last fetch, which is what
    * `fetchedAt` is for.
    */
+  /** The address the project pushes to, without any credential in it; null when there is none. */
+  async remoteUrl(projectId: string): Promise<string | null> {
+    const result = await this.runtime
+      .exec(projectId, { command: "git remote get-url origin 2>/dev/null || true" })
+      .catch(() => null);
+    const url = result?.stdout.trim();
+    return url ? redactCredentials(url) : null;
+  }
+
   async status(projectId: string): Promise<GitStatus> {
     const script = [
       "top=$(git rev-parse --show-toplevel 2>/dev/null || true)",

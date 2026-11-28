@@ -25,6 +25,7 @@ import { registerAuthRoutes, SESSION_COOKIE } from "./routes/auth.js";
 import { registerDeployRoutes } from "./routes/deploy.js";
 import { registerFigmaRoutes } from "./routes/figma.js";
 import { registerFileRoutes } from "./routes/files.js";
+import { registerGitHubRoutes } from "./routes/github.js";
 import { registerGuideRoutes } from "./routes/guide.js";
 import { registerImageBridgeRoutes } from "./routes/image-bridge.js";
 import { registerImageRoutes } from "./routes/images.js";
@@ -70,6 +71,7 @@ import { EventsOut } from "./services/events-out.js";
 import { FigmaConnectionService } from "./services/figma-connections.js";
 import { FigmaExtractService } from "./services/figma-extract.js";
 import { FunctionSecretSync } from "./services/function-secrets.js";
+import { GitHubAppService } from "./services/github-app.js";
 import { ImageAssetStore } from "./services/image-assets.js";
 import { ImageBridge } from "./services/image-bridge.js";
 import { ImageGenerationService } from "./services/image-generation.js";
@@ -343,6 +345,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     eventsOut.emit("team.deleted", { teamId });
   };
   const vault = new VaultService(store, secrets, access);
+  // GitHub, connected instead of a pasted token (one GitHub App per server).
+  const github = new GitHubAppService(store, secrets, { publicUrl: config.publicUrl ?? null });
   const variables = new ProjectVariableService(store, secrets, access, vault, runtime);
   vault.listeners.teamEntryChanged = (teamId, name) => variables.vaultEntryChanged(teamId, name);
   const vaultKeys = new VaultKeyService(store, access, vault);
@@ -383,10 +387,12 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     deploys,
     plugins: pipelinePlugins,
     ...(config.sandbox ? { sandbox: config.sandbox } : {}),
+    repoToken: (teamId, repo) => github.tokenFor(teamId, repo),
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
   pipelines.teamStatus = teamStatus;
   pipelines.plugins = pipelinePlugins;
+  pipelines.githubToken = (teamId, repo) => github.tokenFor(teamId, repo);
   const pipelineTriggers = new PipelineTriggerService(
     store,
     access,
@@ -858,6 +864,19 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     runtime,
     vault,
     thumbnails,
+    github,
+  });
+  registerGitHubRoutes(app, {
+    github,
+    access,
+    // A push or pull request: the pipelines of the teams that linked this installation.
+    onWebhook: async (event, payload) => {
+      const installation = (payload.installation as { id?: unknown } | undefined)?.id;
+      if (typeof installation !== "number") {
+        return { status: 202, message: "No installation in this event." };
+      }
+      return pipelineTriggers.fromGitHubApp(await github.teamsFor(installation), event, payload);
+    },
   });
   registerFileRoutes(app, { projects, runtime, access, images, videos });
   registerPreviewRoutes(app, {
@@ -907,6 +926,7 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     images,
     agentReferences,
   );
+  agents.githubToken = (teamId, repo) => github.tokenFor(teamId, repo);
   // An outside agent's images and video are paid with its own key from the
   // team's Vault — read at the moment the provider is called, never stored.
   const agentKey = async (ref: { teamId: string; name: string }) =>

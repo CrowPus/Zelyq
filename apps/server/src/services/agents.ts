@@ -83,6 +83,8 @@ export class AgentService {
   };
   /** A team that is not active lets no outside agent in. */
   teamStatus?: { requireRunnable(teamId: string): Promise<void> };
+  /** A token for a GitHub repository from the team's GitHub App installation. */
+  githubToken?: (teamId: string, repo: string | null) => Promise<string | null>;
   constructor(
     private readonly store: Store,
     private readonly access: AccessControl,
@@ -714,6 +716,10 @@ export class AgentService {
         token = (await this.vault.resolve(project.teamId, [vaultName])).get(vaultName);
         if (!token) throw ZelyqError.badRequest(`${vaultName} could not be read from Vault.`);
       }
+      // No Vault token: the team's GitHub App installation, for a GitHub repository.
+      token ??=
+        (await this.githubToken?.(project.teamId, await this.projects.git.remoteUrl(project.id))) ??
+        undefined;
       const result = await this.projects.pushToRemote(project.id, undefined, token);
       await this.access.recordChange(user, {
         teamId: project.teamId,

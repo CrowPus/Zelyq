@@ -500,7 +500,7 @@ export class PipelineService {
       repo: source.repo,
       ref: source.ref ?? null,
       path,
-      token: await this.repoToken(row.teamId, source.token),
+      token: await this.repoToken(row.teamId, source.token, source.repo),
     });
     if (!read.ok) {
       throw ZelyqError.badRequest(
@@ -531,9 +531,14 @@ export class PipelineService {
     return true;
   }
 
-  private async repoToken(teamId: string, token: string | undefined): Promise<string | null> {
+  private async repoToken(
+    teamId: string,
+    token: string | undefined,
+    repo: string,
+  ): Promise<string | null> {
     const name = token ? vaultReferenceName(token) : null;
-    if (!name) return null;
+    // No token in the file: the team's GitHub App installation, for a GitHub repository.
+    if (!name) return (await this.githubToken?.(teamId, repo).catch(() => null)) ?? null;
     return (await this.vault.resolve(teamId, [name])).get(name) ?? null;
   }
 
@@ -555,7 +560,7 @@ export class PipelineService {
     if (!saved.ok || !source?.repo) {
       throw problem("The file is kept in the repository, but its saved copy has no source: repo:.");
     }
-    const token = await this.repoToken(pipeline.teamId, source.token);
+    const token = await this.repoToken(pipeline.teamId, source.token, source.repo);
     const wanted = ref ?? branch ?? source.ref ?? null;
     const read = await this.repoFiles.read({
       repo: source.repo,
@@ -713,6 +718,8 @@ export class PipelineService {
   mayStartTriggered?: (pipeline: PipelineRow) => Promise<string | null>;
   /** A team that is not active runs nothing by itself (schedules, webhooks, "after" triggers). */
   teamStatus?: { whyNotRunnable(teamId: string): Promise<string | null> };
+  /** A token for a GitHub repository from the team's GitHub App installation. */
+  githubToken?: (teamId: string, repo: string) => Promise<string | null>;
 
   async startTriggered(
     pipelineId: string,
