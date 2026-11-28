@@ -1,8 +1,8 @@
-import { Check, CircleAlert, CircleCheck, Languages } from "lucide-react";
+import { Check, CircleAlert, CircleCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { currentLanguage, LANGUAGES, type Language, switchLanguage, t } from "../lib/i18n";
 import { Mark } from "./AppShell";
-import { NativeSelect } from "./ui";
+import { LanguageMenu } from "./LanguageMenu";
 
 const REPO = "https://github.com/CrowPus/Zelyq";
 
@@ -114,21 +114,18 @@ export function AuthNotice(props: { children: ReactNode }) {
 function LanguagePicker() {
   const now = currentLanguage();
   return (
-    <label className="mt-8 inline-flex items-center gap-2 text-xs text-fg-muted">
-      <Languages size={14} aria-hidden />
-      <span className="sr-only">{t("Language")}</span>
-      <NativeSelect
-        size="sm"
-        className="w-auto"
+    <div className="mt-8">
+      <LanguageMenu
+        compact
+        label={t("Language")}
         value={now === "pseudo" ? "en" : now}
-        onChange={(event) => switchLanguage(event.target.value as Language)}
-      >
-        {LANGUAGES.map((language) => (
-          <option key={language.id} value={language.id} lang={language.id}>
-            {language.name}
-          </option>
-        ))}
-      </NativeSelect>
-    </label>
+        onChange={(value) => switchLanguage(value as Language)}
+        options={LANGUAGES.map((language) => ({
+          value: language.id,
+          name: language.name,
+          tag: language.tag,
+        }))}
+      />
+    </div>
   );
 }

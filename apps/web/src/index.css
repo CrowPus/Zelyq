@@ -829,3 +829,48 @@ input[type="radio"] {
     opacity: 0.35;
   }
 }
+
+/* Language flags and the turning globe (lib/flags.ts). */
+.flag {
+  border-radius: 2px;
+  outline: 1px solid rgb(0 0 0 / 0.14);
+  outline-offset: -1px;
+}
+.globe .m {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  animation: globe-turn 7s linear infinite;
+}
+.globe .m2 {
+  animation-delay: -2.333s;
+}
+.globe .m3 {
+  animation-delay: -4.667s;
+}
+@keyframes globe-turn {
+  0% {
+    transform: scaleX(1);
+    animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
+  }
+  50% {
+    transform: scaleX(-1);
+    animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .globe .m {
+    animation: none;
+  }
+  .globe .m1 {
+    transform: scaleX(0.5);
+  }
+  .globe .m2 {
+    transform: scaleX(0);
+  }
+  .globe .m3 {
+    display: none;
+  }
+}
