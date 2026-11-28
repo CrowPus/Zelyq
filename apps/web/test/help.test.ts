@@ -8,7 +8,7 @@ import { ARTICLE_IDS, articleFor, loadArticles } from "../src/help/articles.js";
  */
 
 test("every language has every help article", async () => {
-  for (const language of ["en", "fr", "de"]) {
+  for (const language of ["en", "fr", "de", "es", "pt", "zh"]) {
     const articles = await loadArticles(language);
     assert.deepEqual(Object.keys(articles).sort(), [...ARTICLE_IDS].sort(), language);
     for (const id of ARTICLE_IDS) {
@@ -22,7 +22,7 @@ test("translations keep the same paragraphs and lists as English", async () => {
   const en = await loadArticles("en");
   const shape = (body: string) =>
     body.split("\n").map((line) => (line.startsWith("- ") ? "-" : line.trim() ? "p" : ""));
-  for (const language of ["fr", "de"]) {
+  for (const language of ["fr", "de", "es", "pt", "zh"]) {
     const other = await loadArticles(language);
     for (const id of ARTICLE_IDS) {
       assert.deepEqual(shape(other[id].body), shape(en[id].body), `${language}/${id}`);

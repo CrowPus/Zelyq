@@ -6,6 +6,7 @@ import { useSession } from "../../hooks/useSession";
 import { useTheme } from "../../hooks/useTheme";
 import { api } from "../../lib/api";
 import { currentLanguage, languageOf, switchLanguage, t } from "../../lib/i18n";
+import { LanguageMenu } from "../LanguageMenu";
 import { Button, Card, Field, NativeSelect, SegmentedControl, Switch, toast } from "../ui";
 
 /** Languages offered, each in its own name. */
@@ -22,7 +23,7 @@ const LANGUAGES: Array<{ tag: string; name: string }> = [
   { tag: "ar", name: "العربية" },
   { tag: "sw", name: "Kiswahili" },
   { tag: "ja-JP", name: "日本語" },
-  { tag: "zh-CN", name: "中文（简体）" },
+  { tag: "zh-CN", name: "简体中文" },
 ];
 
 function timeZones(): string[] {
@@ -104,19 +105,22 @@ export function PreferencesCard() {
         <Field
           label={t("Language")}
           help={t(
-            "Zelyq is in English, French and German. Other languages set how dates and numbers are written; the screens stay in English.",
+            "Zelyq is in English, French, German, Spanish, Portuguese and Chinese. Other languages set how dates and numbers are written; the screens stay in English.",
           )}
         >
-          <NativeSelect value={locale} onChange={(event) => setLocale(event.target.value)}>
-            <option value="">
-              {t("Same as this browser ({browserLocale})", { browserLocale })}
-            </option>
-            {LANGUAGES.map((language) => (
-              <option key={language.tag} value={language.tag}>
-                {language.name}
-              </option>
-            ))}
-          </NativeSelect>
+          <LanguageMenu
+            label={t("Language")}
+            value={locale}
+            onChange={setLocale}
+            options={[
+              { value: "", name: t("Same as this browser ({browserLocale})", { browserLocale }) },
+              ...LANGUAGES.map((language) => ({
+                value: language.tag,
+                name: language.name,
+                tag: language.tag,
+              })),
+            ]}
+          />
         </Field>
         <Field label={t("Time zone")}>
           <NativeSelect value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
