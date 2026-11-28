@@ -55,9 +55,11 @@ export function registerGitHubRoutes(
   app.post("/api/integrations/github/app/manifest", async (request) => {
     const user = access.requireInstanceAdmin(request);
     const input = manifestSchema.parse(request.body ?? {});
+    const origin = request.headers.origin;
     return github.manifest(user, {
       organization: input.organization ?? null,
       public: input.public,
+      origin: typeof origin === "string" && /^https?:\/\/[^/]+$/.test(origin) ? origin : null,
     });
   });
 
@@ -68,7 +70,7 @@ export function registerGitHubRoutes(
     async (request, reply) => {
       const user = access.requireInstanceAdmin(request);
       const { code, state } = request.query;
-      if (!code || !state) return reply.redirect("/admin?github=error#github");
+      if (!code || !state) return reply.redirect("/admin?github=error#integrations");
       try {
         await github.completeManifest(user, state, code);
         await access.recordChange(user, {
@@ -76,9 +78,9 @@ export function registerGitHubRoutes(
           action: "settings.github_app_created",
           detail: { slug: (await github.status()).slug },
         });
-        return reply.redirect("/admin?github=created#github");
+        return reply.redirect("/admin?github=created#integrations");
       } catch {
-        return reply.redirect("/admin?github=error#github");
+        return reply.redirect("/admin?github=error#integrations");
       }
     },
   );
@@ -158,24 +160,40 @@ export function registerGitHubRoutes(
   });
 
   // GitHub sends the person back here after installing the app or authorizing it.
-  app.get<{ Querystring: { code?: string; installation_id?: string; error?: string } }>(
+  app.get<{
+    Querystring: { code?: string; installation_id?: string; state?: string; error?: string };
+  }>(
     "/api/integrations/github/callback",
     { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const user = access.requireUser(request);
-      const { code, installation_id: installation, error } = request.query;
-      if (error || !code) return reply.redirect("/?github=error");
+      const { code, installation_id: installation, state, error } = request.query;
+      // Back to the team the person started from, with a reason the screen can say.
+      const back = (teamId: string | null, result: string) =>
+        reply.redirect(
+          teamId
+            ? `/teams/${encodeURIComponent(teamId)}/settings?github=${result}#integrations`
+            : `/?github=${result}`,
+        );
+      const startedFrom = github.pendingTeam(user);
+      if (error || !code) return back(startedFrom, "error");
       try {
         const id = installation && /^\d+$/.test(installation) ? Number(installation) : null;
-        const { teamId, linked } = await github.completeConnect(user, code, id);
+        const { teamId, linked } = await github.completeConnect(user, code, id, state ?? null);
         await access.recordChange(user, {
           teamId,
           action: "team.github_connected",
           detail: { installations: linked },
         });
-        return reply.redirect(`/teams/${teamId}/settings?github=connected#integrations`);
-      } catch {
-        return reply.redirect("/?github=error");
+        return back(teamId, "connected");
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : "";
+        const reason = /does not show this installation/.test(message)
+          ? "not-yours"
+          : /expired|not started here/.test(message)
+            ? "expired"
+            : "error";
+        return back(startedFrom, reason);
       }
     },
   );

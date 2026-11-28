@@ -34,6 +34,7 @@ import { AppShell } from "../components/AppShell";
 import { type Brand, BrandIcon, ProviderMark, providerBrand } from "../components/BrandIcon";
 import { CliSessionControl } from "../components/CliSessionControl";
 import { FigmaIntegration } from "../components/FigmaIntegration";
+import { GitHubAppSettings } from "../components/GitHubAppSettings";
 import { PlansPanel } from "../components/PlansPanel";
 import { SkillUploadControl } from "../components/SkillUploadControl";
 import { SupabaseIntegration } from "../components/SupabaseIntegration";
@@ -141,7 +142,7 @@ const SECTION_META: Record<string, { label: string; icon: typeof Cpu; blurb: str
   integrations: {
     label: t("Integrations"),
     icon: Puzzle,
-    blurb: t("Figma and Supabase connections"),
+    blurb: t("GitHub, Figma and Supabase connections"),
   },
   status: {
     label: t("Instance status"),
@@ -451,6 +452,7 @@ export function SettingsPage() {
 
             {active === "integrations" && (
               <>
+                {user?.instanceRole === "admin" && <GitHubAppSettings />}
                 <FigmaIntegration />
                 {user?.instanceRole === "admin" && <SupabaseIntegration />}
               </>

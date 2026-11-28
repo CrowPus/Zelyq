@@ -10,9 +10,12 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTeamGitHub } from "../hooks/useTeamGitHub";
 import { ApiError, api } from "../lib/api";
 import { t } from "../lib/i18n";
 import { teamHref } from "../lib/routes";
+import { BrandIcon } from "./BrandIcon";
+import { GitHubRepoPicker } from "./GitHubRepoPicker";
 import { Badge, Button, Drawer, Input, NativeSelect, Spinner } from "./ui";
 
 /**
@@ -122,15 +125,21 @@ function GitBody({
   };
   /** What every git request carries: a pasted token, a Vault name, or nothing. */
   const credential = (): { gitToken?: string; gitTokenVault?: string } =>
-    source === "vault"
-      ? vaultName
-        ? { gitTokenVault: vaultName }
-        : {}
-      : token.trim()
-        ? { gitToken: token.trim() }
-        : {};
-  const hasCredential = source === "vault" ? Boolean(vaultName) : Boolean(token.trim());
+    covered
+      ? {}
+      : source === "vault"
+        ? vaultName
+          ? { gitTokenVault: vaultName }
+          : {}
+        : token.trim()
+          ? { gitToken: token.trim() }
+          : {};
   const [remoteUrl, setRemoteUrl] = useState("");
+  const github = useTeamGitHub(teamId);
+  /** The team's GitHub reaches this app's repository: no token to give. */
+  const covered = github.covers(state.remote ?? remoteUrl);
+  const hasCredential =
+    covered || (source === "vault" ? Boolean(vaultName) : Boolean(token.trim()));
   const [prTitle, setPrTitle] = useState("");
   const [pane, setPane] = useState<"main" | "remote" | "pr">("main");
   const [note, setNote] = useState<{ tone: Tone; text: string } | null>(null);
@@ -314,15 +323,19 @@ function GitBody({
 
       {pane === "main" && (
         <>
-          <TokenField
-            value={token}
-            onChange={setToken}
-            teamId={teamId}
-            source={source}
-            onSource={setSource}
-            vaultName={vaultName}
-            onVaultName={setVaultName}
-          />
+          {covered ? (
+            <ConnectedNote />
+          ) : (
+            <TokenField
+              value={token}
+              onChange={setToken}
+              teamId={teamId}
+              source={source}
+              onSource={setSource}
+              vaultName={vaultName}
+              onVaultName={setVaultName}
+            />
+          )}
 
           <div className="flex flex-wrap gap-1.5">
             <Button
@@ -367,11 +380,19 @@ function GitBody({
           </div>
 
           {!state.remote && (
-            <RemoteField
-              value={remoteUrl}
-              onChange={setRemoteUrl}
-              label={t("This app has no remote yet. Paste the repository address to push to.")}
-            />
+            <>
+              <GitHubRepoPicker
+                teamId={teamId}
+                selected={remoteUrl.trim()}
+                onPick={(repo) => setRemoteUrl(repo.cloneUrl)}
+                allowCreate
+              />
+              <RemoteField
+                value={remoteUrl}
+                onChange={setRemoteUrl}
+                label={t("This app has no remote yet. Paste the repository address to push to.")}
+              />
+            </>
           )}
 
           {diverged && (
@@ -433,6 +454,15 @@ function GitBody({
           }}
           className="flex flex-col gap-2"
         >
+          <GitHubRepoPicker
+            teamId={teamId}
+            selected={remoteUrl.trim()}
+            onPick={(repo) => {
+              setRemoteUrl(repo.cloneUrl);
+              setConfirmReplace(null);
+            }}
+            allowCreate
+          />
           <RemoteField
             value={remoteUrl}
             onChange={(next) => {
@@ -506,16 +536,20 @@ function GitBody({
             placeholder={t("What does this change?")}
             aria-label={t("Pull request title")}
           />
-          <TokenField
-            value={token}
-            onChange={setToken}
-            teamId={teamId}
-            source={source}
-            onSource={setSource}
-            vaultName={vaultName}
-            onVaultName={setVaultName}
-            required
-          />
+          {covered ? (
+            <ConnectedNote />
+          ) : (
+            <TokenField
+              value={token}
+              onChange={setToken}
+              teamId={teamId}
+              source={source}
+              onSource={setSource}
+              vaultName={vaultName}
+              onVaultName={setVaultName}
+              required
+            />
+          )}
           <div className="flex justify-end gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setPane("main")} type="button">
               {t("Back")}
@@ -576,6 +610,16 @@ function Summary({ state }: { state: GitStatus }) {
         </p>
       )}
     </div>
+  );
+}
+
+/** In place of the token field when the team's GitHub reaches the repository. */
+function ConnectedNote() {
+  return (
+    <p className="flex items-center gap-1.5 text-2xs text-fg-secondary">
+      <BrandIcon brand="github" size={12} className="text-fg-muted" />
+      {t("Connected through the team’s GitHub: no token needed.")}
+    </p>
   );
 }
 

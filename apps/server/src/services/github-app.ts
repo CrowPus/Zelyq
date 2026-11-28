@@ -30,6 +30,17 @@ const PENDING_TTL_MS = 15 * 60_000;
 const MANIFEST_TTL_MS = 60 * 60_000;
 /** GitHub's tokens last an hour; ours are refreshed with this much to spare. */
 const TOKEN_SPARE_MS = 5 * 60_000;
+/**
+ * What a repository token may do: everything git, pull requests and statuses need, and never
+ * the app's Administration permission (that is only for creating repositories).
+ */
+const REPOSITORY_PERMISSIONS = {
+  contents: "write",
+  pull_requests: "write",
+  statuses: "write",
+  workflows: "write",
+  metadata: "read",
+} as const;
 
 export interface GitHubAppCredentials {
   appId: string;
@@ -153,7 +164,7 @@ export class GitHubAppService {
   private readonly env: NodeJS.ProcessEnv;
   private stored: GitHubAppCredentials | null | undefined;
   private readonly manifests = new Map<string, { userId: string; at: number }>();
-  private readonly pending = new Map<string, { teamId: string; at: number }>();
+  private readonly pending = new Map<string, { teamId: string; state: string; at: number }>();
   private readonly tokens = new Map<string, { token: string; expiresAt: number }>();
 
   constructor(
@@ -242,13 +253,19 @@ export class GitHubAppService {
    */
   async manifest(
     actor: User,
-    input: { organization?: string | null; public: boolean },
+    input: {
+      organization?: string | null;
+      public: boolean;
+      /** The address the admin's browser is on, when the server has no public address set. */
+      origin?: string | null;
+    },
   ): Promise<{ action: string; manifest: Record<string, unknown> }> {
     if (this.fromEnv()) {
-      throw ZelyqError.badRequest("This server's GitHub App is set in its environment.");
+      throw new ZelyqError("bad_request", "This server's GitHub App is set in its environment.");
     }
-    const base = this.publicUrl ?? "http://localhost:5173";
-    const host = new URL(base).host;
+    const base = this.publicUrl ?? input.origin?.replace(/\/$/, "") ?? "http://localhost:5173";
+    // GitHub takes letters, digits, spaces, dots and dashes in a name.
+    const host = new URL(base).hostname.replace(/[^A-Za-z0-9.-]/g, "-");
     const state = randomBytes(24).toString("base64url");
     this.sweep(this.manifests, MANIFEST_TTL_MS);
     this.manifests.set(state, { userId: actor.id, at: this.now() });
@@ -271,12 +288,14 @@ export class GitHubAppService {
         statuses: "write",
         workflows: "write",
         administration: "write",
+        // To check that the person connecting an organization is one of its owners.
+        members: "read",
       },
       default_events: webhooks ? ["push", "pull_request"] : [],
     };
     const organization = input.organization?.trim();
     if (organization && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(organization)) {
-      throw ZelyqError.badRequest("That is not a GitHub organization name.");
+      throw new ZelyqError("bad_request", "That is not a GitHub organization name.");
     }
     const action = organization
       ? `${this.web}/organizations/${encodeURIComponent(organization)}/settings/apps/new?state=${state}`
@@ -289,14 +308,15 @@ export class GitHubAppService {
     const started = this.manifests.get(state);
     this.manifests.delete(state);
     if (!started || started.userId !== actor.id || this.now() - started.at > MANIFEST_TTL_MS) {
-      throw ZelyqError.badRequest("This GitHub App setup has expired. Start it again.");
+      throw new ZelyqError("bad_request", "This GitHub App setup has expired. Start it again.");
     }
     const response = await this.fetch(
       `${this.api}/app-manifests/${encodeURIComponent(code)}/conversions`,
       { method: "POST", headers: this.headers() },
     );
     if (!response.ok) {
-      throw ZelyqError.badRequest(
+      throw new ZelyqError(
+        "bad_request",
         `GitHub did not finish creating the app (${response.status}). Start it again.`,
       );
     }
@@ -329,7 +349,7 @@ export class GitHubAppService {
   /** Forgets the app created here (it stays on GitHub, where its owner can delete it). */
   async removeApp(): Promise<void> {
     if (this.fromEnv()) {
-      throw ZelyqError.badRequest("This server's GitHub App is set in its environment.");
+      throw new ZelyqError("bad_request", "This server's GitHub App is set in its environment.");
     }
     await this.store.settings.remove(SETTINGS_KEY);
     this.stored = null;
@@ -343,8 +363,15 @@ export class GitHubAppService {
     const app = await this.requireApp();
     this.sweep(this.pending, PENDING_TTL_MS);
     // One connect at a time per person: the callback finds it by who is signed in.
-    this.pending.set(actor.id, { teamId, at: this.now() });
-    return { url: `${this.web}/apps/${app.slug}/installations/new` };
+    const state = randomBytes(18).toString("base64url");
+    this.pending.set(actor.id, { teamId, state, at: this.now() });
+    return { url: `${this.web}/apps/${app.slug}/installations/new?state=${state}` };
+  }
+
+  /** The team a person's connect started from, to send them back there even when it fails. */
+  pendingTeam(actor: User): string | null {
+    const started = this.pending.get(actor.id);
+    return started && this.now() - started.at <= PENDING_TTL_MS ? started.teamId : null;
   }
 
   /**
@@ -355,24 +382,39 @@ export class GitHubAppService {
     actor: User,
     code: string,
     installationId: number | null,
+    state: string | null = null,
   ): Promise<{ teamId: string; linked: number }> {
     const started = this.pending.get(actor.id);
+    if (started && state && state !== started.state) {
+      // A link someone else made: leave the person's own connect waiting.
+      throw new ZelyqError(
+        "bad_request",
+        "This GitHub connection was not started here. Start it again.",
+      );
+    }
     this.pending.delete(actor.id);
     if (!started || this.now() - started.at > PENDING_TTL_MS) {
-      throw ZelyqError.badRequest("This GitHub connection has expired. Start it again.");
+      throw new ZelyqError("bad_request", "This GitHub connection has expired. Start it again.");
     }
     const app = await this.requireApp();
     const userToken = await this.exchangeCode(app, code);
+    const login = await this.loginOf(userToken.accessToken);
     const visible = await this.userInstallations(userToken.accessToken);
-    const chosen =
-      installationId !== null ? visible.filter((one) => one.id === installationId) : visible;
+    // GitHub lists every installation the person can see a single repository of. Only the
+    // ones they manage are theirs to link: their own account, or an organization they own.
+    const managed: GitHubInstallation[] = [];
+    for (const one of visible) {
+      if (installationId !== null && one.id !== installationId) continue;
+      if (await this.manages(userToken.accessToken, login, one)) managed.push(one);
+    }
+    const chosen = managed;
     if (chosen.length === 0) {
-      throw ZelyqError.badRequest(
+      throw new ZelyqError(
+        "bad_request",
         "GitHub does not show this installation to your account. Install the app on an account or organization you manage.",
       );
     }
     const existing = await this.activeRows(started.teamId);
-    const login = await this.loginOf(userToken.accessToken);
     let linked = 0;
     for (const installation of chosen) {
       if (!installation.account) continue;
@@ -476,7 +518,10 @@ export class GitHubAppService {
     const found = (await this.activeRows(teamId)).find(({ row }) => row.id === input.connectionId);
     if (!found) throw new ZelyqError("not_found", "That GitHub account is not connected here.");
     if (!/^[A-Za-z0-9._-]{1,100}$/.test(input.name) || /^\.+$/.test(input.name)) {
-      throw ZelyqError.badRequest("A repository name uses letters, digits, '.', '-' and '_' only.");
+      throw new ZelyqError(
+        "bad_request",
+        "A repository name uses letters, digits, ’.’, ’-’ and ’_’ only.",
+      );
     }
     const { blob } = found;
     let token: string;
@@ -499,12 +544,14 @@ export class GitHubAppService {
       }),
     });
     if (response.status === 422) {
-      throw ZelyqError.badRequest(
+      throw new ZelyqError(
+        "bad_request",
         `${blob.account.login} already has a repository called ${input.name}.`,
       );
     }
     if (!response.ok) {
-      throw ZelyqError.badRequest(
+      throw new ZelyqError(
+        "bad_request",
         `GitHub did not create the repository (${response.status}). Check that the app may create repositories on ${blob.account.login}.`,
       );
     }
@@ -529,7 +576,15 @@ export class GitHubAppService {
    * A token for one GitHub repository, from the team's installation on its owner; null when
    * the address is not on github.com or the team has no installation that reaches it.
    */
-  async tokenFor(teamId: string, repoUrl: string | null | undefined): Promise<string | null> {
+  /**
+   * A token for one repository of the team's GitHub. `minLifeMs` asks for one that lasts at
+   * least that long (a pipeline run uses it for a while; a git command needs minutes).
+   */
+  async tokenFor(
+    teamId: string,
+    repoUrl: string | null | undefined,
+    options: { minLifeMs?: number } = {},
+  ): Promise<string | null> {
     const repo = githubRepoOf(repoUrl);
     if (!repo || !(await this.app())) return null;
     const owner = repo.owner.toLowerCase();
@@ -538,7 +593,11 @@ export class GitHubAppService {
     );
     if (!match) return null;
     try {
-      const token = await this.installationToken(match.blob.installationId, repo.name);
+      const token = await this.installationToken(
+        match.blob.installationId,
+        repo.name,
+        options.minLifeMs,
+      );
       await this.store.providerConnections.markConnectionUsed(match.row.id).catch(() => undefined);
       return token;
     } catch {
@@ -579,8 +638,9 @@ export class GitHubAppService {
   private async requireApp(): Promise<GitHubAppCredentials> {
     const app = await this.app();
     if (!app) {
-      throw ZelyqError.badRequest(
-        "GitHub is not set up on this server. A server admin turns it on in Server settings → GitHub.",
+      throw new ZelyqError(
+        "bad_request",
+        "GitHub is not set up on this server. A server admin turns it on in Server settings → Integrations.",
       );
     }
     return app;
@@ -611,20 +671,29 @@ export class GitHubAppService {
   private async installationToken(
     installationId: number,
     repository: string | null,
+    minLifeMs = TOKEN_SPARE_MS,
   ): Promise<string> {
     const key = `${installationId}:${repository?.toLowerCase() ?? "*"}`;
     const cached = this.tokens.get(key);
-    if (cached && cached.expiresAt - TOKEN_SPARE_MS > this.now()) return cached.token;
-    const response = await this.fetch(
-      `${this.api}/app/installations/${installationId}/access_tokens`,
-      {
+    if (cached && cached.expiresAt - Math.max(minLifeMs, TOKEN_SPARE_MS) > this.now()) {
+      return cached.token;
+    }
+    const request = async (body: object) =>
+      this.fetch(`${this.api}/app/installations/${installationId}/access_tokens`, {
         method: "POST",
         headers: { ...this.headers(await this.appJwt()), "content-type": "application/json" },
-        body: JSON.stringify(repository ? { repositories: [repository] } : {}),
-      },
+        body: JSON.stringify(body),
+      });
+    let response = await request(
+      repository ? { repositories: [repository], permissions: REPOSITORY_PERMISSIONS } : {},
     );
+    // An installation that has not accepted every permission yet: take what it has.
+    if (response.status === 422 && repository) {
+      response = await request({ repositories: [repository] });
+    }
     if (!response.ok) {
-      throw ZelyqError.badRequest(
+      throw new ZelyqError(
+        "bad_request",
         response.status === 404
           ? "The GitHub App is no longer installed there. Connect GitHub again."
           : `GitHub did not give Zelyq access (${response.status}).`,
@@ -659,7 +728,7 @@ export class GitHubAppService {
       error?: string;
     };
     if (!response.ok || !body.access_token) {
-      throw ZelyqError.badRequest("GitHub did not confirm the connection. Try again.");
+      throw new ZelyqError("bad_request", "GitHub did not confirm the connection. Try again.");
     }
     return {
       accessToken: body.access_token,
@@ -674,7 +743,8 @@ export class GitHubAppService {
   private async personalToken(connectionId: string, blob: InstallationBlob): Promise<string> {
     const user = blob.userToken;
     if (!user) {
-      throw ZelyqError.badRequest(
+      throw new ZelyqError(
+        "bad_request",
         `To create repositories on ${blob.account.login}, ${blob.account.login} connects GitHub here once more.`,
       );
     }
@@ -682,7 +752,7 @@ export class GitHubAppService {
       return user.accessToken;
     }
     if (!user.refreshToken)
-      throw ZelyqError.badRequest("Connect GitHub again to create repositories.");
+      throw new ZelyqError("bad_request", "Connect GitHub again to create repositories.");
     const fresh = await this.userTokenRequest(await this.requireApp(), {
       grant_type: "refresh_token",
       refresh_token: user.refreshToken,
@@ -694,11 +764,38 @@ export class GitHubAppService {
   }
 
   private async userInstallations(userToken: string): Promise<GitHubInstallation[]> {
-    const response = await this.fetch(`${this.api}/user/installations?per_page=100`, {
-      headers: this.headers(userToken),
-    });
-    if (!response.ok) throw ZelyqError.badRequest("GitHub did not list your installations.");
-    return ((await response.json()) as { installations: GitHubInstallation[] }).installations ?? [];
+    const all: GitHubInstallation[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const response = await this.fetch(
+        `${this.api}/user/installations?per_page=100&page=${page}`,
+        { headers: this.headers(userToken) },
+      );
+      if (!response.ok)
+        throw new ZelyqError("bad_request", "GitHub did not list your installations.");
+      const batch =
+        ((await response.json()) as { installations?: GitHubInstallation[] }).installations ?? [];
+      all.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return all;
+  }
+
+  /** The person's own account, or an organization where they are an owner. */
+  private async manages(
+    userToken: string,
+    login: string | null,
+    installation: GitHubInstallation,
+  ): Promise<boolean> {
+    const account = installation.account;
+    if (!account || !login) return false;
+    if (account.type !== "Organization") return account.login.toLowerCase() === login;
+    const response = await this.fetch(
+      `${this.api}/user/memberships/orgs/${encodeURIComponent(account.login)}`,
+      { headers: this.headers(userToken) },
+    );
+    if (!response.ok) return false;
+    const membership = (await response.json()) as { role?: string; state?: string };
+    return membership.role === "admin" && membership.state === "active";
   }
 
   private async loginOf(userToken: string): Promise<string | null> {

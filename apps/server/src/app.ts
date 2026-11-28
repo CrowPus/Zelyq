@@ -387,7 +387,8 @@ export async function buildServer(config: ServerConfig): Promise<ZelyqServer> {
     deploys,
     plugins: pipelinePlugins,
     ...(config.sandbox ? { sandbox: config.sandbox } : {}),
-    repoToken: (teamId, repo) => github.tokenFor(teamId, repo),
+    // A run uses its token for a while: ask for one with most of its hour left.
+    repoToken: (teamId, repo) => github.tokenFor(teamId, repo, { minLifeMs: 50 * 60_000 }),
   });
   const pipelines = new PipelineService(store, access, vault, pipelineEngine);
   pipelines.teamStatus = teamStatus;

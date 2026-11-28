@@ -238,7 +238,10 @@ function LegacyTeam({ section }: { section: "members" | "settings" }) {
   if (!team) return <NotFound what="team" />;
   const p = teamPaths(teamKey(team));
   return (
-    <Navigate to={`${section === "members" ? p.members : p.settings()}${location.hash}`} replace />
+    <Navigate
+      to={`${section === "members" ? p.members : p.settings()}${location.search}${location.hash}`}
+      replace
+    />
   );
 }
 

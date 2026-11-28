@@ -121,6 +121,8 @@ before(async () => {
       });
     }
     if (url.pathname === "/user") return json({ login: "owner" });
+    if (url.pathname === "/user/memberships/orgs/acme")
+      return json({ role: "admin", state: "active" });
     return json({ message: "not stubbed" }, 404);
   }) as typeof fetch;
 
@@ -154,7 +156,10 @@ test("a team admin connects GitHub; an editor may not", async () => {
   assert.equal(refused.statusCode, 403);
 
   const started = await as(owner, "POST", `/api/teams/${teamId}/integrations/github/connect`);
-  assert.equal(started.json().url, "https://github.com/apps/zelyq-route-test/installations/new");
+  assert.match(
+    started.json().url,
+    /^https:\/\/github\.com\/apps\/zelyq-route-test\/installations\/new\?state=/,
+  );
   const back = await as(
     owner,
     "GET",
@@ -170,7 +175,11 @@ test("a team admin connects GitHub; an editor may not", async () => {
   );
   // Coming back again without starting: an error, not a second link.
   const again = await as(owner, "GET", "/api/integrations/github/callback?code=abc");
-  assert.equal(again.headers.location, "/?github=error");
+  assert.equal(again.headers.location, "/?github=expired");
+  // Started but refused by GitHub: back on the team's page with the reason.
+  await as(owner, "POST", `/api/teams/${teamId}/integrations/github/connect`);
+  const denied = await as(owner, "GET", "/api/integrations/github/callback?error=access_denied");
+  assert.equal(denied.headers.location, `/teams/${teamId}/settings?github=error#integrations`);
 });
 
 test("GitHub's webhook starts the pipeline whose source is the pushed repository", async () => {

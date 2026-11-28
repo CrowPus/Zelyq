@@ -996,6 +996,11 @@ export class PipelineEngine {
     let statusTarget: StatusTarget | null = null;
     const report = async (reportState: ReportState) => {
       if (!statusTarget) return;
+      const target: StatusTarget = statusTarget;
+      if (target.refresh) {
+        const fresh = await target.refresh().catch(() => null);
+        if (fresh) statusTarget = { ...target, token: fresh };
+      }
       await this.reporter(statusTarget, reportState).catch((caught: Error) =>
         log.add(null, "system", `Could not report the status to the repository: ${caught.message}`),
       );
@@ -1054,9 +1059,16 @@ export class PipelineEngine {
     try {
       const secrets = await this.resolveSecrets(run, file);
       // A GitHub repository with no token: the team's GitHub App installation gives one.
+      let refreshAppToken: (() => Promise<string | null>) | undefined;
       if (!file.source?.token && file.source?.repo && this.deps.repoToken) {
-        const appToken = await this.deps.repoToken(run.teamId, file.source.repo).catch(() => null);
-        if (appToken) secrets.set(REPO_TOKEN, appToken);
+        const repoToken = this.deps.repoToken;
+        const repo = file.source.repo;
+        const appToken = await repoToken(run.teamId, repo).catch(() => null);
+        if (appToken) {
+          secrets.set(REPO_TOKEN, appToken);
+          // The ✓ / ✗ at the end of a long run asks again rather than use an old token.
+          refreshAppToken = () => repoToken(run.teamId, repo);
+        }
       }
       const sensitive = [...secrets.values()];
       const token = file.source?.token
@@ -1080,6 +1092,7 @@ export class PipelineEngine {
           repo: file.source.repo,
           sha: run.ref as string,
           token,
+          refresh: refreshAppToken,
           context: `zelyq/${file.name}`,
           description: `Run #${run.number}`,
           url: this.deps.publicUrl

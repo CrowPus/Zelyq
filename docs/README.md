@@ -44,6 +44,8 @@ and test, build and deploy them on your own machines. These pages follow the sid
 
 ## Ship
 
+- [GitHub](./github.md): connect GitHub instead of pasting a token; import, push, pull requests,
+  new repositories and pipelines; creating the server's GitHub App
 - [Pipelines](./pipelines.md), the full reference:
   - [where a pipeline runs](./pipelines.md#where-a-pipeline-runs) and
     [adding your own machines](./pipelines.md#adding-a-machine-ssh-runner) (Linux, macOS, Windows),

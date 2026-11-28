@@ -1,12 +1,13 @@
 import { Puzzle } from "lucide-react";
 import { t } from "../lib/i18n";
 import { FigmaIntegration } from "./FigmaIntegration";
+import { GitHubIntegration } from "./GitHubIntegration";
 import { SupabaseIntegration } from "./SupabaseIntegration";
 
 /**
  * Team settings → Integrations: outside services the team brings its own
- * account for. Figma is each person's own; Supabase is the team's, managed by
- * its admins and used only by its apps.
+ * account for. GitHub and Supabase are the team's, managed by its admins and
+ * used only by its apps; Figma is each person's own.
  */
 export function TeamIntegrations({ teamId, canManage }: { teamId: string; canManage: boolean }) {
   return (
@@ -16,9 +17,10 @@ export function TeamIntegrations({ teamId, canManage }: { teamId: string; canMan
       </h2>
       <p className="mt-1 text-xs text-fg-secondary">
         {t(
-          "Outside services, with your own accounts. Figma is yours alone; the team’s Supabase is shared by the team’s apps.",
+          "Outside services, with your own accounts. The team’s GitHub and Supabase are shared by the team’s apps; Figma is yours alone.",
         )}
       </p>
+      <GitHubIntegration teamId={teamId} canManage={canManage} />
       <FigmaIntegration />
       {canManage ? (
         <SupabaseIntegration teamId={teamId} />

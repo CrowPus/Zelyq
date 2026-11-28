@@ -1014,7 +1014,8 @@ export class GitService {
       ? `-c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo "password=$ZELYQ_GIT_TOKEN"; }; f' `
       : "-c credential.helper= ";
     return this.runtime.exec(projectId, {
-      command: `git ${helper}${args}`,
+      // Hooks off: a hook in the project must not run with the credential in its environment.
+      command: `git -c core.hooksPath=/dev/null ${helper}${args}`,
       timeoutMs: timeoutMs ?? 2 * 60_000,
       env: {
         GIT_TERMINAL_PROMPT: "0",

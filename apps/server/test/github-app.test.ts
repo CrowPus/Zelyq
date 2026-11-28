@@ -101,6 +101,11 @@ function installedRoutes(
     },
     { method: "GET", path: /^\/user$/, json: { login: "ada" } },
     {
+      method: "GET",
+      path: /^\/user\/memberships\/orgs\/acme$/,
+      json: { role: "admin", state: "active" },
+    },
+    {
       method: "POST",
       path: /^\/app\/installations\/\d+\/access_tokens$/,
       status: 201,
@@ -146,7 +151,7 @@ test("not set up: nothing is offered and connecting says how to turn it on", asy
   assert.equal(status.configured, false);
   assert.equal(status.installUrl, null);
   const { user, teamId } = await person("none");
-  await assert.rejects(github.beginConnect(user, teamId), /Server settings → GitHub/);
+  await assert.rejects(github.beginConnect(user, teamId), /Server settings → Integrations/);
   assert.equal(await github.tokenFor(teamId, "https://github.com/acme/shop"), null);
 });
 
@@ -244,7 +249,10 @@ test("connecting links only the installations the person's own GitHub shows, to 
   await assert.rejects(github.completeConnect(user, "code", null), /expired/);
 
   const { url } = await github.beginConnect(user, teamId);
-  assert.equal(url, "https://github.com/apps/zelyq-test/installations/new");
+  assert.match(
+    url,
+    /^https:\/\/github\.com\/apps\/zelyq-test\/installations\/new\?state=[\w-]{20,}$/,
+  );
   // Another signed-in person cannot finish it.
   await assert.rejects(github.completeConnect(stranger, "code", 1001), /expired/);
   // An installation GitHub does not show this person: refused, nothing linked.
@@ -288,7 +296,17 @@ test("tokens: made for one repository, kept until they near their end, and only 
   const mint = gh.calls.filter((call) => /access_tokens$/.test(call.url));
   assert.equal(mint.length, 1);
   assert.match(mint[0]?.url ?? "", /\/app\/installations\/2002\/access_tokens$/);
-  assert.deepEqual(JSON.parse(mint[0]?.body ?? "{}"), { repositories: ["shop"] });
+  // One repository, and never the app's Administration permission.
+  assert.deepEqual(JSON.parse(mint[0]?.body ?? "{}"), {
+    repositories: ["shop"],
+    permissions: {
+      contents: "write",
+      pull_requests: "write",
+      statuses: "write",
+      workflows: "write",
+      metadata: "read",
+    },
+  });
   // The app speaks with a JWT signed by its key: RS256, from the client id, short.
   const jwt = (mint[0]?.headers.authorization ?? "").replace(/^Bearer /, "");
   const [head, payload, signature] = jwt.split(".");
@@ -491,4 +509,96 @@ test("webhooks: only with the app's signature, and they reach the teams that lin
   const [connection] = await github.connections(teamId);
   await github.disconnect(teamId, connection?.id as string);
   assert.equal((await github.teamsFor(2002)).includes(teamId), false);
+});
+
+test("connecting: an installation the person can only see (a collaborator, a plain member) is not linked", async () => {
+  const { user, teamId } = await person("bob");
+  const gh = fakeGitHub([
+    {
+      method: "POST",
+      path: /^\/login\/oauth\/access_token$/,
+      json: { access_token: "ghu_bob" },
+    },
+    {
+      method: "GET",
+      path: /^\/user\/installations/,
+      json: {
+        installations: [
+          { id: 3003, account: { login: "acme", type: "Organization" } },
+          { id: 4004, account: { login: "globex", type: "Organization" } },
+          { id: 5005, account: { login: "carol", type: "User" } },
+          { id: 6006, account: { login: "bob", type: "User" } },
+        ],
+      },
+    },
+    { method: "GET", path: /^\/user$/, json: { login: "bob" } },
+    // A plain member of acme; not in globex at all (an outside collaborator).
+    {
+      method: "GET",
+      path: /^\/user\/memberships\/orgs\/acme$/,
+      json: { role: "member", state: "active" },
+    },
+    { method: "GET", path: /^\/user\/memberships\/orgs\/globex$/, status: 404, json: {} },
+  ]);
+  const github = new GitHubAppService(store, secrets, { env: ENV, fetch: gh.fetch });
+  for (const id of [3003, 4004, 5005]) {
+    await github.beginConnect(user, teamId);
+    await assert.rejects(github.completeConnect(user, "code", id), /does not show/);
+  }
+  assert.equal((await github.connections(teamId)).length, 0);
+  // With none named, only Bob's own account.
+  await github.beginConnect(user, teamId);
+  assert.deepEqual(await github.completeConnect(user, "code", null), { teamId, linked: 1 });
+  assert.deepEqual(
+    (await github.connections(teamId)).map((one) => one.account.login),
+    ["bob"],
+  );
+});
+
+test("connecting: a link started by someone else is refused and the person's own connect keeps waiting", async () => {
+  const { user, teamId } = await person("state");
+  const gh = fakeGitHub(installedRoutes());
+  const github = new GitHubAppService(store, secrets, { env: ENV, fetch: gh.fetch });
+  const { url } = await github.beginConnect(user, teamId);
+  const state = new URL(url).searchParams.get("state");
+  await assert.rejects(github.completeConnect(user, "evil", 2002, "forged"), /not started here/);
+  assert.equal(github.pendingTeam(user), teamId);
+  assert.equal(gh.calls.length, 0);
+  assert.deepEqual(await github.completeConnect(user, "code", 2002, state), { teamId, linked: 1 });
+  assert.equal(github.pendingTeam(user), null);
+});
+
+test("tokens: a pipeline asking for a long life gets a new token; an installation missing a permission still gets one", async () => {
+  const { user, teamId } = await person("life");
+  let clock = Date.now();
+  let minted = 0;
+  let refuse = false;
+  const gh = fakeGitHub(installedRoutes());
+  const fetch = async (url: string, init?: RequestInit) => {
+    if (/access_tokens$/.test(url)) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (refuse && body.permissions) return new Response("{}", { status: 422 });
+      minted++;
+      return new Response(
+        JSON.stringify({
+          token: `ghs_${minted}`,
+          expires_at: new Date(clock + 3600_000).toISOString(),
+        }),
+        { status: 201 },
+      );
+    }
+    return gh.fetch(url, init);
+  };
+  const github = new GitHubAppService(store, secrets, { env: ENV, fetch, now: () => clock });
+  await github.beginConnect(user, teamId);
+  await github.completeConnect(user, "code", 2002);
+  const repo = "https://github.com/acme/shop";
+  assert.equal(await github.tokenFor(teamId, repo), "ghs_1");
+  clock += 20 * 60_000;
+  // A git command: 40 minutes left is plenty.
+  assert.equal(await github.tokenFor(teamId, repo), "ghs_1");
+  // A pipeline run wants 50.
+  assert.equal(await github.tokenFor(teamId, repo, { minLifeMs: 50 * 60_000 }), "ghs_2");
+  refuse = true;
+  assert.equal(await github.tokenFor(teamId, "https://github.com/acme/other"), "ghs_3");
 });
