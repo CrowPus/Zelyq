@@ -14,6 +14,7 @@ import {
 import type { RuntimeDriver } from "@zelyq/runtime";
 import type { FastifyInstance } from "fastify";
 import type { AccessControl } from "../services/access.js";
+import type { GitHubAppService } from "../services/github-app.js";
 import type { ProjectService } from "../services/projects.js";
 import { listTemplates } from "../services/templates.js";
 import type { ThumbnailStore } from "../services/thumbnails.js";
@@ -31,6 +32,8 @@ export function registerProjectRoutes(
     runtime: RuntimeDriver;
     vault: VaultService;
     thumbnails: ThumbnailStore;
+    /** Tokens for GitHub repositories from the team's GitHub App installation. */
+    github?: Pick<GitHubAppService, "tokenFor">;
   },
 ): void {
   const { access } = deps;
@@ -45,9 +48,15 @@ export function registerProjectRoutes(
     user: User,
     project: Project,
     input: { gitToken?: string; gitTokenVault?: string },
+    url?: string | null,
   ): Promise<string | undefined> {
     const name = input.gitTokenVault;
-    if (!name) return input.gitToken;
+    if (!name) {
+      if (input.gitToken) return input.gitToken;
+      // No token given: the team's GitHub App installation, for a GitHub repository.
+      const remote = url ?? (await deps.projects.git.remoteUrl(project.id));
+      return (await deps.github?.tokenFor(project.teamId, remote)) ?? undefined;
+    }
     await deps.vault.requireUse(user, { kind: "team", teamId: project.teamId }, name);
     const value = (await deps.vault.resolve(project.teamId, [name])).get(name);
     if (!value) throw ZelyqError.badRequest(`${name} could not be read from Vault.`);
@@ -108,6 +117,9 @@ export function registerProjectRoutes(
         throw ZelyqError.badRequest(`${gitTokenVault} could not be read from Vault.`);
     }
 
+    if (!cloneToken && rest.gitUrl) {
+      cloneToken = (await deps.github?.tokenFor(teamId, rest.gitUrl)) ?? undefined;
+    }
     const project = await deps.projects.create({
       ...rest,
       ...(cloneToken ? { gitToken: cloneToken } : {}),
@@ -240,7 +252,7 @@ export function registerProjectRoutes(
     const result = await deps.projects.pushToRemote(
       request.params.id,
       input.gitUrl,
-      await gitToken(user, project, input),
+      await gitToken(user, project, input, input.gitUrl),
     );
     await access.recordChange(user, {
       teamId: project.teamId,

@@ -47,6 +47,7 @@ import {
   Spinner,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
+import { useTeamGitHub } from "../hooks/useTeamGitHub";
 import { api, type PipelineCheck } from "../lib/api";
 import { locateWarning } from "../lib/pipeline-yaml";
 import { duration, RUN_STATUS, TRIGGER_WORDS } from "../lib/pipelines";
@@ -81,6 +82,11 @@ export function PipelinePage() {
   const declaredInputs = useMemo(() => {
     const parsed = pipeline.data ? parsePipelineFile(pipeline.data.pipeline.source) : null;
     return parsed?.ok ? (parsed.file.inputs ?? {}) : {};
+  }, [pipeline.data]);
+
+  const sourceRepo = useMemo(() => {
+    const parsed = pipeline.data ? parsePipelineFile(pipeline.data.pipeline.source) : null;
+    return parsed?.ok ? (parsed.file.source?.repo ?? null) : null;
   }, [pipeline.data]);
 
   const name = isNew ? t("New pipeline") : (pipeline.data?.pipeline.name ?? "…");
@@ -185,7 +191,7 @@ export function PipelinePage() {
             inRepository={Boolean(pipeline.data.pipeline.repoPath)}
           />
         ) : tab === "triggers" ? (
-          <Triggers teamId={team.id} pipelineId={id} canWrite={canWrite} />
+          <Triggers teamId={team.id} pipelineId={id} canWrite={canWrite} repo={sourceRepo} />
         ) : tab === "branches" ? (
           <Branches teamId={team.id} pipelineId={id} />
         ) : (
@@ -785,12 +791,18 @@ function Triggers({
   teamId,
   pipelineId,
   canWrite,
+  repo,
 }: {
   teamId: string;
   pipelineId: string;
   canWrite: boolean;
+  /** The file's `source: repo:`, if it has one. */
+  repo: string | null;
 }) {
   const queryClient = useQueryClient();
+  const github = useTeamGitHub(teamId);
+  /** GitHub sends this repository's pushes by itself: a webhook would only double them. */
+  const automatic = github.webhooks && github.covers(repo);
   const triggers = useQuery({
     queryKey: ["pipeline-triggers", teamId, pipelineId],
     queryFn: () => api.pipelines.triggers(teamId, pipelineId),
@@ -812,6 +824,7 @@ function Triggers({
   const [created, setCreated] = useState<{
     trigger: PipelineTriggerSummary;
     secret: string | null;
+    addedOnGitHub?: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = () =>
@@ -895,7 +908,32 @@ function Triggers({
 
   return (
     <div className="grid gap-4">
-      {created?.secret && (
+      {created?.secret && !automatic && created.addedOnGitHub && (
+        <div className="rounded-md border border-border-default bg-surface-subtle p-3 text-xs">
+          <p className="font-medium">
+            {t("Zelyq added the webhook to the repository on GitHub. Nothing to copy.")}
+          </p>
+          <Button size="sm" className="mt-2" onClick={() => setCreated(null)}>
+            {t("Done")}
+          </Button>
+        </div>
+      )}
+      {created?.secret && automatic && (
+        <div className="rounded-md border border-border-default bg-surface-subtle p-3 text-xs">
+          <p className="font-medium">
+            {t(
+              "Nothing to add on GitHub: the team’s GitHub sends this repository’s pushes to Zelyq by itself.",
+            )}
+          </p>
+          <p className="mt-1 text-fg-secondary">
+            {t("Do not add a webhook for it as well, or each push would start two runs.")}
+          </p>
+          <Button size="sm" className="mt-2" onClick={() => setCreated(null)}>
+            {t("Done")}
+          </Button>
+        </div>
+      )}
+      {created?.secret && !automatic && !created.addedOnGitHub && (
         <div className="rounded-md border border-warning/40 bg-warning-subtle p-3 text-xs">
           <p className="font-medium">
             {t("Add this webhook to your repository — the secret is shown only now.")}

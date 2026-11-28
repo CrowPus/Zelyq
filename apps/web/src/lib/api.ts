@@ -672,10 +672,14 @@ export const api = {
     triggers: (teamId: string, id: string) =>
       request<{ triggers: PipelineTriggerSummary[] }>(`/teams/${teamId}/pipelines/${id}/triggers`),
     addTrigger: (teamId: string, id: string, input: TriggerInput) =>
-      request<{ trigger: PipelineTriggerSummary; secret: string | null }>(
-        `/teams/${teamId}/pipelines/${id}/triggers`,
-        { method: "POST", body: JSON.stringify(input) },
-      ),
+      request<{
+        trigger: PipelineTriggerSummary;
+        secret: string | null;
+        addedOnGitHub?: boolean;
+      }>(`/teams/${teamId}/pipelines/${id}/triggers`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
     editTrigger: (teamId: string, id: string, triggerId: string, input: TriggerInput) =>
       request<{ trigger: PipelineTriggerSummary }>(
         `/teams/${teamId}/pipelines/${id}/triggers/${triggerId}`,
@@ -1241,6 +1245,47 @@ export const api = {
 
   auditLog: (teamId: string) => request<{ entries: AuditLogEntry[] }>(`/teams/${teamId}/audit-log`),
 
+  // — GitHub (Zelyq's GitHub App) —
+
+  githubStatus: () => request<{ status: GitHubAppStatus }>("/integrations/github/status"),
+
+  githubAppManifest: (input: { organization: string | null; public: boolean }) =>
+    request<{ action: string; manifest: Record<string, unknown> }>(
+      "/integrations/github/app/manifest",
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  removeGitHubApp: () =>
+    request<{ status: GitHubAppStatus }>("/integrations/github/app", { method: "DELETE" }),
+
+  teamGitHub: (teamId: string) =>
+    request<{ status: GitHubAppStatus; connections: GitHubConnection[] }>(
+      `/teams/${teamId}/integrations/github`,
+    ),
+
+  connectGitHub: (teamId: string) =>
+    request<{ url: string }>(`/teams/${teamId}/integrations/github/connect`, { method: "POST" }),
+
+  disconnectGitHub: (teamId: string, connectionId: string) =>
+    request<{ connections: GitHubConnection[] }>(
+      `/teams/${teamId}/integrations/github/${connectionId}`,
+      { method: "DELETE" },
+    ),
+
+  githubRepositories: (teamId: string) =>
+    request<{ repositories: GitHubRepository[] }>(
+      `/teams/${teamId}/integrations/github/repositories`,
+    ),
+
+  createGitHubRepository: (
+    teamId: string,
+    input: { connectionId: string; name: string; private: boolean; description?: string },
+  ) =>
+    request<{ repository: GitHubRepository }>(`/teams/${teamId}/integrations/github/repositories`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
   // — Figma integration (proposal 068) —
 
   figmaConfig: () => request<{ configured: boolean }>("/integrations/figma/config"),
@@ -1590,4 +1635,38 @@ export interface OpsMemoryView {
     active: boolean;
     createdBy: string;
   }[];
+}
+
+/** Zelyq's GitHub App on this server (Server settings → GitHub). */
+export interface GitHubAppStatus {
+  configured: boolean;
+  /** "app": a GitHub App. "oauth": the server's GitHub sign-in app, all repositories. */
+  mode: "app" | "oauth" | null;
+  /** Zelyq adds a push trigger's webhook on GitHub itself. */
+  hooks: boolean;
+  source: "env" | "settings" | null;
+  slug: string | null;
+  owner: string | null;
+  htmlUrl: string | null;
+  installUrl: string | null;
+  webhooks: boolean;
+}
+
+/** A GitHub account or organization a team connected. */
+export interface GitHubConnection {
+  id: string;
+  installationId: number | null;
+  account: { login: string; type: "User" | "Organization"; avatarUrl: string | null };
+  createdAt: string;
+  manageUrl: string;
+  canCreateRepositories: boolean;
+}
+
+export interface GitHubRepository {
+  fullName: string;
+  private: boolean;
+  defaultBranch: string;
+  cloneUrl: string;
+  htmlUrl: string;
+  connectionId: string;
 }

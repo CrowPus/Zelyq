@@ -65,6 +65,15 @@ export class GitService {
    * the cost of being only as fresh as the last fetch, which is what
    * `fetchedAt` is for.
    */
+  /** The address the project pushes to, without any credential in it; null when there is none. */
+  async remoteUrl(projectId: string): Promise<string | null> {
+    const result = await this.runtime
+      .exec(projectId, { command: "git remote get-url origin 2>/dev/null || true" })
+      .catch(() => null);
+    const url = result?.stdout.trim();
+    return url ? redactCredentials(url) : null;
+  }
+
   async status(projectId: string): Promise<GitStatus> {
     const script = [
       "top=$(git rev-parse --show-toplevel 2>/dev/null || true)",
@@ -1005,7 +1014,8 @@ export class GitService {
       ? `-c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo "password=$ZELYQ_GIT_TOKEN"; }; f' `
       : "-c credential.helper= ";
     return this.runtime.exec(projectId, {
-      command: `git ${helper}${args}`,
+      // Hooks off: a hook in the project must not run with the credential in its environment.
+      command: `git -c core.hooksPath=/dev/null ${helper}${args}`,
       timeoutMs: timeoutMs ?? 2 * 60_000,
       env: {
         GIT_TERMINAL_PROMPT: "0",

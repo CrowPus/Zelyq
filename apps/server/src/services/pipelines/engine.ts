@@ -72,6 +72,7 @@ import { type ReportState, reportStatus, type StatusTarget } from "./status.js";
 import {
   applyTool,
   type Machine,
+  REPO_TOKEN,
   type RunState,
   runStepKind,
   type StepContext,
@@ -127,6 +128,8 @@ export interface EngineDeps {
   };
   /** The strict sandbox (managed servers): runs never on the server itself, always under gVisor. */
   sandbox?: SandboxOptions;
+  /** A token for a GitHub repository from the team's GitHub App installation, when the file names none. */
+  repoToken?: (teamId: string, repo: string) => Promise<string | null>;
 }
 
 /**
@@ -993,6 +996,11 @@ export class PipelineEngine {
     let statusTarget: StatusTarget | null = null;
     const report = async (reportState: ReportState) => {
       if (!statusTarget) return;
+      const target: StatusTarget = statusTarget;
+      if (target.refresh) {
+        const fresh = await target.refresh().catch(() => null);
+        if (fresh) statusTarget = { ...target, token: fresh };
+      }
       await this.reporter(statusTarget, reportState).catch((caught: Error) =>
         log.add(null, "system", `Could not report the status to the repository: ${caught.message}`),
       );
@@ -1050,10 +1058,22 @@ export class PipelineEngine {
 
     try {
       const secrets = await this.resolveSecrets(run, file);
+      // A GitHub repository with no token: the team's GitHub App installation gives one.
+      let refreshAppToken: (() => Promise<string | null>) | undefined;
+      if (!file.source?.token && file.source?.repo && this.deps.repoToken) {
+        const repoToken = this.deps.repoToken;
+        const repo = file.source.repo;
+        const appToken = await repoToken(run.teamId, repo).catch(() => null);
+        if (appToken) {
+          secrets.set(REPO_TOKEN, appToken);
+          // The ✓ / ✗ at the end of a long run asks again rather than use an old token.
+          refreshAppToken = () => repoToken(run.teamId, repo);
+        }
+      }
       const sensitive = [...secrets.values()];
       const token = file.source?.token
         ? secrets.get(vaultReferenceName(file.source.token) ?? "")
-        : undefined;
+        : secrets.get(REPO_TOKEN);
       if (token)
         sensitive.push(
           checkoutCommands({ shell: "bash", repo: "", ref: null }).env(token).GIT_CONFIG_VALUE_0 ??
@@ -1072,6 +1092,7 @@ export class PipelineEngine {
           repo: file.source.repo,
           sha: run.ref as string,
           token,
+          refresh: refreshAppToken,
           context: `zelyq/${file.name}`,
           description: `Run #${run.number}`,
           url: this.deps.publicUrl

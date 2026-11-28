@@ -17,6 +17,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AppCardThumb } from "../components/AppCardThumb";
 import { AppShell } from "../components/AppShell";
+import { GitHubRepoPicker } from "../components/GitHubRepoPicker";
 import { TokenField } from "../components/GitPanel";
 import {
   FilterSelect,
@@ -54,6 +55,7 @@ import {
   toast,
 } from "../components/ui";
 import { useActiveTeam } from "../hooks/useActiveTeam";
+import { useTeamGitHub } from "../hooks/useTeamGitHub";
 import { api } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useTeamPaths } from "../lib/routes";
@@ -470,6 +472,7 @@ function NewAppDialog({
   const [gitToken, setGitToken] = useState("");
   const [tokenSource, setTokenSource] = useState<"paste" | "vault">("paste");
   const [tokenVault, setTokenVault] = useState("");
+  const github = useTeamGitHub(teamId);
 
   useEffect(() => {
     if (!open) {
@@ -491,13 +494,15 @@ function NewAppDialog({
         ...(source === "git"
           ? {
               gitUrl: gitUrl.trim(),
-              ...(tokenSource === "vault"
-                ? tokenVault
-                  ? { gitTokenVault: tokenVault }
-                  : {}
-                : gitToken.trim()
-                  ? { gitToken: gitToken.trim() }
-                  : {}),
+              ...(github.covers(gitUrl)
+                ? {}
+                : tokenSource === "vault"
+                  ? tokenVault
+                    ? { gitTokenVault: tokenVault }
+                    : {}
+                  : gitToken.trim()
+                    ? { gitToken: gitToken.trim() }
+                    : {}),
             }
           : {}),
       }),
@@ -640,6 +645,16 @@ function NewAppDialog({
               </div>
             ) : (
               <div className="flex flex-col gap-3">
+                {teamId && (
+                  <GitHubRepoPicker
+                    teamId={teamId}
+                    selected={gitUrl.trim()}
+                    onPick={(repo) => {
+                      setGitUrl(repo.cloneUrl);
+                      if (!name.trim()) setName(repo.fullName.split("/")[1] ?? "");
+                    }}
+                  />
+                )}
                 <Field
                   label={t("Repository address")}
                   help={t(
@@ -654,19 +669,27 @@ function NewAppDialog({
                     inputMode="url"
                   />
                 </Field>
-                {teamId && (
-                  <TokenField
-                    value={gitToken}
-                    onChange={setGitToken}
-                    teamId={teamId}
-                    source={tokenSource}
-                    onSource={setTokenSource}
-                    vaultName={tokenVault}
-                    onVaultName={setTokenVault}
-                  />
+                {teamId && github.covers(gitUrl) ? (
+                  <p className="text-xs text-fg-secondary">
+                    {t("Connected through the team’s GitHub: no token needed.")}
+                  </p>
+                ) : (
+                  teamId && (
+                    <TokenField
+                      value={gitToken}
+                      onChange={setGitToken}
+                      teamId={teamId}
+                      source={tokenSource}
+                      onSource={setTokenSource}
+                      vaultName={tokenVault}
+                      onVaultName={setTokenVault}
+                    />
+                  )
                 )}
                 <p className="text-xs text-fg-muted">
-                  {t("The token is used once and never stored. Cloning can take a minute.")}
+                  {teamId && github.covers(gitUrl)
+                    ? t("Cloning can take a minute.")
+                    : t("The token is used once and never stored. Cloning can take a minute.")}
                 </p>
               </div>
             )}

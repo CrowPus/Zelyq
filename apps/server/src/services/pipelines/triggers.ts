@@ -13,6 +13,7 @@ import {
 } from "@zelyq/core";
 import type { PipelineRunRow, PipelineTriggerRow, Store } from "@zelyq/db";
 import type { AccessControl } from "../access.js";
+import { githubRepoOf } from "../github-app.js";
 import type { SecretBox } from "../secrets.js";
 import type { UsageService } from "../usage.js";
 import type { PipelineService } from "./service.js";
@@ -40,6 +41,13 @@ export class PipelineTriggerService {
     private readonly log: { error(object: unknown, message: string): void },
   ) {}
 
+  /** Puts a push trigger's webhook on its GitHub repository, when the team's GitHub can. */
+  addGitHubHook?: (
+    teamId: string,
+    repoUrl: string,
+    hook: { url: string; secret: string; pullRequests: boolean },
+  ) => Promise<boolean>;
+
   start(): void {
     this.timer = setInterval(() => void this.tick(), 30_000);
     void this.tick();
@@ -63,7 +71,12 @@ export class PipelineTriggerService {
     teamId: string,
     pipelineId: string,
     raw: TriggerInput,
-  ): Promise<{ trigger: PipelineTriggerSummary; secret: string | null }> {
+  ): Promise<{
+    trigger: PipelineTriggerSummary;
+    secret: string | null;
+    /** Zelyq added the webhook on GitHub itself: nothing to copy. */
+    addedOnGitHub: boolean;
+  }> {
     await this.access.requireTeamRole(user, teamId, "editor");
     const pipeline = await this.pipeline(teamId, pipelineId);
     const input = triggerInputSchema.parse(raw);
@@ -88,7 +101,25 @@ export class PipelineTriggerService {
       action: "pipeline.trigger_added",
       detail: { label: pipeline.name, kind: input.kind },
     });
-    return { trigger: await this.present(row), secret };
+    const trigger = await this.present(row);
+    let addedOnGitHub = false;
+    if (
+      secret &&
+      input.kind === "push" &&
+      this.addGitHubHook &&
+      trigger.webhookUrl?.startsWith("https://")
+    ) {
+      const parsed = parsePipelineFile(pipeline.source);
+      const repo = parsed.ok ? parsed.file.source?.repo : null;
+      if (repo) {
+        addedOnGitHub = await this.addGitHubHook(teamId, repo, {
+          url: trigger.webhookUrl,
+          secret,
+          pullRequests: input.pullRequests ?? false,
+        }).catch(() => false);
+      }
+    }
+    return { trigger, secret, addedOnGitHub };
   }
 
   /**
@@ -176,7 +207,6 @@ export class PipelineTriggerService {
     }
     const event = header(headers, "x-github-event") ?? header(headers, "x-gitlab-event");
     if (event === "ping") return { status: 200, message: "pong" };
-    if (!row.enabled) return this.skip(row, "off", null, "This trigger is turned off.");
     let payload: WebhookPayload;
     try {
       const text = body.toString("utf8");
@@ -187,6 +217,46 @@ export class PipelineTriggerService {
     } catch {
       return { status: 400, message: "The body is not JSON." };
     }
+    return this.handle(row, event, payload);
+  }
+
+  /**
+   * A push or pull request from Zelyq's GitHub App: GitHub sends it once for the repository,
+   * so it starts the push triggers of every pipeline in the given teams whose `source: repo:`
+   * is that repository. Each trigger keeps its own branches, paths and pull-request rule.
+   */
+  async fromGitHubApp(
+    teamIds: string[],
+    event: string,
+    payload: WebhookPayload & { repository?: { full_name?: string } },
+  ): Promise<{ status: number; message: string }> {
+    const fullName = payload.repository?.full_name?.toLowerCase();
+    if (!fullName) return { status: 202, message: "No repository in this event." };
+    const started: string[] = [];
+    for (const teamId of teamIds) {
+      for (const pipeline of await this.store.pipelines.pipelines.listForTeam(teamId)) {
+        const parsed = parsePipelineFile(pipeline.source);
+        const repo = parsed.ok ? githubRepoOf(parsed.file.source?.repo) : null;
+        if (!repo || `${repo.owner}/${repo.name}`.toLowerCase() !== fullName) continue;
+        for (const row of await this.store.pipelines.triggers.list(pipeline.id)) {
+          if (row.kind !== "push") continue;
+          const result = await this.handle(row, event, payload);
+          if (result.status === 201) started.push(`${pipeline.name}: ${result.message}`);
+        }
+      }
+    }
+    return started.length
+      ? { status: 201, message: started.join(" ") }
+      : { status: 202, message: "No pipeline runs for this event." };
+  }
+
+  /** What a push or pull request starts for one trigger. */
+  private async handle(
+    row: PipelineTriggerRow,
+    event: string | undefined,
+    payload: WebhookPayload,
+  ): Promise<{ status: number; message: string }> {
+    if (!row.enabled) return this.skip(row, "off", null, "This trigger is turned off.");
     const config = JSON.parse(row.config) as {
       branches?: string[];
       paths?: string[];

@@ -20,7 +20,7 @@ export function providerConnectionRepository(db: ZelyqDb) {
     async createConnection(input: {
       id: string;
       provider: string;
-      credentialType: "oauth" | "pat";
+      credentialType: "oauth" | "pat" | "github_app" | "github_oauth";
       encryptedBlob: string;
       grantedScopes?: string;
       expiresAt?: string | null;
@@ -66,6 +66,14 @@ export function providerConnectionRepository(db: ZelyqDb) {
           ),
         )
         .orderBy(desc(providerConnections.createdAt));
+    },
+
+    /** Every connection to one provider, whoever owns it (to find who linked a GitHub installation). */
+    async listAllConnections(provider: string) {
+      return db
+        .select()
+        .from(providerConnections)
+        .where(eq(providerConnections.provider, provider));
     },
 
     async updateConnectionCredential(

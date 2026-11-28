@@ -182,7 +182,7 @@ async function checkout(context: StepContext): Promise<StepResult> {
   context.system(`Fetching ${file.source.repo}${ref ? ` at ${ref}` : ""}.`);
   return context.script(
     steps.commands,
-    steps.env(tokenName ? (context.secrets.get(tokenName) ?? null) : null),
+    steps.env(context.secrets.get(tokenName ?? REPO_TOKEN) ?? null),
   );
 }
 
@@ -251,6 +251,12 @@ const DEFAULT_KEYS: Record<string, string[]> = {
 };
 
 /** Caches larger than this are not kept. */
+/**
+ * Where a run keeps the token Zelyq's GitHub App gave for its repository: a name no Vault
+ * entry can have, so a file can never ask for it by name.
+ */
+export const REPO_TOKEN = "zelyq:github-app";
+
 const MAX_CACHE_BYTES = 2 * 1024 * 1024 * 1024;
 /** Saved copies kept per pipeline, branch and folder. */
 const KEEP_CACHES = 3;

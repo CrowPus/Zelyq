@@ -16,6 +16,8 @@ export interface StatusTarget {
   context: string;
   description: string;
   url: string | null;
+  /** A fresh token at report time, for a token that runs out (the team's GitHub App). */
+  refresh?: () => Promise<string | null>;
 }
 
 /** Where to send it: github.com, GitHub Enterprise (/api/v3), GitLab (/api/v4). */
