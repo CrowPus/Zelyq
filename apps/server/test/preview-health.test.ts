@@ -202,7 +202,7 @@ test("a preview problem is shown in the server's health, never as the server bei
   const { deepHealth } = await import("../src/services/observability.js");
   const health = new PreviewHealth(() => "zelyq.app", probes({ lookup: async () => [] }));
   await health.report(true);
-  const report = await deepHealth({
+  const parts = {
     store: { dialect: "sqlite", users: { count: async () => 1 } } as never,
     dataDir: os.tmpdir(),
     runtime: async () => ({ ok: true }),
@@ -210,11 +210,14 @@ test("a preview problem is shown in the server's health, never as the server bei
     mailConfigured: async () => true,
     lastCleanup: async () => ({ at: new Date().toISOString() }),
     stats: { loopDelayMs: () => ({ p50: 1, p99: 2 }), startedAt: Date.now() } as never,
-    previews: () => health.asHealthCheck(),
-  });
+  };
+  const report = await deepHealth({ ...parts, previews: () => health.asHealthCheck() });
   const previews = report.checks.find((check) => check.name === "previews");
   assert.equal(previews?.status, "down");
-  assert.notEqual(report.status, "down");
+  // The rest is this machine's own (its disk can be nearly full on a busy runner): with the preview
+  // problem the server reads exactly as it does without one.
+  const without = await deepHealth(parts);
+  assert.equal(report.status, without.status);
 });
 
 // ------------------------------------------------------------ the setting

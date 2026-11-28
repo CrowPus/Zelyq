@@ -66,12 +66,19 @@ export function useSession() {
       // network blip leaves someone looking at a signed-in interface they can no
       // longer use.
       await api.logout().catch(() => undefined);
-      clearSessionCache(queryClient);
       if (accounts) {
+        // Leave for the service without first clearing the session here. Cleared,
+        // the sign-in page would show and send the browser straight back to the
+        // service's sign-in, cancelling this trip before the service had signed
+        // them out, so they came back signed in and had to sign out twice. The
+        // page is about to be replaced, which drops everything cached anyway.
+        dropEarly();
         window.location.assign(
           accountServiceLinks(accounts).signout(`${window.location.origin}${returnTo ?? "/"}`),
         );
+        return;
       }
+      clearSessionCache(queryClient);
     },
     [queryClient],
   );
