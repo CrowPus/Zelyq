@@ -451,6 +451,25 @@ stages:
 });
 
 /** What the app answers at its name, through the proxy (its own certificate, so -k). */
+/**
+ * The proxy's answer once it gives one, for at most `ms`: a slow machine (a
+ * memory-capped pipeline container) can take a few seconds after a run ends
+ * before the proxy answers on a new name. For "which version is served", not
+ * for "nothing was dropped" (that is the traffic loop during a deploy).
+ */
+async function viaProxySoon(
+  host: string,
+  port: number,
+  ms = 20_000,
+): Promise<{ version: string; port?: string } | null> {
+  const until = Date.now() + ms;
+  for (;;) {
+    const answer = viaProxy(host, port);
+    if (answer || Date.now() > until) return answer;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 function viaProxy(host: string, port: number): { version: string } | null {
   try {
     return JSON.parse(
@@ -506,7 +525,7 @@ test("a domain: apps behind the proxy, HTTPS, new versions without downtime", {
     new RegExp(`is running on deploy-box, but https://${host}:${httpsPort} cannot be opened yet`),
   );
   assert.match(first.log, /does not lead to this machine yet/);
-  assert.equal(viaProxy(host, httpsPort)?.version, "10");
+  assert.equal((await viaProxySoon(host, httpsPort))?.version, "10");
   // The page shows why, and Check again asks once more (the proxy is reloaded first).
   const live = (await environments()).find((e) => e.name === "web")?.live[0] as unknown as {
     id: string;
@@ -550,7 +569,7 @@ test("a domain: apps behind the proxy, HTTPS, new versions without downtime", {
   await traffic;
   assert.equal(second.run.status, "passed", second.log);
   assert.match(second.log, /beside the running version/);
-  assert.equal(viaProxy(host, httpsPort)?.version, "11");
+  assert.equal((await viaProxySoon(host, httpsPort))?.version, "11");
   assert.ok(asked > 20, `only ${asked} requests`);
   assert.equal(failed, 0, `${failed} of ${asked} requests failed during the deploy`);
 
@@ -559,7 +578,7 @@ test("a domain: apps behind the proxy, HTTPS, new versions without downtime", {
   const broken = await runToEnd(id);
   assert.equal(broken.run.status, "failed");
   assert.match(broken.log, /The running version was not touched/);
-  assert.equal(viaProxy(host, httpsPort)?.version, "11");
+  assert.equal((await viaProxySoon(host, httpsPort))?.version, "11");
   const running = execFileSync("docker", [
     "ps",
     "--format",
@@ -590,7 +609,7 @@ test("a domain: apps behind the proxy, HTTPS, new versions without downtime", {
   }
   assert.equal(detail.status, "live", JSON.stringify(detail.log));
   assert.equal(detail.url, `https://${host}:${httpsPort}`);
-  assert.equal(viaProxy(host, httpsPort)?.version, "10");
+  assert.equal((await viaProxySoon(host, httpsPort))?.version, "10");
 
   // Another app cannot take a name that is already used.
   const thief = await call(cookies.owner, "POST", team("/pipelines"), {
@@ -601,7 +620,7 @@ test("a domain: apps behind the proxy, HTTPS, new versions without downtime", {
   const stolen = await runToEnd(thief.json().pipeline.id);
   assert.equal(stolen.run.status, "failed");
   assert.match(stolen.log, /is already used by another app/);
-  assert.equal(viaProxy(host, httpsPort)?.version, "10");
+  assert.equal((await viaProxySoon(host, httpsPort))?.version, "10");
 });
 
 test("no Dockerfile: Zelyq writes one for the kind of app, shows it, and deploys", {
@@ -628,7 +647,10 @@ test("no Dockerfile: Zelyq writes one for the kind of app, shows it, and deploys
   const web = (await environments()).find((e) => e.name === "web");
   const host = new URL(web?.live.find((d) => d.app === app)?.url ?? "https://x").host;
   const [name, port] = host.split(":");
-  const answer = viaProxy(name ?? "", Number(port)) as { version: string; port?: string } | null;
+  const answer = (await viaProxySoon(name ?? "", Number(port))) as {
+    version: string;
+    port?: string;
+  } | null;
   assert.equal(answer?.version, "20");
   assert.equal(answer?.port, "3000", "PORT is the deploy step's port");
 });
@@ -658,7 +680,7 @@ test("the app page: state, CPU and memory, live logs, stop and start, promote th
   );
   assert.equal(shipped.run.status, "passed", shipped.log);
   const host = `${app}.apps.test`;
-  assert.equal(viaProxy(host, web.httpsPort)?.version, "21");
+  assert.equal((await viaProxySoon(host, web.httpsPort))?.version, "21");
 
   const page = team(`/environments/${web.id}/apps/${app}`);
   const first = await call(cookies.editor, "GET", page);
@@ -755,7 +777,7 @@ test("the app page: state, CPU and memory, live logs, stop and start, promote th
     environment: "web",
     number: status.deployment.number,
   });
-  assert.equal(viaProxy(`${app}.apps2.test`, web.httpsPort)?.version, "21");
+  assert.equal((await viaProxySoon(`${app}.apps2.test`, web.httpsPort))?.version, "21");
   const carriers = execFileSync("docker", ["images", "-q", "--filter", "reference=zelyq-promote-*"])
     .toString()
     .trim();
@@ -806,7 +828,7 @@ test("an exact address set on the app's page, www sent on to it; behind the mach
   assert.equal(set.statusCode, 200, set.body);
   assert.equal(set.json().applied, true);
   assert.equal(set.json().deployment.url, `https://exact.test:${web.httpsPort}`);
-  assert.equal(viaProxy("exact.test", web.httpsPort)?.version, "21");
+  assert.equal((await viaProxySoon("exact.test", web.httpsPort))?.version, "21");
   assert.equal(viaProxy(`${app}.apps.test`, web.httpsPort), null, "the old name is gone");
   const redirect = execFileSync("curl", [
     "-sk",
@@ -840,7 +862,7 @@ test("an exact address set on the app's page, www sent on to it; behind the mach
       `is live on web: https://exact\\.test:${web.httpsPort}|https://exact\\.test:${web.httpsPort} cannot be opened yet`,
     ),
   );
-  assert.equal(viaProxy("exact.test", web.httpsPort)?.version, "21");
+  assert.equal((await viaProxySoon("exact.test", web.httpsPort))?.version, "21");
 
   // A machine whose own web server keeps 80 and 443: the proxy answers on a private port.
   const added = await call(cookies.owner, "POST", team("/runners"), {
