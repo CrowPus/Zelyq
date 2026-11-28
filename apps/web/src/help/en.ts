@@ -173,7 +173,7 @@ A change takes effect for the whole team as soon as it is saved.`,
 
 - **Profile.** Your name and the email you sign in with. **Delete account** removes it for good.
 - **Security.** Change your password (every other device is signed out). Turn on **two-factor sign-in** with an authenticator app, and keep the recovery codes somewhere safe. **Signed-in devices** lists every browser using your account; sign any of them out.
-- **Preferences.** Your language (English, French or German), time zone, and how dates and numbers are written. Every device you sign in on follows them.
+- **Preferences.** Your language (English, French, German, Spanish, Portuguese or Chinese), time zone, and how dates and numbers are written. Every device you sign in on follows them.
 
 The theme (light, dark or matching your system) is in the menu under your picture.`,
   },

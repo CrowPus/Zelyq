@@ -290,7 +290,8 @@
      server with no internet access. */
   --font-sans:
     "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
-    sans-serif;
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC",
+    "Source Han Sans SC", sans-serif;
   --font-mono:
     "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
 

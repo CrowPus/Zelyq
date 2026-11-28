@@ -104,7 +104,7 @@ export function PreferencesCard() {
         <Field
           label={t("Language")}
           help={t(
-            "Zelyq is in English, French and German. Other languages set how dates and numbers are written; the screens stay in English.",
+            "Zelyq is in English, French, German, Spanish, Portuguese and Chinese. Other languages set how dates and numbers are written; the screens stay in English.",
           )}
         >
           <NativeSelect value={locale} onChange={(event) => setLocale(event.target.value)}>

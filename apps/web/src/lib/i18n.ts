@@ -13,18 +13,32 @@ import serverMessages from "../locales/server.json";
  * module-level constants is translated too; changing it reloads the page.
  */
 
-export type Language = "en" | "fr" | "de" | "pseudo";
+export type Language = "en" | "fr" | "de" | "es" | "pt" | "zh" | "pseudo";
 
 /** Interface languages, each in its own name. */
 export const LANGUAGES: Array<{
   id: Exclude<Language, "pseudo">;
   name: string;
   dir: "ltr" | "rtl";
+  /** The page's lang attribute: the region that picks the right letters (Simplified Chinese glyphs). */
+  tag: string;
 }> = [
-  { id: "en", name: "English", dir: "ltr" },
-  { id: "fr", name: "Français", dir: "ltr" },
-  { id: "de", name: "Deutsch", dir: "ltr" },
+  { id: "en", name: "English", dir: "ltr", tag: "en" },
+  { id: "fr", name: "Français", dir: "ltr", tag: "fr" },
+  { id: "de", name: "Deutsch", dir: "ltr", tag: "de" },
+  { id: "es", name: "Español", dir: "ltr", tag: "es" },
+  { id: "pt", name: "Português (Brasil)", dir: "ltr", tag: "pt-BR" },
+  { id: "zh", name: "简体中文", dir: "ltr", tag: "zh-CN" },
 ];
+
+/* Each catalogue is its own chunk, and only the reader's is loaded. */
+const CATALOGUES: Record<string, () => Promise<{ default: Record<string, string> }>> = {
+  fr: () => import("../locales/fr.json"),
+  de: () => import("../locales/de.json"),
+  es: () => import("../locales/es.json"),
+  pt: () => import("../locales/pt.json"),
+  zh: () => import("../locales/zh.json"),
+};
 
 const STORAGE_KEY = "zelyq.lang";
 
@@ -68,13 +82,12 @@ export async function loadLanguage(language: Language): Promise<void> {
   current = language;
   if (language === "en" || language === "pseudo") catalogue = {};
   else {
-    const loaded =
-      language === "fr" ? await import("../locales/fr.json") : await import("../locales/de.json");
+    const loaded = await CATALOGUES[language]!();
     catalogue = (loaded.default ?? loaded) as Record<string, string>;
   }
   if (typeof document !== "undefined") {
     const meta = LANGUAGES.find((l) => l.id === language);
-    document.documentElement.lang = language === "pseudo" ? "en-XA" : language;
+    document.documentElement.lang = language === "pseudo" ? "en-XA" : (meta?.tag ?? language);
     document.documentElement.dir = meta?.dir ?? "ltr";
   }
 }

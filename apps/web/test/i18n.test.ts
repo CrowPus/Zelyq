@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { createElement, isValidElement } from "react";
 import {
   currentLanguage,
+  LANGUAGES,
   languageOf,
   loadLanguage,
   t,
@@ -121,6 +122,25 @@ test("pseudo-locale marks every message and keeps placeholders intact", async ()
 test("a locale tag maps to an interface language, or to none", () => {
   assert.equal(languageOf("de-AT"), "de");
   assert.equal(languageOf("fr_CA"), "fr");
-  assert.equal(languageOf("es-ES"), null);
+  assert.equal(languageOf("es-MX"), "es");
+  assert.equal(languageOf("pt-PT"), "pt");
+  assert.equal(languageOf("zh-TW"), "zh");
+  assert.equal(languageOf("ja-JP"), null);
   assert.equal(languageOf(null), null);
+});
+
+test("Spanish, Portuguese and Chinese load, with their own plural rules and page language tags", async () => {
+  await loadLanguage("es");
+  assert.equal(t("Save"), "Guardar");
+  assert.equal(t("{n, plural, one {# app} other {# apps}}", { n: 1 }), "1 app");
+  await loadLanguage("pt");
+  assert.equal(t("Save"), "Salvar");
+  await loadLanguage("zh");
+  assert.equal(t("Save"), "保存");
+  assert.equal(t("{count, plural, one {# app} other {# apps}}", { count: 3 }), "3 个应用");
+  assert.deepEqual(
+    LANGUAGES.map((l) => l.tag),
+    ["en", "fr", "de", "es", "pt-BR", "zh-CN"],
+  );
+  await loadLanguage("en");
 });
