@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/brand/zelyq-logo.png" alt="Zelyq" width="84" />
+<img src="assets/brand/zelyq-banner.png" alt="Zelyq: build, automate and ship software with AI" width="100%" />
 
-# Zelyq
+**English** · [Français](./README.fr.md) · [Deutsch](./README.de.md) · [Español](./README.es.md) · [Português](./README.pt-BR.md) · [简体中文](./README.zh-CN.md) · [हिन्दी](./README.hi.md) · [Italiano](./README.it.md) · [日本語](./README.ja.md)
 
 ### The open-source developer platform: build, secure, ship and run software in one place.
 
@@ -19,15 +19,6 @@ Test and deploy on your own machines, and let an AI DevOps engineer look after w
 **[Website](https://zelyq.dev)** · **[Try it hosted](https://app.zelyq.dev)** · [Quickstart](#quickstart) ·
 [Tutorial](./docs/tutorial.md) · [Documentation](./docs/README.md) · [Self-hosting](./docs/self-hosting.md) ·
 [Architecture](./docs/architecture.md) · [Roadmap](./docs/roadmap.md) · [Contributing](./CONTRIBUTING.md)
-
-<br />
-
-<img src="assets/screenshots/apps-grid.png" alt="Zelyq's Apps page: a grid of apps built with the agent, each card showing a live picture of the running app with its name, stack and when it last changed" width="100%" />
-
-<br />
-<br />
-
-<video src="https://github.com/user-attachments/assets/64062944-e922-4407-8a4c-91c85d9a452d" autoplay loop muted playsinline controls width="900"></video>
 
 </div>
 
@@ -65,20 +56,11 @@ happens:
 
 Everything belongs to a **team**. Invite people, give each a role, and every module follows it.
 
-<div align="center">
-<br />
-
-<video src="https://github.com/user-attachments/assets/d27ac811-30f6-4e97-b419-c087698a378e" controls muted loop playsinline width="900"></video>
-
-</div>
-
 ---
 
 ## The platform
 
 ### Apps
-
-<img src="assets/screenshots/apps.png" alt="Creating an app: name it, pick a stack (Expo React Native, React with a Python backend, or React + Vite), or start from an existing GitHub repository; the team's apps listed below" width="100%" />
 
 Describe what you want. The agent reads, plans, writes files, runs commands and starts a live
 preview. You can see every tool call and every file it touches as it works.
@@ -105,16 +87,8 @@ See [Modes](./docs/modes.md) and [how the agent behaves](./docs/agent-behaviour.
 
 ### Studio
 
-<table>
-<tr>
-<td width="50%"><img src="assets/screenshots/studio-image.png" alt="Studio Image: a prompt, provider, aspect ratio and quality on the left; the generated image on the canvas" /></td>
-<td width="50%"><img src="assets/screenshots/studio-video.png" alt="Studio Video: text to video or animate an image, with model, aspect ratio, duration, resolution and audio; the finished clip in the preview" /></td>
-</tr>
-<tr>
-<td align="center"><sub><b>Image</b>: OpenAI, Google or xAI, with reference images and a private library.</sub></td>
-<td align="center"><sub><b>Video</b>: Google Veo or xAI, from text or from a still image.</sub></td>
-</tr>
-</table>
+- **Image**: OpenAI, Google or xAI, with reference images and a private library.
+- **Video**: Google Veo or xAI, from text or from a still image.
 
 Studio uses your own provider keys, billed to your own account. Turn it on for a project and the
 agent can make artwork and footage for the app it is building, within the limits you set. Clips can
@@ -138,8 +112,6 @@ See [Agents](./docs/agents.md).
 
 ### Vault
 
-<img src="assets/screenshots/vault.png" alt="Vault: team secrets with versions, a Protected flag, where each is used, and who changed it" width="100%" />
-
 Store each credential **once** and use it everywhere, without pasting it into a file.
 
 - **Encrypted at rest** (AES-256-GCM), with **version history**, a **Protected** flag for live keys,
@@ -154,8 +126,6 @@ Store each credential **once** and use it everywhere, without pasting it into a 
 See [Vault](./docs/vault.md).
 
 ### Pipelines
-
-<img src="assets/screenshots/pipeline-run.png" alt="A pipeline run: Get, Build and Deploy stages passed, the deploy step's log showing the new container starting" width="100%" />
 
 A pipeline is a short YAML file, or a picture you edit by clicking. Stages run in order, steps run
 in order, and every step is a command or a ready-made block.
@@ -177,8 +147,6 @@ stages:
       - deploy: { to: production, port: 3000 }
 ```
 
-<img src="assets/screenshots/pipeline-parallel.png" alt="A run where Left and Right ran at the same time, and a matrix ran Node 20 and Node 22 side by side" width="100%" />
-
 - **Runs where you choose.** In a throwaway container on the Zelyq server, or on your own **Linux,
   macOS and Windows** machines. A machine joins with one install command and connects out to Zelyq
   over HTTPS, so it needs no open ports. Machines reached over SSH are supported too.
@@ -195,8 +163,6 @@ stages:
 See [Pipelines](./docs/pipelines.md).
 
 ### Deployments
-
-<img src="assets/screenshots/deployments.png" alt="Deployments: an environment with its live apps, each with its deploy history and a one-click roll back" width="100%" />
 
 - **Environments** such as `staging` and `production`, each on one of your machines, each with its
   own variables. Use the test key on staging and the live key on production, both from Vault.
