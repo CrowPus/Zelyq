@@ -127,7 +127,10 @@ test("a locale tag maps to an interface language, or to none", () => {
   assert.equal(languageOf("zh-CN"), "zh");
   assert.equal(languageOf("zh-TW"), null);
   assert.equal(languageOf("zh-Hant-HK"), null);
-  assert.equal(languageOf("ja-JP"), null);
+  assert.equal(languageOf("ja-JP"), "ja");
+  assert.equal(languageOf("hi-IN"), "hi");
+  assert.equal(languageOf("it-CH"), "it");
+  assert.equal(languageOf("ko-KR"), null);
   assert.equal(languageOf(null), null);
 });
 
@@ -142,7 +145,21 @@ test("Spanish, Portuguese and Chinese load, with their own plural rules and page
   assert.equal(t("{count, plural, one {# app} other {# apps}}", { count: 3 }), "3 个应用");
   assert.deepEqual(
     LANGUAGES.map((l) => l.tag),
-    ["en", "fr", "de", "es", "pt-BR", "zh-CN"],
+    ["en", "fr", "de", "es", "pt-BR", "zh-CN", "hi", "it", "ja"],
   );
+  await loadLanguage("en");
+});
+
+test("Hindi, Italian and Japanese load, and count their own way", async () => {
+  await loadLanguage("hi");
+  assert.equal(t("Save"), "सहेजें");
+  // Hindi counts 0 as singular, so its catalogue keeps one form with the number in it.
+  assert.equal(t("{count, plural, one {# app} other {# apps}}", { count: 0 }), "0 ऐप");
+  await loadLanguage("it");
+  assert.equal(t("Save"), "Salva");
+  assert.equal(t("{count, plural, one {# app} other {# apps}}", { count: 1 }), "1 app");
+  await loadLanguage("ja");
+  assert.equal(t("Save"), "保存");
+  assert.equal(t("{count, plural, one {# app} other {# apps}}", { count: 3 }), "3 個のアプリ");
   await loadLanguage("en");
 });

@@ -1,7 +1,7 @@
 /**
  * The help articles the Docs panel shows: which page each belongs to, and in
- * what order they are listed. Their words are in en.ts, fr.ts, de.ts, es.ts,
- * pt.ts and zh.ts, one file per language and only the reader's is loaded. A
+ * what order they are listed. Their words are in en.ts and one file per
+ * other language (fr, de, es, pt, zh, hi, it, ja), one file per language and only the reader's is loaded. A
  * test keeps every language to the same articles.
  */
 
@@ -77,6 +77,9 @@ const loaders: Record<string, () => Promise<{ articles: Articles }>> = {
   es: () => import("./es"),
   pt: () => import("./pt"),
   zh: () => import("./zh"),
+  hi: () => import("./hi"),
+  it: () => import("./it"),
+  ja: () => import("./ja"),
 };
 
 /** The articles in a language, English for any other. */

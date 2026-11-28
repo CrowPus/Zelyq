@@ -173,7 +173,7 @@ Une modification s’applique à toute l’équipe dès qu’elle est enregistr�
 
 - **Profil.** Votre nom et l’e-mail avec lequel vous vous connectez. **Supprimer le compte** le supprime définitivement.
 - **Sécurité.** Changez votre mot de passe (tous les autres appareils sont déconnectés). Activez la **connexion en deux étapes** avec une app d’authentification, et gardez les codes de récupération en lieu sûr. **Appareils connectés** liste chaque navigateur qui utilise votre compte ; déconnectez celui que vous voulez.
-- **Préférences.** Votre langue (anglais, français, allemand, espagnol, portugais ou chinois), votre fuseau horaire et la façon d’écrire les dates et les nombres. Chaque appareil sur lequel vous vous connectez les suit.
+- **Préférences.** Votre langue (anglais, français, allemand, espagnol, portugais, chinois, hindi, italien ou japonais), votre fuseau horaire et la façon d’écrire les dates et les nombres. Chaque appareil sur lequel vous vous connectez les suit.
 
 Le thème (clair, sombre ou comme le système) se trouve dans le menu sous votre photo.`,
   },

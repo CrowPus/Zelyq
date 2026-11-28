@@ -173,7 +173,7 @@ Un cambio se aplica a todo el equipo en cuanto se guarda.`,
 
 - **Perfil.** Tu nombre y el correo con el que inicias sesión. **Eliminar cuenta** la borra para siempre.
 - **Seguridad.** Cambia tu contraseña (se cierra la sesión en todos los demás dispositivos). Activa el **inicio de sesión en dos pasos** con una app de autenticación y guarda los códigos de recuperación en un lugar seguro. **Dispositivos con sesión iniciada** lista todos los navegadores que usan tu cuenta; cierra la sesión en cualquiera de ellos.
-- **Preferencias.** Tu idioma (inglés, francés, alemán, español, portugués o chino), tu zona horaria y cómo se escriben las fechas y los números. Todos los dispositivos en los que inicias sesión los siguen.
+- **Preferencias.** Tu idioma (inglés, francés, alemán, español, portugués, chino, hindi, italiano o japonés), tu zona horaria y cómo se escriben las fechas y los números. Todos los dispositivos en los que inicias sesión los siguen.
 
 El tema (claro, oscuro o igual que el sistema) está en el menú bajo tu foto.`,
   },

@@ -303,12 +303,13 @@ function EnvironmentCard({
         )}
       </header>
       <div className="px-3 py-2 text-xs text-fg-secondary">
-        on{" "}
-        {environment.runner ? (
-          <span className="font-medium text-fg">{environment.runner.name}</span>
-        ) : (
-          t("no machine")
-        )}
+        {t("on {machine}", {
+          machine: environment.runner ? (
+            <span className="font-medium text-fg">{environment.runner.name}</span>
+          ) : (
+            t("no machine")
+          ),
+        })}
         {environment.address && <> ({environment.address})</>}
         {environment.domain && (
           <>

@@ -4,7 +4,7 @@
  * file is used by Zelyq, Zelyq Accounts and the website.
  *
  * A flag stands for the language as Zelyq writes it: English is the UK's,
- * Portuguese is Brazil's (pt-BR), Chinese is China's (Simplified).
+ * Portuguese is Brazil's (pt-BR), Chinese is China's (Simplified), Hindi is India's.
  */
 
 /** Which flag a language or locale tag shows; null for one without a fitting flag (Arabic, Swahili). */
@@ -27,6 +27,7 @@ export function flagFor(tag: string): string | null {
     it: "it",
     nl: "nl",
     ja: "jp",
+    hi: "in",
   };
   return byLanguage[lower.split("-")[0] ?? ""] ?? null;
 }
@@ -92,6 +93,20 @@ function drawing(country: string, id: string): string | null {
           .map(([x, y, turn]) => `<polygon points="${star(x!, y!, 0.75, turn)}" fill="#ffff00"/>`)
           .join("")
       );
+    case "in": {
+      // Saffron, white and green, with the navy wheel of 24 spokes in the middle.
+      let spokes = "";
+      for (let i = 0; i < 24; i++) {
+        const a = (i * 15 * Math.PI) / 180;
+        spokes += `M10 7.5L${(10 + 1.9 * Math.cos(a)).toFixed(2)} ${(7.5 + 1.9 * Math.sin(a)).toFixed(2)}`;
+      }
+      return (
+        stripes(["#ff9933", "#ffffff", "#138808"], false) +
+        '<circle cx="10" cy="7.5" r="2.05" fill="none" stroke="#000080" stroke-width=".35"/>' +
+        `<path d="${spokes}" stroke="#000080" stroke-width=".18"/>` +
+        '<circle cx="10" cy="7.5" r=".45" fill="#000080"/>'
+      );
+    }
     case "jp":
       return '<rect width="20" height="15" fill="#ffffff"/><circle cx="10" cy="7.5" r="4.5" fill="#bc002d"/>';
     case "us": {

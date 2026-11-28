@@ -173,7 +173,7 @@ Eine Änderung gilt für das ganze Team, sobald sie gespeichert ist.`,
 
 - **Profil.** Ihr Name und die E-Mail, mit der Sie sich anmelden. **Konto löschen** entfernt es endgültig.
 - **Sicherheit.** Ändern Sie Ihr Passwort (alle anderen Geräte werden abgemeldet). Schalten Sie die **Zwei-Faktor-Anmeldung** mit einer Authenticator-App ein, und bewahren Sie die Wiederherstellungscodes sicher auf. **Angemeldete Geräte** listet jeden Browser, der Ihr Konto nutzt; melden Sie jeden davon ab.
-- **Einstellungen.** Ihre Sprache (Englisch, Französisch, Deutsch, Spanisch, Portugiesisch oder Chinesisch), Ihre Zeitzone und wie Daten und Zahlen geschrieben werden. Jedes Gerät, auf dem Sie sich anmelden, übernimmt sie.
+- **Einstellungen.** Ihre Sprache (Englisch, Französisch, Deutsch, Spanisch, Portugiesisch, Chinesisch, Hindi, Italienisch oder Japanisch), Ihre Zeitzone und wie Daten und Zahlen geschrieben werden. Jedes Gerät, auf dem Sie sich anmelden, übernimmt sie.
 
 Das Design (hell, dunkel oder wie das System) finden Sie im Menü unter Ihrem Bild.`,
   },
