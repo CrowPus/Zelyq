@@ -85,7 +85,7 @@ Uma execução registra quem ou o que a iniciou (uma pessoa, um agendamento, um 
 - **Implantar.** A etapa de implantação de um pipeline, ou o botão **Implantar** de um app, inicia o app no Docker na máquina, verifica se ele responde e mantém a versão anterior se não responder.
 - **Logs e controles.** No cartão de um app, **Logs · gerenciar** mostra a saída ao vivo com CPU e memória, além de **Reiniciar** e **Parar**.
 - **Reverter.** **Histórico** lista cada implantação; **Voltar para este** traz uma anterior de volta em segundos.
-- **Protegido.** Toda implantação em um ambiente protegido aguarda a aprovação de um administrador. **Congelar** para todas as implantações durante um release.
+- **Protegido.** Toda implantação em um ambiente protegido aguarda a aprovação de um administrador. **Congelar** interrompe todas as implantações durante um release.
 - **Endereços.** Dê um domínio a um app e o Zelyq consegue para ele um certificado HTTPS gratuito.
 
 As **Variáveis** de um ambiente são passadas para todos os apps nele, e podem vir do Vault.`,

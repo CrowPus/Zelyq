@@ -52,6 +52,8 @@ export function currentLanguage(): Language {
 /** The interface language a locale tag asks for ("de-AT" → "de"), or null if there is none. */
 export function languageOf(tag: string | null | undefined): Exclude<Language, "pseudo"> | null {
   if (!tag) return null;
+  // Readers of Traditional Chinese usually prefer English to Simplified.
+  if (/^zh[-_](tw|hk|mo|hant)/i.test(tag)) return null;
   const primary = tag.toLowerCase().split(/[-_]/)[0];
   return LANGUAGES.find((language) => language.id === primary)?.id ?? null;
 }

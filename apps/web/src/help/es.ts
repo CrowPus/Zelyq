@@ -48,7 +48,7 @@ Cuando funcione, pulsa **Desplegar** para ponerla en línea, o configura un pipe
 **Configuración** es donde se cambia la propia app:
 
 - **Nombre de la app.** Se muestra en la lista de apps, la ruta de navegación y la pestaña del navegador.
-- **Qué puede hacer el agente.** Generar imágenes y generar vídeo gastan dinero con las claves de IA del equipo, por eso ambas opciones empiezan desactivadas. Actívalas aquí.
+- **Qué puede hacer el agente.** Generar imágenes y generar video gastan dinero con las claves de IA del equipo, por eso ambas opciones empiezan desactivadas. Actívalas aquí.
 - **Zona de peligro.** Eliminar una app quita sus archivos, su vista previa y su historial.
 
 Lo que cada persona puede cambiar depende de su rol en el equipo.`,
@@ -144,13 +144,13 @@ La clave se muestra una vez. Copia de la página la configuración para tu herra
   },
   studio: {
     title: "Studio",
-    body: `**Studio** crea imágenes y vídeos para tus apps.
+    body: `**Studio** crea imágenes y videos para tus apps.
 
 - **Imagen.** Describe la imagen, elige un modelo y un tamaño, y añade imágenes de referencia si el modelo las admite. Cada resultado se guarda en el historial de imágenes.
-- **Vídeo.** Describe una escena, o anima una imagen a partir de su fotograma inicial. Un clip tarda unos minutos y cuesta mucho más que una imagen.
+- **Video.** Describe una escena, o anima una imagen a partir de su fotograma inicial. Un clip tarda unos minutos y cuesta mucho más que una imagen.
 - **Úsalo.** Descarga un resultado, o elígelo desde Studio mientras construyes una app.
 
-Studio usa las claves de imagen y vídeo propias del equipo, definidas en **Configuración del equipo**. Si no se ofrece ningún modelo, un administrador debe añadir antes una clave.`,
+Studio usa las claves de imagen y video propias del equipo, definidas en **Configuración del equipo**. Si no se ofrece ningún modelo, un administrador debe añadir antes una clave.`,
   },
   "team-settings": {
     title: "Configuración del equipo",
@@ -181,7 +181,7 @@ El tema (claro, oscuro o igual que el sistema) está en el menú bajo tu foto.`,
     title: "Administración del servidor",
     body: `La administración del servidor es para quienes gestionan este servidor de Zelyq. Cambia cosas para todos los equipos.
 
-- **Modelos e IA.** Con qué proveedor habla el agente, la generación de imágenes y vídeo, la entrada de voz y el modelo con el que piensa Ops.
+- **Modelos e IA.** Con qué proveedor habla el agente, la generación de imágenes y video, la entrada de voz y el modelo con el que piensa Ops.
 - **Ejecución y vista previa.** Dónde se ejecutan los comandos de las apps, cómo se accede a las vistas previas y los valores predeterminados de los pipelines.
 - **Identidad y acceso.** Quién puede iniciar sesión y durante cuánto tiempo, las cuentas de este servidor y las claves de la API de administración.
 - **Comunicación.** El servidor de correo por el que envía Zelyq, y las integraciones.

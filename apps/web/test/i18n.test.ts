@@ -124,7 +124,9 @@ test("a locale tag maps to an interface language, or to none", () => {
   assert.equal(languageOf("fr_CA"), "fr");
   assert.equal(languageOf("es-MX"), "es");
   assert.equal(languageOf("pt-PT"), "pt");
-  assert.equal(languageOf("zh-TW"), "zh");
+  assert.equal(languageOf("zh-CN"), "zh");
+  assert.equal(languageOf("zh-TW"), null);
+  assert.equal(languageOf("zh-Hant-HK"), null);
   assert.equal(languageOf("ja-JP"), null);
   assert.equal(languageOf(null), null);
 });

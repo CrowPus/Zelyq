@@ -22,7 +22,7 @@ const LANGUAGES: Array<{ tag: string; name: string }> = [
   { tag: "ar", name: "العربية" },
   { tag: "sw", name: "Kiswahili" },
   { tag: "ja-JP", name: "日本語" },
-  { tag: "zh-CN", name: "中文（简体）" },
+  { tag: "zh-CN", name: "简体中文" },
 ];
 
 function timeZones(): string[] {
